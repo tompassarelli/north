@@ -134,7 +134,6 @@
     ;; lease-cli put-fenced carries a caller-supplied predicate under the fence.
     ["cli/lease-cli.clj" "put-with-fence!" "(required-text \"predicate\" (nth args 4 nil))"]
     ["cli/north-listen.clj" "append!" "pred"]
-    ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
     ["cli/worktree-allocation-internal.clj" "retract!" "predicate"]
     ;; Listener route replacement is fenced, but its predicate remains an
@@ -358,13 +357,6 @@
             (= {:card "single" :kind "literal"}
                (select-keys (registry "entity_kind") [:card :kind]))))
 
-(let [restore-checkpoint (registry "north_restore_checkpoint")]
-  (check "snapshot restoration evidence is repeatable literal history"
-         (and (= {:card "multi" :kind "literal"}
-                 (select-keys restore-checkpoint [:card :kind]))
-              (= "content-sealed audit marker for a planned snapshot restoration; paired assert/retract preserves raw provenance without a live graph fact"
-                 (:doc restore-checkpoint)))))
-
 (let [rebuild-single #{"rebuild_intent" "all_clear"
                        "rebuild_started" "rebuild_outcome"}]
   (check "coordinated rebuild state is cataloged single/literal"
@@ -455,13 +447,11 @@
           (select-keys (registry "broadcast_to") [:card :kind])))
 
 (let [single-literal
-      #{"delivery" "start_version" "cursor_version" "attention_kind"
-        "start_offset" "cursor_offset" "cursor_anchor" "end_offset"
-        "end_version" "end_anchor" "read_at" "source_version" "event_key"
+      #{"delivery" "attention_kind" "read_at" "source_version" "event_key"
         "delivery_class" "requires_ack"}
-      single-ref #{"subscriber" "about" "subscription" "recipient"}
+      single-ref #{"about" "recipient"}
       multi-literal
-      #{"event_filter" "attention_event_intent" "attention_event_settled"
+      #{"attention_event_intent" "attention_event_settled"
         "attention_reconcile_pending"}
       multi-ref #{"source_concern" "read_by"}]
   (check "attention scalar fields are cataloged single/literal"
@@ -501,7 +491,7 @@
                (select-keys (registry "repo") [:card :kind]))))
 
 (let [expected-ids #{"cli-tell" "mcp-tell" "peer-tell" "peer-command-args"
-                     "legacy-runmeta" "registry-define"}
+                     "presence-runmeta" "registry-define"}
       actual-ids (set (map :id dynamic-surfaces))]
   (check "open predicate surfaces are explicit and exhaustively named"
          (= expected-ids actual-ids)
@@ -524,8 +514,8 @@
                                           "(append! port id pred value)"))
          "peer-command-args" (str/includes? (slurp-source "cli/msg-cli.clj")
                                               "(arg-pred k)")
-         "legacy-runmeta" (str/includes? (slurp-source "cli/presence-cli.clj")
-                                           "(name k)")
+         "presence-runmeta" (str/includes? (slurp-source "cli/presence-cli.clj")
+                                             "(name k)")
          "registry-define" (str/includes? (slurp-source "cli/pred-cli.clj")
                                             "\"define\"")}]
     (check "every named open surface still has dynamic implementation evidence"

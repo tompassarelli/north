@@ -8,7 +8,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 CODE_ROOT="$(cd "$ROOT/../.." && pwd)"
-FRAM_OUT="${FRAM_OUT:-$CODE_ROOT/fram/main/out}"
+FRAM_OUT="${FRAM_OUT:-/home/tom/code/fram/wt-core-target-production-5db9b38/out}"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"

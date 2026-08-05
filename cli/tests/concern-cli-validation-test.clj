@@ -8,7 +8,9 @@
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
               .getParentFile .getParentFile .getParentFile .getPath))
-(def fram (or (System/getenv "FRAM_PATH") "/home/tom/code/fram/main"))
+(def fram
+  (or (System/getenv "FRAM_PATH")
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
