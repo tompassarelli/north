@@ -1,56 +1,110 @@
-;; concern-cli.clj — CONCERN-level coordination for parallel agents. NOT locks.
-;;
-;; An agent declares a CONCERN: a feature it is building + the footprint it touches.
-;; Concerns COEXIST — declaring never blocks anyone. Overlap is DERIVED and surfaced, so
-;; agents shape around each other and against what is LIKELY TO LAND (before it is in
-;; main). N agents, one repo, fine.
-;;
-;; FOOTPRINT = CODE-GRAPH BLAST JOINS over node IDENTITY (thread 019f1010-2705). On a
-;; FLIPPED Beagle repo (a warm fram code daemon is up), a concern's footprint is
-;; `footprint` bridge facts FROM @concern:<id> TO @mod#n code NODES, asserted into the
-;; repo's warm CODE store; "who else is in my footprint" is then a recursive reaches
-;; :query (the daemon's :concern-overlap) — scope-correct (same-named fns in different
-;; modules never false-overlap), rename-stable (keyed on node identity), and it SEES a
-;; peer's committed-but-unrendered footprint fact with no render and no merge. The spine
-;; (title/intent/agent/driver/repo/code_port/code_log + monotone `reached` maturity) lives on the
-;; :7977 board; the high-frequency footprint facts shard onto the per-repo code daemon —
-;; the shared @concern:<id> string bridges the two jurisdictions, no distributed tx.
-;; A NON-flipped repo (no code daemon) DEGRADES to the path-string footprint + intersection.
-;;
-;; PORTS: argv[0] = the :7977 board (spine). $NORTH_CODE_PORT (set by bin/concern when
-;; it finds a warm code daemon) = the per-repo CODE store (footprint). No code port ->
-;; path-string fallback.
+;; concern-cli.clj — concern-level coordination for parallel agents, not locks.
+;; Concerns coexist. Their canonical path footprints are published to the
+;; coordination SpaceId, and overlap is derived from indexed predicate/object
+;; reads. A separate code store is admitted only through an explicit FRAMRPC
+;; endpoint; the current port/log-only configuration fails closed.
 ;;
 ;; usage (port = north board, 7977):
 ;;   declare <agent> <repo> "<intent>" <foot,foot,...> [--about <@thread>]
 ;;                                                     mint a concern (+ shows overlaps)
-;;       footprint entries: a code NODE (@mod#n or module/name) on a flipped repo, else a path.
-;;   overlap <concern-id> [--landing]   who else is in my footprint, any status (code-graph
-;;       blast join, or path); likely-to-land entries are MARKED — build against them.
-;;       --landing filters to likely-to-land only. (`shape <id>` = hidden alias for that.)
+;;       footprint entries are canonical paths.
+;;   overlap <concern-id> [--landing]   who else is in my path footprint;
+;;       likely-to-land entries are MARKED — build against them.
+;;       --landing filters to likely-to-land only.
 ;;   ls [<repo>]              active concerns
 ;;   candidate <concern-id> [<git-rev>] record an exact commit and reach likely-to-land
 ;;   status  <concern-id> <exploring|building|likely-to-land|landed>   append a maturity level;
-;;       likely-to-land is a compatibility alias for `candidate <id> HEAD`
+;;       likely-to-land records the selected candidate revision first.
 ;;   done    <concern-id>     reach `landed`
 (require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
          '[clojure.set :as set] '[clojure.java.shell :as shell]
          '[cheshire.core :as json])
 
-;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
-;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
+;; Shared coordination substrate. Reads and writes use the canonical FRAMRPC
+;; facade; this CLI never constructs transport operations itself.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool-reconcile.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/../out/north/worker_policy.clj"))
-(def send-op  north.coord/send-op)
-(def send-op-for-log north.coord/send-op-for-log)
-(def append!  north.coord/append!)
-(def put!     north.coord/put!)
 (def many     north.coord/many)
 (def resolved north.coord/resolved)
-(def lease-of north.coord/lease-of)  ; parsed lease; authority is checked below
+
+(defn- require-publication! [message response]
+  (when (:reject response)
+    (throw
+     (ex-info message
+              {:type :concern-write-rejected
+               :response response})))
+  (when-not (and (map? response)
+                 (integer? (:ok response))
+                 (boolean? (:changed? response))
+                 (vector? (:results response)))
+    (throw
+     (ex-info "FRAMRPC acknowledgement for concern write is ambiguous"
+              {:type :concern-write-transport-unknown
+               :response response})))
+  response)
+
+(defn- assertion [subject predicate value]
+  {:op :assert :subject subject :predicate predicate :value value})
+
+(defn- retraction [subject predicate value]
+  {:op :retract :subject subject :predicate predicate :value value})
+
+(defn- publish-action [operation subject predicate value cardinality]
+  {:op operation
+   :subject subject
+   :predicate predicate
+   :value value
+   :cardinality cardinality})
+
+(defn- transaction-ack? [response action-count]
+  (and (map? response)
+       (integer? (:ok response))
+       (boolean? (:changed? response))
+       (vector? (:results response))
+       (= action-count (count (:results response)))
+       (= (range action-count) (map :input-index (:results response)))))
+
+(defn- transact-facts! [port subject facts options]
+  (let [actions
+        (mapv
+         (fn [{:keys [p r]}]
+           (when-not (and (string? p) (not (str/blank? p))
+                          (string? r))
+             (throw
+              (ex-info "concern transaction requires string predicate/value facts"
+                       {:type :invalid-concern-transaction-fact
+                        :subject subject})))
+           (assertion subject p r))
+         facts)
+        response (north.coord/transact! port actions options)]
+    (if (:reject response)
+      response
+      (if (transaction-ack? response (count actions))
+        response
+        (throw
+         (ex-info "FRAMRPC acknowledgement for concern transaction is ambiguous"
+                  {:type :concern-write-transport-unknown
+                   :response response}))))))
+
+(defn- transact-after-read!
+  [port subject plan!]
+  (north.coord/retry-conflicts-until!
+   (north.coord/retry-deadline-ns)
+   (fn []
+     (let [base (:version (north.coord/show-envelope port subject))
+           planned (plan!)]
+       (if (contains? planned :done)
+         planned
+         (let [facts (:facts planned)]
+           (when-not (and (vector? facts) (seq facts))
+             (throw
+              (ex-info "concern transition requires a non-empty planned transaction"
+                       {:type :invalid-concern-transition-plan
+                        :subject subject})))
+           (transact-facts! port subject facts {:expected-version base})))))))
 
 ;; ---- liveness-derived concern DECAY (design 019f4418) -----------------------
 ;; A concern's owner is judged live by the SAME renewable-lease rule the presence
@@ -83,15 +137,13 @@
   (some-> (re-find #"concern-(\d{10,})" (str c)) second parse-long))
 
 (defn owner-lease-liveness
-  "Project one owner's lease using the shared Fram authority shape. A lease for
-   another holder, an invalid epoch, or malformed data is absence—not a lapse
-   timestamp—and therefore falls back to concern age."
-  [concern handle lease now]
-  (if (and (north.coord/authoritative-lease? lease)
-           (= handle (:holder lease)))
-    (if (> (:exp lease) now)
+  "Project one owner's canonical lease status. A lease for another holder or a
+   missing expiry is absence, so lapse age falls back to concern age."
+  [concern handle status now]
+  (if (and (= handle (:holder status)) (integer? (:exp status)))
+    (if (true? (:online? status))
       {:online true :lapsed-ago-ms nil}
-      {:online false :lapsed-ago-ms (- now (:exp lease))})
+      {:online false :lapsed-ago-ms (max 0 (- now (:exp status)))})
     {:online false
      :lapsed-ago-ms
      (when-let [minted (concern-mint-ms concern)]
@@ -107,7 +159,7 @@
     (if (str/blank? a)
       {:online true :lapsed-ago-ms nil}
       (let [h (if (str/starts-with? a "@") (subs a 1) a)
-            l (lease-of port (str "session:" h))
+            l (north.coord/lease-status port (str "session:" h))
             now (System/currentTimeMillis)]
         (owner-lease-liveness (:id m) h l now)))))
 
@@ -159,76 +211,17 @@
         (println (str "concern: code-store safety check failed: " message)))
       (System/exit 3))))
 
-(defn exact-keys? [value expected]
-  (and (map? value) (= expected (set (keys value)))))
-
-(defn strings? [value]
-  (and (vector? value) (every? string? value)))
-
-(defn valid-code-response? [operation response]
-  (case (:op operation)
-    :version
-    (and (exact-keys? response #{:version})
-         (integer? (:version response)))
-
-    :assert
-    (and (exact-keys? response #{:ok})
-         (integer? (:ok response)))
-
-    :blast
-    (or
-     (and (exact-keys? response #{:node :blast :count :version})
-          (string? (:node response))
-          (strings? (:blast response))
-          (integer? (:count response))
-          (= (:count response) (count (:blast response)))
-          (integer? (:version response)))
-     ;; `:blast` documents one resolvability miss. Preserve only that exact
-     ;; envelope; an arbitrary `{:error ...}` is a protocol failure.
-     (and (exact-keys? response #{:error :te :module :name :version})
-          (= "no such binding" (:error response))
-          (= (:te operation) (:te response))
-          (= (:module operation) (:module response))
-          (= (:name operation) (:name response))
-          (integer? (:version response))))
-
-    :concern-overlap
-    (and (exact-keys? response #{:concern :footprint :overlaps :version})
-         (= (:te operation) (:concern response))
-         (strings? (:footprint response))
-         (vector? (:overlaps response))
-         (every?
-          (fn [overlap]
-            (and (exact-keys? overlap #{:concern :shared :footprint})
-                 (string? (:concern overlap))
-                 (strings? (:shared overlap))
-                 (strings? (:footprint overlap))))
-          (:overlaps response))
-         (integer? (:version response)))
-
-    false))
-
-(defn code-op [port log operation]
+(defn code-store-unavailable! [log]
   (when-not (and (string? log) (.isAbsolute (io/file log)))
     (code-store-error! "code log identity must be an absolute path"))
-  (let [response
-        (try
-          (send-op-for-log port log operation)
-          ;; coord.clj already converts parser StackOverflowError into a bounded
-          ;; protocol exception. Catch ordinary failures here without swallowing
-          ;; VM-fatal Errors.
-          (catch Exception error
-            (code-store-error!
-             (str "coordinator request failed: " (.getMessage error)))))]
-    (when (:reject response)
-      (code-store-error! (pr-str response)))
-    (when-not (valid-code-response? operation response)
-      (code-store-error!
-       (str "invalid " (name (:op operation)) " response " (pr-str response))))
-    response))
+  (throw
+   (ex-info
+    "code-store concern routing requires an explicit canonical FRAMRPC SpaceId"
+    {:type :code-store-framrpc-routing-unavailable
+     :target-log log})))
 
-(defn validate-code-store! [port log]
-  (code-op port log {:op :version}))
+(defn validate-code-store! [_port log]
+  (code-store-unavailable! log))
 
 ;; concern-id args arrive from humans/agents in either form; every fact subject in
 ;; the log carries the @ sigil, so a bare id here writes to a PHANTOM bare node —
@@ -251,7 +244,7 @@
    Fram's predicate/object index; an automatic path may not warm the
    whole-corpus query cache."
   [port predicate object]
-  (->> (north.coord/indexed-query-in-domain
+  (->> (north.coord/bounded-query-in-domain
         port
         :coordination
         {:find "indexed_subject"
@@ -261,14 +254,14 @@
            [{:rel "triple"
              :args [{:var "entity"} predicate object]}]}]}
         automatic-index-row-limit)
-       :ok
+       :rows
        (mapv first)))
 
 (defn indexed-predicate-rows
   "Bounded [subject value] lookup for one predicate."
   [port predicate]
-  (:ok
-   (north.coord/indexed-query-in-domain
+  (:rows
+   (north.coord/bounded-query-in-domain
     port
     :coordination
     {:find "indexed_predicate_rows"
@@ -320,35 +313,6 @@
               (and kind (not= "thread" kind)))
       (usage-error! (str (or thread raw) " is not a title-bearing thread")))
     thread))
-(defn thread-binding-cid! [port thread]
-  (let [response
-        (send-op
-         port
-         {:op :claim-read
-          :te thread
-          :p "kind"})]
-    (cond
-      (and (map? response)
-           (true? (:ok response))
-           (= "thread" (:claim response))
-           (integer? (:claim-cid response))
-           (pos? (:claim-cid response))
-           (integer? (:version response)))
-      (:claim-cid response)
-
-      (and (map? response)
-           (or (contains? response :reject)
-               (contains? response :error)))
-      (throw
-       (ex-info "coordinator could not bind --about to one stable thread fact"
-                {:type :concern-declare-semantic-rejection
-                 :response response}))
-
-      :else
-      (throw
-       (ex-info "coordinator acknowledgement for --about binding is ambiguous"
-                {:type :concern-declare-transport-unknown
-                 :response response})))))
 (defn parse-declare-args!
   "Preserve the four-position declaration contract and admit one trailing
    --about ref. Parsing and canonical intent construction happen before the
@@ -414,22 +378,6 @@
 ;; Terminal stale-concern verdict: owner dead >24h while still building. Off the maturity
 ;; ladder (orthogonal to progress), so it flags the concern without shadowing status.
 (defn abandoned? [port c] (contains? (set (many port c "reached")) "abandoned-stale"))
-
-;; ---- the @concern:<id> bridge subject (shared across both jurisdictions) ----
-(defn concern-subj [id] (str "@concern:" id))                       ; spine-id -> code-store subject
-(defn subj->id [subj] (if (str/starts-with? subj "@concern:") (subs subj 9) subj))
-
-;; resolve a footprint ARG to a code NODE id on the code port. "@mod#n" passes through;
-;; "module/name" resolves via the daemon's binding tables (the SAME resolution rename/
-;; who-calls use, so concern and code agree on which node a name denotes). Returns the
-;; node's @mod#int identity, or nil (unresolvable — caller keeps it as a path-string).
-(defn resolve-node [cport clog arg]
-  (let [req (cond (str/starts-with? arg "@") {:op :blast :te arg}
-                  (str/includes? arg "/")    (let [[m n] (str/split arg #"/" 2)]
-                                               {:op :blast :module m :name n})
-                  :else                       nil)
-        resp (when req (code-op cport clog req))]
-    (when (and resp (not (:error resp))) (:node resp))))
 
 ;; ---- spine reads (:7977 board) ----------------------------------------------
 (defn all-concerns [port]
@@ -736,12 +684,12 @@
 ;; declared-single supersession exact and preserves all live multi values.
 (def concern-list-predicates
   ["kind" "agent" "repo" "intent" "candidate_rev" "candidate_git_dir" "reached" "code_port" "code_log"
-   "touches" "lease"])
+   "touches"])
 
 ;; meta-of's exact field set: `about` reaches attention events, and owner leases
 ;; are not concern facts — liveness is recomputed per render, never indexed.
 (def concern-meta-predicates
-  (conj (vec (remove #{"lease"} concern-list-predicates)) "about"))
+  (conj concern-list-predicates "about"))
 
 ;; Cardinality-single on the board: the bulk projection equals meta-of's
 ;; resolved read only while each of these has at most one live value.
@@ -754,7 +702,25 @@
           facts rows))
 
 (defn concern-list-facts
-  ([port] (concern-list-facts port concern-list-predicates))
+  ([port]
+   (let [facts (concern-list-facts port concern-list-predicates)
+         handles
+         (->> facts
+              (keep
+               (fn [[_ predicates]]
+                 (when (= #{"concern"} (get predicates "kind"))
+                   (let [agents (get predicates "agent" #{})]
+                     (when (= 1 (count agents))
+                       (let [agent (first agents)]
+                         (if (str/starts-with? agent "@")
+                           (subs agent 1)
+                           agent)))))))
+              distinct
+              vec)
+         statuses (if (seq handles)
+                    (:sessions (north.coord/sessions-status port handles))
+                    {})]
+     (assoc facts ::owner-statuses statuses)))
   ([port predicates]
    (reduce
     (fn [facts predicate]
@@ -780,9 +746,8 @@
   (if (str/blank? agent)
     {:online true :lapsed-ago-ms nil}
     (let [handle (if (str/starts-with? agent "@") (subs agent 1) agent)
-          lease (north.coord/decode-lease
-                 (singleton-live facts (str "@lease:session:" handle) "lease"))]
-      (owner-lease-liveness concern handle lease now))))
+          status (get-in facts [::owner-statuses handle])]
+      (owner-lease-liveness concern handle status now))))
 
 (defn meta-from-live [facts concern now]
   (let [agent (singleton-live facts concern "agent")
@@ -896,7 +861,7 @@
            (str/join " " (sort (:touches m))) (or (:intent m) "") (:id m))
    (when (= "likely-to-land" (:status m))
      (str "\n       candidate "
-          (or (:candidate-rev m) "<missing — legacy signal is not actionable>")))))
+          (or (:candidate-rev m) "<missing — candidate is not actionable>")))))
 
 ;; Render one concern with liveness DECAY applied. m must carry :online/:lapsed-ago-ms
 ;; (via with-liveness) + :abandoned. Live -> plain; lapsed building -> STALE (dim);
@@ -919,23 +884,6 @@
 ;; ---- overlap discovery + render ---------------------------------------------
 ;; Discovery returns canonical data; rendering and the attention publisher share
 ;; it instead of independently reimplementing overlap semantics.
-(defn code-overlap-data [spine cport clog c]
-  (let [resp (code-op cport clog
-                      {:op :concern-overlap :te (concern-subj c)})
-        mine (concern-meta spine c)
-        hits (->> (:overlaps resp)
-                  (keep (fn [o]
-                          (let [sid (subj->id (:concern o))
-                                m (concern-meta spine sid)]
-                            (when (and (active-concern? mine)
-                                       (active-concern? m))
-                              (canonical-overlap mine m (:shared o) "code-graph")))))
-                  (sort-by :pair-key)
-                  vec)]
-    {:mine mine
-     :footprint-count (count (:footprint resp))
-     :overlaps hits}))
-
 ;; Candidate peers come only from the bounded touches predicate/object index;
 ;; automatic overlap checks never enumerate the concern corpus.
 (defn path-overlap-data [port c]
@@ -961,58 +909,38 @@
              vec)]
     {:mine mine :overlaps hits}))
 
-(defn render-overlap-data [spine {:keys [mine footprint-count overlaps]} statuses none-msg]
+(defn render-overlap-data [spine {:keys [mine overlaps]} statuses none-msg]
   (let [hits (filter #(or (nil? statuses)
                           (statuses (-> (other-concern % (:id mine)) :status)))
                      overlaps)]
     (if (empty? hits)
       (println
        (str "  (none) — " none-msg
-            (if (some? footprint-count)
-              (str " [code-graph blast join over " footprint-count " footprint node(s)]")
-              (str " {" (str/join " " (sort (:touches mine))) "}"))))
+            " {" (str/join " " (sort (:touches mine))) "}"))
       (doseq [overlap hits]
         (let [m (with-liveness spine (other-concern overlap (:id mine)))]
           (println (decorate m))
           (when (and (:online m) (= (:status m) "likely-to-land"))
             (if-let [revision (:candidate-rev m)]
               (println (str "       [candidate " revision "] — build against this exact commit"))
-              (println "       [legacy likely-to-land] — no candidate commit; do not integrate blind")))
+              (println "       [candidate missing] — do not integrate blind")))
           (println
-           (str "       SHARES"
-                (when (= "code-graph" (:evidence overlap)) " (blast-closure)")
-                ": " (str/join " " (:shared overlap)))))))))
+           (str "       SHARES: " (str/join " " (:shared overlap)))))))))
 
-;; New concerns store both halves of the code-store identity. For a pre-fence
-;; concern that only stored code_port, derive the historical repo-local code log;
-;; never silently substitute the spine corpus or a cwd-relative log.
-(defn expand-home [path]
-  (cond
-    (= path "~") (System/getProperty "user.home")
-    (str/starts-with? (or path "") "~/")
-    (str (System/getProperty "user.home") (subs path 1))
-    :else path))
-
-(defn legacy-code-log [repo]
-  (when repo
-    (north.coord/canonical-log-path
-     (.getPath (io/file (expand-home repo) ".fram" "code.log")))))
-
-;; The effective code-store pair for THIS concern comes from its stored identity,
-;; then the legacy deterministic repo path, then the ambient explicit pair.
+;; A configured code-store footprint requires an explicit canonical endpoint.
+;; Until that endpoint includes a SpaceId, path overlap is the only live mode.
 (defn overlaps-for [spine c]
   (let [mine (concern-meta spine c)
         stored-port (some-> (:code-port mine) ->port)
         cport (or stored-port code-port)
         clog (when cport
-               (or (:code-log mine)
-                   (when stored-port (legacy-code-log (:repo mine)))
-                   code-log))]
+               (or (:code-log mine) code-log))]
     (when (and cport (str/blank? clog))
       (code-store-error!
-       (str c " has a code_port but no reproducible code_log identity")))
-    (if cport (code-overlap-data spine cport clog c)
-              (path-overlap-data spine c))))
+       (str c " has a code_port but no explicit code_log identity")))
+    (if cport
+      (code-store-unavailable! clog)
+      (path-overlap-data spine c))))
 
 (defn validate-attention-index-rows! [rows]
   (when-not
@@ -1057,32 +985,27 @@
        false))))
 
 (defn settle-attention-event-intent! [port concern encoded]
-  (let [result
-        (append! port concern attention-event-settled-predicate encoded)
-        retract-result
-        (north.coord/retract!
-         port concern attention-event-intent-predicate encoded)]
-    (when (or (:reject result)
-              (:error result)
-              (:reject retract-result)
-              (:error retract-result))
-      (throw
-       (ex-info "concern attention event settlement was rejected"
-                {:type :concern-attention-settlement-rejected
-                 :concern concern})))
-    (when-not (and
-               (contains?
-                (set (many port concern attention-event-settled-predicate))
-                encoded)
-               (not
-                (contains?
-                 (set (many port concern attention-event-intent-predicate))
-                 encoded)))
-      (throw
-       (ex-info "concern attention event settlement read-back mismatch"
-                {:type :concern-attention-settlement-readback-mismatch
-                 :concern concern})))
-    true))
+  (require-publication!
+   "concern attention event settlement was rejected"
+   (north.coord/publish!
+    port
+    [(publish-action :assert concern attention-event-settled-predicate
+                     encoded :many)
+     (publish-action :retract concern attention-event-intent-predicate
+                     encoded :many)]))
+  (when-not (and
+             (contains?
+              (set (many port concern attention-event-settled-predicate))
+              encoded)
+             (not
+              (contains?
+               (set (many port concern attention-event-intent-predicate))
+               encoded)))
+    (throw
+     (ex-info "concern attention event settlement read-back mismatch"
+              {:type :concern-attention-settlement-readback-mismatch
+               :concern concern})))
+  true)
 
 (defn publish-pending-attention-event-intents!
   "Publish each eligible outbox record idempotently, then settle its exact
@@ -1122,22 +1045,20 @@
 
 (defn settle-attention-reconciliations! [port rows]
   (doseq [[concern token] rows]
-    (let [result
-          (north.coord/retract!
-           port concern attention-reconcile-pending-predicate token)]
-      (when (or (:reject result) (:error result))
-        (throw
-         (ex-info "concern attention reconciliation settlement was rejected"
-                  {:type :concern-attention-reconciliation-settlement-rejected
-                   :concern concern})))
-      (when
-       (contains?
-        (set (many port concern attention-reconcile-pending-predicate))
-        token)
-        (throw
-         (ex-info "concern attention reconciliation settlement read-back mismatch"
-                  {:type :concern-attention-reconciliation-settlement-readback-mismatch
-                   :concern concern})))))
+    (require-publication!
+     "concern attention reconciliation settlement was rejected"
+     (north.coord/publish!
+      port
+      [(publish-action :retract concern attention-reconcile-pending-predicate
+                       token :many)]))
+    (when
+     (contains?
+      (set (many port concern attention-reconcile-pending-predicate))
+      token)
+      (throw
+       (ex-info "concern attention reconciliation settlement read-back mismatch"
+                {:type :concern-attention-reconciliation-settlement-readback-mismatch
+                 :concern concern}))))
   true)
 
 (defn reconciliation-overlaps
@@ -1339,7 +1260,7 @@
                :trigger-status trigger-status})))
   (let [concern (existing-concern! port concern)
         result
-        (north.coord/assert-batch-after-read!
+        (transact-after-read!
          port concern
          (fn []
            ;; Every read of this phase is guarded by the global base captured
@@ -1400,9 +1321,7 @@
 (defn surface [spine c statuses none-msg]
   (render-overlap-data spine (overlaps-for spine c) statuses none-msg))
 
-;; one concept, one word (vocabulary pass, thread 019f2032): `overlap` is THE footprint
-;; view — any status, likely-to-land marked per line. --landing filters to those only
-;; (the old `shape`, kept as a hidden alias).
+;; `overlap` is the footprint view. --landing filters to likely-to-land work.
 (defn overlap! [port c landing?]
   (if landing?
     (do (println "LIKELY-TO-LAND work in your footprint — build against these:")
@@ -1428,14 +1347,12 @@
        (re-matches #"@[A-Za-z0-9][A-Za-z0-9._:-]*" value)))
 
 (def transport-unknown-types
-  #{:coordinator-operation-timeout
-    :coordinator-response-timeout
-    :coordinator-response-closed
-    :coordinator-response-truncated
-    :multiple-coordinator-response-frames
-    :malformed-coordinator-response
-    :malformed-coordinator-utf8
-    :concern-declare-transport-unknown})
+  #{:coordination-operation-timeout
+    :rpc/ambiguous-write
+    :rpc/retry-exhausted
+    :concern-declare-transport-unknown
+    :concern-write-transport-unknown
+    :code-store-framrpc-routing-unavailable})
 
 (defn transport-unknown? [error]
   (loop [cause error]
@@ -1517,75 +1434,56 @@
         :object trigger-status
         :cardinality "multi"}]})))
 
-(defn bind-about-operation [operation binding-cid]
-  (north.concern-spool/build-operation
-   {:operation-id (:operation-id operation)
-    :concern-id (:concern-id operation)
-    :target-log (:target-log operation)
-    :created-at (:created-at operation)
-    :about (get-in operation [:precondition :about :subject])
-    :about-binding-cid binding-cid
-    :facts
-    (mapv
-     #(select-keys % [:predicate :object :cardinality])
-     (:facts operation))}))
-
 (defn checked-declare-batch! [port operation]
-  (let [response
-        (send-op
+  (let [facts
+        (mapv
+         (fn [{:keys [predicate object]}]
+           {:p predicate :r object})
+         (:facts operation))
+        response
+        (transact-after-read!
          port
-         {:op :assert-batch
-          :te (:concern-id operation)
-          :facts
-          (mapv
-           (fn [{:keys [predicate object]}]
-             {:p predicate :r object})
-           (:facts operation))})]
+         (:concern-id operation)
+         (fn []
+           (when-let [about (get-in operation [:precondition :about :subject])]
+             (existing-thread! port about))
+           {:facts facts}))]
     (cond
-      (or (contains? response :reject)
-          (contains? response :error))
+      (:reject response)
       (throw
-       (ex-info "coordinator explicitly rejected concern declaration"
+       (ex-info "FRAMRPC explicitly rejected concern declaration"
                 {:type :concern-declare-semantic-rejection
                  :response response}))
 
-      (and (= #{:ok :written :idempotent :batch} (set (keys response)))
-           (integer? (:ok response))
-           (vector? (:written response))
-           (= (count (:facts operation)) (count (:written response)))
-           (every? string? (:written response))
-           (vector? (:idempotent response))
-           (every? string? (:idempotent response))
-           (true? (:batch response)))
+      (transaction-ack? response (count facts))
       response
 
       :else
       (throw
-       (ex-info "coordinator acknowledgement for concern declaration is ambiguous"
+       (ex-info "FRAMRPC acknowledgement for concern declaration is ambiguous"
                 {:type :concern-declare-transport-unknown})))))
 
 (defn ensure-agent-label! [port agent agent-ref]
   (when (and (nil? (resolved port agent-ref "identity_manifest_sha256"))
              (nil? (resolved port agent-ref "display_name")))
-    (let [response (put! port agent-ref "display_name" agent)]
-      (when (or (contains? response :reject)
-                (contains? response :error))
-        (throw
-         (ex-info "coordinator explicitly rejected concern principal label"
-                  {:type :concern-declare-semantic-rejection
-                   :response response}))))))
+    (require-publication!
+     "FRAMRPC explicitly rejected concern principal label"
+     (north.coord/publish!
+      port
+      [{:op :set :subject agent-ref :predicate "display_name"
+        :values [agent] :cardinality :one}]))))
 
 (defn durable-local-declare! [operation about-raw]
   (when (and about-raw (not (exact-ref? about-raw)))
     (configuration-error!
-     (str "coordinator transport is unavailable; --about must be an exact @ref "
+     (str "FRAMRPC transport is unavailable; --about must be an exact @ref "
           "before a durable-local operation can be published (nothing was spooled)")))
   (when (and about-raw
              (nil? (get-in operation
                            [:precondition :about :binding-cid])))
     (binding [*out* *err*]
       (println
-       (str "concern: coordinator transport is unavailable before --about "
+       (str "concern: FRAMRPC transport is unavailable before --about "
             "could be bound to a stable thread identity; nothing was spooled")))
     (System/exit 4))
   (try
@@ -1646,18 +1544,24 @@
 
 (defn ensure-candidate! [port raw revision git-dir]
   (let [concern (existing-concern! port raw)
-        git-dir-response (put! port concern "candidate_git_dir" git-dir)
-        revision-response (put! port concern "candidate_rev" revision)]
-    (when (or (contains? git-dir-response :reject)
-              (contains? git-dir-response :error)
-              (contains? revision-response :reject)
-              (contains? revision-response :error))
+        response
+        (north.coord/publish!
+         port
+         [{:op :set :subject concern :predicate "candidate_git_dir"
+           :values [git-dir] :cardinality :one}
+          {:op :set :subject concern :predicate "candidate_rev"
+           :values [revision] :cardinality :one}])]
+    (when (:reject response)
       (throw
-       (ex-info "coordinator rejected the concern candidate identity"
+       (ex-info "FRAMRPC rejected the concern candidate identity"
                 {:type :concern-candidate-rejected
                  :concern concern
                  :revision revision
-                 :git-dir git-dir})))
+                 :git-dir git-dir
+                 :response response})))
+    (require-publication!
+     "FRAMRPC rejected the concern candidate identity"
+     response)
     (when-not (and (= revision (resolved port concern "candidate_rev"))
                    (= git-dir (resolved port concern "candidate_git_dir")))
       (throw
@@ -1671,7 +1575,7 @@
 (defn advance-active-maturity! [port raw maturity-level]
   (let [concern (existing-concern! port raw)
         reconcile-token (str (java.util.UUID/randomUUID))]
-    (north.coord/assert-batch-after-read!
+    (transact-after-read!
      port concern
      (fn []
        (let [before (concern-meta port concern)]
@@ -1701,98 +1605,52 @@
                   sort
                   vec)
           agent-e (norm-cid agent)
-          operation*
-          (atom
-           (build-concern-operation
-            {:agent agent-e
-             :repo repo
-             :intent intent
-             :about about
-             :files fs}))
-          id (:concern-id @operation*)
+          operation
+          (build-concern-operation
+           {:agent agent-e
+            :repo repo
+            :intent intent
+            :about about
+            :files fs})
+          id (:concern-id operation)
           batch-acked? (atom false)
-          code-result* (atom nil)
           after-data* (atom nil)]
-      ;; Validate the exact code corpus before the first spine or code mutation.
-      (when code-port (validate-code-store! code-port code-log))
       (let [result
             (try
               (binding [north.coord/*request-deadline-ns*
                         (north.coord/request-deadline-ns
                          (declare-transport-timeout-ms))]
-                ;; Preserve live preconditions: an about ref must name a real
-                ;; thread, and unmanaged principals still receive a label.
-                (when about
-                  (let [thread (existing-thread! port about)
-                        binding-cid (thread-binding-cid! port thread)]
-                    (swap! operation*
-                           bind-about-operation
-                           binding-cid)))
+                ;; A configured code corpus must have a canonical SpaceId before
+                ;; the first coordination mutation; otherwise spool locally.
+                (when code-port (validate-code-store! code-port code-log))
+                ;; An about ref is validated inside checked-declare-batch!'s
+                ;; expected-version transaction. Unmanaged principals still
+                ;; receive a label before that declaration transaction.
                 (ensure-agent-label! port agent agent-e)
                 ;; One all-or-none spine publication carries the exact same
                 ;; live facts as before, with kind=concern terminal.
-                (checked-declare-batch! port @operation*)
+                (checked-declare-batch! port operation)
                 (reset! batch-acked? true)
-                ;; Footprint remains on the code corpus only. A durable-local
-                ;; operation never writes either canonical log directly.
-                (let [code-result
-                      (if code-port
-                        (let [resolved-pairs
-                              (mapv
-                               (fn [file]
-                                 [file
-                                  (resolve-node code-port code-log file)])
-                               fs)
-                              hits (filterv second resolved-pairs)
-                              misses (->> resolved-pairs
-                                          (remove second)
-                                          (mapv first))]
-                          (doseq [[_ node] hits]
-                            (code-op
-                             code-port code-log
-                             {:op :assert
-                              :te (concern-subj id)
-                              :p "footprint"
-                              :r node}))
-                          {:mode :code :hits hits :misses misses})
-                        {:mode :path})
-                      _code-result (reset! code-result* code-result)
-                      after-data (overlaps-for port id)
+                (let [after-data (overlaps-for port id)
                       _after-data (reset! after-data* after-data)]
                   ;; The declaration batch's pending marker makes this desired-
                   ;; state publication replayable after every crash point.
                   (reconcile-attention! port id)
                   {:durability "coordinator"
-                   :code-result code-result
                    :after-data after-data}))
               (catch Exception error
                 (if (transport-unknown? error)
                   (if @batch-acked?
                     {:durability "coordinator"
-                     :code-result (or @code-result* {:mode :path})
                      :after-data @after-data*
                      :attention-deferred (.getMessage error)}
-                    (durable-local-declare! @operation* about-raw))
+                    (durable-local-declare! operation about-raw))
                   (throw error))))]
         (when (= "coordinator" (:durability result))
-          (let [{:keys [mode hits misses]} (:code-result result)]
-            (println (str "✓ concern " id))
-            (if (= :code mode)
-              (do
-                (println
-                 (str "  " agent-e "  building  [" repo "]  footprint(code) {"
-                      (str/join " " (map second hits)) "}"))
-                (when (seq misses)
-                  (println
-                   (str "  (unresolved -> path-string footprint: "
-                        (str/join " " misses)
-                        " — use @mod#n or module/name for code-node overlap)"))))
-              (do
-                (println
-                 (str "  " agent-e "  building  [" repo "]  touches {"
-                      (str/join " " fs) "}"))
-                (println
-                 "  (no warm code daemon for this repo — footprint is path-string; `fram-code-on <repo>` enables code-node overlap)"))))
+          (println (str "✓ concern " id))
+          (println
+           (str "  " agent-e "  building  [" repo "]  touches {"
+                (str/join " " fs) "}"))
           (if-let [after-data (:after-data result)]
             (do
               (println "\nOverlapping concerns — coordinate, you are NOT blocked:")
@@ -1866,10 +1724,6 @@
     "overlap"
     (let [[c & flags] args]
       (overlap! port (norm-cid c) (boolean (some #(= % "--landing") flags))))
-
-    "shape"                                              ; hidden alias: overlap --landing
-    (let [[c] args]
-      (overlap! port (norm-cid c) true))
 
     ;; Liveness-derived DECAY (design 019f4418): a lapsed owner's concern is NOT hidden
     ;; — hiding is what made 17 dead-agent concerns invisibly linger AND let a stale one
