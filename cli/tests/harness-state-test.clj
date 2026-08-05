@@ -47,23 +47,23 @@
     (check "guard help names dispatch as the independent topology axis"
            (str/includes? config-source "`north config\n   dispatch` owns that independent axis")))
   (io/make-parents legacy)
-  (spit legacy "dispatch=native-biased\nguards=off\n")
+  (spit legacy "dispatch=auto\nguards=off\n")
   (check "legacy state is a read-only fallback while canonical is absent"
          (and (= legacy (north.harness-state/source-path home-path))
-              (= "native-biased" (north.harness-state/get-value home-path "dispatch" "managed"))
+              (= "auto" (north.harness-state/get-value home-path "dispatch" "managed"))
               (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" "on"))))
 
   (north.harness-state/put-value! home-path "guards" "off")
-  (check "first unrelated write seeds canonical state and normalizes legacy dispatch"
+  (check "first unrelated write seeds canonical state from the Claude-era file"
          (and (= canonical (north.harness-state/source-path home-path))
               (= "auto" (north.harness-state/get-value home-path "dispatch" nil))
               (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
-  (check "migration never mutates the Claude-era file"
-         (= "dispatch=native-biased\nguards=off\n" (slurp legacy)))
+  (check "seeding never mutates the Claude-era file"
+         (= "dispatch=auto\nguards=off\n" (slurp legacy)))
 
-  (north.harness-state/put-value! home-path "dispatch" "managed-forced")
+  (north.harness-state/put-value! home-path "dispatch" "managed")
   (check "dispatch writes persist the canonical value"
          (and (= "managed" (north.harness-state/get-value home-path "dispatch" nil))
               (= "managed" (north.harness-state/get-dispatch-mode home-path))))
@@ -80,7 +80,7 @@
            (and (= lock-key-before (file-key lock-file))
                 (not= state-key-before (file-key canonical)))))
 
-  (spit legacy "dispatch=native-forced\nguards=on\n")
+  (spit legacy "dispatch=native\nguards=on\n")
   (check "legacy changes are ignored once canonical state exists"
          (and (= "managed" (north.harness-state/get-value home-path "dispatch" nil))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
@@ -116,7 +116,7 @@
                             (str/includes? (.getMessage error) "invalid dispatch mode")))]
     (check "unknown persisted dispatch fails reads and unrelated writes loudly"
            (and bad-read unrelated-write)))
-  (north.harness-state/put-value! home-path "dispatch" "native-forced")
+  (north.harness-state/put-value! home-path "dispatch" "native")
   (check "a valid dispatch write recovers invalid persisted state"
          (and (= "native" (north.harness-state/get-dispatch-mode home-path))
               (= "native" (north.harness-state/get-value home-path "dispatch" nil))))

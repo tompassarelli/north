@@ -41,9 +41,9 @@ pass=0 fail=0
 set_state() {
   local action admission
   case "$1" in
-    native|native-forced) action=allow; admission=deny ;;
-    managed|north|managed-forced) action=deny; admission=allow ;;
-    auto|native-biased|managed-biased) action=allow; admission=allow ;;
+    native) action=allow; admission=deny ;;
+    managed) action=deny; admission=allow ;;
+    auto) action=allow; admission=allow ;;
     *) action=invalid; admission=invalid ;;
   esac
   printf 'dispatch=%s\nguards=%s\n' "$1" "$2" >"$SCRATCH/home/.local/state/north/harness.conf"
@@ -269,22 +269,7 @@ run allow 'dispatch=auto admits system-selected North lane creation' orchestrato
 run silent 'dispatch=auto admits system-selected provider-native Agent' unset Agent 'native work'
 run allow 'dispatch=auto admits system-selected provider-native shell turn' orchestrator Bash 'codex exec work'
 
-echo '== legacy dispatch reads map to canonical surface behavior =='
-set_state north on
-run allow 'legacy north maps to managed North-lane admission' orchestrator Bash 'north spawn implementer work'
-run deny 'legacy north maps to managed Agent redirect' unset Agent 'native work'
-set_state native-forced on
-run deny 'legacy native-forced maps to native North-lane denial' orchestrator Bash 'north spawn implementer work'
-run silent 'legacy native-forced maps to native Agent admission' unset Agent 'native work'
-set_state native-biased on
-run allow 'legacy native-biased maps to auto North-lane admission' orchestrator Bash 'north spawn implementer work'
-run silent 'legacy native-biased maps to auto Agent admission without nudge' unset Task 'native work'
-set_state managed-biased on
-run allow 'legacy managed-biased maps to auto North-lane admission' orchestrator Bash 'north spawn implementer work'
-run silent 'legacy managed-biased maps to auto Agent admission without nudge' unset Task 'native work'
-set_state managed-forced on
-run allow 'legacy managed-forced maps to managed North-lane admission' orchestrator Bash 'north spawn implementer work'
-run deny 'legacy managed-forced maps to managed Agent redirect' unset Agent 'native work'
+run silent 'dispatch=auto admits system-selected Task without nudge' unset Task 'native work'
 
 echo '== native Orchestration redirect preserves the complete routing contract =='
 set_state managed on

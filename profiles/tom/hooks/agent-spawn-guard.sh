@@ -3,8 +3,8 @@
 # ============================================================================
 # Fires on subagent tool calls too, so nested native spawns are covered.
 #
-# Dispatch vocabulary, state selection, defaults, and legacy aliases are owned
-# by `north config dispatch`. This hook consumes only its stable machine
+# Dispatch vocabulary, state selection, and defaults are owned by
+# `north config dispatch`. This hook consumes only its stable machine
 # contracts:
 #   --guard-action       deny|allow provider-native Agent/Task/Workflow
 #   --managed-admission  deny|allow North lane creation (legacy flag name)
