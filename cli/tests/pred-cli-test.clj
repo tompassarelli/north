@@ -133,10 +133,6 @@
     ["cli/coord.clj" "assert-after-read-with-fence!" "predicate"]
     ;; lease-cli put-fenced carries a caller-supplied predicate under the fence.
     ["cli/lease-cli.clj" "put-with-fence!" "(required-text \"predicate\" (nth args 4 nil))"]
-    ;; Concern attention outboxes use fixed registered predicates.
-    ["cli/concern-cli.clj" "append!" "attention-event-settled-predicate"]
-    ["cli/concern-cli.clj" "retract!" "attention-event-intent-predicate"]
-    ["cli/concern-cli.clj" "retract!" "attention-reconcile-pending-predicate"]
     ["cli/north-listen.clj" "append!" "pred"]
     ["cli/presence-cli.clj" "retract!" "p"]
     ["cli/presence-cli.clj" "append!" "(name k)"]
