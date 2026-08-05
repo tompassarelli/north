@@ -747,47 +747,61 @@
         :exp (when-let [expires (:expires result)] (instant-millis expires))
         :served-version (:served-version result)}))))
 
-(defn sessions-status [port handles]
-  (let [handles (vec (distinct handles))
-        wanted (set handles)
-        now (System/currentTimeMillis)
-        result
-        (with-client!
-         port :coordination
-         (fn [client]
-           (rpc/scan-all! client nil :kernel/lease nil
-                          {:page-size rpc/effective-page-limit})))
-        found
+(defn- parse-session-lease! [proposition]
+  (let [resource (t/triple-slot0 proposition)]
+    (when (and (string? resource) (str/starts-with? resource "session:"))
+      (let [handle (subs resource (count "session:"))
+            value (t/triple-slot2 proposition)]
+        (when-not (and (not (str/blank? handle))
+                       (t/triple? value)
+                       (= handle (t/triple-slot0 value))
+                       (= :kernel/expires-at (t/triple-slot1 value))
+                       (integer? (t/triple-slot2 value))
+                       (<= 0 (t/triple-slot2 value) lease-max-safe-integer))
+          (throw (ex-info "session lease proposition is malformed"
+                          {:type :malformed-session-lease
+                           :resource resource})))
+        {:handle handle :exp (t/triple-slot2 value)}))))
+
+(defn- session-lease-scan [port resource]
+  (with-client!
+   port :coordination
+   (fn [client]
+     (rpc/scan-all! client resource :kernel/lease nil
+                    {:page-size rpc/effective-page-limit}))))
+
+(defn online-session-leases [port now-ms]
+  (when-not (and (integer? now-ms) (not (neg? now-ms)))
+    (throw (ex-info "online-session-leases requires non-negative now-ms"
+                    {:type :invalid-session-lease-time :now-ms now-ms})))
+  (let [result (session-lease-scan port nil)
+        by-handle
         (reduce
-         (fn [statuses proposition]
-           (let [resource (t/triple-slot0 proposition)
-                 lease (t/triple-slot2 proposition)]
-             (if (and (string? resource) (str/starts-with? resource "session:")
-                      (t/triple? lease)
-                      (= :kernel/expires-at (t/triple-slot1 lease))
-                      (integer? (t/triple-slot2 lease)))
-               (let [handle (subs resource (count "session:"))
-                     holder (t/triple-slot0 lease)
-                     exp (t/triple-slot2 lease)]
-                 (if (contains? wanted handle)
-                   (update statuses handle
-                           (fn [prior]
-                             (when prior
-                               (throw (ex-info "session has multiple live lease propositions"
-                                               {:type :duplicate-session-lease
-                                                :handle handle})))
-                             {:online? (and (= handle holder) (> exp now))
-                              :exp exp}))
-                   statuses))
-               statuses)))
+         (fn [known proposition]
+           (if-let [{:keys [handle] :as lease} (parse-session-lease! proposition)]
+             (if (contains? known handle)
+               (throw (ex-info "session has multiple live lease propositions"
+                               {:type :duplicate-session-lease :handle handle}))
+               (assoc known handle lease))
+             known))
          {} (:rows result))]
-    {:version (:served-version result)
-     :sessions
-     (into {} (map (fn [handle]
-                     [handle (get found handle {:online? false :exp nil})]) handles))}))
+    (->> by-handle vals (filter #(< now-ms (:exp %)))
+         (sort-by :handle) vec)))
 
 (defn session-lease-status [port handle]
-  (get-in (sessions-status port [handle]) [:sessions handle]))
+  (when-not (and (string? handle) (not (str/blank? handle)))
+    (throw (ex-info "session handle must be a nonblank string"
+                    {:type :invalid-session-handle :handle handle})))
+  (let [result (session-lease-scan port (str "session:" handle))
+        leases (into [] (keep parse-session-lease!) (:rows result))]
+    (when (> (count leases) 1)
+      (throw (ex-info "session has multiple live lease propositions"
+                      {:type :duplicate-session-lease :handle handle})))
+    (let [lease (first leases)]
+      {:online? (boolean (and lease (> (:exp lease) (System/currentTimeMillis))))
+       :exp (:exp lease)
+       :served-version (:served-version result)})))
+
 (defn session-online? [port handle]
   (boolean (:online? (session-lease-status port handle))))
 
