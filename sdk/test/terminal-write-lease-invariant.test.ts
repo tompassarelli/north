@@ -113,8 +113,9 @@ test("the terminal writer hands the clj guard a lease that outlives the timeout 
         });
       },
     };
+    const agentId = `lease-invariant-${index}-${process.pid}`;
     const status = writeAgentTerminal(
-      `lease-invariant-${index}-${process.pid}`,
+      agentId,
       {
         processOutcome: "ran",
         deliveryOutcome: "reported",
@@ -122,6 +123,8 @@ test("the terminal writer hands the clj guard a lease that outlives the timeout 
       } as const,
       timeoutMs,
       runtime,
+      undefined,
+      { resource: `session:${agentId}`, holder: agentId, epoch: 19 },
     );
     expect(status).toBe("recorded");
     expect(seen).toHaveLength(1);

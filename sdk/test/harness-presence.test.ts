@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harnessOptions } from "../src/harness";
 import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
+import { presenceFencePath } from "../src/presence-fence";
 
 async function capturedLines(path: string, count: number): Promise<string[]> {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -18,13 +21,23 @@ async function capturedLines(path: string, count: number): Promise<string[]> {
 
 test("presence resolves its fake executable and NORTH_PORT after harness import for every call", async () => {
   const saved = Object.fromEntries(
-    ["PATH", "NORTH_PORT", "HARNESS_PRESENCE_LOG", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_PEER_BB"]
+    ["PATH", "NORTH_PORT", "NORTH_AGENT_LOGS_DIR", "HARNESS_PRESENCE_LOG", "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_PEER_BB"]
       .map((key) => [key, process.env[key]]),
   );
   const dir = mkdtempSync(join(tmpdir(), "north-harness-presence-"));
   const log = join(dir, "presence.log");
   const fakeBb = join(dir, "bb");
-  writeFileSync(fakeBb, "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> \"$HARNESS_PRESENCE_LOG\"\n");
+  writeFileSync(fakeBb, `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$HARNESS_PRESENCE_LOG"
+if [ "\${1-}" = "-cp" ]; then shift 2; fi
+verb="\${3-}"
+handle="\${4-}"
+if [ "$verb" = "register" ]; then
+  printf '{"resource":"session:%s","holder":"%s","epoch":7}\\n' "$handle" "$handle"
+elif [ "$verb" = "renew" ]; then
+  printf '{"resource":"session:%s","holder":"%s","epoch":8}\\n' "$handle" "$handle"
+fi
+`);
   chmodSync(fakeBb, 0o755);
 
   try {
@@ -33,6 +46,7 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     process.env.PATH = `${dir}:${saved.PATH ?? ""}`;
     process.env.HARNESS_PRESENCE_LOG = log;
     process.env.NORTH_PORT = "64123";
+    process.env.NORTH_AGENT_LOGS_DIR = join(dir, "agents");
     process.env.AGENT_LAWS = "off";
     process.env.AGENT_PRAXIS = "off";
     // presenceBb() honors NORTH_PEER_BB ahead of a PATH lookup (src/harness.ts:68).
@@ -47,6 +61,7 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     const repoCwd = join(dir, "orchestration");
     const repoSelf = `${self}-repo`;
     const repoOptions = harnessOptions({ self: repoSelf, cwd: repoCwd });
+    const fencePath = presenceFencePath(self);
 
     const registrations = await capturedLines(log, 2);
     expect(registrations).toHaveLength(2);
@@ -57,12 +72,20 @@ test("presence resolves its fake executable and NORTH_PORT after harness import 
     ]) expect(registrations).toContain(expected);
     expect(repoOptions.cwd).toBe(repoCwd);
     expect(repoOptions.systemPrompt).toContain(`in "orchestration"`);
+    expect(readFileSync(fencePath, "utf8")).toBe(
+      `{"resource":"session:${self}","holder":"${self}","epoch":7}\n`,
+    );
+    expect(statSync(fencePath).mode & 0o777).toBe(0o600);
 
     process.env.NORTH_PORT = "64124";
     const renew = (options.hooks as any).PostToolUse[0].hooks[0];
     expect(await renew()).toEqual({ continue: true });
     expect(await capturedLines(log, 3)).toContain(
-      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self}`,
+      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self} `
+      + `{"resource":"session:${self}","holder":"${self}","epoch":7}`,
+    );
+    expect(readFileSync(fencePath, "utf8")).toBe(
+      `{"resource":"session:${self}","holder":"${self}","epoch":8}\n`,
     );
   } finally {
     for (const [key, value] of Object.entries(saved)) {

@@ -20,6 +20,12 @@ const blockedTerminal = {
   deliveryReason: "provider_process_died",
 } as const;
 
+const presenceFence = (agentId: string) => ({
+  resource: `session:${agentId}`,
+  holder: agentId,
+  epoch: 17,
+});
+
 test("commit-unknown retry reuses one logical operation and lifecycle holder", () => {
   let nowMs = 0;
   const attempts: Array<{ args: string[]; timeoutMs: number }> = [];
@@ -43,12 +49,14 @@ test("commit-unknown retry reuses one logical operation and lifecycle holder", (
     },
   };
 
+  const agentId = `lost-ack-${process.pid}`;
   const status = writeAgentTerminal(
-    `lost-ack-${process.pid}`,
+    agentId,
     blockedTerminal,
     200,
     runtime,
     "@lost-ack-thread",
+    presenceFence(agentId),
   );
 
   expect(status).toBe("recorded");
@@ -60,6 +68,7 @@ test("commit-unknown retry reuses one logical operation and lifecycle holder", (
   );
   expect(attempts[0]?.args[6]).toMatch(/^[0-9a-f-]{36}$/);
   expect(attempts[0]?.args[9]).toBe("@lost-ack-thread");
+  expect(JSON.parse(attempts[0]?.args[10] ?? "")).toEqual(presenceFence(agentId));
 });
 
 test("real writer subprocess parses one typed acknowledgement under a measured startup bar", () => {
@@ -93,10 +102,14 @@ printf '{"ok":true,"result":{"status":"committed","operation_id":"%s","reason":"
     // Derive a generous scheduler/load bar from a prewarmed executable; the
     // deterministic runtime tests below own exact deadline arithmetic.
     const stabilityBudgetMs = Math.ceil(Math.max(25, observedStartupMs) * 40);
+    const agentId = `real-process-${process.pid}`;
     const status = writeAgentTerminal(
-      `real-process-${process.pid}`,
+      agentId,
       blockedTerminal,
       stabilityBudgetMs,
+      undefined,
+      undefined,
+      presenceFence(agentId),
     );
     const attempts = readFileSync(calls, "utf8").trim().split("\n");
     expect(status).toBe("recorded");
@@ -126,11 +139,14 @@ test("commit-unknown classification stays inside one absolute writer budget", ()
     },
   };
 
+  const agentId = `absolute-budget-${process.pid}`;
   const status = writeAgentTerminal(
-    `absolute-budget-${process.pid}`,
+    agentId,
     blockedTerminal,
     budgetMs,
     runtime,
+    undefined,
+    presenceFence(agentId),
   );
 
   expect(status).toBe("indeterminate");
