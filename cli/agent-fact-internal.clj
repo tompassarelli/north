@@ -978,7 +978,7 @@
          args))
 
 (defn native-triple-predicate [triple]
-  ((or (ns-resolve 'fram.types 'triple-slot1)
+  ((or (ns-resolve 'fram.types 'triple-t2)
        (fail! "native triple accessor is unavailable" {}))
    triple))
 

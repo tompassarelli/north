@@ -20,7 +20,10 @@ import { FramTriple } from "../src/framrpc-codec";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const repo = resolve(import.meta.dir, "../..");
-const frozenFramHome = "/home/tom/code/fram/wt-core-target-production-5db9b38";
+// The fixture server and the bb writer child must share one Fram vocabulary.
+const frozenFramHome = process.env.FRAM_TEST_CHECKOUT
+  ?? process.env.FRAM_HOME
+  ?? "/home/tom/code/fram/wt-core-target-production-5db9b38";
 const identity = {
   run: "@run:lane-ledger-001",
   thread: "@019f89ac-a86a-7399-b915-358d44a1be15",
@@ -315,10 +318,10 @@ test("one frozen Fram server commits seven ordered events inside the production 
       const actualFacts = stored.rows.map((row) => {
         expect(row).toBeInstanceOf(FramTriple);
         const fact = row as FramTriple;
-        expect(fact.slot0).toBe(event.subject);
-        expect(typeof fact.slot1).toBe("string");
-        expect(typeof fact.slot2).toBe("string");
-        return JSON.stringify([fact.slot1, fact.slot2]);
+        expect(fact.t1).toBe(event.subject);
+        expect(typeof fact.t2).toBe("string");
+        expect(typeof fact.t3).toBe("string");
+        return JSON.stringify([fact.t2, fact.t3]);
       }).sort();
       const expectedFacts = eventFacts(event)
         .map(([predicate, value]) => JSON.stringify([predicate, value]))

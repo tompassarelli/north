@@ -160,12 +160,12 @@ function classifyNativeProjection(
   ]);
   const actual = new Map<string, Map<string, number>>();
   for (const row of rows) {
-    if (!(row instanceof FramTriple) || typeof row.slot1 !== "string") continue;
-    if (!checked.has(row.slot1)) continue;
-    if (typeof row.slot2 !== "string") return "decline";
-    const values = actual.get(row.slot1) ?? new Map<string, number>();
-    values.set(row.slot2, (values.get(row.slot2) ?? 0) + 1);
-    actual.set(row.slot1, values);
+    if (!(row instanceof FramTriple) || typeof row.t2 !== "string") continue;
+    if (!checked.has(row.t2)) continue;
+    if (typeof row.t3 !== "string") return "decline";
+    const values = actual.get(row.t2) ?? new Map<string, number>();
+    values.set(row.t3, (values.get(row.t3) ?? 0) + 1);
+    actual.set(row.t2, values);
   }
   if (actual.size === 0) return "blank";
   const desired = desiredNativeOccurrences(projection, marker);

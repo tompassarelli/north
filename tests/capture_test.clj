@@ -20,8 +20,8 @@
 (def cap (#'m/capture-facts "@t1" "Test thread" "personal" "self" "" "" ""
                              "2026-06-28T07:00:00" "2026-06-28"))
 (defn fact-val [facts pred]
-  (t/triple-slot2
-   (first (filter #(= (t/triple-slot1 %) pred) facts))))
+  (t/triple-t3
+   (first (filter #(= (t/triple-t2 %) pred) facts))))
 
 ;; --- (3) resolve-ref: handle -> canonical id (latest created_at wins) --------
 (def rc
@@ -63,9 +63,9 @@
            (swap! partial-retracts conj [subject predicate value])
            (swap! partial-live
                   (fn [facts]
-                    (vec (remove #(and (= subject (t/triple-slot0 %))
-                                       (= predicate (t/triple-slot1 %))
-                                       (= value (t/triple-slot2 %)))
+                    (vec (remove #(and (= subject (t/triple-t1 %))
+                                       (= predicate (t/triple-t2 %))
+                                       (= value (t/triple-t3 %)))
                                  facts))))
            "ok:3")))
      #'rt/delete-file (fn [_] (reset! partial-view-deleted true) nil)

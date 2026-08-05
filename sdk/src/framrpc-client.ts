@@ -366,11 +366,11 @@ export class FramRpcClient {
   }
 
   async scan(
-    slot0: Term | null, slot1: Term | null, slot2: Term | null,
+    t1: Term | null, t2: Term | null, t3: Term | null,
     options: RequestOptions = {},
   ): Promise<ServedResult & { rows: Term[]; page: RpcPageResponse | null }> {
     const { response, attempts } = await this.request(
-      kw("rpc/scan"), rpcTriplePattern(slot0, slot1, slot2), options,
+      kw("rpc/scan"), rpcTriplePattern(t1, t2, t3), options,
     );
     return {
       rows: decodeTriples(response.payload),
@@ -384,7 +384,7 @@ export class FramRpcClient {
    * the pages do not describe one snapshot, so it fails instead of returning a
    * torn read. */
   async scanAll(
-    slot0: Term | null, slot1: Term | null, slot2: Term | null,
+    t1: Term | null, t2: Term | null, t3: Term | null,
     options: { pageSize?: number } = {},
   ): Promise<ServedResult & { rows: Term[]; pages: number }> {
     const pageSize = positiveInteger("page-size", options.pageSize ?? EFFECTIVE_PAGE_LIMIT);
@@ -396,7 +396,7 @@ export class FramRpcClient {
     let snapshot: number | null = null;
     let attempts = 0;
     for (;;) {
-      const page = await this.scan(slot0, slot1, slot2, {
+      const page = await this.scan(t1, t2, t3, {
         page: { limit: pageSize, cursor },
       });
       if (page.page === null)

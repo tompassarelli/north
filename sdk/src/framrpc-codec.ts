@@ -10,10 +10,10 @@ import { Keyword, kw } from "./coord-wire";
 
 /** Recursive Term constructor — the only structural vocabulary the daemon reads. */
 export class FramTriple {
-  constructor(readonly slot0: Term, readonly slot1: Term, readonly slot2: Term) {}
+  constructor(readonly t1: Term, readonly t2: Term, readonly t3: Term) {}
 }
-export const triple = (slot0: Term, slot1: Term, slot2: Term): FramTriple =>
-  new FramTriple(slot0, slot1, slot2);
+export const triple = (t1: Term, t2: Term, t3: Term): FramTriple =>
+  new FramTriple(t1, t2, t3);
 
 /** Float atom (tag 3). Explicit because JS cannot tell 1.0 from 1: Clojure
  * encodes `1.0` as a Float and `1` as an Int, and a round trip must not move a
@@ -298,9 +298,9 @@ function writeTerm(
   countNode(budget);
   if (term instanceof FramTriple) {
     writer.u8(7);
-    writeTerm(writer, term.slot0, depth + 1, budget, maxStringBytes);
-    writeTerm(writer, term.slot1, depth + 1, budget, maxStringBytes);
-    writeTerm(writer, term.slot2, depth + 1, budget, maxStringBytes);
+    writeTerm(writer, term.t1, depth + 1, budget, maxStringBytes);
+    writeTerm(writer, term.t2, depth + 1, budget, maxStringBytes);
+    writeTerm(writer, term.t3, depth + 1, budget, maxStringBytes);
     return;
   }
   if (typeof term === "string") {
@@ -374,10 +374,10 @@ function readTerm(
       return kw(spelling);
     }
     case 7: {
-      const slot0 = readTerm(reader, depth + 1, budget, maxStringBytes);
-      const slot1 = readTerm(reader, depth + 1, budget, maxStringBytes);
-      const slot2 = readTerm(reader, depth + 1, budget, maxStringBytes);
-      return new FramTriple(slot0, slot1, slot2);
+      const t1 = readTerm(reader, depth + 1, budget, maxStringBytes);
+      const t2 = readTerm(reader, depth + 1, budget, maxStringBytes);
+      const t3 = readTerm(reader, depth + 1, budget, maxStringBytes);
+      return new FramTriple(t1, t2, t3);
     }
     case 8: {
       const seconds = reader.i64("Instant atom");
@@ -400,9 +400,9 @@ export function termEquals(left: Term | null, right: Term | null): boolean {
   if (left instanceof Keyword && right instanceof Keyword)
     return left.name === right.name;
   if (left instanceof FramTriple && right instanceof FramTriple)
-    return termEquals(left.slot0, right.slot0)
-      && termEquals(left.slot1, right.slot1)
-      && termEquals(left.slot2, right.slot2);
+    return termEquals(left.t1, right.t1)
+      && termEquals(left.t2, right.t2)
+      && termEquals(left.t3, right.t3);
   if (left instanceof FramFloat && right instanceof FramFloat)
     return Object.is(left.value, right.value);
   if (left instanceof FramInstant && right instanceof FramInstant)
@@ -733,9 +733,9 @@ export function rpcListValues(value: Term): Term[] {
     if (result.length >= RPC_V1_MAX_TERM_NODES)
       fail("rpc-invalid-list", "RPC list exceeds the Term node bound");
     if (cursor instanceof FramTriple
-        && cursor.slot0 instanceof Keyword && cursor.slot0.name === RPC_LIST.name) {
-      result.push(cursor.slot1);
-      cursor = cursor.slot2;
+        && cursor.t1 instanceof Keyword && cursor.t1.name === RPC_LIST.name) {
+      result.push(cursor.t2);
+      cursor = cursor.t3;
       continue;
     }
     return fail("rpc-invalid-list", "RPC list must end with :rpc/list-end");
@@ -753,15 +753,15 @@ export function rpcOption(value: Term | null): Term {
 export function rpcOptionPresent(value: Term): boolean {
   if (value instanceof Keyword && value.name === RPC_NONE.name) return false;
   if (value instanceof FramTriple
-      && value.slot0 instanceof Keyword && value.slot0.name === RPC_SOME.name
-      && value.slot2 instanceof Keyword && value.slot2.name === RPC_OPTION.name)
+      && value.t1 instanceof Keyword && value.t1.name === RPC_SOME.name
+      && value.t3 instanceof Keyword && value.t3.name === RPC_OPTION.name)
     return true;
   return fail("rpc-invalid-option",
               "RPC option must be :rpc/none or (:rpc/some value :rpc/option)");
 }
 
 export function rpcOptionValue(value: Term): Term | null {
-  return rpcOptionPresent(value) ? (value as FramTriple).slot1 : null;
+  return rpcOptionPresent(value) ? (value as FramTriple).t2 : null;
 }
 
 export function rpcRecord(tag: Keyword, fields: readonly Term[]): FramTriple {
@@ -772,10 +772,10 @@ export function rpcRecordFields(
   value: Term | null, tag: Keyword, fieldCount: number,
 ): Term[] {
   if (!(value instanceof FramTriple)
-      || !(value.slot0 instanceof Keyword) || value.slot0.name !== tag.name
-      || !(value.slot2 instanceof Keyword) || value.slot2.name !== RPC_RECORD.name)
+      || !(value.t1 instanceof Keyword) || value.t1.name !== tag.name
+      || !(value.t3 instanceof Keyword) || value.t3.name !== RPC_RECORD.name)
     fail("rpc-invalid-record", "RPC record tag or marker is invalid");
-  const fields = rpcListValues((value as FramTriple).slot1);
+  const fields = rpcListValues((value as FramTriple).t2);
   if (fields.length !== fieldCount)
     fail("rpc-invalid-record", "RPC record contains the wrong number of fields");
   return fields;
@@ -818,10 +818,10 @@ export function rpcBatch(actions: readonly BatchAction[], fence: Term | null): F
 }
 
 export function rpcTriplePattern(
-  slot0: Term | null, slot1: Term | null, slot2: Term | null,
+  t1: Term | null, t2: Term | null, t3: Term | null,
 ): FramTriple {
   return rpcRecord(kw("rpc/triple-pattern"), [
-    rpcOption(slot0), rpcOption(slot1), rpcOption(slot2),
+    rpcOption(t1), rpcOption(t2), rpcOption(t3),
   ]);
 }
 

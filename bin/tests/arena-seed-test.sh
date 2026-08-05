@@ -70,7 +70,7 @@ RESULT="$(
              (some-> (:rows (rpc/scan-all!
                              client (str "@arena-" exp "-" arm "-" idx)
                              "state" nil))
-                     first t/triple-slot2))
+                     first t/triple-t3))
            [["graph" 4] ["control" 4] ["control" 2]])))
         (finally (rpc/close! client))))' \
     "$ROOT" "$PORT" "$SPACE" "$EXP"

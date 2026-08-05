@@ -415,12 +415,12 @@
               options))))
 
 (defn scan!
-  ([client slot0 slot1 slot2] (scan! client slot0 slot1 slot2 {}))
-  ([client slot0 slot1 slot2 options]
+  ([client t1 t2 t3] (scan! client t1 t2 t3 {}))
+  ([client t1 t2 t3 options]
    (let [{:keys [payload page] :as result}
          (result-map
           (request! client :rpc/scan
-                    (wire/rpc-triple-pattern! slot0 slot1 slot2) options))
+                    (wire/rpc-triple-pattern! t1 t2 t3) options))
          [rows] (record-fields! payload :rpc/triples 1)]
      (assoc (dissoc result :payload :page)
             :rows (list-values! rows) :page (page-map page)))))
@@ -484,9 +484,9 @@
             (recur (:cursor page) all-rows page-count snapshot attempt-count)))))))
 
 (defn scan-all!
-  ([client slot0 slot1 slot2] (scan-all! client slot0 slot1 slot2 {}))
-  ([client slot0 slot1 slot2 options]
-   (drain-pages! #(scan! client slot0 slot1 slot2 %) options)))
+  ([client t1 t2 t3] (scan-all! client t1 t2 t3 {}))
+  ([client t1 t2 t3 options]
+   (drain-pages! #(scan! client t1 t2 t3 %) options)))
 
 (defn query-all!
   ([client query-request] (query-all! client query-request {}))
@@ -552,7 +552,7 @@
   (let [result (scan-all! client subject predicate nil)]
     {:served-version (:served-version result)
      :triples (:rows result)
-     :values (mapv t/triple-slot2 (:rows result))}))
+     :values (mapv t/triple-t3 (:rows result))}))
 
 ;; --- multi-predicate subject projection --------------------------------------
 
@@ -563,7 +563,7 @@
    frequency, not merely the value set."
   [triples]
   (reduce (fn [acc triple]
-            (update-in acc [(t/triple-slot1 triple) (t/triple-slot2 triple)]
+            (update-in acc [(t/triple-t2 triple) (t/triple-t3 triple)]
                        (fnil inc 0)))
           {}
           triples))
@@ -615,8 +615,8 @@
                      (let [proposition (:proposition action)]
                        [(action-phase (:op action))
                         (rank-fn action)
-                        (pr-str [(t/triple-slot1 proposition)
-                                 (t/triple-slot2 proposition)])]))
+                        (pr-str [(t/triple-t2 proposition)
+                                 (t/triple-t3 proposition)])]))
                    actions)))))
 
 ;; --- North projection semantics over the append-only head wire ---------------
@@ -737,7 +737,7 @@
 (defn- declared-cardinality [client predicate]
   (let [rows (:rows (scan-all! client (str "@" (predicate-name predicate))
                                "cardinality" nil))
-        values (into #{} (map (comp str t/triple-slot2)) rows)]
+        values (into #{} (map (comp str t/triple-t3)) rows)]
     (cond (contains? values "single") :one
           (contains? values "multi") :many
           :else nil)))
@@ -764,9 +764,9 @@
    occurrence-appending primitive underneath it."
   ([client proposition] (assert-projected! client proposition {}))
   ([client proposition options]
-   (let [subject (t/triple-slot0 proposition)
-         predicate (t/triple-slot1 proposition)
-         value (t/triple-slot2 proposition)
+   (let [subject (t/triple-t1 proposition)
+         predicate (t/triple-t2 proposition)
+         value (t/triple-t3 proposition)
          cardinality (or (:cardinality options)
                          (cardinality-of client predicate))
          desired-fn (if (= :one cardinality)
@@ -788,9 +788,9 @@
    value appended twice would otherwise survive its own retraction."
   ([client proposition] (retract-projected! client proposition {}))
   ([client proposition options]
-   (let [subject (t/triple-slot0 proposition)
-         predicate (t/triple-slot1 proposition)
-         value (t/triple-slot2 proposition)]
+   (let [subject (t/triple-t1 proposition)
+         predicate (t/triple-t2 proposition)
+         value (t/triple-t3 proposition)]
      (reconcile-projection! client subject predicate
                             (fn [current] (vec (remove #(= value %) current)))
                             (dissoc options :cardinality)))))

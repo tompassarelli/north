@@ -154,7 +154,7 @@
          {:op :rpc/assert :proposition (t/triple "@batch" :value "b")}
          {:op :rpc/retract :proposition (t/triple "@batch" :value "a")}]
         result (rpc/batch! @client actions)
-        values (mapv t/triple-slot2
+        values (mapv t/triple-t3
                      (:rows (rpc/scan-all! @client "@batch" :value nil)))]
     (check! "batch returns one typed action result per input"
             (= [true true true] (mapv :changed? (:results result))))
@@ -224,7 +224,7 @@
                       (rpc/transport-round-trip! logical-client request)))]
           (rpc/profile-write! @client "@profile" :color ["red"]
                               {:cardinality :one}))
-        values (mapv t/triple-slot2
+        values (mapv t/triple-t3
                      (:rows (rpc/scan-all! @client "@profile" :color nil)))]
     (check! "ambiguous profile write is resolved by exact projection readback"
             (true? (:resolved-ambiguity? result)))
@@ -235,7 +235,7 @@
   (let [proposition (t/triple "@projected" "note" "one")
         first-write (rpc/assert-projected! @client proposition)
         repeat-write (rpc/assert-projected! @client proposition)
-        values (mapv t/triple-slot2
+        values (mapv t/triple-t3
                      (:rows (rpc/scan-all! @client "@projected" "note" nil)))]
     (check! "an undeclared predicate reconciles with multi cardinality"
             (= :many (:cardinality first-write)))
@@ -246,7 +246,7 @@
             (= ["one"] values)))
 
   (let [rival (rpc/assert-projected! @client (t/triple "@projected" "note" "two"))
-        values (set (mapv t/triple-slot2
+        values (set (mapv t/triple-t3
                           (:rows (rpc/scan-all! @client "@projected" "note" nil))))]
     (check! "multi-valued rivals coexist under the projection layer"
             (and (true? (:changed? rival)) (= #{"one" "two"} values))))
@@ -254,7 +254,7 @@
   (rpc/assert! @client (t/triple "@projected" "note" "one"))
   (let [retracted (rpc/retract-projected!
                    @client (t/triple "@projected" "note" "one"))
-        values (mapv t/triple-slot2
+        values (mapv t/triple-t3
                      (:rows (rpc/scan-all! @client "@projected" "note" nil)))
         absent (rpc/retract-projected!
                 @client (t/triple "@projected" "note" "one"))]
@@ -274,7 +274,7 @@
                     (swap! operations conj (t/rpcrequest-op request))
                     (rpc/transport-round-trip! logical-client request))]
           (rpc/assert-projected! @client (t/triple "@declared" "title" "second")))
-        values (mapv t/triple-slot2
+        values (mapv t/triple-t3
                      (:rows (rpc/scan-all! @client "@declared" "title" nil)))]
     (check! "graph cardinality declares the predicate single-valued"
             (= :one (:cardinality superseded)))
@@ -390,7 +390,7 @@
   (let [before {"note" {"a" 2} "left-alone" {"x" 1}}
         desired {"note" {"a" 1 "b" 1} "marker" {"m" 1}}
         marker? (fn [action]
-                  (= "marker" (t/triple-slot1 (:proposition action))))
+                  (= "marker" (t/triple-t2 (:proposition action))))
         actions (rpc/plan-subject-actions
                  "@plan" before desired {:rank #(if (marker? %) 1 0)})
         repeat-actions (rpc/plan-subject-actions
@@ -401,7 +401,7 @@
                 [:rpc/assert (t/triple "@plan" "marker" "m")]]
                (mapv (juxt :op :proposition) actions)))
     (check! "a predicate the desired map does not name is left untouched"
-            (not-any? #(= "left-alone" (t/triple-slot1 (:proposition %))) actions))
+            (not-any? #(= "left-alone" (t/triple-t2 (:proposition %))) actions))
     (check! "the plan is deterministic and honours a caller's marker-last rank"
             (and (= actions repeat-actions)
                  (marker? (last actions)))))
@@ -438,7 +438,7 @@
            [{:op :rpc/assert :proposition (t/triple "@fenced" "note" "y")}]
            {:fence fence
             :expected-version (:served-version (rpc/version! @client))})
-          values (mapv t/triple-slot2
+          values (mapv t/triple-t3
                        (:rows (rpc/scan-all! @client "@fenced" "note" nil)))]
       (check! "a released fence is a typed mismatch with zero applied"
               (and (= :fence-mismatch (:outcome stale-fence))

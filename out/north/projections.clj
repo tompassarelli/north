@@ -32,9 +32,9 @@
   (if present? (if (kc/vec-member? members value) members (conj members value)) (filterv (fn [member] (not (= member value))) members)))
 
 (defn ^ProjectionIndex index-triples [triples]
-  (let [base (reduce (fn [index triple] (let [subject (t/triple-slot0 triple)
-   predicate (t/triple-slot1 triple)
-   value (t/triple-slot2 triple)
+  (let [base (reduce (fn [index triple] (let [subject (t/triple-t1 triple)
+   predicate (t/triple-t2 triple)
+   value (t/triple-t3 triple)
    key [subject predicate]
    values (conj (get (projectionindex-many index) key no-terms) value)
    reverse (if (= predicate "depends_on") (assoc (projectionindex-reverse-dependencies index) value (conj (get (projectionindex-reverse-dependencies index) value no-terms) subject)) (projectionindex-reverse-dependencies index))
