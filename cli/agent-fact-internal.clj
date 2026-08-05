@@ -1783,9 +1783,11 @@
 
 (defn native-main! [args]
   (let [[port-s operation raw-subject raw supplied-holder supplied-operation-id
-         desired-raw expected-raw terminal-thread-raw presence-fence-raw] args
+        desired-raw expected-raw terminal-thread-raw presence-fence-raw] args
         port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
         subject (entity raw-subject)
+        supplied-holder (not-empty supplied-holder)
+        supplied-operation-id (not-empty supplied-operation-id)
         operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
         _ (when-not (re-matches uuid-v4-pattern operation-id)
             (fail! "invalid managed agent logical operation id"
