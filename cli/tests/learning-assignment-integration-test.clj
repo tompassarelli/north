@@ -1,16 +1,22 @@
 #!/usr/bin/env bb
-(require '[babashka.process :as proc]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io])
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (or (System/getenv "FRAM_PATH")
-              (str (System/getProperty "user.home") "/code/fram/main")))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(cp/add-classpath (str root "/out:" fram "/out"))
 (def assignment-writer (str root "/cli/learning-assignment-internal.clj"))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (load-file (str root "/cli/coord.clj"))
+(alter-var-root #'north.coord/telemetry-partition-enabled?
+                (constantly (fn [] false)))
+(load-file (str fram "/database.clj"))
+(require '[database :as database])
+
+(def test-space "north-coordination")
 
 (def checks (atom []))
 (defn check [label value] (swap! checks conj [label (boolean value)]))
@@ -25,27 +31,31 @@
     (cond (predicate) true
           (>= attempt 600) false
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
-(defn shell [log & args]
+(defn shell [port & args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" log}}
-         args))
+                     :extra-env {"FRAM_SPACE_ID" test-space
+                                 "NORTH_FRAMRPC_HOST" "127.0.0.1"
+                                 "NORTH_PORT" (str port)
+                                 "NORTH_TELEMETRY_PARTITION" "0"}}
+         "bb" "-cp" (str root "/out:" fram "/out") args))
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "learning_assignment_test"
-                                 :rules [{:head {:rel "learning_assignment_test"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows
+        (north.coord/query-rows
+         port {:find "learning_assignment_test"
+               :rules [{:head {:rel "learning_assignment_test"
+                               :args [{:var "p"} {:var "r"}]}
+                        :body [{:rel "triple"
+                                :args [subject {:var "p"} {:var "r"}]}]}]})]
     (reduce (fn [facts [predicate value]]
               (update facts predicate (fnil conj #{}) value))
             {} rows)))
 
-(defn learning-occurrences [log subject predicates]
-  (with-open [reader (io/reader log)]
-    (->> (line-seq reader)
-         (map edn/read-string)
-         (filter #(and (= subject (:l %)) (predicates (:p %))))
+(defn learning-occurrences [port subject predicates]
+  (let [upper (north.coord/cur-ver port)]
+    (->> (:events (north.coord/occurrence-window port 0 upper))
+         (filter #(and (= :assert (:operation %))
+                       (= subject (:subject %))
+                       (predicates (:predicate %))))
          count)))
 
 (defn assignment [arm]
@@ -83,32 +93,36 @@
       temp (.toFile (java.nio.file.Files/createTempDirectory
                      "north-learning-assignment-"
                      (make-array java.nio.file.attribute.FileAttribute 0)))
-      log-file (io/file temp "facts.log")
+      log-file (io/file temp "facts.framlog")
       log (.getCanonicalPath log-file)
-      daemon (do
-               (spit log-file "")
+      server-output (io/file temp "fram-server.log")
+      server (do
+               (database/create-triple-log! log test-space)
                (proc/process
-                {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                             "FRAM_LOG" log
-                             "FRAM_THREADS" (.getPath (io/file temp "threads"))}}
-                "env" "-u" "FRAM_TELEMETRY_LOG"
-                "clojure" "-M" "coord_daemon.clj"
-                "serve-flat" (str port) log))
+                {:dir fram :out server-output :err :out
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port) log test-space))
       run "@run:learning-assignment-fixture"
       omitted-run "@run:learning-assignment-omitted"
       invalid-run "@run:learning-assignment-invalid"
       late-run "@run:learning-assignment-late"
       control (assignment "control")]
-  (alter-var-root #'north.coord/expected-log (constantly (fn [] log)))
   (try
-    (check "throwaway coordinator starts" (eventually #(port-open? port)))
-    (let [publication (shell log "bb" assignment-writer (str port) run
+    (check "throwaway current Fram FRAMRPC server starts"
+           (eventually #(and (port-open? port)
+                             (= test-space
+                                (:space-id (north.coord/status port))))))
+    (let [publication (shell port assignment-writer (str port) run
                              (json/generate-string control))
+          _ (when-not (zero? (:exit publication))
+              (throw (ex-info "learning assignment fixture failed"
+                              publication)))
           stored (facts-of port run)
-          replay (shell log "bb" assignment-writer (str port) run
+          replay (shell port assignment-writer (str port) run
                         (json/generate-string control))
-          changed (shell log "bb" assignment-writer (str port) run
+          changed (shell port assignment-writer (str port) run
                          (json/generate-string (assignment "variant")))]
       (check "assignment publishes atomically" (and (zero? (:exit publication))
                                                      (= (count control)
@@ -119,18 +133,18 @@
              (and (not (zero? (:exit changed))) (= stored (facts-of port run))))
       (let [learning-predicates (set (map first control))
             occurrences-before
-            (learning-occurrences log run learning-predicates)
-            terminal (shell log "bb" run-writer (str port) run
+            (learning-occurrences port run learning-predicates)
+            terminal (shell port run-writer (str port) run
                             (json/generate-string (terminal-payload control)))
             occurrences-after
-            (learning-occurrences log run learning-predicates)]
+            (learning-occurrences port run learning-predicates)]
         (check "terminal publication repeats the exact pre-provider assignment"
                (and (zero? (:exit terminal)) (= #{"run"} (get (facts-of port run) "kind"))))
         (check "terminal publication adds no learning assignment occurrences"
                (= occurrences-before occurrences-after))))
-    (let [published (shell log "bb" assignment-writer (str port) omitted-run
+    (let [published (shell port assignment-writer (str port) omitted-run
                            (json/generate-string control))
-          terminal (shell log "bb" run-writer (str port) omitted-run
+          terminal (shell port run-writer (str port) omitted-run
                           (json/generate-string (terminal-payload [])))]
       (check "second assignment publishes" (zero? (:exit published)))
       (check "terminal omission is refused before kind=run"
@@ -139,19 +153,24 @@
     (let [invalid (mapv (fn [[predicate value]]
                           [predicate (if (= predicate "learning_axis") "prompt" value)])
                         control)
-          publication (shell log "bb" assignment-writer (str port) invalid-run
+          publication (shell port assignment-writer (str port) invalid-run
                              (json/generate-string invalid))]
       (check "server-side writer rejects inconsistent control assignment"
              (and (not (zero? (:exit publication)))
                   (empty? (facts-of port invalid-run)))))
-    (let [terminal (shell log "bb" run-writer (str port) late-run
+    (let [terminal (shell port run-writer (str port) late-run
                           (json/generate-string (terminal-payload control)))]
       (check "terminal writer cannot introduce assignment after execution"
              (and (not (zero? (:exit terminal)))
                   (nil? (get (facts-of port late-run) "kind")))))
+    (catch Throwable error
+      (binding [*out* *err*]
+        (when (.isFile server-output)
+          (println (slurp server-output))))
+      (throw error))
     (finally
-      (proc/destroy-tree daemon)
-      (try @daemon (catch Exception _ nil))
+      (proc/destroy-tree server)
+      (try @server (catch Exception _ nil))
       (doseq [file (reverse (file-seq temp))] (io/delete-file file true))
       (doseq [[label ok?] @checks]
         (println (format "  [%s] %s" (if ok? "PASS" "FAIL") label)))

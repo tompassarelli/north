@@ -8,12 +8,10 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
-(def fram
-  (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") "/home/tom/code/fram/main"))))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
 
 (when-not (.isFile (io/file fram "server.clj"))
-  (throw (ex-info "Fram head checkout is required; set FRAM_PATH"
+  (throw (ex-info "pinned Fram target checkout is unavailable"
                   {:fram fram})))
 
 (load-file (str root "/cli/framrpc-client.clj"))
@@ -80,11 +78,11 @@
     (.toPath private-root) "framrpc-client-test-"
     (make-array java.nio.file.attribute.FileAttribute 0))))
 (def log-path (.getCanonicalPath (io/file scratch "stage1.framlog")))
-(def daemon-output (io/file scratch "daemon.log"))
+(def server-output (io/file scratch "fram-server.log"))
 (def space-id "north-framrpc-client-stage1")
 (def port (free-port))
 (def client (atom nil))
-(def daemon (atom nil))
+(def server (atom nil))
 
 (try
   (database/create-triple-log! log-path space-id)
@@ -95,13 +93,13 @@
                 log-path space-id])
           (.directory (io/file fram))
           (.redirectErrorStream true)
-          (.redirectOutput daemon-output))
+          (.redirectOutput server-output))
         environment (.environment builder)]
     (.put environment "FRAM_SERVER_RUNTIME" "jvm-dev")
     (.put environment "FRAM_SERVER_QUIET" "1")
     (.put environment "FRAM_SERVER_XMX" "1g")
     (.put environment "CLJ_CACHE" (str (io/file scratch "clj-cache")))
-    (reset! daemon (.start builder)))
+    (reset! server (.start builder)))
 
   (reset! client
           (eventually
@@ -112,10 +110,10 @@
                           :retry-delay-ms 0
                           :jitter-ms 0})))
   (when-not @client
-    (throw (ex-info "real Fram head daemon did not become ready"
-                    {:type :daemon-start-failed
-                     :daemon-output (when (.exists daemon-output)
-                                      (slurp daemon-output))})))
+    (throw (ex-info "pinned Fram server did not become ready"
+                    {:type :server-start-failed
+                     :server-output (when (.exists server-output)
+                                      (slurp server-output))})))
   (rpc/close! @client)
   (reset! client
           (rpc/connect "127.0.0.1" port space-id
@@ -128,7 +126,7 @@
   (let [status (rpc/status! @client)]
     (check! "status validates the configured SpaceId"
             (= space-id (:space-id status)))
-    (check! "status decodes the head daemon state and engine"
+    (check! "status decodes the pinned server state and engine"
             (and (= :ready (:state status)) (= :rpc/jvm (:engine status)))))
   (check! "version returns the served transaction version"
           (integer? (:served-version (rpc/version! @client))))
@@ -169,7 +167,7 @@
 
   (let [request (wire/rpc-query-request! (query-plan :page) wire/query-current)
         drained (rpc/query-all! @client request)]
-    (check! "paged query drains every row from a real head daemon"
+    (check! "paged query drains every row from the pinned server"
             (= 450 (count (:rows drained))))
     (check! "paged query uses the TermCodec-safe effective page size"
             (= 3 (:pages drained)))
@@ -309,7 +307,7 @@
                        nil)
                       (rpc/transport-round-trip! logical-client request)))]
           (rpc/version! @client))]
-    (check! "the retry allowlist matches the daemon's own retryable set"
+    (check! "the retry allowlist matches the server's own retryable set"
             (contains? rpc/retryable-error-codes :query/archive-unavailable))
     (check! "an archive-unavailable answer is retried, never surfaced"
             (= 2 (:attempts response))))
@@ -368,7 +366,7 @@
         (thrown-data
          #(rpc/connect "127.0.0.1" port "wrong-space"
                        {:max-attempts 1 :retry-delay-ms 0 :jitter-ms 0}))]
-    (check! "connect rejects a daemon serving a different SpaceId"
+    (check! "connect rejects a server serving a different SpaceId"
             (= :rpc/space-mismatch (:type wrong-space))))
 
   ;; --- multi-predicate subject projection ------------------------------------
@@ -575,7 +573,7 @@
   (finally
     (when (and @client (not (rpc/closed? @client)))
       (rpc/close! @client))
-    (when-let [^Process process @daemon]
+    (when-let [^Process process @server]
       (.destroy process)
       (when-not (.waitFor process 5 java.util.concurrent.TimeUnit/SECONDS)
         (.destroyForcibly process)

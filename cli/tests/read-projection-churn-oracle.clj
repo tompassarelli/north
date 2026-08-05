@@ -1,20 +1,18 @@
 #!/usr/bin/env bb
 ;; Deterministic reliability oracle for North read projections under write churn.
 ;;
-;; Run from the North root:
-;;   bb -cp out:$HOME/code/fram/main/out cli/tests/read-projection-churn-oracle.clj
-;;
-;; The harness always creates a temporary flat log and an isolated serve-flat
-;; coordinator. It refuses port 7977 at every socket boundary. Defaults exercise
+;; The harness always creates a temporary FRAMLOG and an isolated current Fram
+;; FRAMRPC server. It refuses port 7977 at every socket boundary. Defaults exercise
 ;; three corpus sizes, three writer counts, and five trials per combination.
-(require '[babashka.process :as proc]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.set :as set]
          '[clojure.string :as str])
 
-(import '[java.net InetSocketAddress ServerSocket Socket]
+(import '[java.net ServerSocket]
         '[java.util.concurrent CountDownLatch TimeUnit])
 
 (def protected-ports #{7977 48942})
@@ -24,24 +22,19 @@
 (def baseline-run "@run:oracle-roster-baseline")
 (def baseline-message "@msg:oracle-inbox-baseline")
 (def baseline-concern "@concern-oracle-baseline")
-(def single-valued
-  "title owner lead driver source part_of do_on valid_until estimate_hours created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log candidate_rev candidate_git_dir judgment_grade")
-(def terminal-predicates "outcome abandoned superseded_by")
-(def withdrawn-predicates "abandoned")
+(def test-space "north-coordination")
 
 (def defaults
   {:corpus-sizes [50000 100000 200000]
    :writers [1 4 8]
    :trials 5
    :writes-per-writer 200
-   :read-timeout-ms 10000
-   :fram (or (System/getenv "FRAM_TEST_CHECKOUT")
-             (str (System/getProperty "user.home") "/code/fram/main"))})
+   :read-timeout-ms 10000})
 
 (defn usage! [message]
   (when message
     (binding [*out* *err*] (println message)))
-  (println "usage: read-projection-churn-oracle.clj [--corpus-sizes N,N] [--writers N,N] [--trials N] [--writes-per-writer N] [--read-timeout-ms N] [--fram PATH]")
+  (println "usage: read-projection-churn-oracle.clj [--corpus-sizes N,N] [--writers N,N] [--trials N] [--writes-per-writer N] [--read-timeout-ms N]")
   (System/exit (if message 2 0)))
 
 (defn positive-int [option raw]
@@ -77,7 +70,6 @@
            (assoc options :writes-per-writer (positive-int option value))
            "--read-timeout-ms"
            (assoc options :read-timeout-ms (positive-int option value))
-           "--fram" (assoc options :fram value)
            (usage! (str "unknown option " option))))))))
 
 (def options (parse-args *command-line-args*))
@@ -86,14 +78,23 @@
    (io/file (.getParent (io/file (or *file*
                                      (System/getProperty "babashka.file"))))
             "../..")))
-(def fram-root (.getCanonicalPath (io/file (:fram options))))
+(def fram-root "/home/tom/code/fram/wt-core-target-production-5db9b38")
 (def north-out (str north-root "/out"))
 (def fram-out (str fram-root "/out"))
 (def read-classpath (str north-out java.io.File/pathSeparator fram-out))
+(cp/add-classpath read-classpath)
+(load-file (str north-root "/cli/coord.clj"))
+(alter-var-root #'north.coord/telemetry-partition-enabled?
+                (constantly (fn [] false)))
+(load-file (str fram-root "/database.clj"))
+(require '[database :as database]
+         '[fram.store :as store]
+         '[fram.types :as t])
 (load-file (str north-root "/cli/agent-provenance.clj"))
 
-(when-not (.isFile (io/file fram-root "coord_daemon.clj"))
-  (throw (ex-info "Fram checkout lacks coord_daemon.clj" {:fram fram-root})))
+(when-not (.isFile (io/file fram-root "bin/fram-server"))
+  (throw (ex-info "current Fram checkout lacks bin/fram-server"
+                  {:fram fram-root})))
 (when-not (.isDirectory (io/file north-out))
   (throw (ex-info "North output directory is missing; run ./build.sh"
                   {:out north-out})))
@@ -118,24 +119,6 @@
       (throw (ex-info "scratch log escaped its temporary directory"
                       {:directory directory :log log})))
     log))
-
-(defn wire-request [port log request]
-  (require-scratch-port! port)
-  (with-open [socket (Socket.)]
-    (.connect socket (InetSocketAddress. "127.0.0.1" (int port)) 1000)
-    (.setSoTimeout socket 30000)
-    (let [writer (io/writer (.getOutputStream socket))
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (str (pr-str {:op :for-log
-                            :expected-log (.getCanonicalPath (io/file log))
-                            :request request})
-                   "\n"))
-      (.flush writer)
-      (let [line (.readLine ^java.io.BufferedReader reader)]
-        (when-not line
-          (throw (ex-info "coordinator closed without a response" {})))
-        (edn/read-string line)))))
 
 (defn eventually [f]
   (loop [remaining 600]
@@ -175,81 +158,78 @@
            ((ns-resolve 'north.agent-provenance 'manifest-sha256) facts))))
 
 (defn fixture-facts []
-  (let [lease-expiry (+ (System/currentTimeMillis) (* 24 60 60 1000))]
-    (vec
-     (concat
-      (map (fn [[predicate value]]
-             [(str "@agent:" steer-control) predicate value])
-           (sort-by key (identity-facts)))
-      [[(str "@lease:session:" steer-control)
-        "lease" (str steer-control "|" lease-expiry "|1")]
-       [baseline-run "agent" roster-control]
-       [baseline-run "at" "2026-07-25T00:00:00Z"]
-       [baseline-run "kind" "run"]
-       [baseline-run "outcome" "ran"]
-       [baseline-message "to" inbox-recipient]
-       [baseline-message "from" "oracle-sender"]
-       [baseline-message "subject" "baseline"]
-       [baseline-concern "kind" "concern"]
-       [baseline-concern "agent" ""]
-       [baseline-concern "repo" north-root]
-       [baseline-concern "intent" "projection oracle baseline"]
-       [baseline-concern "reached" "building"]
-       [baseline-concern "touches" "cli/tests/read-projection-churn-oracle.clj"]]))))
-
-(defn flat-line [tx subject predicate value]
-  (pr-str {:tx tx :op "assert" :l subject :p predicate
-           :r value :frame "read-projection-churn-oracle"}))
+  (vec
+   (concat
+    (map (fn [[predicate value]]
+           [(str "@agent:" steer-control) predicate value])
+         (sort-by key (identity-facts)))
+    [[baseline-run "agent" roster-control]
+     [baseline-run "at" "2026-07-25T00:00:00Z"]
+     [baseline-run "kind" "run"]
+     [baseline-run "outcome" "ran"]
+     [baseline-message "to" inbox-recipient]
+     [baseline-message "from" "oracle-sender"]
+     [baseline-message "subject" "baseline"]
+     [baseline-message "body" "projection oracle baseline"]
+     [baseline-message "sent_at" "2026-07-25T00:00:00Z"]
+     [baseline-concern "kind" "concern"]
+     [baseline-concern "repo" north-root]
+     [baseline-concern "intent" "projection oracle baseline"]
+     [baseline-concern "reached" "building"]
+     [baseline-concern "touches" "cli/tests/read-projection-churn-oracle.clj"]])))
 
 (defn seed-log! [log target-facts]
   (let [fixtures (fixture-facts)]
     (when (< target-facts (count fixtures))
       (throw (ex-info "corpus size is smaller than the required fixture"
                       {:requested target-facts :minimum (count fixtures)})))
-    (with-open [writer (io/writer log)]
-      (doseq [[index [subject predicate value]] (map-indexed vector fixtures)]
-        (.write writer (flat-line (inc index) subject predicate value))
-        (.write writer "\n"))
-      (doseq [index (range (- target-facts (count fixtures)))]
-        (let [tx (+ (count fixtures) index 1)
-              subject (format "@oracle:bulk:%09d" index)]
-          (.write writer (flat-line tx subject "oracle_payload"
-                                    (str "value-" index)))
-          (.write writer "\n"))))
+    (database/create-triple-log! log test-space)
+    (let [db (database/open-database! log test-space)
+          rows
+          (concat
+           fixtures
+           (map (fn [index]
+                  [(format "@oracle:bulk:%09d" index)
+                   "oracle_payload" (str "value-" index)])
+                (range (- target-facts (count fixtures)))))]
+      (doseq [chunk (partition-all 1000 rows)]
+        (let [result
+              (database/commit!
+               db {:operations
+                   (mapv (fn [[subject predicate value]]
+                           (store/assert-operation
+                            (t/triple subject predicate value)))
+                         chunk)})]
+          (when-not (:ok result)
+            (throw (ex-info "FRAMLOG corpus seed failed" result))))))
     {:target target-facts :fixtures (count fixtures)}))
 
-(def inherited-selector-keys
-  ["FRAM_BIND" "FRAM_CONNECT" "FRAM_LOG" "FRAM_MMAP_IMAGE" "FRAM_PORT"
-   "FRAM_SNAPSHOT_BOOT" "FRAM_TELEMETRY_LOG" "FRAM_THREADS"
-   "FRAM_TLS_KEYSTORE" "FRAM_TLS_PASS" "FRAM_TLS_PASS_FILE"
-   "FRAM_TLS_TRUSTSTORE" "NORTH_PORT"])
+(def inherited-selector-keys ["NORTH_PORT"])
 
 (defn isolated-environment []
   (apply dissoc (into {} (System/getenv)) inherited-selector-keys))
 
-(defn daemon-env []
-  (merge
-   (isolated-environment)
-   {"FRAM_BIND" "127.0.0.1"
-    "FRAM_SINGLE_VALUED" single-valued
-    "FRAM_TERMINAL_PREDS" terminal-predicates
-    "FRAM_WITHDRAWN_PREDS" withdrawn-predicates
-    "FRAM_REQUIRE_LOG_FENCE" "1"}))
+(defn server-env []
+  (merge (isolated-environment)
+         {"FRAM_SERVER_RUNTIME" "jvm-dev"
+          "FRAM_SERVER_QUIET" "1"
+          "FRAM_SERVER_XMX" "2g"}))
 
-(defn start-daemon! [port log daemon-output]
+(defn start-server! [port log server-output]
   (require-scratch-port! port)
   (proc/process
    {:dir fram-root
-    :out daemon-output
+    :out server-output
     :err :out
-    :env (daemon-env)}
-   "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log))
+    :env (server-env)}
+   (str fram-root "/bin/fram-server") "serve" (str port) log test-space))
 
-(defn process-env [port log]
+(defn process-env [port _log]
   (merge
-   (daemon-env)
-   {"FRAM_LOG" log
-    "FRAM_THREADS" (str (.getParentFile (io/file log)))
+   (server-env)
+   {"FRAM_SPACE_ID" test-space
+    "NORTH_FRAMRPC_HOST" "127.0.0.1"
+    "NORTH_TELEMETRY_PARTITION" "0"
     "NORTH_PORT" (str (require-scratch-port! port))
     "NORTH_HOME" north-root
     "NORTH_AGENTS_LIB" "1"
@@ -368,7 +348,8 @@
 (defn steer-read [port log trial]
   (let [process
         (run-bounded
-         ["bb" (str north-root "/cli/msg-cli.clj") (str port) "send"
+         ["bb" "-cp" read-classpath
+          (str north-root "/cli/msg-cli.clj") (str port) "send"
           "oracle-harness" steer-control "steer" (str "oracle trial " trial)]
          port log)
         message (str/lower-case (str (:out process) "\n" (:err process)))]
@@ -395,7 +376,8 @@
 
 (defn inbox-read [port log expected]
   (let [process
-        (run-bounded ["bb" (str north-root "/cli/msg-cli.clj") (str port)
+        (run-bounded ["bb" "-cp" read-classpath
+                      (str north-root "/cli/msg-cli.clj") (str port)
                       "inbox" inbox-recipient]
                      port log)
         observed
@@ -407,7 +389,8 @@
 
 (defn concern-read [port log expected]
   (let [process
-        (run-bounded ["bb" (str north-root "/cli/concern-cli.clj")
+        (run-bounded ["bb" "-cp" read-classpath
+                      (str north-root "/cli/concern-cli.clj")
                       (str port) "list-json"]
                      port log)]
     (if (or (:timeout process) (not (zero? (:exit process))))
@@ -425,11 +408,11 @@
         (catch Throwable error
           (result :concerns :malformed process (.getMessage error)))))))
 
-(defn checked-write! [port log request]
-  (let [response (wire-request port log request)]
+(defn checked-write! [port actions]
+  (let [response (north.coord/transact! port actions)]
     (when-not (integer? (:ok response))
       (throw (ex-info "scratch write was not acknowledged"
-                      {:request request :response response})))
+                      {:actions actions :response response})))
     response))
 
 (defn generation-facts [corpus writers trial]
@@ -452,22 +435,21 @@
                 ["sent_at" "2026-07-25T00:00:00Z"]
                 ["to" inbox-recipient]]]
       [concern [["kind" "concern"]
-                ["agent" ""]
                 ["repo" north-root]
                 ["intent" (str "projection oracle " suffix)]
                 ["reached" "building"]
                 ["touches" "cli/tests/read-projection-churn-oracle.clj"]]]]}))
 
-(defn publish-generation! [port log generation]
+(defn publish-generation! [port _log generation]
   (doseq [[subject facts] (:writes generation)]
-    (checked-write! port log
-                    {:op :assert-batch
-                     :te subject
-                     :facts (mapv (fn [[predicate value]]
-                                    {:p predicate :r value})
-                                  facts)})))
+    (checked-write!
+     port
+     (mapv (fn [[predicate value]]
+             {:op :assert :subject subject
+              :predicate predicate :value value})
+           facts))))
 
-(defn churn-writer [port log corpus writers trial writer-index start first-acks]
+(defn churn-writer [port _log corpus writers trial writer-index start first-acks]
   (future
     (.await start)
     (loop [index 0 acknowledgements 0 failures [] last-write nil]
@@ -479,10 +461,8 @@
               value (str "write-" writer-index "-" index)
               outcome
               (try
-                (let [response
-                      (wire-request port log
-                                    {:op :assert :te subject
-                                     :p "oracle_churn" :r value})]
+                (let [response (north.coord/append!
+                                port subject "oracle_churn" value)]
                   (if (integer? (:ok response))
                     {:ok true}
                     {:ok false :error (pr-str response)}))
@@ -496,16 +476,13 @@
                    (not (:ok outcome)) (conj (:error outcome)))
                  (if (:ok outcome) [subject value] last-write)))))))
 
-(defn verify-writer-result [port log writer-result]
+(defn verify-writer-result [port _log writer-result]
   (let [[subject value] (:last-write writer-result)]
     (and (empty? (:failures writer-result))
          (= (:writes-per-writer options) (:acks writer-result))
          subject
          (contains?
-          (set (:values
-                (wire-request port log
-                              {:op :resolved :te subject
-                               :p "oracle_churn"})))
+          (set (north.coord/many port subject "oracle_churn"))
           value))))
 
 (def results (atom []))
@@ -564,23 +541,25 @@
          (java.nio.file.Files/createTempDirectory
           (str "north-read-projection-oracle-" corpus "-")
           (make-array java.nio.file.attribute.FileAttribute 0)))
-        log (require-scratch-log! directory (io/file directory "facts.log"))
-        daemon-output (io/file directory "daemon.log")
+        log (require-scratch-log! directory (io/file directory "facts.framlog"))
+        server-output (io/file directory "fram-server.log")
         port (free-high-port)
         seed (seed-log! log corpus)
-        daemon (start-daemon! port log daemon-output)]
+        server (start-server! port log server-output)]
     (try
       (when-not
        (eventually
-        #(integer? (:version (wire-request port log {:op :version}))))
-        (throw (ex-info "scratch coordinator did not become ready"
-                        {:port port :log log :daemon-log (str daemon-output)})))
-      (let [status (wire-request port log {:op :status})]
+        #(let [status (north.coord/status port)]
+           (and (= :ready (:state status))
+                (= test-space (:space-id status)))))
+        (throw (ex-info "scratch current Fram server did not become ready"
+                        {:port port :log log :server-log (str server-output)})))
+      (let [served-facts (:live-count (north.coord/status port))]
         (println
          (str/join "\t"
                    ["CONFIG" (str "corpus=" corpus)
                     (str "seeded=" (:target seed))
-                    (str "served_facts=" (:facts status))
+                    (str "served_facts=" served-facts)
                     (str "port=" port)
                     (str "log=" log)])))
       (loop [levels (:writers options)
@@ -595,9 +574,9 @@
                  expected
                  (range 1 (inc (:trials options))))]
             (recur (rest levels) next-expected))))
-      {:corpus corpus :port port :log log :daemon-log (str daemon-output)}
+      {:corpus corpus :port port :log log :server-log (str server-output)}
       (finally
-        (stop-process! daemon)))))
+        (stop-process! server)))))
 
 (def degraded #{:unavailable :false-empty :malformed})
 
@@ -651,7 +630,7 @@
        (str "attempted_writer_levels=" (str/join "," (:writers options)))
        (str "trials_per_level=" (:trials options))
        (str "scratch_artifacts="
-            (str/join "," (map (juxt :port :log :daemon-log) artifacts)))]))
+            (str/join "," (map (juxt :port :log :server-log) artifacts)))]))
     (when-not writes-healthy?
       (System/exit 1))))
 

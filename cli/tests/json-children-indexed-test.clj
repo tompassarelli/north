@@ -1,12 +1,12 @@
 #!/usr/bin/env bb
 ;; `north json children` and `north json child-settlement` are the two reads a
 ;; managed orchestrator turn-end reconciles against, under a 45s and a 5s
-;; budget. Both stay functionally correct on a tiny fixture while a whole-corpus
-;; :facts request exhausts those budgets on the live graph, so the wire shape
+;; budget. Both stay functionally correct on a tiny fixture while a whole-database
+;; scan exhausts those budgets on the live graph, so the canonical request shape
 ;; itself is the regression contract.
-(require '[babashka.process :as proc]
+(require '[babashka.classpath :as classpath]
+         '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io])
 
 (def root
@@ -16,8 +16,13 @@
         (str (.getParent (io/file (System/getProperty "babashka.file")))
              "/../..")))))
 
-(def coordination-log "/tmp/north-json-children-indexed-coordination.log")
-(def telemetry-log "/tmp/north-json-children-indexed-telemetry.log")
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(def coordination-space "north-coordination")
+(def telemetry-space "north-telemetry")
+
+(classpath/add-classpath (str fram "/out"))
+(require '[framrpc :as wire]
+         '[fram.types :as t])
 
 (def checks (atom []))
 (defn check! [label value]
@@ -41,27 +46,185 @@
           (json/generate-string id)
           ")));")]))
 
-;; The child-settlement projection is deliberately several indexed reads, so the
-;; peer must answer a SEQUENCE and record every request in order — a one-shot
-;; socket would make the second query look like an unreachable coordinator.
+(defn read-exact! [input bytes offset length]
+  (loop [position offset remaining length]
+    (if (zero? remaining)
+      true
+      (let [read-count (.read input bytes position remaining)]
+        (if (neg? read-count)
+          false
+          (recur (+ position read-count) (- remaining read-count)))))))
+
+(defn read-request-frame! [input]
+  (let [header (byte-array wire/rpc-v1-header-bytes)]
+    (when-not (read-exact! input header 0 wire/rpc-v1-header-bytes)
+      (throw (ex-info "FRAMRPC request ended inside its header"
+                      {:type :rpc-truncated})))
+    (let [buffer (doto (java.nio.ByteBuffer/wrap header)
+                   (.order java.nio.ByteOrder/LITTLE_ENDIAN)
+                   (.position 14))
+          body-length (Integer/toUnsignedLong (.getInt buffer))]
+      (when (> body-length wire/rpc-v1-max-body-bytes)
+        (throw (ex-info "FRAMRPC request exceeds the body limit"
+                        {:type :rpc-frame-too-large
+                         :body-length body-length})))
+      (let [body (byte-array (int body-length))
+            frame (byte-array (+ wire/rpc-v1-header-bytes (int body-length)))]
+        (when-not (read-exact! input body 0 (int body-length))
+          (throw (ex-info "FRAMRPC request ended inside its body"
+                          {:type :rpc-truncated})))
+        (System/arraycopy header 0 frame 0 wire/rpc-v1-header-bytes)
+        (System/arraycopy body 0 frame wire/rpc-v1-header-bytes
+                          (int body-length))
+        (wire/decode-rpc-frame-v1! frame)))))
+
+(defn scan-pattern [request]
+  (mapv wire/rpc-option-value!
+        (wire/rpc-record-fields!
+         (t/rpc-request-payload-value request)
+         :rpc/triple-pattern 3)))
+
+(defn query-plan-fields [request]
+  (let [[plan _snapshot]
+        (wire/rpc-record-fields!
+         (t/rpc-request-payload-value request) :query/request 2)]
+    (wire/rpc-record-fields! plan :query/plan 2)))
+
+(defn query-find [request]
+  (let [[find _strata] (query-plan-fields request)
+        [relation] (wire/rpc-record-fields! find :query/find-relation 1)]
+    relation))
+
+(defn query-head-width [request]
+  (let [[_find strata] (query-plan-fields request)
+        [rules]
+        (wire/rpc-record-fields!
+         (first (wire/rpc-list-values! strata)) :query/stratum 1)
+        [head _clauses]
+        (wire/rpc-record-fields!
+         (first (wire/rpc-list-values! rules)) :query/rule 2)
+        [_relation terms]
+        (wire/rpc-record-fields! head :query/head 2)]
+    (count (wire/rpc-list-values! terms))))
+
+(defn query-argument! [argument]
+  (if (map? argument)
+    (wire/rpc-query-variable! (:var argument))
+    (wire/rpc-query-constant! argument)))
+
+(defn query-relation! [{:keys [rel args neg]}]
+  (wire/rpc-query-relation! rel (mapv query-argument! args) (boolean neg)))
+
+(defn query-rule! [{:keys [head body]}]
+  (wire/rpc-query-rule!
+   (wire/rpc-query-head! (:rel head) (mapv query-argument! (:args head)))
+   (mapv query-relation! body)))
+
+(defn query-request! [{:keys [find rules]}]
+  (wire/rpc-query-request!
+   (wire/rpc-query-plan!
+    (wire/rpc-query-find-relation! find)
+    [(wire/rpc-query-stratum! (mapv query-rule! rules))])
+   wire/query-current))
+
+(defn page-observation [page]
+  (when page
+    {:limit (t/rpcpagerequest-limit page)
+     :cursor (t/rpc-page-request-cursor-value page)}))
+
+(defn request-observation [request]
+  {:space (t/rpcrequest-space request)
+   :op (t/rpcrequest-op request)
+   :expected-version (t/rpcrequest-expected-version request)
+   :page (page-observation (t/rpcrequest-page request))
+   :timeout-ms (t/rpcrequest-timeout-ms request)
+   :payload (t/rpc-request-payload-value request)})
+
+(defn query-observation [space query]
+  {:space space
+   :op :rpc/query
+   :expected-version nil
+   :page {:limit 200 :cursor nil}
+   :timeout-ms nil
+   :payload (query-request! query)})
+
+(defn exact-query? [request space query]
+  (= (query-observation space query) (request-observation request)))
+
+(defn exact-scan? [request space subject]
+  (and (= space (t/rpcrequest-space request))
+       (= :rpc/scan (t/rpcrequest-op request))
+       (= [subject nil nil] (scan-pattern request))))
+
+(defn response-for [frame response]
+  (let [request (t/rpcframev1-request frame)
+        operation (t/rpcrequest-op request)
+        version (or (:version response) 0)
+        error
+        (cond
+          (:row-limit? response)
+          (wire/rpc-error! :query-row-limit false
+                           "query exceeded its row bound" nil)
+
+          (not (contains? #{:rpc/status :rpc/query :rpc/scan} operation))
+          (wire/rpc-error! :rpc/unsupported-operation false
+                           "fixture accepts only status, query, and scan" nil))
+        page (when (and (nil? error) (contains? #{:rpc/query :rpc/scan} operation))
+               (wire/rpc-page-response! 0 nil true))
+        payload
+        (when-not error
+          (case operation
+            :rpc/status
+            (wire/rpc-status!
+             :ready (count (:rows response)) :rpc/jvm
+             (wire/rpc-record! :rpc/result-cache [0 0 0 0]))
+
+            :rpc/query
+            (if (:malformed? response)
+              (wire/rpc-record! :rpc/not-query-rows [])
+              (wire/rpc-query-rows!
+               (mapv wire/rpc-query-row! (:rows response))))
+
+            :rpc/scan
+            (if (:malformed? response)
+              (wire/rpc-record! :rpc/not-triples [])
+              (let [[subject _predicate _value] (scan-pattern request)]
+                (wire/rpc-triples!
+                 (mapv (fn [[predicate value]]
+                         (t/triple subject predicate value))
+                       (:rows response)))))
+
+            wire/rpc-unit))
+        typed-response
+        (wire/rpc-response!
+         (t/rpcrequest-space request) operation version page error payload)]
+    (wire/rpc-response-frame (t/rpcframev1-request-id frame) typed-response)))
+
+(defn serve-peer! [server respond requests worker-error]
+  (try
+    (loop []
+      (with-open [socket (.accept server)]
+        (let [frame (read-request-frame! (.getInputStream socket))
+              request (t/rpcframev1-request frame)
+              output (.getOutputStream socket)]
+          (swap! requests conj request)
+          (.write output
+                  (wire/encode-rpc-frame-v1!
+                   (response-for frame (respond request))))
+          (.flush output)))
+      (recur))
+    (catch java.net.SocketException _)
+    (catch Throwable error
+      (reset! worker-error error))))
+
+;; The child-settlement projection is deliberately several bounded reads, so
+;; the peer answers a sequence and records every typed request in order.
 (defn invoke-peer
   [mode id respond extra-env]
   (let [server (java.net.ServerSocket. 0)
         requests (atom [])
-        worker
-        (future
-          (try
-            (loop []
-              (with-open [socket (.accept server)
-                          reader (io/reader (.getInputStream socket))
-                          writer (io/writer (.getOutputStream socket))]
-                (let [request (edn/read-string (.readLine reader))]
-                  (swap! requests conj request)
-                  (.write writer (str (pr-str (respond request)) "\n"))
-                  (.flush writer)))
-              (recur))
-            (catch Throwable _ nil)))
-        fram (.getCanonicalPath (io/file root "../../fram/main"))
+        worker-error (atom nil)
+        worker (future (serve-peer! server respond requests worker-error))
         port (str (.getLocalPort server))
         routed-env
         (into {}
@@ -77,8 +240,17 @@
           :extra-env
           (merge
            {"FRAM_HOME" fram
-            "FRAM_LOG" coordination-log
+            "FRAM_BIN" (str fram "/bin")
+            "FRAM_OUT" (str fram "/out")
+            "FRAM_SERVER_CONNECT" "127.0.0.1"
+            "FRAM_SERVER_PORT" port
+            "FRAM_SPACE_ID" coordination-space
+            "NORTH_FRAMRPC_ENV" "/tmp/north-json-children-indexed-no-framrpc-env"
+            "NORTH_FRAMRPC_HOST" "127.0.0.1"
+            "NORTH_FRAMRPC_OUT" (str fram "/out")
+            "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
+            "NORTH_TELEMETRY_SPACE_ID" telemetry-space
             "NORTH_TELEMETRY_PARTITION" "0"
             "NORTH_VERB_SLOTS" "0"
             "NORTH_AGENTS_LIB" "1"
@@ -87,26 +259,25 @@
             "NO_COLOR" "1"
             "WORLD_MANIFEST_PATH" "/tmp/north-json-children-indexed-no-manifest"}
            routed-env)}
-         (command-for mode id))]
-    (future-cancel worker)
-    (.close server)
-    {:result result :requests @requests}))
+         (command-for mode id))
+        _ (.close server)
+        _ (try (deref worker 1000 nil) (catch Throwable _ nil))]
+    {:result result :requests @requests :worker-error @worker-error}))
 
-(defn query-body [request]
-  (get-in request [:request :query :rules 0 :body]))
+(defn ok [version rows] {:version version :rows rows})
+(defn row-limit [version] {:version version :row-limit? true})
 
-(defn ok [version rows] {:ok rows :version version :engine "index"})
-(defn rows-response [version rows] {:version version :rows rows})
-(defn row-limit [version]
-  {:error ["indexed query exceeded its row bound"]
-   :code :query-row-limit
-   :version version
-   :engine "index"})
+(defn children-query [parent]
+  {:find "north_child"
+   :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} "part_of" (str "@" parent)]}]}]})
 
 ;; --- json children -----------------------------------------------------------
 
 (let [parent "019fc807-fb95-749b-b620-9873d5495541"
-      {:keys [result requests]}
+      query (children-query parent)
+      {:keys [result requests worker-error]}
       (invoke-peer :children parent
                    (constantly (ok 11 [["@019fc83d-0000-7000-8000-000000000002"]
                                        ["@019fc83d-0000-7000-8000-000000000001"]
@@ -114,18 +285,10 @@
                    {})
       parsed (when (zero? (:exit result)) (json/parse-string (:out result)))]
   (check! "json children exits successfully" (zero? (:exit result)))
-  (check! "json children issues exactly one indexed request" (= 1 (count requests)))
-  (check! "json children fences one indexed part_of reverse lookup"
-          (= {:op :for-log
-              :expected-log coordination-log
-              :request {:op :query
-                        :query {:find "north_child"
-                                :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
-                                         :body [{:rel "triple"
-                                                 :args [{:var "subject"} "part_of" (str "@" parent)]}]}]}
-                        :query-max-rows 4096
-                        :query-max-response-bytes 1048576}}
-             (first requests)))
+  (check! "json children issues exactly one bounded request" (= 1 (count requests)))
+  (check! "json children sends one canonical part_of query"
+          (and (nil? worker-error)
+               (exact-query? (first requests) coordination-space query)))
   (check! "json children sorts and uniques into the JSON contract"
           (= ["019fc83d-0000-7000-8000-000000000001"
               "019fc83d-0000-7000-8000-000000000002"]
@@ -170,21 +333,55 @@
    ["process_outcome" "delivered"]
    ["run_committed" "2026-08-03T16:00:00Z"]])
 
+(defn child-subject-query [coordinator]
+  {:find "north_child"
+   :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} "coordinator" coordinator]}]}]})
+
+(defn child-fact-query [coordinator]
+  {:find "north_child_fact"
+   :rules [{:head {:rel "north_child_fact"
+                   :args [{:var "subject"} {:var "predicate"} {:var "value"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} "coordinator" coordinator]}
+                   {:rel "triple"
+                    :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]})
+
+(def tagged-run-query
+  {:find "north_child_run"
+   :rules [{:head {:rel "north_child_run"
+                   :args [{:var "subject"} {:var "agent"}]}
+            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
+                   {:rel "triple"
+                    :args [{:var "subject"} "agent" {:var "agent"}]}]}]})
+
+(defn child-run-query [agent-id]
+  {:find "north_child_run"
+   :rules [{:head {:rel "north_child_run" :args [{:var "subject"}]}
+            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
+                   {:rel "triple"
+                    :args [{:var "subject"} "agent" agent-id]}]}]})
+
 (defn settlement-responder
   [{:keys [child-facts tagged-runs child-show]}]
   (fn [request]
-    (let [inner (:request request)]
-      (case (:op inner)
-        :show (rows-response 31 (if (= (:te inner) (str "@" child-run))
-                                  run-show-rows
-                                  (or child-show [])))
-        :query (let [body (query-body request)]
-                 (if (= "coordinator" (second (:args (first body))))
-                   (child-facts request)
-                   (tagged-runs request)))
-        {:error ["unexpected op"] :code :bad :version 31 :engine "index"}))))
+    (case (t/rpcrequest-op request)
+      :rpc/scan
+      (ok 31 (if (= (first (scan-pattern request)) (str "@" child-run))
+               run-show-rows
+               (or child-show [])))
 
-(let [{:keys [result requests]}
+      :rpc/query
+      (case (query-find request)
+        ("north_child_fact" "north_child") (child-facts request)
+        "north_child_run" (tagged-runs request)
+        {:version 31 :malformed? true})
+
+      {:version 31 :malformed? true})))
+
+(let [child-query (child-fact-query coordinator)
+      {:keys [result requests worker-error]}
       (invoke-peer
        :settlement coordinator
        (settlement-responder
@@ -196,28 +393,16 @@
       parsed (when (zero? (:exit result)) (json/parse-string (:out result)))]
   (check! "json child-settlement exits successfully" (zero? (:exit result)))
   (check! "json child-settlement never issues a whole-corpus request"
-          (every? #(#{:query :show} (get-in % [:request :op])) requests))
-  (check! "the child projection is one indexed coordinator join"
-          (= {:op :query
-              :query {:find "north_child_fact"
-                      :rules [{:head {:rel "north_child_fact"
-                                      :args [{:var "subject"} {:var "predicate"} {:var "value"}]}
-                               :body [{:rel "triple"
-                                       :args [{:var "subject"} "coordinator" coordinator]}
-                                      {:rel "triple"
-                                       :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]}
-              :query-max-rows 4096
-              :query-max-response-bytes 1048576}
-             (:request (first requests))))
-  (check! "the run projection is one indexed kind+agent join"
-          (= {:find "north_child_run"
-              :rules [{:head {:rel "north_child_run" :args [{:var "subject"} {:var "agent"}]}
-                       :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
-                              {:rel "triple" :args [{:var "subject"} "agent" {:var "agent"}]}]}]}
-             (get-in (second requests) [:request :query])))
-  (check! "run facts come back as exact per-subject reads"
-          (= {:op :show :te (str "@" child-run)}
-             (:request (last requests))))
+          (and (nil? worker-error)
+               (every? #(contains? #{:rpc/query :rpc/scan}
+                                    (t/rpcrequest-op %))
+                       requests)))
+  (check! "the child projection is one canonical coordinator join"
+          (exact-query? (first requests) coordination-space child-query))
+  (check! "the run projection is one canonical kind+agent join"
+          (exact-query? (second requests) coordination-space tagged-run-query))
+  (check! "run facts come back as exact subject scans"
+          (exact-scan? (last requests) coordination-space (str "@" child-run)))
   (check! "the envelope keeps the closed north.child-settlement contract"
           (= ["protocol" "version" "coordinator" "children" "runs"] (keys parsed)))
   (check! "non-agent coordinator subjects stay out of the child set"
@@ -238,7 +423,7 @@
        :settlement coordinator
        (settlement-responder
         {:child-facts (fn [request]
-                        (if (= 3 (count (get-in request [:request :query :rules 0 :head :args])))
+                        (if (= 3 (query-head-width request))
                           (row-limit 32)
                           (ok 32 [[(str "@" child)] [(str "@" coordinator)]])))
          :tagged-runs (constantly (ok 32 []))
@@ -251,11 +436,8 @@
                    {"subject" child "predicate" "kind" "value" "agent"}]
                   (get parsed "children"))))
   (check! "the fallback re-asks for child subjects only"
-          (= {:find "north_child"
-              :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
-                       :body [{:rel "triple"
-                               :args [{:var "subject"} "coordinator" coordinator]}]}]}
-             (get-in (second requests) [:request :query]))))
+          (exact-query? (second requests) coordination-space
+                        (child-subject-query coordinator))))
 
 (let [{:keys [result]}
       (invoke-peer :settlement coordinator
@@ -274,7 +456,7 @@
                     {:child-facts (constantly (ok 34 child-fact-rows))
                      :tagged-runs
                      (fn [request]
-                       (if (= 2 (count (get-in request [:request :query :rules 0 :head :args])))
+                       (if (= 2 (query-head-width request))
                          (row-limit 34)
                          (ok 34 [[(str "@" child-run)]])))})
                    {})
@@ -284,14 +466,15 @@
                (= [child-run] (distinct (map #(get % "subject") (get parsed "runs")))))))
 
 (let [{:keys [result]}
-      (invoke-peer :settlement coordinator (constantly {:garbage true}) {})]
+      (invoke-peer :settlement coordinator
+                   (constantly {:version 31 :malformed? true}) {})]
   (check! "an unreachable or malformed coordinator refuses loudly"
           (and (= 4 (:exit result))
                (re-find #"json child-settlement REFUSED" (:err result))
                (empty? (:out result)))))
 
-;; Runs are telemetry-partitioned subjects; the corpus path this replaces read
-;; the union of both origins, so the projection must too.
+;; Runs are telemetry-partitioned subjects, so the projection reads both named
+;; spaces and merges their rows.
 (let [{:keys [result requests]}
       (invoke-peer
        :settlement coordinator
@@ -299,12 +482,11 @@
         {:child-facts (constantly (ok 35 child-fact-rows))
          :tagged-runs (constantly (ok 35 []))})
        {"NORTH_TELEMETRY_PARTITION" "1"
-        "NORTH_TELEMETRY_PORT" "$SERVER_PORT"
-        "FRAM_TELEMETRY_LOG" telemetry-log})]
-  (check! "tagged runs are read from both the coordination and telemetry origins"
+        "NORTH_TELEMETRY_PORT" "$SERVER_PORT"})]
+  (check! "tagged runs are read from both canonical SpaceIds"
           (and (zero? (:exit result))
-               (= [coordination-log coordination-log telemetry-log]
-                  (map :expected-log requests)))))
+               (= [coordination-space coordination-space telemetry-space]
+                  (mapv t/rpcrequest-space requests)))))
 
 ;; --- SDK end-to-end ----------------------------------------------------------
 
@@ -316,7 +498,7 @@
          :tagged-runs (constantly (ok 36 [[(str "@" child-run) "sdk-spawn-msddviyc-68c79f08-79b2-443c-b8f8-78c5118f162f"]]))})
        {})
       parsed (when (zero? (:exit result)) (json/parse-string (:out result)))]
-  (check! "SDK settleChildren accepts the indexed envelope inside its deadline"
+  (check! "SDK settleChildren accepts the bounded FRAMRPC envelope inside its deadline"
           (= {"kind" "settled" "children" [(str "@" child)]} parsed)))
 
 (let [failed (remove second @checks)]

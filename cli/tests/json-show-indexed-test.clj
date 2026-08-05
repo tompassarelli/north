@@ -15,16 +15,7 @@
         (str (.getParent (io/file (System/getProperty "babashka.file")))
              "/../..")))))
 
-(def fram
-  (or
-   (some-> (System/getenv "FRAM_TEST_CHECKOUT") io/file .getCanonicalPath)
-   (some (fn [path]
-           (let [candidate (io/file path)]
-             (when (.isDirectory (io/file candidate "out"))
-               (.getCanonicalPath candidate))))
-         [(str root "/../fram") (str root "/../../fram/main")])
-   (throw (ex-info "Fram head checkout is required; set FRAM_TEST_CHECKOUT"
-                   {:root root}))))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
 
 (classpath/add-classpath (str fram "/out"))
 (require '[framrpc :as wire]
