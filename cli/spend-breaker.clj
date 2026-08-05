@@ -106,11 +106,11 @@
 (defn budget-targets
   "Every configured spend-budget target (kind=spend-budget)."
   [port]
-  (->> (:ok (north.coord/send-op
-             port {:op :query
-                   :query {:find "b"
-                           :rules [{:head {:rel "b" :args [{:var "b"}]}
-                                    :body [{:rel "triple" :args [{:var "b"} "kind" "spend-budget"]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "b"
+         :rules [{:head {:rel "b" :args [{:var "b"}]}
+                  :body [{:rel "triple" :args [{:var "b"} "kind" "spend-budget"]}]}]})
        (map first)
        (map #(str/replace (str %) #"^@?spend-budget:" ""))
        distinct sort))
@@ -290,18 +290,18 @@
 ;; the child pid + the reservation it made). Step 3 provides the schema + both
 ;; consumers (sweep-kill, reaper settle) + the test writer.
 (defn open-spend-lanes [port]
-  (->> (:ok (north.coord/send-op
-             port {:op :query
-                   :query {:find "row"
-                           :strata [[{:head {:rel "settled" :args [{:var "e"}]}
-                                      :body [{:rel "triple" :args [{:var "e"} "settled_at" {:var "s"}]}]}]
-                                    [{:head {:rel "row" :args [{:var "e"} {:var "pid"} {:var "tgt"} {:var "per"} {:var "res"}]}
-                                      :body [{:rel "triple" :args [{:var "e"} "kind" "spend-lane"]}
-                                             {:rel "triple" :args [{:var "e"} "pid" {:var "pid"}]}
-                                             {:rel "triple" :args [{:var "e"} "target" {:var "tgt"}]}
-                                             {:rel "triple" :args [{:var "e"} "period" {:var "per"}]}
-                                             {:rel "triple" :args [{:var "e"} "reserved_microusd" {:var "res"}]}
-                                             {:rel "settled" :args [{:var "e"}] :neg true}]}]]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "row"
+         :strata [[{:head {:rel "settled" :args [{:var "e"}]}
+                    :body [{:rel "triple" :args [{:var "e"} "settled_at" {:var "s"}]}]}]
+                  [{:head {:rel "row" :args [{:var "e"} {:var "pid"} {:var "tgt"} {:var "per"} {:var "res"}]}
+                    :body [{:rel "triple" :args [{:var "e"} "kind" "spend-lane"]}
+                           {:rel "triple" :args [{:var "e"} "pid" {:var "pid"}]}
+                           {:rel "triple" :args [{:var "e"} "target" {:var "tgt"}]}
+                           {:rel "triple" :args [{:var "e"} "period" {:var "per"}]}
+                           {:rel "triple" :args [{:var "e"} "reserved_microusd" {:var "res"}]}
+                           {:rel "settled" :args [{:var "e"}] :neg true}]}]]})
        (map (fn [[e pid tgt per res]]
               {:id (str e) :pid (parse-long (str pid)) :target (str tgt)
                :period (str per) :reserved (parse-long (str res))
