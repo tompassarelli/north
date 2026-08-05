@@ -2,16 +2,11 @@
 ;; spend-cli.clj — the spend-guard budget LEDGER primitive (build-order step 2).
 ;;
 ;; Owns every ledger side effect: schema declaration, budget creation, the
-;; cap-checked CAS RESERVATION at admission, terminal SETTLEMENT, human
+;; cap-checked OCC RESERVATION at admission, terminal SETTLEMENT, human
 ;; overrides, and read-only status/headroom. Lives in clj — not TS — because the
-;; coordinator write wire (`:assert-at-version` global-version CAS) is exposed
-;; ONLY through cli/coord.clj; the TS SDK client is read-only (north-client.ts)
-;; and its coordination.ts is the real-time ping channel, not a write surface.
-;; The TS admission seam shells out to `reserve`/`settle` here (same shape the
-;; step-1 read path already shells `north json show`, and the Linear adapter
-;; shells reserve-link.clj). Correctness over elegance — per the CAS verdict
-;; (fram-cas-verification-2026-07-19.md), the reservation is a read-check-commit
-;; loop, NEVER a bare read-then-tell (the documented lost-update path).
+;; canonical FRAMRPC publication and transaction facade is exposed through
+;; cli/coord.clj; the TS admission seam shells out to the machine verbs here.
+;; The reservation is a read-check-commit loop, never a bare read-then-write.
 ;;
 ;; DUAL MODE: `north spend <verb>` dispatches init/status/override here (the
 ;; cockpit surface — every verb prints the primitive it ran). reserve/settle are
@@ -54,6 +49,32 @@
                             (java.time.ZonedDateTime/now java.time.ZoneOffset/UTC)))
 (defn period-id [target month] (str "spend-period:" target ":" month))
 (defn at [id] (str "@" id))
+
+(defn- action [op subject predicate value cardinality]
+  {:op op
+   :subject subject
+   :predicate predicate
+   :value (str value)
+   :cardinality cardinality})
+
+(defn- raw-action [op subject predicate value]
+  {:op op :subject subject :predicate predicate :value (str value)})
+
+(defn- replacement-actions [subject predicate before after]
+  (let [before (set (map str before))
+        after (set (map str after))]
+    (concat
+     (map #(raw-action :retract subject predicate %) (sort (remove after before)))
+     (map #(raw-action :assert subject predicate %) (sort (remove before after))))))
+
+(defn- publish! [port operation actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info (str operation " publication rejected")
+                      {:type :spend-publication-rejected
+                       :operation operation
+                       :result result})))
+    result))
 
 ;; --- ledger reads (fail-closed) ----------------------------------------------
 (defn counter
@@ -117,10 +138,9 @@
         (when (str/blank? (str (budget-single port target "layer1_confirmed")))
           (str id " missing layer1_confirmed")))))
 
-;; --- reservation: the read-check-commit CAS loop (fram-cas §4) ---------------
-;; base = coordinator global version captured BEFORE reading the counter; cap
-;; checked INSIDE the loop; commit via :assert-at-version; bounded retry on
-;; :reject :conflict. Never a bare read-then-tell.
+;; --- reservation: one expected-version read-check-commit transaction ---------
+;; Base is captured before every load-bearing read. A conflict retries from a
+;; fresh base; ambiguous or durability failures throw and are never retried here.
 (def CAS-TRIES 16)
 
 (defn reserve!
@@ -153,11 +173,14 @@
          (if (> (+ reserved settled envelope-micro) limit)
            {:ok false :reason "over-cap" :period period
             :reserved reserved :settled settled :cap cap :overrides overrides :envelope envelope-micro}
-           (let [res (north.coord/send-op
-                      port {:op :assert-at-version :te (at period)
-                            :p "reserved_microusd" :r (str (+ reserved envelope-micro)) :base base})]
+           (let [next-reserved (+ reserved envelope-micro)
+                 res (north.coord/transact!
+                      port
+                      (vec (replacement-actions (at period) "reserved_microusd"
+                                                [reserved] [next-reserved]))
+                      {:expected-version base})]
              (cond
-               (:ok res) {:ok true :period period :reserved (+ reserved envelope-micro) :envelope envelope-micro}
+               (:ok res) {:ok true :period period :reserved next-reserved :envelope envelope-micro}
                (and (= :conflict (:reject res)) (> tries 1)) (recur (dec tries))
                (:reject res) {:ok false :reason "conflict-exhausted" :period period :reject (:reject res)}
                :else {:ok false :reason "commit-failed" :res res}))))))))
@@ -171,8 +194,10 @@
     (let [base (north.coord/cur-ver port)
           cur  (counter port period pred)
           nv   (max 0 (+ cur delta))
-          res  (north.coord/send-op
-                port {:op :assert-at-version :te (at period) :p pred :r (str nv) :base base})]
+          res  (north.coord/transact!
+                port
+                (vec (replacement-actions (at period) pred [cur] [nv]))
+                {:expected-version base})]
       (cond
         (:ok res) {:ok true :value nv}
         (and (= :conflict (:reject res)) (> tries 1)) (recur (dec tries))
@@ -181,9 +206,8 @@
 ;; --- settlement: reservations only ever settle DOWN, only on exact evidence --
 ;; exact token evidence + fresh prices -> final = min(actual, reserved-micro),
 ;; release the remainder. Unknown/lower-bound coverage -> full reservation
-;; stands (final = reserved-micro). Either way: settled += final (FIRST — the
-;; conservative order, a concurrent reader never transiently sees MORE headroom),
-;; then reserved -= reserved-micro.
+;; stands (final = reserved-micro). Both counters move in one transaction, so no
+;; reader can observe a partially settled reservation.
 (defn exact-cost-micro [port target input-tokens output-tokens]
   (let [pin  (parse-long (str (budget-single port target "price_in_per_mtok")))
         pout (parse-long (str (budget-single port target "price_out_per_mtok")))]
@@ -199,17 +223,37 @@
    (let [exact? (= status "exact")
          final  (if exact?
                   (min reserved-micro (exact-cost-micro port target (or input 0) (or output 0)))
-                  reserved-micro)
-         s-res  (cas-add! port period "settled_microusd" final)]
-     (if-not (:ok s-res)
-       {:ok false :reason "settle-commit-failed" :detail s-res}
-       (let [r-res (cas-add! port period "reserved_microusd" (- reserved-micro))]
-         {:ok (boolean (:ok r-res))
-          :final final
-          :evidence (if exact? "exact" "reserved-worst-case")
-          :released (if exact? (- reserved-micro final) 0)
-          :settled (:value s-res)
-          :reserved (:value r-res)})))))
+                  reserved-micro)]
+     (loop [tries CAS-TRIES]
+       (let [base (north.coord/cur-ver port)
+             settled (counter port period "settled_microusd")
+             reserved (counter port period "reserved_microusd")
+             next-settled (+ settled final)
+             next-reserved (max 0 (- reserved reserved-micro))
+             result
+             (north.coord/transact!
+              port
+              (vec
+               (concat
+                (replacement-actions (at period) "settled_microusd"
+                                     [settled] [next-settled])
+                (replacement-actions (at period) "reserved_microusd"
+                                     [reserved] [next-reserved])))
+              {:expected-version base})]
+         (cond
+           (:ok result)
+           {:ok true
+            :final final
+            :evidence (if exact? "exact" "reserved-worst-case")
+            :released (if exact? (- reserved-micro final) 0)
+            :settled next-settled
+            :reserved next-reserved}
+
+           (and (= :conflict (:reject result)) (> tries 1))
+           (recur (dec tries))
+
+           :else
+           {:ok false :reason "settle-commit-failed" :detail result}))))))
 
 ;; --- flag parsing ------------------------------------------------------------
 (defn parse-flags [args]
@@ -236,22 +280,26 @@
       (throw (ex-info "refusing to create a budget without layer-1 confirmation: pass --i-confirm-layer1 \"prepaid, auto-topup off, <date>\" (auto-top-up MUST be off; this is the balance-independent safety floor)" {})))
     (when (> edef emax)
       (throw (ex-info "--envelope-default-usd cannot exceed --envelope-max-usd" {})))
-    (let [id (budget-id target)]
-      ;; 1) declare the counter schema FIRST — a reservation fail-closes without it.
-      (doseq [p ["reserved_microusd" "settled_microusd"]]
-        (let [res (north.coord/send-op port {:op :assert :te (at p) :p "cardinality" :r "single"})]
-          (when-not (:ok res) (throw (ex-info (str "failed to declare " p " cardinality single: " (pr-str res)) {})))
-          (println (str "  declared @" p " cardinality single  (schema)"))))
-      ;; 2) create the budget entity (single-valued config facts).
-      (doseq [[p v] [["kind" "spend-budget"] ["billing" "api"]
-                     ["budget_cap_microusd" (str cap)]
-                     ["lane_envelope_default_microusd" (str edef)]
-                     ["lane_envelope_max_microusd" (str emax)]
-                     ["burn_limit_microusd_per_hour" (str burn)]
-                     ["budget_period" "month"]
-                     ["layer1_confirmed" (str layer1)]]]
-        (north.coord/put! port (at id) p v)
-        (println (str "  @" id " " p " " v)))
+    (let [id (budget-id target)
+          schema-predicates ["reserved_microusd" "settled_microusd"]
+          budget-facts [["kind" "spend-budget"] ["billing" "api"]
+                        ["budget_cap_microusd" (str cap)]
+                        ["lane_envelope_default_microusd" (str edef)]
+                        ["lane_envelope_max_microusd" (str emax)]
+                        ["burn_limit_microusd_per_hour" (str burn)]
+                        ["budget_period" "month"]
+                        ["layer1_confirmed" (str layer1)]]
+          actions (concat
+                   (map #(action :assert (at %) "cardinality" "single" :one)
+                        schema-predicates)
+                   (map (fn [[predicate value]]
+                          (action :assert (at id) predicate value :one))
+                        budget-facts))]
+      (publish! port :budget-init actions)
+      (doseq [predicate schema-predicates]
+        (println (str "  declared @" predicate " cardinality single  (schema)")))
+      (doseq [[predicate value] budget-facts]
+        (println (str "  @" id " " predicate " " value)))
       (println (str "created budget @" id " (cap $" (micro->usd cap) "/mo, envelope default $"
                     (micro->usd edef) " / max $" (micro->usd emax) ")"))
       (println "NOTE: set price_in_per_mtok + price_out_per_mtok (micro-USD/Mtok, per model family)")
@@ -276,7 +324,8 @@
       (let [fact (json/generate-string {"amount_microusd" amount "until_ms" until-ms
                                         "reason" (str reason)
                                         "created_by" (or (System/getenv "NORTH_AUTHOR") "unknown")})]
-        (north.coord/append! port (at (budget-id target)) "spend_override" fact)
+        (publish! port :budget-override
+                  [(action :assert (at (budget-id target)) "spend_override" fact :many)])
         (println (str "  @" (budget-id target) " spend_override " fact))
         (println (str "override active: +$" (micro->usd amount) " until " until " — " reason))))))
 
@@ -404,17 +453,49 @@
               (println (str "  expected: " trip))
               (println (str "  got:      " confirm)))
             (System/exit 2))))
-      ;; Terminal writes: durable audit event entity + provenance on the breaker + retract the trip.
+      ;; Audit, provenance, and trip removal are one expected-version transaction.
       (let [now (str (java.time.Instant/now))
-            ev  (str "spend-breaker-reset:" (System/currentTimeMillis))]
-        (doseq [[p v] [["kind" "spend-breaker-reset"] ["reset_at" now]
-                       ["reset_by" actor] ["reset_reason" (str reason)]
-                       ["cleared_trip_reason" (str trip)] ["forced" (str (boolean force?))]]]
-          (north.coord/append! port (str "@" ev) p v))
-        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_at" now)
-        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_by" actor)
-        (north.coord/put! port (str "@" north.spend-breaker/BREAKER) "reset_reason" (str reason))
-        (north.spend-breaker/retract-tripped! port)
+            ev  (str "spend-breaker-reset:" (System/currentTimeMillis))
+            event-facts [["kind" "spend-breaker-reset"] ["reset_at" now]
+                         ["reset_by" actor] ["reset_reason" (str reason)]
+                         ["cleared_trip_reason" (str trip)] ["forced" (str (boolean force?))]]
+            breaker (str "@" north.spend-breaker/BREAKER)]
+        (loop [tries CAS-TRIES]
+          (let [base (north.coord/cur-ver port)
+                current-tripped (north.coord/resolved port breaker "tripped")
+                current-reason (north.coord/resolved port breaker "trip_reason")
+                current-reset
+                (into {}
+                      (map (fn [predicate]
+                             [predicate (north.coord/many port breaker predicate)]))
+                      ["reset_at" "reset_by" "reset_reason"])]
+            (when-not (and (seq (str current-tripped))
+                           (= (str trip) (str current-reason)))
+              (throw (ex-info "breaker trip changed during reset ceremony; restart the ceremony"
+                              {:type :breaker-reset-stale
+                               :confirmed-reason (str trip)
+                               :current-reason (str current-reason)})))
+            (let [actions
+                  (concat
+                   (map (fn [[predicate value]]
+                          (raw-action :assert (str "@" ev) predicate value))
+                        event-facts)
+                   (replacement-actions breaker "reset_at"
+                                        (get current-reset "reset_at") [now])
+                   (replacement-actions breaker "reset_by"
+                                        (get current-reset "reset_by") [actor])
+                   (replacement-actions breaker "reset_reason"
+                                        (get current-reset "reset_reason") [reason])
+                   [(raw-action :retract breaker "tripped" current-tripped)
+                    (raw-action :retract breaker "trip_reason" current-reason)])
+                  result (north.coord/transact! port (vec actions)
+                                                {:expected-version base})]
+              (cond
+                (:ok result) result
+                (and (= :conflict (:reject result)) (> tries 1)) (recur (dec tries))
+                :else
+                (throw (ex-info "breaker reset transaction rejected"
+                                {:type :breaker-reset-rejected :result result}))))))
         (println (str "breaker RESET by " actor " — " reason))
         (println (str "  audit event @" ev))
         (when-not (#{HUMAN-ACTOR (str "@" HUMAN-ACTOR)} actor)
