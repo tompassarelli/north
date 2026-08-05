@@ -284,15 +284,15 @@
     (println id)))
 
 (defn active-intent-subject []
-  (let [response
-        (north.coord/indexed-query
+  (let [{:keys [rows]}
+        (north.coord/bounded-query
          port
          {:find "intent"
           :rules [{:head {:rel "intent" :args [{:var "e"}]}
                    :body [{:rel "triple"
                            :args [{:var "e"} "rebuild_intent" {:var "v"}]}]}]}
          max-intents)
-        open (->> (:ok response)
+        open (->> rows
                   (map first)
                   distinct
                   (keep (fn [subject]
