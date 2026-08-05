@@ -230,9 +230,9 @@
 (defn- fold-rule-rows [rows]
   (reduce-kv
    (fn [out subject facts]
-     (reduce (fn [subject-facts [predicate value]]
-               (update subject-facts predicate (fnil conj []) value))
-             (assoc out subject {})
+     (reduce (fn [projected [predicate value]]
+               (update-in projected [subject predicate] (fnil conj []) value))
+             out
              facts))
    {}
    rows))
