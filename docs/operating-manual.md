@@ -321,9 +321,8 @@ north evidence record --thread <id> "<exact done_when>" "<observed result>"
 ```
 
 `north bars list <thread>` shows accepted criteria and their evidence;
-`north bars prune <thread>` retires answered criteria. Routing reports join
-managed evidence only when the snapshot names the exact run, thread, and
-reporter.
+`north bars prune <thread>` retires answered criteria. Managed evidence is
+run-bound only when its snapshot names the exact run, thread, and reporter.
 
 ---
 

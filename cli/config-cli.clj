@@ -1562,8 +1562,8 @@
    has no durable audit trail; thread facts are unchanged.
 
  10 PROVIDER MCP / 11 PROVIDER PLUGINS — status prints each declaration it
-   can read and its exact provider inverse command. These are provider-owned,
-   not North dials; run `north config` again after changing them.
+   can read and its exact provider inverse command. These are provider-owned;
+   run `north config` again after changing them.
 
  9 LEARNING — bounded experimentation during ordinary managed work.
    frozen    use the current best-known control policy consistently; continue

@@ -2635,7 +2635,7 @@ test("dispatch's finalize leaves a genuinely absent thread fail-closed without r
 
 // Thread 019f9cc1: a load that never produced facts is now reported as
 // UNREADABLE (with its attempt count and cause) and carries its own
-// delivery_reason, so the routing report can split a contended coordinator from
+// delivery_reason, so downstream analysis can split a contended coordinator from
 // a genuinely invalid reservation. The old assertion here conflated them.
 test("spawn's finalize-rotation names an exhausted load apart from an invalid reservation", async () => {
   const { spawn } = await import("./support/spawn");

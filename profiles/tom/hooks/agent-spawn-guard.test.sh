@@ -116,7 +116,7 @@ run allow 'steer dry-run does not command peer' worker Bash 'north steer lane-1 
 run deny 'retask has no dry-run contract' worker Bash 'north retask lane-1 "probe" --dry-run'
 run allow 'North config report remains available' worker Bash 'north config'
 run allow 'North guard status remains available' worker Bash 'north config guards'
-run allow 'North routing report remains available' worker Bash 'north config routing show'
+run allow 'North routing configuration remains available' worker Bash 'north config routing show'
 run allow 'North learning report remains available' worker Bash 'north config learning'
 run allow 'North context report remains available' worker Bash 'north config context show'
 run allow 'North hook explanation remains available' worker Bash 'north config hooks explain agent-spawn-guard'
