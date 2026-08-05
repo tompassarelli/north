@@ -355,7 +355,7 @@ promotion.
 resolvability; current North chooses the provider/account and resolves the pair.
 Together they validate and record role, task grade, domain requirements,
 topology, tier, deliberation, posture, and composition as independent metadata.
-Recorded metadata is useful for audit and empirical routing reports, but does
+Recorded metadata is useful for audit and empirical routing analysis, but does
 not by itself load domain expertise, change a role contract by grade, or spawn
 an orchestrator graph. Planner inputs are deliberately NOT accepted as request
 fields. The seven minimum-sufficient signals are accepted only inside the

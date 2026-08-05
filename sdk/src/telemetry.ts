@@ -207,11 +207,6 @@ export interface RunRecord {
   judgmentGrade?: JudgmentGradeSnapshot;
   /** Provider-neutral observer result; required by recordRun. */
   struggleObservation?: StruggleObservation;
-  // Legacy in-flight escalation fields — the machinery is retired; these stay so
-  // historical @run rows (escalation_* facts, routing-report escalated column) keep
-  // reading. No current producer sets them.
-  escalationTier?: number; // legacy final ladder tier
-  escalations?: Array<{ from: string; to: string; reason: string }>;
   // Spend guard (build-order step 2). Present only on an API-billed run that
   // carried a reservation from admission. No producer sets these until the first
   // API adapter lands (step 4) and threads the reservation from admission through
@@ -936,13 +931,6 @@ export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[
       String(observation.noProgressTurnThreshold),
     ]);
     for (const reason of observation.triggers) facts.push(["struggle", reason]);
-  }
-  if (rec.escalationTier != null && rec.escalationTier >= 0)
-    facts.push(["escalation_tier", String(rec.escalationTier)]);
-  if (rec.escalations && rec.escalations.length) {
-    facts.push(["escalation_count", String(rec.escalations.length)]);
-    facts.push(["escalation_path", rec.escalations.map((e) => `${e.from}>${e.to}`).join(" ")]);
-    facts.push(["escalation_reasons", rec.escalations.map((e) => e.reason).join(",")]);
   }
   return retainedTelemetryFacts(rec, facts);
 }
