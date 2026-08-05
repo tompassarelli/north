@@ -1,4 +1,4 @@
-// One-shot FRAMRPC v1 client, mirroring north:cli/framrpc-client.clj. The daemon
+// One-shot FRAMRPC v1 client, mirroring north:cli/framrpc-client.clj. The server
 // serves ONE request per connection. A mutation whose bytes reached the socket is
 // never auto-retried: the caller gets `requestSent` and owns the resolution.
 import { connect as netConnect, type Socket } from "node:net";
@@ -14,7 +14,7 @@ import {
   rpcTriplePattern, RPC_UNIT, RPC_V1_HEADER_BYTES,
 } from "./framrpc-codec";
 
-/** A typed refusal the daemon put on the wire. */
+/** A typed refusal the server put on the wire. */
 export class FramRpcServerError extends Error {
   constructor(
     readonly code: string,
@@ -47,7 +47,7 @@ export class FramRpcTransportError extends Error {
   }
 }
 
-/** Mirror of the daemon's own retryable set (fram:coord_daemon.clj); a code the
+/** The canonical FRAMRPC retryable set; a code the
  * server marks retryable but the client omits strands a caller the server
  * expected to ask again. */
 export const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
@@ -251,7 +251,7 @@ export class FramRpcClient {
     private readonly transport: FramRpcTransport,
   ) {}
 
-  /** Build a client WITHOUT probing the daemon. */
+  /** Build a client WITHOUT probing the server. */
   static create(options: FramRpcClientOptions = {}): FramRpcClient {
     const host = options.host ?? process.env.NORTH_FRAMRPC_HOST ?? "127.0.0.1";
     if (host.length === 0) throw new Error("FRAMRPC host must be nonblank");
@@ -270,9 +270,7 @@ export class FramRpcClient {
     );
   }
 
-  /** Build a client and prove the daemon serves THIS SpaceId. The typed
-   * `:rpc/space-mismatch` refusal is what replaces the legacy expected-log
-   * envelope, so it must be paid once before any write. */
+  /** Build a client and prove the server serves THIS SpaceId before any write. */
   static async connect(options: FramRpcClientOptions = {}): Promise<FramRpcClient> {
     const client = FramRpcClient.create(options);
     try {
