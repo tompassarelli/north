@@ -18,14 +18,15 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "..")))
 (def state-home (str (System/getProperty "user.home") "/.local/state/north"))
-(def exact-fram-revision "1f305c9c9258b2719d45ab187cb223fd5369f87d")
-(def exact-fram-tree "7d0786c5ca271b1c76672ab40dea701b3b455ef4")
-(def exact-artifact-sha256
-  "082798836f7f3ec84e2b7ac083b60ae0ffa78e0b79d123de505798f8d5323b86")
-(def exact-artifact
-  (str state-home "/fram-artifacts/graal/" exact-fram-revision "/"
-       exact-artifact-sha256 "/fram-server-graal"))
-(def exact-fram-source "/home/tom/code/fram/main")
+(def exact-fram-revision "5db9b38fb05a618d76bd6e386f6a542274d9a8b9")
+(def exact-fram-tree "e3c2bdedf8bd2f1e5c775d16628acc0169785e8f")
+(def exact-native-closure-sha256
+  "8ec9d224c5d6f05f48095039e18d85d31ccfde3738a434fbd4cd8ae272793967")
+(def exact-native-artifact-dir
+  (str "/home/tom/.cache/fram/"
+       "native-build-core-target-production-0907863b-5db9b38/"
+       exact-native-closure-sha256))
+(def exact-fram-source "/home/tom/code/fram/wt-core-target-production-5db9b38")
 (def migration-encoding
   {:encoding :deflate :framlog-version 1 :framlog-flags 1})
 (def spaces {:coordination "north-coordination" :telemetry "north-telemetry"})
@@ -40,8 +41,8 @@
    :fram-source exact-fram-source
    :fram-revision exact-fram-revision
    :fram-tree exact-fram-tree
-   :artifact exact-artifact
-   :artifact-sha256 exact-artifact-sha256})
+   :native-artifact-dir exact-native-artifact-dir
+   :native-closure-sha256 exact-native-closure-sha256})
 
 (defn fail! [message data]
   (throw (ex-info message data)))
@@ -145,40 +146,64 @@
   (let [source (.getCanonicalPath (io/file (:fram-source config)))
         revision (git-value! source "rev-parse" "--verify" "HEAD")
         tree (git-value! source "rev-parse" "--verify" "HEAD^{tree}")
-        published (git-value! source "rev-parse" "--verify" "origin/main")
         dirty (git-value! source "status" "--porcelain" "--untracked-files=all")
-        selected-artifact (:artifact config)
-        _ (when-not (.isAbsolute (io/file selected-artifact))
-            (fail! "exact Graal artifact path must be absolute"
-                   {:path selected-artifact}))
-        artifact (required-executable! "exact Graal artifact" selected-artifact)
-        artifact-sha256 (sha256-file artifact)
+        selected-artifact-dir (:native-artifact-dir config)
+        _ (when-not (.isAbsolute (io/file selected-artifact-dir))
+            (fail! "exact Native artifact directory must be absolute"
+                   {:path selected-artifact-dir}))
+        artifact-dir (.getCanonicalFile (io/file selected-artifact-dir))
+        _ (when-not (.isDirectory artifact-dir)
+            (fail! "exact Native artifact directory is unavailable"
+                   {:path (.getPath artifact-dir)}))
+        closure-sha256 (:native-closure-sha256 config)
+        _ (when-not (and (string? closure-sha256)
+                         (re-matches #"[0-9a-f]{64}" closure-sha256))
+            (fail! "exact Native closure SHA-256 is invalid"
+                   {:sha256 closure-sha256}))
+        ready (fingerprint! "exact Native READY receipt"
+                            (str (.getPath artifact-dir) "/READY"))
+        ready-line (slurp (:path ready))
+        input-manifest (fingerprint! "exact Native input manifest"
+                                     (str (.getPath artifact-dir) "/input.manifest"))
+        native-server
+        (fingerprint!
+         "exact Native Fram server"
+         (required-executable!
+          "exact Native Fram server"
+          (str (.getPath artifact-dir) "/bin/fram-server-native")))
         migrator (required-executable!
                   "exact Fram converter" (str source "/bin/fram-migrate-triple-log"))
         launcher (required-executable! "exact Fram server" (str source "/bin/fram-server"))
         out (.getCanonicalFile (io/file source "out"))]
-    (when-not (= (:fram-revision config) revision published)
-      (fail! "Fram source is not the exact published cutover revision"
-             {:expected (:fram-revision config) :head revision :origin-main published}))
+    (when-not (= (:fram-revision config) revision)
+      (fail! "Fram source is not the exact frozen cutover revision"
+             {:expected (:fram-revision config) :head revision}))
     (when-not (= (:fram-tree config) tree)
       (fail! "Fram source tree differs from the exact cutover tree"
              {:expected (:fram-tree config) :actual tree}))
     (when-not (str/blank? dirty)
       (fail! "exact Fram source must be clean"
              {:path source :changes (str/split-lines dirty)}))
-    (when-not (= (:artifact-sha256 config) artifact-sha256)
-      (fail! "Graal artifact differs from the exact cutover artifact"
-             {:path artifact :expected (:artifact-sha256 config)
-              :actual artifact-sha256}))
+    (when-not (= (str "fram-native-build/v1 " closure-sha256 "\n") ready-line)
+      (fail! "Native READY receipt differs from the exact closure"
+             {:path (:path ready) :closure-sha256 closure-sha256
+              :content ready-line}))
+    (when-not (= closure-sha256 (:sha256 input-manifest))
+      (fail! "Native input manifest differs from the READY closure"
+             {:path (:path input-manifest) :expected closure-sha256
+              :actual (:sha256 input-manifest)}))
     (when-not (.isDirectory out)
       (fail! "exact Fram generated output is unavailable" {:path (.getPath out)}))
     {:source {:path source :revision revision :tree tree
               :converter (fingerprint! "exact Fram converter" migrator)
               :server (fingerprint! "exact Fram server" launcher)
               :out (.getPath out)}
-     :artifact {:path selected-artifact :canonical-path artifact
-                :sha256 artifact-sha256
-                :bytes (.length (io/file artifact))}}))
+     :native-artifact
+     {:directory (.getPath artifact-dir)
+      :closure-sha256 closure-sha256
+      :ready ready
+      :input-manifest input-manifest
+      :server native-server}}))
 
 (defn port-open? [port]
   (try
@@ -338,13 +363,20 @@
 (defn selector-content [config contract migrations]
   (let [source (get-in contract [:source :path])
         out (get-in contract [:source :out])]
-    (str "# Exact Fram main selection for the canonical FRAMRPC/FRAMLOG cutover.\n"
+    (str "# Exact frozen Fram selection for the canonical FRAMRPC/FRAMLOG cutover.\n"
          "export FRAM_HOME=" (shell-quote source) "\n"
          "export FRAM_BIN=" (shell-quote (str source "/bin")) "\n"
          "export FRAM_OUT=" (shell-quote out) "\n"
          "export NORTH_FRAMRPC_OUT=" (shell-quote out) "\n"
-         "export FRAM_SERVER_RUNTIME='graal'\n"
-         "export FRAM_GRAAL_ARTIFACT=" (shell-quote (get-in contract [:artifact :path])) "\n"
+         "export FRAM_SERVER_RUNTIME='native'\n"
+         "export FRAM_NATIVE_ARTIFACT_DIR="
+         (shell-quote (get-in contract [:native-artifact :directory])) "\n"
+         "export FRAM_NATIVE_CLOSURE_SHA256="
+         (shell-quote (get-in contract [:native-artifact :closure-sha256])) "\n"
+         "export FRAM_SERVER_ARTIFACT="
+         (shell-quote (get-in contract [:native-artifact :server :path])) "\n"
+         "export FRAM_SERVER_ARTIFACT_SHA256="
+         (shell-quote (get-in contract [:native-artifact :server :sha256])) "\n"
          "export FRAM_SPACE_ID='north-coordination'\n"
          "export NORTH_TELEMETRY_SPACE_ID='north-telemetry'\n"
          "export NORTH_TELEMETRY_PARTITION='1'\n"
