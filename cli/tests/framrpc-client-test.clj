@@ -8,7 +8,11 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
-(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(def fram
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
+                (System/getenv "FRAM_HOME")
+                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
 
 (when-not (.isFile (io/file fram "server.clj"))
   (throw (ex-info "pinned Fram target checkout is unavailable"
