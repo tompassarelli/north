@@ -123,11 +123,7 @@
 (defn write-fence-valid? [port]
   (let [{:keys [resource holder epoch]} *write-lease*]
     (and resource holder epoch
-         (:fence-ok
-          (north.coord/send-op port {:op :fence-ok
-                                     :res resource
-                                     :holder holder
-                                     :epoch epoch})))))
+         (:valid? (north.coord/check-lease! port *write-lease*)))))
 
 (defn canonical-record [record]
   (json/generate-string (into (sorted-map) record)))
@@ -536,62 +532,6 @@
         (fail! "invalid managed terminal thread id" {:thread raw}))
       (str "@" bare))))
 
-(defn settle-terminal-cleanup!
-  "Withdraw every ephemeral lifecycle claim owned by SUBJECT. This runs under
-   the same recoverable logical terminal operation as the durable projection.
-   Every mutation is exact/idempotent: a replay cannot erase a successor's
-   driver or another holder's presence lease."
-  [port subject thread]
-  (let [agent-id (subs subject (count "@agent:"))
-        presence-resource (str "session:" agent-id)
-        presence-result
-        (north.coord/send-op
-         port {:op :release-lease :res presence-resource :holder agent-id})]
-    (checked! presence-result [:release-terminal-presence presence-resource])
-    (when (= agent-id (:holder (north.coord/lease-of port presence-resource)))
-      (fail! "managed terminal presence withdrawal was not acknowledged"
-             {:subject subject :resource presence-resource})))
-  (when thread
-    (let [agent-id (subs subject (count "@agent:"))
-          driver (str "@" agent-id)
-          current (set (north.coord/many port thread "driver"))]
-      (when (contains? current driver)
-        (checked! (north.coord/retract-with-fence!
-                   port *write-lease* thread "driver" driver)
-                  [:retract-terminal-driver thread driver]))
-      (when (contains? (set (north.coord/many port thread "driver")) driver)
-        (fail! "managed terminal driver withdrawal was not acknowledged"
-               {:subject subject :thread thread :driver driver})))))
-
-(defn publish-managed-terminal!
-  "Publish a recoverable terminal generation with its terminal marker LAST,
-   after presence and exact driver withdrawal. Unlike the legacy replacement
-   verb, a managed terminal never rolls back: any killed durable prefix is
-   markerless and the same logical operation reconstructs it on replay."
-  [port subject facts thread]
-  (let [before (facts-of port subject)]
-    (retract-values! port subject terminal-marker-predicate
-                     (get before terminal-marker-predicate #{}))
-    (doseq [predicate terminal-retraction-order]
-      (retract-values! port subject predicate (get before predicate #{})))
-    (doseq [predicate terminal-publication-order
-            :let [value (get facts predicate)]
-            :when value]
-      (checked! (north.coord/put-with-fence!
-                 port *write-lease* subject predicate value)
-                [:put-managed-terminal-with-fence subject predicate value]))
-    (verify-exact! port subject facts terminal-predicates)
-    (validate-reported-run! port subject facts)
-    (settle-terminal-cleanup! port subject thread)
-    (terminal-marker!
-     port subject facts
-     (fn []
-       (verify-exact! port subject facts terminal-predicates)
-       (validate-reported-run! port subject facts)
-       ;; A late activity renewal or driver mutation must invalidate this
-       ;; marker attempt rather than bless a terminal with live ownership.
-       (settle-terminal-cleanup! port subject thread)))))
-
 (defn identity-marker [facts]
   (sha256
    (canonical
@@ -908,41 +848,6 @@
                  (or (empty? actual) (= #{wanted} actual)))))
         terminal-predicates)))
 
-(defn recover-terminal-write!
-  [port subject operation-id desired expected-identity thread]
-  (validate-terminal! subject desired)
-  (validate-reported-run! port subject desired)
-  (let [before (facts-of port subject)
-        current (committed-identity before)]
-    (cond
-      (exact-committed-terminal? subject before desired)
-      (do
-        (settle-terminal-cleanup! port subject thread)
-        (committed-result operation-id "exact_replay"))
-
-      (valid-committed-terminal? subject before)
-      (do
-        ;; The lane is irrevocably terminal even if this caller carried a stale
-        ;; terminal body. Heal its ephemeral ownership without rewriting the
-        ;; already-committed terminal generation.
-        (settle-terminal-cleanup! port subject thread)
-        (unresolved-result "not_committed" operation-id "conflicting_terminal"))
-
-      (not (and current expected-identity
-                (identity-matches-except?
-                 current expected-identity retask-overlay-predicates)))
-      (unresolved-result "indeterminate" operation-id "identity_generation_changed")
-
-      (terminal-prefix-compatible? before desired)
-      (do
-        (publish-managed-terminal! port subject desired thread)
-        (committed-result operation-id
-                          (when (terminal-projection-present? before)
-                            "recovered_killed_prefix")))
-
-      :else
-      (unresolved-result "indeterminate" operation-id "unrecognized_partial_terminal"))))
-
 (defn committed-managed-actor!
   [port raw-actor]
   (let [actor (entity raw-actor)
@@ -1057,63 +962,6 @@
                    (re-matches uuid-v4-pattern holder-id))
       (fail! "invalid managed agent writer holder" {:holder holder}))
     holder))
-
-(defn acquire-write-lease! [port subject wait-on-held? supplied-holder]
-  ;; Lifecycle updates may wait for an in-flight same-subject writer,
-  ;; but at most half the declared process budget (capped at 5s), leaving a
-  ;; deterministic margin for mutation, rollback, diagnostics, and SDK startup.
-  (require-write-lease-policy!)
-  (let [resource (write-lease-resource subject)
-        holder (validated-writer-holder supplied-holder)
-        wait-budget-ms
-        (if wait-on-held?
-          (min max-write-lease-wait-ms (quot writer-timeout-bound-ms 2))
-          0)
-        deadline (+ (System/nanoTime) (* wait-budget-ms 1000000))]
-    (loop [attempt 1]
-      (let [result (north.coord/send-op
-                    port {:op :acquire-lease
-                          :res resource
-                          :holder holder
-                          :ttl-ms write-lease-ttl-ms})]
-        (cond
-          (:ok result)
-          {:resource resource
-           :holder holder
-           :epoch (:epoch result)}
-
-          (and wait-on-held?
-               (= :held (:reject result))
-               (< (System/nanoTime) deadline))
-          (do
-            (Thread/sleep 25)
-            (recur (inc attempt)))
-
-          :else
-          (fail! "managed agent subject already has a writer"
-                 {:subject subject
-                  :resource resource
-                  :reject (:reject result)
-                  :current-holder (:holder result)
-                  :expires-at (:exp result)
-                  :attempts attempt
-                  :acquisition-budget-ms wait-budget-ms}))))))
-
-(defn with-write-lease [port subject operation supplied-holder operation!]
-  (let [{:keys [resource holder epoch] :as lease}
-        (acquire-write-lease! port subject (not= "publish" operation)
-                              supplied-holder)]
-    (binding [*write-lease* lease]
-      (try
-        (operation!)
-        (finally
-          ;; Release is advisory after the durable marker acknowledgement. A
-          ;; killed writer cannot run past the 10s SDK timeout while this 60s
-          ;; lease is live; if release transport fails, expiry recovers it.
-          (try
-            (north.coord/send-op
-             port {:op :release-lease :res resource :holder holder :epoch epoch})
-            (catch Throwable _ nil)))))))
 
 (defn optional-payload [raw]
   (when-not (str/blank? raw) (payload raw)))
