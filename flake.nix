@@ -684,6 +684,10 @@ EOF
             # Exercise every packaged TypeScript CLI entrypoint with hermetic
             # subscription/auth fixtures. These probes never make a model turn.
             smoke=$(mktemp -d)
+            export FRAM_HOME="$smoke/fram"
+            export FRAM_BIN="$FRAM_HOME/bin"
+            export FRAM_OUT="$FRAM_HOME/out"
+            export NORTH_FRAMRPC_OUT="$FRAM_OUT"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/poison-home" \
               NORTH_HOME="$out" \
@@ -735,6 +739,8 @@ EOF
             # Every public executable must work with no ambient PATH or checkout.
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_HOME="$out" \
+              FRAM_HOME="$FRAM_HOME" FRAM_BIN="$FRAM_BIN" \
+              FRAM_OUT="$FRAM_OUT" NORTH_FRAMRPC_OUT="$NORTH_FRAMRPC_OUT" \
               $out/bin/.north-wrapped help > "$smoke/help.out"
             grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
             test -x "$out/bin/firn-rebuild-coordinated"
@@ -889,6 +895,8 @@ EOF
             grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
               ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= NORTH_HOME="$out" \
+              FRAM_HOME="$FRAM_HOME" FRAM_BIN="$FRAM_BIN" \
+              FRAM_OUT="$FRAM_OUT" NORTH_FRAMRPC_OUT="$NORTH_FRAMRPC_OUT" \
               $out/bin/.north-mcp-wrapped > "$smoke/north-mcp-tools.json"
             ${pkgs.jq}/bin/jq -e \
               '([.result.tools[] | select(.name | startswith("linear_")) | .name] | sort) == ["linear_get", "linear_import", "linear_plan", "linear_sync"]' \
