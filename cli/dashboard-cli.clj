@@ -21,7 +21,8 @@
 ;; this file lives in north/cli — NORTH is its repo root.
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def FRAM (or (System/getenv "FRAM_HOME") (str HOME "/code/fram/main")))
+(def FRAM (or (System/getenv "FRAM_HOME")
+              "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
@@ -35,11 +36,13 @@
 (load-file (str NORTH "/cli/dashboard-render.clj"))
 (def CACHE-DIR (str HOME "/.cache/north"))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
-(def CACHE-SCOPE (str (hash (str (or (System/getenv "FRAM_LOG") "default") "|"
-                                (or (System/getenv "FRAM_TELEMETRY_LOG") "") "|" PORT))))
+(def CACHE-SCOPE
+  (str (hash (str (or (System/getenv "FRAM_SPACE_ID") "north-coordination") "|"
+                  (or (System/getenv "NORTH_TELEMETRY_SPACE_ID") "north-telemetry") "|"
+                  PORT))))
 
 ;; Doctor is an operational liveness command, so its coordinator handshake must
-;; be bounded independently of corpus size. Full log + projection reconciliation
+;; be bounded independently of corpus size. Full graph projection reconciliation
 ;; remains available as the explicit `north coord-doctor` audit; it no longer
 ;; sits on the default health path.
 (def COORD-SAFETY-TIMEOUT-MS 5000)
@@ -348,8 +351,8 @@
 (defn dashboard-health
   "Health for the dashboard hot path: cached 300s (slow-moving 24h aggregates +
    STALE concern count). Cache miss runs with a 30s budget — `north health` folds
-   the whole log with multi-clause Datalog and measures 21-24s on the current large
-   log, so the old 8s budget ALWAYS timed out and NEVER seeded (every render lied
+   the whole coordination graph with multi-clause Datalog and measures 21-24s on
+   the current large corpus, so the old 8s budget ALWAYS timed out and NEVER seeded (every render lied
    'timed out'). The budget must EXCEED real cost or the cache can never warm; one
    slow seed reseeds for 5 min and every other pane speeds up too. Only successful
    reads are cached; a timeout/error returns fresh and retries next run. Doctor keeps
@@ -491,7 +494,7 @@
   (mapv #(maintenance-doctor-line port %) scheduled-maintenance-tasks))
 
 ;; ---- coordinator JVM health -------------------------------------------------
-;; A coordinator can be UP, serving the right log, and still unusable. On
+;; A coordinator can be UP, serving the right SpaceId, and still unusable. On
 ;; 2026-07-29 it sat at old-gen 99.98% with 2,715 full GCs — 1,704s of GC in a
 ;; 69-minute lifetime, 41% of its wall clock — and `north show @swarm` took 57.8s
 ;; on an IDLE box after measuring 93ms earlier the same day. Nothing about the
@@ -662,12 +665,11 @@
 (def ROSTER-PROBE-TIMEOUT-MS 25000)
 
 (defn coordination-probe
-  "Reproduce the HOOK path: unwrapped bb, FRAM_LOG absent — that is the exact
-   environment north-on-spawn/-tooluse register presence from, and a probe that
-   only exercises doctor's own wrapped env cannot see a fence fault there."
+  "Exercise the hook client's direct FRAMRPC path, including a lease write and
+   readback, without routing the probe through the dashboard wrapper."
   []
-  (let [r (run ["env" "-u" "FRAM_LOG" "bb"
-                (str NORTH "/cli/presence-cli.clj") PORT "coordination-probe-json"]
+  (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT
+                "coordination-probe-json"]
                :timeout COORDINATION-PROBE-TIMEOUT-MS)
         payload (try (json/parse-string (str/trim (or (:out r) "")) true)
                      (catch Exception _ nil))]
@@ -701,36 +703,31 @@
 
 (defn render-coordination-health! []
   (println (bold "  coordination health"))
-  (echo-cmd "env" "-u" "FRAM_LOG" "bb"
-            (str NORTH "/cli/presence-cli.clj") PORT "coordination-probe-json")
+  (echo-cmd "bb" (str NORTH "/cli/presence-cli.clj") PORT
+            "coordination-probe-json")
   (let [probe (coordination-probe)
         fail! (fn [msg] (mark-doctor-failed!)
                 (println (str "    " (red "[ERR] ") " " msg)))
         ok! (fn [msg] (println (str "    " (grn "[ok]  ") " " msg)))]
     (if-let [e (:err probe)]
       (fail! e)
-      (let [{:keys [error log_fence_ok expected_log served_log lease_write_readback_ok
+      (let [{:keys [error space_fence_ok space_id lease_write_readback_ok
                     live_session_leases lineage_registrations_in_ttl lease_ttl_ms]} probe]
-        ;; A broken fence is the most specific cause and is named first: every
-        ;; downstream read fails BECAUSE of it, so leading with their exception
-        ;; buries the diagnosis.
         (cond
-          (false? log_fence_ok)
-          (fail! (str "hook-path log fence mismatch: a direct-bb client fences on "
-                      expected_log " but the coordinator serves " served_log
-                      " — presence registration is silently rejected"))
+          (false? space_fence_ok)
+          (fail! "FRAMRPC status did not return a SpaceId")
 
-          (nil? log_fence_ok)
+          (nil? space_fence_ok)
           (fail! (str "coordination probe failed: " error))
 
-          :else (ok! (str "hook-path log fence " expected_log)))
-        (when (some? log_fence_ok)
+          :else (ok! (str "FRAMRPC SpaceId fence " space_id)))
+        (when (some? space_fence_ok)
           (if lease_write_readback_ok
             (ok! "presence write + readback through the hook path")
             (fail! "presence lease did not survive write + readback through the hook path")))
-        (when (and log_fence_ok error)
+        (when (and space_fence_ok error)
           (fail! (str "coordination probe failed: " error)))
-        (when (and log_fence_ok (not error))
+        (when (and space_fence_ok (not error))
           (let [ttl-min (when (integer? lease_ttl_ms) (quot lease_ttl_ms 60000))
                 summary (str live_session_leases " live lease(s) · "
                              lineage_registrations_in_ttl
@@ -830,8 +827,8 @@
 (defn cmd-doctor [_]
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
-  ;; Coordinator safety is a bounded identity + exact-log-fence round trip.
-  ;; Full log/file projection reconciliation remains an explicit
+  ;; Coordinator safety is a bounded runtime-identity + SpaceId round trip.
+  ;; Full graph projection reconciliation remains an explicit
   ;; `north coord-doctor` audit and cannot hold the default health path hostage.
   (println (bold "  coordinator"))
   (echo-cmd (str NORTH "/bin/north") "coord-safety")
@@ -856,12 +853,12 @@
   ;; daemons
   (let [dh (daemon-health)]
     (println (bold "  daemons"))
-    (doseq [[label k crit] [[(str PORT " facts (the coordinator — everything reads/writes here)") :north true]]]
+    (doseq [[label k crit] [[(str PORT " coordination (the FRAMRPC authority)") :north true]]]
       (let [up (get dh k)]
         (when (and crit (not up)) (mark-doctor-failed!))
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
                       " " label " " (ok-x up))))))
-  ;; A coordinator can be UP, serving the right log, and still unable to work.
+  ;; A coordinator can be UP, serving the right SpaceId, and still unable to work.
   ;; Nothing else here asks that question — see coordinator-jvm-line.
   (println (bold "  coordinator JVM"))
   (let [jvm-line (coordinator-jvm-line PORT)]
@@ -935,16 +932,6 @@
           (println (str "    " (if (and behind (pos? behind)) (ylw "[warn] ") (grn "[ok]  "))
                         " promoted north runtime: " (or behind "?")
                         " commits behind repo main"))))))
-  ;; stale FRAM_LOG env pointing at a claims-named path
-  (println (bold "  env hygiene"))
-  (let [fl (System/getenv "FRAM_LOG")]
-    (cond
-      (nil? fl) (println (str "    " (grn "[ok]  ") " FRAM_LOG unset (north sets facts.log)"))
-      (re-find #"(?i)claim" fl) (do
-                                   (mark-doctor-failed!)
-                                   (println (str "    " (red "[ERR] ") " FRAM_LOG points at claims-named path: " fl
-                                                 " — rename to facts.log")))
-      :else (println (str "    " (grn "[ok]  ") " FRAM_LOG=" fl))))
   ;; guard hooks present
   (println (bold "  guard hooks"))
   (let [hookdir (str HOME "/.agents/hooks")

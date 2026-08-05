@@ -60,41 +60,9 @@
                   acc))
               v-thread
               (k/many-i idx te "depends_on"))
-        ;; There is deliberately NO actor-ref check on lead/driver/proposed_by.
-        ;; Three findings killed it, in order:
-        ;;
-        ;; 1. Requiring a display_name fact was never an integrity property.
-        ;;    Actor ids are self-describing and collision-resistant already —
-        ;;    `lane-ms2okiu4-<uuid>`, `native-<sha256>`, `cc-fram-d5523b3b` — and
-        ;;    the agent entity carries a generated `display_handle` such as
-        ;;    `openai-codex-...-sol-xhigh-orchestration-director-bccb6f89bee6`
-        ;;    encoding provider, account, model, effort, role and hash. A second
-        ;;    human alias adds nothing.
-        ;; 2. The requirement induced FALSE DATA. To silence it, seed scripts
-        ;;    (scripts/migrations/realize-the-model.sh and
-        ;;    scripts/migrations/offline-migrate.clj) fabricated person
-        ;;    entities named after products — `@claude-code`, `@codex`,
-        ;;    `@claude` — putting a product name in an actor slot.
-        ;; 3. Swapping in a real existence check did not help either: 1,455 refs
-        ;;    still pointed at actors absent from the log (many pruned by the
-        ;;    2026-07-26 clean-slate rotation). But absence here is AMBIGUOUS —
-        ;;    it can mean reaped, pruned, never-registered, or written into the
-        ;;    wrong namespace. Integrity validation cannot tell those apart, and
-        ;;    a validator is the wrong surface to express a RETENTION POLICY on.
-        ;;
-        ;; Which agents should be durable — routable, accumulating competence
-        ;; across runs — versus disposable is an open lifecycle design question,
-        ;; and deliberately NOT decided here. Whatever that policy turns out to
-        ;; be, it belongs in a lifecycle/retention surface that can say what an
-        ;; absent actor MEANS, not in a structural check that can only say a
-        ;; reference is broken. Encoding a retention stance here would silently
-        ;; foreclose that design.
-        ;;
-        ;; Net: the check produced 5,837 findings, zero of which were real
-        ;; defects, and kept `north validate` pinned at rc=1 so it could not
-        ;; signal anything else. Thread-ref integrity above is retained —
-        ;; threads are durable by definition (a thread IS its id + title), so a
-        ;; dangling thread edge IS unambiguously a defect.
+        ;; Actor absence is ambiguous under retention, so lifecycle policy—not
+        ;; structural validation—owns lead/driver/proposed_by durability.
+        ;; Thread refs remain checked because thread identities are durable.
         ]
     v-ab))
 
