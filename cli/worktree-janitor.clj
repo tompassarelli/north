@@ -11,10 +11,12 @@
 
 (def ^:private max-agent-id-chars 512)
 (def ^:private max-path-chars 4096)
+(def ^:private max-query-rows 4096)
 (def ^:private clone-push-sentinel "north-disabled://managed-clone-no-push")
 
 (defn- query-rows! [port query]
-  (north.coord/query-rows port query))
+  (:rows (north.coord/bounded-query-in-domain
+          port :coordination query max-query-rows)))
 
 (defn- q-col [port body]
   (->> (query-rows!
@@ -454,12 +456,6 @@
 ;; ---- UNREGISTERED wt-* siblings ---------------------------------------------
 ;; Same non-force discipline as the lane sweep above, for trees no fact claims.
 ;; Dirty, unmerged, claimed, or live-concern-owned trees are never removed.
-
-(defn registered-worktree-paths
-  "Every worktree path the graph claims, whatever the subject kind. A claim of any
-   kind means another owner, so this sweep leaves it alone."
-  [log-path]
-  (set (keys (north.worktree-census/claimed-worktrees log-path))))
 
 (defn- validate-unregistered-provenance
   "Prove against Git alone that this path is a linked `wt-` worktree of exactly

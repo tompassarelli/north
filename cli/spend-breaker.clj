@@ -80,6 +80,8 @@
                        :result result})))
     result))
 
+(def MAX-QUERY-ROWS 4096)
+
 ;; --- money counters (mirror spend-cli's fail-closed reads; the worker does not
 ;; --- load spend-cli, so the 3-line period math is duplicated deliberately) -----
 (defn utc-month [] (.format (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM")
@@ -106,11 +108,14 @@
 (defn budget-targets
   "Every configured spend-budget target (kind=spend-budget)."
   [port]
-  (->> (north.coord/query-rows
-        port
-        {:find "b"
-         :rules [{:head {:rel "b" :args [{:var "b"}]}
-                  :body [{:rel "triple" :args [{:var "b"} "kind" "spend-budget"]}]}]})
+  (->> (:rows
+        (north.coord/bounded-query-in-domain
+         port :coordination
+         {:find "b"
+          :rules [{:head {:rel "b" :args [{:var "b"}]}
+                   :body [{:rel "triple"
+                           :args [{:var "b"} "kind" "spend-budget"]}]}]}
+         MAX-QUERY-ROWS))
        (map first)
        (map #(str/replace (str %) #"^@?spend-budget:" ""))
        distinct sort))
@@ -290,22 +295,28 @@
 ;; the child pid + the reservation it made). Step 3 provides the schema + both
 ;; consumers (sweep-kill, reaper settle) + the test writer.
 (defn open-spend-lanes [port]
-  (->> (north.coord/query-rows
-        port
-        {:find "row"
-         :strata [[{:head {:rel "settled" :args [{:var "e"}]}
-                    :body [{:rel "triple" :args [{:var "e"} "settled_at" {:var "s"}]}]}]
-                  [{:head {:rel "row" :args [{:var "e"} {:var "pid"} {:var "tgt"} {:var "per"} {:var "res"}]}
-                    :body [{:rel "triple" :args [{:var "e"} "kind" "spend-lane"]}
-                           {:rel "triple" :args [{:var "e"} "pid" {:var "pid"}]}
-                           {:rel "triple" :args [{:var "e"} "target" {:var "tgt"}]}
-                           {:rel "triple" :args [{:var "e"} "period" {:var "per"}]}
-                           {:rel "triple" :args [{:var "e"} "reserved_microusd" {:var "res"}]}
-                           {:rel "settled" :args [{:var "e"}] :neg true}]}]]})
-       (map (fn [[e pid tgt per res]]
+  (->> (:rows
+        (north.coord/bounded-query-in-domain
+         port :coordination
+         {:find "row"
+          :strata [[{:head {:rel "settled" :args [{:var "e"}]}
+                     :body [{:rel "triple"
+                             :args [{:var "e"} "settled_at" {:var "s"}]}]}]
+                   [{:head {:rel "row"
+                            :args [{:var "e"} {:var "pid"} {:var "tgt"}
+                                   {:var "per"} {:var "res"} {:var "lane"}]}
+                     :body [{:rel "triple" :args [{:var "e"} "kind" "spend-lane"]}
+                            {:rel "triple" :args [{:var "e"} "pid" {:var "pid"}]}
+                            {:rel "triple" :args [{:var "e"} "target" {:var "tgt"}]}
+                            {:rel "triple" :args [{:var "e"} "period" {:var "per"}]}
+                            {:rel "triple" :args [{:var "e"} "reserved_microusd" {:var "res"}]}
+                            {:rel "triple" :args [{:var "e"} "lane" {:var "lane"}]}
+                            {:rel "settled" :args [{:var "e"}] :neg true}]}]]}
+         MAX-QUERY-ROWS))
+       (map (fn [[e pid tgt per res lane]]
               {:id (str e) :pid (parse-long (str pid)) :target (str tgt)
                :period (str per) :reserved (parse-long (str res))
-               :lane (north.coord/resolved port (str e) "lane")}))))
+               :lane (str lane)}))))
 
 (defn pid-alive? [pid]
   (boolean (and pid (some-> (java.lang.ProcessHandle/of (long pid)) (.orElse nil) (.isAlive)))))

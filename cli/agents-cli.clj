@@ -212,34 +212,11 @@
          :effort (or reasoning (:defaultEffort entry) (:defaultReasoning entry))})
       (catch Exception _ {:provider provider :model explicit-model :effort reasoning}))))
 
-;; ---- agent identity facts (one log scan; single-valued predicates) ----------
-(defn- bulk-agent-facts []
-  (let [r (run [(str NORTH "/bin/north") "json" "agents"] :timeout 10000)]
-    (if-not (:ok r) {}
-      (try
-        (reduce (fn [acc {:keys [id predicate value]}]
-                  (update acc id #(north.agent-provenance/fold-fact
-                                   (or % {}) predicate value)))
-                {} (json/parse-string (:out r) true))
-        (catch Exception _ {})))))
-
 (declare known semantic-handle)
-
-(def max-agent-facts-one-rows 256)
 
 (defn- agent-facts-one [id]
   (try
-    (let [response
-          (north.coord/indexed-query
-           (parse-long PORT)
-           {:find "agent_fact"
-            :rules
-            [{:head {:rel "agent_fact"
-                     :args [{:var "p"} {:var "v"}]}
-              :body [{:rel "triple"
-                      :args [(str "@agent:" id) {:var "p"} {:var "v"}]}]}]}
-           max-agent-facts-one-rows)
-          rows (:ok response)]
+    (let [rows (north.coord/show-rows (parse-long PORT) (str "@agent:" id))]
       (when (and (vector? rows)
                  (every? #(and (vector? %) (= 2 (count %))
                                (every? string? %))
@@ -248,23 +225,6 @@
                   (north.agent-provenance/fold-fact acc predicate value))
                 {} rows)))
     (catch Exception _ nil)))
-
-(defn agent-facts
-  ;; Zero arity is the existing library contract used by routing consumers.
-  ;; The live-ID arity adds narrow recovery without changing that bulk view.
-  ([] (bulk-agent-facts))
-  ([ids]
-   ;; If bulk fails, or one legacy/malformed record is absent from that
-   ;; projection, recover each missing LIVE row from the structured per-agent
-   ;; endpoint. Never reverse-parse display text.
-   (reduce (fn [facts id]
-             (if (contains? facts id)
-               facts
-               (if-let [one (agent-facts-one id)]
-                 (assoc facts id one)
-                 facts)))
-           (bulk-agent-facts)
-           ids)))
 
 (def control-id-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 (def max-control-id-bytes 256)
@@ -297,22 +257,30 @@
       next
       (update next roster-conflict-key (fnil conj #{}) predicate))))
 
-(defn- fold-roster-subjects [rows allowed-subjects]
+(defn- fold-roster-subjects [rows-by-subject allowed-subjects]
   (when-not
-   (and (sequential? rows)
-        (<= (count rows) max-roster-fact-rows)
-        (every? #(and (vector? %)
-                      (= 3 (count %))
-                      (every? string? %)
-                      (contains? allowed-subjects (first %)))
-                rows))
+   (and (map? rows-by-subject)
+        (every?
+         (fn [[subject rows]]
+           (and (string? subject)
+                (contains? allowed-subjects subject)
+                (vector? rows)
+                (every? #(and (vector? %)
+                              (= 2 (count %))
+                              (every? string? %))
+                        rows)))
+         rows-by-subject)
+        (<= (reduce + 0 (map (comp count val) rows-by-subject))
+            max-roster-fact-rows))
     (throw (ex-info "agent subject projection was malformed" {})))
   (reduce
-   (fn [out [subject predicate value]]
-     (update-in out [:agents (subs subject (count "@agent:"))]
-                #(fold-roster-fact (or % {}) predicate value)))
+   (fn [out [subject rows]]
+     (assoc-in out [:agents (subs subject (count "@agent:"))]
+               (reduce (fn [facts [predicate value]]
+                         (fold-roster-fact facts predicate value))
+                       {} rows)))
    {:agents {} :sessions {}}
-   rows))
+   rows-by-subject))
 
 (defn roster-facts
   "Read exact live @agent subjects from the coordination origin in one bounded
@@ -332,13 +300,10 @@
       :else
       (let [subjects (mapv #(str "@agent:" %) ids)
             allowed-subjects (set subjects)]
-        (let [response
-              (try
-                (binding [north.coord/*operation-domain* :coordination]
-                  (north.coord/send-op
-                   (Integer/parseInt PORT)
-                   {:op :facts-for-subjects :subjects subjects}))
-                (catch Exception _ ::unavailable))]
+        (let [response (try
+                         (north.coord/show-many-in-domain
+                          (Integer/parseInt PORT) :coordination subjects)
+                         (catch Exception _ ::unavailable))]
           (cond
             (= ::unavailable response)
             {:err "agent subject projection unavailable"}
@@ -346,23 +311,18 @@
             (not (and (map? response)
                       (integer? (:version response))
                       (not (neg? (:version response)))
-                      (string? (:log response))
-                      (vector? (:facts response))
-                      (<= (count (:facts response)) max-roster-fact-rows)))
+                      (map? (:rows response))))
             {:err "agent subject projection was malformed"}
 
             :else
             (try
-              (fold-roster-subjects (:facts response) allowed-subjects)
+              (fold-roster-subjects (:rows response) allowed-subjects)
               (catch Exception _
                 {:err "agent subject projection was malformed"}))))))))
 
 (defn- roster-run-entries-attempt
-  "One non-recursive attempt to resolve run candidates for IDS: a single
-  bounded union query for candidate subjects, then per-subject predicate
-  hydration. Structurally identical to the original single-shot
-  implementation. `roster-run-entries` bisects across attempts on failure to
-  isolate which id's underlying data is actually at fault."
+  "Resolve run candidates for IDS with one bounded telemetry query and one
+  batched exact-subject projection."
   [ids]
   (try
     (let [rules
@@ -374,15 +334,14 @@
                       :args [{:var "e"} "agent" control]}]})
            ids)
           response
-          (north.coord/query-page-in-domain
+          (north.coord/bounded-query-in-domain
            (Integer/parseInt PORT)
            :telemetry
            {:find "roster_run_candidate" :rules rules}
-           max-roster-run-candidates nil)
-          rows (:ok response)]
+           max-roster-run-candidates)
+          rows (:rows response)]
       (if-not
        (and (map? response) (vector? rows)
-            (false? (:more response))
             (<= (count rows) max-roster-run-candidates)
             (every? #(and (vector? %) (= 1 (count %))
                           (every? string? %))
@@ -393,21 +352,43 @@
                    (map first)
                    (filter north.terminal-projection/valid-run-entity?)
                    distinct
-                   sort)
+                   sort
+                   vec)
+              projected
+              (if (seq subjects)
+                (north.coord/show-many-in-domain
+                 (Integer/parseInt PORT) :telemetry subjects)
+                {:version (:served-version response) :rows {}})
+              rows-by-subject (:rows projected)
+              _
+              (when-not
+               (and (map? projected)
+                    (integer? (:version projected))
+                    (not (neg? (:version projected)))
+                    (map? rows-by-subject)
+                    (every?
+                     (fn [[subject fact-rows]]
+                       (and (contains? (set subjects) subject)
+                            (vector? fact-rows)
+                            (every? #(and (vector? %)
+                                          (= 2 (count %))
+                                          (every? string? %))
+                                    fact-rows)))
+                     rows-by-subject))
+                (throw (ex-info "run subject projection was malformed" {})))
               entries
               (mapv
                (fn [subject]
                  {:subject subject
                   :facts
-                  (into {}
-                        (keep
-                         (fn [predicate]
-                           (let [values
-                                 (set (north.coord/many
-                                       (Integer/parseInt PORT)
-                                       subject predicate))]
-                             (when (seq values) [predicate values]))))
-                        north.terminal-projection/run-resolution-predicates)})
+                  (reduce (fn [facts [predicate value]]
+                            (if (contains?
+                                 (set north.terminal-projection/run-resolution-predicates)
+                                 predicate)
+                              (update facts predicate (fnil conj #{}) value)
+                              facts))
+                          {}
+                          (get rows-by-subject subject []))})
                subjects)]
           {:ok true
            :by-agent
@@ -422,33 +403,12 @@
       {:ok false :reason :run-projection-unavailable})))
 
 (defn roster-run-entries
-  "Read run candidates for every live control. The common case is one bounded
-  union query for the whole batch (`roster-run-entries-attempt`). On failure,
-  bisect the id set and retry each half: a rotated/partial run's hydration
-  fault is thereby isolated to the specific id(s) whose data is actually
-  torn — each such id's `:by-agent` entry becomes an error sentinel — while
-  every other id in the batch still resolves from its own real data. The
-  single try/catch this replaces turned one bad run into
-  :run-projection-malformed/-unavailable for every requested id, including
-  unrelated live sessions (observed 2026-07-24: a delegate lane's rotated
-  telemetry malformed the roster for the coordinator's own native session)."
+  "Read run candidates for every live control in one bounded attempt."
   [ids]
   (let [ids (vec (distinct ids))]
     (if (empty? ids)
       {:ok true :by-agent {}}
-      (let [result (roster-run-entries-attempt ids)]
-        (cond
-          (:ok result) result
-
-          (= 1 (count ids))
-          {:ok true :by-agent {(first ids) {:err (:reason result)}}}
-
-          :else
-          (let [half (quot (count ids) 2)
-                [a b] (split-at half ids)
-                ra (roster-run-entries a)
-                rb (roster-run-entries b)]
-            {:ok true :by-agent (merge (:by-agent ra) (:by-agent rb))}))))))
+      (roster-run-entries-attempt ids))))
 
 (defn attach-lane-resolutions [ids agents run-projection]
   (into {}
@@ -739,39 +699,34 @@
 
 ;; ---- presence ---------------------------------------------------------------
 (defn presence-rows []
-  (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence-online-json"]
-               :timeout 6000)]
-    (cond
-      (:timeout r) {:err "presence probe timed out"}
-      (not (:ok r)) {:err "presence unavailable"}
-      :else
-      (try
-        (let [payload (json/parse-string (:out r) true)
-              sessions (:sessions payload)
-              valid-row?
-              (fn [row]
-                (and (= #{:control_id :online :expires_s} (set (keys row)))
-                     (valid-control-id? (:control_id row))
-                     (true? (:online row))
-                     (integer? (:expires_s row))
-                     (not (neg? (:expires_s row)))))]
-          (if (and (= "north:presence-online:v1" (:version payload))
-                   (= #{:version :sessions} (set (keys payload)))
-                   (vector? sessions)
-                   (<= (count sessions) max-live-controls)
-                   (every? valid-row? sessions)
-                   (= (count sessions) (count (set (map :control_id sessions)))))
-            {:agents
-             (mapv (fn [{:keys [control_id expires_s]}]
-                     {:id control_id :online true :expires-s expires_s
-                      :expires (str expires_s "s")})
-                   sessions)}
-            {:err "presence projection was malformed"}))
-        (catch Exception _ {:err "presence projection was malformed"})))))
+  (try
+    (let [port (Integer/parseInt PORT)
+          now (System/currentTimeMillis)
+          sessions (north.coord/online-session-leases port now)
+          valid?
+          (and (vector? sessions)
+               (<= (count sessions) max-live-controls)
+               (every? (fn [session]
+                         (and (= #{:handle :exp} (set (keys session)))
+                              (valid-control-id? (:handle session))
+                              (integer? (:exp session))
+                              (> (:exp session) now)))
+                       sessions)
+               (= (count sessions) (count (set (map :handle sessions)))))]
+      (if-not valid?
+        {:err "presence projection was malformed"}
+        {:agents
+         (mapv (fn [{:keys [handle exp]}]
+                 (let [expires-s (quot (- exp now) 1000)]
+                   {:id handle :online true :expires-s expires-s
+                    :expires (str expires-s "s")}))
+               sessions)}))
+    (catch Exception _ {:err "presence unavailable"})))
 
 (defn agent-online? [id]
-  (let [presence (presence-rows)]
-    (boolean (some #(and (= id (:id %)) (:online %)) (:agents presence)))))
+  (try
+    (north.coord/session-online? (Integer/parseInt PORT) id)
+    (catch Exception _ false)))
 
 ;; ---- verbs -------------------------------------------------------------------
 (defn agents-usage []
@@ -878,10 +833,7 @@
     (if help
       (agents-usage)
       (do
-        ;; The implementation probe is useful when diagnosing the roster, but
-        ;; never contaminates the JSON or parity surfaces.
-        (when verbose
-          (echo-cmd "bb" (str NORTH "/cli/presence-cli.clj") PORT "presence-online-json"))
+        (when verbose (println (dim (str "FRAMRPC presence projection :" PORT))))
         (let [loaded (read-roster-snapshot)]
           (if (:err loaded)
             (if (= mode :human)
@@ -928,7 +880,7 @@
                       (render-section "native sessions"
                                       "(active provider CLI sessions)" native-sessions)
                       (render-section "unclassified presence"
-                                      "(legacy or missing identity facts)" unclassified)
+                                      "(missing identity facts)" unclassified)
                       (render-section "inconsistent lifecycle"
                                       "(terminal/run projection is incomplete, conflicting, or unavailable)"
                                       inconsistent)
@@ -1759,9 +1711,8 @@
                      (string? (:value %)))
                facts)))
 
-;; Intake reads are EXACT-SUBJECT: `north json show` folds the whole live corpus
-;; per call and cannot fit any intake deadline. ::unreadable keeps a degraded
-;; coordinator distinguishable from a subject that genuinely carries no facts.
+;; Intake reads are exact-subject FRAMRPC projections. ::unreadable keeps an
+;; unavailable server distinguishable from a subject that carries no facts.
 (def structured-read-attempts 2)
 (def structured-read-retry-ms 500)
 
@@ -2191,6 +2142,83 @@
 ;; retask: typed managed-identity update. The private publisher replaces the
 ;; multi-cardinality goal/cache values, reads them back, and recommits the
 ;; manifest; generic fact writes would leave the lane corrupt.
+(def max-safe-fence-epoch 9007199254740991)
+
+(defn- decode-fence-utf8! [bytes path]
+  (try
+    (let [decoder
+          (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+            (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+            (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))]
+      (str (.decode decoder (java.nio.ByteBuffer/wrap bytes))))
+    (catch java.nio.charset.CharacterCodingException error
+      (throw (ex-info "saved presence fence is not valid UTF-8"
+                      {:type :invalid-saved-presence-fence :path path}
+                      error)))))
+
+(defn- saved-presence-fence-json!
+  ([bare]
+   (saved-presence-fence-json!
+    bare
+    (or (System/getenv "NORTH_AGENT_LOGS_DIR")
+        (str HOME "/.local/state/north/agents"))))
+  ([bare directory]
+   (when-not (valid-control-id? bare)
+     (throw (ex-info "retask requires a safe agent id"
+                     {:type :invalid-saved-presence-fence :agent bare})))
+   (let [directory-file (.getCanonicalFile (io/file directory))
+        file (io/file directory-file (str bare ".presence-fence.json"))
+        path (.toPath file)
+        no-follow (into-array java.nio.file.LinkOption
+                              [java.nio.file.LinkOption/NOFOLLOW_LINKS])]
+    (when (or (java.nio.file.Files/isSymbolicLink path)
+              (not (java.nio.file.Files/isRegularFile path no-follow)))
+      (throw (ex-info "retask requires a regular saved presence fence"
+                      {:type :invalid-saved-presence-fence
+                       :path (.getPath file)})))
+    (let [permissions
+          (java.nio.file.Files/getPosixFilePermissions path no-follow)
+          expected-permissions
+          #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
+            java.nio.file.attribute.PosixFilePermission/OWNER_WRITE}]
+      (when-not (= expected-permissions (set permissions))
+        (throw (ex-info "saved presence fence must have mode 0600"
+                        {:type :invalid-saved-presence-fence
+                         :path (.getPath file)}))))
+    (let [bytes (java.nio.file.Files/readAllBytes path)]
+      (when-not (<= 1 (alength bytes) 512)
+        (throw (ex-info "saved presence fence has an invalid size"
+                        {:type :invalid-saved-presence-fence
+                         :path (.getPath file)})))
+      (let [raw (decode-fence-utf8! bytes (.getPath file))
+            parsed
+            (try
+              (json/parse-string raw)
+              (catch Exception error
+                (throw (ex-info "saved presence fence is not valid JSON"
+                                {:type :invalid-saved-presence-fence
+                                 :path (.getPath file)}
+                                error))))
+            epoch (get parsed "epoch")
+            expected
+            (array-map
+             "resource" (str "session:" bare)
+             "holder" bare
+             "epoch" epoch)]
+        (when-not
+         (and (map? parsed)
+              (= #{"resource" "holder" "epoch"} (set (keys parsed)))
+              (= (get expected "resource") (get parsed "resource"))
+              (= bare (get parsed "holder"))
+              (integer? epoch)
+              (<= 1 epoch max-safe-fence-epoch)
+              (= (str (json/generate-string expected) "\n") raw))
+          (throw (ex-info "saved presence fence does not exactly match the agent"
+                          {:type :invalid-saved-presence-fence
+                           :path (.getPath file)
+                           :agent bare})))
+        (json/generate-string expected))))))
+
 (defn cmd-retask [[id goal & _]]
   (north.topology-authority/require-coordination! "retask")
   (if (or (nil? id) (nil? goal))
@@ -2200,8 +2228,11 @@
           facts (assoc (or (agent-facts-one bare) {}) "goal" goal)
           dn (render-display-name bare facts)
           update (json/generate-string {"goal" goal "display_name" dn})
+          presence-fence (saved-presence-fence-json! bare)
           result (run ["bb" (str NORTH "/cli/agent-fact-internal.clj")
-                       PORT "retask" subj update] :timeout 10000)]
+                       PORT "retask" subj update "" "" "" "" ""
+                       presence-fence]
+                      :timeout 10000)]
       (if (:ok result)
         (do (println (grn "retasked") (bold bare))
             (println "  " dn))
@@ -2273,9 +2304,7 @@
                       (bare-agent
                        (or (north.coord/resolved port (str "@agent:" agent) "coordinator")
                            (north.coord/resolved port (str "@agent:" agent) "supervisor"))))
-          live? (fn [agent]
-                  (let [lease (north.coord/lease-of port (str "session:" agent))]
-                    (and lease (> (:exp lease) (System/currentTimeMillis)))))
+          live? (fn [agent] (north.coord/session-online? port agent))
           immediate (or (bare-agent (System/getenv "AGENT_COORDINATOR"))
                         (parent-of reporter))
           target (supervisor-route immediate live? parent-of)

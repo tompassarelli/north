@@ -172,7 +172,7 @@
                 (str id " has a live address; lane completions can wake it"))
            (= :unavailable (:live route))
            (row "listener" "listener.armed" :warn
-                (str "liveness for " id " is unreadable (coordinator degraded): "
+                (str "liveness for " id " is unreadable (Fram server degraded): "
                      (truncate 120 (some-> route :error .getMessage)))
                 (str "north listen " id))
            :else
@@ -258,8 +258,7 @@
 (def canary-budget-ms (* 12 60 1000))
 
 (defn- agent-fact [id predicate]
-  (try (north.coord/resolved (Integer/parseInt PORT) (str "@agent:" id) predicate)
-       (catch Exception _ nil)))
+  (north.coord/resolved (Integer/parseInt PORT) (str "@agent:" id) predicate))
 
 (defn canary! []
   (north.topology-authority/require-coordination! "spawn --doctor --canary")

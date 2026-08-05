@@ -1,10 +1,8 @@
 #!/usr/bin/env bb
-;; `north report` is deliberately a coordinator projection: it enumerates a
-;; bounded set of run subjects, then reads just those subjects and their threads.
+;; `north report` is a bounded Fram projection: it enumerates run subjects, then
+;; reads the exact run and thread subjects in two batched operations.
 (ns north.shipped-report
-  (:require [clojure.java.io :as io]
-            [clojure.string :as str]
-            [cheshire.core :as json])
+  (:require [clojure.string :as str])
   (:import [java.time Duration Instant]))
 
 (def root (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")))
@@ -28,15 +26,20 @@
 (defn rows->facts [rows] (reduce (fn [m [p v]] (update m p (fnil conj #{}) v)) {} rows))
 
 (defn run-subjects [port]
-  (let [response (north.coord/indexed-query-in-domain
+  (let [response (north.coord/bounded-query-in-domain
                   port :telemetry
                   {:find "shipped_run" :rules [{:head {:rel "shipped_run" :args [{:var "r"}]}
                                                  :body [{:rel "triple" :args [{:var "r"} "kind" "run"]}]}]}
                   max-runs)]
-    (mapv first (:ok response))))
+    (mapv first (:rows response))))
 
-(defn exact-facts [port subject]
-  (rows->facts (:rows (north.coord/show-envelope port subject))))
+(defn exact-facts-many [port domain subjects]
+  (if (seq subjects)
+    (let [response (north.coord/show-many-in-domain port domain subjects)]
+      (into {}
+            (map (fn [[subject rows]] [subject (rows->facts rows)]))
+            (:rows response)))
+    {}))
 
 (defn harness [facts]
   (let [provider (one facts "provider")
@@ -54,40 +57,21 @@
        (mapcat #(re-seq #"(?i)\b[0-9a-f]{7,40}\b" %))
        distinct sort vec))
 
-(defn lane-wall-ms [thread]
-  ;; The terminal receipt is authoritative; lane metadata only fills its absent
-  ;; wall-time field from the harness's start and completed-log timestamps.
-  (let [dir (io/file (str (System/getProperty "user.home") "/.local/state/north/agents"))
-        bare-thread (str/replace (str thread) #"^@" "")]
-    (some (fn [meta]
-            (try
-              (let [row (json/parse-string (slurp meta) true)
-                    started (instant (:startedAt row))
-                    id (some-> (.getName ^java.io.File meta)
-                                (str/replace #"^lane-" "")
-                                (str/replace #"\.meta\.json$" ""))
-                    exit (io/file dir (str "lane-" id ".log.lane.exit"))]
-                (when (and (= bare-thread (:thread row)) started (.isFile exit))
-                  (str (max 0 (- (.lastModified exit) (.toEpochMilli started))))))
-              (catch Exception _ nil)))
-          (take max-runs (or (.listFiles dir) [])))))
-
 (defn report-rows [port since now]
   (let [subjects (run-subjects port)
-        runs (mapv (fn [subject] [subject (exact-facts port subject)]) subjects)
+        runs-by-subject (exact-facts-many port :telemetry subjects)
+        runs (mapv (fn [subject] [subject (get runs-by-subject subject {})]) subjects)
         in-window (filter (fn [[_ facts]] (let [at (instant (one facts "at"))]
                                              (and at (not (.isBefore at since))))) runs)
-        thread-cache (atom {})]
+        threads (->> in-window (keep (fn [[_ facts]] (one facts "thread"))) distinct vec)
+        threads-by-subject (exact-facts-many port :coordination threads)]
     (->> in-window
          (keep (fn [[subject facts]]
                  (when (= "ran" (one facts "process_outcome"))
                    (let [thread (one facts "thread")
-                         thread-facts (when thread
-                                        (or (get @thread-cache thread)
-                                            (let [value (exact-facts port thread)]
-                                              (swap! thread-cache assoc thread value) value)))]
+                         thread-facts (get threads-by-subject thread {})]
                      {:run subject :harness (harness facts) :at (one facts "at")
-                      :duration-ms (or (one facts "duration_ms") (lane-wall-ms thread))
+                      :duration-ms (one facts "duration_ms")
                       :delivery (or (one facts "delivery_outcome") "unverified")
                       :title (or (one thread-facts "title") thread "(no thread)")
                       :outcome (one thread-facts "outcome")

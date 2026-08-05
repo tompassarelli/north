@@ -78,7 +78,7 @@
 (defn lane-registrations
   "Canonical worktree path -> the graph subject that registered it."
   []
-  (bounded #(north.worktree-census/claimed-worktrees (north.coord/expected-log))))
+  (bounded #(north.worktree-census/claimed-worktrees port)))
 
 ;; ---- render -----------------------------------------------------------------
 
@@ -216,8 +216,7 @@
         (primitive "git -C <worktree> status --porcelain=v1 --untracked-files=all")
         (primitive "git -C <repo>/main rev-list --left-right --count refs/heads/<main>...<head>")
         (primitive "concern list-json                                    (live-concern join)")
-        (primitive (str "Clojure EDN fold <live worktree facts> "
-                        (north.coord/expected-log)
+        (primitive (str "FRAMRPC indexed query predicate=worktree port=" port
                         "   (lane registration join)"))
         (println))
       (let [concern-join (live-concerns containers)
@@ -230,7 +229,7 @@
             joined? (and (contains? concern-state :ok)
                          (contains? registration-state :ok))
             sources {"concern list-json" concern-state
-                     "coordinator lane registrations" registration-state}]
+                     "FRAMRPC lane registrations" registration-state}]
         (if (flags "--json")
           (render-json rows concerns registrations joined? sources)
           (render-table rows concerns registrations joined? sources))))))

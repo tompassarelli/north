@@ -111,66 +111,52 @@
             (= {:check true :floor 5}
                (north.wip-cli/parse-options ["--floor" "5" "--check"]))))
 
-(defn log-op [tx operation subject predicate value]
-  (pr-str
-   (array-map
-    :tx tx :op operation :l subject :p predicate :r value
-    :ts "2026-07-28T00:00:00Z" :by "test")))
-
-(let [directory (.toFile
-                 (java.nio.file.Files/createTempDirectory
-                  "north-wip-fixture"
-                  (make-array java.nio.file.attribute.FileAttribute 0)))
-      coordination (io/file directory "coordination.log")
-      telemetry (io/file directory "telemetry.log")]
-  (.deleteOnExit directory)
-  (.deleteOnExit coordination)
-  (.deleteOnExit telemetry)
-  (spit
-   coordination
-   (str/join
-    "\n"
-    [(log-op 1 "assert" "@work" "title" "old")
-     (log-op 2 "assert" "@work" "title" "new \"quoted\" title")
-     (log-op 3 "assert" "@work" "committed" "2026-07-28")
-     (log-op 4 "assert" "@work" "depends_on" "@dependency")
-     (log-op 5 "retract" "@work" "depends_on" "@dependency")
-     (log-op 6 "assert" "@lease:session:lane-a" "lease"
-             "lane-a|1999999999999|6")
-     (log-op 7 "assert" "@lease:session:lane-a" "lease"
-             "lane-a|2000000000000|7")
-     (log-op 8 "assert" "@agent:lane-a" "kind" "lane")
-     (log-op 9 "assert" "@agent:coordinator" "current_thread"
-             "@floor-thread")]))
-  (spit
-   telemetry
-   (str/join
-    "\n"
-    [(log-op 10 "assert" "@session:coordinator" "current_thread"
-             "@legacy-telemetry-thread")
-     (log-op 11 "assert" "@run:one" "run_reservation_agent"
-             "@agent:lane-a")
-     (log-op 12 "assert" "@run:one" "run_reservation_thread"
-             "@work")]))
-  (let [state
-        (north.wip-cli/fold-log-paths (str coordination) (str telemetry))]
-    (check "canonical append-log fold preserves supersession and retraction"
-           (and (some #{["@work" "title" "new \"quoted\" title"]}
-                      (:work state))
-                (not-any? #(and (= "@work" (first %))
-                                (= "depends_on" (second %)))
-                          (:work state))
-                (= "lane-a|2000000000000|7"
-                   (get (:leases state) "@lease:session:lane-a"))))
-    (check "canonical append-log fold carries presence and reservation bindings"
-           (and (= #{"lane-a"} (:managed state))
-                (= "@floor-thread"
-                   (get (:session-threads state) "coordinator"))
-                (not= "@legacy-telemetry-thread"
-                      (get (:session-threads state) "coordinator"))
-                (= {"lane-a" #{"@work"}}
-                   (north.wip-cli/reservation-bindings
-                    (:reservations state)))))))
+(let [coordination-rows
+      [["@work" "title" "new \"quoted\" title"]
+       ["@work" "committed" "2026-07-28"]
+       ["@agent:lane-a" "kind" "lane"]
+       ["@agent:coordinator" "current_thread" "@floor-thread"]]
+      telemetry-rows
+      [["@run:one" "run_reservation_agent" "@agent:lane-a"]
+       ["@run:one" "run_reservation_thread" "@work"]]
+      calls (atom [])
+      state
+      (with-redefs
+       [north.coord/telemetry-partition-enabled? (constantly true)
+        north.coord/query-page-in-domain
+        (fn [_port domain query limit after at-version]
+          (swap! calls conj [domain query limit after at-version])
+          {:rows (if (= :coordination domain) coordination-rows telemetry-rows)
+           :done? true :cursor nil :served-version 12})]
+        (north.wip-cli/coordination-state))]
+  (check "FRAMRPC projection returns materialized work state"
+         (some #{["@work" "title" "new \"quoted\" title"]}
+               (:work state)))
+  (check "FRAMRPC projection carries presence and reservation bindings"
+         (and (= #{"lane-a"} (:managed state))
+              (= "@floor-thread"
+                 (get (:session-threads state) "coordinator"))
+              (= {"lane-a" #{"@work"}}
+                 (north.wip-cli/reservation-bindings
+                  (:reservations state)))))
+  (check "WIP reads coordination and telemetry through bounded query pages"
+         (and (= #{:coordination :telemetry} (set (map first @calls)))
+              (every? #(= north.wip-cli/selected-page-limit (nth % 2)) @calls)
+              (every? nil? (mapcat #(subvec (vec %) 3) @calls))))
+  (let [lease-calls (atom [])
+        presence
+        (with-redefs
+         [north.wip-cli/coordination-state (constantly state)
+          north.coord/online-session-leases
+          (fn [port now-ms]
+            (swap! lease-calls conj [port now-ms])
+            [{:handle "coordinator" :exp 2000000000000}
+             {:handle "lane-a" :exp 2000000000000}])]
+          (north.wip-cli/presence-state 1000000000000))]
+    (check "WIP obtains live controls through one canonical lease scan"
+           (and (= [[7977 1000000000000]] @lease-calls)
+                (= ["coordinator" "lane-a"] (:controls presence))
+                (= #{"lane-a"} (:managed presence))))))
 
 (if (seq @failures)
   (do

@@ -289,8 +289,8 @@
                (north.canary-cli/delegate-cwd
                 {"NORTH_CANARY_TARGET_REPO" "/tmp/canary-target"}))))
 
-;; Poll one exact terminal subject. The report command keeps the corpus fold,
-;; but a live canary must never repeat that global read while it waits.
+;; Poll one exact terminal subject. A live canary must never repeat the paged
+;; report view while it waits.
 (let [subject "@run:lane-canary-1234"
       rows [["kind" "run"]
             ["agent" "lane-canary"]
@@ -303,16 +303,14 @@
             ["delivery_reason" "delivery_bar_evidence_incomplete"]]
       query-calls (atom [])
       show-calls (atom [])]
-  (with-redefs-fn {#'north.coord/indexed-query-in-domain
+  (with-redefs-fn {#'north.coord/bounded-query-in-domain
                    (fn [port domain query limit]
                      (swap! query-calls conj [port domain query limit])
-                     {:ok [[subject]] :version 1 :engine "index"})
-                   #'north.coord/show-envelope
-                   (fn [port actual-subject]
-                     (swap! show-calls conj [port actual-subject])
-                     {:version 1 :rows rows})
-                   #'north.canary-cli/current-run-rows
-                   (fn [] (throw (ex-info "global fold reached" {})))}
+                     {:rows [[subject]] :served-version 1})
+                   #'north.coord/show-many-in-domain
+                   (fn [port domain subjects]
+                     (swap! show-calls conj [port domain subjects])
+                     {:version 1 :rows {subject rows}})}
     (fn []
       (let [row (north.canary-cli/terminal-row-for "lane-canary" "019f-thread")]
         (check "a live canary discovers one committed run through a bounded telemetry query"
@@ -320,7 +318,7 @@
                     (= [7977 :telemetry] (subvec (first @query-calls) 0 2))
                     (= north.canary-cli/max-terminal-run-candidates
                        (nth (first @query-calls) 3))
-                    (= [[7977 subject]] @show-calls)))
+                    (= [[7977 :telemetry [subject]]] @show-calls)))
         (check "an exact terminal row normalizes its thread and preserves its failure result"
                (and (= subject (:entity row))
                     (= "@019f-thread" (:thread row))
@@ -329,8 +327,41 @@
         (check "a terminal row is not matched across a different lane"
                (nil? (north.canary-cli/terminal-canary-row
                       subject
-                      (north.canary-cli/exact-run-facts 7977 subject)
+                      (north.canary-cli/run-facts rows)
                       "lane-other" "019f-thread")))))))
+
+(let [cursor {:opaque "page-1"}
+      page-calls (atom [])
+      show-calls (atom [])
+      projected
+      (with-redefs [north.coord/query-page-in-domain
+                    (fn [port domain query limit after at-version]
+                      (swap! page-calls conj
+                             [port domain query limit after at-version])
+                      (if (nil? after)
+                        {:rows [["@run:one" "kind" "run"]
+                                ["@run:one" "agent" "lane-one"]]
+                         :served-version 9 :done? false :cursor cursor}
+                        {:rows [["@run:one" "at" "2026-07-26T08:00:00Z"]]
+                         :served-version 9 :done? true :cursor nil}))
+                    north.coord/show-many-in-domain
+                    (fn [port domain subjects]
+                      (swap! show-calls conj [port domain subjects])
+                      {:version 4
+                       :rows {"@agent:lane-one" [["provider" "openai"]]}})
+                    north.canary-cli/run-rows
+                    (fn [facts] [facts])]
+        (north.canary-cli/current-run-rows))]
+  (check "canary report passes opaque typed cursors through one scoped telemetry query"
+         (= [[7977 :telemetry north.canary-cli/canary-report-facts-query
+              north.canary-cli/canary-report-page-size nil nil]
+             [7977 :telemetry north.canary-cli/canary-report-facts-query
+              north.canary-cli/canary-report-page-size cursor 9]]
+            @page-calls))
+  (check "canary report batches exact agent identity reads after the run projection"
+         (and (= [[7977 :coordination ["@agent:lane-one"]]] @show-calls)
+              (= "openai"
+                 (get-in (first projected) ["@agent:lane-one" "provider" 0])))))
 
 (check "an independently verified delivery is full-green, not a North-caused alarm"
        (and (= "full-green"

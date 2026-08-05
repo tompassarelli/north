@@ -314,45 +314,6 @@
      :ready  (grab #"(\d+)\s+ready")
      :err    (when-not (:ok b) "board unavailable")}))
 
-;; ---- agent facts: read @agent:<id> subjects from facts log -----------------
-;; One file scan, not N shell-outs.  All agent predicates are single-valued.
-;; Returns {id {pred val}} for every @agent:<id> subject seen.
-(defn agent-facts-from-log []
-  ;; Honor FRAM_LOG (the log split renames the coordination log to coordination.log) and,
-  ;; when log-split routing is on, FOLD THE UNION of both logs — @agent:session-*
-  ;; carry kind=session and route to telemetry.log, so a coordination-only read
-  ;; would under-count agents. Safe to concat then fold: every @agent subject lives
-  ;; entirely in ONE log, so no id's assert/retract sequence crosses logs.
-  (let [paths (->> [(or (System/getenv "FRAM_LOG")
-                        (str HOME "/.local/state/north/facts.log"))
-                    (System/getenv "FRAM_TELEMETRY_LOG")]
-                   (remove nil?)
-                   (filter #(.exists (io/file %))))]
-    (when (seq paths)
-      (try
-        (->> (mapcat #(str/split-lines (slurp %)) paths)
-             (filter #(str/includes? % "\"@agent:"))   ; cheap pre-filter
-             (keep (fn [ln]
-                     (when-let [[_ subj] (re-find #":l\s+\"(@agent:[^\"]+)\"" ln)]
-                       (let [id      (subs subj (count "@agent:"))
-                             op      (some-> (re-find #":op\s+\"([^\"]+)\"" ln) second)
-                             pred    (some-> (re-find #":p\s+\"([^\"]+)\"" ln) second)
-                             ;; :r value — capture up to first unescaped quote boundary
-                             val     (some-> (re-find #":r\s+\"((?:[^\"\\\\]|\\\\.)*)\"" ln) second)]
-                         (when (and op pred)
-                           {:id id :op op :pred pred :val (or val "")})))))
-             (reduce (fn [acc {:keys [id op pred val]}]
-                       (if (= op "assert")
-                         (assoc-in acc [id pred] val)
-                         (update acc id dissoc pred)))
-                     {}))
-        (catch Exception _ {})))))
-
-(defn lookup-display
-  "Return display_name from agfacts for agent id, or nil when no facts exist."
-  [agfacts id]
-  (get-in agfacts [id "display_name"]))
-
 ;; ---- north health probe -------------------------------------------------------
 (defn north-health
   ;; Runs `north health`; never throws.

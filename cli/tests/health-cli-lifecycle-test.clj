@@ -39,12 +39,10 @@
    "@concern-online"
    {"kind" #{"concern"} "agent" #{"@online"} "reached" #{"building"}}
    "@concern-agentless"
-   {"kind" #{"concern"} "reached" #{"building"}}
-   "@lease:session:online"
-   {"lease" #{(str "online|" (inc concern-now) "|1")}}})
+   {"kind" #{"concern"} "reached" #{"building"}}})
 
 (def checks
-  [["committed legacy run remains visible"
+  [["committed run remains visible"
     (= ["@run-legacy" "sdk-health" "ran" "2026-07-17T00:00:00Z"]
        (run-row-from-facts "@run-legacy" committed-run))]
    ["run without kind=run commit marker is invisible"
@@ -65,7 +63,7 @@
            (-> modern-terminal
                (assoc "kind" #{"lane"})
                (assoc "process_outcome" #{"ran" "died"}))))]
-   ["true legacy singleton lane outcome remains visible"
+   ["singleton lane outcome remains visible"
     (= ["@agent:legacy" "died-unreported"]
        (lane-outcome-from-facts
         "@agent:legacy" {"kind" #{"lane"} "outcome" #{"died-unreported"}}))]
@@ -77,7 +75,24 @@
          ["@agent:conflict" "ran"]]))]
    ["concern summary preserves stale, orphaned, retired, landed, and live semantics"
     (= {:active 4 :stale 1 :orphaned 1 :retired 1}
-       (concern-counts concern-facts concern-now))]])
+       (with-redefs [north.coord/online-session-leases
+                     (fn [port now]
+                       (when-not (and (= 7977 port) (= concern-now now))
+                         (throw (ex-info "unexpected health session batch" {})))
+                       [{:handle "online" :exp (inc concern-now)}])]
+         (concern-counts concern-facts concern-now)))]
+   ["health facts use one predicate-bounded union query"
+    (let [calls (atom [])
+          facts
+          (with-redefs [north.coord/query-rows
+                        (fn [port query]
+                          (swap! calls conj [port query])
+                          [["@run:a" "kind" "run"]
+                           ["@run:a" "outcome" "ran"]])]
+            (live-health-facts 7977))]
+      (and (= [[7977 health-query]] @calls)
+           (= {"@run:a" {"kind" #{"run"} "outcome" #{"ran"}}}
+              facts)))]])
 
 (doseq [[label passed?] checks]
   (println (format "  [%s] %s" (if passed? "PASS" "FAIL") label)))

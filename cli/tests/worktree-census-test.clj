@@ -1,51 +1,42 @@
 #!/usr/bin/env bb
-(require '[babashka.process :as proc]
-         '[clojure.java.io :as io]
+(require '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
+(load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/worktree-census.clj"))
 
 (def checks (atom []))
 (defn check [label value & [detail]]
   (swap! checks conj [label (boolean value) detail]))
 
-(defn fact [tx op subject predicate value]
-  (pr-str (array-map
-           :tx tx
-           :r value
-           :frame "worktree-census-test"
-           :p predicate
-           :l subject
-           :op op)))
-
 (let [tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north worktree census "
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
       claimed-path (.getCanonicalPath
-                    (doto (io/file tmp "wt-space and \"quote\"") .mkdirs))
-      retracted-path (.getCanonicalPath
-                      (doto (io/file tmp "wt-retracted") .mkdirs))]
+                    (doto (io/file tmp "wt-space and \"quote\"") .mkdirs))]
   (try
-    (spit log
-          (str/join
-           "\n"
-           [(fact 1 "assert" "@lane-ignored" "title" "not a worktree")
-            (fact 2 "assert" "@lane-claimed" "worktree" claimed-path)
-            (fact 3 "assert" "@lane-retracted" "worktree" retracted-path)
-            (fact 4 "retract" "@lane-retracted" "worktree" retracted-path)
-            ""]))
-    (with-redefs [proc/shell
-                  (fn [& args]
-                    (throw (ex-info "worktree census spawned a process"
-                                    {:args args})))]
-      (check "live worktree facts are selected without a subprocess"
-             (= {claimed-path "@lane-claimed"}
-                (north.worktree-census/claimed-worktrees (.getPath log)))))
+    (let [calls (atom [])]
+      (with-redefs [north.coord/bounded-query-in-domain
+                    (fn [& args]
+                      (swap! calls conj args)
+                      {:rows [["@lane-claimed" claimed-path]
+                              ["@lane-invalid" "relative/wt-invalid"]]})]
+        (check "live worktree claims come from one bounded coordination query"
+               (and (= {claimed-path "@lane-claimed"}
+                       (north.worktree-census/claimed-worktrees 7977))
+                    (= 1 (count @calls))
+                    (= [7977 :coordination]
+                       (vec (take 2 (first @calls))))
+                    (= "worktree_claim"
+                       (get-in (vec (first @calls)) [2 :find]))
+                    (= "worktree"
+                       (get-in (vec (first @calls))
+                               [2 :rules 0 :body 0 :args 1]))
+                    (= 4096 (last (first @calls)))))))
 
     (let [calls (atom [])
           porcelain
@@ -98,13 +89,13 @@
                       :detached? true :locked? false :prunable? true}]
                     entries)))))
     (let [worktrees-cli (slurp (io/file root "cli" "worktrees-cli.clj"))]
-      (check "worktrees observability names the in-process EDN fold"
+      (check "worktrees observability names the FRAMRPC indexed query"
              (and (str/includes?
                    worktrees-cli
-                   "Clojure EDN fold <live worktree facts>")
+                   "FRAMRPC indexed query predicate=worktree port=")
                   (not (str/includes?
                         worktrees-cli
-                        "gawk <live worktree facts>")))))
+                        "north.coord/expected-log")))))
     (finally
       (doseq [file (reverse (file-seq tmp))]
         (try (io/delete-file file true) (catch Throwable _ nil)))))

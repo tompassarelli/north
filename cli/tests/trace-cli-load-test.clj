@@ -26,13 +26,13 @@
 (def result
   (proc/shell {:out :string :err :string :continue true
                :extra-env {"NORTH_PORT" "59999"}}
-              "bb" trace-cli "load-probe"))
+              (str root "/bin/north") "trace" "load-probe"))
 (def output (str (:out result) (:err result)))
 (def ok? (and (not (str/includes? output "Unable to resolve symbol"))
               (not (str/includes? output "EOF while reading"))
-              (str/includes? output "coordinator :59999 unreachable")))
+              (str/includes? output "Fram server :59999 unreachable")))
 
-(check "trace CLI loads before its unavailable-coordinator boundary" ok?)
+(check "trace CLI loads before its unavailable-Fram-server boundary" ok?)
 (when-not ok?
   (println output))
 (check "identity rendering keeps model and effort as separate exact fields"
@@ -120,26 +120,25 @@
       query-called? (atom false)
       facts
       (with-redefs
-       [many
-        (fn [port subject predicate]
-          (swap! calls conj [port subject predicate])
-          (case predicate
-            "model" ["model-a" "model-b"]
-            "process_outcome" ["ran" "died"]
-            "repo" ["~/code/north"]
-            []))
-        send-op
+       [north.coord/show-many-in-domain
+        (fn [port domain subjects]
+          (swap! calls conj [port domain subjects])
+          {:version 17
+           :rows
+           {"@agent:bounded-agent"
+            [["model" "model-a"]
+             ["model" "model-b"]
+             ["process_outcome" "ran"]
+             ["process_outcome" "died"]
+             ["repo" "~/code/north"]]}})
+        north.coord/bounded-query
         (fn [& _]
           (reset! query-called? true)
           (throw (ex-info "agent projection must not issue Datalog" {})))]
        (agent-facts "bounded-agent"))]
-  (check "trace agent projection is an exact finite set of direct point reads"
+  (check "trace agent projection is one exact subject batch"
          (and (not @query-called?)
-              (= (set trace-agent-predicates)
-                 (set (map #(nth % 2) @calls)))
-              (= (count trace-agent-predicates) (count @calls))
-              (every? #(= [PORT "@agent:bounded-agent"] (subvec (vec %) 0 2))
-                      @calls)
+              (= [[PORT :coordination ["@agent:bounded-agent"]]] @calls)
               (= "~/code/north" (get facts "repo"))
               (contains? (get facts north.agent-provenance/conflict-key #{})
                          "model")
@@ -254,7 +253,7 @@
          (= (str "execution succeeded; process=ran · delivery=reported "
                  "(complete_run_scoped_done_bar_evidence_self_reported). "
                  "Delivery is evidence-backed same-UID self-report, not independent "
-                 "verification; lease lapsed as expected.")
+                 "verification; presence is inactive as expected.")
             reported-verdict))
   (check "unverified delivery is yellow-class incomplete proof, not a done claim"
          (and (= :incomplete
@@ -263,12 +262,12 @@
               (= (str "execution succeeded but delivery proof is incomplete; "
                       "process=ran · delivery=unverified "
                       "(provider_terminal_success_without_external_verification). "
-                      "This is not a done claim; lease lapsed as expected.")
+                      "This is not a done claim; presence is inactive as expected.")
                  unverified-verdict)))
   (check "unrecorded delivery is incomplete proof, not success"
          (= (str "execution succeeded but delivery proof is incomplete; "
                  "process=ran · delivery=unrecorded. "
-                 "This is not a done claim; lease lapsed as expected.")
+                 "This is not a done claim; presence is inactive as expected.")
             unrecorded-verdict))
   (check "ran plus blocked delivery is a red-class terminal inconsistency"
          (and (= :blocked (delivery-proof-class {:outcome "blocked"}))
