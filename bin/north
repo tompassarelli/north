@@ -119,7 +119,7 @@ fi
 BUN="${NORTH_BUN:-bun}"
 # Every North data path speaks canonical FRAMRPC through the one façade.
 NORTH_BARS=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/bars-cli.clj")
-NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" -i "$NORTH/cli/coord.clj" -m north.main)
+NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" --init "$NORTH/cli/coord.clj" -m north.main)
 
 # CONCURRENCY GATE — bound how many corpus-loading verb JVMs can exist at once.
 #
@@ -322,6 +322,13 @@ case "${1:-}" in
     # turn-end reconciles against, under the SDK's 45s budget.
     # `json child-settlement` is that same turn-end's other half, under the
     # tighter 5s settlement deadline.
+    if [ "$1" = json ] && [ "$#" -eq 3 ]; then
+      case "${2:-}" in
+        show) exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/json-show-cli.clj" "$3" ;;
+        children) exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/json-children-cli.clj" "$3" ;;
+        child-settlement) exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/json-child-settlement-cli.clj" "$3" ;;
+      esac
+    fi
     north_slot_exec "$@" ;;
   coord-ready)
     coord_runtime_ready ;;
