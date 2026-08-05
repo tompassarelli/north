@@ -257,10 +257,17 @@
 (defn- ensure-orphan-fact! [port subject value]
   (if (contains? (set (north.coord/many port subject "worktree_orphaned")) value)
     false
-    (do
-      (north.coord/append! port subject "worktree_orphaned" value)
+    (let [result
+          (north.coord/publish!
+           port
+           [{:op :assert :subject subject :predicate "worktree_orphaned"
+             :value value :cardinality :many}])]
+      (when (:reject result)
+        (throw (ex-info "FRAMRPC rejected worktree orphan publication"
+                        {:type :worktree-orphan-publication-rejected
+                         :result result})))
       (when-not (contains? (set (north.coord/many port subject "worktree_orphaned")) value)
-        (throw (ex-info "worktree orphan fact was not visible after append"
+        (throw (ex-info "worktree orphan fact was not visible after publication"
                         {:subject subject})))
       true)))
 

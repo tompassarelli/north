@@ -34,9 +34,6 @@
 (load-file (str CLI-DIR "/coord.clj"))
 (load-file (str CLI-DIR "/orchestration-selection.clj"))
 (def send-op  north.coord/send-op)
-(def put!     north.coord/put!)
-(def append!  north.coord/append!)
-(def retract! north.coord/retract!)
 (def resolved-envelope north.coord/resolved-envelope)
 (def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
 (def rules-digest              north.orchestration-selection/rules-digest)
@@ -144,39 +141,57 @@
 (defn pointer-values [port]
   (vec (:values (resolved-envelope port POINTER "catalog_version"))))
 
-;; put! supersedes only for a predicate declared `@<pred> cardinality single`
-;; (fram schema-as-facts, the engine's sole runtime authority); undeclared it
-;; APPENDS and every consumer keeps electing the stale first value.
+(defn publish-actions! [port actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info "FRAMRPC rejected orchestration catalog publication"
+                      {:type :catalog-publication-rejected :result result})))
+    result))
+
 (defn declare-single! [port]
-  (let [res (put! port "@catalog_version" "cardinality" "single")]
-    (when-not (:ok res)
-      (throw (ex-info (str "cannot declare catalog_version cardinality single: " (pr-str res))
-                      {:type :catalog-cardinality-undeclared :response res})))))
+  (publish-actions!
+   port
+   [{:op :set :subject "@catalog_version" :predicate "cardinality"
+     :values ["single"] :cardinality :one}]))
 
 ;; Verify-then-repair rather than preflight-declare: on an already-declared
 ;; coordinator (the steady state) this costs one read and never re-declares —
 ;; each schema write invalidates the coordinator's whole read-side cache.
 (defn flip! [port ver]
-  (put! port POINTER "catalog_version" (str ver))
-  (when-not (= (pointer-values port) [(str ver)])
-    ;; The engine refuses multi->single while a live group holds >1 value, so shed
-    ;; the appended values first; re-put last so the newest op on the group is an
-    ;; ASSERT (under single the fold keys on (l,p), and a trailing retract would
-    ;; take the whole group with it).
-    (doseq [v (remove #{(str ver)} (pointer-values port))]
-      (retract! port POINTER "catalog_version" v))
-    (declare-single! port)
-    (put! port POINTER "catalog_version" (str ver))
-    (let [vs (pointer-values port)]
-      (when-not (= vs [(str ver)])
-        (throw (ex-info (str "pointer flip did not take: @catalog:current catalog_version = " (pr-str vs))
-                        {:type :catalog-flip-not-atomic :expected ver :actual vs}))))))
+  (publish-actions!
+   port
+   [{:op :set :subject "@catalog_version" :predicate "cardinality"
+     :values ["single"] :cardinality :one}
+    {:op :set :subject POINTER :predicate "catalog_version"
+     :values [(str ver)] :cardinality :one}]))
 
 ;; ---------------------------------------------------------------------------
 ;; Emit — every write goes to the version namespace (draft) until the flip.
 ;; ---------------------------------------------------------------------------
-(defn s1! [port subj p v] (when (some? v) (put! port subj p (str v))))
-(defn smulti! [port subj p vs] (doseq [v vs] (append! port subj p (str v))))
+(def ^:dynamic *publication-actions* nil)
+
+(defn queue-set! [port subject predicate values cardinality]
+  (let [values (vec (map str values))]
+    (if *publication-actions*
+      (swap! *publication-actions*
+             update [subject predicate cardinality]
+             (fn [current]
+               {:op :set :subject subject :predicate predicate
+                :values (if (= :one cardinality)
+                          values
+                          (vec (distinct (concat (:values current) values))))
+                :cardinality cardinality}))
+      (publish-actions!
+       port
+       [{:op :set :subject subject :predicate predicate
+         :values values :cardinality cardinality}]))))
+
+(defn s1! [port subj p v]
+  (when (some? v)
+    (queue-set! port subj p [v] :one)))
+
+(defn smulti! [port subj p vs]
+  (queue-set! port subj p vs :many))
 
 (defn emit-staffing! [port ver catalog]
   (let [subj (ns-subject ver "staffing")
@@ -305,7 +320,7 @@
         (s1! port subj "min_tier" (get r "min_tier"))
         (s1! port subj "min_reasoning" (get r "min_reasoning"))
         (s1! port subj "rule_code" code)
-        (append! port policy "rule" subj)))
+        (smulti! port policy "rule" [subj])))
     ;; digest over the canonical rule projection (design section 1.5) — the
     ;; §3.2 pin recomputes this exact value at admission.
     (s1! port policy "policy_sha256" (rules-digest rules))))
@@ -315,14 +330,17 @@
 ;; ---------------------------------------------------------------------------
 (defn import! [port root]
   (let [ver (inc (or (current-version port) 0))
-        catalog (read-json root "staffing" "catalog.json")]
-    (emit-staffing! port ver catalog)
-    (emit-axis-values! port ver root catalog)
-    (emit-comms! port ver root)
-    (emit-templates! port ver root catalog)
-    (emit-provider! port ver root "anthropic")
-    (emit-provider! port ver root "openai")
-    (emit-selection! port ver root)
+        catalog (read-json root "staffing" "catalog.json")
+        actions (atom {})]
+    (binding [*publication-actions* actions]
+      (emit-staffing! port ver catalog)
+      (emit-axis-values! port ver root catalog)
+      (emit-comms! port ver root)
+      (emit-templates! port ver root catalog)
+      (emit-provider! port ver root "anthropic")
+      (emit-provider! port ver root "openai")
+      (emit-selection! port ver root))
+    (publish-actions! port (vals @actions))
     ;; ATOMIC FLIP — one serialized write; consumers never see a torn import.
     (flip! port ver)
     ver))
@@ -352,11 +370,19 @@
         total-bytes (reduce + (map (fn [[_ b]] (count (.getBytes ^String b "UTF-8"))) blocks))
         before (log-size)
         t0 (System/nanoTime)]
-    (doseq [[k b] blocks] (put! port (str "@throwaway:probe:" k) "prompt_block" b))
+    (publish-actions!
+     port
+     (for [[k block] blocks]
+       {:op :set :subject (str "@throwaway:probe:" k)
+        :predicate "prompt_block" :values [block] :cardinality :one}))
     (let [write-ms (/ (- (System/nanoTime) t0) 1e6)
           after (log-size)
           lat (/ (reduce + (map #(query-latency-ms port %) subs)) (count subs))]
-      (doseq [s subs] (doseq [v (exact-values port s "prompt_block")] (retract! port s "prompt_block" v)))
+      (publish-actions!
+       port
+       (for [subject subs]
+         {:op :set :subject subject :predicate "prompt_block" :values []
+          :cardinality :one}))
       {:blocks (count blocks)
        :prompt_block_bytes total-bytes
        :log_growth_bytes (- after before)
@@ -371,9 +397,15 @@
                                          :rules [{:head {:rel "s,p,o" :args [{:var "s"} {:var "p"} {:var "o"}]}
                                                   :body [{:rel "triple" :args [{:var "s"} {:var "p"} {:var "o"}]}]}]}}))
         mine (filter (fn [[s _ _]] (str/starts-with? s prefix)) rows)]
-    (doseq [[s p o] mine] (retract! port s p o))
-    (when (= ver (current-version port))
-      (doseq [v (exact-values port POINTER "catalog_version")] (retract! port POINTER "catalog_version" v)))
+    (publish-actions!
+     port
+     (concat
+      (for [[subject predicate] (distinct (map (juxt first second) mine))]
+        {:op :set :subject subject :predicate predicate :values []
+         :cardinality :many})
+      (when (= ver (current-version port))
+        [{:op :set :subject POINTER :predicate "catalog_version" :values []
+          :cardinality :one}])))
     (count mine)))
 
 (defn show! [port ver]

@@ -41,22 +41,22 @@
 ;;
 ;; IDEMPOTENT by construction: subjects are deterministic, objects are deterministic
 ;; (counts inside notes are BUCKETED so a still-growing session doesn't mint rivals),
-;; and append! collapses identical (te,p,r) — re-running never duplicates. Incremental
+;; and projection publication collapses identical facts — re-running never duplicates. Incremental
 ;; state (path -> mtime/size) lives in ~/.local/state/north/north-mine/state.edn so the
 ;; steady-state run only touches changed files; --full rescans everything.
 ;;
 ;; PRIVACY: signals, not surveillance — only short verb/tool/doc names and truncated
 ;; error reasons are recorded, never message content.
 ;;
-;; All writes go through the coordinator socket (cli/coord.clj append!/put!) — never
-;; the facts.log directly. Streaming line-reader; snapshot lines and >8MB lines are
+;; All writes go through canonical FRAMRPC batches — never a log file directly.
+;; Streaming line-reader; snapshot lines and >8MB lines are
 ;; skipped unparsed; per-file line cap keeps a pathological transcript bounded.
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[clojure.edn :as edn]
          '[cheshire.core :as json])
 
-;; shared coord substrate (Foundation Part B): send-op/append!/put! live once in cli/coord.clj.
+;; Shared canonical coordination substrate.
 ;; Guard the sibling load so a test can pre-load coord.clj (from its own dir) and then
 ;; load THIS file as a library without the babashka.file parent resolving to the wrong dir.
 (when-not (find-ns 'north.coord)
@@ -314,24 +314,38 @@
 
 ;; ---------------------------------------------------------------------------
 ;; fact emission — @mine:<stem>, existing predicates + the one minted `verb_vote`
+(defn publish-actions! [port actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info "FRAMRPC rejected telemetry publication"
+                      {:type :mine-publication-rejected :result result})))
+    result))
+
 (defn emit-facts! [port {:keys [stem session-id cwd last-ts error-count
                                  votes input-val rejects retries guards rereads]}]
   (let [te (str "@mine:" stem)
-        note! (fn [s] (north.coord/append! port te "note" s))]
-    (north.coord/put! port te "kind" "mine")
-    (north.coord/put! port te "session_id" (or session-id stem))
-    (when cwd (north.coord/put! port te "repo" (tilde cwd)))
-    (when last-ts (north.coord/put! port te "at" last-ts))
-    (when (pos? error-count) (north.coord/put! port te "error_count" (str error-count)))
-    (doseq [v (take MAX-VOTES-PER-UNIT (keys votes))]
-      (north.coord/append! port te "verb_vote" v))
-    (doseq [s (take MAX-NOTES-PER-UNIT
+        notes (take MAX-NOTES-PER-UNIT
                     (concat (for [[nm c] input-val] (str "input_validation: " nm " x" (bucket c)))
                             (for [[_ {:keys [label max]}] retries] (str "retry_loop: " label " x" (bucket max)))
                             (for [[doc c] rereads] (str "doc_reread: " doc " x" (bucket c)))
                             (for [[g c] guards] (str "guard_denial: " g " x" (bucket c)))
                             (for [[r c] rejects] (str "engine_reject: " r " x" (bucket c)))))]
-      (note! s))))
+    (publish-actions!
+     port
+     (concat
+      (for [[predicate value]
+            (cond-> [["kind" "mine"] ["session_id" (or session-id stem)]]
+              cwd (conj ["repo" (tilde cwd)])
+              last-ts (conj ["at" last-ts])
+              (pos? error-count) (conj ["error_count" (str error-count)]))]
+        {:op :assert :subject te :predicate predicate :value value
+         :cardinality :one})
+      (for [value (take MAX-VOTES-PER-UNIT (keys votes))]
+        {:op :assert :subject te :predicate "verb_vote" :value value
+         :cardinality :many})
+      (for [note notes]
+        {:op :assert :subject te :predicate "note" :value note
+         :cardinality :many})))))
 
 ;; ---------------------------------------------------------------------------
 ;; verbosity advisory (thread 019f7d16 W2)
@@ -347,23 +361,30 @@
                                     asst-very-long interruptions interrupt-attr
                                     fast-skips abandoned]}]
   (let [te (str "@mine:" stem)
-        note! (fn [s] (north.coord/append! port te "note" s))]
-    ;; ensure the header exists even for a verbosity-only session (idempotent puts)
-    (north.coord/put! port te "kind" "mine")
-    (north.coord/put! port te "session_id" (or session-id stem))
-    (when cwd (north.coord/put! port te "repo" (tilde cwd)))
-    (when last-ts (north.coord/put! port te "at" last-ts))
-    (when (pos? (or asst-long 0))
-      (note! (str "response_length: " asst-responses " text-turns, " asst-long
-                  " long(>=" LONG-RESPONSE-CHARS "c), " asst-very-long
-                  " very-long(>=" VERY-LONG-RESPONSE-CHARS "c)")))
-    (when (pos? (or interruptions 0))
-      (note! (str "interruption: " interruptions " total, "
-                  (get interrupt-attr :corrective 0) " corrective(after-long-text), "
-                  (get interrupt-attr :during-tool 0) " during-tool, "
-                  (get interrupt-attr :other 0) " other")))
-    (when (pos? (or fast-skips 0)) (note! (str "fast_skip: " fast-skips)))
-    (when (pos? (or abandoned 0)) (note! "abandoned_output: session left on an interrupt"))))
+        notes (cond-> []
+                (pos? (or asst-long 0))
+                (conj (str "response_length: " asst-responses " text-turns, " asst-long
+                           " long(>=" LONG-RESPONSE-CHARS "c), " asst-very-long
+                           " very-long(>=" VERY-LONG-RESPONSE-CHARS "c)"))
+                (pos? (or interruptions 0))
+                (conj (str "interruption: " interruptions " total, "
+                           (get interrupt-attr :corrective 0) " corrective(after-long-text), "
+                           (get interrupt-attr :during-tool 0) " during-tool, "
+                           (get interrupt-attr :other 0) " other"))
+                (pos? (or fast-skips 0)) (conj (str "fast_skip: " fast-skips))
+                (pos? (or abandoned 0)) (conj "abandoned_output: session left on an interrupt"))]
+    (publish-actions!
+     port
+     (concat
+      (for [[predicate value]
+            (cond-> [["kind" "mine"] ["session_id" (or session-id stem)]]
+              cwd (conj ["repo" (tilde cwd)])
+              last-ts (conj ["at" last-ts]))]
+        {:op :assert :subject te :predicate predicate :value value
+         :cardinality :one})
+      (for [note notes]
+        {:op :assert :subject te :predicate "note" :value note
+         :cardinality :many})))))
 
 ;; PURE aggregate over the scanned units — deterministic (all folds are sums; no
 ;; map-order dependence). Never performs I/O and never reads routing state. The
@@ -432,10 +453,11 @@
      [:append te "note" (advisory-note adv)]]))
 
 (defn emit-advisory! [port adv date]
-  (doseq [[op te pred val] (advisory-facts adv date)]
-    (case op
-      :put    (north.coord/put! port te pred val)
-      :append (north.coord/append! port te pred val))))
+  (publish-actions!
+   port
+   (for [[operation subject predicate value] (advisory-facts adv date)]
+     {:op :assert :subject subject :predicate predicate :value value
+      :cardinality (if (= :put operation) :one :many)})))
 
 ;; ---------------------------------------------------------------------------
 ;; incremental state
@@ -552,7 +574,7 @@
       (binding [*out* *err*]
         (println (format "north-mine: scanned %d, findings in %d, facts %s"
                          (count us) (count with-findings)
-                         (if dry? "SKIPPED (dry-run)" "written via coordinator")))
+                         (if dry? "SKIPPED (dry-run)" "written via FRAMRPC")))
         (println (format "north-mine: verbosity advisory = %s (%d text-turns / %d sessions)"
                          (:verdict adv) (:responses adv) (:sessions adv))))
       ;; the aggregate advisory reflects the WHOLE corpus, so it is only PUT on a

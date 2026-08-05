@@ -23,8 +23,6 @@
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op  north.coord/send-op)
-(def put!     north.coord/put!)
-(def retract! north.coord/retract!)
 
 (defn read-forms [path]
   (with-open [rdr (java.io.PushbackReader. (io/reader path))]
@@ -47,13 +45,6 @@
 ;; other code from schema-migrate.clj is read or run.
 (def ORCHESTRATION-ENTITY-KINDS (eval (literal-def (schema-migrate-path) 'ORCHESTRATION-ENTITY-KINDS)))
 
-(defn exact-values [port subject predicate]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "v"
-                                   :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                            :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}}))
-       (map first)))
-
 (defn exact-facts [port subject]
   (->> (:ok (send-op port {:op :query
                            :query {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
@@ -61,15 +52,34 @@
        (map (fn [row] [(nth row 0) (nth row 1)]))
        (sort-by (juxt first second))))
 
-(defn set-1! [port subject predicate value]
-  (doseq [old (exact-values port subject predicate)] (retract! port subject predicate old))
-  (put! port subject predicate (str value)))
+(def ^:dynamic *publication-actions* nil)
 
-(defn set-multi! [port subject predicate values]
-  (let [current (set (exact-values port subject predicate))
-        wanted  (set (map str values))]
-    (doseq [v (clojure.set/difference current wanted)] (retract! port subject predicate v))
-    (doseq [v (clojure.set/difference wanted current)] (put! port subject predicate v))))
+(defn publish-actions! [port actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info "FRAMRPC rejected orchestration vocabulary publication"
+                      {:type :vocabulary-publication-rejected :result result})))
+    result))
+
+(defn queue-set! [subject predicate values cardinality]
+  (when-not *publication-actions*
+    (throw (ex-info "orchestration vocabulary mutation requires one publication scope"
+                    {:type :missing-publication-scope})))
+  (swap! *publication-actions* conj
+         {:op :set :subject subject :predicate predicate
+          :values (vec (map str values)) :cardinality cardinality}))
+
+(defn collect-publication! [port operation!]
+  (let [actions (atom [])
+        result (binding [*publication-actions* actions] (operation!))]
+    (publish-actions! port @actions)
+    result))
+
+(defn set-1! [_port subject predicate value]
+  (queue-set! subject predicate [value] :one))
+
+(defn set-multi! [_port subject predicate values]
+  (queue-set! subject predicate values :many))
 
 ;; ============================================================================
 ;; Entity-kind definitions — mirrors schema-migrate.clj's entity-kind-definition
@@ -91,7 +101,7 @@
   (doseq [[kind _] ORCHESTRATION-ENTITY-KINDS]
     (let [subject (str "@entity-kind:" kind)]
       (doseq [p ["entity_kind" "entity_kind_name" "doc"]]
-        (doseq [v (exact-values port subject p)] (retract! port subject p v)))))
+        (queue-set! subject p [] :one))))
   (count ORCHESTRATION-ENTITY-KINDS))
 
 ;; ============================================================================
@@ -147,9 +157,9 @@
 (defn retract-shape! [port kind]
   (let [subject (str "@shape:" kind)]
     (doseq [p ["kind" "applies_to_kind" "enforcement"]]
-      (doseq [v (exact-values port subject p)] (retract! port subject p v)))
+      (queue-set! subject p [] :one))
     (doseq [p ["required_predicate" "allowed_predicate" "structural_rule"]]
-      (doseq [v (exact-values port subject p)] (retract! port subject p v)))))
+      (queue-set! subject p [] :many))))
 
 (defn retract-shapes! [port]
   (doseq [[kind _] SHAPES] (retract-shape! port kind))
@@ -160,14 +170,18 @@
       port (Integer/parseInt (or ps "7977"))]
   (case verb
     "seed"
-    (let [kinds (seed-entity-kinds! port)
-          shapes (seed-shapes! port)]
+    (let [[kinds shapes]
+          (collect-publication!
+           port
+           #(vector (seed-entity-kinds! port) (seed-shapes! port)))]
       (println (format "✓ seeded %d @entity-kind:* definitions and %d @shape:* subjects on :%d (enforcement=%s)"
                        kinds shapes port PHASE-0-ENFORCEMENT)))
 
     "retract"
-    (let [kinds (retract-entity-kinds! port)
-          shapes (retract-shapes! port)]
+    (let [[kinds shapes]
+          (collect-publication!
+           port
+           #(vector (retract-entity-kinds! port) (retract-shapes! port)))]
       (println (format "✓ retracted %d @entity-kind:* definitions and %d @shape:* subjects on :%d"
                        kinds shapes port)))
 

@@ -1,7 +1,7 @@
 ;; north-map.clj — deterministic batch registry + BARRIER fixture. Sibling to
-;; presence-cli/msg-cli/lease-cli; speaks the SAME daemon wire (:assert / :version / :query /
-;; :resolved). Managed lane creation moved to canonical North spawn/dispatch;
-;; this legacy surface can only register deterministic test batches.
+;; presence-cli/msg-cli/lease-cli; all graph operations use canonical FRAMRPC.
+;; Managed lane creation lives on canonical North spawn/dispatch; this surface
+;; only registers deterministic test batches.
 ;;
 ;; Model (all facts, no new daemon verbs):
 ;;   @batch:<id>  batch_kind=fan-out  expected_count=N  barrier_k=K  role_template=..  task=..
@@ -37,8 +37,6 @@
 ;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op    north.coord/send-op)
-(def append!    north.coord/append!)
-(def put!       north.coord/put!)
 (def one        north.coord/resolved)
 (def many       north.coord/many)
 (def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
@@ -64,6 +62,13 @@
         {:error (str "Orchestration staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
 
 (defn q [port query] (:ok (send-op port {:op :query :query query})))
+
+(defn publish-actions! [port actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info "FRAMRPC rejected batch registry publication"
+                      {:type :batch-publication-rejected :result result})))
+    result))
 
 ;; --- BARRIER = the count-distinct QUORUM (coord.clj's `distinct-of`), the
 ;; completion DUAL of mutual exclusion. The body binds every @done:* worker for
@@ -118,16 +123,24 @@
               (System/exit 2))
           id (north.batch-id/fresh-id)
           e (batch-ent id)]
-      (put! port e "batch_kind"     "fan-out")    ; single (batch metadata, write-once)
-      (put! port e "expected_count" n)
-      (put! port e "barrier_k"      k)
-      (put! port e "role_template"  tmpl)
-      (put! port e "task"           task)
-      (put! port e "created_at"     (str (java.time.Instant/now)))
-      (when has-schema (put! port e "done_schema" schema))   ; rec4: payload contract for every DONE
-      (doseq [i (range 1 (inc n))]
-        (let [slug (str tmpl "-" id "-" i)]
-          (append! port e "worker" slug)))
+      (publish-actions!
+       port
+       (concat
+        (for [[predicate value]
+              [["batch_kind" "fan-out"]
+               ["expected_count" n]
+               ["barrier_k" k]
+               ["role_template" tmpl]
+               ["task" task]
+               ["created_at" (str (java.time.Instant/now))]]]
+          {:op :assert :subject e :predicate predicate :value (str value)
+           :cardinality :one})
+        (when has-schema
+          [{:op :assert :subject e :predicate "done_schema" :value schema
+            :cardinality :one}])
+        (for [i (range 1 (inc n))]
+          {:op :assert :subject e :predicate "worker"
+           :value (str tmpl "-" id "-" i) :cardinality :many})))
       (println (str "batch " e "  N=" n " K=" k " role=" tmpl
                     (when has-schema "  +schema")
                     "  (fixture registration only, MAP_SPAWN=0)"))))
@@ -152,10 +165,15 @@
       ;; THAT subject (write-once). The barrier's multi-ness is the AGGREGATE over many
       ;; @done:* entities (count-distinct done_worker), a read-side join — not a multi
       ;; group on one subject.
-      (put! port de "done_batch"   be)            ; single
-      (put! port de "done_worker"  worker)        ; single (per @done subject)
-      (put! port de "done_payload" (or payload "")) ; single
-      (put! port de "done_at"      (str (java.time.Instant/now)))  ; single
+      (publish-actions!
+       port
+       (for [[predicate value]
+             [["done_batch" be]
+              ["done_worker" worker]
+              ["done_payload" (or payload "")]
+              ["done_at" (str (java.time.Instant/now))]]]
+         {:op :assert :subject de :predicate predicate :value value
+          :cardinality :one}))
       (let [done (done-workers port be)
             {:keys [k expected]} (batch-meta port be)
             kk (or k expected)]
@@ -217,7 +235,10 @@
 
             (>= (System/currentTimeMillis) deadline)
             (let [missing (remove (set done) (or workers []))]
-              (put! port be "barrier_status" "timed_out")   ; single
+              (publish-actions!
+               port
+               [{:op :assert :subject be :predicate "barrier_status"
+                 :value "timed_out" :cardinality :one}])
               (binding [*out* *err*]
                 (println (format "BARRIER TIMED OUT after %ss — %d/%s done; missing: %s"
                                  (quot timeout-ms 1000) (count done) (or kk "?")
