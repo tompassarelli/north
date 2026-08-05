@@ -1,6 +1,0 @@
-[Unit]
-Description=North epoch retention dry-run and report
-
-[Service]
-Type=oneshot
-ExecStart=/opt/north/bin/north-epoch-run

@@ -147,14 +147,6 @@ jobs:
           bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated coordinator, scheduled task twice
           bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed wt-* reap: real Git, deferred graph joins, daemon-free
           bb cli/tests/maintenance-large-corpus-test.clj  # >221k live facts + 48 lanes complete without scan/fixpoint amplification
-          # Generate the exact imported corpus and require the lifecycle bar's
-          # terminal PASS marker so a missing/wrong log can never skip green.
-          ( cd ../fram && bin/fram import )
-          test -s ../fram/coordination.log
-          lifecycle_output="$(FRAM_LOG=../fram/coordination.log bb -cp "$CP" tests/lifecycle_test.clj)"
-          printf '%s\n' "$lifecycle_output"
-          grep -Fq 'Stage 4: lifecycle-as-rules == hand-coded PASS' <<<"$lifecycle_output"
-
       - name: Coordinator policy and startup boundaries
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}

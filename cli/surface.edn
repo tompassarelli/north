@@ -208,8 +208,8 @@
    :summary "machine-readable projections (plate, ready, show, …)"}
   {:verb "tools" :form "north tools" :topic :store
    :summary "the curated MCP tool surface + the fram engine core"}
-  {:verb "heal" :form "north heal [--adopt] [--resurrect]" :topic :store
-   :summary "reconcile threads/ files with the log; fails closed on hand edits"}
+  {:verb "heal" :form "north heal [--adopt]" :topic :store
+   :summary "reconcile threads/ files with the database; fails closed on hand edits"}
   {:verb "boot" :form "north boot" :topic :store
    :summary "session orientation: safety verdict, hygiene, the entry-point note"}
   {:verb "import" :form "north import" :topic :store :dispatch :fram

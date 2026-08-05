@@ -13,15 +13,6 @@ quick index.
 | `north-gateway.service` | systemd unit — the gateway |
 | `Caddyfile.example` | reverse proxy terminating TLS in front of the gateway |
 | `backup.sh` + `north-backup.{service,timer}` | per-tenant `facts.log` snapshot + prune, on a daily timer |
-| `epoch/north-epoch-dry-run.{service,timer}` | weekly dry-run report; execution remains operator-gated |
-
-## Epoch retention
-
-Install the user timer with `systemctl --user enable --now north-epoch-dry-run.timer`.
-It always produces a dry-run report and records whether telemetry exceeds 40 MiB.
-Only `bin/north-epoch-run --execute` performs a cut: it quiesces both coordinators,
-verifies the staged epoch, installs it, repairs the rebuild queue's persisted
-file-identity cursor, restarts, and probes health. The cold archive is rollback input.
 
 ## The shape
 

@@ -169,8 +169,7 @@ it to its own mount namespace.
 3. **mTLS** between gateway and coordinator for untrusted networks (today: keep coordinators on a private network / same host).
 4. **Control plane:** provisioning/lifecycle API, per-tenant daemon supervision,
    quotas, key management beyond a flat registry.
-5. **Product layer:** self-service signup, billing, web client, teams. (See
-   [`product-surface-design.md`](product-surface-design.md) for the life-verb edge.)
+5. **Product layer:** self-service signup, billing, web client, teams.
 6. **Scale path:** transactional store option for outsized single tenants.
 
 None of this is a foundation rewrite — it's the product layer the

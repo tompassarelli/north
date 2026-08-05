@@ -47,15 +47,13 @@ not sit at the defaults.
 
 ## Tests
 
-Set `FRAM_HOME` first — the classpath and the lifecycle test's log both derive
-from it.
+Set `FRAM_HOME` first so the classpath resolves the matching Fram output.
 
 ```console
 $ export FRAM_HOME="$HOME/code/fram/main"
 $ CP="out:$FRAM_HOME/out"
 $ bb -cp "$CP" tests/clock_test.clj
 $ bb -cp "$CP" tests/staleness_test.clj
-$ FRAM_LOG="$FRAM_HOME/facts.log" bb -cp "$CP" tests/lifecycle_test.clj
 ```
 
 CI runs every test command through [`bin/test-suite`](../bin/test-suite) with
@@ -85,7 +83,7 @@ $ bin/test-suite -- bb -cp "$CP" tests/clock_test.clj
 
 Other Babashka suites under [`tests/`](../tests) follow the same shape —
 `tests/validate_test.clj`, `tests/projections_test.clj`,
-`tests/schema_test.clj`, `tests/lifecycle_test.clj`, and the rest — as do the CLI suites under
+`tests/schema_test.clj` and the rest — as do the CLI suites under
 [`cli/tests/`](../cli/tests).
 
 The gateway has its own smoke test covering auth and tenant routing:
