@@ -176,8 +176,6 @@
    :summary "vocabulary census: subjects/facts by kind + predicate metadata"}
   {:verb "predicate" :form "north predicate ls|show|define" :topic :store
    :summary "inspect or extend executable predicate entities"}
-  {:verb "schema-seed" :form "north schema-seed [--execute]" :topic :store
-   :summary "derive predicate-metadata facts (--dry-run is the default)"}
   {:verb "validate" :form "north validate" :topic :store
    :summary "full integrity check: engine rules + north work rules"}
   {:verb "audit" :form "north audit" :topic :store
@@ -188,10 +186,8 @@
    :summary "machine-readable projections (plate, ready, show, …)"}
   {:verb "tools" :form "north tools" :topic :store
    :summary "the curated MCP tool surface + the fram engine core"}
-  {:verb "heal" :form "north heal [--adopt]" :topic :store
-   :summary "reconcile threads/ files with the database; fails closed on hand edits"}
   {:verb "boot" :form "north boot" :topic :store
-   :summary "session orientation: safety verdict, hygiene, the entry-point note"}
+   :summary "session orientation from the live coordination projection"}
   {:verb "import" :form "north import" :topic :store :dispatch :fram
    :summary "fold threads/ file edits into the log (idempotent, safe anytime)"}
   {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :fram
@@ -218,8 +214,6 @@
    :summary "coordination rollup: lanes ran/died, stale concerns, zombies"}
   {:verb "hotspots" :form "north hotspots" :topic :ops
    :summary "where time goes and what fails, ranked from live telemetry"}
-  {:verb "coord-doctor" :form "north coord-doctor" :topic :ops
-   :summary "fact-server safety handshake: writes safe? daemon matches log?"}
   {:verb "coord-ready" :form "north coord-ready" :topic :ops
    :summary "cheap exact runtime identity for every active writer"}
   {:verb "coord-safety" :form "north coord-safety" :topic :ops

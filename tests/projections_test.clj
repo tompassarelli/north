@@ -2,13 +2,12 @@
 ;; classifier and every pull-eligibility view derived from it.
 ;;
 ;;   bb -cp out:$FRAM/out tests/projections_test.clj      (run from the repo root)
-(require '[fram.kernel :as k]
-         '[fram.fold :as fold]
+(require '[fram.types :as t]
          '[fram.rt]
          '[north.projections :as proj]
          '[north.main])
 
-(defn asrt [tx l p r frame] (fold/->FactOp tx "assert" l p r frame))
+(defn asrt [_tx l p r _frame] (t/triple l p r))
 
 (def today "2026-06-16")
 (defn before? [a b] (neg? (compare a b)))
@@ -74,7 +73,7 @@
    (asrt 93 "@j" "do_on" "2020-01-01" "test")
    (asrt 94 "@j" "priority" "P1" "test")])
 
-(def idx (k/build-index (:facts (fold/fold asserts))))
+(def idx (proj/index-triples asserts))
 (defn cls [te] (proj/classify idx te today before? live?))
 (def work-set (set (proj/work-thread-ids-i idx)))
 (def ready-set (set (proj/ready idx today before? live?)))
@@ -97,7 +96,7 @@
    (asrt 11 "@archived" "committed" "2026-01-01" "test")
    (asrt 12 "@archived" "created_at" "2026-01-01" "test")
    (asrt 13 "@archived" "archived_at" "2026-06-01" "test")])
-(def archive-idx (k/build-index (:facts (fold/fold archive-asserts))))
+(def archive-idx (proj/index-triples archive-asserts))
 (defn archive-cls [te] (proj/classify archive-idx te today before? live?))
 
 ;; Exercise the production lease/recency predicate against a fixed clock. These
@@ -119,7 +118,7 @@
    (asrt 32 "@stale" "updated_at" "2026-05-01T12:00:00" "test")
    (asrt 40 "@driverless" "title" "Driverless" "test")
    (asrt 41 "@driverless" "updated_at" "2026-06-15T12:00:00" "test")])
-(def liveness-idx (k/build-index (:facts (fold/fold liveness-asserts))))
+(def liveness-idx (proj/index-triples liveness-asserts))
 (def liveness-now (fram.rt/iso-to-seconds "2026-06-16T12:00:00"))
 (def liveness-window (* 14 86400))
 (def driver-live-fn (ns-resolve 'north.main 'driver-live?))
@@ -135,11 +134,11 @@
    (asrt 2 "@work" "kind" "thread" "test")
    (asrt 3 "@work" "committed" "2026-01-01" "test")
    (asrt 4 "@work" "driver" "@worker" "test")])
-(def grooming-idx (k/build-index (:facts (fold/fold grooming-asserts))))
+(def grooming-idx (proj/index-triples grooming-asserts))
 (defn never-live? [_idx _te] false)
 (defn always-live? [_idx _te] true)
-(def parked-reviews (grooming-fn grooming-idx [] grooming-idx today before? never-live?))
-(def active-reviews (grooming-fn grooming-idx [] grooming-idx today before? always-live?))
+(def parked-reviews (grooming-fn grooming-idx grooming-idx today before? never-live?))
+(def active-reviews (grooming-fn grooming-idx grooming-idx today before? always-live?))
 
 (def queue-asserts
   [(asrt 1 "@qa" "title" "Queue A" "test")
@@ -161,7 +160,7 @@
    (asrt 17 "@done-new" "kind" "thread" "test")
    (asrt 18 "@done-new" "outcome" "done" "test")
    (asrt 19 "@done-new" "updated_at" "2026-02-01" "test")])
-(def queue-idx (k/build-index (:facts (fold/fold queue-asserts))))
+(def queue-idx (proj/index-triples queue-asserts))
 (def recent-terminal-fn (ns-resolve 'north.main 'recent-terminal-tes))
 (def queue-order-result (north.main/queue-order queue-idx ["@qa" "@qb" "@qc"]))
 

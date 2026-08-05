@@ -189,7 +189,6 @@ validate_deployment() {
   for entry in \
     cli/nix-rebuild-worker.clj \
     cli/coordination-maintenance-task-host.clj \
-    cli/coordination-projection-worker-host.clj \
     cli/reconciliation-worker-host.clj \
     cli/coord.clj \
     out/north/worker_policy.clj; do

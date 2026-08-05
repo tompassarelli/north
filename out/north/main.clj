@@ -1,8 +1,7 @@
 (ns north.main
   (:gen-class)
-  (:require [fram.kernel :as k]
-            [fram.fold :as fold]
-            [fram.import :as imp]
+  (:require [fram.kernel-classify :as kc]
+            [fram.types :as t]
             [fram.export :as exp]
             [north.projections :as proj]
             [north.validate :as val]
@@ -13,6 +12,36 @@
   (:import [java.util Random]
            [java.util UUID]))
 
+(defn- ^String string-term [value]
+  (if (string? value) value (throw (ex-info "North coordination data requires String Triple terms" {:type :north/non-string-triple}))))
+
+(defn- ^String triple-subject [value]
+  (string-term (t/triple-slot0 value)))
+
+(defn- ^String triple-predicate [value]
+  (string-term (t/triple-slot1 value)))
+
+(defn- ^String triple-value [value]
+  (string-term (t/triple-slot2 value)))
+
+(defn- coord-invoke [^String operation args]
+  (let [callable (ns-resolve (symbol "north.coord") (symbol operation))]
+  (if (some? callable) (apply callable args) (throw (ex-info "north.coord must be loaded before a data operation" {:type :north/coord-not-loaded :operation operation})))))
+
+(defn- coord-port []
+  (let [value (coord-invoke "port" [])]
+  (if (int? value) value (throw (ex-info "north.coord returned an invalid port" {:type :north/invalid-coord-port})))))
+
+(defn- coord-propositions [^String operation args]
+  (let [value (coord-invoke operation args)]
+  (if (and (vector? value) (every? t/triple? value)) value (throw (ex-info "north.coord returned a malformed Triple projection" {:type :north/invalid-coord-projection :operation operation})))))
+
+(defn- coord-live-propositions [port]
+  (coord-propositions "live-propositions" [port]))
+
+(defn- coord-subject-propositions [port ^String subject]
+  (coord-propositions "subject-propositions" [port subject]))
+
 (defn ^String uuidv7 []
   (let [ts (System/currentTimeMillis)
    r (Random.)
@@ -21,20 +50,20 @@
   (str (UUID. msb lsb))))
 
 (defn- ^String title-of [idx ^String te]
-  (let [t (k/one-i idx te "title")]
+  (let [t (proj/string-value-at idx te "title")]
   (if (some? t) t "")))
 
 (defn- ^String short-id [^String te]
   (if (str/starts-with? te "@") (subs te 1) te))
 
 (defn ^String resolve-ref [idx ^String ref]
-  (if (some? (k/one-i idx ref "title")) ref (let [bare (short-id ref)
-   matches (filterv (fn [te] (let [h (k/one-i idx te "handle")]
-  (and (some? h) (= h bare)))) (k/thread-ids-i idx))]
-  (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [te] (str/starts-with? (short-id te) bare)) (k/thread-ids-i idx)))]
-  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [best te] (if (str/blank? best) te (let [bc (let [c (k/one-i idx best "created_at")]
+  (if (some? (proj/string-value-at idx ref "title")) ref (let [bare (short-id ref)
+   matches (filterv (fn [te] (let [h (proj/string-value-at idx te "handle")]
+  (and (some? h) (= h bare)))) (proj/thread-subjects idx))]
+  (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [te] (str/starts-with? (short-id te) bare)) (proj/thread-subjects idx)))]
+  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [best te] (if (str/blank? best) te (let [bc (let [c (proj/string-value-at idx best "created_at")]
   (if (some? c) c ""))
-   tc (let [c (k/one-i idx te "created_at")]
+   tc (let [c (proj/string-value-at idx te "created_at")]
   (if (some? c) c ""))]
   (if (fram.rt/str-lt? bc tc) te best)))) "" matches)))))
 
@@ -62,14 +91,14 @@
   :else ""))
 
 (defn- ^String kind-of [idx te]
-  (if (nil? te) "other" (let [explicit (k/one-i idx te "entity_kind")]
-  (if (some? explicit) explicit (let [legacy (k/one-i idx te "kind")]
+  (if (nil? te) "other" (let [explicit (proj/string-value-at idx te "entity_kind")]
+  (if (some? explicit) explicit (let [legacy (proj/string-value-at idx te "kind")]
   (if (some? legacy) (legacy-entity-kind legacy) (let [np (namespace-kind (short-id te))]
-  (if (not (str/blank? np)) np (if (some? (k/one-i idx te "title")) "thread" (if (some? (k/one-i idx te "display_name")) "person" (if (or (some? (k/one-i idx te "cardinality")) (or (some? (k/one-i idx te "value_kind")) (some? (k/one-i idx te "acyclic")))) "predicate" "other")))))))))))
+  (if (not (str/blank? np)) np (if (some? (proj/string-value-at idx te "title")) "thread" (if (some? (proj/string-value-at idx te "display_name")) "person" (if (or (some? (proj/string-value-at idx te "cardinality")) (or (some? (proj/string-value-at idx te "value_kind")) (some? (proj/string-value-at idx te "acyclic")))) "predicate" "other")))))))))))
 
 (defn- ^String driver-label [idx ^String te]
-  (let [d (k/one-i idx te "driver")]
-  (if (nil? d) "" (let [dn (k/one-i idx d "display_name")]
+  (let [d (proj/string-value-at idx te "driver")]
+  (if (nil? d) "" (let [dn (proj/string-value-at idx d "display_name")]
   (if (some? dn) dn (short-id d))))))
 
 (defrecord LevItem [te score])
@@ -116,7 +145,7 @@
   (str "v1|" version "|" position "|" (if (str/blank? anchor) "_" anchor)))
 
 (defn- queue-directive [idx ^String te]
-  (let [raw (k/one-i idx te "queue_rank")
+  (let [raw (proj/string-value-at idx te "queue_rank")
    parts (if (some? raw) (vec (str/split raw #"\|")) [])
    version (if (= (count parts) 4) (fram.rt/parse-int (nth parts 1)) -1)
    position (if (= (count parts) 4) (nth parts 2) "")
@@ -161,31 +190,30 @@
 (defn queue-order [idx tes]
   (queue-order-from-base idx (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) tes))))
 
-(defn- ^String fact-sig [c]
-  (str (:l c) "|" (:p c) "|" (:r c)))
-
-(defn- sig-member-map [facts]
-  (reduce (fn [m c] (assoc m (fact-sig c) true)) {} facts))
+(defn- coord-version [port]
+  (try
+  (let [value (coord-invoke "version" [port])]
+  (if (int? value) value -1))
+  (catch Exception _
+    -1)))
 
 (defn- live-facts [^String log]
-  (let [port (fram.rt/server-port)
-   version (fram.rt/server-version-for-log port log)]
-  (if (< version 0) (throw (ex-info (str "North server read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (fram.rt/server-live-facts port log))))
+  (let [port (coord-port)
+   version (coord-version port)]
+  (if (< version 0) (throw (ex-info (str "North FRAMRPC read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (coord-live-propositions port))))
 
 (defn- live-idx [^String log]
-  (k/build-index (live-facts log)))
+  (proj/index-triples (live-facts log)))
 
-(defn- server-subject-facts [^String log ^String te]
-  (let [rows (try
-  (let [resp (fram.rt/server-show-for-log (fram.rt/server-port) log te)]
-  (if (nil? resp) [] (:rows resp)))
+(defn- live-subject-facts [^String log ^String te]
+  (try
+  (coord-subject-propositions (coord-port) te)
   (catch Exception _
-    []))]
-  (mapv (fn [row] (k/->Fact te (nth row 0) (nth row 1))) rows)))
+    [])))
 
 (defn- subject-facts [^String log ^String te]
-  (let [warm (server-subject-facts log te)]
-  (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
+  (let [warm (live-subject-facts log te)]
+  (if (empty? warm) (filterv (fn [triple] (= te (triple-subject triple))) (live-facts log)) warm)))
 
 (defn ^String framrpc-failure-message [code port ^String log ^String consequence]
   (let [summary (cond
@@ -201,8 +229,14 @@
   (str summary (if (str/blank? consequence) "" (str " — " consequence)) ". " remedy ".")))
 
 (defn- ^String tell-once [port ^String log ^String op ^String te ^String pred ^String rv]
-  (let [v (fram.rt/server-version-for-log port log)]
-  (if (< v 0) (if (= v -2) "space-mismatch" (if (= v -3) "protocol-incompatible" "server-unavailable")) (if (= op "assert") (fram.rt/server-assert-for-log port log te pred rv v) (fram.rt/server-retract-for-log port log te pred rv v)))))
+  (let [v (coord-version port)]
+  (if (< v 0) "server-unavailable" (try
+  (let [response (if (= op "assert") (coord-invoke "assert-at-version!" [port te pred rv v]) (coord-invoke "retract-at-version!" [port te pred rv v]))
+   committed (:ok response)
+   rejected (:reject response)]
+  (if (some? committed) (str "ok:" committed) (if (= rejected :conflict) "conflict" (str rejected))))
+  (catch Exception _
+    "server-unavailable")))))
 
 (defn- ^String tell-retry [port ^String log ^String op ^String te ^String pred ^String rv tries]
   (let [resp (tell-once port log op te pred rv)]
@@ -212,7 +246,7 @@
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
 (defn- add-fact [acc ^String te ^String p ^String v]
-  (if (str/blank? v) acc (conj acc (k/->Fact te p v))))
+  (if (str/blank? v) acc (conj acc (t/triple te p v))))
 
 (defn- ^String ref-or-blank [^String v]
   (if (str/blank? v) "" (str "@" v)))
@@ -257,14 +291,14 @@
 (defn- ^Boolean retract-committed-capture-facts [port ^String log facts results i]
   (if (>= i (count facts)) true (let [fact (nth facts i)
    result (nth results i)
-   current-ok (if (str/starts-with? result "ok:") (str/starts-with? (tell-retry port log "retract" (:l fact) (:p fact) (:r fact) 5) "ok:") true)
+   current-ok (if (str/starts-with? result "ok:") (str/starts-with? (tell-retry port log "retract" (triple-subject fact) (triple-predicate fact) (triple-value fact) 5) "ok:") true)
    remaining-ok (retract-committed-capture-facts port log facts results (+ i 1))]
   (and current-ok remaining-ok))))
 
 (defn- ^Boolean cleanup-partial-capture [port ^String log ^String te ^String path facts results]
   (let [retracted (retract-committed-capture-facts port log facts results 0)
    _ (fram.rt/delete-file path)
-   remaining (filterv (fn [fact] (= te (:l fact))) (fram.rt/server-live-facts port log))]
+   remaining (filterv (fn [fact] (= te (triple-subject fact))) (coord-live-propositions port))]
   (and retracted (empty? remaining) (not (fram.rt/file-exists path)))))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
@@ -284,13 +318,13 @@
    created-at (fram.rt/now-iso)
    te (str "@" id)
    path (str threads-dir "/" id "-" slug ".md")
-   port (fram.rt/server-port)
-   server-v (fram.rt/server-version-for-log port log)]
+   port (coord-port)
+   server-v (coord-version port)]
   (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "framrpc-unavailable") (println (framrpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
-   results (mapv (fn [c] (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)) facts)
+   results (mapv (fn [c] (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5)) facts)
    oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
-  (fram.rt/spit-file path (exp/thread-md (let [warm (server-subject-facts log te)]
+  (fram.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
   (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
   (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files.")))))))))))
@@ -301,13 +335,13 @@
 (defn cmd-resolve [^String log ^String ref]
   (let [idx (live-idx log)
    r (resolve-ref idx ref)]
-  (if (and (= r ref) (id-like? (short-id ref)) (nil? (k/one-i idx (str "@" (short-id ref)) "title"))) (println (str "ERROR unresolved id-like ref " ref " — not a thread id, unique prefix, or handle" " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)")) (println r))))
+  (if (and (= r ref) (id-like? (short-id ref)) (nil? (proj/string-value-at idx (str "@" (short-id ref)) "title"))) (println (str "ERROR unresolved id-like ref " ref " — not a thread id, unique prefix, or handle" " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)")) (println r))))
 
 (defn cmd-done-bars [^String log ^String ref]
   (let [idx (live-idx log)
    te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
-   bars (k/many-i idx te "done_when")
-   evs (k/many-i idx te "bar_evidence")]
+   bars (proj/string-values-at idx te "done_when")
+   evs (proj/string-values-at idx te "bar_evidence")]
   (if (empty? bars) nil (do
   (println (str "DONE BARS on " te " — this outcome claims they are met; cite probe + observed result:"))
   (doseq [b bars]
@@ -323,7 +357,7 @@
 
 (defn cmd-validate [^String log]
   (let [idx (live-idx log)
-   ids (k/thread-ids-i idx)
+   ids (proj/thread-subjects idx)
    problems (reduce (fn [acc te] (reduce (fn [a v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] ids)]
   (if (empty? problems) (do
   (println (str "OK — " (count ids) " threads, no violations."))
@@ -335,7 +369,7 @@
 
 (defn- lease-exp-secs [idx ^String driverref]
   (let [handle (short-id driverref)
-   v (k/one-i idx (str "@lease:session:" handle) "lease")]
+   v (proj/string-value-at idx (str "@lease:session:" handle) "lease")]
   (if (nil? v) -1 (let [parts (str/split v #"\|")]
   (if (< (count parts) 2) -1 (let [expms (nth parts 1)]
   (if (> (count expms) 3) (fram.rt/parse-int (subs expms 0 (- (count expms) 3))) -1)))))))
@@ -348,9 +382,9 @@
   :else -1))
 
 (defn- ^Boolean driver-live? [idx ^String te now-secs window-secs]
-  (let [d (k/one-i idx te "driver")]
+  (let [d (proj/string-value-at idx te "driver")]
   (if (nil? d) false (let [e (lease-exp-secs idx d)]
-  (if (and (> e 0) (> e now-secs)) true (let [u (k/one-i idx te "updated_at")]
+  (if (and (> e 0) (> e now-secs)) true (let [u (proj/string-value-at idx te "updated_at")]
   (if (nil? u) false (let [us (dt->secs u)]
   (and (> us 0) (< (- now-secs us) window-secs))))))))))
 
@@ -406,13 +440,13 @@
 
 (defn- ^NextItem next-item [idx ^String te ^String today before? live?]
   (let [lev (proj/leverage-score idx te)
-   doo (k/one-i idx te "do_on")
+   doo (proj/string-value-at idx te "do_on")
    urg (if (some? doo) (cond
   (fram.rt/str-lt? doo today) 5
   (= doo today) 3
   :else 0) 0)
-   mom (if (some? (k/one-i idx te "driver")) 2 0)
-   pri (let [p (k/one-i idx te "priority")]
+   mom (if (some? (proj/string-value-at idx te "driver")) 2 0)
+   pri (let [p (proj/string-value-at idx te "priority")]
   (if (some? p) p ""))
    sequencing (count (proj/incomplete-deps idx te))
    eligibility (proj/explain idx te today before? live?)]
@@ -438,8 +472,8 @@
 (defn cmd-agenda [^String log]
   (let [idx (live-idx log)
    today (fram.rt/today-iso)
-   cands (filterv (fn [te] (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on")))) (proj/work-thread-ids-i idx))
-   items (mapv (fn [te] (->AgendaItem te (let [d (k/one-i idx te "do_on")]
+   cands (filterv (fn [te] (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on")))) (proj/work-thread-ids-i idx))
+   items (mapv (fn [te] (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")]
   (if (some? d) d "")))) cands)
    overdue (vec (sort-by (fn [it] (:do_on it)) (filterv (fn [it] (fram.rt/str-lt? (:do_on it) today)) items)))
    todayb (filterv (fn [it] (= (:do_on it) today)) items)
@@ -487,7 +521,7 @@
    nparked (count parked)
    readyl (in-condition idx threads today before? live? "ready")
    blockedl (in-condition idx threads today before? live? "blocked")
-   nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (:subjects idx)))
+   nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (proj/all-subjects idx)))
    ashow (vec (take 20 active))
    rranked (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))]
   (println (str "THREADS — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (north threads --all for the full kanban)"))
@@ -604,27 +638,27 @@
 
 (defn- recent-terminal-tes [idx]
   (let [terminal (filterv (fn [te] (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
-  (vec (take 15 (reverse (sort-by (fn [te] (let [updated (k/one-i idx te "updated_at")
-   created (k/one-i idx te "created_at")]
+  (vec (take 15 (reverse (sort-by (fn [te] (let [updated (proj/string-value-at idx te "updated_at")
+   created (proj/string-value-at idx te "created_at")]
   (str (if (some? updated) updated "") "|" (if (some? created) created "") "|" te))) terminal))))))
 
 (defn- matching-subjects [facts ^String predicate ^String value]
-  (reduce (fn [subjects fact] (if (and (= (:p fact) predicate) (= (:r fact) value)) (assoc subjects (:l fact) true) subjects)) {} facts))
+  (reduce (fn [subjects fact] (if (and (= (triple-predicate fact) predicate) (= (triple-value fact) value)) (assoc subjects (triple-subject fact) true) subjects)) {} facts))
 
 (defn- direct-child-subjects [facts ^String coordinator]
-  (reduce (fn [subjects fact] (if (and (= (:p fact) "coordinator") (= (:r fact) coordinator) (str/starts-with? (:l fact) "@agent:")) (assoc subjects (:l fact) true) subjects)) {} facts))
+  (reduce (fn [subjects fact] (if (and (= (triple-predicate fact) "coordinator") (= (triple-value fact) coordinator) (str/starts-with? (triple-subject fact) "@agent:")) (assoc subjects (triple-subject fact) true) subjects)) {} facts))
 
 (defn- child-agent-ids [subjects]
   (reduce-kv (fn [ids subject _present] (assoc ids (subs subject (count "@agent:")) true)) {} subjects))
 
 (defn- child-run-subjects [facts children committed-runs]
-  (reduce (fn [subjects fact] (if (and (= (:p fact) "agent") (get children (:r fact) false) (get committed-runs (:l fact) false)) (assoc subjects (:l fact) true) subjects)) {} facts))
+  (reduce (fn [subjects fact] (if (and (= (triple-predicate fact) "agent") (get children (triple-value fact) false) (get committed-runs (triple-subject fact) false)) (assoc subjects (triple-subject fact) true) subjects)) {} facts))
 
 (defn- subject-fact-projection [facts subjects]
-  (mapv (fn [fact] (->JSubjectFact (short-id (:l fact)) (:p fact) (:r fact))) (filterv (fn [fact] (get subjects (:l fact) false)) facts)))
+  (mapv (fn [fact] (->JSubjectFact (short-id (triple-subject fact)) (triple-predicate fact) (triple-value fact))) (filterv (fn [fact] (get subjects (triple-subject fact) false)) facts)))
 
 (defn- parked-assignment-reviews [idx ^String today before? live?]
-  (reduce (fn [acc te] (if (and (= (kind-of idx te) "thread") (and (not (proj/terminal-i? idx te)) (parked-assignment? idx te live?))) (let [d (k/one-i idx te "driver")
+  (reduce (fn [acc te] (if (and (= (kind-of idx te) "thread") (and (not (proj/terminal-i? idx te)) (parked-assignment? idx te live?))) (let [d (proj/string-value-at idx te "driver")
    eligibility (proj/explain idx te today before? live?)]
   (conj acc (stale/->Review te "driver" (str "parked assignment " (if (some? d) d "?") " has no live lease or recent activity; lifecycle=" (:state eligibility) " — reassign or retract driver")))) acc)) [] (proj/work-thread-ids-i idx)))
 
@@ -634,11 +668,11 @@
   (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
 
 (defn- cmd-json-show [^String log ^String arg]
-  (println (fram.rt/to-json (mapv (fn [c] (->JFact (:p c) (:r c))) (subject-facts log (str "@" arg))))))
+  (println (fram.rt/to-json (mapv (fn [c] (->JFact (triple-predicate c) (triple-value c))) (subject-facts log (str "@" arg))))))
 
 (defn- cmd-json-database [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
-   idx (k/build-index facts)
+   idx (proj/index-triples facts)
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    live? (default-live?)]
@@ -651,14 +685,14 @@
   (println (fram.rt/to-json (mapv (fn [rv] (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv))) reviews))))
   (= what "show-many") (let [subjects (filterv (fn [s] (not (str/blank? s))) (mapv (fn [s] (short-id s)) (vec (str/split arg #","))))
    subject-set (reduce (fn [m s] (assoc m (str "@" s) true)) {} subjects)]
-  (println (fram.rt/to-json (mapv (fn [c] (->JSubjectFact (short-id (:l c)) (:p c) (:r c))) (filterv (fn [c] (get subject-set (:l c) false)) facts)))))
+  (println (fram.rt/to-json (mapv (fn [c] (->JSubjectFact (short-id (triple-subject c)) (triple-predicate c) (triple-value c))) (filterv (fn [c] (get subject-set (triple-subject c) false)) facts)))))
   (= what "child-settlement") (let [children (direct-child-subjects facts arg)
    child-ids (child-agent-ids children)
    committed-runs (matching-subjects facts "kind" "run")
    runs (child-run-subjects facts child-ids committed-runs)]
   (println (fram.rt/to-json (->JChildSettlementProjection "north.child-settlement" 1 arg (subject-fact-projection facts children) (subject-fact-projection facts runs)))))
   (= what "children") (println (fram.rt/to-json (vec (sort (mapv short-id (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))
-  (= what "agents") (println (fram.rt/to-json (mapv (fn [c] (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c))) (filterv (fn [c] (let [l (:l c)]
+  (= what "agents") (println (fram.rt/to-json (mapv (fn [c] (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c))) (filterv (fn [c] (let [l (triple-subject c)]
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
   (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
   :else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
@@ -681,187 +715,6 @@
   (doseq [te promo]
   (println (str "  " (short-id te) "  " (trunc (title-of live-idx-now te) 52))))))
 
-(defrecord Probe [up serving port status server-v log-facts idx stale hand log-behind])
-
-(defn probe-up [r] (:up r))
-
-(defn probe-serving [r] (:serving r))
-
-(defn probe-port [r] (:port r))
-
-(defn probe-status [r] (:status r))
-
-(defn probe-server-v [r] (:server-v r))
-
-(defn probe-log-facts [r] (:log-facts r))
-
-(defn probe-idx [r] (:idx r))
-
-(defn probe-stale [r] (:stale r))
-
-(defn probe-hand [r] (:hand r))
-
-(defn probe-log-behind [r] (:log-behind r))
-
-(defn- ^Boolean stale-projection? [idx c]
-  (and (k/single? (:p c)) (let [v (k/one-i idx (:l c) (:p c))]
-  (and (some? v) (not (= v (:r c)))))))
-
-(defn- ^Probe probe [^String threads-dir ^String log]
-  (let [port (fram.rt/server-port)
-   status (fram.rt/server-status-for-log port log)
-   server-v (fram.rt/server-version-for-log port log)
-   up (not (= server-v -1))
-   serving (>= server-v 0)
-   log-facts (if serving (fram.rt/server-live-facts port log) [])
-   idx (k/build-index log-facts)
-   file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
-   thread-log (filterv (fn [c] (some? (k/one-i idx (:l c) "title"))) log-facts)
-   tl-sigs (sig-member-map thread-log)
-   file-sigs (sig-member-map file-facts)
-   file-ahead (filterv (fn [c] (nil? (get tl-sigs (fact-sig c)))) file-facts)
-   log-behind (filterv (fn [c] (nil? (get file-sigs (fact-sig c)))) thread-log)
-   stale (filterv (fn [c] (stale-projection? idx c)) file-ahead)
-   hand (filterv (fn [c] (not (stale-projection? idx c))) file-ahead)]
-  (->Probe up serving port status server-v log-facts idx stale hand log-behind)))
-
-(defn- ^Boolean safe? [^Probe p]
-  (and (:up p) (:serving p)))
-
-(defn- ^String safety-line [^Probe p]
-  (if (safe? p) "healthy: tell/untell + warm reads are safe" (cond
-  (not (:up p)) (str "DEGRADED: FRAMRPC server DOWN on 127.0.0.1:" (:port p) " — writes cannot publish")
-  (not (:serving p)) (str "DEGRADED: server not serving the selected FRAMLOG database — status: " (:status p))
-  :else "DEGRADED: server read failed")))
-
-(defn- ^String hygiene-line [^Probe p]
-  (let [ns (count (:stale p))
-   nh (count (:hand p))
-   nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) "" (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `north heal`" (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
-
-(defn cmd-doctor [^String threads-dir ^String log]
-  (let [p (probe threads-dir log)]
-  (println "north doctor")
-  (if (:up p) (do
-  (println (str "  [ok]    FRAMRPC server UP on 127.0.0.1:" (:port p)))
-  (if (:serving p) (println (str "  [ok]    serving database version " (:server-v p))) (println (str "  [WARN]  server is not serving the selected database — status: " (:status p))))) (println (str "  [DOWN]  no FRAMRPC server on 127.0.0.1:" (:port p) " — writes cannot publish.")))
-  (if (safe? p) (println "  => healthy: tell/untell + warm reads are safe") (println "  => DEGRADED: fix the warnings above"))
-  (println "  hygiene:")
-  (let [ns (count (:stale p))
-   nh (count (:hand p))
-   nb (count (:log-behind p))]
-  (if (and (= ns 0) (and (= nh 0) (= nb 0))) (println "    [ok]    files <-> database projection in sync") (do
-  (if (> ns 0) (do
-  (println (str "    " ns " stale projection fact(s) — run `north heal`"))))
-  (if (> nh 0) (do
-  (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import"))))
-  (if (> nb 0) (do
-  (println (str "    " nb " database fact(s) not yet in files — benign projection lag; run `north heal`")))))))))
-
-(defn- distinct-ids [xs]
-  (reduce (fn [acc x] (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
-
-(defn- heal-targets [^Probe p]
-  (distinct-ids (mapv (fn [c] (:l c)) (vec (concat (:stale p) (:log-behind p))))))
-
-(defn- ^String file-subject [^String content]
-  (let [lines (fram.rt/split-on content "\n")
-   n (count lines)]
-  (loop [i 0]
-  (cond
-  (>= i n) ""
-  (= "---" (str/trim (nth lines i))) ""
-  (str/starts-with? (str/trim (nth lines i)) "@") (str/trim (nth lines i))
-  :else (recur (+ i 1))))))
-
-(defn- ^String basename [^String threads-dir ^String path]
-  (let [pre (+ (count threads-dir) 1)]
-  (if (> (count path) pre) (subs path pre) path)))
-
-(defn- ^String file-owner [ids ^String name]
-  (reduce (fn [best id] (if (and (or (str/starts-with? name (str id "-")) (= name (str id ".md"))) (> (count id) (count best))) id best)) "" ids))
-
-(defrecord FileInfo [path owner head])
-
-(defn fileinfo-path [r] (:path r))
-
-(defn fileinfo-owner [r] (:owner r))
-
-(defn fileinfo-head [r] (:head r))
-
-(defn- scan-files [^String threads-dir files ids]
-  (mapv (fn [path] (->FileInfo path (file-owner ids (basename threads-dir path)) (file-subject (fram.rt/slurp path)))) files))
-
-(defn- ^String path-of [scan ^String id]
-  (reduce (fn [acc fi] (if (and (str/blank? acc) (= (:owner fi) id)) (:path fi) acc)) "" scan))
-
-(defn- broken-head-ids [scan idx]
-  (distinct-ids (reduce (fn [acc fi] (if (and (not (str/blank? (:owner fi))) (and (not (= (:head fi) (str "@" (:owner fi)))) (some? (k/one-i idx (str "@" (:owner fi)) "title")))) (conj acc (:owner fi)) acc)) [] scan)))
-
-(defn- heal-project [^String threads-dir ^Probe p]
-  (let [files (fram.rt/list-md threads-dir)
-   ids (mapv (fn [te] (short-id te)) (k/thread-ids-i (:idx p)))
-   scan (scan-files threads-dir files ids)
-   diff-ids (mapv (fn [te] (short-id te)) (heal-targets p))
-   targets (distinct-ids (vec (concat diff-ids (broken-head-ids scan (:idx p)))))]
-  (if (empty? targets) (println "heal: nothing to do — every thread file already matches FRAMLOG.") (do
-  (doseq [id targets]
-  (let [te (str "@" id)
-   title (let [t (k/one-i (:idx p) te "title")]
-  (if (some? t) t "untitled"))
-   existing (path-of scan id)
-   path (if (str/blank? existing) (str threads-dir "/" id "-" (fram.rt/slugify title) ".md") existing)]
-  (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
-  (println (str "  re-rendered " id "  " (trunc title 52)))))
-  (println (str "heal: re-rendered " (count targets) " thread file(s) from FRAMLOG. Database untouched."))))))
-
-(defrecord AdoptResult [adopted skipped failed dropped])
-
-(defn adoptresult-adopted [r] (:adopted r))
-
-(defn adoptresult-skipped [r] (:skipped r))
-
-(defn adoptresult-failed [r] (:failed r))
-
-(defn adoptresult-dropped [r] (:dropped r))
-
-(defn- ^Boolean adoptable? [c]
-  (and (not (str/blank? (:p c))) (not (str/blank? (:r c)))))
-
-(defn- ^AdoptResult adopt-hand-facts [port ^String log live hand]
-  (reduce (fn [acc c] (cond
-  (not (adoptable? c)) (do
-  (println (str "  drop (parse artifact) " (short-id (:l c)) "  pred=<" (:p c) "> val=<" (trunc (:r c) 40) ">"))
-  (->AdoptResult (:adopted acc) (:skipped acc) (:failed acc) (+ (:dropped acc) 1)))
-  (and (k/single? (:p c)) (let [v (k/one-i live (:l c) (:p c))]
-  (and (some? v) (not (= v (:r c)))))) (do
-  (println (str "  skip (FRAMLOG won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
-  (->AdoptResult (:adopted acc) (+ (:skipped acc) 1) (:failed acc) (:dropped acc)))
-  :else (let [r (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)]
-  (if (str/starts-with? r "ok:") (do
-  (println (str "  adopted " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
-  (->AdoptResult (+ (:adopted acc) 1) (:skipped acc) (:failed acc) (:dropped acc))) (do
-  (println (str "  FAILED  " (short-id (:l c)) "  " (:p c) "  -> " r))
-  (->AdoptResult (:adopted acc) (:skipped acc) (+ (:failed acc) 1) (:dropped acc))))))) (->AdoptResult 0 0 0 0) hand))
-
-(defn cmd-heal [^String threads-dir ^String log ^Boolean adopt]
-  (let [p (probe threads-dir log)
-   adopt-list (:hand p)
-   has-hand (not (empty? (:hand p)))
-   has-adoptable (not (empty? adopt-list))]
-  (cond
-  (and has-hand (not adopt)) (do
-  (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in FRAMLOG " "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). " "Nothing was touched:"))
-  (doseq [c (:hand p)]
-  (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))
-  :else (if (and adopt has-adoptable) (let [port (fram.rt/server-port)
-   server-v (fram.rt/server-version-for-log port log)]
-  (if (< server-v 0) (println (framrpc-failure-message server-v port log "heal --adopt was not recorded")) (do
-  (let [res (adopt-hand-facts port log (live-idx log) adopt-list)]
-  (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res) " skipped (FRAMLOG won), " (:dropped res) " dropped (parse artifact), " (:failed res) " failed via FRAMRPC."))
-  (heal-project threads-dir (probe threads-dir log)))))) (heal-project threads-dir p)))))
-
 (defrecord EntryPoint [te note created])
 
 (defn entrypoint-te [r] (:te r))
@@ -871,29 +724,24 @@
 (defn entrypoint-created [r] (:created r))
 
 (defn- ^String entry-note [idx ^String te]
-  (reduce (fn [acc v] (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc)) "" (k/many-i idx te "note")))
+  (reduce (fn [acc v] (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc)) "" (proj/string-values-at idx te "note")))
 
 (defn- ^EntryPoint find-entry [idx]
   (reduce (fn [best te] (let [note (entry-note idx te)]
-  (if (str/blank? note) best (let [c (let [cc (k/one-i idx te "created_at")]
+  (if (str/blank? note) best (let [c (let [cc (proj/string-value-at idx te "created_at")]
   (if (some? cc) cc ""))]
-  (if (or (str/blank? (:te best)) (fram.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (k/thread-ids-i idx)))
+  (if (or (str/blank? (:te best)) (fram.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (proj/thread-subjects idx)))
 
-(defn cmd-boot [^String threads-dir ^String log]
-  (let [p (probe threads-dir log)
-   idx (:idx p)
+(defn cmd-boot [^String log]
+  (let [idx (live-idx log)
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    live? (default-live?)]
-  (println (str "=> " (safety-line p)))
-  (let [h (hygiene-line p)]
-  (if (not (str/blank? h)) (do
-  (println (str "   " h)))))
   (let [e (find-entry idx)]
   (if (str/blank? (:te e)) (println "\nENTRY POINT — none (no thread carries a `SESSION ENTRY POINT` note)") (do
   (println (str "\nENTRY POINT — " (short-id (:te e)) "  " (title-of idx (:te e))))
   (println (:note e))
-  (let [ls (k/many-i idx (:te e) "learning")]
+  (let [ls (proj/string-values-at idx (:te e) "learning")]
   (if (not (empty? ls)) (do
   (println "\nSTANDING MANDATES (learning):")
   (doseq [l ls]
@@ -939,14 +787,14 @@
 (def ^String KP-SEP "\u0001")
 
 (defn- census [idx facts]
-  (let [subj-list (:subjects idx)
+  (let [subj-list (proj/all-subjects idx)
    skind (reduce (fn [m s] (assoc m s (kind-of idx s))) {} subj-list)
    ksub (reduce (fn [m s] (let [kd (get skind s "other")]
   (assoc m kd (+ 1 (get m kd 0))))) {} subj-list)
-   kfacts (reduce (fn [m c] (let [kd (get skind (:l c) "other")]
+   kfacts (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")]
   (assoc m kd (+ 1 (get m kd 0))))) {} facts)
-   kpreds (reduce (fn [m c] (let [kd (get skind (:l c) "other")
-   kk (str kd KP-SEP (:p c))]
+   kpreds (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")
+   kk (str kd KP-SEP (triple-predicate c))]
   (assoc m kk (+ 1 (get m kk 0))))) {} facts)
    kp-keys (vec (sort (set (keys kpreds))))
    stats (mapv (fn [kd] (let [pfx (str kd KP-SEP)
@@ -966,7 +814,7 @@
   (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
 (defn- kind-subjects [idx ^String kind]
-  (filterv (fn [s] (= (kind-of idx s) kind)) (:subjects idx)))
+  (filterv (fn [s] (= (kind-of idx s) kind)) (proj/all-subjects idx)))
 
 (defrecord CovAcc [seen pc])
 
@@ -975,8 +823,8 @@
 (defn covacc-pc [r] (:pc r))
 
 (defn- coverage [facts subjset]
-  (:pc (reduce (fn [a c] (if (get subjset (:l c) false) (let [sk (str (:l c) KP-SEP (:p c))]
-  (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (:p c) (+ 1 (get (:pc a) (:p c) 0)))))) a)) (->CovAcc {} {}) facts)))
+  (:pc (reduce (fn [a c] (if (get subjset (triple-subject c) false) (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
+  (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (triple-predicate c) (+ 1 (get (:pc a) (triple-predicate c) 0)))))) a)) (->CovAcc {} {}) facts)))
 
 (defrecord FieldStat [pred subs pct required])
 
@@ -1000,9 +848,9 @@
   (vec (sort-by (fn [fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
 
 (defn- ^String pred-ann [idx ^String p]
-  (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality")) (some? (k/one-i idx (str "@" p) "value_kind"))) (str "@" p) p)
-   card (k/one-i idx ps "cardinality")
-   vk (k/one-i idx ps "value_kind")]
+  (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality")) (some? (proj/string-value-at idx (str "@" p) "value_kind"))) (str "@" p) p)
+   card (proj/string-value-at idx ps "cardinality")
+   vk (proj/string-value-at idx ps "value_kind")]
   (str (if (some? card) (str "  cardinality=" card) "") (if (some? vk) (str " value_kind=" vk) ""))))
 
 (defn- ^String kind-writer [^String kind]
@@ -1038,10 +886,10 @@
 
 (defn cmd-schema [^String log ^String kind]
   (let [facts (live-facts log)
-   idx (k/build-index facts)]
+   idx (proj/index-triples facts)]
   (if (not (str/blank? kind)) (print-schema-kind idx facts kind) (let [stats (census idx facts)
-   pred-subs (filterv (fn [s] (or (some? (k/one-i idx s "cardinality")) (or (some? (k/one-i idx s "value_kind")) (some? (k/one-i idx s "acyclic"))))) (:subjects idx))]
-  (println (str "SCHEMA — " (count (:subjects idx)) " subjects / " (count facts) " live facts across " (count stats) " kinds"))
+   pred-subs (filterv (fn [s] (or (some? (proj/string-value-at idx s "cardinality")) (or (some? (proj/string-value-at idx s "value_kind")) (some? (proj/string-value-at idx s "acyclic"))))) (proj/all-subjects idx))]
+  (println (str "SCHEMA — " (count (proj/all-subjects idx)) " subjects / " (count facts) " live facts across " (count stats) " kinds"))
   (doseq [ks stats]
   (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
   (println (str "  " (padr "predicate-meta" 20) " " (count pred-subs) " predicate(s) carry declared cardinality/value_kind/acyclic"))
@@ -1049,9 +897,9 @@
 
 (defn cmd-teaching-coverage [^String log]
   (let [facts (live-facts log)
-   idx (k/build-index facts)
-   predicates (filterv (fn [s] (= (k/one-i idx s "entity_kind") "predicate")) (:subjects idx))
-   taught (filterv (fn [s] (not (empty? (k/many-i idx s "predicate_example")))) predicates)
+   idx (proj/index-triples facts)
+   predicates (filterv (fn [s] (= (proj/string-value-at idx s "entity_kind") "predicate")) (proj/all-subjects idx))
+   taught (filterv (fn [s] (not (empty? (proj/string-values-at idx s "predicate_example")))) predicates)
    missing (sort (map (fn [s] (if (str/starts-with? s "@") (subs s 1) s)) (remove (set taught) predicates)))]
   (println (str "TEACHING COVERAGE — " (count taught) " / " (count predicates) " predicate entities have connected examples"))
   (if (empty? missing) (println "  ✓ every executable predicate has a connected example") (do
@@ -1082,11 +930,9 @@
   (cmd-validate log)
   nil)
   (= cmd "tools") (cmd-tools)
-  (= cmd "doctor") (cmd-doctor threads-dir log)
-  (= cmd "heal") (cmd-heal threads-dir log (has-flag? args "--adopt"))
-  (= cmd "boot") (cmd-boot threads-dir log)
+  (= cmd "boot") (cmd-boot log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond

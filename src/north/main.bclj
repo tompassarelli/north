@@ -1,14 +1,13 @@
 #lang beagle/clj
 (ns north.main
   "North life CLI: the lifecycle/projection verbs (ready, blocked, leverage,
-  next, agenda, board, capture, needs-review, audit, doctor, json). Runs on
+  next, agenda, board, capture, needs-review, audit, boot, json). Runs on
   the Fram engine (fram.*); engine verbs (tell/set/import/...) are routed to
   the fram CLI by the bin/north wrapper."
   (:gen-class))
 
-(require fram.kernel :as k)
-(require fram.fold :as fold)
-(require fram.import :as imp)
+(require fram.kernel-classify :as kc)
+(require fram.types :as t)
 (require fram.export :as exp)
 (require north.projections :as proj)
 (require north.validate :as val)
@@ -37,18 +36,61 @@
 (declare-extern fram.rt/delete-file [String -> Nil])
 (declare-extern fram.rt/slugify [String -> String])
 (declare-extern fram.rt/getenv-or [String String -> String])
-(declare-extern fram.rt/server-version-for-log [Int String -> Int])
-(declare-extern fram.rt/server-assert-for-log [Int String String String String Int -> String])
-(declare-extern fram.rt/server-retract-for-log [Int String String String String Int -> String])
-;; Raw FRAMRPC request — used ONLY for the :assert-at-version global-version CAS
-;; (the atomic read-set commit seam cli/coord.clj assert-after-read! also rides).
-;; Ordinary writes stay on the typed server-assert/retract wrappers above.
-(declare-extern fram.rt/server-port [-> Int])
-(declare-extern fram.rt/server-status-for-log [Int String -> String])
-(declare-extern fram.rt/server-live-facts [Int String -> (Vec k/Fact)])
-;; Exact-subject warm read ({:version :rows [[p r] ...]} | nil). Any because the
-;; extern is the untyped wire seam.
-(declare-extern fram.rt/server-show-for-log [Int String String -> Any])
+
+(defn- string-term [value: Any] -> String
+  (if (string? value)
+    value
+    (throw (ex-info "North coordination data requires String Triple terms"
+                    {:type :north/non-string-triple}))))
+
+(defn- triple-subject [value: t/Triple] -> String
+  (string-term (t/triple-slot0 value)))
+
+(defn- triple-predicate [value: t/Triple] -> String
+  (string-term (t/triple-slot1 value)))
+
+(defn- triple-value [value: t/Triple] -> String
+  (string-term (t/triple-slot2 value)))
+
+;; bin/north preloads the Clojure coordination facade before loading this
+;; compiled namespace. Resolve that runtime boundary lazily so pure projection
+;; consumers can still require north.main without opening a socket or loading a
+;; CLI script.
+(defn- coord-invoke
+  [operation: String
+   args: (Vec Any)] -> Any
+  (let [callable: Any
+        (ns-resolve (symbol "north.coord") (symbol operation))]
+    (if (some? callable)
+      (apply callable args)
+      (throw (ex-info "north.coord must be loaded before a data operation"
+                      {:type :north/coord-not-loaded
+                       :operation operation})))))
+
+(defn- coord-port [] -> Int
+  (let [value: Any (coord-invoke "port" [])]
+    (if (int? value)
+      value
+      (throw (ex-info "north.coord returned an invalid port"
+                      {:type :north/invalid-coord-port})))))
+
+(defn- coord-propositions
+  [operation: String
+   args: (Vec Any)] -> (Vec t/Triple)
+  (let [value: Any (coord-invoke operation args)]
+    (if (and (vector? value) (every? t/triple? value))
+      value
+      (throw (ex-info "north.coord returned a malformed Triple projection"
+                      {:type :north/invalid-coord-projection
+                       :operation operation})))))
+
+(defn- coord-live-propositions [port: Int] -> (Vec t/Triple)
+  (coord-propositions "live-propositions" [port]))
+
+(defn- coord-subject-propositions
+  [port: Int
+   subject: String] -> (Vec t/Triple)
+  (coord-propositions "subject-propositions" [port subject]))
 
 ;; --- thread id: north-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -66,9 +108,9 @@
 ;; --- display helpers --------------------------------------------------------
 
 (defn- title-of
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String] :- String
-  (let [t (k/one-i idx te "title")] (if (some? t) t "")))
+  (let [t (proj/string-value-at idx te "title")] (if (some? t) t "")))
 
 (defn- short-id [te :- String] :- String
   (if (str/starts-with? te "@") (subs te 1) te))
@@ -80,15 +122,15 @@
 ;; already names a thread (has a title); else find a thread whose `handle` fact
 ;; equals the ref (sans @), latest created_at winning ties; else ref unchanged.
 (defn resolve-ref
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    ref :- String] :- String
-  (if (some? (k/one-i idx ref "title"))
+  (if (some? (proj/string-value-at idx ref "title"))
     ref
     (let [bare (short-id ref)
           matches (filterv (fn [te :- String] :- Bool
-                             (let [h (k/one-i idx te "handle")]
+                             (let [h (proj/string-value-at idx te "handle")]
                                (and (some? h) (= h bare))))
-                           (k/thread-ids-i idx))]
+                           (proj/thread-subjects idx))]
       (if (empty? matches)
         ;; no handle match — try a UNIQUE id-prefix (the short form people paste).
         ;; Blank never prefix-matches (it would match every thread); an ambiguous
@@ -98,15 +140,15 @@
                     []
                     (filterv (fn [te :- String] :- Bool
                                (str/starts-with? (short-id te) bare))
-                             (k/thread-ids-i idx)))]
+                             (proj/thread-subjects idx)))]
           (if (= (count pms) 1) (first pms) ref))
         (reduce (fn
                   [best :- String
                    te :- String] :- String
                   (if (str/blank? best)
                     te
-                    (let [bc (let [c (k/one-i idx best "created_at")] (if (some? c) c ""))
-                          tc (let [c (k/one-i idx te "created_at")] (if (some? c) c ""))]
+                    (let [bc (let [c (proj/string-value-at idx best "created_at")] (if (some? c) c ""))
+                          tc (let [c (proj/string-value-at idx te "created_at")] (if (some? c) c ""))]
                       (if (fram.rt/str-lt? bc tc) te best))))
                 "" matches)))))
 
@@ -146,42 +188,42 @@
     [:else ""]))
 
 (defn- kind-of
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String?] :- String
   ;; Historical malformed writes can leave an unrenderable subject in a warm
   ;; store. The census is a diagnostic read: keep it total and surface that
   ;; subject in `other` instead of crashing before the operator can inspect it.
   (if (nil? te)
     "other"
-    (let [explicit (k/one-i idx te "entity_kind")]
+    (let [explicit (proj/string-value-at idx te "entity_kind")]
       (if (some? explicit)
         explicit
-        (let [legacy (k/one-i idx te "kind")]
+        (let [legacy (proj/string-value-at idx te "kind")]
           (if (some? legacy)
             (legacy-entity-kind legacy)
             (let [np (namespace-kind (short-id te))]
               (if (not (str/blank? np))
                 np
-                (if (some? (k/one-i idx te "title"))
+                (if (some? (proj/string-value-at idx te "title"))
                   "thread"
-                  (if (some? (k/one-i idx te "display_name"))
+                  (if (some? (proj/string-value-at idx te "display_name"))
                     "person"
                     ;; schema-as-facts predicate subject (cardinality/value_kind/acyclic)?
-                    (if (or (some? (k/one-i idx te "cardinality"))
-                            (or (some? (k/one-i idx te "value_kind"))
-                                (some? (k/one-i idx te "acyclic"))))
+                    (if (or (some? (proj/string-value-at idx te "cardinality"))
+                            (or (some? (proj/string-value-at idx te "value_kind"))
+                                (some? (proj/string-value-at idx te "acyclic"))))
                       "predicate"
                       "other")))))))))))
 
 ;; The human label for a thread's driver: its display_name if the agent carries
 ;; one, else the bare ref — board legibility (who's on what).
 (defn- driver-label
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String] :- String
-  (let [d (k/one-i idx te "driver")]
+  (let [d (proj/string-value-at idx te "driver")]
     (if (nil? d)
       ""
-      (let [dn (k/one-i idx d "display_name")]
+      (let [dn (proj/string-value-at idx d "display_name")]
         (if (some? dn) dn (short-id d))))))
 
 (defrecord LevItem
@@ -226,9 +268,9 @@
   (str "v1|" version "|" position "|" (if (str/blank? anchor) "_" anchor)))
 
 (defn- queue-directive
-  [idx: k/Index
+  [idx: proj/ProjectionIndex
    te: String] -> QueueDirective?
-  (let [raw (k/one-i idx te "queue_rank")
+  (let [raw (proj/string-value-at idx te "queue_rank")
         parts (if (some? raw) (vec (str/split raw #"\|")) [])
         version (if (= (count parts) 4) (fram.rt/parse-int (nth parts 1)) -1)
         position (if (= (count parts) 4) (nth parts 2) "")
@@ -282,7 +324,7 @@
     (queue-insert remaining te insert-index)))
 
 (defn- queue-order-from-base
-  [idx: k/Index
+  [idx: proj/ProjectionIndex
    base: (Vec String)] -> (Vec String)
   (let [directives
         (reduce
@@ -301,58 +343,52 @@
      (vec (sort-by (fn [directive: QueueDirective] -> Int (:version directive)) directives)))))
 
 (defn queue-order
-  [idx: k/Index
+  [idx: proj/ProjectionIndex
    tes: (Vec String)] -> (Vec String)
   (queue-order-from-base
    idx
    (vec (sort-by (fn [te: String] -> Int (- 0 (proj/leverage-score idx te))) tes))))
 
-;; --- fact-set signatures (for capture's import guard) ----------------------
-(defn- fact-sig [c :- k/Fact] :- String (str (:l c) "|" (:p c) "|" (:r c)))
-(defn- sig-member-map [facts :- (Vec k/Fact)] :- (Map String Bool)
-  (reduce (fn
-            [m :- (Map String Bool)
-             c :- k/Fact] :- (Map String Bool)
-            (assoc m (fact-sig c) true))
-          {} facts))
+;; Reads are FRAMRPC-authoritative. North never opens FRAMLOG bytes as a
+;; client-side fallback; the physical log path is projection identity only.
+(defn- coord-version [port: Int] -> Int
+  (try
+    (let [value: Any (coord-invoke "version" [port])]
+      (if (int? value) value -1))
+    (catch Exception _ -1)))
 
-;; Reads are server-authoritative. A stopped or mismatched server is an error;
-;; North never opens database storage bytes as a client-side fallback.
-(defn- live-facts [log :- String] :- (Vec k/Fact)
-  (let [port (fram.rt/server-port)
-        version (fram.rt/server-version-for-log port log)]
+(defn- live-facts [log :- String] :- (Vec t/Triple)
+  (let [port (coord-port)
+        version (coord-version port)]
     (if (< version 0)
-      (throw (ex-info (str "North server read failed on 127.0.0.1:" port
+      (throw (ex-info (str "North FRAMRPC read failed on 127.0.0.1:" port
                            " (code " version ")")
                       {:type :north/server-unavailable
                        :port port
                        :log log}))
-      (fram.rt/server-live-facts port log))))
+      (coord-live-propositions port))))
 
-(defn- live-idx [log :- String] :- k/Index
-  (k/build-index (live-facts log)))
+(defn- live-idx [log :- String] :- proj/ProjectionIndex
+  (proj/index-triples (live-facts log)))
 
-;; :show rows keep the whole-database projection order, which makes a subject
-;; slice render byte-identically to the canonical query result.
-;; [] conflates an unavailable server, a failed query, and an absent subject, so
-;; every caller needs a whole-database query through the validated live path.
-(defn- server-subject-facts
+;; A failed exact-subject query and an absent subject both yield no local rows,
+;; so callers retain the whole-corpus FRAMRPC fallback.
+(defn- live-subject-facts
   [log :- String
-   te :- String] :- (Vec k/Fact)
-  (let [rows :- (Vec (Vec String))
-        (try
-          (let [resp (fram.rt/server-show-for-log (fram.rt/server-port) log te)]
-            (if (nil? resp) [] (:rows resp)))
-          (catch Exception _ []))]
-    (mapv (fn [row :- (Vec String)] :- k/Fact
-            (k/->Fact te (nth row 0) (nth row 1)))
-          rows)))
+   te :- String] :- (Vec t/Triple)
+  (try
+    (coord-subject-propositions (coord-port) te)
+    (catch Exception _ [])))
 
 (defn- subject-facts
   [log :- String
-   te :- String] :- (Vec k/Fact)
-  (let [warm (server-subject-facts log te)]
-    (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
+   te :- String] :- (Vec t/Triple)
+  (let [warm (live-subject-facts log te)]
+    (if (empty? warm)
+      (filterv (fn [triple :- t/Triple] :- Bool
+                 (= te (triple-subject triple)))
+               (live-facts log))
+      warm)))
 
 ;; --- write through canonical FRAMRPC (serialized under concurrent agents) ---
 (defn framrpc-failure-message
@@ -391,12 +427,20 @@
    te :- String
    pred :- String
    rv :- String] :- String
-  (let [v (fram.rt/server-version-for-log port log)]
+  (let [v (coord-version port)]
     (if (< v 0)
-      (if (= v -2) "space-mismatch" (if (= v -3) "protocol-incompatible" "server-unavailable"))
-      (if (= op "assert")
-        (fram.rt/server-assert-for-log port log te pred rv v)
-        (fram.rt/server-retract-for-log port log te pred rv v)))))
+      "server-unavailable"
+      (try
+        (let [response: Any
+              (if (= op "assert")
+                (coord-invoke "assert-at-version!" [port te pred rv v])
+                (coord-invoke "retract-at-version!" [port te pred rv v]))
+              committed: Any (:ok response)
+              rejected: Any (:reject response)]
+          (if (some? committed)
+            (str "ok:" committed)
+            (if (= rejected :conflict) "conflict" (str rejected))))
+        (catch Exception _ "server-unavailable")))))
 
 (defn- tell-retry
   [port :- Int
@@ -416,11 +460,11 @@
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
 (defn- add-fact
-  [acc :- (Vec k/Fact)
+  [acc :- (Vec t/Triple)
    te :- String
    p :- String
-   v :- String] :- (Vec k/Fact)
-  (if (str/blank? v) acc (conj acc (k/->Fact te p v))))
+   v :- String] :- (Vec t/Triple)
+  (if (str/blank? v) acc (conj acc (t/triple te p v))))
 
 (defn- ref-or-blank [v :- String] :- String
   (if (str/blank? v) "" (str "@" v)))
@@ -434,7 +478,7 @@
    lead :- String
    proposed :- String
    created-at :- String
-   today :- String] :- (Vec k/Fact)
+   today :- String] :- (Vec t/Triple)
   ;; NO `driver` at birth (operating-manual): making a thread active is a deliberate
   ;; pickup (`tell <id> driver @x`), never a capture default — a driver cell here is
   ;; exactly the "stray driver" pollution the-model warns about.
@@ -490,7 +534,7 @@
 (defn- retract-committed-capture-facts
   [port :- Int
    log :- String
-   facts :- (Vec k/Fact)
+   facts :- (Vec t/Triple)
    results :- (Vec String)
    i :- Int] :- Bool
   (if (>= i (count facts))
@@ -500,7 +544,7 @@
           current-ok
           (if (str/starts-with? result "ok:")
             (str/starts-with?
-             (tell-retry port log "retract" (:l fact) (:p fact) (:r fact) 5)
+             (tell-retry port log "retract" (triple-subject fact) (triple-predicate fact) (triple-value fact) 5)
              "ok:")
             true)
           remaining-ok
@@ -515,7 +559,7 @@
    log :- String
    te :- String
    path :- String
-   facts :- (Vec k/Fact)
+   facts :- (Vec t/Triple)
    results :- (Vec String)] :- Bool
   ;; Structured capture owns this freshly minted UUID, so it can compensate
   ;; exactly the facts acknowledged by this attempt. Prove both graph and view
@@ -524,8 +568,8 @@
         (retract-committed-capture-facts port log facts results 0)
         _ (fram.rt/delete-file path)
         remaining
-        (filterv (fn [fact :- k/Fact] :- Bool (= te (:l fact)))
-                 (fram.rt/server-live-facts port log))]
+        (filterv (fn [fact :- t/Triple] :- Bool (= te (triple-subject fact)))
+                 (coord-live-propositions port))]
     (and retracted
          (empty? remaining)
          (not (fram.rt/file-exists path)))))
@@ -555,8 +599,8 @@
              created-at (fram.rt/now-iso)
              te (str "@" id)
              path (str threads-dir "/" id "-" slug ".md")
-             port (fram.rt/server-port)
-             server-v (fram.rt/server-version-for-log port log)]
+             port (coord-port)
+             server-v (coord-version port)]
          ;; Publish each capture fact through the same FRAMRPC path as `tell`, then
          ;; render the .md from FRAMLOG state. The file remains a regenerated view.
          ;; UUIDv7 is collision-proof, so capture no longer reserves a file-lock id
@@ -568,8 +612,8 @@
              (println (framrpc-failure-message
                        server-v port log "capture was not recorded")))
            (let [facts (capture-facts te title owner source author lead proposed created-at today)
-                 results (mapv (fn [c :- k/Fact] :- String
-                                 (tell-retry port log "assert" (:l c) (:p c) (:r c) 5))
+                 results (mapv (fn [c :- t/Triple] :- String
+                                 (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5))
                                facts)
                  oks (count (filterv (fn [r :- String] :- Bool (str/starts-with? r "ok:")) results))]
              (if (= oks (count facts))
@@ -582,7 +626,7 @@
                  (fram.rt/spit-file
                   path
                   (exp/thread-md
-                   (let [warm (server-subject-facts log te)]
+                   (let [warm (live-subject-facts log te)]
                      (if (empty? warm) facts warm))
                    te))
                  (if (structured-capture?)
@@ -625,7 +669,7 @@
         r (resolve-ref idx ref)]
     (if (and (= r ref)
              (id-like? (short-id ref))
-             (nil? (k/one-i idx (str "@" (short-id ref)) "title")))
+             (nil? (proj/string-value-at idx (str "@" (short-id ref)) "title")))
       (println (str "ERROR unresolved id-like ref " ref
                     " — not a thread id, unique prefix, or handle"
                     " (ambiguous/truncated? `north show " (short-id ref) "` lists candidates)"))
@@ -642,8 +686,8 @@
    ref :- String] :- Nil
   (let [idx (live-idx log)
         te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
-        bars (k/many-i idx te "done_when")
-        evs (k/many-i idx te "bar_evidence")]
+        bars (proj/string-values-at idx te "done_when")
+        evs (proj/string-values-at idx te "bar_evidence")]
     (if (empty? bars)
       nil
       (do
@@ -665,7 +709,7 @@
 ;; bin/north routes `validate` here (and the MCP validate tool through it).
 (defn cmd-validate [log :- String] :- Int
   (let [idx (live-idx log)
-        ids (k/thread-ids-i idx)
+        ids (proj/thread-subjects idx)
         problems (reduce
                   (fn
                     [acc :- (Vec String)
@@ -711,14 +755,14 @@
 ;; parked driver reads the same (not-active -> its committed/schedule state)
 ;; everywhere. `--all` changes scope only; it never changes lifecycle semantics.
 (defn- lease-exp-secs
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    driverref :- String] :- Int
   ;; exp of @lease:session:<handle> in EPOCH SECONDS, or -1 if no lease. Lease value
   ;; is "holder|exp-ms|epoch"; slice exp-ms to seconds (drop the last 3 chars) —
   ;; parse-int is 32-bit, so 13-digit ms overflows while 10-digit secs (good to
   ;; ~2038) don't.
   (let [handle (short-id driverref)
-        v (k/one-i idx (str "@lease:session:" handle) "lease")]
+        v (proj/string-value-at idx (str "@lease:session:" handle) "lease")]
     (if (nil? v)
       -1
       (let [parts (str/split v #"\|")]
@@ -741,17 +785,17 @@
     [:else -1]))
 
 (defn- driver-live?
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String
    now-secs :- Int
    window-secs :- Int] :- Bool
-  (let [d (k/one-i idx te "driver")]
+  (let [d (proj/string-value-at idx te "driver")]
     (if (nil? d)
       false
       (let [e (lease-exp-secs idx d)]
         (if (and (> e 0) (> e now-secs))
           true
-          (let [u (k/one-i idx te "updated_at")]
+          (let [u (proj/string-value-at idx te "updated_at")]
             (if (nil? u)
               false
               (let [us (dt->secs u)]
@@ -767,28 +811,28 @@
 ;; now/window so every thread in one command is judged against the same instant.
 (defn- live-driver-pred
   [now-secs :- Int
-   window-secs :- Int] :- [k/Index String -> Bool]
+   window-secs :- Int] :- [proj/ProjectionIndex String -> Bool]
   (fn
-    [idx :- k/Index
+    [idx :- proj/ProjectionIndex
      te :- String] :- Bool (driver-live? idx te now-secs window-secs)))
 
 ;; Build the canonical live? for "right now" — one clock read, reused for the whole
 ;; command. Callers that already hold now-secs/window use live-driver-pred directly.
-(defn- default-live? [] :- [k/Index String -> Bool]
+(defn- default-live? [] :- [proj/ProjectionIndex String -> Bool]
   (live-driver-pred (fram.rt/iso-to-seconds (fram.rt/now-iso)) (driver-stale-window-secs)))
 
 ;; Assignment and activity are orthogonal. A parked assignment remains visible
 ;; for cleanup even though it no longer forces the lifecycle to `active`.
 (defn- parked-assignment?
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String
-   live? :- [k/Index String -> Bool]] :- Bool
+   live? :- [proj/ProjectionIndex String -> Bool]] :- Bool
   (and (proj/assigned? idx te) (not (live? idx te))))
 
 (defn- parked-assignments
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    tes :- (Vec String)
-   live? :- [k/Index String -> Bool]] :- (Vec String)
+   live? :- [proj/ProjectionIndex String -> Bool]] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (parked-assignment? idx te live?)) tes))
 
 (defn cmd-ready
@@ -844,13 +888,13 @@
                     "  " (trunc (title-of idx (:te it)) 46))))))
 
 (defn- next-item
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- NextItem
+   live? :- [proj/ProjectionIndex String -> Bool]] :- NextItem
   (let [lev (proj/leverage-score idx te)
-        doo (k/one-i idx te "do_on")
+        doo (proj/string-value-at idx te "do_on")
         urg (if (some? doo)
               (cond
                 [(fram.rt/str-lt? doo today) 5]
@@ -859,8 +903,8 @@
               0)
         ;; ready EXCLUDES live-driven (active) threads, so a driver fact here is a
         ;; PARKED pickup — momentum = resume-ability, not "someone's on it".
-        mom (if (some? (k/one-i idx te "driver")) 2 0)
-        pri (let [p (k/one-i idx te "priority")] (if (some? p) p ""))
+        mom (if (some? (proj/string-value-at idx te "driver")) 2 0)
+        pri (let [p (proj/string-value-at idx te "priority")] (if (some? p) p ""))
         sequencing (count (proj/incomplete-deps idx te))
         eligibility (proj/explain idx te today before? live?)]
     (->NextItem te (+ (* 3 lev) (+ urg mom)) lev urg mom pri sequencing (:reason eligibility))))
@@ -897,10 +941,10 @@
   (let [idx (live-idx log)
         today (fram.rt/today-iso)
         cands (filterv (fn [te :- String] :- Bool
-                         (and (not (proj/terminal-i? idx te)) (some? (k/one-i idx te "do_on"))))
+                         (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on"))))
                        (proj/work-thread-ids-i idx))
         items (mapv (fn [te :- String] :- AgendaItem
-                      (->AgendaItem te (let [d (k/one-i idx te "do_on")] (if (some? d) d ""))))
+                      (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")] (if (some? d) d ""))))
                     cands)
         overdue (vec (sort-by (fn [it :- AgendaItem] :- String (:do_on it))
                               (filterv (fn [it :- AgendaItem] :- Bool (fram.rt/str-lt? (:do_on it) today)) items)))
@@ -916,7 +960,7 @@
     (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
 
 (defn- board-group
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    label :- String
    grp :- (Vec String)] :- Nil
   (when (not (empty? grp))
@@ -925,19 +969,19 @@
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
 
 (defn- in-condition
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    nonterm :- (Vec String)
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    c :- String] :- (Vec String)
   (filterv (fn [te :- String] :- Bool (= (proj/condition-i idx te today before? live?) c)) nonterm))
 
 (defn- parked-group
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    grp :- (Vec String)] :- Nil
   (when (not (empty? grp))
     (println (str "\nPARKED ASSIGNMENTS (" (count grp) ") — stale driver retained; lifecycle is not active"))
@@ -951,10 +995,10 @@
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
 (defn- board-full
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    nonterm :- (Vec String)] :- Nil
   (do
     (println (str "THREADS — " (count nonterm) " open"))
@@ -966,10 +1010,10 @@
     (parked-group idx today before? live? (parked-assignments idx nonterm live?))))
 
 (defn- board-curated
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    nonterm :- (Vec String)] :- Nil
   ;; SCOPE TO WORK THREADS: concerns/telemetry/mine also carry `title` (so
   ;; thread-ids-i sees them), which is exactly what drowned the old board — 200+
@@ -986,7 +1030,7 @@
         ;; concern- prefix). NOT stale-decayed — concern liveness/decay is the
         ;; concern-lane's projection; the board reports the raw open count.
         nconcern (count (filterv (fn [s :- String] :- Bool (= (kind-of idx s) "concern"))
-                                 (:subjects idx)))
+                                 (proj/all-subjects idx)))
         ashow (vec (take 20 active))
         rranked (mapv (fn [te :- String] :- LevItem (->LevItem te (proj/leverage-score idx te)))
                       (vec (take 15 (queue-order idx readyl))))]
@@ -1068,11 +1112,11 @@
    value :- String])
 
 (defn- jthread
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- JThread
+   live? :- [proj/ProjectionIndex String -> Bool]] :- JThread
   (let [c (proj/condition-i idx te today before? live?)]
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
@@ -1083,10 +1127,10 @@
 ;; move it into the JSON path too, gated on all? — --all restores the full,
 ;; unscoped dump that discover.ts/analysis consumers still want.
 (defn- ready-curated-tes
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    all? :- Bool] :- (Vec String)
   (let [raw (proj/ready idx today before? live?)
         rs (if all? raw (filterv (fn [te :- String] :- Bool (= (kind-of idx te) "thread")) raw))
@@ -1094,10 +1138,10 @@
     (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]
+   live? :- [proj/ProjectionIndex String -> Bool]
    all? :- Bool] :- (Vec String)
   (let [nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
@@ -1112,7 +1156,7 @@
                                              (in-condition idx threads today before? live? "ready"))))]
         (vec (concat active ready))))))
 
-(defn- recent-terminal-tes [idx: k/Index] -> (Vec String)
+(defn- recent-terminal-tes [idx: proj/ProjectionIndex] -> (Vec String)
   (let [terminal
         (filterv
          (fn [te: String] -> Bool
@@ -1123,36 +1167,36 @@
            (reverse
             (sort-by
              (fn [te: String] -> String
-               (let [updated (k/one-i idx te "updated_at")
-                     created (k/one-i idx te "created_at")]
+               (let [updated (proj/string-value-at idx te "updated_at")
+                     created (proj/string-value-at idx te "created_at")]
                  (str (if (some? updated) updated "") "|"
                       (if (some? created) created "") "|" te)))
              terminal))))))
 
 (defn- matching-subjects
-  [facts :- (Vec k/Fact)
+  [facts :- (Vec t/Triple)
    predicate :- String
    value :- String] :- (Map String Bool)
   (reduce
    (fn
      [subjects :- (Map String Bool)
-      fact :- k/Fact] :- (Map String Bool)
-     (if (and (= (:p fact) predicate) (= (:r fact) value))
-       (assoc subjects (:l fact) true)
+      fact :- t/Triple] :- (Map String Bool)
+     (if (and (= (triple-predicate fact) predicate) (= (triple-value fact) value))
+       (assoc subjects (triple-subject fact) true)
        subjects))
    {} facts))
 
 (defn- direct-child-subjects
-  [facts :- (Vec k/Fact)
+  [facts :- (Vec t/Triple)
    coordinator :- String] :- (Map String Bool)
   (reduce
    (fn
      [subjects :- (Map String Bool)
-      fact :- k/Fact] :- (Map String Bool)
-     (if (and (= (:p fact) "coordinator")
-              (= (:r fact) coordinator)
-              (str/starts-with? (:l fact) "@agent:"))
-       (assoc subjects (:l fact) true)
+      fact :- t/Triple] :- (Map String Bool)
+     (if (and (= (triple-predicate fact) "coordinator")
+              (= (triple-value fact) coordinator)
+              (str/starts-with? (triple-subject fact) "@agent:"))
+       (assoc subjects (triple-subject fact) true)
        subjects))
    {} facts))
 
@@ -1166,28 +1210,28 @@
    {} subjects))
 
 (defn- child-run-subjects
-  [facts :- (Vec k/Fact)
+  [facts :- (Vec t/Triple)
    children :- (Map String Bool)
    committed-runs :- (Map String Bool)] :- (Map String Bool)
   (reduce
    (fn
      [subjects :- (Map String Bool)
-      fact :- k/Fact] :- (Map String Bool)
-     (if (and (= (:p fact) "agent")
-              (get children (:r fact) false)
-              (get committed-runs (:l fact) false))
-       (assoc subjects (:l fact) true)
+      fact :- t/Triple] :- (Map String Bool)
+     (if (and (= (triple-predicate fact) "agent")
+              (get children (triple-value fact) false)
+              (get committed-runs (triple-subject fact) false))
+       (assoc subjects (triple-subject fact) true)
        subjects))
    {} facts))
 
 (defn- subject-fact-projection
-  [facts :- (Vec k/Fact)
+  [facts :- (Vec t/Triple)
    subjects :- (Map String Bool)] :- (Vec JSubjectFact)
   (mapv
-   (fn [fact :- k/Fact] :- JSubjectFact
-     (->JSubjectFact (short-id (:l fact)) (:p fact) (:r fact)))
+   (fn [fact :- t/Triple] :- JSubjectFact
+     (->JSubjectFact (short-id (triple-subject fact)) (triple-predicate fact) (triple-value fact)))
    (filterv
-    (fn [fact :- k/Fact] :- Bool (get subjects (:l fact) false))
+    (fn [fact :- t/Triple] :- Bool (get subjects (triple-subject fact) false))
     facts)))
 
 ;; Grooming consumes the same liveness decision as ready/board/next. The
@@ -1195,10 +1239,10 @@
 ;; this composition layer removes its raw-driver done-bar false positives and
 ;; adds explicit parked-assignment reviews without mutating lifecycle facts.
 (defn- parked-assignment-reviews
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+   live? :- [proj/ProjectionIndex String -> Bool]] :- (Vec stale/Review)
   (reduce
    (fn
      [acc :- (Vec stale/Review)
@@ -1206,7 +1250,7 @@
      (if (and (= (kind-of idx te) "thread")
               (and (not (proj/terminal-i? idx te))
                    (parked-assignment? idx te live?)))
-       (let [d (k/one-i idx te "driver")
+       (let [d (proj/string-value-at idx te "driver")
              eligibility (proj/explain idx te today before? live?)]
          (conj acc
                (stale/->Review
@@ -1219,11 +1263,11 @@
    (proj/work-thread-ids-i idx)))
 
 (defn- canonical-grooming-reviews
-  [idx :- k/Index
-   live-idx :- k/Index
+  [idx :- proj/ProjectionIndex
+   live-idx :- proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- (Vec stale/Review)
+   live? :- [proj/ProjectionIndex String -> Bool]] :- (Vec stale/Review)
   (let [base (vec (concat (stale/time-stale idx today before?)
                           (vec (concat (stale/edge-stale idx)
                                        (vec (concat (stale/bars-missing idx)
@@ -1242,7 +1286,7 @@
   [log :- String
    arg :- String] :- Nil
   (println (fram.rt/to-json
-            (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
+            (mapv (fn [c :- t/Triple] :- JFact (->JFact (triple-predicate c) (triple-value c)))
                   (subject-facts log (str "@" arg))))))
 
 (defn- cmd-json-database
@@ -1251,7 +1295,7 @@
    arg :- String
    all? :- Bool] :- Nil
   (let [facts (live-facts log)
-        idx (k/build-index facts)
+        idx (proj/index-triples facts)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         live? (default-live?)]
@@ -1287,9 +1331,9 @@
                                    (assoc m (str "@" s) true))
                                  {} subjects)]
          (println (fram.rt/to-json
-                   (mapv (fn [c :- k/Fact] :- JSubjectFact
-                           (->JSubjectFact (short-id (:l c)) (:p c) (:r c)))
-                         (filterv (fn [c :- k/Fact] :- Bool (get subject-set (:l c) false))
+                   (mapv (fn [c :- t/Triple] :- JSubjectFact
+                           (->JSubjectFact (short-id (triple-subject c)) (triple-predicate c) (triple-value c)))
+                         (filterv (fn [c :- t/Triple] :- Bool (get subject-set (triple-subject c) false))
                                   facts)))))]
       [(= what "child-settlement")
        ;; One warm fact-vector projection is a coherent read. The SDK used to
@@ -1318,15 +1362,15 @@
                                   (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))]
       [(= what "agents")
        (println (fram.rt/to-json
-                 (mapv (fn [c :- k/Fact] :- JAgentFact
-                         (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c)))
+                 (mapv (fn [c :- t/Triple] :- JAgentFact
+                         (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c)))
                        ;; The FRAMRPC server's unified warm view can contain
                        ;; lease-only/tombstone-shaped rows with no subject. They
                        ;; are not agent facts. One such row must not crash the
                        ;; whole bulk identity projection and erase every valid
                        ;; agent card from `north agents`.
-                       (filterv (fn [c :- k/Fact] :- Bool
-                                  (let [l (:l c)]
+                       (filterv (fn [c :- t/Triple] :- Bool
+                                  (let [l (triple-subject c)]
                                     (and (some? l) (str/starts-with? l "@agent:"))))
                                 facts))))]
       [(= what "presentation")
@@ -1359,310 +1403,6 @@
     (doseq [te promo]
       (println (str "  " (short-id te) "  " (trunc (title-of live-idx-now te) 52))))))
 
-;; --- doctor/heal/boot shared: server safety + file projection hygiene --------
-;; SAFETY (can I write + warm-read right now?) and HYGIENE (is the file projection
-;; tidy?) are ORTHOGONAL: a hand-edited .md never makes writes unsafe, and a stale
-;; server never means a file was tampered with. `probe` computes both from one
-;; served database state and one file-projection read so doctor/heal/boot agree.
-(defrecord Probe
-  [up :- Bool
-   serving :- Bool
-   port :- Int
-   status :- String
-   server-v :- Int
-   log-facts :- (Vec k/Fact)
-   idx :- k/Index
-   stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
-   hand :- (Vec k/Fact)                            ; file-ahead, genuinely-new (hand edit)
-   log-behind :- (Vec k/Fact)])                     ; server facts not yet rendered to files
-
-;; A file-ahead fact is a STALE PROJECTION (superseded, NOT a hand edit) iff its
-;; predicate is single-valued (k/single? reads FRAM_SINGLE_VALUED, the same vocab
-;; bin/north exports) AND FRAMLOG holds a DIFFERENT value for the same (subject,pred)
-;; — i.e. a `tell` replaced the value and the .md just wasn't re-rendered. Otherwise
-;; FRAMLOG has no competing value: a genuine hand edit a human must reconcile.
-(defn- stale-projection?
-  [idx :- k/Index
-   c :- k/Fact] :- Bool
-  (and (k/single? (:p c))
-       (let [v (k/one-i idx (:l c) (:p c))]
-         (and (some? v) (not (= v (:r c)))))))
-
-(defn- probe
-  [threads-dir :- String
-   log :- String] :- Probe
-  (let [port (fram.rt/server-port)
-        status (fram.rt/server-status-for-log port log)
-        server-v (fram.rt/server-version-for-log port log)
-        up (not (= server-v -1))
-        serving (>= server-v 0)
-        log-facts (if serving (fram.rt/server-live-facts port log) [])
-        idx (k/build-index log-facts)
-        file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
-        ;; Files are a projection of FRAMLOG: only title-bearing threads render to
-        ;; .md, so non-thread entities remain database-only. Compare against the
-        ;; thread-fact slice, not the whole database.
-        thread-log (filterv (fn [c :- k/Fact] :- Bool (some? (k/one-i idx (:l c) "title"))) log-facts)
-        tl-sigs (sig-member-map thread-log)
-        file-sigs (sig-member-map file-facts)
-        file-ahead (filterv (fn [c :- k/Fact] :- Bool (nil? (get tl-sigs (fact-sig c)))) file-facts)
-        log-behind (filterv (fn [c :- k/Fact] :- Bool (nil? (get file-sigs (fact-sig c)))) thread-log)
-        stale (filterv (fn [c :- k/Fact] :- Bool (stale-projection? idx c)) file-ahead)
-        hand (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)]
-    (->Probe up serving port status server-v log-facts idx stale hand log-behind)))
-
-;; SAFETY verdict: writes + warm reads are safe IFF the server is up, serving this
-;; database. Hygiene NEVER enters this — a stale .md is not a write hazard.
-(defn- safe? [p :- Probe] :- Bool (and (:up p) (:serving p)))
-
-(defn- safety-line [p :- Probe] :- String
-  (if (safe? p)
-    "healthy: tell/untell + warm reads are safe"
-    (cond
-      [(not (:up p)) (str "DEGRADED: FRAMRPC server DOWN on 127.0.0.1:" (:port p) " — writes cannot publish")]
-      [(not (:serving p)) (str "DEGRADED: server not serving the selected FRAMLOG database — status: " (:status p))]
-      [:else "DEGRADED: server read failed"])))
-
-;; One-line hygiene summary ("" when tidy) for the boot screen.
-(defn- hygiene-line [p :- Probe] :- String
-  (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
-    (if (and (= ns 0) (and (= nh 0) (= nb 0)))
-      ""
-      (str "hygiene: " (+ ns nb) " stale/lagging projection fact(s) — run `north heal`"
-           (if (> nh 0) (str "; " nh " hand-edited fact(s) — reconcile via tell/import") "")))))
-
-;; --- doctor: SAFETY handshake + HYGIENE report ------------------------------
-(defn cmd-doctor
-  [threads-dir :- String
-   log :- String] :- Nil
-  (let [p (probe threads-dir log)]
-    (println "north doctor")
-    ;; SAFETY: the FRAMRPC handshake is the only input to this verdict.
-    (if (:up p)
-      (do
-        (println (str "  [ok]    FRAMRPC server UP on 127.0.0.1:" (:port p)))
-        (if (:serving p)
-          (println (str "  [ok]    serving database version " (:server-v p)))
-          (println (str "  [WARN]  server is not serving the selected database — status: " (:status p)))))
-      (println (str "  [DOWN]  no FRAMRPC server on 127.0.0.1:" (:port p) " — writes cannot publish.")))
-    (if (safe? p)
-      (println "  => healthy: tell/untell + warm reads are safe")
-      (println "  => DEGRADED: fix the warnings above"))
-    ;; HYGIENE: is the file projection tidy? NEVER changes the verdict above.
-    (println "  hygiene:")
-    (let [ns (count (:stale p)) nh (count (:hand p)) nb (count (:log-behind p))]
-      (if (and (= ns 0) (and (= nh 0) (= nb 0)))
-        (println "    [ok]    files <-> database projection in sync")
-        (do
-          (when (> ns 0)
-            (println (str "    " ns " stale projection fact(s) — run `north heal`")))
-          (when (> nh 0)
-            (println (str "    " nh " genuinely-new file fact(s) (hand edits) — reconcile via tell or import")))
-          (when (> nb 0)
-            (println (str "    " nb " database fact(s) not yet in files — benign projection lag; run `north heal`"))))))))
-
-;; --- heal: re-render stale/lagging thread files from FRAMLOG -----------------
-;; Idempotent, fail-closed. Flushes projection drift without whole-database `export`
-;; (which touches every file and refuses on any hand edit). Writes only .md files.
-(defn- distinct-ids [xs :- (Vec String)] :- (Vec String)
-  (reduce (fn
-            [acc :- (Vec String)
-             x :- String] :- (Vec String)
-            (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
-
-;; Subjects whose .md diverges from FRAMLOG: a superseded fact or a database fact not
-;; yet rendered. (hand edits are handled separately — heal refuses if any exist.)
-(defn- heal-targets [p :- Probe] :- (Vec String)
-  (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c))
-                      (vec (concat (:stale p) (:log-behind p))))))
-
-;; The @subject the importer would read from a file's head ("" if none/blank/before ---).
-(defn- file-subject [content :- String] :- String
-  (let [lines (fram.rt/split-on content "\n")
-        n (count lines)]
-    (loop [i 0]
-      (cond
-        [(>= i n) ""]
-        [(= "---" (str/trim (nth lines i))) ""]
-        [(str/starts-with? (str/trim (nth lines i)) "@") (str/trim (nth lines i))]
-        [:else (recur (+ i 1))]))))
-
-;; A file's basename (list-md returns "<threads-dir>/<name>").
-(defn- basename
-  [threads-dir :- String
-   path :- String] :- String
-  (let [pre (+ (count threads-dir) 1)]
-    (if (> (count path) pre) (subs path pre) path)))
-
-;; The bare thread id a filename (<id>-<slug>.md) belongs to: the LONGEST id whose
-;; "<id>-" prefixes the name (or "<id>.md" == name). Longest-match is load-bearing —
-;; a bare id like `topic-agent` must NOT fact `topic-agent-ability`'s file (they
-;; share the prefix); substring/first-match silently clobbers the wrong file.
-(defn- file-owner
-  [ids :- (Vec String)
-   name :- String] :- String
-  (reduce (fn
-            [best :- String
-             id :- String] :- String
-            (if (and (or (str/starts-with? name (str id "-")) (= name (str id ".md")))
-                     (> (count id) (count best)))
-              id best))
-          "" ids))
-
-(defrecord FileInfo
-  [path :- String
-   owner :- String
-   head :- String])
-
-(defn- scan-files
-  [threads-dir :- String
-   files :- (Vec String)
-   ids :- (Vec String)] :- (Vec FileInfo)
-  (mapv (fn [path :- String] :- FileInfo
-          (->FileInfo path (file-owner ids (basename threads-dir path))
-                      (file-subject (fram.rt/slurp path))))
-        files))
-
-;; The .md path already assigned to a bare id ("" if none) — overwrite THIS in place.
-(defn- path-of
-  [scan :- (Vec FileInfo)
-   id :- String] :- String
-  (reduce (fn
-            [acc :- String
-             fi :- FileInfo] :- String
-            (if (and (str/blank? acc) (= (:owner fi) id)) (:path fi) acc))
-          "" scan))
-
-;; Bare ids of files whose head @subject != their owning thread (headless, or a
-;; wrong/clobbered @subject) while the owner is a live titled thread — the importer
-;; would silently drop/misread these; re-render restores the projection.
-(defn- broken-head-ids
-  [scan :- (Vec FileInfo)
-   idx :- k/Index] :- (Vec String)
-  (distinct-ids
-   (reduce (fn
-             [acc :- (Vec String)
-              fi :- FileInfo] :- (Vec String)
-             (if (and (not (str/blank? (:owner fi)))
-                      (and (not (= (:head fi) (str "@" (:owner fi))))
-                           (some? (k/one-i idx (str "@" (:owner fi)) "title"))))
-               (conj acc (:owner fi))
-               acc))
-           [] scan)))
-
-;; The normal projection pass: re-render every thread file whose .md diverges
-;; from FRAMLOG (superseded/lagging diff ∪ broken-head). Writes only .md files;
-;; database state is never touched. Shared by `heal` and `heal --adopt`.
-(defn- heal-project
-  [threads-dir :- String
-   p :- Probe] :- Nil
-  (let [files (fram.rt/list-md threads-dir)
-        ids (mapv (fn [te :- String] :- String (short-id te)) (k/thread-ids-i (:idx p)))
-        scan (scan-files threads-dir files ids)
-        ;; targets are BARE ids: superseded/lagging (diff) ∪ broken-head files.
-        diff-ids (mapv (fn [te :- String] :- String (short-id te)) (heal-targets p))
-        targets (distinct-ids (vec (concat diff-ids (broken-head-ids scan (:idx p)))))]
-    (if (empty? targets)
-      (println "heal: nothing to do — every thread file already matches FRAMLOG.")
-      (do
-        (doseq [id targets]
-          (let [te (str "@" id)
-                title (let [t (k/one-i (:idx p) te "title")] (if (some? t) t "untitled"))
-                existing (path-of scan id)
-                path (if (str/blank? existing)
-                       (str threads-dir "/" id "-" (fram.rt/slugify title) ".md")
-                       existing)]
-            (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
-            (println (str "  re-rendered " id "  " (trunc title 52)))))
-        (println (str "heal: re-rendered " (count targets)
-                      " thread file(s) from FRAMLOG. Database untouched."))))))
-
-(defrecord AdoptResult
-  [adopted :- Int
-   skipped :- Int
-   failed :- Int
-   dropped :- Int])
-
-;; A blank predicate or blank value is never a real hand edit — it is a file
-;; PARSE ARTIFACT (a stray line the importer split into `("" "")`). Asserting it
-;; would strand a phantom in FRAMLOG that no projection can render (eternal
-;; log-behind). capture's `add-fact` guards the same way; adopt mirrors it.
-(defn- adoptable? [c :- k/Fact] :- Bool
-  (and (not (str/blank? (:p c))) (not (str/blank? (:r c)))))
-
-;; Absorb each file-ahead hand-edited fact into FRAMLOG through FRAMRPC
-;; (the serialized `tell` path — same rule-checks as any tell, never a storage
-;; append). Multiline `body` values ride pr-str/edn intact over the wire. Three
-;; guards: (1) a blank pred/value is DROPPED (parse artifact, never assert junk);
-;; (2) a single-valued fact FRAMLOG has since superseded is skipped — database
-;; state wins; never overwrite canonical history with a stale file line; (3)
-;; everything else is asserted. `live` is re-read at call
-;; time so a supersession that landed AFTER the probe is still caught (safe under
-;; concurrent writers).
-(defn- adopt-hand-facts
-  [port :- Int
-   log :- String
-   live :- k/Index
-   hand :- (Vec k/Fact)] :- AdoptResult
-  (reduce
-   (fn
-     [acc :- AdoptResult
-      c :- k/Fact] :- AdoptResult
-     (cond
-       [(not (adoptable? c))
-        (do
-          (println (str "  drop (parse artifact) " (short-id (:l c)) "  pred=<" (:p c) "> val=<" (trunc (:r c) 40) ">"))
-          (->AdoptResult (:adopted acc) (:skipped acc) (:failed acc) (+ (:dropped acc) 1)))]
-       [(and (k/single? (:p c))
-             (let [v (k/one-i live (:l c) (:p c))] (and (some? v) (not (= v (:r c))))))
-        (do
-          (println (str "  skip (FRAMLOG won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
-          (->AdoptResult (:adopted acc) (+ (:skipped acc) 1) (:failed acc) (:dropped acc)))]
-       [:else
-        (let [r (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)]
-          (if (str/starts-with? r "ok:")
-            (do
-              (println (str "  adopted " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
-              (->AdoptResult (+ (:adopted acc) 1) (:skipped acc) (:failed acc) (:dropped acc)))
-            (do
-              (println (str "  FAILED  " (short-id (:l c)) "  " (:p c) "  -> " r))
-              (->AdoptResult (:adopted acc) (:skipped acc) (+ (:failed acc) 1) (:dropped acc)))))]))
-   (->AdoptResult 0 0 0 0)
-   hand))
-
-(defn cmd-heal
-  [threads-dir :- String
-   log :- String
-   adopt :- Bool] :- Nil
-  (let [p (probe threads-dir log)
-        adopt-list (:hand p)
-        has-hand (not (empty? (:hand p)))
-        has-adoptable (not (empty? adopt-list))]
-    (cond
-      ;; Bare heal fails closed on hand edits. Without a canonical history query,
-      ;; absence from current state is never guessed to mean a safe resurrection.
-      [(and has-hand (not adopt))
-       (do
-         (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in FRAMLOG "
-                       "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). "
-                       "Nothing was touched:"))
-         (doseq [c (:hand p)]
-           (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))]
-      [:else
-       (if (and adopt has-adoptable)
-         (let [port (fram.rt/server-port)
-               server-v (fram.rt/server-version-for-log port log)]
-           (if (< server-v 0)
-             (println (framrpc-failure-message
-                       server-v port log "heal --adopt was not recorded"))
-             (do
-               (let [res (adopt-hand-facts port log (live-idx log) adopt-list)]
-                 (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res)
-                               " skipped (FRAMLOG won), " (:dropped res) " dropped (parse artifact), "
-                               (:failed res) " failed via FRAMRPC."))
-                 (heal-project threads-dir (probe threads-dir log))))))
-         (heal-project threads-dir p))])))
-
 ;; --- boot: the one-screen session-start view --------------------------------
 (defrecord EntryPoint
   [te :- String
@@ -1671,59 +1411,53 @@
 
 ;; The SESSION ENTRY POINT note on a thread ("" if none).
 (defn- entry-note
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    te :- String] :- String
   (reduce (fn
             [acc :- String
              v :- String] :- String
             (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc))
-          "" (k/many-i idx te "note")))
+          "" (proj/string-values-at idx te "note")))
 
 ;; The most-recent (by created_at) thread carrying a SESSION ENTRY POINT note.
-(defn- find-entry [idx :- k/Index] :- EntryPoint
+(defn- find-entry [idx :- proj/ProjectionIndex] :- EntryPoint
   (reduce (fn
             [best :- EntryPoint
              te :- String] :- EntryPoint
             (let [note (entry-note idx te)]
               (if (str/blank? note)
                 best
-                (let [c (let [cc (k/one-i idx te "created_at")] (if (some? cc) cc ""))]
+                (let [c (let [cc (proj/string-value-at idx te "created_at")] (if (some? cc) cc ""))]
                   (if (or (str/blank? (:te best)) (fram.rt/str-lt? (:created best) c))
                     (->EntryPoint te note c)
                     best)))))
           (->EntryPoint "" "" "")
-          (k/thread-ids-i idx)))
+          (proj/thread-subjects idx)))
 
-(defn cmd-boot
-  [threads-dir :- String
-   log :- String] :- Nil
-  (let [p (probe threads-dir log)
-        idx (:idx p)
+(defn cmd-boot [log: String] -> Nil
+  (let [idx (live-idx log)
         today (fram.rt/today-iso)
         before? fram.rt/str-lt?
         live? (default-live?)]
-    ;; 1. safety verdict (one line) + hygiene one-liner.
-    (println (str "=> " (safety-line p)))
-    (let [h (hygiene-line p)] (when (not (str/blank? h)) (println (str "   " h))))
-    ;; 2. ENTRY POINT — the standing note + learnings, FULL (no truncation).
+    ;; 1. ENTRY POINT — the standing note + learnings, FULL (no truncation).
     (let [e (find-entry idx)]
       (if (str/blank? (:te e))
         (println "\nENTRY POINT — none (no thread carries a `SESSION ENTRY POINT` note)")
         (do
           (println (str "\nENTRY POINT — " (short-id (:te e)) "  " (title-of idx (:te e))))
           (println (:note e))
-          (let [ls (k/many-i idx (:te e) "learning")]
+          (let [ls (proj/string-values-at idx (:te e) "learning")]
             (when (not (empty? ls))
               (println "\nSTANDING MANDATES (learning):")
               (doseq [l ls] (println (str "  - " l))))))))
-    ;; 3. board counts by derived condition.
+    ;; 2. board counts by derived condition.
     (let [nonterm (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te)))
                            (proj/work-thread-ids-i idx))]
       (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? live? "active"))
                     "  ready " (count (in-condition idx nonterm today before? live? "ready"))
                     "  blocked " (count (in-condition idx nonterm today before? live? "blocked"))
                     "  draft " (count (in-condition idx nonterm today before? live? "draft"))))
-      ;; 4. top 5 by leverage (finishing these frees the most stuck threads).
+      ;; 3. top 5 by leverage (finishing these frees the most stuck threads).
       (let [cands (filterv (fn [te :- String] :- Bool (not (proj/terminal-i? idx te))) nonterm)
             items (filterv (fn [it :- LevItem] :- Bool (> (:score it) 0))
                            (mapv (fn [te :- String] :- LevItem
@@ -1770,9 +1504,9 @@
 (def ^:private KP-SEP :- String "")
 
 (defn- census
-  [idx :- k/Index
-   facts :- (Vec k/Fact)] :- (Vec KindStat)
-  (let [subj-list (:subjects idx)
+  [idx :- proj/ProjectionIndex
+   facts :- (Vec t/Triple)] :- (Vec KindStat)
+  (let [subj-list (proj/all-subjects idx)
         ;; subject -> kind (computed ONCE per subject, then reused per fact)
         skind (reduce (fn
                         [m :- (Map String String)
@@ -1789,16 +1523,16 @@
         ;; kind -> fact count
         kfacts (reduce (fn
                          [m :- (Map String Int)
-                          c :- k/Fact] :- (Map String Int)
-                         (let [kd (get skind (:l c) "other")]
+                          c :- t/Triple] :- (Map String Int)
+                         (let [kd (get skind (triple-subject c) "other")]
                            (assoc m kd (+ 1 (get m kd 0)))))
                        {} facts)
         ;; (kind KP-SEP pred) -> fact count  (flat map; nested Map-of-Map avoided)
         kpreds (reduce (fn
                          [m :- (Map String Int)
-                          c :- k/Fact] :- (Map String Int)
-                         (let [kd (get skind (:l c) "other")
-                               kk (str kd KP-SEP (:p c))]
+                          c :- t/Triple] :- (Map String Int)
+                         (let [kd (get skind (triple-subject c) "other")
+                               kk (str kd KP-SEP (triple-predicate c))]
                            (assoc m kk (+ 1 (get m kk 0)))))
                        {} facts)
         kp-keys (vec (sort (set (keys kpreds))))
@@ -1830,26 +1564,26 @@
   (let [s (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
 (defn- kind-subjects
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    kind :- String] :- (Vec String)
-  (filterv (fn [s :- String] :- Bool (= (kind-of idx s) kind)) (:subjects idx)))
+  (filterv (fn [s :- String] :- Bool (= (kind-of idx s) kind)) (proj/all-subjects idx)))
 
 ;; distinct-subject coverage per predicate over a subject set (one pass over facts).
 (defrecord CovAcc
   [seen :- (Map String Bool)
    pc :- (Map String Int)])
 (defn- coverage
-  [facts :- (Vec k/Fact)
+  [facts :- (Vec t/Triple)
    subjset :- (Map String Bool)] :- (Map String Int)
   (:pc (reduce (fn
                  [a :- CovAcc
-                  c :- k/Fact] :- CovAcc
-                 (if (get subjset (:l c) false)
-                   (let [sk (str (:l c) KP-SEP (:p c))]
+                  c :- t/Triple] :- CovAcc
+                 (if (get subjset (triple-subject c) false)
+                   (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
                      (if (get (:seen a) sk false)
                        a
                        (->CovAcc (assoc (:seen a) sk true)
-                                 (assoc (:pc a) (:p c) (+ 1 (get (:pc a) (:p c) 0))))))
+                                 (assoc (:pc a) (triple-predicate c) (+ 1 (get (:pc a) (triple-predicate c) 0))))))
                    a))
                (->CovAcc {} {}) facts)))
 
@@ -1859,8 +1593,8 @@
    pct :- Int
    required :- Bool])
 (defn- schema-fields
-  [idx :- k/Index
-   facts :- (Vec k/Fact)
+  [idx :- proj/ProjectionIndex
+   facts :- (Vec t/Triple)
    kind :- String] :- (Vec FieldStat)
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)
@@ -1885,13 +1619,13 @@
 ;; declared cardinality/value_kind for a predicate, if present (`predicate
 ;; define` writes @<pred> subjects; tolerate a bare legacy subject too).
 (defn- pred-ann
-  [idx :- k/Index
+  [idx :- proj/ProjectionIndex
    p :- String] :- String
-  (let [ps (if (or (some? (k/one-i idx (str "@" p) "cardinality"))
-                   (some? (k/one-i idx (str "@" p) "value_kind")))
+  (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality"))
+                   (some? (proj/string-value-at idx (str "@" p) "value_kind")))
              (str "@" p) p)
-        card (k/one-i idx ps "cardinality")
-        vk (k/one-i idx ps "value_kind")]
+        card (proj/string-value-at idx ps "cardinality")
+        vk (proj/string-value-at idx ps "value_kind")]
     (str (if (some? card) (str "  cardinality=" card) "")
          (if (some? vk) (str " value_kind=" vk) ""))))
 
@@ -1910,8 +1644,8 @@
     [:else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"]))
 
 (defn- print-schema-kind
-  [idx :- k/Index
-   facts :- (Vec k/Fact)
+  [idx :- proj/ProjectionIndex
+   facts :- (Vec t/Triple)
    kind :- String] :- Nil
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)]
@@ -1937,16 +1671,16 @@
   [log :- String
    kind :- String] :- Nil
   (let [facts (live-facts log)
-        idx (k/build-index facts)]
+        idx (proj/index-triples facts)]
     (if (not (str/blank? kind))
       (print-schema-kind idx facts kind)
       (let [stats (census idx facts)
             pred-subs (filterv (fn [s :- String] :- Bool
-                                 (or (some? (k/one-i idx s "cardinality"))
-                                     (or (some? (k/one-i idx s "value_kind"))
-                                         (some? (k/one-i idx s "acyclic")))))
-                               (:subjects idx))]
-        (println (str "SCHEMA — " (count (:subjects idx)) " subjects / " (count facts)
+                                 (or (some? (proj/string-value-at idx s "cardinality"))
+                                     (or (some? (proj/string-value-at idx s "value_kind"))
+                                         (some? (proj/string-value-at idx s "acyclic")))))
+                               (proj/all-subjects idx))]
+        (println (str "SCHEMA — " (count (proj/all-subjects idx)) " subjects / " (count facts)
                       " live facts across " (count stats) " kinds"))
         (doseq [ks stats]
           (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
@@ -1958,12 +1692,12 @@
 ;; entities. This projection intentionally counts only that live connection.
 (defn cmd-teaching-coverage [log :- String] :- Nil
   (let [facts (live-facts log)
-        idx (k/build-index facts)
+        idx (proj/index-triples facts)
         predicates (filterv (fn [s :- String] :- Bool
-                              (= (k/one-i idx s "entity_kind") "predicate"))
-                            (:subjects idx))
+                              (= (proj/string-value-at idx s "entity_kind") "predicate"))
+                            (proj/all-subjects idx))
         taught (filterv (fn [s :- String] :- Bool
-                           (not (empty? (k/many-i idx s "predicate_example"))))
+                           (not (empty? (proj/string-values-at idx s "predicate_example"))))
                          predicates)
         missing (sort (map (fn [s :- String] :- String
                              (if (str/starts-with? s "@") (subs s 1) s))
@@ -2018,14 +1752,12 @@
       ;; that need status use `run-status` below.
       [(= cmd "validate") (do (cmd-validate log) nil)]
       [(= cmd "tools")    (cmd-tools)]
-      [(= cmd "doctor")   (cmd-doctor threads-dir log)]
-      [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt"))]
-      [(= cmd "boot")     (cmd-boot threads-dir log)]
+      [(= cmd "boot")     (cmd-boot log)]
       [(= cmd "json")
        (cmd-json log (if (> (count args) 1) (nth args 1) "")
                  (if (> (count args) 2) (nth args 2) "")
                  (has-flag? args "--all"))]
-      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
+      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
 
 ;; Composable command boundary: returns the exact validation status without
 ;; terminating its host process; other commands succeed after their normal

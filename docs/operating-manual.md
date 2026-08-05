@@ -180,15 +180,6 @@ fallback**: a `cardinality` fact in the log wins over the `FRAM_SINGLE_VALUED`
 env list, which wins over the built-in default. Read a predicate's metadata the
 same way you read any thread — `north show <pred>` (e.g. `north show title`).
 
-`north schema-seed` derives the seed set from today's vocab + the live log, then
-prints it (`--dry-run`, the default) or writes it through the coordinator
-(`--execute`): `cardinality single` for every `FRAM_SINGLE_VALUED` predicate,
-`acyclic true` for `depends_on`/`part_of`, and `value_kind ref` for predicates
-whose live objects are all `@`-refs. It aborts loudly if a predicate name
-collides with a live thread id (writing `@title` metadata onto a real thread
-titled "title" would pollute it). This is the migration path off the env list:
-seed the facts once, and the log carries what `FRAM_SINGLE_VALUED` used to.
-
 `north schema` is the **read** side — a standing vocabulary census that answers
 "what schemas exist in north?" from one live fold. It groups every subject into an
 **entity kind** and reports per-kind subject + live-fact counts, the top
@@ -602,7 +593,6 @@ north validate    # integrity check (see below)
 north audit       # corpus-health report
 north needs-review # belief-revision queue: judgments whose inputs moved
 north tools       # NORTH's curated tool surface (the MCP verbs) + the engine core
-north schema-seed # derive predicate-metadata facts (--dry-run default | --execute)
 ```
 
 `needs-review` is the staleness view (a pure projection — it never auto-flips a
@@ -637,7 +627,6 @@ north export <out-dir>                       # operator migration/recovery: proj
 **Coordination and observation:**
 
 ```sh
-north coord-doctor # bounded coordinator diagnostics; observational only
 north doctor      # aggregate diagnostics; not a lifecycle or assurance command
 north watch       # event stream (change triggers; promotion prompts)
 north listen <agent-id>   # arm the real-time interrupt listener, as a background

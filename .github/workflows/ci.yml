@@ -138,7 +138,6 @@ jobs:
           bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
           bb cli/tests/worker-heartbeat-test.clj   # per-task durable heartbeat + doctor stale/missing verdict
-          bb cli/tests/coordination-projection-worker-test.clj  # projection worker scopes healing to coordination
           bb cli/tests/maintenance-task-lifecycle-test.clj  # bounded one-shot, reconnect, and per-task lock
           bb cli/tests/worktree-allocation-integration-test.clj  # marker-last physical ownership + rollback/quarantine
           bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated Fram server, scheduled task twice

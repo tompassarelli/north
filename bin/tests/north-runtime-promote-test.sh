@@ -29,7 +29,7 @@ printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/concern"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north-stream-sync-all"
 chmod +x "$origin/bin/north" "$origin/bin/concern" "$origin/bin/north-stream-sync-all"
-for entry in nix-rebuild-worker.clj coordination-maintenance-task-host.clj coordination-projection-worker-host.clj reconciliation-worker-host.clj; do
+for entry in nix-rebuild-worker.clj coordination-maintenance-task-host.clj reconciliation-worker-host.clj; do
   printf '(println "worker one")\n' >"$origin/cli/$entry"
 done
 printf '(ns north.coord)\n' >"$origin/cli/coord.clj"
@@ -107,7 +107,6 @@ printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/concern"
 chmod +x "$thin/bin/north" "$thin/bin/concern"
 touch "$thin/cli/nix-rebuild-worker.clj" \
   "$thin/cli/coordination-maintenance-task-host.clj" \
-  "$thin/cli/coordination-projection-worker-host.clj" \
   "$thin/cli/reconciliation-worker-host.clj" \
   "$thin/cli/coord.clj" "$thin/out/north/worker_policy.clj"
 git -C "$thin" init -q -b main

@@ -15,15 +15,23 @@
    derived views (ready/blocked/active) recompute and so can't go stale either.")
 
 (require clojure.string :as str)
-(require fram.kernel :as k)
+(require fram.kernel-classify :as kc)
 (require north.projections :as proj)
-(require fram.fold :as f)
 
 ;; te = the thread, pred = which judgment, detail = why it needs review.
 (defrecord Review
   [te :- String
    pred :- String
    detail :- String])
+
+;; Estimate revision is North judgment provenance, not a storage-kernel type.
+;; Producers may project occurrence history into this application record.
+(defrecord Latest
+  [tx: Int
+   l: String
+   p: String
+   r: String
+   frame: String])
 
 ;; predicates whose (re)assertion materially changes an hours estimate.
 (def scope-preds :- (Vec String) ["depends_on" "part_of" "body"])
@@ -41,23 +49,23 @@
 
 ;; --- time-judgments: valid_until strictly before today ----------------------
 (defn time-stale
-  [idx :- k/Index
+  [idx: proj/ProjectionIndex
    today :- String
    before? :- [String String -> Bool]] :- (Vec Review)
   (reduce
    (fn
      [acc :- (Vec Review)
       te :- String] :- (Vec Review)
-     (let [vu (k/one-i idx te "valid_until")]
+     (let [vu (proj/string-value-at idx te "valid_until")]
        (if (and (not (proj/terminal-i? idx te))
                 (and (some? vu) (before? vu today)))
          (conj acc (->Review te "valid_until" (str vu " is past " today " — re-validate or drop")))
          acc)))
    []
-   (k/thread-ids-i idx)))
+   (proj/thread-subjects idx)))
 
 ;; --- loose thread-ref edges pointing at an abandoned (canceled) target -------
-(defn edge-stale [idx :- k/Index] :- (Vec Review)
+(defn edge-stale [idx: proj/ProjectionIndex] :- (Vec Review)
   (reduce
    (fn
      [acc :- (Vec Review)
@@ -72,13 +80,13 @@
            (fn
              [b :- (Vec Review)
               tgt :- String] :- (Vec Review)
-             (if (some? (k/one-i idx tgt "abandoned"))
+             (if (some? (proj/string-value-at idx tgt "abandoned"))
                (conj b (->Review te p (str "→ " tgt " was abandoned — relationship may be stale")))
                b))
-           a (k/many-i idx te p)))
+           a (proj/string-values-at idx te p)))
         acc edge-preds)))
    []
-   (k/thread-ids-i idx)))
+   (proj/thread-subjects idx)))
 
 ;; --- estimate_hours predating a genuine later scope edit (tx + frame) --------
 ;; Highest scope-fact tx for subject l that came from a real later edit
@@ -86,24 +94,24 @@
 ;; serialization, not a later change), so a freshly-migrated corpus is never
 ;; estimate-stale; the rule lights up only once a real edit moves the scope.
 (defn- later-edit-scope-tx
-  [latest :- (Vec f/Latest)
+  [latest: (Vec Latest)
    l :- String] :- Int
   (reduce (fn
             [m :- Int
-             v :- f/Latest] :- Int
+             v: Latest] :- Int
             (if (and (= (:l v) l)
-                     (and (k/vec-contains? scope-preds (:p v))
+                     (and (kc/vec-member? scope-preds (:p v))
                           (and (real-edit-frame? (:frame v)) (> (:tx v) m))))
               (:tx v) m))
           0 latest))
 
 (defn estimate-stale
-  [idx :- k/Index
-   latest :- (Vec f/Latest)] :- (Vec Review)
+  [idx: proj/ProjectionIndex
+   latest: (Vec Latest)] :- (Vec Review)
   (reduce
    (fn
      [acc :- (Vec Review)
-      v :- f/Latest] :- (Vec Review)
+      v: Latest] :- (Vec Review)
      (if (and (= (:p v) "estimate_hours")
               (and (not (proj/terminal-i? idx (:l v)))
                    (> (later-edit-scope-tx latest (:l v)) (:tx v))))
@@ -127,29 +135,29 @@
   (if (some? (first (filterv (fn [e :- String] :- Bool (str/includes? e bar)) evs)))
     "✓" "○"))
 
-(defn bars-missing [idx :- k/Index] :- (Vec Review)
+(defn bars-missing [idx: proj/ProjectionIndex] :- (Vec Review)
   (reduce
    (fn
      [acc :- (Vec Review)
       te :- String] :- (Vec Review)
-     (if (and (some? (k/one-i idx te "committed"))
-              (and (some? (k/one-i idx te "driver"))
+     (if (and (some? (proj/string-value-at idx te "committed"))
+              (and (some? (proj/string-value-at idx te "driver"))
                    (and (not (proj/terminal-i? idx te))
-                        (empty? (k/many-i idx te "done_when")))))
+                        (empty? (proj/string-values-at idx te "done_when")))))
        (conj acc (->Review te "done_when"
                            "committed + driven with no done bar — tell it done_when \"<probe + expected result>\""))
        acc))
    []
-   (k/thread-ids-i idx)))
+   (proj/thread-subjects idx)))
 
-(defn bars-unevidenced [idx :- k/Index] :- (Vec Review)
+(defn bars-unevidenced [idx: proj/ProjectionIndex] :- (Vec Review)
   (reduce
    (fn
      [acc :- (Vec Review)
       te :- String] :- (Vec Review)
-     (let [bars (k/many-i idx te "done_when")]
-       (if (and (some? (k/one-i idx te "outcome")) (not (empty? bars)))
-         (let [evs (k/many-i idx te "bar_evidence")
+     (let [bars (proj/string-values-at idx te "done_when")]
+       (if (and (some? (proj/string-value-at idx te "outcome")) (not (empty? bars)))
+         (let [evs (proj/string-values-at idx te "bar_evidence")
                marks (mapv (fn [b :- String] :- String (str (bar-mark evs b) " " b)) bars)
                open (filterv (fn [m :- String] :- Bool (str/starts-with? m "○")) marks)]
            (if (empty? open)
@@ -165,11 +173,11 @@
                                       "  (bar_evidence \"<bar> → <observed result>\")")))))
          acc)))
    []
-   (k/thread-ids-i idx)))
+   (proj/thread-subjects idx)))
 
 (defn needs-review
-  [idx :- k/Index
-   latest :- (Vec f/Latest)
+  [idx: proj/ProjectionIndex
+   latest: (Vec Latest)
    today :- String
    before? :- [String String -> Bool]] :- (Vec Review)
   (vec (concat (time-stale idx today before?)
@@ -183,16 +191,16 @@
 ;; gains a driver / estimate / dependency / relation it has become real work —
 ;; surface it so a human can commit it (intent can't be derived, only prompted).
 (defn- has-structure?
-  [idx :- k/Index
+  [idx: proj/ProjectionIndex
    te :- String] :- Bool
-  (or (some? (k/one-i idx te "driver"))
-      (or (some? (k/one-i idx te "estimate_hours"))
-          (or (some? (k/one-i idx te "part_of"))
-              (or (not (empty? (k/many-i idx te "depends_on")))
-                  (not (empty? (k/many-i idx te "relates_to"))))))))
+  (or (some? (proj/string-value-at idx te "driver"))
+      (or (some? (proj/string-value-at idx te "estimate_hours"))
+          (or (some? (proj/string-value-at idx te "part_of"))
+              (or (not (empty? (proj/string-values-at idx te "depends_on")))
+                  (not (empty? (proj/string-values-at idx te "relates_to"))))))))
 
-(defn promotable [idx :- k/Index] :- (Vec String)
+(defn promotable [idx: proj/ProjectionIndex] :- (Vec String)
   (filterv (fn [te :- String] :- Bool
-             (and (nil? (k/one-i idx te "committed"))
+             (and (nil? (proj/string-value-at idx te "committed"))
                   (and (not (proj/terminal-i? idx te)) (has-structure? idx te))))
-           (k/thread-ids-i idx)))
+           (proj/thread-subjects idx)))

@@ -11,7 +11,6 @@ north help ops — daemons, health, deployment
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
   north health                                  coordination rollup: lanes ran/died, stale concerns, zombies
   north hotspots                                where time goes and what fails, ranked from live telemetry
-  north coord-doctor                            fact-server safety handshake: writes safe? daemon matches log?
   north coord-ready                             cheap exact runtime identity for every active writer
   north coord-safety                            runtime identity + strict log-fence round trip
   north stream-sync                             cursor-based transcript log-shipping

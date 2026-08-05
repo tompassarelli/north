@@ -5,7 +5,8 @@
 ;;   (3) `resolve-ref` maps a @handle (or @id) ref to the canonical @id, latest
 ;;       created_at winning ties — the boundary fram never sees a handle through.
 ;;   bb -cp out:../fram/out tests/capture_test.clj      (run from the repo root)
-(require '[fram.kernel :as k] '[fram.rt :as rt] '[north.main :as m]
+(require '[fram.types :as t] '[fram.rt :as rt] '[north.main :as m]
+         '[north.projections :as proj]
          '[clojure.string :as str] '[cheshire.core :as json])
 
 ;; --- (1) uuidv7: a real version-7 uuid, not a date --------------------------
@@ -18,18 +19,20 @@
 ;; --- (2) created_at present + full-ISO via capture-facts (private) ----------
 (def cap (#'m/capture-facts "@t1" "Test thread" "personal" "self" "" "" ""
                              "2026-06-28T07:00:00" "2026-06-28"))
-(defn fact-val [facts pred] (:r (first (filter #(= (:p %) pred) facts))))
+(defn fact-val [facts pred]
+  (t/triple-slot2
+   (first (filter #(= (t/triple-slot1 %) pred) facts))))
 
 ;; --- (3) resolve-ref: handle -> canonical id (latest created_at wins) --------
 (def rc
-  [(k/->Fact "@id-old" "title" "Old perf")
-   (k/->Fact "@id-old" "handle" "perf")
-   (k/->Fact "@id-old" "created_at" "2026-06-01T10:00:00")
-   (k/->Fact "@id-new" "title" "New perf")
-   (k/->Fact "@id-new" "handle" "perf")
-   (k/->Fact "@id-new" "created_at" "2026-06-28T10:00:00")
-   (k/->Fact "@solo" "title" "Solo")])
-(def ridx (k/build-index rc))
+  [(t/triple "@id-old" "title" "Old perf")
+   (t/triple "@id-old" "handle" "perf")
+   (t/triple "@id-old" "created_at" "2026-06-01T10:00:00")
+   (t/triple "@id-new" "title" "New perf")
+   (t/triple "@id-new" "handle" "perf")
+   (t/triple "@id-new" "created_at" "2026-06-28T10:00:00")
+   (t/triple "@solo" "title" "Solo")])
+(def ridx (proj/index-triples rc))
 
 ;; Structured capture owns its freshly minted UUID. Inject one acknowledged
 ;; assert followed by conflicts and prove the path retracts exactly that fact,
@@ -46,28 +49,28 @@
      #'rt/ensure-dir (fn [_] nil)
      #'rt/today-iso (fn [] "2026-07-19")
      #'rt/now-iso (fn [] "2026-07-19T00:00:00Z")
-     #'rt/coord-port (fn [] 7977)
-     #'rt/coord-version-for-log (fn [_ _] 1)
+     #'m/coord-port (fn [] 7977)
+     #'m/coord-version (fn [_] 1)
      #'m/tell-retry
      (fn [_ _ op subject predicate value _]
        (if (= op "assert")
          (if (= 1 (swap! partial-asserts inc))
            (do
-             (swap! partial-live conj (k/->Fact subject predicate value))
+             (swap! partial-live conj (t/triple subject predicate value))
              "ok:2")
            "conflict")
          (do
            (swap! partial-retracts conj [subject predicate value])
            (swap! partial-live
                   (fn [facts]
-                    (vec (remove #(and (= subject (:l %))
-                                       (= predicate (:p %))
-                                       (= value (:r %)))
+                    (vec (remove #(and (= subject (t/triple-slot0 %))
+                                       (= predicate (t/triple-slot1 %))
+                                       (= value (t/triple-slot2 %)))
                                  facts))))
            "ok:3")))
      #'rt/delete-file (fn [_] (reset! partial-view-deleted true) nil)
      #'rt/file-exists (fn [_] (not @partial-view-deleted))
-     #'rt/coord-live-facts (fn [_ _] @partial-live)
+     #'m/coord-live-propositions (fn [_] @partial-live)
      #'rt/spit-file (fn [& _] (throw (ex-info "partial capture wrote a view" {})))}
     #(with-out-str
        (m/cmd-capture "/tmp/north-capture-test" "/tmp/facts.log"
@@ -79,8 +82,8 @@
 ;; short-circuited the recursion.
 (def cleanup-attempts (atom []))
 (def cleanup-facts
-  [(k/->Fact "@cleanup-probe" "title" "Cleanup probe")
-   (k/->Fact "@cleanup-probe" "kind" "thread")])
+  [(t/triple "@cleanup-probe" "title" "Cleanup probe")
+   (t/triple "@cleanup-probe" "kind" "thread")])
 (def cleanup-all-attempted?
   (with-redefs [m/tell-retry
                 (fn [_ _ _ subject predicate value _]
@@ -100,8 +103,13 @@
 ;; A whole-corpus server read is forbidden on this exact-subject path.
 (def admission-shows (atom []))
 (defn- shows-only [rows]
-  {#'rt/coord-show-for-log (fn [_ _ te] (swap! admission-shows conj te) {:version 1 :rows rows})
-   #'rt/coord-live-facts (fn [& _] (throw (ex-info "whole-corpus read on an exact-subject path" {})))})
+  {#'m/coord-port (fn [] 7977)
+   #'m/coord-subject-propositions
+   (fn [_ te]
+     (swap! admission-shows conj te)
+     (mapv (fn [[predicate value]] (t/triple te predicate value)) rows))
+   #'m/coord-live-propositions
+   (fn [& _] (throw (ex-info "whole-corpus read on an exact-subject path" {})))})
 
 (def render-rows
   [["title" "Exact subject render"] ["kind" "thread"] ["created_by" "@tom_passarelli"]])
@@ -113,8 +121,8 @@
             #'rt/ensure-dir (fn [_] nil)
             #'rt/today-iso (fn [] "2026-07-19")
             #'rt/now-iso (fn [] "2026-07-19T00:00:00Z")
-            #'rt/coord-port (fn [] 7977)
-            #'rt/coord-version-for-log (fn [_ _] 1)
+            #'m/coord-port (fn [] 7977)
+            #'m/coord-version (fn [_] 1)
             #'m/tell-retry (fn [& _] "ok:2")
             #'rt/spit-file (fn [_ content] (reset! rendered content) nil)})
     #(with-out-str

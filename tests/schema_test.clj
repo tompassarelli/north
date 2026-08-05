@@ -6,39 +6,38 @@
 ;;   (2) census: per-kind subject + fact counts, sorted by fact count desc.
 ;;   (3) predicate metadata (cardinality/value_kind) is surfaced from the graph.
 ;;   bb -cp out:../fram/out tests/schema_test.clj      (run from the repo root)
-(require '[fram.kernel :as k] '[north.main :as m])
+(require '[fram.types :as t] '[north.projections :as proj]
+         '[north.main :as m])
 
 ;; one subject per kind: authoritative, legacy-compatible, and inferred rows.
 (def facts
-  [(k/->Fact "@t1" "kind" "thread")   (k/->Fact "@t1" "title" "Kinded thread")
-   (k/->Fact "@2026-05-01-000000" "title" "Legacy thread (no kind)")
-   (k/->Fact "concern-a" "kind" "concern")  (k/->Fact "concern-a" "title" "Kinded concern")
-   (k/->Fact "@concern-b" "title" "Prefix concern (no kind)")
-   (k/->Fact "@agent:x" "display_name" "Agent X")
-   (k/->Fact "@msg:m1" "body" "hello")
-   (k/->Fact "@topic-perf" "note" "a topic")
-   (k/->Fact "@mine:1" "kind" "mine")   (k/->Fact "@mine:1" "note" "personal")
+  [(t/triple "@t1" "kind" "thread")   (t/triple "@t1" "title" "Kinded thread")
+   (t/triple "@2026-05-01-000000" "title" "Legacy thread (no kind)")
+   (t/triple "concern-a" "kind" "concern")  (t/triple "concern-a" "title" "Kinded concern")
+   (t/triple "@concern-b" "title" "Prefix concern (no kind)")
+   (t/triple "@agent:x" "display_name" "Agent X")
+   (t/triple "@msg:m1" "body" "hello")
+   (t/triple "@topic-perf" "note" "a topic")
+   (t/triple "@mine:1" "kind" "mine")   (t/triple "@mine:1" "note" "personal")
    ;; Explicit structure wins even when stale legacy classification disagrees.
-   (k/->Fact "@run-9" "entity_kind" "run") (k/->Fact "@run-9" "kind" "session")
-   (k/->Fact "@run-9" "started_at" "t")
-   (k/->Fact "@session:s1" "started_at" "t")   (k/->Fact "@session:s1" "agent" "cc")
-   (k/->Fact "@denial:g1" "reason" "guarded")
-   (k/->Fact "@person:p1" "display_name" "Person P")
-   (k/->Fact "@vendor:x" "entity_kind" "vendor/widget") (k/->Fact "@vendor:x" "note" "open extension")
-   (k/->Fact "@depends_on" "cardinality" "single")  (k/->Fact "@depends_on" "acyclic" "true")
-   (k/->Fact "@rate" "value_kind" "literal")
-   (k/->Fact "@weird" "foo" "bar")
-   ;; A historical malformed write must remain inspectable through the no-arg
-   ;; census instead of taking the entire schema command down.
-   (k/->Fact nil "reached" "")
+   (t/triple "@run-9" "entity_kind" "run") (t/triple "@run-9" "kind" "session")
+   (t/triple "@run-9" "started_at" "t")
+   (t/triple "@session:s1" "started_at" "t")   (t/triple "@session:s1" "agent" "cc")
+   (t/triple "@denial:g1" "reason" "guarded")
+   (t/triple "@person:p1" "display_name" "Person P")
+   (t/triple "@vendor:x" "entity_kind" "vendor/widget") (t/triple "@vendor:x" "note" "open extension")
+   (t/triple "@depends_on" "cardinality" "single")  (t/triple "@depends_on" "acyclic" "true")
+   (t/triple "@rate" "value_kind" "literal")
+   (t/triple "@weird" "foo" "bar")
+   (t/triple "@other2" "foo" "baz")
    ;; a synthetic legacy `gadget` kind for the per-kind field spec (required vs optional):
    ;; `name` on 3/3 subjects (100% => REQUIRED), `color` on 1/3 (33% => OPTIONAL),
    ;; `tag` asserted twice on ONE subject (coverage must dedup to 1 subject, not 2).
-   (k/->Fact "@g1" "kind" "gadget")  (k/->Fact "@g1" "name" "a")
-   (k/->Fact "@g1" "color" "red")    (k/->Fact "@g1" "tag" "x")  (k/->Fact "@g1" "tag" "y")
-   (k/->Fact "@g2" "kind" "gadget")  (k/->Fact "@g2" "name" "b")
-   (k/->Fact "@g3" "kind" "gadget")  (k/->Fact "@g3" "name" "c")])
-(def idx (k/build-index facts))
+   (t/triple "@g1" "kind" "gadget")  (t/triple "@g1" "name" "a")
+   (t/triple "@g1" "color" "red")    (t/triple "@g1" "tag" "x")  (t/triple "@g1" "tag" "y")
+   (t/triple "@g2" "kind" "gadget")  (t/triple "@g2" "name" "b")
+   (t/triple "@g3" "kind" "gadget")  (t/triple "@g3" "name" "c")])
+(def idx (proj/index-triples facts))
 (defn kof [te] (#'m/kind-of idx te))
 
 (def stats (#'m/census idx facts))
@@ -55,8 +54,9 @@
 
 ;; predicate-metadata subjects the schema view surfaces (cardinality|value_kind)
 (def pred-subs
-  (filter (fn [s] (or (some? (k/one-i idx s "cardinality")) (some? (k/one-i idx s "value_kind"))))
-          (:subjects idx)))
+  (filter (fn [s] (or (some? (proj/string-value-at idx s "cardinality"))
+                      (some? (proj/string-value-at idx s "value_kind"))))
+          (proj/all-subjects idx)))
 
 (def no-arg-schema-output
   (with-redefs-fn {#'m/live-facts (fn [_] facts)}
@@ -78,8 +78,8 @@
    ["explicit namespaced extension is preserved"    (= "vendor/widget" (kof "@vendor:x"))]
    ["schema-as-facts subject => predicate"          (= "predicate" (kof "@depends_on"))]
    ["unclassifiable => other"                       (= "other" (kof "@weird"))]
-   ["malformed nil subject => other"                (= "other" (kof nil))]
-   ["no-arg schema tolerates malformed subject"     (.contains no-arg-schema-output "SCHEMA —")]
+   ["absent nil subject => other"                   (= "other" (kof nil))]
+   ["no-arg schema renders the typed corpus"        (.contains no-arg-schema-output "SCHEMA —")]
    ["census: 2 thread subjects"                     (= 2 (subj-of "thread"))]
    ["census: 2 concern subjects"                    (= 2 (subj-of "concern"))]
    ["census: run remains its own core kind"          (= 1 (subj-of "run"))]
@@ -96,12 +96,6 @@
    ["coverage dedups multi-valued: tag subs = 1"    (= 1 (:subs (field "gadget" "tag")))]
    ["field spec: required sorts before optional"    (:required (first (fields-for "gadget")))]
    ["writers map: thread => capture-facts"          (.contains (#'m/kind-writer "thread") "capture-facts")]
-   ["schema-seed compatibility path is non-writing" (let [result (atom nil)
-                                                            output (with-out-str
-                                                                     (reset! result (m/run-status ["schema-seed" "--execute"] "" "")))]
-                                                        (and (= 2 @result)
-                                                             (.contains output "RETIRED")
-                                                             (.contains output "no facts were written")))]
    ["writers map: uncurated kind => not curated"    (.contains (#'m/kind-writer "zzz") "not curated")]])
 
 (let [fails (remove second checks)]
