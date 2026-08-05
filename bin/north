@@ -432,14 +432,23 @@ case "${1:-}" in
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec "$BB" "$NORTH/cli/agents-cli.clj" "$@" ;;
-  follow|unfollow|following|notifications)
-    # Durable observer attention. attention-cli owns the complete argument
-    # contract; this wrapper deliberately forwards the verb and tail unchanged.
-    exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" "$@" ;;
-  inbox)
-    # The user-facing name for the notifications destination; attention-cli
-    # keeps `notifications` as its own verb, so normalize here.
-    exec "$BB" "$NORTH/cli/attention-cli.clj" "${NORTH_PORT:-7977}" notifications "${@:2}" ;;
+  inbox|notifications)
+    _north_inbox_actor="${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-}}}"
+    shift
+    if [ "${1:-}" = "--as" ]; then
+      if [ "$#" -ne 2 ] || [ -z "${2:-}" ]; then
+        echo "north inbox: --as requires exactly one recipient" >&2
+        exit 2
+      fi
+      _north_inbox_actor="$2"
+      shift 2
+    fi
+    if [ "$#" -ne 0 ] || [ -z "$_north_inbox_actor" ]; then
+      echo "usage: north inbox [--as <recipient>]" >&2
+      exit 2
+    fi
+    exec "$BB" "$NORTH/cli/msg-cli.clj" "${NORTH_PORT:-7977}" inbox \
+      "$_north_inbox_actor" ;;
   mention|interrupt)
     # Sender-driven attention. Prefer the live harness identity, then North's
     # stable agent id, then the configured author identity. The shared comms
