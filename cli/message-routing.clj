@@ -102,18 +102,18 @@
          port
          {:find "role_holder"
           :rules
-          [{:head {:rel "role_holder" :args [{:var "agent"}]}
+         [{:head {:rel "role_holder" :args [{:var "agent"}]}
             :body [{:rel "triple"
                     :args [{:var "agent"} "holds"
                            (str role-prefix role-slug)]}]}]}
          route-page-size nil)]
-    (when (:more response)
+    (when-not (:done? response)
       (throw
        (ex-info "role holder projection exceeds its bounded page"
                 {:type :role-holder-overflow
                  :role role-slug
                  :max route-page-size})))
-    (->> (:ok response)
+    (->> (:rows response)
          (map first)
          (filter #(str/starts-with? % agent-prefix))
          (map bare-agent)
@@ -172,8 +172,9 @@
             (let [page (north.coord/query-page
                         port (route-candidate-query repo role)
                         route-page-size after)
+                  rows (:rows page)
                   candidates
-                  (->> (:ok page)
+                  (->> rows
                        (map first)
                        (filter #(str/starts-with? % agent-prefix))
                        (map bare-agent)
@@ -181,8 +182,8 @@
                        distinct
                        sort)]
               (or (some #(when (recipient-live? port %) %) candidates)
-                  (when (:more page)
-                    (recur (:next page) (+ seen (count (:ok page)))))))))))
+                  (when-not (:done? page)
+                    (recur (:cursor page) (+ seen (count rows))))))))))
     (catch Exception _ nil)))
 
 (defn require-live-address
@@ -226,15 +227,16 @@
          rows []]
     (let [page (north.coord/query-page
                 port (mail-candidate-query) mail-page-size after)
-          next-seen (+ seen (count (:ok page)))]
+          page-rows (:rows page)
+          next-seen (+ seen (count page-rows))]
       (when (> next-seen max-mail-candidates)
         (throw
          (ex-info "dead-letter scan exceeds its bounded mail corpus"
                   {:type :mail-candidate-overflow
                    :max max-mail-candidates})))
-      (let [all (into rows (:ok page))]
-        (if (:more page)
-          (recur (:next page) next-seen all)
+      (let [all (into rows page-rows)]
+        (if-not (:done? page)
+          (recur (:cursor page) next-seen all)
           all)))))
 
 (defn age-ms [now sent]

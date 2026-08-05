@@ -8,7 +8,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-out
   (str (or (System/getenv "FRAM_HOME")
-           (.getCanonicalPath (io/file root ".." ".." "fram" "main")))
+           "/home/tom/code/fram/wt-core-target-production-5db9b38")
        "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-routing.clj"))
@@ -105,7 +105,7 @@
         mail? (= "mail_candidate" (:find query))]
     (when mail?
       (reset! mail-query-seen query))
-    {:ok
+    {:rows
      (cond
        mail? (cond->
               [["@msg:dead" "sender-a" "dead-session" "2026-07-27T11:30:00Z"]
@@ -117,8 +117,9 @@
        (= role "@role:reviewer-alias") [["@agent:armed-session"]]
        same-route? [["@agent:dead-session"] ["@agent:live-session"]]
        :else [])
-     :more false
-     :next nil}))
+     :done? true
+     :cursor nil
+     :served-version 1}))
 
 (with-redefs [north.coord/resolved resolved
               north.coord/resolved-envelope resolved-envelope
