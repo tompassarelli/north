@@ -4,19 +4,23 @@
          '[clojure.string :as str])
 
 (def test-script (or (System/getProperty "babashka.file") *file*))
+(def root
+  (.getCanonicalPath
+   (io/file (.getParent (io/file test-script)) "../..")))
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (str (System/getProperty "user.home") "/code/fram/main")))
 
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [result @(proc/process
-                 ["env" "NORTH_LISTEN_LIB=1" "bb" test-script]
+                 ["env" "NORTH_LISTEN_LIB=1" "bb" "-cp"
+                  (str fram "/out") test-script]
                  {:out :string :err :string})]
     (print (:out result))
     (binding [*out* *err*] (print (:err result)))
     (flush)
     (System/exit (:exit result))))
 
-(def root
-  (.getCanonicalPath
-   (io/file (.getParent (io/file test-script)) "../..")))
 (let [source (str root "/cli/north-listen.clj")]
   (System/setProperty "babashka.file" source)
   (try
@@ -29,35 +33,12 @@
   (swap! checks conj [label (boolean value)])
   (println (if value (str "PASS " label) (str "FAIL " label))))
 
-(let [events (atom [])
-      refused?
-      (try
-        (with-redefs
-         [north.coord/validate-subscription!
-          (fn [_]
-            (swap! events conj :validate)
-            (throw (ex-info "subscription refused" {:type :refused})))
-          arm-listener-generation!
-          (fn [_] (swap! events conj :arm))]
-          (with-validated-native-listener-generation!
-           nil {:reject :refused}
-           #(swap! events conj :body)))
-        false
-        (catch clojure.lang.ExceptionInfo _ true))]
-  (check "a rejected subscription cannot publish an armed generation"
-         (and refused? (= [:validate] @events))))
-
 (let [events (atom [])]
-  (with-redefs
-   [north.coord/validate-subscription!
-    (fn [_] (swap! events conj :validate))
-    arm-listener-generation!
-    (fn [_] (swap! events conj :arm))]
-    (with-validated-native-listener-generation!
-     {:generation :test} {:ok :subscribed}
-     #(swap! events conj :body)))
-  (check "listener generation is armed only after a validated handshake"
-         (= [:validate :arm :body] @events)))
+  (with-redefs [fenced-listener-state!
+                (fn [_ state] (swap! events conj state))]
+    (arm-listener-generation! {:generation :test}))
+  (check "arming publishes only the canonical armed route state"
+         (= ["armed"] @events)))
 
 (let [events (atom [])
       generation {:generation :test
@@ -67,20 +48,47 @@
    [acquire-listener-generation!
     (fn [_ _ _] (swap! events conj :acquire) generation)
     start-listener-renewer! (fn [_] (future nil))
-    finish-listener-generation! (fn [_] (swap! events conj :finish))
-    north.coord/validate-subscription!
-    (fn [_] (swap! events conj :validate))
-    arm-listener-generation!
-    (fn [_] (swap! events conj :arm))]
+    finish-listener-generation! (fn [_] (swap! events conj :finish))]
     (with-native-listener-generation!
      0 "@agent:test" "test" "session"
-     (fn [owned]
-       (swap! events conj :scope)
-       (with-validated-native-listener-generation!
-        owned {:ok :subscribed}
-        #(swap! events conj :body)))))
-  (check "native listener fences before scope projection and arms after handshake"
-         (= [:acquire :scope :validate :arm :body :finish] @events)))
+     (fn [_] (swap! events conj :scope))))
+  (check "native listener fences before scope projection and always finalizes"
+         (= [:acquire :scope :finish] @events)))
+
+(let [events (atom [])
+      version-calls (atom 0)
+      result
+      (with-redefs
+       [validate-listener-corpus!
+        (fn [_] (swap! events conj :status) {:state :ready})
+        listener-kind-projection
+        (fn [_ _] (swap! events conj :kind) "session")
+        with-native-listener-generation!
+        (fn [_ _ _ _ body]
+          (swap! events conj :lease)
+          (body {:generation :test}))
+        north.coord/cur-ver
+        (fn [_]
+          (if (= 1 (swap! version-calls inc))
+            (do (swap! events conj :baseline) 5)
+            (do (swap! events conj :head) (stop-listener!))))
+        listener-node-projection
+        (fn [_ _]
+          (swap! events conj :scope)
+          {:kind "session" :holds ["@role:engine"] :watches []})
+        arm-listener-generation!
+        (fn [_] (swap! events conj :arm))
+        replay-listener-mail!
+        (fn [& _] (swap! events conj :replay))
+        ensure-listener-generation-current!
+        (fn [_] (swap! events conj :fence-check))]
+        (run-listener-pass!
+         0 "test" "@agent:test" false false false (atom #{}) (atom #{})))]
+  (check "listener freezes a poll baseline before scope and arms before polling"
+         (and (= :stop (:reason result))
+              (= [:status :kind :lease :baseline :scope :arm :replay
+                  :fence-check :head]
+                 @events))))
 
 (let [calls (atom 0)
       projection
@@ -120,26 +128,19 @@
               (= 1 @calls)
               (empty? @sleeps))))
 
-(let [mismatch
-      {:reject ["wrong log"]
-       :code :log-mismatch
-       :expected-log "/tmp/expected.log"
-       :served-log "/tmp/served.log"}
+(let [status {:state :starting}
       error
       (try
-        (with-redefs [north.coord/send-op (fn [_ _] mismatch)]
+        (with-redefs [north.coord/status (fn [_] status)]
           (validate-listener-corpus! 1))
         nil
         (catch clojure.lang.ExceptionInfo caught caught))]
-  (check "listener corpus preflight preserves a typed fenced refusal"
-         (and
-          (= :invalid-subscription-handshake (:type (ex-data error)))
-          (= mismatch (:reply (ex-data error)))
-          (str/includes?
-           (.getMessage error) "refused the fenced subscription"))))
+  (check "listener refuses a SpaceId that is not ready"
+         (and (= :listener-space-unavailable (:type (ex-data error)))
+              (= status (:status (ex-data error))))))
 
 (let [passes (atom [{:reason :unavailable :message "connection refused"}
-                    {:reason :closed :message "restart EOF"}
+                    {:reason :unavailable :message "restart EOF"}
                     {:reason :stop :message "re-armed"}])
       sleeps (atom [])
       notices (atom [])
@@ -159,10 +160,8 @@
             (mapv (comp :message first) @notices))))
 
 (let [mismatch
-      (ex-info
-       "coordinator refused the fenced subscription"
-       {:type :invalid-subscription-handshake
-        :reply {:reject ["wrong log"] :code :log-mismatch}})
+      (ex-info "configured coordination SpaceId does not match"
+               {:type :rpc/space-mismatch})
       sleeps (atom [])
       notices (atom [])
       caught
@@ -173,9 +172,9 @@
          #(swap! notices conj [%1 %2]))
         nil
         (catch clojure.lang.ExceptionInfo error error))]
-  (check "a fenced corpus mismatch exits with its original refusal"
+  (check "a SpaceId mismatch exits with its original refusal"
          (identical? mismatch caught))
-  (check "a fenced corpus mismatch is never slept or retried"
+  (check "a SpaceId mismatch is never slept or retried"
          (and (empty? @sleeps) (empty? @notices))))
 
 (let [failure (listener-pass-failure (ex-info "connection closed" {}))]
@@ -189,7 +188,8 @@
        "env" "-u" "NORTH_LISTEN_LIB"
        "NORTH_LISTEN_INITIAL_BACKOFF_MS=10"
        "NORTH_LISTEN_MAX_BACKOFF_MS=20"
-       "bb" (str root "/cli/north-listen.clj") "59999" "restart-probe")
+       "bb" "-cp" (str fram "/out")
+       (str root "/cli/north-listen.clj") "59999" "restart-probe")
       diagnostics (str (:out result) "\n" (:err result))]
   (check "connection refusal is transient and listener remains running"
          (= 124 (:exit result)))

@@ -10,14 +10,12 @@
 ;;   stdout: {"protocol":"north-live-feed-v1","type":"drain_progress",...}
 ;;   stdout: {"protocol":"north-live-feed-v1","type":"drained",...}
 ;;
-;; The coordinator subscription is armed before `ready`, and pending mail is
-;; replayed only after the host answers `start`. Live commits arriving during
-;; replay remain queued on the already-armed subscription. A delivery claim is
+;; A successful version read establishes the poll cursor before `ready`, and
+;; pending mail is replayed only after the host answers `start`. Commits arriving
+;; during replay remain above the sampled cursor for the next poll. A claim is
 ;; held until the host admits the frame and answers `ack`; EOF, timeout, nack, or
 ;; a crash leaves the message unacknowledged and therefore replayable.
 (require '[cheshire.core :as json]
-         '[clojure.set :as set]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -34,6 +32,7 @@
 (def event-queue-capacity 1024)
 (def control-queue-capacity 32)
 (def default-ack-timeout-ms 10000)
+(def default-poll-ms 250)
 (def target-identity-manifest-predicate "target_identity_manifest_sha256")
 (def max-live-route-run-candidates 128)
 
@@ -52,6 +51,12 @@
       (throw (ex-info (str label " must be an integer in [1," maximum "]")
                       {:type :invalid-live-feed-option :option label})))
     value))
+
+(defn poll-ms []
+  (bounded-positive
+   "NORTH_FRAMRPC_LISTENER_POLL_MS"
+   (System/getenv "NORTH_FRAMRPC_LISTENER_POLL_MS")
+   default-poll-ms 999999))
 
 (defn flag-value [flags flag]
   (let [index (.indexOf ^java.util.List flags flag)]
@@ -179,11 +184,11 @@
     (println line)
     (flush)))
 
-(defn emit-ready! [recipient subscribed]
+(defn emit-ready! [recipient cursor]
   (emit! (array-map "protocol" protocol
                     "type" "ready"
                     "recipient" recipient
-                    "subscribed" subscribed)))
+                    "cursor" cursor)))
 
 (defn emit-drain-progress! [recipient epoch settled]
   (emit! (array-map "protocol" protocol
@@ -292,10 +297,10 @@
               :body [{:rel "triple"
                       :args [{:var "e"} "agent" control]}]}]}
            max-live-route-run-candidates nil)
-          rows (:ok response)]
+          rows (:rows response)]
       (when (and (map? response)
                  (vector? rows)
-                 (false? (:more response))
+                 (true? (:done? response))
                  (<= (count rows) max-live-route-run-candidates)
                  (every? #(and (vector? %) (= 1 (count %))
                                (every? string? %))
@@ -627,55 +632,68 @@
                 (recur next-settled since
                        (min 250 (* 2 backoff-ms)))))))))))
 
-(defn start-event-reader! [reader queue]
-  (future
-    (try
-      (loop []
-        (if-let [line (north.coord/read-stream-line-bounded! reader)]
-          (do
-            (.put queue {:kind :event
-                         :event (try (edn/read-string line)
-                                     (catch Exception error
-                                       (throw (ex-info "coordinator event is malformed"
-                                                       {:type :malformed-event}
-                                                       error))))})
-            (recur))
-          (.put queue {:kind :eof})))
-      (catch Exception error
-        (.put queue {:kind :error
-                     :error-type (or (:type (ex-data error)) :event-reader-failed)})))))
-
-(defn process-event!
-  [port recipient node addrs event control-queue claim-ttl-ms ack-timeout-ms]
-  (when (and (map? event) (= :commit (:event event)))
-    (let [{:keys [op l p r]} event]
-      (cond
-        (and (= l node) (= p "holds"))
-        (let [before @addrs
-              after (current-direct-addresses port recipient)]
-          (reset! addrs after)
-          ;; Acquiring a role makes already-committed role mail eligible. The
-          ;; stream's holds commit is the wake edge; replay supplies the past.
-          (when (seq (set/difference after before))
+(defn run-poll-feed!
+  [port recipient settlement-only? claim-ttl-ms ack-timeout-ms
+   control-queue event-queue]
+  (let [interval (poll-ms)
+        baseline (north.coord/cur-ver port)]
+    ;; The successful pinned version read establishes the poller before
+    ;; readiness is observable. Durable replay closes the ready/start gap.
+    (require-open-lane! port recipient)
+    (emit-ready! recipient baseline)
+    (await-control! control-queue "start" nil ack-timeout-ms)
+    (let [addrs (atom (current-direct-addresses port recipient))
+          initial
+          (when-not settlement-only?
             (replay-pending!
-             port recipient after control-queue claim-ttl-ms ack-timeout-ms)))
+             port recipient @addrs control-queue
+             claim-ttl-ms ack-timeout-ms))]
+      (loop [cursor baseline
+             retry-at
+             (when (= :blocked initial)
+               (+ (System/currentTimeMillis) claim-ttl-ms))]
+      (let [now (System/currentTimeMillis)
+            until-retry (when retry-at (max 1 (- retry-at now)))
+            wait-ms (if until-retry
+                      (min interval until-retry)
+                      interval)
+            item (.poll event-queue wait-ms
+                        java.util.concurrent.TimeUnit/MILLISECONDS)]
+        (cond
+          (= :drain (:kind item))
+          (let [epoch (:epoch item)]
+            (reset! addrs (current-direct-addresses port recipient))
+            (settle-terminal-steers!
+             port recipient @addrs control-queue
+             claim-ttl-ms ack-timeout-ms epoch)
+            (emit-drained! recipient epoch)
+            (recur cursor nil))
 
-        (and (= op "assert")
-             (= p "to")
-             (north.message-audience/deliverable?
-              port l r recipient @addrs))
-        (let [result
-              (deliver-message!
-               port recipient l control-queue claim-ttl-ms ack-timeout-ms)]
-          (when (or (nil? result) (= :restart result)) :blocked))))))
+          (some? item)
+          (throw
+           (ex-info "FRAMRPC live-feed received an invalid local event"
+                    {:type :invalid-framrpc-live-feed-event
+                     :event item}))
 
-(defn write-subscribe! [socket]
-  (let [writer (.getOutputStream socket)
-        envelope (north.coord/log-envelope {:op :subscribe})
-        wire (.getBytes (str (pr-str envelope) "\n")
-                        java.nio.charset.StandardCharsets/UTF_8)]
-    (.write writer wire)
-    (.flush writer)))
+          :else
+          (let [head (north.coord/cur-ver port)
+                now (System/currentTimeMillis)
+                changed? (not= cursor head)
+                retry? (and retry-at (<= retry-at now))
+                result
+                (when (and (not settlement-only?)
+                           (or changed? retry?))
+                  (reset! addrs (current-direct-addresses port recipient))
+                  (replay-pending!
+                   port recipient @addrs control-queue
+                   claim-ttl-ms ack-timeout-ms))]
+            ;; HEAD was sampled before replay. A concurrent later commit
+            ;; remains greater than this cursor and wakes the next poll.
+            (recur head
+                   (cond
+                     (= :blocked result) (+ now claim-ttl-ms)
+                     (and (nil? result) (not retry?)) retry-at
+                     :else nil)))))))))
 
 (defn run-feed! [port recipient flags]
   (validate-flags! flags)
@@ -709,93 +727,14 @@
                       (re-matches #"^[A-Za-z0-9][A-Za-z0-9._:-]*$" recipient)))
             (throw (ex-info "recipient is malformed"
                             {:type :invalid-live-feed-recipient})))
-        node (str "@agent:" recipient)
         control-queue (java.util.concurrent.LinkedBlockingQueue.
                        control-queue-capacity)
         event-queue (java.util.concurrent.LinkedBlockingQueue.
                      event-queue-capacity)]
     (start-control-reader! control-queue event-queue)
-    (with-open [socket (north.coord/connect-socket port)]
-      (write-subscribe! socket)
-      (let [reader (north.coord/coordinator-reader socket)
-            handshake
-            (north.coord/validate-subscription!
-             (north.coord/read-line-bounded! reader))]
-        ;; Start draining the armed stream before making readiness observable.
-        (start-event-reader! reader event-queue)
-        ;; A committed terminal run is execution truth even when a crashed
-        ;; writer never copied it to @agent. Check after subscription arm and
-        ;; immediately before readiness becomes observable.
-        (require-open-lane! port recipient)
-        (emit-ready! recipient (:subscribed handshake))
-        (await-control! control-queue "start" nil ack-timeout-ms)
-        ;; Role/address snapshot happens after arm. Any concurrent holds/to
-        ;; commits are already queued above, and replay/live claim overlap is
-        ;; idempotent.
-        (let [addrs (atom (current-direct-addresses port recipient))
-              initial
-              (when-not settlement-only?
-                (replay-pending!
-                 port recipient @addrs control-queue
-                 claim-ttl-ms ack-timeout-ms))]
-          (loop [retry-at
-                 (when (= :blocked initial)
-                   (+ (System/currentTimeMillis) claim-ttl-ms))]
-            (let [now (System/currentTimeMillis)]
-              ;; A retry deadline is a clock edge independent of coordinator
-              ;; traffic. Prioritize it once due; an unrelated commit storm must
-              ;; not keep a nonempty event queue postponing claim-expiry replay.
-              (if (and retry-at (<= retry-at now))
-                (let [result
-                      (replay-pending!
-                       port recipient @addrs control-queue
-                       claim-ttl-ms ack-timeout-ms)]
-                  (recur
-                   (when (= :blocked result)
-                     (+ (System/currentTimeMillis) claim-ttl-ms))))
-                (let [wait-ms (when retry-at (- retry-at now))
-                      item (if wait-ms
-                             (.poll event-queue wait-ms
-                                    java.util.concurrent.TimeUnit/MILLISECONDS)
-                             (.take event-queue))]
-                  (cond
-                    (nil? item)
-                    ;; The bounded poll reached the retry deadline. Re-enter at
-                    ;; the loop head so clock priority has one implementation.
-                    (recur retry-at)
-
-                    (= :drain (:kind item))
-                    (let [epoch (:epoch item)]
-                      (settle-terminal-steers!
-                       port recipient @addrs control-queue
-                       claim-ttl-ms ack-timeout-ms epoch)
-                      (emit-drained! recipient epoch)
-                      (recur nil))
-
-                    (= :event (:kind item))
-                    (let [result
-                          (when-not settlement-only?
-                            (process-event!
-                             port recipient node addrs (:event item) control-queue
-                             claim-ttl-ms ack-timeout-ms))
-                          candidate
-                          (when (= :blocked result)
-                            (+ (System/currentTimeMillis) claim-ttl-ms))]
-                      ;; Never move an existing retry later. Multiple blocked
-                      ;; observations share the earliest bounded clock edge.
-                      (recur
-                       (cond
-                         (nil? candidate) retry-at
-                         (nil? retry-at) candidate
-                         :else (min retry-at candidate))))
-
-                    (= :eof (:kind item))
-                    (throw (ex-info "coordinator subscription closed"
-                                    {:type :subscription-eof}))
-
-                    :else
-                    (throw (ex-info "coordinator subscription failed"
-                                    {:type (:error-type item)}))))))))))))
+    (run-poll-feed!
+     port recipient settlement-only? claim-ttl-ms ack-timeout-ms
+     control-queue event-queue)))
 
 (when-not (= "1" (System/getProperty "north.live-feed.lib"))
   (let [[port recipient & flags] *command-line-args*]
