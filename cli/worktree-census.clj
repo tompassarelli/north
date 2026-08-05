@@ -1,9 +1,8 @@
 ;; Shared read model behind `north worktrees` and the scheduled unregistered
-;; sweep. Library, not a command; derives from Git at read time and never writes —
-;; a fact about a mutable filesystem would outlive the state it describes.
+;; sweep. Library, not a command; filesystem state derives from Git at read time,
+;; while graph ownership comes from Fram's indexed coordination API.
 (ns north.worktree-census
   (:require [babashka.process :as proc]
-            [clojure.edn]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
@@ -13,6 +12,7 @@
 (def excluded-container-names #{"client" "reference"})
 (def stale-age-ms (* 48 60 60 1000))
 (def ^:private max-path-chars 4096)
+(def ^:private max-worktree-claims 4096)
 
 (defn- git-bin [] (or (System/getenv "NORTH_GIT_BIN") "git"))
 
@@ -68,30 +68,24 @@
        :container (.getCanonicalPath dir)
        :root (.getCanonicalPath (io/file dir "main"))}))))
 
-;; One pass over the canonical log for live `worktree` facts. The corpus-wide
-;; coordinator form of this question cannot be served — a two-variable query over
-;; a 45 MB log answers `bad request: OutOfMemoryError` — so the fold is the read
-;; path, exactly as `north wip` folds the log for its own corpus-wide question.
-(defn- apply-worktree-fact [live line]
-  (if-not (str/includes? line ":p \"worktree\"")
-    live
-    (let [{:keys [op l p r]} (clojure.edn/read-string line)
-          claim [l r]]
-      (if-not (= "worktree" p)
-        live
-        (if (= "assert" op)
-          (conj live claim)
-          (disj live claim))))))
-
 (defn claimed-worktrees
-  "Canonical worktree path -> the subject whose live fact claims it."
-  [log-path]
-  (with-open [reader (io/reader log-path)]
-    (into {}
-          (keep (fn [[subject value]]
-                  (when-let [path (canonical value)]
-                    [path subject])))
-          (reduce apply-worktree-fact #{} (line-seq reader)))))
+  "Canonical worktree path -> the subject whose live coordination fact claims it."
+  [port]
+  (into {}
+        (keep (fn [[subject value]]
+                (when-let [path (canonical value)]
+                  [path subject])))
+        (:rows
+         (north.coord/bounded-query-in-domain
+          port
+          :coordination
+          {:find "worktree_claim"
+           :rules
+           [{:head {:rel "worktree_claim"
+                    :args [{:var "subject"} {:var "path"}]}
+             :body [{:rel "triple"
+                     :args [{:var "subject"} "worktree" {:var "path"}]}]}]}
+          max-worktree-claims))))
 
 (defn container-index [containers]
   {:by-name (into {} (map (juxt :repo :container)) containers)

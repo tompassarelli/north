@@ -19,7 +19,6 @@
          '[babashka.process :as p])
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
-(def send-op  north.coord/send-op)
 
 (def HOME (System/getenv "HOME"))
 (def PORT (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
@@ -37,19 +36,27 @@
             (< s 86400) (str (quot s 3600) "h") :else (str (quot s 86400) "d")))))
 
 ;; ---- bounded live-state snapshot -------------------------------------------
-;; Health is a whole-corpus view. Asking the coordinator for each subject made
-;; runtime grow with roster history (688 run rows took >30s). A raw log fold is
-;; also subtly wrong: declared-single supersession is an engine rule and need
-;; not append an explicit retract. Fetch each required predicate in one indexed,
-;; single-clause query instead (a fixed 12 reads, independent of roster size).
-;; The returned rows are LIVE engine state; sets preserve genuine conflicts so
+;; The returned rows are live engine state; sets preserve genuine conflicts so
 ;; lifecycle projection still fails closed.
 (def health-predicates
   ["kind" "agent" "at" "outcome" "process_outcome" "delivery_outcome"
    "delivery_reason" "delivery_evidence" "delivery_evidence_sha256"
    "delivery_attestation" "delivery_attestation_sha256"
    "terminal_manifest_sha256" "coordinator" "from" "subject"
-   "agent_death" "reached" "lease"])
+   "agent_death" "reached"])
+
+(def health-predicate-set (set health-predicates))
+
+(def health-query
+  {:find "north_health_fact"
+   :rules
+   (mapv
+    (fn [predicate]
+      {:head {:rel "north_health_fact"
+              :args [{:var "e"} predicate {:var "r"}]}
+       :body [{:rel "triple"
+               :args [{:var "e"} predicate {:var "r"}]}]})
+    health-predicates)})
 
 (defn add-predicate-rows [facts predicate rows]
   (reduce (fn [current [entity value]]
@@ -57,15 +64,18 @@
           facts rows))
 
 (defn live-health-facts [port]
-  (reduce
-   (fn [facts predicate]
-     (add-predicate-rows
-      facts predicate
-      (north.coord/agg-rows
-       port ["e" "r"]
-       [{:rel "triple" :args [{:var "e"} predicate {:var "r"}]}])))
-   {}
-   health-predicates))
+  (let [rows (north.coord/query-rows port health-query)]
+    (when-not
+     (and (vector? rows)
+          (every? #(and (vector? %)
+                        (= 3 (count %))
+                        (every? string? %)
+                        (contains? health-predicate-set (second %)))
+                  rows))
+      (throw (ex-info "health projection was malformed" {})))
+    (reduce (fn [facts [entity predicate value]]
+              (update-in facts [entity predicate] (fnil conj #{}) value))
+            {} rows)))
 
 (defn run-row-from-facts [entity facts]
   (let [outcome (north.terminal-projection/committed-run-process-outcome facts)
@@ -136,15 +146,16 @@
       (last (sort-by #(get concern-maturity-index % -1) reached))
       "building")))
 
-(defn concern-owner-online? [facts subject-facts now]
+(defn concern-owner-handle [subject-facts]
+  (let [agent (north.terminal-projection/singleton-value subject-facts "agent")]
+    (when-not (str/blank? agent)
+      (if (str/starts-with? agent "@") (subs agent 1) agent))))
+
+(defn concern-owner-online? [online-handles subject-facts]
   (let [agent (north.terminal-projection/singleton-value subject-facts "agent")]
     (if (str/blank? agent)
       true
-      (let [handle (if (str/starts-with? agent "@") (subs agent 1) agent)
-            lease-value (north.terminal-projection/singleton-value
-                         (get facts (str "@lease:session:" handle) {}) "lease")
-            lease (north.coord/decode-lease lease-value)]
-        (boolean (and lease (> (:exp lease) now)))))))
+      (contains? online-handles (concern-owner-handle subject-facts)))))
 
 (defn concern-counts [facts now]
   (let [rows (->> facts
@@ -157,8 +168,15 @@
                                 {:status status
                                  :abandoned (contains? (get subject-facts "reached" #{})
                                                        "abandoned-stale")
-                                 :online (concern-owner-online? facts subject-facts now)}))))))
-        active (remove :abandoned rows)]
+                                 :subject-facts subject-facts}))))))
+        active (vec (remove :abandoned rows))
+        online-handles
+        (->> (north.coord/online-session-leases PORT now)
+             (map :handle) set)
+        active (mapv #(assoc % :online
+                             (concern-owner-online? online-handles
+                                                    (:subject-facts %)))
+                     active)]
     {:active (count active)
      :stale (count (filter #(and (not (:online %))
                                  (not= (:status %) "likely-to-land"))
@@ -200,7 +218,7 @@
         now (System/currentTimeMillis)
         DAY 86400000, WEEK (* 7 DAY)]
     ;; connectivity probe: one cheap read. Down => single honest line, exit 0.
-    (let [probe (try (send-op PORT {:op :version}) (catch Exception e ::down))]
+    (let [probe (try (north.coord/cur-ver PORT) (catch Exception _ ::down))]
       (when (= probe ::down)
         (println (red (str "north health — coordinator :" PORT " unreachable (is `north up` running?)")))
         (System/exit 0)))

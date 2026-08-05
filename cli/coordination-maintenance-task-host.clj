@@ -182,7 +182,7 @@
 (def automatic-index-row-limit 4096)
 
 (defn indexed-subjects-for [predicate object]
-  (->> (north.coord/indexed-query-in-domain
+  (->> (north.coord/bounded-query-in-domain
         port
         :coordination
         {:find "maintenance_subject"
@@ -193,12 +193,12 @@
            [{:rel "triple"
              :args [{:var "entity"} predicate object]}]}]}
         automatic-index-row-limit)
-       :ok
+       :rows
        (mapv first)))
 
 (defn indexed-predicate-rows [predicate]
-  (:ok
-   (north.coord/indexed-query-in-domain
+  (:rows
+   (north.coord/bounded-query-in-domain
     port
     :coordination
     {:find "maintenance_predicate_rows"
@@ -218,20 +218,39 @@
 (defn concern-mint-ms [c]
   (some-> (re-find #"concern-(\d{10,})" (str c)) second parse-long))
 
-(defn owner-lapse-ms
-  "How long this concern's owner has been OFFLINE, in ms — or nil if the owner is
-   ONLINE (unexpired lease) or the concern is agent-less. When the owner holds an
-   expired lease the lapse is exact; when it never held a lease (a pre-presence dead
-   agent) the concern's own age is the staleness lower bound."
-  [c]
-  (let [a (north.coord/resolved port c "agent")]
-    (when (and a (seq a))
-      (let [now (System/currentTimeMillis)
-            l   (north.coord/lease-of port (str "session:" (strip-sigil a "@")))]
-        (cond
-          (and l (> (:exp l) now)) nil                          ; owner ONLINE
-          l                        (- now (:exp l))             ; expired lease -> exact lapse
-          :else (when-let [m (concern-mint-ms c)] (- now m))))))) ; no lease -> age lower bound
+(defn fact-values [rows predicate]
+  (->> rows
+       (keep (fn [[row-predicate value]]
+               (when (= predicate row-predicate) value)))
+       distinct
+       sort
+       vec))
+
+(defn fact-value [rows predicate]
+  (first (fact-values rows predicate)))
+
+(defn subject-fact-rows [domain subjects]
+  (if (empty? subjects)
+    {}
+    (:rows (north.coord/show-many-in-domain port domain subjects))))
+
+(defn online-session-handles [now]
+  (into #{} (map :handle) (north.coord/online-session-leases port now)))
+
+(defn stale-owner-lapse-ms
+  "Return exact stale-owner lapse for an old offline concern. One batch scan
+   eliminates live owners before this point read is needed."
+  [now online-handles concern rows]
+  (when-let [agent (fact-value rows "agent")]
+    (let [handle (strip-sigil agent "@")
+          minted (concern-mint-ms concern)]
+      (when (and (not (contains? online-handles handle))
+                 (or (nil? minted) (>= (- now minted) CONCERN-STALE-MS)))
+        (let [{:keys [online? exp]} (north.coord/session-lease-status port handle)]
+          (when-not online?
+            (cond
+              (integer? exp) (- now exp)
+              minted (- now minted))))))))
 
 (defn building-only?
   "True iff the concern reached `building` and never progressed past it (and isn't
@@ -291,33 +310,42 @@
 
 (defn live-concern-repos
   "Container paths a LIVE concern currently claims, by the same lease rule
-   `concern ls` renders. Only the unregistered-worktree sweep consumes it, and
-   only when a tree is otherwise reapable, so the extra per-concern reads are
-   never paid on an idle sweep."
+   `concern ls` renders. The subjects and all of their facts are read in one
+   pinned batch; liveness comes from one canonical lease scan."
   []
-  (let [index (north.worktree-census/container-index
+  (let [concerns (indexed-subjects-for "kind" "concern")
+        rows-by-concern (subject-fact-rows :coordination concerns)
+        online (online-session-handles (System/currentTimeMillis))
+        index (north.worktree-census/container-index
                (north.worktree-census/containers))]
     (into #{}
-          (for [c (indexed-subjects-for "kind" "concern")
-                :let [reached (set (north.coord/many port c "reached"))]
+          (for [c concerns
+                :let [rows (get rows-by-concern c [])
+                      reached (set (fact-values rows "reached"))
+                      agent (fact-value rows "agent")]
                 :when (and (not (reached "landed"))
                            (not (reached "abandoned-stale"))
-                           (nil? (owner-lapse-ms c)))
+                           (or (nil? agent)
+                               (contains? online (strip-sigil agent "@"))))
                 :let [container (north.worktree-census/resolve-container
-                                 index (north.coord/resolved port c "repo"))]
+                                 index (fact-value rows "repo"))]
                 :when container]
             container))))
 
 (defn sweep-concerns! [dry?]
   (let [concerns (indexed-subjects-for "kind" "concern")
+        rows-by-concern (subject-fact-rows :coordination concerns)
+        now (System/currentTimeMillis)
+        online (online-session-handles now)
         hits (for [c concerns
-                   :let  [rs (set (north.coord/many port c "reached"))]
+                   :let  [rows (get rows-by-concern c [])
+                          rs (set (fact-values rows "reached"))
+                          repo (fact-value rows "repo")]
                    :when (building-only? rs)
-                   :let  [lapse (owner-lapse-ms c)]
-                   :when (and lapse (>= lapse CONCERN-STALE-MS)
-                              (or (nil? sweep-repo)
-                                  (= sweep-repo (north.coord/resolved port c "repo"))))]
-               {:c c :lapse lapse :agent (north.coord/resolved port c "agent")})]
+                   :when (or (nil? sweep-repo) (= sweep-repo repo))
+                   :let  [lapse (stale-owner-lapse-ms now online c rows)]
+                   :when (and lapse (>= lapse CONCERN-STALE-MS))]
+               {:c c :lapse lapse :agent (fact-value rows "agent")})]
     (reduce
      (fn [retired {:keys [c lapse agent]}]
        (if dry?
@@ -365,13 +393,20 @@
                   (when (seq values) [predicate values]))))
         predicates))
 
+(defn subject-facts-from-rows [rows predicates]
+  (into {}
+        (keep (fn [predicate]
+                (let [values (set (fact-values rows predicate))]
+                  (when (seq values) [predicate values]))))
+        predicates))
+
 (defn runs-tagged-agent
   "All @run subjects tagged agent=<h>, including a latest torn/uncommitted row
   that must block fallback to an older terminal."
   [h]
   (try
     (let [response
-          (north.coord/indexed-query-in-domain
+          (north.coord/bounded-query-in-domain
            port
            :telemetry
            {:find "lane_run_candidate"
@@ -380,13 +415,12 @@
               :body [{:rel "triple"
                       :args [{:var "e"} "agent" h]}]}]}
            ;; Ask for one sentinel row beyond the accepted bound. This simple
-           ;; one-literal shape routes through Fram's warm predicate/object
-           ;; index. query-page would rebuild a whole-corpus Datalog fixpoint
-           ;; once per lane before applying its wire-page bound.
+          ;; one-literal shape routes through Fram's warm predicate/object
+          ;; index. query-page would rebuild a whole-corpus Datalog fixpoint
+          ;; once per lane before applying its wire-page bound.
            (inc max-lane-run-candidates))
-          rows (:ok response)]
-      (if (and (= "index" (:engine response))
-               (vector? rows)
+          rows (:rows response)]
+      (if (and (vector? rows)
                (<= (count rows) max-lane-run-candidates)
                (every? #(and (vector? %) (= 1 (count %))
                              (string? (first %)))
@@ -399,16 +433,107 @@
               distinct
               vec)}
         {:ok false
-         :reason (if (or (= :query-row-limit (:code response))
-                         (and (vector? rows)
-                              (> (count rows) max-lane-run-candidates)))
+         :reason (if (and (vector? rows)
+                          (> (count rows) max-lane-run-candidates))
                    :run-projection-over-broad
                    :run-projection-unavailable)}))
     (catch Exception error
       {:ok false
-       :reason (if (= :indexed-query-row-limit (:type (ex-data error)))
+       :reason (if (= :query-row-limit (:type (ex-data error)))
                  :run-projection-over-broad
                  :run-projection-unavailable)})))
+
+(def max-lane-run-batch-handles
+  (quot (dec automatic-index-row-limit) (inc max-lane-run-candidates)))
+
+(defn runs-tagged-agents [handles]
+  (reduce
+   (fn [results handle-batch]
+     (let [handle-set (set handle-batch)]
+       (try
+         (let [rows
+               (:rows
+                (north.coord/bounded-query-in-domain
+                 port
+                 :telemetry
+                 {:find "lane_run_candidates"
+                  :rules
+                  (mapv
+                   (fn [handle]
+                     {:head {:rel "lane_run_candidates"
+                             :args [handle {:var "run"}]}
+                      :body [{:rel "triple"
+                              :args [{:var "run"} "agent" handle]}]})
+                   handle-batch)}
+                 (inc (* max-lane-run-candidates (count handle-batch)))))
+               valid? (and (vector? rows)
+                           (every?
+                            (fn [row]
+                              (and (vector? row) (= 2 (count row))
+                                   (contains? handle-set (first row))
+                                   (north.terminal-projection/valid-run-entity?
+                                    (second row))))
+                            rows))
+               by-handle (group-by first rows)]
+           (if valid?
+             (reduce
+              (fn [batch-results handle]
+                (let [subjects (->> (get by-handle handle [])
+                                    (map second) distinct vec)]
+                  (assoc batch-results handle
+                         (if (<= (count subjects) max-lane-run-candidates)
+                           {:ok true :subjects subjects}
+                           {:ok false :reason :run-projection-over-broad}))))
+              results handle-batch)
+             (reduce #(assoc %1 %2 {:ok false
+                                    :reason :run-projection-unavailable})
+                     results handle-batch)))
+         (catch Exception error
+           (let [reason (if (= :query-row-limit (:type (ex-data error)))
+                          :run-projection-over-broad
+                          :run-projection-unavailable)]
+             (reduce #(assoc %1 %2 {:ok false :reason reason})
+                     results handle-batch))))))
+   {}
+   (partition-all max-lane-run-batch-handles handles)))
+
+(defn lane-resolutions-batch [handles]
+  (if (empty? handles)
+    {}
+    (let [run-projections (runs-tagged-agents handles)
+          run-subjects (->> run-projections vals (filter :ok)
+                            (mapcat :subjects) distinct vec)
+          lane-subjects (mapv #(str "@agent:" %) handles)
+          lane-rows (subject-fact-rows :coordination lane-subjects)
+          run-rows (if (empty? run-subjects)
+                     {}
+                     (subject-fact-rows :telemetry run-subjects))]
+      (into {}
+            (map
+             (fn [handle]
+               (let [{:keys [ok subjects reason]} (get run-projections handle)]
+                 [handle
+                  (if-not ok
+                    {:status :indeterminate :reason reason}
+                    (try
+                      (north.terminal-projection/lane-resolution
+                       handle
+                       (subject-facts-from-rows
+                        (get lane-rows (str "@agent:" handle) [])
+                        (conj north.terminal-projection/terminal-projection-predicates
+                              "terminal_manifest_sha256"))
+                       (mapv
+                        (fn [subject]
+                          {:subject subject
+                           :facts
+                           (subject-facts-from-rows
+                            (get run-rows subject [])
+                            north.terminal-projection/run-resolution-predicates)})
+                        subjects))
+                      (catch Exception _
+                        {:status :indeterminate
+                         :reason :lane-facts-unavailable})))]))
+             handles)))))
 
 (defn lane-resolution* [h]
   (let [run-projection (runs-tagged-agent h)
@@ -472,6 +597,12 @@
   (when-let [ts (north.coord/resolved port e "spawned_at")]
     (try (.toEpochMilli (java.time.Instant/parse ts)) (catch Throwable _ nil))))
 
+(defn spawned-ms-from-rows [rows]
+  (when-let [timestamp (fact-value rows "spawned_at")]
+    (try
+      (.toEpochMilli (java.time.Instant/parse timestamp))
+      (catch Throwable _ nil))))
+
 (defn driver-pairs []
   (indexed-predicate-rows "driver"))
 
@@ -505,15 +636,37 @@
 
 (defn sweep-lanes! [dry?]
   (let [lanes (indexed-subjects-for "kind" "lane")
-        now   (System/currentTimeMillis)
-        deaths (north.coord/many port "@swarm" "agent_death")
-        hits (for [e lanes
-                   :let  [h        (strip-sigil e "@agent:")
-                          l        (north.coord/lease-of port (str "session:" h))
-                          lease-exp (:exp l)
-                          sp       (or (spawned-ms e) (north.reap/sdk-agent-mint-ms h))]
-                   :when (north.reap/reap-lane? now (lane-reap-blocked?* h) lease-exp sp)]
-               {:e e :h h :lapse (north.reap/lane-lapse-ms now lease-exp sp)})]
+        now (System/currentTimeMillis)
+        rows-by-subject (subject-fact-rows :coordination (conj lanes "@swarm"))
+        online (online-session-handles now)
+        offline-old
+        (keep
+         (fn [entity]
+           (let [handle (strip-sigil entity "@agent:")
+                 rows (get rows-by-subject entity [])
+                 spawned (or (spawned-ms-from-rows rows)
+                             (north.reap/sdk-agent-mint-ms handle))]
+             (when (and (not (contains? online handle))
+                        spawned
+                        (>= (- now spawned) LANE-STALE-MS))
+               (let [{:keys [online? exp]}
+                     (north.coord/session-lease-status port handle)]
+                 (when (and (not online?)
+                            (north.reap/reap-lane? now false exp spawned))
+                   {:e entity :h handle :lease-exp exp :sp spawned
+                    :rows rows})))))
+         lanes)
+        resolutions (lane-resolutions-batch (mapv :h offline-old))
+        deaths (fact-values (get rows-by-subject "@swarm" []) "agent_death")
+        hits
+        (for [{:keys [e h lease-exp sp rows]} offline-old
+              :let [resolution (get resolutions h
+                                    {:status :indeterminate
+                                     :reason :lane-facts-unavailable})]
+              :when (north.reap/reap-lane?
+                     now (not= :unresolved (:status resolution)) lease-exp sp)]
+          {:e e :h h :rows rows
+           :lapse (north.reap/lane-lapse-ms now lease-exp sp)})]
     (doseq [{:keys [e h lapse]} hits]
       (when-not dry?
         (publish-reaped-terminal! e)
@@ -524,8 +677,9 @@
              (catch Throwable t (println (str "[sweep] spend reaper-settle error: " (.getMessage t)))))
         ;; Death is terminal evidence, not a mutation of identity/name caches.
         ;; Every UI derives its decoration from the committed process/delivery facts.
-        (let [coord (or (north.coord/resolved port e "coordinator")
-                        (north.coord/resolved port e "supervisor"))]
+        (let [rows (get rows-by-subject e [])
+              coord (or (fact-value rows "coordinator")
+                        (fact-value rows "supervisor"))]
           (when (and coord (seq coord)
                      (not (north.reap/death-reported? h deaths)))
             (ping-coordinator coord h))))
@@ -621,8 +775,7 @@
             :repo-filter sweep-repo
             :claimed-worktrees
             (delay
-             (north.worktree-janitor/registered-worktree-paths
-              (north.coord/expected-log)))
+             (set (keys (north.worktree-census/claimed-worktrees port))))
             :live-concern-repos (delay (live-concern-repos))}))]
     {:registered registered :unregistered unregistered}))
 
@@ -701,10 +854,12 @@
           (.getPath (io/file (System/getProperty "user.home")
                              ".cache" "north" filename))))))
 
-(def retryable-coordinator-types
-  #{:coordinator-response-timeout
-    :coordinator-response-closed
-    :coordinator-response-truncated})
+(def retryable-framrpc-types
+  #{:rpc-truncated
+    :query-cancelled
+    :query-time-limit
+    :query-work-limit
+    :rpc/cancelled})
 
 (defn throwable-chain [throwable]
   (take-while some? (iterate #(.getCause ^Throwable %) throwable)))
@@ -717,9 +872,7 @@
                  (instance? java.net.SocketTimeoutException cause)
                  (instance? java.net.SocketException cause)
                  (instance? java.io.EOFException cause)
-                 (contains? retryable-coordinator-types (:type data))
-                 (and (= :indexed-query-error (:type data))
-                      (= :query-time-limit (:code data))))))
+                 (contains? retryable-framrpc-types (:type data)))))
          (throwable-chain throwable))))
 
 (defn concise-error [throwable]

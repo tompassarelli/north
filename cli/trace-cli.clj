@@ -5,32 +5,29 @@
 ;; flags the FIRST failing stage, printing the exact confirm command per stage. It is
 ;; LINEAGE-AWARE and TERMINALITY-AWARE — an absence that is EXPECTED for a lineage is
 ;; marked `·` not `✗` (native sessions have partial identity; a cleanly FINISHED lane
-;; legitimately holds a lapsed lease). Managed dispatch and spawn lanes both require the
+;; legitimately has inactive presence). Managed dispatch and spawn lanes both require the
 ;; same committed identity projection. The verdict maps the failure to a
 ;; workflow-map F-mode (F1–F7) with the remedy.
 ;;
 ;;   ✓ present/healthy   ! incomplete proof   · expected-absent / n-a   ✗ genuine failure
 ;;   usage: north trace <agent-id>
-(require '[clojure.edn :as edn]
-         '[clojure.java.io :as io]
+(require '[clojure.java.io :as io]
          '[clojure.string :as str])
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/run-ledger.clj"))
-(def send-op  north.coord/send-op)
+(def cur-ver  north.coord/cur-ver)
 (def resolved north.coord/resolved)
-(def many     north.coord/many)
-(def lease-of north.coord/lease-of)
+(def session-online? north.coord/session-online?)
 
-(def HOME (System/getenv "HOME"))
 (def NORTH (some-> (System/getProperty "babashka.file")
                    io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (def PORT (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
 (def NOW (System/currentTimeMillis))
 (def max-trace-run-candidates 128)
+(def max-trace-query-rows 4096)
 (def trace-agent-predicates north.lifecycle-projection/trace-agent-predicates)
 (def forensic-run-header-predicates
   ["kind" "thread" "agent" "at" "outcome" "provider" "provider_target"
@@ -56,59 +53,80 @@
           (< s 86400) (str (quot s 3600) "h") :else (str (quot s 86400) "d")))))
 
 ;; ---- per-id reads ------------------------------------------------------------
-(defn afact [id p] (resolved PORT (str "@agent:" id) p))
+(defn shown-values [domain subjects]
+  (if (seq subjects)
+    (let [response (north.coord/show-many-in-domain PORT domain subjects)]
+      (into {}
+            (map
+             (fn [[subject rows]]
+               [subject
+                (reduce
+                 (fn [facts [predicate value]]
+                   (update facts predicate (fnil conj []) value))
+                 {}
+                 rows)]))
+            (:rows response)))
+    {}))
+
 (defn agent-facts [id]
-  (north.lifecycle-projection/folded-agent-point-facts
-   (fn [subject predicate] (many PORT subject predicate))
-   (str "@agent:" id)
-   trace-agent-predicates))
-(defn lease [id] (lease-of PORT (str "session:" id)))
+  (let [subject (str "@agent:" id)
+        values (get (shown-values :coordination [subject]) subject {})]
+    (north.lifecycle-projection/folded-agent-point-facts
+     (fn [_ predicate] (get values predicate []))
+     subject
+     trace-agent-predicates)))
+(defn online-session? [id] (session-online? PORT id))
 (defn q [project body]
-  (:ok (send-op PORT {:op :query
-        :query {:find "row" :rules [{:head {:rel "row" :args (mapv (fn [v] {:var v}) project)} :body body}]}})))
+  (:rows
+   (north.coord/bounded-query
+    PORT
+    {:find "row"
+     :rules [{:head {:rel "row" :args (mapv (fn [v] {:var v}) project)}
+              :body body}]}
+    max-trace-query-rows)))
 
 ;; ---- forensic AgentRun ledger ------------------------------------------------
-(defn point-facts [subject predicates]
-  (into {}
-        (keep (fn [predicate]
-                (let [values (vec (distinct (many PORT subject predicate)))]
-                  (when (= 1 (count values)) [predicate (first values)]))))
-        predicates))
+(defn point-facts [domain subject predicates]
+  (let [shown (get (shown-values domain [subject]) subject {})]
+    (into {}
+          (keep (fn [predicate]
+                  (let [values (vec (distinct (get shown predicate [])))]
+                    (when (= 1 (count values)) [predicate (first values)]))))
+          predicates)))
 
 (defn run-event-entries [run-id]
   (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
-        rows (north.coord/query-page-in-domain
-              PORT
-              :telemetry
-              {:find "forensic_run_event"
-               :rules [{:head {:rel "forensic_run_event" :args [{:var "e"}]}
-                        :body [{:rel "triple" :args [{:var "e"} "run" canonical-run]}
-                               {:rel "triple" :args [{:var "e"} "kind" "run_event"]}]}]}
-              512 nil)]
-    (when (or (:more rows) (> (count (:ok rows)) 512))
-      (throw (ex-info "run event trace exceeds bounded 512-event read" {:run canonical-run})))
-    (mapv
-     (fn [[subject]]
-       (let [facts (mapcat (fn [predicate]
-                             (map (fn [value] [predicate value])
-                                  (many PORT subject predicate)))
-                           north.run-ledger/event-predicates)]
-         (north.run-ledger/validate-event-facts! subject facts)))
-     (:ok rows))))
+        response (north.coord/bounded-query-in-domain
+                  PORT
+                  :telemetry
+                  {:find "forensic_run_event"
+                   :rules [{:head {:rel "forensic_run_event" :args [{:var "e"}]}
+                            :body [{:rel "triple" :args [{:var "e"} "run" canonical-run]}
+                                   {:rel "triple" :args [{:var "e"} "kind" "run_event"]}]}]}
+                  512)]
+    (let [subjects (mapv first (:rows response))
+          shown (shown-values :telemetry subjects)]
+      (mapv
+       (fn [subject]
+         (let [values (get shown subject {})
+               facts (mapcat (fn [predicate]
+                               (map (fn [value] [predicate value])
+                                    (get values predicate [])))
+                             north.run-ledger/event-predicates)]
+           (north.run-ledger/validate-event-facts! subject facts)))
+       subjects))))
 
 (defn thread-run-ids [thread-id]
   (let [canonical-thread (north.run-ledger/canonical-entity thread-id "thread")
-        rows (north.coord/query-page-in-domain
-              PORT
-              :telemetry
-              {:find "forensic_thread_run"
-               :rules [{:head {:rel "forensic_thread_run" :args [{:var "e"}]}
-                        :body [{:rel "triple" :args [{:var "e"} "thread" canonical-thread]}
-                               {:rel "triple" :args [{:var "e"} "kind" "run"]}]}]}
-              128 nil)]
-    (when (or (:more rows) (> (count (:ok rows)) 128))
-      (throw (ex-info "thread trace exceeds bounded 128-run read" {:thread canonical-thread})))
-    (->> (:ok rows) (map first) distinct sort vec)))
+        response (north.coord/bounded-query-in-domain
+                  PORT
+                  :telemetry
+                  {:find "forensic_thread_run"
+                   :rules [{:head {:rel "forensic_thread_run" :args [{:var "e"}]}
+                            :body [{:rel "triple" :args [{:var "e"} "thread" canonical-thread]}
+                                   {:rel "triple" :args [{:var "e"} "kind" "run"]}]}]}
+                  128)]
+    (->> (:rows response) (map first) distinct sort vec)))
 
 (defn forensic-run [run-id header events]
   (north.run-ledger/timeline run-id header events))
@@ -146,7 +164,7 @@
 
 (defn live-forensic-run [run-id]
   (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
-        header (point-facts canonical-run forensic-run-header-predicates)]
+        header (point-facts :telemetry canonical-run forensic-run-header-predicates)]
     (forensic-run canonical-run header (run-event-entries canonical-run))))
 
 (defn forensic-main! [kind selector]
@@ -159,73 +177,68 @@
       (println "no committed runs observed; all run observations unknown (source coverage unavailable)"))))
 
 (defn owned-concerns [id]
-  (->> (q ["e"] [{:rel "triple" :args [{:var "e"} "kind" "concern"]}
-                 {:rel "triple" :args [{:var "e"} "agent" (str "@" id)]}])
-       (map first)
-       (map (fn [e] {:id e :status (let [rs (set (many PORT e "reached"))]
-                                     (cond (rs "landed") "landed" (rs "abandoned-stale") "abandoned-stale"
-                                           (rs "likely-to-land") "likely-to-land" (rs "building") "building" :else "?"))
-                     :repo (resolved PORT e "repo")}))))
+  (let [subjects (->> (q ["e"] [{:rel "triple" :args [{:var "e"} "kind" "concern"]}
+                                  {:rel "triple" :args [{:var "e"} "agent" (str "@" id)]}])
+                      (map first)
+                      vec)
+        shown (shown-values :coordination subjects)]
+    (map
+     (fn [subject]
+       (let [facts (get shown subject {})
+             reached (set (get facts "reached" []))]
+         {:id subject
+          :status (cond (reached "landed") "landed"
+                        (reached "abandoned-stale") "abandoned-stale"
+                        (reached "likely-to-land") "likely-to-land"
+                        (reached "building") "building"
+                        :else "?")
+          :repo (first (get facts "repo" []))}))
+     subjects)))
 
 (defn agent-run-entries [id]
   (let [response
-        (try
-          (north.coord/query-page-in-domain
-           PORT
-           :telemetry
-           {:find "trace_run_candidate"
-            :rules
-            [{:head {:rel "trace_run_candidate" :args [{:var "e"}]}
-              :body [{:rel "triple"
-                      :args [{:var "e"} "agent" id]}]}]}
-           max-trace-run-candidates nil)
-          (catch Exception _ nil))
-        rows (:ok response)]
-    (when (and (map? response)
-               (false? (:more response))
-               (vector? rows)
-               (<= (count rows) max-trace-run-candidates)
+        (north.coord/bounded-query-in-domain
+         PORT
+         :telemetry
+         {:find "trace_run_candidate"
+          :rules
+          [{:head {:rel "trace_run_candidate" :args [{:var "e"}]}
+            :body [{:rel "triple"
+                    :args [{:var "e"} "agent" id]}]}]}
+         max-trace-run-candidates)
+        rows (:rows response)]
+    (when (and (vector? rows)
                (every? #(and (vector? %) (= 1 (count %))
                              (string? (first %)))
                        rows))
-      (->> rows
-           (map first)
-           (filter north.terminal-projection/valid-run-entity?)
-           distinct
-           sort
-           (mapv
-            (fn [subject]
-              {:subject subject
-               :facts
-               (into {}
-                     (keep
-                      (fn [predicate]
-                        (let [values (set (many PORT subject predicate))]
-                          (when (seq values) [predicate values]))))
-                     north.terminal-projection/run-resolution-predicates)}))))))
+      (let [subjects (->> rows
+                          (map first)
+                          (filter north.terminal-projection/valid-run-entity?)
+                          distinct
+                          sort
+                          vec)
+            shown (shown-values :telemetry subjects)
+            predicates (conj (vec north.terminal-projection/run-resolution-predicates)
+                             "provider_error_detail")]
+        (mapv
+         (fn [subject]
+           (let [values (get shown subject {})]
+             {:subject subject
+              :facts
+              (into {}
+                    (keep
+                     (fn [predicate]
+                       (let [members (set (get values predicate []))]
+                         (when (seq members) [predicate members]))))
+                    predicates)}))
+         subjects)))))
 
 (defn provider-error-detail
-  "The provider's OWN failure text for this lane's most recent run.
-
-  sdk/src/telemetry.ts writes `provider_error_detail` on the run subject, and
-  nothing ever rendered it. A failed lane reported `process=provider_error ·
-  delivery=blocked (provider_terminal_error)` — three facts all naming the same
-  CATEGORY and none naming a cause — while the actual sentence sat unread in
-  telemetry.log:
-
-    failure=Codex managed hook did not complete successfully
-    landed=[0 completed turn(s), 6 MCP call(s), 30 native command(s)]
-
-  Across 128,290 coordination facts the predicate `detail` appears exactly ONCE.
-  This string is the single most useful thing in a dispatch failure, and it was
-  invisible to the command whose entire job is diagnosing one lane.
-
-  Ordered by the run's `at`, so a lane with several runs reports the LATEST
-  failure rather than whichever subject sorted last."
+  "Return the latest run's provider failure detail, ordered by its `at` fact."
   [run-entries]
   (->> run-entries
        (keep (fn [{:keys [subject facts]}]
-               (when-let [detail (first (many PORT subject "provider_error_detail"))]
+               (when-let [detail (first (get facts "provider_error_detail"))]
                  {:at (some-> (north.terminal-projection/singleton-value facts "at")
                               iso->ms)
                   :detail detail})))
@@ -245,7 +258,7 @@
        (sort-by #(or (:ms %) 0))))
 
 (defn deaths-for [id]                 ; agent_death lines on @swarm mentioning this id
-  (->> (many PORT "@swarm" "agent_death")
+  (->> (get-in (shown-values :coordination ["@swarm"]) ["@swarm" "agent_death"] [])
        (filter #(str/starts-with? (str %) (str id " ")))
        (map (fn [line] (let [[_ reason ts] (map str/trim (str/split (str line) #"\|" 3))]
                          {:reason reason :ms (iso->ms ts)})))))
@@ -253,16 +266,11 @@
 (defn inbox-to [id]
   (count (q ["e"] [{:rel "triple" :args [{:var "e"} "to" id]}])))
 
-(defn transcript [id]
-  (let [f (io/file AGENT-LOGDIR (str id ".log"))]
-    (when (.exists f) {:path (.getPath f) :mtime (.lastModified f) :size (.length f)})))
-
 (defn execution-terminal-state
   "Resolve execution truth without promoting a death notification into a
   terminal. Any lane terminal evidence owns the decision: a partial/conflicting
-  modern projection or conflicting legacy outcome fails closed and cannot fall
-  through to a secondary run trail. A committed run remains the compatibility
-  fallback only when the lane carries no terminal body at all."
+  lane projection fails closed and cannot fall through to a secondary run
+  trail. A committed run is consulted only when the lane has no terminal body."
   [control facts run-entries deaths]
   (let [resolution
         (if (vector? run-entries)
@@ -310,7 +318,7 @@
     :inconsistent))
 
 (defn trace-verdict
-  [{:keys [id on-roster terminal-state delivery-state online lease lineage
+  [{:keys [id on-roster terminal-state delivery-state online lineage
            identity-complete deaths]}]
   (let [terminal? (:terminal? terminal-state)
         terminal-kind (:kind terminal-state)
@@ -337,23 +345,22 @@
            " A notification is diagnostic only; require a committed lane terminal or committed run before treating the lane as finished.")
       (and on-roster (not terminal?) (not online))
       (str (red "F2/F3 — offline with NO completion signal.")
-           (if lease " Lease lapsed but still present:" " Lease gone entirely (expired + reaped, or never leased):")
-           " if the transcript moved after the lease expiry → F2 (lapsed-but-alive): trust the transcript. Else it died silently — the lane lifecycle janitor reaps it as died-unreported within 30min (confirm: `north show @agent:"
+           " Presence is inactive; the lane lifecycle janitor must resolve it as died-unreported (confirm: `north show @agent:"
            id "` for outcome=died-unreported).")
       (and (= lineage :sdk-lane) (not identity-complete))
       (red "F6 — SDK-lane missing identity facts: possible id-collision/aliasing, or writeAgentFacts failed. Check `north show @agent:<id>` for contradictory repos/goals.")
       (and (= terminal-kind :ran) (= delivery-class :reported))
       (grn (str "execution succeeded; " summary
                 ". Delivery is evidence-backed same-UID self-report, not independent verification"
-                (if online "; lease remains online." "; lease lapsed as expected.")))
+                (if online "; presence remains active." "; presence is inactive as expected.")))
       (and (= terminal-kind :ran) (= delivery-class :incomplete))
       (ylw (str "execution succeeded but delivery proof is incomplete; " summary
                 ". This is not a done claim"
-                (if online "; lease remains online." "; lease lapsed as expected.")))
+                (if online "; presence remains active." "; presence is inactive as expected.")))
       (= terminal-kind :ran)
       (red (str "terminal inconsistency; " summary
                 ". A ran process with blocked or inconsistent delivery is not a done claim"
-                (if online "; lease remains online." ".")))
+                (if online "; presence remains active." ".")))
       online
       (grn "healthy — online and advancing (no terminal signal yet). No failure.")
       :else (dim "no failing stage detected."))))
@@ -373,24 +380,22 @@
                             (north.run-ledger/canonical-entity
                              (subs raw (count "thread:")) "thread"))]
       (when (or run-selector thread-selector)
-        (let [probe (try (send-op PORT {:op :version}) (catch Exception _ ::down))]
+        (let [probe (try (cur-ver PORT) (catch Exception _ ::down))]
           (when (= probe ::down)
-            (println (red (str "north trace — coordinator :" PORT " unreachable")))
+            (println (red (str "north trace — Fram server :" PORT " unreachable")))
             (System/exit 1))
           (forensic-main! (if run-selector :run :thread)
                           (or run-selector thread-selector))
           (System/exit 0))))
     (let [id (str/replace raw #"^@?(agent:)?" "")
-          probe (try (send-op PORT {:op :version}) (catch Exception _ ::down))]
+          probe (try (cur-ver PORT) (catch Exception _ ::down))]
       (when (= probe ::down)
-        (println (red (str "north trace — coordinator :" PORT " unreachable"))) (System/exit 1))
+        (println (red (str "north trace — Fram server :" PORT " unreachable"))) (System/exit 1))
       (let [facts (agent-facts id)
             kind (get facts "kind")
-            l (lease id)
-            online (boolean (and l (> (:exp l) NOW)))
-            lapse (when (and l (not online)) (- NOW (:exp l)))
+            online (online-session? id)
             sess-agent (resolved PORT (str "@session:" id) "agent")
-            on-roster (boolean (or kind sess-agent l))
+            on-roster (boolean (or kind sess-agent online))
             ;; managed identity is valid only after exact readback + marker commit
             identity-defects (when (= kind "lane")
                                (north.agent-provenance/identity-defects facts))
@@ -408,7 +413,6 @@
             ;; work
             concerns (owned-concerns id)
             active-concern (first (filter #(= (:status %) "building") concerns))
-            tx (transcript id)
             ;; completion / death
             run-entries (agent-run-entries id)
             runs (agent-runs run-entries)
@@ -426,7 +430,7 @@
         ;; 1 ROSTER
         (println (stage 1 (if on-roster :ok :fail) "1 ROSTER"
                         (if on-roster (str "on roster (" id ")")
-                            (red "NOT on roster — no lease / identity / session"))
+                            (red "NOT on roster — no identity / session presence"))
                         "north agents"))
         ;; 2 IDENTITY
         (let [mark (cond idfull :ok
@@ -457,23 +461,17 @@
                           (println (str "    promotion    " (or (:promotion-candidate provenance) "MISSING")))
                           (println (str "    contract     sha256:" (or (:contract-sha256 provenance) "MISSING"))))
               nil)))
-        ;; 3 PRESENCE — lapsed is a FAILURE only if the agent is NOT terminal (still supposed to be alive)
-        (let [mark (cond online :ok
-                         (nil? l) (if terminal? :na :fail)
-                         terminal? :na                         ; finished => lapsed is the healthy end-state
-                         :else :fail)
-              detail (cond online (str (grn "ONLINE") " expires " (int (/ (- (:exp l) NOW) 1000)) "s")
-                           (nil? l) (if terminal? "no lease (finished/never-registered)" (red "no lease found"))
-                           :else (str "lapsed " (ago lapse) " ago"
-                                      (when terminal? (dim " (finished — expected)"))))]
+        ;; 3 PRESENCE
+        (let [mark (cond online :ok terminal? :na :else :fail)
+              detail (cond online (grn "ONLINE")
+                           terminal? "inactive (finished — expected)"
+                           :else (red "no live session"))]
           (println (stage 3 mark "3 PRESENCE" detail "north agents")))
         ;; 4 WORK
-        (let [mark (if (or active-concern tx (seq concerns)) :ok :na)
-              detail (str (if active-concern
-                            (str "concern " (:status active-concern) " [" (or (:repo active-concern) "?") "]")
-                            (if (seq concerns) (str (count concerns) " concern(s)") "no concern"))
-                          (if tx (str " · transcript " (ago (- NOW (:mtime tx))) " old, " (:size tx) "b")
-                              (dim " · no transcript")))]
+        (let [mark (if (seq concerns) :ok :na)
+              detail (if active-concern
+                       (str "concern " (:status active-concern) " [" (or (:repo active-concern) "?") "]")
+                       (if (seq concerns) (str (count concerns) " concern(s)") "no concern"))]
           (println (stage 4 mark "4 WORK" detail
                           (if active-concern (str "concern ls " (or (:repo active-concern) "")) (str "north watch " id)))))
         ;; 5 STEER
@@ -515,19 +513,14 @@
                          online (dim "still running — no terminal signal yet")
                          :else (red "NO committed completion terminal (offline, unrecorded)")))]
           (println (stage 6 mark "6 COMPLETION" detail "north show @swarm"))
-          ;; The category is on the line above; this is the CAUSE. Printed only
-          ;; on a failing terminal, indented under the step it explains, so a
-          ;; healthy trace is unchanged and a failing one no longer requires
-          ;; grepping a 60 MB telemetry log to learn what actually went wrong.
           (when (= mark :fail)
             (when-let [cause (provider-error-detail run-entries)]
               (println (str "    " (dim "cause  ") (red cause))))))
         ;; 7 REAPING
         (let [stale-concern (first (filter #(and (= (:status %) "building")) concerns))
               detail (str (cond online "live — not reaped"
-                                terminal? (str "lease lapsed" (when (= terminal-kind :died-unreported) " · lifecycle reaped"))
-                                (nil? l) "no lease (lapsed + reaped, or never leased) — awaiting lifecycle-janitor verdict"
-                                :else (str "lease lapsed " (ago lapse) " — awaiting reap"))
+                                terminal? (str "presence inactive" (when (= terminal-kind :died-unreported) " · lifecycle reaped"))
+                                :else "presence inactive — awaiting lifecycle-janitor verdict")
                           (when (and stale-concern (not online))
                             (ylw (str " · concern still " (:status stale-concern) " (STALE)"))))]
           (println (stage 7 :na "7 REAPING" detail "north agents / concern ls")))
@@ -536,7 +529,7 @@
         (let [verdict
               (trace-verdict
                {:id id :on-roster on-roster :terminal-state terminal-state
-                :delivery-state delivery-state :online online :lease l
+                :delivery-state delivery-state :online online
                 :lineage lineage :identity-complete idfull :deaths deaths})]
           (println (str (bold "verdict: ") verdict)))))
     (System/exit 0)))

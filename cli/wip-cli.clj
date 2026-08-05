@@ -1,79 +1,66 @@
 #!/usr/bin/env bb
 ;; wip-cli.clj — `north wip`: live managed-lane capacity against ready work.
 ;;
-;; READ-ONLY. Work and presence are one bounded fold of North's canonical
-;; append log, limited to facts consumed by ready/leverage and live-lane
-;; projection. A configured telemetry origin contributes reservation bindings.
+;; READ-ONLY. Work and presence come from bounded FRAMRPC projections limited
+;; to facts consumed by ready/leverage and live-lane projection. A configured
+;; telemetry origin contributes reservation bindings.
 (ns north.wip-cli
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [babashka.process :as process]
-            [fram.kernel :as k]
-            [north.projections :as projections]))
+            [fram.types :as t]
+            [north.projections :as proj]))
 
 (load-file
  (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (def default-floor 4)
-(def lease-prefix "@lease:session:")
 (def max-live-controls 256)
 (def lane-kind-tag "north:wip/lane-kind")
 (def lane-thread-tag "north:wip/lane-thread")
 (def coordinator-thread-tag "north:wip/coordinator-thread")
-(def coordination-log (north.coord/expected-log))
-(def telemetry-log (some-> (System/getenv "FRAM_TELEMETRY_LOG") str/trim not-empty))
 (def thread-predicates
   #{"title" "committed" "outcome" "abandoned" "superseded_by" "driver"
     "depends_on" "part_of" "do_on" "valid_until" "estimate_hours" "lead"
     "proposed_by" "created_at" "updated_at" "repo" "wip_floor" "kind"
     "entity_kind"})
-(def selected-facts-awk
-  (str
-   "BEGIN {"
-   " work[\"title\"]=work[\"committed\"]=work[\"outcome\"]=1;"
-   " work[\"abandoned\"]=work[\"superseded_by\"]=work[\"driver\"]=1;"
-   " work[\"depends_on\"]=work[\"part_of\"]=work[\"do_on\"]=1;"
-   " work[\"valid_until\"]=work[\"estimate_hours\"]=work[\"lead\"]=1;"
-   " work[\"proposed_by\"]=work[\"created_at\"]=work[\"updated_at\"]=1;"
-   " work[\"repo\"]=work[\"wip_floor\"]=work[\"kind\"]=work[\"entity_kind\"]=1;"
-   " reservation[\"run_reservation_agent\"]=1;"
-   " reservation[\"run_reservation_thread\"]=1;"
-   " multi[\"depends_on\"]=multi[\"proposed_by\"]=multi[\"repo\"]=1;"
-   " multi[\"run_reservation_agent\"]=1;"
-   " multi[\"run_reservation_thread\"]=1"
-   " }"
-   " {"
-   " marker=index($0, \", :p \\\"\");"
-   " rest=substr($0, marker + 6);"
-   " predicate=substr(rest, 1, index(rest, \"\\\"\") - 1);"
-   " selected=((ARGIND == 1 &&"
-   "           (work[predicate] || predicate == \"lease\" ||"
-   "            predicate == \"current_thread\")) || reservation[predicate]);"
-   " if (!selected) next;"
-   " lmarker=index($0, \", :l \\\"\");"
-   " subject=substr($0, lmarker + 6, marker - (lmarker + 6) - 1);"
-   " rmarker=index($0, \", :r \\\"\");"
-   " rstart=rmarker + 6;"
-   " rest=substr($0, rstart);"
-   " rend=index(rest, \"\\\", :ts \");"
-   " frameend=index(rest, \"\\\", :frame \");"
-   " if (frameend && frameend < rend) rend=frameend;"
-   " value=substr(rest, 1, rend - 1);"
-   " operation=(index(substr($0, 1, 64), \":op \\\"assert\\\"\") ?"
-   "            \"assert\" : \"retract\");"
-   " key=subject SUBSEP predicate;"
-   " if (multi[predicate]) key=key SUBSEP value;"
-   " if (operation == \"assert\") {"
-   "   live[key]=value; subjects[key]=subject; predicates[key]=predicate"
-   " } else if ((key in live) && live[key] == value) {"
-   "   delete live[key]; delete subjects[key]; delete predicates[key]"
-   " }"
-   " }"
-   " END {"
-   " for (key in live)"
-   "   print subjects[key] \"\\t\" predicates[key] \"\\t\" live[key]"
-   " }"))
+(def reservation-predicates
+  #{"run_reservation_agent" "run_reservation_thread"})
+(def selected-predicates
+  (into thread-predicates
+        (concat #{"current_thread"} reservation-predicates)))
+(def selected-page-limit north.coord/query-page-row-limit)
+
+(defn selected-facts-query [predicates]
+  {:find "north_wip_fact"
+   :rules
+   (mapv
+    (fn [predicate]
+      {:head {:rel "north_wip_fact"
+              :args [{:var "subject"} predicate {:var "value"}]}
+       :body [{:rel "triple"
+               :args [{:var "subject"} predicate {:var "value"}]}]})
+    (sort predicates))})
+
+(defn selected-domain-rows [port domain predicates]
+  (let [query (selected-facts-query predicates)]
+    (loop [after nil at-version nil rows []]
+      (let [response
+            (north.coord/query-page-in-domain
+             port domain query selected-page-limit after at-version)
+            version (:served-version response)
+            next-cursor (:cursor response)]
+        (when (and at-version (not= at-version version))
+          (throw (ex-info "WIP projection changed version while paging"
+                          {:domain domain
+                           :expected-version at-version
+                           :actual-version version})))
+        (when (and (not (:done? response)) (= after next-cursor))
+          (throw (ex-info "WIP projection cursor did not advance"
+                          {:domain domain})))
+        (let [all-rows (into rows (:rows response))]
+          (if (:done? response)
+            all-rows
+            (recur next-cursor (or at-version version) all-rows)))))))
 
 (defn query-rows
   [work managed-controls session-threads reservation-bindings]
@@ -94,112 +81,46 @@
         (sort (get reservation-bindings control #{}))))
      (sort managed-controls)))))
 
-(defn parse-lease [entity value]
-  (let [parts (str/split value #"\|" -1)
-        expiry (when (= 3 (count parts)) (parse-long (nth parts 1)))]
-    (when-not
-     (and (str/starts-with? entity lease-prefix)
-          (= 3 (count parts))
-          (not (str/blank? (first parts)))
-          (some? expiry)
-          (= (subs entity (count lease-prefix)) (first parts)))
-      (throw (ex-info "coordinator returned a malformed session lease" {})))
-    {:control (first parts) :expiry expiry}))
+(defn state-from-rows [rows]
+  (reduce
+   (fn [state [subject predicate value]]
+     (cond
+       (and (= predicate "kind")
+            (= value "lane")
+            (str/starts-with? subject "@agent:"))
+       (update state :managed conj (subs subject (count "@agent:")))
 
-(defn decode-log-string [value]
-  (if (str/includes? value "\\")
-    (edn/read-string (str "\"" value "\""))
-    value))
+       (and (= predicate "current_thread")
+            (str/starts-with? subject "@agent:"))
+       (assoc-in state [:session-threads
+                        (subs subject (count "@agent:"))]
+                 value)
 
-(defn folded-row [line]
-  (let [first-tab (.indexOf line "\t")
-        second-tab (.indexOf line "\t" (inc first-tab))]
-    (when (or (neg? first-tab) (neg? second-tab))
-      (throw (ex-info "malformed live triple from canonical log fold" {})))
-    [(decode-log-string (subs line 0 first-tab))
-     (subs line (inc first-tab) second-tab)
-     (decode-log-string (subs line (inc second-tab)))]))
+       (contains? reservation-predicates predicate)
+       (update-in state [:reservations subject predicate]
+                  (fnil conj #{}) value)
 
-(defn- record-session-thread
-  [session-threads control value canonical?]
-  (let [candidate {:value value :rank (if canonical? 2 1)}
-        current (get session-threads control)]
-    (if (or (nil? current) (> (:rank candidate) (:rank current)))
-      (assoc session-threads control candidate)
-      session-threads)))
+       (contains? thread-predicates predicate)
+       (update state :work conj [subject predicate value])
 
-(defn fold-selected-reader [reader]
-    (loop [leases {}
-           managed #{}
-           session-threads {}
-           reservations {}
-           work (transient [])]
-      (if-let [line (.readLine reader)]
-        (let [[subject predicate value] (folded-row line)]
-          (cond
-            (and (= predicate "lease")
-                 (str/starts-with? subject lease-prefix))
-            (recur (assoc leases subject value)
-                   managed session-threads reservations work)
-
-            (and (= predicate "kind")
-                 (= value "lane")
-                 (str/starts-with? subject "@agent:"))
-            (recur leases
-                   (conj managed (subs subject (count "@agent:")))
-                   session-threads reservations work)
-
-            (and (= predicate "current_thread")
-                 (or (str/starts-with? subject "@agent:")
-                     (str/starts-with? subject "@session:")))
-            (let [canonical? (str/starts-with? subject "@agent:")
-                  prefix (if canonical? "@agent:" "@session:")]
-              (recur leases managed
-                     (record-session-thread
-                      session-threads
-                      (subs subject (count prefix))
-                      value canonical?)
-                     reservations work))
-
-            (#{"run_reservation_agent" "run_reservation_thread"} predicate)
-            (recur leases managed session-threads
-                   (update-in reservations [subject predicate]
-                              (fnil conj #{}) value)
-                   work)
-
-            (contains? thread-predicates predicate)
-            (recur leases managed session-threads reservations
-                   (conj! work [subject predicate value]))
-
-            :else
-            (recur leases managed session-threads reservations work)))
-        {:leases leases
-         :managed managed
-         :session-threads
-         (into {} (map (fn [[control thread]]
-                         [control (:value thread)]))
-               session-threads)
-         :reservations reservations
-         :work (persistent! work)})))
-
-(defn fold-log-paths [coordination-path telemetry-path]
-  (let [command
-        (cond-> ["gawk" selected-facts-awk coordination-path]
-          telemetry-path (conj telemetry-path))
-        child (process/process command {:out :stream :err :string})
-        state
-        (with-open [reader (io/reader (:out child))]
-          (fold-selected-reader reader))
-        result @child]
-    (when-not (zero? (:exit result))
-      (throw
-       (ex-info
-        (str "canonical log selection failed: " (str/trim (:err result)))
-        {:exit (:exit result)})))
-    state))
+       :else state))
+   {:managed #{}
+    :session-threads {}
+    :reservations {}
+    :work []}
+   rows))
 
 (defn coordination-state []
-  (fold-log-paths coordination-log telemetry-log))
+  (let [port (parse-long north.coord/PORT)
+        partitioned? (north.coord/telemetry-partition-enabled?)
+        telemetry-future
+        (when partitioned?
+          (future
+            (selected-domain-rows port :telemetry reservation-predicates)))
+        coordination
+        (selected-domain-rows port :coordination selected-predicates)
+        telemetry (if telemetry-future @telemetry-future [])]
+    (state-from-rows (into coordination telemetry))))
 
 (defn reservation-bindings [reservations]
   (reduce-kv
@@ -214,15 +135,12 @@
    reservations))
 
 (defn presence-state [now-ms]
-  (let [{:keys [leases managed session-threads reservations work]}
+  (let [{:keys [managed session-threads reservations work]}
         (coordination-state)
-        parsed (mapv (fn [[entity value]] (parse-lease entity value)) leases)
-        controls (->> parsed
-                      (filter #(< now-ms (:expiry %)))
-                      (map :control)
-                      distinct
-                      sort
-                      vec)]
+        controls
+        (mapv :handle
+              (north.coord/online-session-leases
+               (parse-long north.coord/PORT) now-ms))]
     (when (> (count controls) max-live-controls)
       (throw (ex-info "live session roster exceeds the WIP bound" {})))
     {:controls controls
@@ -243,11 +161,11 @@
            (= predicate coordinator-thread-tag))))
 
 (defn rows->index [rows]
-  (k/build-index
+  (proj/index-triples
    (->> rows
         (filter fact-row?)
         (mapv (fn [[subject predicate value]]
-                (k/->Fact subject predicate value))))))
+                (t/triple subject predicate value))))))
 
 (defn row-values [rows subject predicate]
   (->> rows
@@ -290,20 +208,20 @@
         days (if (and parsed-days (pos? parsed-days)) parsed-days 14)
         window-ms (* days 86400000)]
     (fn [idx thread]
-      (when-let [driver (k/one-i idx thread "driver")]
+      (when-let [driver (proj/string-value-at idx thread "driver")]
         (let [control (str/replace-first driver #"^@" "")
-              updated (some-> (k/one-i idx thread "updated_at") parse-date-ms)]
+              updated
+              (some-> (proj/string-value-at idx thread "updated_at")
+                      parse-date-ms)]
           (boolean
            (or (contains? live-set control)
                (and updated (< (- now-ms updated) window-ms)))))))))
 
 (defn work-thread? [idx subject]
   (let [bare (str/replace-first subject #"^@" "")
-        explicit (k/one-i idx subject "entity_kind")
-        legacy (k/one-i idx subject "kind")]
+        explicit (proj/string-value-at idx subject "entity_kind")]
     (cond
       explicit (= explicit "thread")
-      legacy (= legacy "thread")
       (str/starts-with? bare "concern-") false
       (str/starts-with? bare "agent:") false
       (or (str/starts-with? bare "msg:")
@@ -318,7 +236,7 @@
       (str/starts-with? bare "denial:") false
       (str/starts-with? bare "snapshot:") false
       (str/starts-with? bare "arena-") false
-      :else (some? (k/one-i idx subject "title")))))
+      :else (some? (proj/string-value-at idx subject "title")))))
 
 (defn valid-floor [value]
   (let [parsed (some-> value str parse-long)]
@@ -334,7 +252,7 @@
   (if (contains? options :floor)
     (:floor options)
     (let [thread (resolve-coordinator-thread rows options)
-          raw (when thread (k/one-i idx thread "wip_floor"))]
+          raw (when thread (proj/string-value-at idx thread "wip_floor"))]
       (cond
         (nil? raw) default-floor
         (valid-floor raw) (valid-floor raw)
@@ -350,22 +268,23 @@
         live-set (set live-controls)
         live? (driver-live-predicate live-set now-ms)
         today (str (java.time.LocalDate/now java.time.ZoneOffset/UTC))
-        ready (->> (projections/ready idx today #(< (compare %1 %2) 0) live?)
+        ready (->> (proj/ready idx today #(< (compare %1 %2) 0) live?)
                    (filterv #(work-thread? idx %)))
         scored
         (->> ready
              (map (fn [thread]
                     {:thread thread
                      :leverage
-                     (if (seq (k/dependents-i idx thread))
-                       (projections/leverage-score idx thread)
+                     (if (seq (proj/dependents-of idx thread))
+                       (proj/leverage-score idx thread)
                        0)}))
              (sort-by (juxt (comp - :leverage) :thread))
              (take 5)
              (mapv
               (fn [row]
                 (assoc row :title
-                       (or (k/one-i idx (:thread row) "title") ""))))
+                       (or (proj/string-value-at
+                            idx (:thread row) "title") ""))))
              vec)
         lane-controls
         (->> live-controls
@@ -379,7 +298,8 @@
                  thread (when (= 1 (count bindings)) (first bindings))]
              {:control control
               :thread thread
-              :title (when thread (k/one-i idx thread "title"))
+              :title (when thread
+                       (proj/string-value-at idx thread "title"))
               :binding-conflict (> (count bindings) 1)}))
          lane-controls)
         floor (resolve-floor idx rows options)]

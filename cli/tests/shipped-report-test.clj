@@ -11,7 +11,14 @@
 (def threads {"@thread-one" [["title" "Ship fixture"] ["outcome" "landed in abcdef1"] ["progress" "commit 7654321"]]
               "@thread-two" [["title" "Unverified fixture"] ["outcome" "landed"]]})
 (with-redefs [north.shipped-report/run-subjects (fn [_] (vec (keys runs)))
-              north.shipped-report/exact-facts (fn [_ subject] (north.shipped-report/rows->facts (or (get runs subject) (get threads subject))))]
+              north.shipped-report/exact-facts-many
+              (fn [_ _ subjects]
+                (into {}
+                      (map (fn [subject]
+                             [subject
+                              (north.shipped-report/rows->facts
+                               (or (get runs subject) (get threads subject)))])
+                           subjects)))]
   (let [rows (north.shipped-report/report-rows 7977 (.minus now (java.time.Duration/ofHours 24)) now)
         rendered (north.shipped-report/render rows (.minus now (java.time.Duration/ofHours 24)) now)]
     (check! "windowed run projection excludes old facts" (= 2 (count rows)))

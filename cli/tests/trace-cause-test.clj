@@ -28,29 +28,23 @@
   (if pass? (println "PASS" label)
       (do (swap! failures inc) (println "FAIL" label))))
 
-(defn entry [subject at] {:subject subject :facts {"at" #{at}}})
-
-;; `many` is the coordinator read; stub it so the ordering logic is tested
-;; without a daemon.
-(defn with-details [details f]
-  (with-redefs [many (fn [_ subject predicate]
-                       (if (= predicate "provider_error_detail")
-                         (if-let [d (get details subject)] [d] [])
-                         []))]
-    (f)))
+(defn entry
+  ([subject at] (entry subject at nil))
+  ([subject at detail]
+   (cond-> {:subject subject :facts {"at" #{at}}}
+     detail (assoc-in [:facts "provider_error_detail"] #{detail}))))
 
 ;; --- the basic case ---------------------------------------------------------
 (check! "returns the detail for a single failed run"
         (= "boom"
-           (with-details {"@run:a" "boom"}
-             #(provider-error-detail [(entry "@run:a" "2026-07-29T01:00:00Z")]))))
+           (provider-error-detail
+            [(entry "@run:a" "2026-07-29T01:00:00Z" "boom")])))
 
 (check! "no detail anywhere yields nil"
-        (nil? (with-details {}
-                #(provider-error-detail [(entry "@run:a" "2026-07-29T01:00:00Z")]))))
+        (nil? (provider-error-detail [(entry "@run:a" "2026-07-29T01:00:00Z")])))
 
 (check! "no runs at all yields nil"
-        (nil? (with-details {"@run:a" "boom"} #(provider-error-detail []))))
+        (nil? (provider-error-detail [])))
 
 ;; --- ordering is by TIME, not by subject string -----------------------------
 ;; A lane can have several runs. Sorting by subject would report whichever id
@@ -58,30 +52,28 @@
 ;; failure. These ids are deliberately ordered opposite to their timestamps.
 (check! "reports the most recent failure, not the last subject alphabetically"
         (= "newest"
-           (with-details {"@run:zzz" "oldest" "@run:aaa" "newest"}
-             #(provider-error-detail
-               [(entry "@run:zzz" "2026-07-29T01:00:00Z")
-                (entry "@run:aaa" "2026-07-29T09:00:00Z")]))))
+           (provider-error-detail
+            [(entry "@run:zzz" "2026-07-29T01:00:00Z" "oldest")
+             (entry "@run:aaa" "2026-07-29T09:00:00Z" "newest")])))
 
 (check! "ordering holds regardless of input order"
         (= "newest"
-           (with-details {"@run:zzz" "oldest" "@run:aaa" "newest"}
-             #(provider-error-detail
-               [(entry "@run:aaa" "2026-07-29T09:00:00Z")
-                (entry "@run:zzz" "2026-07-29T01:00:00Z")]))))
+           (provider-error-detail
+            [(entry "@run:aaa" "2026-07-29T09:00:00Z" "newest")
+             (entry "@run:zzz" "2026-07-29T01:00:00Z" "oldest")])))
 
 ;; --- runs without a detail must not mask one that has it --------------------
 (check! "a later run with no detail does not hide an earlier real cause"
         (= "the cause"
-           (with-details {"@run:a" "the cause"}
-             #(provider-error-detail
-               [(entry "@run:a" "2026-07-29T01:00:00Z")
-                (entry "@run:b" "2026-07-29T09:00:00Z")]))))
+           (provider-error-detail
+            [(entry "@run:a" "2026-07-29T01:00:00Z" "the cause")
+             (entry "@run:b" "2026-07-29T09:00:00Z")])))
 
 ;; --- a missing timestamp must not throw -------------------------------------
 (check! "a run with an unparseable `at` is tolerated"
-        (some? (with-details {"@run:a" "boom"}
-                 #(provider-error-detail [{:subject "@run:a" :facts {}}]))))
+        (some? (provider-error-detail
+                [{:subject "@run:a"
+                  :facts {"provider_error_detail" #{"boom"}}}])))
 
 (println (format "trace-cause: %d / %d PASS" (- @checks @failures) @checks))
 (System/exit (if (zero? @failures) 0 1))

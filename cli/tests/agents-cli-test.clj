@@ -274,64 +274,60 @@
                                        (get malformed control) {})
                       "lifecycle")))))
 
-(let [rotated-subject "@run:lane-rotated-run-2"
-      native-subject "@run:lane-native-run-1"
-      native-run-facts
-      (merge (marked-terminal {}) {"agent" "lane-native" "kind" "run"
+(let [first-subject "@run:lane-first-run-2"
+      second-subject "@run:lane-second-run-1"
+      first-run-facts
+      (merge (marked-terminal {}) {"agent" "lane-first" "kind" "run"
+                                    "at" "2026-07-20T08:00:00Z"})
+      second-run-facts
+      (merge (marked-terminal {}) {"agent" "lane-second" "kind" "run"
                                     "at" "2026-07-20T09:00:00Z"})
-      query-calls (atom 0)
-      many-calls (atom 0)
-      subject-by-control {"lane-rotated" rotated-subject "lane-native" native-subject}
+      query-calls (atom [])
+      show-calls (atom [])
+      subject-by-control {"lane-first" first-subject "lane-second" second-subject}
       projection
       (with-redefs
-       [north.coord/query-page
-        (fn [_port query _limit _after]
-          (swap! query-calls inc)
+       [north.coord/bounded-query-in-domain
+        (fn [port domain query limit]
+          (swap! query-calls conj [port domain query limit])
           (let [requested-controls
                 (into #{}
                       (map #(get-in % [:body 0 :args 2]))
                       (:rules query))]
-            {:ok (mapv vector
-                       (keep #(get subject-by-control %) requested-controls))
-             :more false :version 1 :engine "scan"}))
-        north.coord/many
-        (fn [_port subject predicate]
-          (swap! many-calls inc)
-          (cond
-            ;; The rotated lane's run rows are torn mid-write: reading any of
-            ;; its predicates throws, simulating the observed 2026-07-24
-            ;; reservation-rotation failure on delivery.
-            (= subject rotated-subject)
-            (throw (ex-info "torn rotated-run predicate row" {}))
-
-            (= subject native-subject)
-            (if-let [value (get native-run-facts predicate)]
-              [value]
-              [])
-
-            :else []))]
-       (roster-run-entries ["lane-rotated" "lane-native"]))
+            {:rows (mapv vector
+                         (keep #(get subject-by-control %) requested-controls))
+             :served-version 1}))
+        north.coord/show-many-in-domain
+        (fn [port domain subjects]
+          (swap! show-calls conj [port domain subjects])
+          {:version 1
+           :rows
+           (into {}
+                 (map (fn [subject]
+                        [subject
+                         (mapv vec
+                               (if (= subject first-subject)
+                                 first-run-facts
+                                 second-run-facts))]))
+                 subjects)})]
+       (roster-run-entries ["lane-first" "lane-second"]))
       resolutions
       (attach-lane-resolutions
-       ["lane-rotated" "lane-native"]
-       {"lane-rotated" {"kind" "lane"} "lane-native" {"kind" "lane"}}
+       ["lane-first" "lane-second"]
+       {"lane-first" {"kind" "lane"} "lane-second" {"kind" "lane"}}
        projection)]
-  (check "roster-run-entries isolates a rotated/torn run to its own id, never poisoning a batch-mate"
+  (check "roster-run-entries resolves the full live batch"
          (and (:ok projection)
-              (map? (get-in projection [:by-agent "lane-rotated"]))
-              (contains? (get-in projection [:by-agent "lane-rotated"]) :err)
-              (vector? (get-in projection [:by-agent "lane-native"]))))
-  (check "the unrelated batch-mate's roster resolution stays real, not run-projection-malformed"
-         (and (= :indeterminate
-                 (get-in resolutions ["lane-rotated" lane-resolution-key :status]))
-              (= :run-projection-unavailable
-                 (get-in resolutions ["lane-rotated" lane-resolution-key :reason]))
               (= :resolved
-                 (get-in resolutions ["lane-native" lane-resolution-key :status]))
-              (= "ran"
-                 (get-in resolutions ["lane-native" lane-resolution-key :outcome]))))
-  (check "isolation degrades to per-id retries rather than one shared union call"
-         (>= @query-calls 2)))
+                 (get-in resolutions ["lane-first" lane-resolution-key :status]))
+              (= :resolved
+                 (get-in resolutions ["lane-second" lane-resolution-key :status]))))
+  (check "roster run resolution performs one bounded query and one batched subject read"
+         (and (= 1 (count @query-calls))
+              (= [7977 :telemetry max-roster-run-candidates]
+                 (let [[port domain _query limit] (first @query-calls)]
+                   [port domain limit]))
+              (= [[7977 :telemetry [first-subject second-subject]]] @show-calls))))
 
 (check "terminal roster state separates process exit from delivery truth"
        (and (str/includes?
@@ -447,71 +443,42 @@
          (and (= "anthropic" (:provider route))
               (not= "fable" (:model route)))))
 
-(let [bulk [(str root "/bin/north") "json" "agents"]
-      calls (atom [])
-      indexed (atom [])
-      facts (with-redefs [run
-                          (fn [argv & _]
-                            (swap! calls conj argv)
-                            (if (= argv bulk)
-                              {:ok false :exit 1 :err "malformed warm row"}
-                              (throw (ex-info "unexpected subprocess identity read"
-                                              {:argv argv}))))
-                          north.coord/indexed-query
-                          (fn [port query max-rows]
-                            (swap! indexed conj [port query max-rows])
-                            (let [subject (get-in query [:rules 0 :body 0 :args 0])]
-                              {:ok (if (= "@agent:sdk-recovered" subject)
-                                     [["provider" "openai"]
-                                      ["model" "gpt-5.6-sol"]]
-                                     [])
-                               :version 1
-                               :engine "index"}))]
-              (agent-facts ["sdk-recovered" "legacy-session"]))]
-  (check "a failed bulk projection recovers structured identity per live agent"
-         (= {"provider" "openai" "model" "gpt-5.6-sol"}
-            (select-keys (get facts "sdk-recovered") ["provider" "model"])))
-  (check "a fact-less legacy row stays honestly unknown"
-         (and (= {} (get facts "legacy-session"))
-              (str/starts-with? (agent-primary-line {:online true} (get facts "legacy-session" {}))
-                                "unknown · unknown · unknown · orchestration:legacy-debt")))
-  (check "fallback uses one bounded coordinator query per missing live id and no show subprocess"
-         (and (= [bulk] @calls)
-              (= [7977 7977] (mapv first @indexed))
-              (= [max-agent-facts-one-rows max-agent-facts-one-rows]
-                 (mapv #(nth % 2) @indexed))
-              (= ["@agent:sdk-recovered" "@agent:legacy-session"]
-                 (mapv #(get-in (second %) [:rules 0 :body 0 :args 0])
-                       @indexed)))))
+(let [calls (atom [])
+      facts (with-redefs [north.coord/show-rows
+                          (fn [port subject]
+                            (swap! calls conj [port subject])
+                            [["provider" "openai"]
+                             ["model" "gpt-5.6-sol"]])]
+              (agent-facts-one "sdk-current"))]
+  (check "one-agent identity reads use the exact-subject FRAMRPC facade"
+         (and (= {"provider" "openai" "model" "gpt-5.6-sol"}
+                 (select-keys facts ["provider" "model"]))
+              (= [[7977 "@agent:sdk-current"]] @calls))))
 
 (let [calls (atom [])
       failed
-      (with-redefs [north.coord/send-op
-                    (fn [port operation]
-                      (swap! calls conj
-                             [port north.coord/*operation-domain* operation])
+      (with-redefs [north.coord/show-many-in-domain
+                    (fn [port domain subjects]
+                      (swap! calls conj [port domain subjects])
                       (throw (ex-info "coordination unavailable" {})))]
         (roster-facts
          (mapv #(str "lane-" %) (range max-live-controls))))
       valid-empty
-      (with-redefs [north.coord/send-op
-                    (fn [& _] {:version 1 :log "/tmp/coordination.log"
-                               :facts []})]
+      (with-redefs [north.coord/show-many-in-domain
+                    (fn [& _] {:version 1 :rows {}})]
         (roster-facts ["lane-a"]))
       malformed
-      (with-redefs [north.coord/send-op
-                    (fn [& _] {:version 1 :log "/tmp/coordination.log"
-                               :facts [["@agent:lane-a" "task"]]})]
+      (with-redefs [north.coord/show-many-in-domain
+                    (fn [& _] {:version 1
+                               :rows {"@agent:lane-a" [["task"]]}})]
         (roster-facts ["lane-a"]))]
-  (check "coordination roster failure performs one bounded call, never a 2N fallback"
+  (check "coordination roster failure performs one batched call"
          (and (= 1 (count @calls))
               (= "agent subject projection unavailable" (:err failed))))
   (check "live roster identity reads only coordination-owned @agent subjects"
-         (let [[port domain operation] (first @calls)
-               subjects (:subjects operation)]
+         (let [[port domain subjects] (first @calls)]
            (and (= 7977 port)
                 (= :coordination domain)
-                (= :facts-for-subjects (:op operation))
                 (= max-live-controls (count subjects))
                 (every? #(str/starts-with? % "@agent:") subjects)
                 (not-any? #(str/starts-with? % "@session:") subjects))))
@@ -568,21 +535,31 @@
 (let [out (with-redefs [presence-rows (fn [] {:agents []})
                         roster-facts (fn [_] {:agents {} :sessions {}})]
             (with-out-str (cmd-agents ["--verbose"])))]
-  (check "verbose roster output retains the internal presence probe"
-         (str/includes? out "presence-cli.clj")))
+  (check "verbose roster output names the FRAMRPC presence projection"
+         (str/includes? out "FRAMRPC presence projection :7977")))
 
-(let [valid (with-redefs [run (fn [& _]
-                                {:ok true
-                                 :out "{\"version\":\"north:presence-online:v1\",\"sessions\":[{\"control_id\":\"lane-a\",\"online\":true,\"expires_s\":7}]}"})]
+(let [exp (+ (System/currentTimeMillis) 8000)
+      calls (atom [])
+      valid (with-redefs [north.coord/online-session-leases
+                          (fn [port now]
+                            (swap! calls conj [port now])
+                            [{:handle "lane-a" :exp exp}])]
               (presence-rows))
-      prose (with-redefs [run (fn [& _]
-                                {:ok true :out "AGENT ONLINE EXPIRES\nlane-a yes 7s\n"})]
-              (presence-rows))]
-  (check "roster intake consumes the strict presence JSON contract"
-         (= [{:id "lane-a" :online true :expires-s 7 :expires "7s"}]
-            (:agents valid)))
-  (check "roster intake rejects prose instead of scraping human columns"
-         (= "presence projection was malformed" (:err prose))))
+      malformed
+      (with-redefs [north.coord/online-session-leases
+                    (fn [& _] [{:handle "../lane" :exp exp}])]
+        (presence-rows))]
+  (check "roster intake uses one canonical batched session-lease read"
+         (and (= 1 (count @calls))
+              (= 7977 (ffirst @calls))
+              (integer? (second (first @calls)))))
+  (check "roster intake projects the checked live session"
+         (let [row (first (:agents valid))]
+           (and (= "lane-a" (:id row))
+                (:online row)
+                (<= 6 (:expires-s row) 8))))
+  (check "missing batched lease status fails closed"
+         (= "presence projection was malformed" (:err malformed))))
 
 (let [help (proc/shell {:out :string :err :string :continue true
                         :extra-env {"NO_COLOR" "1"}}
@@ -601,7 +578,7 @@
 
 (let [steer (proc/shell {:out :string :err :string :continue true
                          :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                        "bb" (str root "/cli/agents-cli.clj") "steer"
+                        (str root "/bin/north") "steer"
                         "probe-agent" "probe-message" "--dry-run")]
   (check "steer remains parseable and keeps the internal control key"
          (and (zero? (:exit steer))
@@ -668,7 +645,7 @@
 
 (let [dry (proc/shell {:out :string :err :string :continue true
                        :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                      "bb" (str root "/cli/agents-cli.clj") "spawn" "designer" "probe"
+                      (str root "/bin/north") "spawn" "designer" "probe"
                       "--provider" "openai"
                       "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "openai"}])
                       "--ad-hoc"
@@ -681,7 +658,7 @@
 
 (let [closed (proc/shell {:out :string :err :string :continue true
                           :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                         "bb" (str root "/cli/agents-cli.clj") "spawn" "designer" "probe"
+                         (str root "/bin/north") "spawn" "designer" "probe"
                          "--provider" "anthropic"
                          "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "anthropic"}])
                          "--ad-hoc"
@@ -693,7 +670,7 @@
 
 (let [dry (proc/shell {:out :string :err :string :continue true
                        :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                      "bb" (str root "/cli/agents-cli.clj") "spawn" "designer" "probe"
+                      (str root "/bin/north") "spawn" "designer" "probe"
                       "--provider" "openai" "--target" "codex-work"
                       "--pin-evidence" (pin-evidence-json
                                         [{:kind "provider" :value "openai"}
@@ -707,7 +684,7 @@
 
 (let [missing-pin (proc/shell {:out :string :err :string :continue true
                                :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                              "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
+                              (str root "/bin/north") "spawn" "executor" "probe"
                               "--provider" "openai" "--ad-hoc" "--dry-run")]
   (check "new public CLI provider pins fail closed without typed current evidence"
          (and (not (zero? (:exit missing-pin)))
@@ -717,7 +694,7 @@
 
 (let [assessed (proc/shell {:out :string :err :string :continue true
                             :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                           "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
+                           (str root "/bin/north") "spawn" "executor" "probe"
                            "--assessment" (economy-assessment-json) "--ad-hoc" "--dry-run")]
   (check "public CLI accepts a canonical Orchestration assessment and forwards only its recorded marker"
          (and (zero? (:exit assessed))
@@ -727,7 +704,7 @@
 (let [missing-max-assessment
       (proc/shell {:out :string :err :string :continue true
                    :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                  "bb" (str root "/cli/agents-cli.clj") "spawn" "executor" "probe"
+                  (str root "/bin/north") "spawn" "executor" "probe"
                   "--tier" "frontier" "--reasoning" "max"
                   "--override-reason" "exceptional deliberation required"
                   "--ad-hoc"
@@ -737,6 +714,57 @@
               (str/includes? (str (:out missing-max-assessment) (:err missing-max-assessment))
                              "reasoning=max requires a canonical routingAssessment")
               (not (str/includes? (:out missing-max-assessment) "control:")))))
+
+(let [directory (.toFile
+                 (java.nio.file.Files/createTempDirectory
+                  "north-retask-fence-"
+                  (make-array java.nio.file.attribute.FileAttribute 0)))
+      bare "lane-fence"
+      fence-file (io/file directory (str bare ".presence-fence.json"))
+      valid (str "{\"resource\":\"session:" bare
+                 "\",\"holder\":\"" bare "\",\"epoch\":7}\n")
+      owner-only
+      #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
+        java.nio.file.attribute.PosixFilePermission/OWNER_WRITE}]
+  (try
+    (spit fence-file valid)
+    (java.nio.file.Files/setPosixFilePermissions (.toPath fence-file) owner-only)
+    (check "retask consumes the exact canonical saved presence fence"
+           (= (str/trim valid)
+              (saved-presence-fence-json! bare (.getPath directory))))
+    (java.nio.file.Files/setPosixFilePermissions
+     (.toPath fence-file)
+     #{java.nio.file.attribute.PosixFilePermission/OWNER_READ})
+    (check "retask refuses a saved presence fence whose mode is not 0600"
+           (try
+             (saved-presence-fence-json! bare (.getPath directory))
+             false
+             (catch clojure.lang.ExceptionInfo _ true)))
+    (java.nio.file.Files/setPosixFilePermissions (.toPath fence-file) owner-only)
+    (spit fence-file
+          "{\"resource\":\"session:other\",\"holder\":\"lane-fence\",\"epoch\":7}\n")
+    (check "retask refuses a presence fence bound to another session"
+           (try
+             (saved-presence-fence-json! bare (.getPath directory))
+             false
+             (catch clojure.lang.ExceptionInfo _ true)))
+    (spit fence-file valid)
+    (java.nio.file.Files/setPosixFilePermissions (.toPath fence-file) owner-only)
+    (let [captured (atom nil)]
+      (with-redefs [north.topology-authority/require-coordination! (fn [_] true)
+                    agent-facts-one (fn [_] {"kind" "lane"})
+                    render-display-name (fn [_ _] "Retasked lane")
+                    saved-presence-fence-json! (fn [_] (str/trim valid))
+                    run (fn [argv & _]
+                          (reset! captured argv)
+                          {:ok true :out "" :err ""})]
+        (cmd-retask [bare "new goal"])
+        (check "retask passes five empty optional slots then the exact fence"
+               (= ["" "" "" "" "" (str/trim valid)]
+                  (subvec (vec @captured) 6 12)))))
+    (finally
+      (doseq [file (reverse (file-seq directory))]
+        (try (io/delete-file file true) (catch Throwable _ nil))))))
 
 (let [results @checks pass (count (filter second results))]
   (doseq [[label ok?] results]

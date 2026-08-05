@@ -75,18 +75,6 @@
 (defn- bare-subject [value]
   (str/replace-first (str value) #"^@" ""))
 
-(defn- parse-facts [raw]
-  (try
-    (let [facts (json/parse-string (str/trim raw) true)]
-      (when (and (sequential? facts)
-                 (every? #(and (map? %)
-                               (= #{:predicate :value} (set (keys %)))
-                               (string? (:predicate %))
-                               (string? (:value %)))
-                         facts))
-        (vec facts)))
-    (catch Exception _ nil)))
-
 (defn- tell-fact! [subject predicate value]
   (let [result (run-command [NORTH-CLI "tell" (bare-subject subject)
                              predicate value]
@@ -100,13 +88,18 @@
     true))
 
 (defn- read-thread! [thread]
-  (let [result (run-command [NORTH-CLI "json" "show" (bare-subject thread)]
-                            {} 30000)
-        facts (when (:ok result) (parse-facts (:out result)))]
-    (when-not facts
+  (let [subject (str "@" (bare-subject thread))
+        rows (try
+               (north.coord/show-rows
+                (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
+                subject)
+               (catch Exception _ ::unavailable))]
+    (when (= ::unavailable rows)
       (throw (ex-info (str "could not read captured canary thread @" thread)
-                      {:stage :thread-read :thread thread :result result})))
-    facts))
+                      {:stage :thread-read :thread thread})))
+    (mapv (fn [[predicate value]]
+            {:predicate predicate :value value})
+          rows)))
 
 (defn- capture-thread! [title]
   (let [env (assoc (into {} (System/getenv))
@@ -207,8 +200,64 @@
               {:stage :delegate :target target :thread thread :result result})))
     {:control control :pin evidence :delegate result}))
 
+(def canary-report-facts-query
+  {:find "north_canary_report_fact"
+   :rules
+   [{:head {:rel "north_canary_report_fact"
+            :args [{:var "run"} {:var "predicate"} {:var "value"}]}
+     :body [{:rel "triple" :args [{:var "run"} "kind" "run"]}
+            {:rel "triple"
+             :args [{:var "run"} {:var "predicate"} {:var "value"}]}]}]})
+
+(def canary-report-page-size 4096)
+
+(defn query-all-pages [port domain query]
+  (loop [cursor nil served-version nil rows []]
+    (let [page (north.coord/query-page-in-domain
+                port domain query canary-report-page-size cursor served-version)
+          page-version (:served-version page)
+          page-rows (:rows page)]
+      (when-not (and (integer? page-version)
+                     (not (neg? page-version))
+                     (vector? page-rows)
+                     (boolean? (:done? page))
+                     (if (:done? page) (nil? (:cursor page)) (some? (:cursor page)))
+                     (or (nil? served-version) (= served-version page-version)))
+        (throw (ex-info "canary report page was malformed"
+                        {:stage :report-read})))
+      (let [all-rows (into rows page-rows)]
+        (if (:done? page)
+          all-rows
+          (recur (:cursor page) page-version all-rows))))))
+
 (defn current-run-rows []
-  (-> (default-paths) read-ops fold-facts run-rows vec))
+  (let [port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
+        run-triples (query-all-pages port :telemetry canary-report-facts-query)
+        agent-subjects
+        (->> run-triples
+             (keep (fn [[subject predicate value]]
+                     (when (and (= "agent" predicate)
+                                (north.terminal-projection/valid-run-entity? subject))
+                       (str "@agent:" value))))
+             distinct sort vec)
+        agent-rows
+        (if (seq agent-subjects)
+          (:rows (north.coord/show-many-in-domain
+                  port :coordination agent-subjects))
+          {})
+        triples
+        (into run-triples
+              (mapcat (fn [[subject rows]]
+                        (map (fn [[predicate value]]
+                               [subject predicate value])
+                             rows)))
+              agent-rows)]
+    (->> triples
+         (map (fn [[subject predicate value]]
+                {:op "assert" :l subject :p predicate :r value}))
+         fold-facts
+         run-rows
+         vec)))
 
 (def max-terminal-run-candidates 32)
 
@@ -220,11 +269,11 @@
             {:rel "triple" :args [{:var "run"} "agent" control]}
             {:rel "triple" :args [{:var "run"} "thread" (thread-ref thread)]}]}]})
 
-(defn exact-run-facts [port subject]
+(defn run-facts [rows]
   (reduce (fn [facts [predicate value]]
             (update facts predicate (fnil conj []) value))
           {}
-          (:rows (north.coord/show-envelope port subject))))
+          rows))
 
 (defn terminal-canary-row [subject facts control thread]
   (let [process (north.terminal-projection/committed-run-process-outcome facts)
@@ -256,16 +305,27 @@
 (defn terminal-row-for [control thread]
   (let [port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
         response
-        (north.coord/indexed-query-in-domain
+        (north.coord/bounded-query-in-domain
          port :telemetry (canary-terminal-run-query control thread)
          max-terminal-run-candidates)
         subjects
-        (mapv first
-              (filter #(and (vector? %) (= 1 (count %))
-                            (north.terminal-projection/valid-run-entity? (first %)))
-                      (:ok response)))
-        rows (keep #(terminal-canary-row % (exact-run-facts port %) control thread)
-                   (distinct subjects))
+        (->> (:rows response)
+             (keep #(when (and (vector? %) (= 1 (count %))
+                               (north.terminal-projection/valid-run-entity? (first %)))
+                      (first %)))
+             distinct sort vec)
+        projected
+        (if (seq subjects)
+          (north.coord/show-many-in-domain port :telemetry subjects)
+          {:version (:served-version response) :rows {}})
+        rows-by-subject (:rows projected)
+        _ (when-not (and (map? rows-by-subject)
+                         (every? #(contains? (set subjects) %) (keys rows-by-subject)))
+            (throw (ex-info "canary run projection was malformed"
+                            {:stage :wait :control control :thread thread})))
+        rows (keep #(terminal-canary-row
+                     % (run-facts (get rows-by-subject % [])) control thread)
+                   subjects)
         latest-at (some->> rows (map :at-instant) sort last)
         latest (filter #(= latest-at (:at-instant %)) rows)]
     ;; Equal latest timestamps cannot establish which immutable run is current.
