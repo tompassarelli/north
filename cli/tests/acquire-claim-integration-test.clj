@@ -12,7 +12,7 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_PATH")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (def acquire-cli (str root "/cli/acquire-cli.clj"))

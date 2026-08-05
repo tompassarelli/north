@@ -16,7 +16,7 @@
   (or (System/getenv "NORTH_TEST_FRAM_ROOT")
       (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_PATH")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def runtime-classpath (str test-root "/out:" fram-root "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str test-root "/cli/coord.clj"))

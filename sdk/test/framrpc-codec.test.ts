@@ -1,6 +1,6 @@
-// Golden frames in fixtures/framrpc-golden-frames.json were produced by fram's
-// own encoder (`bb -cp ~/code/fram/main/out` driving coord-daemon-wire), so an
-// assertion here is a cross-check against the authority the daemon parses with,
+// Golden frames in fixtures/framrpc-golden-frames.json were produced by Fram's
+// own encoder (`bb -cp "$FRAM_OUT"` loading `framrpc`), so an
+// assertion here is a cross-check against the server's wire authority,
 // not against this module's own idea of the format.
 import { expect, test } from "bun:test";
 import { createServer } from "node:net";

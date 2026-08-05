@@ -1,9 +1,9 @@
 #!/usr/bin/env bb
-;; Regenerate framrpc-golden-frames.json from fram's own encoder — the frames MUST
-;; come from the authority the daemon decodes with, never from the SDK codec:
-;;   bb -cp ~/code/fram/main/out sdk/test/fixtures/framrpc-golden-frames.gen.clj \
+;; Regenerate framrpc-golden-frames.json from Fram's own encoder — the frames MUST
+;; come from the server's wire authority, never from the SDK codec:
+;;   bb -cp "$FRAM_OUT" sdk/test/fixtures/framrpc-golden-frames.gen.clj \
 ;;     > sdk/test/fixtures/framrpc-golden-frames.json
-(require '[coord-daemon-wire :as w]
+(require '[framrpc :as w]
          '[fram.types :as t]
          '[cheshire.core :as json])
 

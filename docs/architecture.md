@@ -6,8 +6,8 @@ change X."
 
 ## The layer stack
 
-**Engine** → [Fram](https://github.com/Autonymy/fram), checked out separately
-(`FRAM_HOME`, default `~/code/fram/main` per [`bin/north`](../bin/north)).
+**Engine** → [Fram](https://github.com/Autonymy/fram), selected by the installed
+wrapper through the sealed FRAMRPC environment.
 Fram is a slot-addressable, typed-triple substrate: the triple store, the
 Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it and
 does not fork it — it links Fram's library API, so Fram's exact source revision

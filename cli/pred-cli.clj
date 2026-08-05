@@ -666,8 +666,8 @@
     :reason "peer tell carries a caller-supplied predicate to a non-agent subject"}
    {:id "peer-command-args" :path "cli/msg-cli.clj"
     :reason "extensible peer command argument keys become fact predicates"}
-   {:id "legacy-runmeta" :path "cli/presence-cli.clj"
-    :reason "legacy runmeta accepts extension fields; fixed SDK run telemetry does not"}
+   {:id "presence-runmeta" :path "cli/presence-cli.clj"
+    :reason "presence runmeta accepts extension fields; fixed SDK run telemetry does not"}
    {:id "registry-define" :path "cli/pred-cli.clj"
     :reason "operators may explicitly define an additional executable predicate entity"}])
 
