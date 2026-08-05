@@ -74,13 +74,6 @@ ROUTING — providers, accounts, dispatch posture
   north failover check|fire         classify active rungs; compose/launch a provider-recovery lead
                                     fire --thread ID --brief PATH [--dry-run] — only fire may launch
   north spend status|init|override  API-billing budget: cap, reserved, settled, headroom
-                                    performance [--all] — current managed evidence (--all: legacy history)
-                                    usage — provider work usage (never dollars / API credits)
-                                    waste — trailing 1M-token managed machinery-waste gate
-                                    economics — bounded routing-cost signals + alert-only findings
-                                    promotions — bespoke patterns for stock-template review
-                                    calibration — run-local judgment/struggle detector cohorts
-                                    learning — exact evaluation cohorts plus explicit evidence exclusions
   north ccr prepare|retrieve        default-off structured-output CCR canary
   north handoff                     legacy — renamed — use north failover
 

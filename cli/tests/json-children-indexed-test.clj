@@ -255,8 +255,7 @@
             "NORTH_AGENTS_LIB" "1"
             "NORTH_BIN" (str root "/bin/north")
             "NORTH_HOME" root
-            "NO_COLOR" "1"
-            "WORLD_MANIFEST_PATH" "/tmp/north-json-children-indexed-no-manifest"}
+            "NO_COLOR" "1"}
            routed-env)}
          (command-for mode id))
         _ (.close server)

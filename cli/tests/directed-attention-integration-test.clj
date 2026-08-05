@@ -259,9 +259,11 @@
     (merge
      {"HOME" (.getCanonicalPath tmp)
       "XDG_CONFIG_HOME" (str (.getCanonicalPath tmp) "/config")
+      "FRAM_HOME" "/test/fram"
+      "FRAM_BIN" "/test/fram/bin"
+      "FRAM_OUT" "/test/fram/out"
       "NORTH_BB" "/run/current-system/sw/bin/echo"
-      "NORTH_PORT" "47891"
-      "WORLD_MANIFEST_PATH" (str (.getCanonicalPath tmp) "/no-manifest")}
+      "NORTH_PORT" "47891"}
      env)}
    north-wrapper args))
 
