@@ -10,29 +10,48 @@
 ;;   bb north-reconcile.clj <port> agent <uuid>         — runs for one agent
 (require '[clojure.java.io :as io])
 
-;; shared coord substrate (Foundation Part B): send-op lives once in cli/coord.clj.
+;; Shared FRAMRPC coordination facade.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op north.coord/send-op)
 
 (defn all-runs [port]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "r"
-                                   :rules [{:head {:rel "r" :args [{:var "e"}]}
-                                            :body [{:rel "triple" :args [{:var "e"} "kind" "run"]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "r"
+         :rules [{:head {:rel "r" :args [{:var "e"}]}
+                  :body [{:rel "triple" :args [{:var "e"} "kind" "run"]}]}]})
        (map first)
        sort))
 
+(def run-predicates
+  ["agent" "tokens" "input_tokens" "output_tokens" "cache_read_tokens"
+   "cache_create_tokens" "cached_input_tokens" "reasoning_output_tokens"
+   "usage_terminal_count" "usage_scope" "usage_total_status"
+   "duration_ms" "num_turns" "codex_turn_units" "codex_tool_items" "stop_reason" "model"
+   "provider" "effort" "wall_s" "estimate_output_tokens"
+   "confidence" "fallback_count" "fallback_path" "outcome" "ended_at" "at"])
+
 (defn run-meta [port re]
-  (let [preds ["agent" "tokens" "input_tokens" "output_tokens" "cache_read_tokens"
-               "cache_create_tokens" "cached_input_tokens" "reasoning_output_tokens"
-               "usage_terminal_count" "usage_scope" "usage_total_status"
-               "duration_ms" "num_turns" "codex_turn_units" "codex_tool_items" "stop_reason" "model"
-               "provider" "effort" "wall_s" "estimate_output_tokens"
-               "confidence" "fallback_count" "fallback_path" "outcome" "ended_at" "at"]]
-    (reduce (fn [m p]
-              (let [v (:value (send-op port {:op :resolved :te re :p p}))]
-                (if v (assoc m (keyword p) v) m)))
-            {:entity re} preds)))
+  (let [wanted (set run-predicates)
+        values
+        (reduce (fn [out [predicate value]]
+                  (if (contains? wanted predicate)
+                    (update out predicate (fnil conj []) value)
+                    out))
+                {}
+                (:rows (north.coord/show-envelope port re)))]
+    (reduce
+     (fn [metadata predicate]
+       (let [found (get values predicate [])]
+         (case (count found)
+           0 metadata
+           1 (assoc metadata (keyword predicate) (first found))
+           (throw (ex-info "run metadata predicate is ambiguous"
+                           {:type :ambiguous-run-metadata
+                            :entity re
+                            :predicate predicate
+                            :values found})))))
+     {:entity re}
+     run-predicates)))
 
 (defn parse-num [s] (when s (try (parse-double s) (catch Exception _ nil))))
 
