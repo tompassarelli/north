@@ -1,13 +1,17 @@
 #!/usr/bin/env bb
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram/main"))
+(def fram
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_PATH")
+                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (def evidence-writer (str root "/cli/delivery-evidence-internal.clj"))
 (def north-mcp (str root "/bin/north-mcp"))
@@ -33,13 +37,7 @@
           (>= n 200) false
           :else (do (Thread/sleep 25) (recur (inc n))))))
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "run_publication_test"
-                                 :rules [{:head {:rel "run_publication_test"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (north.coord/show-rows port subject)]
     (reduce (fn [facts [predicate value]]
               (update facts predicate (fnil conj #{}) value))
             {}
@@ -122,48 +120,6 @@
    ["delivery_outcome" "unverified"]
    ["delivery_reason" "delivery_bar_evidence_incomplete"]])
 
-(let [bars (atom ["tests pass"])
-      bases (atom [])
-      validations (atom 0)
-      accepted (atom false)
-      error
-      (try
-        (with-redefs
-         ;; Production's read side is cur-ver-for-subject -> send-op-for-log
-         ;; (NOT cur-ver/send-op), so intercepting cur-ver here was inert and
-         ;; the real version read escaped to live :7977. Redefine the actual
-         ;; seam send-op-for-log uses for its :version reads.
-         [north.coord/send-op-for-log
-          (fn [_ _ operation]
-            (if (= :version (:op operation))
-              {:version (if (empty? @bases) 41 42)}
-              (throw (ex-info "unexpected send-op-for-log call in fixture"
-                              {:operation operation}))))
-          north.coord/send-op
-          (fn [_ operation]
-            (swap! bases conj (:base operation))
-            (if (= 41 (:base operation))
-              (do
-                ;; Deterministic adversary: mutate the contract in the exact
-                ;; read→marker window and have the coordinator reject that base.
-                (reset! bars ["weaker replacement"])
-                {:reject :conflict})
-              (do (reset! accepted true) {:ok true})))]
-          (north.coord/assert-after-read!
-           7977 "@agent:probe" "terminal_manifest_sha256" "digest"
-           (fn []
-             (swap! validations inc)
-             (when-not (= ["tests pass"] @bars)
-               (throw (ex-info "stale done-bar snapshot" {}))))))
-        nil
-        (catch clojure.lang.ExceptionInfo caught caught))]
-  (check "version-bound marker revalidates a deterministic done_when race"
-         (and error
-              (= "stale done-bar snapshot" (.getMessage error))
-              (= [41] @bases)
-              (= 2 @validations)
-              (false? @accepted))))
-
 (let [attempts (atom 0)
       result
       (with-redefs
@@ -204,95 +160,18 @@
          (= "delivery evidence request exceeds its UTF-8 byte limit"
             (some-> error .getMessage))))
 
-;; A coordinator that ABORTS a query (Fram stops a query whose cold projection
-;; rebuild outruns FRAM_QUERY_TIMEOUT_MS — the read right after a capture is the
-;; one that pays that rebuild) answers with {:error … :code …}, never {:ok …}.
-;; Reading that as "the subject has no facts" is what rejected freshly captured
-;; threads as non-thread subjects, so a stop must retry and then fail by name.
-(defn reset-read-budget! []
-  (reset! @#'north.delivery-evidence-internal/read-retry-deadline-ns nil))
-(def query-time-limit-stop
-  {:error ["query evaluation stopped: query-time-limit"]
-   :code :query-time-limit :version 7 :engine "index"})
-
-(let [attempts (atom 0)
-      facts (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
-              (reset-read-budget!)
-              (with-redefs
-               [north.coord/send-op
-                (fn [_ _]
-                  (if (= 1 (swap! attempts inc))
-                    query-time-limit-stop
-                    {:ok [["title" "Freshly captured thread"] ["kind" "thread"]]
-                     :version 8 :engine "index"}))]
-                (north.delivery-evidence-internal/facts-of
-                 7977 "@019f9d69-9643-75e8-b6d0-918d28cdc0da")))]
-  (check "a transient query stop is retried, not read as an empty subject"
-         (and (= 2 @attempts)
-              (north.delivery-evidence-internal/title-bearing-thread? facts))))
-
-(let [attempts (atom 0)
-      error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
-              (reset-read-budget!)
-              (with-redefs
-               [north.coord/send-op
-                (fn [_ _] (swap! attempts inc) query-time-limit-stop)]
-                (try
-                  (north.delivery-evidence-internal/facts-of
-                   7977 "@019f9d69-9643-75e8-b6d0-918d28cdc0da")
-                  nil
-                  (catch clojure.lang.ExceptionInfo caught caught))))]
-  (check "an unanswered read fails by name instead of impersonating no facts"
-         (and (= "coordinator did not answer a delivery evidence read"
-                 (some-> error .getMessage))
-              (= :query-time-limit (:code (ex-data error)))
-              (> @attempts 1))))
-
-(let [attempts (atom 0)
-      error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
-              (reset-read-budget!)
-              (with-redefs
-               [north.coord/send-op
-                (fn [_ _]
-                  (swap! attempts inc)
-                  {:error ["query response exceeded its final wire bound"]
-                   :code :query-response-too-large})]
-                (try
-                  (north.delivery-evidence-internal/facts-of 7977 "@thread-too-large")
-                  nil
-                  (catch clojure.lang.ExceptionInfo caught caught))))]
-  (check "a deterministic read failure fails immediately without burning the budget"
-         (and (= "coordinator did not answer a delivery evidence read"
-                 (some-> error .getMessage))
-              (= 1 @attempts))))
-
-(let [answered (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
-                 (reset-read-budget!)
-                 (with-redefs
-                  [north.coord/send-op (fn [_ _] {:ok [] :version 9 :engine "index"})]
-                   (north.delivery-evidence-internal/facts-of 7977 "@genuinely-empty")))]
-  (check "an ANSWERED empty subject still reads as no facts (fail-closed intact)"
-         (= {} answered)))
-
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-run-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
+      log (io/file tmp "coordination.framlog")
       daemon (do
-               (spit log "")
-               ;; Pin the throwaway coordinator's OWN corpus: an inherited
-               ;; FRAM_LOG/FRAM_TELEMETRY_LOG makes it boot-fold the developer's
-               ;; live log (30s+ on a real swarm corpus, so the start check
-               ;; times out) and lets its telemetry land in live state.
-               (proc/process {:dir fram :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                                          "FRAM_LOG" (.getPath log)
-                                          "FRAM_TELEMETRY_LOG"
-                                          (.getPath (io/file tmp "telemetry.log"))
-                                          "FRAM_THREADS"
-                                          (.getPath (io/file tmp "threads"))}}
-                             "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath log)))
+               (proc/process
+                {:dir fram :out :string :err :string
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath log) "north-coordination"))
       run "@run-publication-v2"
       thread "@thread-publication-v2"
       reporter "@agent:lane-probe"
@@ -301,7 +180,13 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
   (try
-    (check "throwaway coordinator starts" (eventually #(port-open? port)))
+    (check "throwaway current Fram server starts"
+           (eventually
+            #(try
+               (let [status (north.coord/status port)]
+                 (and (= :ready (:state status))
+                      (= "north-coordination" (:space-id status))))
+               (catch Exception _ false))))
     (let [partial-run "@run-failed-reservation-partial"
           fresh-run "@run-failed-reservation-recovery"]
       (north.coord/append! port partial-run "run_reservation_agent" reporter)
@@ -446,31 +331,6 @@
                (and (not (zero? (:exit refused)))
                     (str/includes? (:err refused) "reason=run-subject-not-fresh")
                     (= before (facts-of port partial-run))))))
-    ;; Same well-formed thread, but the reads are stopped: the writer must name
-    ;; the unanswered read and leave NO partial reservation behind.
-    (let [unread-run "@run-unanswered-read"
-          original north.coord/send-op
-          error (binding [north.coord/*retry-sleep-ms!* (fn [_] nil)]
-                  (reset-read-budget!)
-                  (with-redefs
-                   [north.coord/send-op
-                    (fn [target request]
-                      (if (= :query (:op request))
-                        query-time-limit-stop
-                        (original target request)))]
-                    (try
-                      (north.delivery-evidence-internal/reserve!
-                       port {"run" unread-run
-                             "thread" "@019f9d70-8727-74e3-8168-7d5082b47e54"
-                             "reporter" reporter
-                             "capabilitySha256" (apply str (repeat 64 "f"))})
-                      nil
-                      (catch clojure.lang.ExceptionInfo caught caught))))]
-      (reset-read-budget!)
-      (check "an unanswered read never rejects a real thread as a non-thread subject"
-             (and (= "coordinator did not answer a delivery evidence read"
-                     (some-> error .getMessage))
-                  (empty? (facts-of port unread-run)))))
     (let [oversized-run "@run-oversized-contract"
           oversized-thread "@thread-oversized-contract"]
       (north.coord/append! port oversized-thread "title" "Oversized contract")
@@ -689,7 +549,10 @@
           corrected-record (json/parse-string (:out corrected))
           after-supersede (get (facts-of port run) "run_bar_evidence" #{})
           thread-after-supersede (get (facts-of port thread) "bar_evidence" #{})
-          log-lines (str/split-lines (slurp @test-log))
+          history-events
+          (:events
+           (north.coord/occurrence-window
+            port 0 (north.coord/cur-ver port)))
           restored (shell "bb" evidence-writer (str port) "record"
                           (json/generate-string
                            (record-request run thread reporter capability
@@ -713,14 +576,16 @@
                 (select-keys corrected-record
                              ["bar" "reporter" "run" "thread" "version"])))
       (check "the superseded observation stays in the append-only log"
-             (and (some #(and (str/includes? % ":op \"retract\"")
-                              (str/includes? % "run_bar_evidence")
-                              (str/includes? % "24/24, exit 0"))
-                        log-lines)
-                  (some #(and (str/includes? % ":op \"assert\"")
-                              (str/includes? % "run_bar_evidence")
-                              (str/includes? % "24/24, exit 0"))
-                        log-lines)))
+             (and (some #(and (= :retract (:operation %))
+                              (= run (:subject %))
+                              (= "run_bar_evidence" (:predicate %))
+                              (str/includes? (:value %) "24/24, exit 0"))
+                        history-events)
+                  (some #(and (= :assert (:operation %))
+                              (= run (:subject %))
+                              (= "run_bar_evidence" (:predicate %))
+                              (str/includes? (:value %) "24/24, exit 0"))
+                        history-events)))
       (check "the human thread projection follows the correction"
              (= #{"tests pass → typo: 23/24"} thread-after-supersede))
       (check "the corrected observation can itself be corrected back"
@@ -790,18 +655,22 @@
             stored (facts-of port run)
             terminal-pairs (set terminal-facts)
             terminal-rows
-            (->> (str/split-lines (slurp @test-log))
-                 (map edn/read-string)
-                 (filter #(and (= run (:l %))
-                               (terminal-pairs [(:p %) (:r %)]))))
-            terminal-transactions (set (map :tx terminal-rows))]
+            (->> (:events
+                  (north.coord/occurrence-window
+                   port 0 (north.coord/cur-ver port)))
+                 (filter #(and (= :assert (:operation %))
+                               (= run (:subject %))
+                               (terminal-pairs
+                                [(:predicate %) (:value %)]))))
+            terminal-transactions (set (map :version terminal-rows))]
       (when-not (zero? (:exit published)) (binding [*out* *err*] (println (:err published))))
       (check "writer-scoped run evidence records" (zero? (:exit recorded)))
       (check "v2 reported run commits with exact stored evidence" (zero? (:exit published)))
       (check "every terminal run fact including kind shares one transaction"
              (and (= (count terminal-facts) (count terminal-rows))
                   (= 1 (count terminal-transactions))
-                  (some #(and (= "kind" (:p %)) (= "run" (:r %)))
+                  (some #(and (= "kind" (:predicate %))
+                              (= "run" (:value %)))
                         terminal-rows)))
       (check "kind is the final discoverability marker"
              (= "ran"

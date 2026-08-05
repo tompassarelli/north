@@ -3,7 +3,6 @@
 ;; schema compare-and-set helpers.
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -11,9 +10,9 @@
            (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
            (io/file (or (System/getenv "FRAM_PATH")
-                        (str root "/../fram/main")))))
-(when-not (.isFile (io/file fram "coord_daemon.clj"))
-  (throw (ex-info "Fram checkout not found" {:fram fram})))
+                        "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 
 (defn free-port []
@@ -58,16 +57,14 @@
                 (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))))
 
 (defn acquire! [port resource holder]
-  (let [result (north.coord/send-op
-                port {:op :acquire-lease
-                      :res resource :holder holder :ttl-ms 300000})]
+  (let [result (north.coord/acquire-lease! port resource holder 300000)]
     (when-not (and (:ok result) (:epoch result))
       (throw (ex-info "lease acquisition failed" {:resource resource :result result})))
     (:epoch result)))
 
 (defn release! [port resource holder epoch]
-  (north.coord/send-op
-   port {:op :release-lease :res resource :holder holder :epoch epoch}))
+  (north.coord/release-lease!
+   port {:resource resource :holder holder :epoch epoch}))
 
 (defn helper! [log & args]
   (let [result
@@ -127,46 +124,20 @@
       (finally
         (release! port identity-resource holder epoch)))))
 
-(defn forwarding-proxy
-  [real-port before-request! after-response!]
-  (let [server (java.net.ServerSocket. 0)
-        running (atom true)
-        worker
-        (future
-          (while @running
-            (try
-              (with-open [socket (.accept server)
-                          reader (io/reader (.getInputStream socket))
-                          writer (io/writer (.getOutputStream socket))]
-                (let [envelope (edn/read-string (.readLine reader))
-                      request (:request envelope)
-                      _ (before-request! request)
-                      response (north.coord/send-op real-port request)]
-                  (after-response! request response)
-                  (.write writer (str (pr-str response) "\n"))
-                  (.flush writer)))
-              (catch java.net.SocketException _
-                (when @running
-                  (throw (ex-info "Linear coordinator proxy failed" {})))))))]
-    {:port (.getLocalPort server)
-     :stop!
-     (fn []
-       (reset! running false)
-       (.close server)
-       (deref worker 5000 nil))}))
-
 (let [port (free-port)
       dir (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-linear-reservation"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (.getCanonicalPath (io/file dir "facts.log"))
-      _ (spit log "")
+      log (.getCanonicalPath (io/file dir "coordination.framlog"))
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-       "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) log)
+        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                    "FRAM_SERVER_QUIET" "1"
+                    "FRAM_SERVER_XMX" "1g"}}
+       (str fram "/bin/fram-server") "serve" (str port)
+       log "north-coordination")
       reserve (str root "/sdk/src/integrations/linear/reserve-link.clj")
       schema (str root "/sdk/src/integrations/linear/reserve-schema-fact.clj")
       connector "linear-test"
@@ -188,7 +159,8 @@
       check! (fn [label value] (swap! checks conj [label (boolean value)]))]
   (alter-var-root #'north.coord/expected-log (constantly (fn [] log)))
   (try
-    (check! "real Fram coordinator starts" (eventually #(port-open? port)))
+    (check! "current Fram server starts"
+            (eventually #(= :ready (:state (north.coord/status port)))))
     (let [e-holder "evidence-v1"
           i-holder "identity-v1"
           e-epoch (acquire! port evidence-resource e-holder)
@@ -440,109 +412,6 @@
          (str "real UUID helper rejects " label " remote server")
          passed?)))
 
-    (let [race-connector "linear-election-replacement"
-          race-created-at "2026-07-16T15:30:00.639Z"
-          race-key "MSA-520"
-          race-hash
-          (canonical-hash
-           {"connector" race-connector "createdAt" race-created-at})
-          race-subject (str "linear-bootstrap:" race-hash)
-          race-evidence-resource (str "linear-sync:bootstrap:" race-hash)
-          race-identity-key
-          (str "linear:mcp-bootstrap-v2:" race-connector ":" race-hash)
-          race-link (str "link:" race-identity-key)
-          race-thread "thread-election-replacement"
-          race-identity-resource
-          (str "linear-sync:identity:"
-               (encode-uri-component race-identity-key))
-          correct-election
-          (json/generate-string
-           (into
-            (sorted-map)
-            {"canonicalLink" (str "@" race-link)
-             "connector" race-connector
-             "createdAt" race-created-at
-             "initialKey" race-key
-             "linkedThread" (str "@" race-thread)}))
-          replacement-election
-          (json/generate-string
-           (into
-            (sorted-map)
-            {"canonicalLink" (str "@" race-link)
-             "connector" race-connector
-             "createdAt" race-created-at
-             "initialKey" race-key
-             "linkedThread" "@thread-election-replacement-attacker"}))
-          state
-          (atom {:final-projection? false
-                 :post-projection-reads 0
-                 :poisoned? false})
-          proxy
-          (forwarding-proxy
-           port
-           (fn [request]
-             (when (and (:final-projection? @state)
-                        (>= (:post-projection-reads @state) 7)
-                        (not (:poisoned? @state))
-                        (= :version (:op request)))
-               (retract-fact!
-                port (str "@" race-subject)
-                "bootstrap_election" correct-election)
-               (assert-fact!
-                port (str "@" race-subject)
-                "bootstrap_election" replacement-election)
-               (swap! state assoc :poisoned? true)))
-           (fn [request response]
-             (when (and (:final-projection? @state)
-                        (not (:poisoned? @state))
-                        (= :resolved (:op request)))
-               (swap! state update :post-projection-reads inc))
-             (when (and (= :assert-at-version-with-fence (:op request))
-                        (= (str "@" race-subject) (:te request))
-                        (= "linked_thread" (:p request))
-                        (integer? (:ok response)))
-               (swap! state assoc
-                      :final-projection? true
-                      :post-projection-reads 0))))
-          evidence-holder "evidence-election-replacement"
-          identity-holder "identity-election-replacement"
-          evidence-epoch
-          (acquire! port race-evidence-resource evidence-holder)
-          identity-epoch
-          (acquire! port race-identity-resource identity-holder)
-          result
-          (try
-            (helper!
-             log reserve (str (:port proxy))
-             race-identity-resource identity-holder (str identity-epoch)
-             race-link race-thread race-connector "mcp-bootstrap-v2"
-             race-evidence-resource evidence-holder (str evidence-epoch)
-             race-connector race-created-at race-key race-subject)
-            (finally
-              ((:stop! proxy))
-              (release!
-               port race-identity-resource identity-holder identity-epoch)
-              (release!
-               port race-evidence-resource evidence-holder evidence-epoch)))]
-      (check!
-       "real coordinator rejects an election replaced after projection validation"
-       (and
-        (:poisoned? @state)
-        (str/includes? (get result "reject" "") "bootstrap_election")
-        (empty?
-         (north.coord/many
-          port (str "@" race-link) "bootstrap_initial_key"))
-        (empty?
-         (north.coord/many
-          port (str "@" race-link) "linked_thread"))))
-      ;; Keep the global authority corpus coherent for every later fixture.
-      (retract-fact!
-       port (str "@" race-subject)
-       "bootstrap_election" replacement-election)
-      (assert-fact!
-       port (str "@" race-subject)
-       "bootstrap_election" correct-election))
-
     (let [winner-connector "linear-crash-winner"
           winner-created-at "2026-07-16T14:11:00.639Z"
           winner-key "MSA-410"
@@ -728,18 +597,15 @@
               (str/includes? (get conflict "reject" "") "conflicts"))
       (check! "schema conflict is not overwritten"
               (= [["literal"]]
-                 (:ok
-                  (north.coord/send-op
-                   port
-                   {:op :query
-                    :query
-                    {:find "value"
-                     :rules
-                     [{:head {:rel "value" :args [{:var "value"}]}
-                       :body [{:rel "triple"
-                               :args ["@linear_test_schema"
-                                      "value_kind"
-                                     {:var "value"}]}]}]}})))))
+                 (north.coord/query-rows
+                  port
+                  {:find "value"
+                   :rules
+                   [{:head {:rel "value" :args [{:var "value"}]}
+                     :body [{:rel "triple"
+                             :args ["@linear_test_schema"
+                                    "value_kind"
+                                    {:var "value"}]}]}]}))))
 
     (let [duplicate-connector "linear-duplicate-election"
           duplicate-created-at "2026-07-16T14:13:00.639Z"

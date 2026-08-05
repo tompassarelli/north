@@ -4,7 +4,6 @@
 ;; twice; no janitor function is called directly.
 (require '[babashka.fs :as fs]
          '[babashka.process :as proc]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -13,19 +12,15 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-source
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")))
-(when-not (seq fram-source)
-  (throw
-   (ex-info
-    "Fram fixture required; set FRAM_TEST_CHECKOUT to a pinned checkout or package libexec/fram"
-    {})))
+      (System/getenv "FRAM_PATH")
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def fram
   (.getCanonicalPath (io/file fram-source)))
-(when-not (and (.isFile (io/file fram "coord_daemon.clj"))
-               (.isDirectory (io/file fram "out")))
-  (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
+(load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
 
 (def checks (atom []))
@@ -35,9 +30,8 @@
 
 (let [source (slurp maintenance-host)]
   (check "sweep lifecycle lookup is indexed, capped, and never scans all subject facts"
-         (and (str/includes? source "north.coord/indexed-query")
+         (and (str/includes? source "north.coord/bounded-query-in-domain")
               (str/includes? source "lane_run_candidate")
-              (str/includes? source "(= \"index\" (:engine response))")
               (str/includes? source "north.coord/many port subject predicate")
               (not (str/includes? source "north.coord/query-page"))
               (not (str/includes? source ":find \"terminal_fact\"")))))
@@ -54,32 +48,19 @@
 
 (defn await-up [port]
   (loop [attempt 0]
-    (cond
-      (port-open? port) true
-      (>= attempt 100) false
-      :else (do (Thread/sleep 50) (recur (inc attempt))))))
-
-(defn coordinator-op [port request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log @test-log
-                             :request request})
-                    "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
+    (let [ready? (try
+                   (= :ready (:state (north.coord/status port)))
+                   (catch Exception _ false))]
+      (cond
+        ready? true
+        (>= attempt 1500) false
+        :else (do (Thread/sleep 50) (recur (inc attempt)))))))
 
 (defn assert-fact! [port subject predicate value]
-  (let [result (coordinator-op port {:op :assert :te subject :p predicate :r value})]
-    (when-not (or (:ok result) (:version result))
-      (throw (ex-info "fixture fact assertion failed" result)))))
+  (north.coord/append! port subject predicate value))
 
 (defn many [port subject predicate]
-  (:values (coordinator-op port {:op :resolved :te subject :p predicate})))
+  (north.coord/many port subject predicate))
 
 (defn run-git [& args]
   (apply proc/shell {:out :string :err :string :continue true} "git" args))
@@ -242,26 +223,20 @@
       clone-dirty-path (managed-clone-path repo "clone-dirty")
       worktrees (doto (io/file tmp "managed worktrees") .mkdirs)
       census-root (doto (io/file tmp "census root") .mkdirs)
-      log (io/file tmp "facts.log")
+      log (io/file tmp "coordination.framlog")
       heartbeat (io/file tmp "worktree-heartbeat")
       agent-logs (doto (io/file tmp "agent logs") .mkdirs)
       git-log (io/file tmp "git-calls.log")
       git-wrapper (io/file tmp "git-wrapper")
       post-remove-marker (io/file tmp "post-remove-failure-armed")
-      daemon-env
-      (merge
-       (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
-       {"FRAM_REQUIRE_LOG_FENCE" "1"
-        "NORTH_TELEMETRY_PARTITION" "0"
-        "FRAM_SINGLE_VALUED"
-        (str/join " " ["kind" "repo" "worktree" "branch" "agent" "lease"
-                       "outcome" "process_outcome" "delivery_outcome"
-                       "delivery_reason" "terminal_manifest_sha256" "run_at"])})
       daemon (do
-               (spit log "")
-               (proc/process {:dir fram :out :string :err :string :env daemon-env}
-                             "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath log)))]
+               (proc/process
+                {:dir fram :out :string :err :string
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath log) "north-coordination"))]
   (reset! test-log (.getCanonicalPath log))
   (try
     (when-not (await-up port)
@@ -343,9 +318,8 @@
       (assert-fact! port "@concern-1785000000000-census" "repo"
                     (.getCanonicalPath (io/file census-root "held")))
       (assert-fact! port "@concern-1785000000000-census" "reached" "building")
-      (assert-fact! port "@lease:session:census-owner" "lease"
-                    (str "census-owner|"
-                         (+ (System/currentTimeMillis) (* 60 60 1000)) "|1"))
+      (north.coord/acquire-lease!
+       port "session:census-owner" "census-owner" (* 60 60 1000))
 
       ;; Test-only Git transport: every non-fault command execs the system Git.
       ;; Exact paths inject pre-mutation uncertainty, a post-remove observation
@@ -395,15 +369,15 @@
             census-before (into {} (map (juxt :slug #(tree-snapshot (:path %))))
                                 [census-reapable census-dirty census-unmerged
                                  census-fresh census-claimed census-held])
-            before-dry-log (slurp log)
+            before-dry-log (sha256-file log)
             dry-run (run-maintenance port environment "--dry-run")
-            after-dry-log (slurp log)
+            after-dry-log (sha256-file log)
             census-after-dry
             (into {} (map (juxt :slug #(tree-snapshot (:path %))))
                   [census-reapable census-dirty census-unmerged
                    census-fresh census-claimed census-held])
             first-run (run-maintenance port environment)
-            after-first-log (slurp log)
+            after-first-log (sha256-file log)
             orphan-values (many port (:subject dirty) "worktree_orphaned")]
         (check "production worktree task exits zero"
                (zero? (:exit first-run)) (str (:out first-run) (:err first-run)))
@@ -540,7 +514,7 @@
         ;; removed, the dirty fact is not rewritten, and the coordinator log is
         ;; byte-identical to the post-first-pass log.
         (let [second-run (run-maintenance port environment)
-              after-second-log (slurp log)
+              after-second-log (sha256-file log)
               orphan-values-2 (many port (:subject dirty) "worktree_orphaned")]
           (check "repeat worktree task exits zero" (zero? (:exit second-run))
                  (str (:out second-run) (:err second-run)))

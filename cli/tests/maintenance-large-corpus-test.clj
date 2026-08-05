@@ -10,17 +10,16 @@
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram-source
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")))
-(when-not (seq fram-source)
-  (throw
-   (ex-info
-    "Fram fixture required; set FRAM_TEST_CHECKOUT to a pinned checkout or package libexec/fram"
-    {})))
+      (System/getenv "FRAM_PATH")
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def fram
   (.getCanonicalPath (io/file fram-source)))
-(when-not (and (.isFile (io/file fram "coord_daemon.clj"))
-               (.isDirectory (io/file fram "out")))
-  (throw (ex-info "Fram fixture lacks coord_daemon.clj or out/" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+(load-file (str root "/cli/coord.clj"))
+(load-file (str fram "/database.clj"))
+(require '[database :as database]
+         '[fram.types :as t])
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def checks (atom []))
 (def control-subject-count 1352)
@@ -40,23 +39,23 @@
 
 (defn await-up [port]
   (loop [attempt 0]
-    (cond
-      (port-open? port) true
-      ;; Cold log ingestion is deliberately outside the timed sweep assertion.
-      ;; Give the interpreted test coordinator room to fold the full fixture.
-      (>= attempt 3600) false
-      :else (do (Thread/sleep 50) (recur (inc attempt))))))
+    (let [ready? (try
+                   (= :ready (:state (north.coord/status port)))
+                   (catch Throwable _ false))]
+      (cond
+        ready? true
+        ;; Cold FRAMLOG ingestion is deliberately outside the timed sweep.
+        (>= attempt 3600) false
+        :else (do (Thread/sleep 50) (recur (inc attempt)))))))
 
-(defn fact-line [tx subject predicate object]
-  (pr-str {:tx tx :op "assert" :l subject :p predicate
-           :r object :frame "maintenance-large-corpus-fixture"}))
+(defn fact-operation [subject predicate object]
+  {:action :assert
+   :proposition (t/triple subject predicate object)})
 
 (defn write-large-log! [file]
-  (with-open [writer (io/writer file)]
-    (let [tx (atom 0)
-          emit! (fn [subject predicate object]
-                  (.write writer (fact-line (swap! tx inc) subject predicate object))
-                  (.write writer "\n"))]
+  (let [operations (java.util.ArrayList.)
+        emit! (fn [subject predicate object]
+                (.add operations (fact-operation subject predicate object)))]
       ;; 2,210 subjects x 100 values = 221,000 live facts, sharing the
       ;; predicate/object vocabulary as high-volume telemetry does in practice.
       (doseq [subject-index (range 2210)
@@ -93,7 +92,13 @@
               (emit! run "at" "2026-01-01T00:01:00Z")
               (emit! run "outcome" "ran")
               (emit! run "kind" "run")))))
-      {:live-facts @tx :control-subjects control-subject-count})))
+      (let [path (.getCanonicalPath file)]
+        (database/create-triple-log! path "north-coordination" {:deflate? true})
+        (let [db (database/open-database! path "north-coordination")]
+          (doseq [batch (partition-all 4096 operations)]
+            (database/commit! db {:operations (vec batch)})))
+        {:live-facts (.size operations)
+         :control-subjects control-subject-count})))
 
 (def tmp (.toFile
           (java.nio.file.Files/createTempDirectory
@@ -102,7 +107,7 @@
 
 (try
   (let [port (free-port)
-        log (io/file tmp "facts.log")
+        log (io/file tmp "coordination.framlog")
         fixture (write-large-log! log)
         live-facts (:live-facts fixture)
         control-subjects (:control-subjects fixture)
@@ -111,13 +116,11 @@
         daemon
         (proc/process
          {:dir fram :out :string :err :string
-          :env
-          (merge
-           (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
-           {"FRAM_REQUIRE_LOG_FENCE" "1"
-            "NORTH_TELEMETRY_PARTITION" "0"})}
-         "bb" "-cp" "out" "coord_daemon.clj"
-         "serve-flat" (str port) (.getCanonicalPath log))]
+          :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                      "FRAM_SERVER_QUIET" "1"
+                      "FRAM_SERVER_XMX" "2g"}}
+         (str fram "/bin/fram-server") "serve" (str port)
+         (.getCanonicalPath log) "north-coordination")]
     (try
       (when-not (await-up port)
         (try (proc/destroy-tree daemon) (catch Throwable _ nil))
@@ -139,7 +142,7 @@
                "NORTH_MAINTENANCE_TASK_LOCK_PATH" (.getCanonicalPath (io/file tmp "task.lock"))
                ;; Completion, not the timeout terminal, is the regression bar.
                "NORTH_MAINTENANCE_TASK_TIMEOUT_MS" "60000"
-               "NORTH_COORD_READ_TIMEOUT_MS" "10000"}}
+               "NORTH_FRAMRPC_READ_TIMEOUT_MS" "10000"}}
              "bb" maintenance-host "stale-lanes" "--dry-run")
             elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
             output (str (:out result) (:err result))

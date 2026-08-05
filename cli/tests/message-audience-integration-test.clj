@@ -12,13 +12,16 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def peek-cli (str root "/cli/inbox-peek.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (def north-wrapper (str root "/bin/north"))
 (def north-arm (str root "/bin/north-arm"))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+(load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def children (atom []))
 (def test-log (atom nil))
@@ -57,37 +60,18 @@
       {:exit (:exit result)
        :stdout (or (:out result) "<unavailable>")
        :stderr (or (:err result) "<unavailable>")}))))
-(defn coordinator-op [port request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log @test-log
-                             :request request})
-                    "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
 (defn assert-fact! [port subject predicate value]
-  (let [result (coordinator-op port {:op :assert :te subject :p predicate :r value})]
-    (when (:reject result)
-      (throw (ex-info "fixture fact write failed" result)))
-    result))
+  (north.coord/append! port subject predicate value))
 (defn values-of [port subject predicate]
-  (set (:values (coordinator-op port {:op :resolved :te subject :p predicate}))))
+  (set (north.coord/many port subject predicate)))
 (defn subjects-with-value [port predicate value]
-  (->> (:ok
-        (coordinator-op
-         port
-         {:op :query
-          :query
-          {:find "subject"
-           :rules
-           [{:head {:rel "subject" :args [{:var "subject"}]}
-             :body [{:rel "triple"
-                     :args [{:var "subject"} predicate value]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "subject"
+         :rules
+         [{:head {:rel "subject" :args [{:var "subject"}]}
+           :body [{:rel "triple"
+                   :args [{:var "subject"} predicate value]}]}]})
        (map first)
        set))
 (defn run-cli [path port & args]
@@ -133,26 +117,24 @@
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-message-audience" (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "facts.log")
-      telemetry (io/file tmp "telemetry.log")
+      facts (io/file tmp "coordination.framlog")
+      telemetry (io/file tmp "telemetry.framlog")
       daemon (do
-               (spit facts "")
-               (spit telemetry "")
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                             "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
-                             "NORTH_TELEMETRY_PARTITION" "0"
-                             "NORTH_TELEMETRY_PORT" (str port)
-                             "FRAM_SINGLE_VALUED"
-                             "from subject body sent_at to acked_at broadcast_audience_version agent dir session_id started_at"}}
-                "bb" "-cp" "out" "coord_daemon.clj"
-                "serve-flat" (str port) (.getPath facts)))]
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath facts) "north-coordination"))]
   (reset! test-log (.getCanonicalPath facts))
   (reset! test-telemetry-log (.getCanonicalPath telemetry))
   (try
-    (let [started? (await-daemon-boot #(port-open? port))]
-      (check "throwaway Fram coordinator starts" started?)
+    (let [started? (await-daemon-boot
+                    #(try
+                       (= :ready (:state (north.coord/status port)))
+                       (catch Exception _ false)))]
+      (check "throwaway current Fram server starts" started?)
       (when-not started?
         (fail-daemon-boot! daemon)))
     (let [wrapper-probe
@@ -161,16 +143,16 @@
             :extra-env {"HOME" (.getPath tmp)
                         "NORTH_BB" "/run/current-system/sw/bin/echo"
                         "NORTH_PORT" (str port)}}
-           north-wrapper "listen" "wrapper-probe" "--scoped")]
+           north-wrapper "listen" "wrapper-probe")]
       (check "north listen behavior honors port and acknowledges before caller flags"
              (and (zero? (:exit wrapper-probe))
                   (str/includes?
                    (:out wrapper-probe)
                    (str listener-cli " " port
-                        " wrapper-probe --once --ack --scoped")))))
+                        " wrapper-probe --once --ack")))))
     (check "north-arm acknowledges before its one-shot exit"
            (str/includes? (slurp north-arm)
-                          "north-listen.clj\" 7977 \"${1:?usage: north-arm <agent-id>}\" --once --ack"))
+                          "exec \"$SCRIPT_DIR/north\" listen"))
     (doseq [handle ["sender" "alice" "bob"]]
       (check (str handle " has a live session lease")
              (zero? (:exit (register! port handle)))))
@@ -220,7 +202,7 @@
     ;; A live listener and an inbox-only recipient are both frozen into the same
     ;; send-time snapshot. The sender is explicitly excluded.
     (let [bob-log (io/file tmp "bob-once.log")
-          bob-listener (start-listener! port "bob" bob-log "--once" "--ack" "--scoped")]
+          bob-listener (start-listener! port "bob" bob-log "--once" "--ack")]
       (check "live listener establishes scoped subscription"
              (await-predicate #(log-has? bob-log "listening")))
       (let [result (run-msg port "send" "sender" "*" "snapshot-one" "finite audience")
@@ -272,7 +254,7 @@
     ;; listener receives the transport trigger but must ignore it and remain
     ;; armed until legitimately addressed.
     (let [charlie-log (io/file tmp "charlie-legacy.log")
-          charlie-listener (start-listener! port "charlie" charlie-log "--once" "--ack" "--scoped")
+          charlie-listener (start-listener! port "charlie" charlie-log "--once" "--ack")
           legacy "@msg:legacy-wildcard"]
       (check "legacy fixture listener establishes subscription"
              (await-predicate #(log-has? charlie-log "listening")))
@@ -300,7 +282,7 @@
     (check "racer has a live session lease"
            (zero? (:exit (register! port "racer"))))
     (let [racer-log (io/file tmp "racer-simultaneous.log")
-          racer-listener (start-listener! port "racer" racer-log "--ack" "--scoped")]
+          racer-listener (start-listener! port "racer" racer-log "--ack")]
       (check "simultaneous-delivery listener is armed"
              (await-predicate #(log-has? racer-log "listening")))
       (let [rounds
@@ -406,7 +388,7 @@
           listener-pairs
           (mapv (fn [handle]
                   (let [log (io/file tmp (str handle "-burst.log"))]
-                    [handle log (start-listener! port handle log "--ack" "--scoped")]))
+                    [handle log (start-listener! port handle log "--ack")]))
                 handles)]
       (doseq [[handle log _] listener-pairs]
         (check (str handle " burst listener is armed")

@@ -3,7 +3,6 @@
 ;; limited to repeat-safe tell/acquire; managed spawn/dispatch fail closed.
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -12,9 +11,12 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+(load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def test-log (atom nil))
 
@@ -32,47 +34,23 @@
           (>= attempt 200) false
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
 
-(defn coordinator-op [port request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log @test-log
-                             :request request})
-                    "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
-
 (defn assert-fact! [port subject predicate value]
-  (loop [attempt 0]
-    (let [base (:version (coordinator-op port {:op :version}))
-          result (coordinator-op port {:op :assert :te subject :p predicate :r value :base base})]
-      (cond (or (:ok result) (:version result)) result
-            (< attempt 10) (recur (inc attempt))
-            :else (throw (ex-info "fixture fact write failed" result))))))
+  (north.coord/append! port subject predicate value))
 
 (defn retract-fact! [port subject predicate value]
-  (loop [attempt 0]
-    (let [base (:version (coordinator-op port {:op :version}))
-          result (coordinator-op port {:op :retract :te subject :p predicate :r value :base base})]
-      (cond (or (:ok result) (:version result)) result
-            (< attempt 10) (recur (inc attempt))
-            :else (throw (ex-info "fixture fact retract failed" result))))))
+  (north.coord/retract! port subject predicate value))
 
 (defn values-of [port subject predicate]
-  (set (:values (coordinator-op port {:op :resolved :te subject :p predicate}))))
+  (set (north.coord/many port subject predicate)))
 (defn value-of [port subject predicate]
-  (:value (coordinator-op port {:op :resolved :te subject :p predicate})))
+  (north.coord/resolved port subject predicate))
 (defn command-subjects [port]
   (set (map first
-            (:ok (coordinator-op
-                  port {:op :query
-                        :query {:find "commands"
-                                :rules [{:head {:rel "commands" :args [{:var "c"}]}
-                                         :body [{:rel "triple" :args [{:var "c"} "op" {:var "o"}]}]}]}})))))
+            (north.coord/query-rows
+             port {:find "commands"
+                   :rules [{:head {:rel "commands" :args [{:var "c"}]}
+                            :body [{:rel "triple"
+                                    :args [{:var "c"} "op" {:var "o"}]}]}]}))))
 
 (defn command! [port id op arguments target]
   (let [subject (str "@cmd:" id)]
@@ -96,26 +74,29 @@
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-peer-command" (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "facts.log")
+      facts (io/file tmp "coordination.framlog")
       listener-log (io/file tmp "listener.log")
       daemon (do
-               (spit facts "")
-               (proc/process {:dir fram :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                                          "FRAM_SINGLE_VALUED"
-                                          "op target from id pred value resource holder title driver retryable"}}
-                             "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath facts)))]
+               (proc/process
+                {:dir fram :out :string :err :string
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath facts) "north-coordination"))]
   (reset! test-log (.getCanonicalPath facts))
   (try
-    (check "throwaway Fram coordinator starts" (await-predicate #(port-open? port)))
+    (check "throwaway current Fram server starts"
+           (await-predicate #(try
+                               (= :ready (:state (north.coord/status port)))
+                               (catch Exception _ false))))
     ;; A stale generation may still have advertised unsafe operations. The next
     ;; producer call must converge vocabulary before validating the request.
     (assert-fact! port "@cmd:vocab" "known_op" "spawn")
     (let [listener (proc/process {:out listener-log :err listener-log
                                   :extra-env {"AGENT_TOPOLOGY" "orchestrator"
                                               "FRAM_LOG" @test-log}}
-                                 "bb" listener-cli (str port) self "--react" "--scoped")]
+                                 "bb" listener-cli (str port) self "--react")]
       (try
         (check "listener establishes its scoped subscription"
                (await-predicate #(and (.exists listener-log)

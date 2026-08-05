@@ -11,8 +11,9 @@
 (def fram-root
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
-      (str (System/getProperty "user.home") "/code/fram/main")))
-(load-file (str fram-root "/tests/log_split_readiness_lib.clj"))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+(when-not (.isFile (io/file fram-root "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram-root})))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI
@@ -24,13 +25,17 @@
 
 (def checks (atom []))
 (defn check [label result] (swap! checks conj [label (boolean result)]))
-(def daemon-ready-deadline-ms 75000)
-(defn await-coordinator! [daemon port log]
-  (await-ready
-   daemon port
-   #(:ready (north.coord/strict-coordinator-status % log))
-   :deadline-ms daemon-ready-deadline-ms
-   :poll-ms 100))
+(defn free-port []
+  (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
+(defn await-coordinator! [port]
+  (loop [attempt 0]
+    (let [ready? (try
+                   (= :ready (:state (north.coord/status port)))
+                   (catch Exception _ false))]
+      (cond
+        ready? true
+        (>= attempt 750) false
+        :else (do (Thread/sleep 100) (recur (inc attempt)))))))
 
 (defn registration [nonce suffix]
   (let [subject (str "@worktree-allocation:" nonce)
@@ -74,23 +79,22 @@
       temp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-worktree-allocation-ledger"
                     (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file temp "coord.log")
+      log (io/file temp "coordination.framlog")
       daemon (do
-               (spit log "")
-               (proc/process {:dir fram-root :out :string :err :string
-                              :env (scratch-process-env
-                                    {"FRAM_REQUIRE_LOG_FENCE" "1"
-                                     "NORTH_COORD_SINGLE_ORIGIN" "1"})}
-                             (str fram-root "/bin/fram-daemon")
-                             "serve-flat" (str port) (.getCanonicalPath log)))
+               (proc/process
+                {:dir fram-root :out :string :err :string
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram-root "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath log) "north-coordination"))
       first-registration (registration "11111111-1111-4111-8111-111111111111" "1")
       second-registration (registration "22222222-2222-4222-8222-222222222222" "2")
       third-registration (registration "33333333-3333-4333-8333-333333333333" "3")]
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (await-coordinator! daemon port (.getCanonicalPath log))
-    (check "throwaway coordinator is strict-ready on its scratch log" true)
+    (check "throwaway current Fram server is ready" (await-coordinator! port))
 
     (let [encoded (json/generate-string first-registration)
           committed (shell log "bb" writer-path (str port) "register" encoded)

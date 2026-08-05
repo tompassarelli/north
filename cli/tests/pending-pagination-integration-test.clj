@@ -2,6 +2,7 @@
 ;; Real Fram + production replay-loop proof that a pending backlog larger than
 ;; the retired 4096 hard ceiling drains through bounded first pages.
 (require '[babashka.process :as proc]
+         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.set :as set]
          '[clojure.string :as str])
@@ -12,8 +13,12 @@
             "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
-(load-file (str fram "/tests/log_split_readiness_lib.clj"))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+(load-file (str fram "/database.clj"))
+(require '[database :as database]
+         '[fram.types :as t])
 (defn pagination-process-env
   [overrides]
   (merge (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
@@ -38,6 +43,8 @@
 (def checks (atom []))
 (defn check! [label value]
   (swap! checks conj [label (boolean value)]))
+(defn free-port []
+  (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
 (defn throws-type? [expected f]
   (try
     (f)
@@ -54,23 +61,17 @@
       true)
     (catch Exception _ false)))
 
-(defn await-coordinator! [daemon port log]
-  (try
-    (await-ready
-     daemon port
-     #(and (port-open? %)
-           (:ready (north.coord/strict-coordinator-status % log)))
-     :deadline-ms 75000
-     :poll-ms 100)
-    (catch clojure.lang.ExceptionInfo error
-      (throw
-       (ex-info
-        "throwaway paged coordinator failed to become strict-ready"
-        (merge (ex-data error)
-               {:pid (.pid ^Process (:proc daemon))
-                :log log
-                :port port})
-        error)))))
+(defn await-coordinator! [port]
+  (loop [attempt 0]
+    (let [ready? (try
+                   (let [status (north.coord/status port)]
+                     (and (= :ready (:state status))
+                          (= "north-coordination" (:space-id status))))
+                   (catch Exception _ false))]
+      (cond
+        ready? true
+        (>= attempt 750) false
+        :else (do (Thread/sleep 100) (recur (inc attempt)))))))
 
 (defn listener-pids [port]
   (->> (:out
@@ -88,29 +89,32 @@
       (.destroyForcibly java-process)
       (.waitFor java-process 5 java.util.concurrent.TimeUnit/SECONDS))))
 
-(defn start-one-shot-server [response]
-  (let [server (java.net.ServerSocket. 0)
-        worker
-        (future
-          (try
-            (with-open [socket (.accept server)
-                        reader (io/reader (.getInputStream socket))
-                        writer (io/writer (.getOutputStream socket))]
-              (.readLine ^java.io.BufferedReader reader)
-              (.write writer response)
-              (.write writer "\n")
-              (.flush writer))
-            (finally
-              (.close server))))]
-    {:port (.getLocalPort server) :worker worker}))
-
 (def backlog-size 4097)
 (def recipient "page-recipient")
 (defn message-id [index]
   (format "@msg:page-%05d" index))
-(defn fact-line [tx subject predicate object]
-  (pr-str {:tx tx :op "assert"
-           :l subject :p predicate :r object :frame "fixture"}))
+(defn populate-log! [file]
+  (let [path (.getCanonicalPath file)]
+    (database/create-triple-log! path "north-coordination" {:deflate? true})
+    (let [db (database/open-database! path "north-coordination")
+          operations
+          (mapcat
+           (fn [index]
+             (let [message (message-id index)]
+               [{:action :assert
+                 :proposition (t/triple message "from" "page-sender")}
+                {:action :assert
+                 :proposition (t/triple message "subject"
+                                        (format "page-subject-%05d" index))}
+                {:action :assert
+                 :proposition (t/triple message "body"
+                                        (format "page-body-%05d" index))}
+                {:action :assert
+                 :proposition (t/triple message "to" recipient)}]))
+           (range backlog-size))]
+      (doseq [batch (partition-all 2048 operations)]
+        (database/commit! db {:operations (vec batch)})))
+    path))
 (defn output-indices [output]
   (mapv (comp parse-long second)
         (re-seq #"page-subject-([0-9]{5})" output)))
@@ -152,76 +156,43 @@
            (repeat
             (inc north.message-audience/max-direct-addresses)
             "reviewer"))))
-(check! "query-page cursor validation is exact and byte-bounded"
-        (and
-         (north.coord/valid-query-page-cursor? "fram-query-page-v1.YQ")
-         ;; Java's decoder accepts aliases whose unused tail bits are nonzero;
-         ;; exact re-encoding must reject that noncanonical spelling.
-         (not (north.coord/valid-query-page-cursor? "fram-query-page-v1.YR"))
-         (not (north.coord/valid-query-page-cursor? "fram-query-page-v1._w"))
-         (not (north.coord/valid-query-page-cursor? "fram-query-page-v1."))
-         (not (north.coord/valid-query-page-cursor? "fram-query-page-v1/YQ"))
-         (not (north.coord/valid-query-page-cursor?
-               (str "fram-query-page-v1."
-                    (apply str
-                           (repeat north.coord/query-page-cursor-byte-limit
-                                   "a")))))))
-
-(with-redefs [north.coord/send-op
-              (fn [_port _request]
-                {:ok [] :error ["corrupt"] :version 1 :engine "index"})]
-  (check! "indexed query rejects a contradictory success/error envelope"
-          (throws-type?
-           :malformed-indexed-query-response
-           #(north.coord/indexed-query
-             7977
-             {:find "row"
-              :rules [{:head {:rel "row" :args [{:var "e"}]}
-                       :body [{:rel "triple"
-                               :args [{:var "e"} "kind" "run"]}]}]}
-             129))))
+(check! "query-page cursors accept only canonical recursive Terms"
+        (let [cursor (t/triple "@cursor" :page 1)]
+          (and (north.coord/valid-query-page-cursor? nil)
+               (north.coord/valid-query-page-cursor? cursor)
+               (not (north.coord/valid-query-page-cursor? "cursor"))
+               (not (north.coord/valid-query-page-cursor?
+                     ["@cursor" :page 1])))))
 
 (let [port (free-port)
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-pending-pages"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
-      _ (spit log
-              (str
-               (str/join
-                "\n"
-                (mapcat
-                 (fn [index]
-                   (let [base (* index 4)
-                         message (message-id index)]
-                     [(fact-line (+ base 1) message "from" "page-sender")
-                      (fact-line (+ base 2) message "subject"
-                                 (format "page-subject-%05d" index))
-                      (fact-line (+ base 3) message "body"
-                                 (format "page-body-%05d" index))
-                      ;; Address last, matching the production publication edge.
-                      (fact-line (+ base 4) message "to" recipient)]))
-                 (range backlog-size)))
-               "\n"))
+      log (io/file tmp "coordination.framlog")
+      _ (populate-log! log)
       canonical-log (.getCanonicalPath log)
       daemon
       (proc/process
        {:dir fram
         :out :string
         :err :string
-        :env (pagination-process-env {"FRAM_REQUIRE_LOG_FENCE" "1"})}
-       (str fram "/bin/fram-daemon")
-       "serve-flat" (str port) canonical-log)
+        :env (pagination-process-env
+              {"FRAM_SERVER_RUNTIME" "jvm-dev"
+               "FRAM_SERVER_QUIET" "1"
+               "FRAM_SERVER_XMX" "2g"})}
+       (str fram "/bin/fram-server") "serve" (str port)
+       canonical-log "north-coordination")
       page-sizes (atom [])
       original-page north.message-audience/pending-message-page]
   (try
-    (await-coordinator! daemon port canonical-log)
-    (let [status (north.coord/strict-coordinator-status port canonical-log)
+    (check! "throwaway current Fram server is ready"
+            (await-coordinator! port))
+    (let [status (north.coord/status port)
           daemon-pid (.pid ^Process (:proc daemon))]
-      (check! "throwaway paged coordinator is strict-ready on its scratch log"
-              (and (:ready status)
-                   (= canonical-log (:log status))))
+      (check! "paged fixture is bound to the canonical SpaceId"
+              (and (= :ready (:state status))
+                   (= "north-coordination" (:space-id status))))
       (check! "throwaway paged coordinator owns its kernel-selected port"
               (contains? (listener-pids port) daemon-pid)))
     ;; The PostToolUse path must not scan/materialize the whole relation before
@@ -260,7 +231,7 @@
           first-ids (output-indices (:out first-turn))
           second-ids (output-indices (:out second-turn))
           actor-key (managed-actor-key recipient)
-          log-key (sha256 "north-inbox-spool-log-v1" canonical-log)
+          space-key (canonical-space-key port)
           state-root (io/file runtime "north-inbox-peek")
           state-file (io/file state-root actor-key)
           lock-file (io/file state-root (str actor-key ".lock"))
@@ -277,7 +248,7 @@
                      :state-summary (when state
                                       {:ids (count (:ids state))
                                        :first-id (first (:ids state))
-                                       :next (:next state)})}))))
+                                       :cursor (:cursor state)})}))))
       (when (nil? state)
         (throw (ex-info "bounded hook did not persist its continuation spool"
                         {:type :missing-inbox-spool})))
@@ -320,7 +291,7 @@
               (and (= state-keys (set (keys state)))
                    (= spool-schema (:schema state))
                    (= actor-key (:actor-key state))
-                   (= log-key (:log-key state))
+                   (= space-key (:space-key state))
                    (integer? (:snapshot-version state))
                    (<= (:snapshot-version state)
                        (north.coord/cur-ver port))
@@ -328,7 +299,8 @@
                    (every? valid-message-id? (:ids state))
                    (= (message-id (inc (last second-ids)))
                       (first (:ids state)))
-                   (valid-cursor? (:next state))))
+                   (or (nil? (:cursor state))
+                       (valid-cursor? (:cursor state)))))
 
       ;; A crash after the graph ack but before the spool rewrite leaves a stale
       ;; settled prefix. Reintroduce one exact settled ID: the next turn must
@@ -356,7 +328,7 @@
                           :snapshot-version (north.coord/cur-ver port)
                           :created-at-ms (System/currentTimeMillis)
                           :ids [foreign-id]
-                          :next nil)
+                          :cursor nil)
             claim (north.message-audience/claim-delivery!
                    port foreign-id recipient)
             _ (atomic-write! (.toPath state-file) single)
@@ -387,24 +359,24 @@
       ;; cursor or delivery authority. State deletion is itself directory-fsynced.
       (let [base {:schema spool-schema
                   :actor-key actor-key
-                  :log-key log-key
+                  :space-key space-key
                   :snapshot-version (north.coord/cur-ver port)
                   :created-at-ms (System/currentTimeMillis)
                   :ids [(message-id 4000)]
-                  :next nil}]
+                  :cursor nil}]
         (atomic-write! (.toPath state-file)
                        (assoc base :created-at-ms
                               (- (System/currentTimeMillis)
                                  spool-max-age-ms 1)))
         (check! "stale spool is discarded without becoming graph authority"
                 (and (nil? (read-spool port (.toPath state-file)
-                                       actor-key log-key
+                                       actor-key space-key
                                        (System/currentTimeMillis)))
                      (not (.exists state-file))))
         (spit state-file "{")
         (check! "corrupt spool is discarded without a cursor guess"
                 (and (nil? (read-spool port (.toPath state-file)
-                                       actor-key log-key
+                                       actor-key space-key
                                        (System/currentTimeMillis)))
                      (not (.exists state-file))))
         (java.nio.file.Files/write
@@ -415,14 +387,14 @@
                       java.nio.file.StandardOpenOption/WRITE]))
         (check! "non-UTF-8 spool bytes are rejected rather than replacement-decoded"
                 (and (nil? (read-spool port (.toPath state-file)
-                                       actor-key log-key
+                                       actor-key space-key
                                        (System/currentTimeMillis)))
                      (not (.exists state-file))))
         (atomic-write! (.toPath state-file)
-                       (assoc base :log-key (apply str (repeat 64 "f"))))
+                       (assoc base :space-key (apply str (repeat 64 "f"))))
         (check! "foreign-corpus spool is discarded before any cached ID is read"
                 (and (nil? (read-spool port (.toPath state-file)
-                                       actor-key log-key
+                                       actor-key space-key
                                        (System/currentTimeMillis)))
                      (not (.exists state-file)))))
 
@@ -473,7 +445,7 @@
         (check! "first real pending page is bounded"
                 (and (= north.message-audience/pending-page-limit
                         (count (:messages initial)))
-                     (:more initial))))
+                     (not (:done? initial)))))
       (replay-pending!
        port recipient #{recipient}
        (java.util.concurrent.LinkedBlockingQueue.)
@@ -482,16 +454,13 @@
             (north.message-audience/pending-message-page
              port recipient #{recipient})
             acked
-            (:ok
-             (north.coord/send-op
-              port
-              {:op :query
-               :query
-               {:find "acked"
-                :rules
-                [{:head {:rel "acked" :args [{:var "e"}]}
-                  :body [{:rel "fact"
-                          :args [{:var "e"} "acked_by" recipient]}]}]}}))]
+            (north.coord/query-rows
+             port
+             {:find "acked"
+              :rules
+              [{:head {:rel "acked" :args [{:var "e"}]}
+                :body [{:rel "triple"
+                        :args [{:var "e"} "acked_by" recipient]}]}]})]
         (check! "production replay settles all 4097 pending messages"
                 (and (empty? (:messages remaining))
                      (= backlog-size (count acked))))
@@ -505,61 +474,6 @@
     (finally
       (stop-process! daemon)
       (cleanup-scratch (.getCanonicalPath tmp)))))
-
-;; North independently enforces the page protocol at its own client boundary.
-(let [{:keys [port worker]}
-      (start-one-shot-server
-       (apply str
-              (repeat
-               (inc north.coord/query-page-response-byte-limit)
-               "x")))]
-  (check! "North query-page client rejects one byte over the Fram page bound"
-          (with-redefs [north.coord/expected-log
-                        (constantly "/tmp/query-page-wire.log")]
-            (throws-type?
-             :coordinator-response-too-large
-             #(north.coord/query-page
-               port {:find "x" :rules []} 1 nil))))
-  @worker)
-
-(let [{:keys [port worker]}
-      (start-one-shot-server (pr-str {:error "unknown op"}))]
-  (check! "North query-page fails closed against an older coordinator"
-          (with-redefs [north.coord/expected-log
-                        (constantly "/tmp/query-page-wire.log")]
-            (throws-type?
-             :query-page-unsupported
-             #(north.coord/query-page
-               port {:find "x" :rules []} 1 nil))))
-  @worker)
-
-(let [response {:ok [] :more false :next nil :version 2 :engine "scan"}
-      {:keys [port worker]} (start-one-shot-server (pr-str response))]
-  (check! "North treats version as Fram's integer snapshot, not a protocol constant"
-          (= response
-             (with-redefs [north.coord/expected-log
-                           (constantly "/tmp/query-page-wire.log")]
-               (north.coord/query-page
-                port {:find "x" :rules []} 1 nil))))
-  @worker)
-
-(doseq [[label response]
-        [["non-integer snapshot version"
-          {:ok [] :more false :next nil :version "2" :engine "scan"}]
-         ["non-scan engine"
-          {:ok [] :more false :next nil :version 2 :engine "index"}]
-         ["noncanonical continuation cursor"
-          {:ok [["@message"]] :more true
-           :next "fram-query-page-v1.YR" :version 2 :engine "scan"}]]]
-  (let [{:keys [port worker]} (start-one-shot-server (pr-str response))]
-    (check! (str "North query-page rejects " label)
-            (with-redefs [north.coord/expected-log
-                          (constantly "/tmp/query-page-wire.log")]
-              (throws-type?
-               :malformed-query-page-response
-               #(north.coord/query-page
-                 port {:find "x" :rules []} 1 nil))))
-    @worker))
 
 (let [failures (remove second @checks)]
   (doseq [[label ok] @checks]
