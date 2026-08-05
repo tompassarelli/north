@@ -10,7 +10,7 @@
   (.getCanonicalPath (io/file cli-dir "..")))
 (def ^:private fram-out
   (or (not-empty (System/getenv "FRAM_OUT"))
-      (str (System/getProperty "user.home") "/code/fram/main/out")))
+      "/home/tom/code/fram/wt-core-target-production-5db9b38/out"))
 (classpath/add-classpath fram-out)
 (when-not (find-ns 'north.framrpc-client)
   (load-file (str cli-dir "/framrpc-client.clj")))
