@@ -40,7 +40,7 @@
                         overrides)))
 
 ;; ---- collection ------------------------------------------------------------
-(check "an empty queue is idle regardless of legacy clock telemetry"
+(check "an empty queue is idle regardless of previous clock telemetry"
        (= :idle (:action (plan {:requests []}))))
 
 (check "satisfied requests are not re-collected"
@@ -91,7 +91,7 @@
        ;; finds the queue intact rather than pre-burned.
        (= :queued (:action (plan {:coordination-on? false :last-window-ms nil}))))
 
-(check "the legacy last-fired timestamp remains readable telemetry"
+(check "the last-fired timestamp remains readable telemetry"
        (with-redefs
          [north.rebuild-request/queue-snapshot!
           (fn [_] {:snapshot {:last-fired-ms (- now 4000)}})]
@@ -119,9 +119,7 @@
            (swap! calls conj [port subject])
            [["kind" "rebuild-window"]
             ["window_action" "launching"]
-            ["window_request" request-id]])
-         north.coord/indexed-query
-         (fn [& _] (throw (ex-info "global query used" {})))]
+            ["window_request" request-id]])]
         (rq/load-window-record 7977 window-id))]
 (check "the request queue loads one exact window without a global query"
          (and (= [[7977 (str "@rebuild-window:" window-id)]] @calls)
@@ -140,9 +138,7 @@
                   "\"why\":\"land queued work\",\"createdAtMs\":" now ","
                   "\"urgent\":false}")]
             ["rebuild_request_satisfied"
-             "{\"intent\":\"intent-a\",\"generation\":\"/nix/store/gen\",\"atMs\":7}"]])
-         north.coord/indexed-query
-         (fn [& _] (throw (ex-info "global query used" {})))]
+             "{\"intent\":\"intent-a\",\"generation\":\"/nix/store/gen\",\"atMs\":7}"]])]
         (rq/decode-request 7977 subject))]
   (check "an exact request show supplies both request and settlement"
          (and (= [[7977 subject]] @calls)
@@ -182,36 +178,35 @@
 
 (let [shell-calls (atom [])
       settled (atom nil)
-      satisfied (atom [])
-      writes (atom [])
-      action (atom nil)
+      actions (atom nil)
       rc
       (with-redefs
         [rq/load-window-record (fn [_ _] window-record)
          rq/decode-request (fn [_ _] decoded-request)
+         north.coord/many
+         (fn [_ _ predicate]
+           (if (= "rebuild_request" predicate) ["present"] []))
          babashka.process/shell
          (fn [_ & args]
            (swap! shell-calls conj (vec args))
            {:exit 0 :out "" :err ""})
          rq/current-generation (fn [] "/nix/store/test-generation")
          north.rebuild-request/settle-window-queue!
-         (fn [_ id request-ids] (reset! settled [id request-ids]))
-         north.rebuild-request/write-satisfaction-projection!
-         (fn [_ id outcome] (swap! satisfied conj [id outcome]))
-         north.coord/put! (fn [& args] (swap! writes conj args))
-         north.rebuild-request/write-window-action-projection!
-         (fn [_ id value] (reset! action [id value]))]
+         (fn [_ id request-ids action-fn]
+           (reset! settled [id request-ids])
+           (reset! actions (action-fn)))]
         (rq/run-window! 7977 window-id))]
-(check "the Nix rebuild worker uses automatic mode without a second human intent ceremony"
+  (check "the Nix rebuild worker uses automatic mode without a second human intent ceremony"
          (and (zero? rc)
               (= "--automatic" (nth (first @shell-calls) 1))
               (= "--why" (nth (first @shell-calls) 2))
               (= [window-id [request-id]] @settled)
-              (= [[request-id {:intent nil :generation "/nix/store/test-generation"}]]
-                 @satisfied)
-              (= [window-id "fired"] @action)
-              (= "window_generation" (nth (first @writes) 2))))
-(check "a fired window schedules the canary outside the Nix rebuild worker"
+              (= #{"rebuild_request_satisfied" "window_generation" "window_action"}
+                 (set (map :predicate @actions)))
+              (= ["fired"]
+                 (mapv :value
+                       (filter #(= "window_action" (:predicate %)) @actions)))))
+  (check "a fired window schedules the canary outside the Nix rebuild worker"
          (let [canary-call (second @shell-calls)]
            (and (= 2 (count @shell-calls))
                 (= "systemd-run" (first canary-call))
@@ -219,42 +214,43 @@
                 (some #{"--property=Type=exec"} canary-call)
                 (= [(str root "/bin/north") "rebuild" "run-canary"
                     window-id "/nix/store/test-generation"]
-                   (subvec canary-call (- (count canary-call) 5)))
-                (= 1 (count @writes))))))
+                   (subvec canary-call (- (count canary-call) 5)))))))
 
 (let [shell-calls (atom [])
-      writes (atom [])]
+      publications (atom [])]
   (with-redefs
     [babashka.process/shell
      (fn [_ & args]
        (swap! shell-calls conj (vec args))
        {:exit 0 :out "canary green\n" :err ""})
-     north.coord/put! (fn [& args] (swap! writes conj args))]
+     north.coord/publish!
+     (fn [_ actions] (swap! publications conj actions) {:ok 1})]
     (rq/run-post-window-canary! 7977 window-id "/nix/store/test-generation"))
   (check "the detached canary records the landed generation result"
          (and (= [[(str root "/bin/north") "canary" "run" "--matrix"]]
                  @shell-calls)
-              (= "window_canary" (nth (first @writes) 2))
-              (str/includes? (nth (first @writes) 3) "\"status\":\"full-green\""))))
+              (= "window_canary" (get-in @publications [0 0 :predicate]))
+              (str/includes? (get-in @publications [0 0 :values 0])
+                             "\"status\":\"full-green\""))))
 
-(let [writes (atom [])
+(let [publications (atom [])
       alerts (atom [])]
   (with-redefs
     [babashka.process/shell
      (fn [_ & _] {:exit 1 :out "" :err "systemd unavailable"})
-     north.coord/put! (fn [& args] (swap! writes conj args))
+     north.coord/publish!
+     (fn [_ actions] (swap! publications conj actions) {:ok 1})
      rq/send-urgent-alert! (fn [message] (swap! alerts conj message))]
     (check "canary admission failure is recorded without reopening a fired window"
            (false? (rq/schedule-post-window-canary!
                     7977 window-id "/nix/store/test-generation"))))
   (check "canary admission failure alerts with durable window provenance"
-         (and (= "window_canary" (nth (first @writes) 2))
-              (str/includes? (nth (first @writes) 3)
+         (and (= "window_canary" (get-in @publications [0 0 :predicate]))
+              (str/includes? (get-in @publications [0 0 :values 0])
                              "\"status\":\"schedule-failure\"")
               (str/includes? (first @alerts) window-id))))
 
-(let [satisfied (atom [])
-      writes (atom [])
+(let [settled? (atom false)
       action (atom nil)
       rc
       (with-redefs
@@ -264,14 +260,13 @@
          (fn [_ & _] {:exit 7 :out "" :err "failed\n"})
          rq/current-generation
          (fn [] (throw (ex-info "failed child reached generation read" {})))
-         rq/mark-satisfied! (fn [& args] (swap! satisfied conj args))
-         north.coord/put! (fn [& args] (swap! writes conj args))
+         north.rebuild-request/settle-window-queue!
+         (fn [& _] (reset! settled? true))
          rq/set-window-action! (fn [_ id value] (reset! action [id value]))]
         (rq/run-window! 7977 window-id))]
   (check "a failed automatic child leaves requests open and the window retryable"
          (and (= 7 rc)
-              (empty? @satisfied)
-              (empty? @writes)
+              (false? @settled?)
               (= [window-id "failed"] @action))))
 
 ;; ---- composition bound -----------------------------------------------------

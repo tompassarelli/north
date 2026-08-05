@@ -1937,17 +1937,19 @@
     (doseq [defect (:defects preflight)]
       (println (str "  ✗ candidate preflight: " (pr-str defect))))))
 
-(defn require-offline-daemon!
+(defn require-offline-server!
   ([port log version]
-   (require-offline-daemon! port log version
+   (require-offline-server! port log version
                             (attest-selected-fram-runtime! port log)))
   ([port log version runtime]
-   (let [status (north.coord/strict-coordinator-status port log)]
-     (when-not (and (:ready status) (= version (:version status)))
-       (throw (ex-info "offline candidate coordinator is not strict-ready on the exact sealed corpus version"
-                       {:type :offline-candidate-daemon-mismatch
+   (let [status (north.coord/status port)]
+     (when-not (and (= :ready (:state status))
+                    (= version (:served-version status)))
+       (throw (ex-info "offline candidate Fram server is not ready on the exact sealed corpus version"
+                       {:type :offline-candidate-server-mismatch
                         :expected_version version :status status})))
-     (assoc status :runtime runtime))))
+     (assoc status :ready true :version (:served-version status)
+            :runtime runtime))))
 
 (defn reverify-source-snapshot! [opts expected]
   (let [actual (verify-source-snapshot! opts)]
@@ -2011,9 +2013,9 @@
                   prepared? (= :prepared (:state locked-state))
                   runtime (when prepared?
                             (attest-selected-fram-runtime! port (first paths)))
-                  daemon-status
+                  server-status
                   (if prepared?
-                    (require-offline-daemon!
+                    (require-offline-server!
                      port (first paths) (:version origin-corpus) runtime)
                     {:ready true :resumed_finalization true
                      :wire_skipped true :version (:version current)})
@@ -2054,7 +2056,7 @@
                   _ (when runtime
                       (runtime-attestation/assert-current! runtime))
                   build-evidence
-                  {:daemon daemon-status
+                  {:server server-status
                    :workspace_entry_state (:state locked-state)
                    :source_plan_sha256 (get-in preflight [:plan :sha256])
                    :simulated_post_plan_sha256
@@ -2096,7 +2098,7 @@
                    :plan_sha256 (get-in preflight [:plan :sha256])
                    :simulated_post_plan_sha256
                    (get-in preflight [:post_plan :sha256])
-                   :daemon daemon-status
+                   :server server-status
                    :requested_action_identities
                    (mapv #(select-keys
                            % [:action :subject :predicate :value])

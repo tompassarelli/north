@@ -148,15 +148,15 @@
 ;; measured ~150ms on the live corpus, so fanning 70 of them out cost 10s —
 ;; a doctor probe cannot be built out of per-subject round trips.
 (defn pairs-with [port predicate limit]
-  (let [response
-        (north.coord/indexed-query
+  (let [{:keys [rows]}
+        (north.coord/bounded-query
          port
          {:find "row"
           :rules [{:head {:rel "row" :args [{:var "e"} {:var "v"}]}
                    :body [{:rel "triple"
                            :args [{:var "e"} predicate {:var "v"}]}]}]}
          limit)]
-    (->> (:ok response)
+    (->> rows
          (filter #(and (vector? %) (= 2 (count %))))
          vec)))
 
