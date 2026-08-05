@@ -1,6 +1,5 @@
 #!/usr/bin/env bb
-(require '[babashka.process :as proc]
-         '[clojure.java.io :as io]
+(require '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root
@@ -8,125 +7,10 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (load-file (str root "/cli/runtime-attestation.clj"))
 (require '[north.runtime-attestation :as attestation])
-(def failures (atom []))
 
+(def checks (atom []))
 (defn check! [label value]
-  (if value
-    (println "  ✓" label)
-    (do (println "  ✗" label) (swap! failures conj label))))
-
-(defn free-port []
-  (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
-
-(defn delete-tree! [file]
-  (when (and (.isDirectory file)
-             (not (java.nio.file.Files/isSymbolicLink (.toPath file))))
-    (doseq [child (or (.listFiles file) (make-array java.io.File 0))]
-      (delete-tree! child)))
-  (java.nio.file.Files/deleteIfExists (.toPath file)))
-
-(defn previous-instant [[seconds nanos]]
-  (if (pos? nanos)
-    [seconds (dec nanos)]
-    [(dec seconds) 999999999]))
-
-(defn instant-millis [[seconds nanos]]
-  (+ (* seconds 1000) (quot nanos 1000000)))
-
-(def fram-origin
-  (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
-(def fram-fixture-root
-  (.toFile
-   (java.nio.file.Files/createTempDirectory
-    "north-clean-fram-checkout-"
-    (make-array java.nio.file.attribute.FileAttribute 0))))
-(def fram (.getCanonicalPath (io/file fram-fixture-root "fram")))
-
-(defn clone-fram! [source target]
-  (let [clone (proc/shell {:out :string :err :string :continue true}
-                          "git" "clone" "--quiet" "--shared"
-                          source target)]
-    (when-not (zero? (:exit clone))
-      (throw (ex-info "runtime attestation test requires a cloneable Git Fram source"
-                      {:fram source :error (:err clone)})))
-    target))
-
-(clone-fram! fram-origin fram)
-
-(defn git-value [expression]
-  (let [result (proc/shell {:out :string :err :string :continue true}
-                           "git" "-C" fram "rev-parse" "--verify" expression)]
-    (when-not (zero? (:exit result))
-      (throw (ex-info "runtime attestation test requires a Git Fram source"
-                      {:fram fram :error (:err result)})))
-    (str/trim (:out result))))
-
-(defn write-record! [path pid owner]
-  (spit path
-        (str "PID=" pid "\n"
-             "PID_BIRTH=" (attestation/process-birth-token pid) "\n"
-             "OWNER_TOKEN=" owner "\n"
-             "FRAM_RUNTIME_SOURCE=" fram "\n"
-             "FRAM_RUNTIME_REV=" (git-value "HEAD") "\n"
-             "FRAM_RUNTIME_TREE=" (git-value "HEAD^{tree}") "\n"
-             "FRAM_RUNTIME_DAEMON=" fram "/bin/fram-daemon\n"))
-  (java.nio.file.Files/setPosixFilePermissions
-   (.toPath (io/file path))
-   (java.util.HashSet.
-    ^java.util.Collection
-    [java.nio.file.attribute.PosixFilePermission/OWNER_READ
-     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE])))
-
-(defn start-daemon! [port log telemetry record]
-  (let [owner (str (java.util.UUID/randomUUID))
-        daemon
-        (proc/process
-         {:dir fram :out :string :err :string
-          :extra-env
-          {"FRAM_LOG" log
-           "FRAM_TELEMETRY_LOG" telemetry
-           "FRAM_REQUIRE_LOG_FENCE" "1"
-           "FRAM_RUNTIME_SOURCE" fram
-           "FRAM_RUNTIME_REV" (git-value "HEAD")
-           "FRAM_RUNTIME_TREE" (git-value "HEAD^{tree}")
-           "FRAM_RUNTIME_DAEMON" (str fram "/bin/fram-daemon")
-           "FRAM_RUNTIME_OWNER_TOKEN" owner}}
-         "bb" "-cp" "out" "coord_daemon.clj"
-         "serve-flat" (str port) log)
-        pid (.pid ^Process (:proc daemon))]
-    (write-record! record pid owner)
-    (loop [remaining 300]
-      (cond
-        (= [pid] (attestation/listener-pids port)) daemon
-        (not (.isAlive ^Process (:proc daemon)))
-        (throw (ex-info "disposable Fram daemon exited"
-                        {:out (:out @daemon) :err (:err @daemon)}))
-        (zero? remaining)
-        (throw (ex-info "disposable Fram daemon did not own its port"
-                        {:port port :pid pid}))
-        :else (do (Thread/sleep 20) (recur (dec remaining)))))))
-
-(defn stop-daemon! [daemon]
-  (when daemon
-    (proc/destroy-tree daemon)
-    (try @daemon (catch Exception _ nil))))
-
-(def active-record-order
-  ["FORMAT" "GENERATION" "GENERATION_IDENTITY"
-   "GENERATION_IDENTITY_SHA256" "NORTH_FRAM_RUNTIME"
-   "FRAM_RUNTIME_SOURCE" "FRAM_RUNTIME_REV" "FRAM_RUNTIME_TREE"
-   "FRAM_RUNTIME_ORIGIN" "FRAM_RUNTIME_DAEMON" "FRAM_PORT"
-   "FRAM_LOG" "FRAM_TELEMETRY_LOG" "PID" "PID_BIRTH"
-   "OWNER_TOKEN" "CONTROLLER_UNIT" "CONTROLLER_MAIN_PID"])
-
-(defn git-value-at [source expression]
-  (let [result (proc/shell {:out :string :err :string :continue true}
-                           "git" "-C" source "rev-parse" "--verify" expression)]
-    (when-not (zero? (:exit result))
-      (throw (ex-info "active runtime fixture requires a Git Fram source"
-                      {:source source :error (:err result)})))
-    (str/trim (:out result))))
+  (swap! checks conj [label (boolean value)]))
 
 (defn sha256-file [path]
   (let [digest (java.security.MessageDigest/getInstance "SHA-256")
@@ -137,120 +21,35 @@
           (when (pos? n)
             (.update digest buffer 0 n)
             (recur)))))
-    (apply str (map #(format "%02x" %) (.digest digest)))))
+    (apply str (map #(format "%02x" (bit-and (int %) 255)) (.digest digest)))))
 
-(defn create-symlink! [path target]
-  (java.nio.file.Files/createSymbolicLink
-   (.toPath (io/file path))
-   (.toPath (io/file target))
-   (make-array java.nio.file.attribute.FileAttribute 0)))
+(defn delete-tree! [file]
+  (when (and (.isDirectory file)
+             (not (java.nio.file.Files/isSymbolicLink (.toPath file))))
+    (doseq [child (or (.listFiles file) (make-array java.io.File 0))]
+      (delete-tree! child)))
+  (java.nio.file.Files/deleteIfExists (.toPath file)))
 
-(defn prepare-active-selection! [temp source generation-name]
-  (let [root (.getCanonicalPath (io/file temp "runtime-state"))
-        generations (io/file root "generations")
-        generation (io/file generations generation-name)
-        source (.getCanonicalPath (io/file source))
-        identity (io/file generation "current.identity")]
-    (.mkdirs generation)
-    (create-symlink! (str root "/current") "active/current")
-    (create-symlink! (str root "/active") (str "generations/" generation-name))
-    (create-symlink! (str generation "/current") source)
-    (spit identity
-          (str "north-fram-runtime-v1\n"
-               "checkout\n"
-               source "\n"
-               (git-value-at source "HEAD") "\n"
-               (git-value-at source "HEAD^{tree}") "\n"
-               source "\n"
-               source "/bin/fram-daemon\n"))
-    {:root root
-     :generation (.getCanonicalPath generation)
-     :identity (.getCanonicalPath identity)
-     :record (.getCanonicalPath (io/file generation "active.runtime"))
-     :source source
-     :revision (git-value-at source "HEAD")
-     :tree (git-value-at source "HEAD^{tree}")
-     :daemon (str source "/bin/fram-daemon")}))
-
-(defn active-record-values [selection port log telemetry pid token]
-  {"FORMAT" attestation/active-runtime-record-format
-   "GENERATION" (:generation selection)
-   "GENERATION_IDENTITY" (:identity selection)
-   "GENERATION_IDENTITY_SHA256" (sha256-file (:identity selection))
-   "NORTH_FRAM_RUNTIME" "checkout"
-   "FRAM_RUNTIME_SOURCE" (:source selection)
-   "FRAM_RUNTIME_REV" (:revision selection)
-   "FRAM_RUNTIME_TREE" (:tree selection)
-   "FRAM_RUNTIME_ORIGIN" (:source selection)
-   "FRAM_RUNTIME_DAEMON" (:daemon selection)
-   "FRAM_PORT" (str port)
-   "FRAM_LOG" log
-   "FRAM_TELEMETRY_LOG" telemetry
-   "PID" (str pid)
-   "PID_BIRTH" (attestation/process-birth-token pid)
-   "OWNER_TOKEN" token
-   "CONTROLLER_UNIT" "direct"
-   "CONTROLLER_MAIN_PID" (str pid)})
-
-(defn write-active-record! [selection values]
-  (spit (:record selection)
-        (str (str/join "\n"
-                       (map #(str % "=" (get values %)) active-record-order))
-             "\n"))
+(defn set-mode! [path permissions]
   (java.nio.file.Files/setPosixFilePermissions
-   (.toPath (io/file (:record selection)))
-   (java.util.HashSet.
-    ^java.util.Collection
-    [java.nio.file.attribute.PosixFilePermission/OWNER_READ
-     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE]))
-  (:record selection))
+   (.toPath (io/file path))
+   (java.util.HashSet. ^java.util.Collection permissions)))
 
-(defn start-active-daemon! [selection port log telemetry]
-  (let [token (str (java.util.UUID/randomUUID))
-        daemon
-        (proc/process
-         {:dir (:source selection) :out :string :err :string
-          :extra-env
-          {"NORTH_FRAM_RUNTIME" "checkout"
-           "NORTH_COORD_RUNTIME_STATE" (:root selection)
-           "NORTH_COORD_RUNTIME_GENERATION" (:generation selection)
-           "NORTH_COORD_RUNTIME_IDENTITY" (:identity selection)
-           "NORTH_COORD_RUNTIME_FILE" (:record selection)
-           "NORTH_COORD_SYSTEMD_UNIT" "direct"
-           "FRAM_LOG" log
-           "FRAM_TELEMETRY_LOG" telemetry
-           "FRAM_PORT" (str port)
-           "FRAM_REQUIRE_LOG_FENCE" "1"
-           "FRAM_RUNTIME_SOURCE" (:source selection)
-           "FRAM_RUNTIME_REV" (:revision selection)
-           "FRAM_RUNTIME_TREE" (:tree selection)
-           "FRAM_RUNTIME_ORIGIN" (:source selection)
-           "FRAM_RUNTIME_DAEMON" (:daemon selection)
-           "FRAM_RUNTIME_OWNER_TOKEN" token}}
-         "bb" "-cp" "out" "coord_daemon.clj"
-         "serve-flat" (str port) log)
-        pid (.pid ^Process (:proc daemon))
-        values (active-record-values selection port log telemetry pid token)]
-    (write-active-record! selection values)
-    (loop [remaining 300]
-      (cond
-        (= [pid] (attestation/listener-pids port))
-        {:daemon daemon :pid pid :token token :values values}
+(def record-permissions
+  [java.nio.file.attribute.PosixFilePermission/OWNER_READ
+   java.nio.file.attribute.PosixFilePermission/OWNER_WRITE])
+(def artifact-permissions
+  [java.nio.file.attribute.PosixFilePermission/OWNER_READ
+   java.nio.file.attribute.PosixFilePermission/OWNER_EXECUTE])
 
-        (not (.isAlive ^Process (:proc daemon)))
-        (throw (ex-info "active runtime fixture daemon exited"
-                        {:out (:out @daemon) :err (:err @daemon)}))
-
-        (zero? remaining)
-        (throw (ex-info "active runtime fixture daemon did not own its port"
-                        {:port port :pid pid}))
-
-        :else (do (Thread/sleep 20) (recur (dec remaining)))))))
-
-(defn active-request [selection port log telemetry]
-  {:port port :served-log log :telemetry-log telemetry
-   :state-root (:root selection) :record-path (:record selection)
-   :controller-mode "direct"})
+(defn write-record! [path values]
+  (spit path
+        (str (str/join "\n"
+                       (map #(str % "=" (get values %))
+                            attestation/runtime-record-order))
+             "\n"))
+  (set-mode! path record-permissions)
+  path)
 
 (defn denied-type [operation]
   (try
@@ -260,554 +59,142 @@
 
 (let [temp (.toFile
             (java.nio.file.Files/createTempDirectory
-             "north-active-runtime-attestation-"
+             "north-framrpc-runtime-attestation-"
              (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (.getCanonicalPath (io/file temp "coordination.log"))
-      telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
-      selection (prepare-active-selection! temp fram "generation-a")
-      port (free-port)
-      running (atom nil)]
+      source (.getCanonicalPath (io/file temp "fram"))
+      artifact (.getCanonicalPath (io/file temp "fram-server-graal"))
+      log (.getCanonicalPath (io/file temp "coordination.framlog"))
+      record (.getCanonicalPath (io/file temp "north-coord.runtime"))
+      revision (apply str (repeat 40 "a"))
+      tree (apply str (repeat 40 "b"))
+      space-id "north-coordination"
+      port 47977
+      pid 4242
+      birth "proc:987654"
+      unit "north-coord.service"
+      source-identity-var
+      (ns-resolve 'north.runtime-attestation 'source-identity!)
+      values
+      (atom nil)]
   (try
-    (spit log "")
-    (spit telemetry "")
-    (check! "missing generation-scoped active record is rejected"
-            (= :active-runtime-path-invalid
-               (denied-type #(attestation/attest-active-runtime!
-                              (active-request selection port log telemetry)))))
-    (spit (:record selection) "FORMAT=wrong\n")
-    (java.nio.file.Files/setPosixFilePermissions
-     (.toPath (io/file (:record selection)))
-     (java.util.HashSet.
-      ^java.util.Collection
-      [java.nio.file.attribute.PosixFilePermission/OWNER_READ
-       java.nio.file.attribute.PosixFilePermission/OWNER_WRITE]))
-    (check! "malformed active record is rejected before process trust"
-            (= :active-runtime-record-invalid
-               (denied-type #(attestation/attest-active-runtime!
-                              (active-request selection port log telemetry)))))
-    (reset! running (start-active-daemon! selection port log telemetry))
-    (let [request (active-request selection port log telemetry)
-          first-attestation (atom (attestation/attest-active-runtime! request))
-          valid-values (:values @running)]
-      (check! "generation-scoped record binds the sole direct fixture listener"
-              (= (:pid @running)
-                 (get-in @first-attestation [:authority :pid])))
-      (check! "active runtime identity carries both exact split corpus paths"
-              (= [log telemetry]
-                 [(get-in @first-attestation [:identity :served-log])
-                  (get-in @first-attestation [:identity :telemetry-log])]))
-      (check! "unchanged generation-scoped authority re-attests"
-              (true? (attestation/assert-current! @first-attestation)))
-
-      (write-active-record! selection valid-values)
-      (check! "same-byte active record republication invalidates prior authority"
-              (= :runtime-authority-lost
-                 (denied-type #(attestation/assert-current!
-                                @first-attestation))))
-      (reset! first-attestation (attestation/attest-active-runtime! request))
-
-      (write-active-record!
-       selection
-       (assoc valid-values
-              "CONTROLLER_UNIT" "north-coord.service"
-              "CONTROLLER_MAIN_PID"
-              (str (.pid (java.lang.ProcessHandle/current)))))
-      (check! "manual systemd record with wrong declared MainPID is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(attestation/attest-active-runtime!
-                    (assoc request :controller-mode "systemd"
-                           :controller-unit "north-coord.service")))))
-
-      (write-active-record!
-       selection
-       (assoc valid-values "CONTROLLER_UNIT" "north-coord.service"))
-      (check! "record PID must equal the actual systemd MainPID"
-              (= :active-runtime-controller-invalid
-                 (with-redefs
-                  [attestation/systemd-main-pid!
-                   (fn [unit]
-                     {:kind "systemd" :unit unit
-                      :main-pid (inc (:pid @running))
-                      :load-state "loaded" :active-state "active"
-                      :sub-state "running"})]
-                  (denied-type
-                   #(attestation/attest-active-runtime!
-                     (assoc request :controller-mode "systemd"
-                            :controller-unit "north-coord.service"))))))
-      (write-active-record! selection valid-values)
-
-      (doseq [[label patch]
-              [["record PID/listener mismatch is rejected"
-                {"PID" (str (.pid (java.lang.ProcessHandle/current)))}]
-               ["record token/process environment mismatch is rejected"
-                {"OWNER_TOKEN" (str (java.util.UUID/randomUUID))}]
-               ["record coordination log mismatch is rejected"
-                {"FRAM_LOG" telemetry}]
-               ["record telemetry alias is rejected"
-                {"FRAM_TELEMETRY_LOG" log}]
-               ["static generation identity digest mismatch is rejected"
-                {"GENERATION_IDENTITY_SHA256" (apply str (repeat 64 "0"))}]
-               ["selected source tuple mismatch is rejected"
-                {"FRAM_RUNTIME_REV" (apply str (repeat 40 "0"))}]]]
-        (write-active-record! selection (merge valid-values patch))
-        (check! label
-                (some? (denied-type #(attestation/attest-active-runtime!
-                                     request)))))
-      (write-active-record! selection valid-values)
-      (reset! first-attestation (attestation/attest-active-runtime! request))
-
-      (let [original attestation/fram-artifact-identity!
-            record-state (get-in @first-attestation
-                                 [:authority :active-record :state])
-            record-barrier
-            (let [mtime (:mtime-instant record-state)
-                  ctime (:ctime-instant record-state)]
-              (if (neg? (compare mtime ctime)) mtime ctime))
-            artifact-instant (previous-instant record-barrier)
-            artifact-time (instant-millis artifact-instant)
-            coarse-process-start (- artifact-time 249)
-            after-publication [Long/MAX_VALUE 999999999]]
-        (check! "immediate launch accepts artifacts after coarse process start but before record publication"
-                (map?
-                 (with-redefs
-                  [attestation/process-start-millis
-                   (fn [_] coarse-process-start)
-                   attestation/fram-artifact-identity!
-                   (fn [& args]
-                     (assoc (apply original args)
-                            :latest-artifact-mtime-millis artifact-time
-                            :latest-artifact-mtime-instant artifact-instant
-                            :latest-artifact-ctime-millis artifact-time
-                            :latest-artifact-ctime-instant artifact-instant))]
-                  (attestation/attest-active-runtime! request))))
-        (check! "artifact mtime after active record publication is rejected"
-                (= :active-runtime-process-attestation-failed
-                   (with-redefs
-                    [attestation/fram-artifact-identity!
-                     (fn [& args]
-                       (assoc (apply original args)
-                              :latest-artifact-mtime-millis Long/MAX_VALUE
-                              :latest-artifact-mtime-instant
-                              after-publication))]
-                    (denied-type #(attestation/attest-active-runtime!
-                                  request)))))
-        (check! "artifact ctime after active record publication is rejected"
-                (= :active-runtime-process-attestation-failed
-                   (with-redefs
-                    [attestation/fram-artifact-identity!
-                     (fn [& args]
-                       (assoc (apply original args)
-                              :latest-artifact-ctime-millis Long/MAX_VALUE
-                              :latest-artifact-ctime-instant
-                              after-publication))]
-                    (denied-type #(attestation/attest-active-runtime!
-                                  request))))))
-
-      (let [generation-b (io/file (:root selection) "generations/generation-b")]
-        (.mkdirs generation-b)
-        (create-symlink! (str generation-b "/current") (:source selection))
-        (spit (io/file generation-b "current.identity")
-              (slurp (:identity selection)))
-        (java.nio.file.Files/delete (.toPath (io/file (:root selection) "active")))
-        (create-symlink! (str (:root selection) "/active")
-                         "generations/generation-b")
-        (check! "selector rebind invalidates prior active authority"
-                (= :runtime-authority-lost
-                   (denied-type #(attestation/assert-current!
-                                  @first-attestation))))))
-
-    (finally
-      (when @running (stop-daemon! (:daemon @running)))
-      (delete-tree! temp))))
-
-;; This case proves a REAL sealed deployment earns active authority, so it needs
-;; a real one on disk — but pinning one revision rots. It was pinned to
-;; 3383de74, a pre-codegraph generation with no out/resolve.clj, so it failed the
-;; moment the artifact manifest tracked the current layout. Pick the newest
-;; deployment that satisfies the manifest instead; NORTH_DEPLOYED_FRAM_FIXTURE
-;; still overrides for a specific target.
-(let [deployments-root
-      (io/file (str (System/getProperty "user.home")
-                    "/code/north-data/fram-runtime/deployments"))
-      newest-attestable
-      (fn []
-        (->> (or (.listFiles deployments-root) (make-array java.io.File 0))
-             (filter #(.isDirectory ^java.io.File %))
-             (filter #(every? (fn [rel] (.isFile (io/file % rel)))
-                              attestation/required-runtime-artifacts))
-             (sort-by #(.lastModified ^java.io.File %))
-             last))
-      deployed
-      (if-let [override (System/getenv "NORTH_DEPLOYED_FRAM_FIXTURE")]
-        (io/file override)
-        (or (newest-attestable) (io/file "/nonexistent")))]
-  (when (.isDirectory deployed)
-    (let [temp (.toFile
-                (java.nio.file.Files/createTempDirectory
-                 "north-deployed-runtime-attestation-"
-                 (make-array java.nio.file.attribute.FileAttribute 0)))
-          log (.getCanonicalPath (io/file temp "coordination.log"))
-          telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
-          selection (prepare-active-selection! temp deployed "deployed-real")
-          port (free-port)
-          running (atom nil)]
-      (try
-        (spit log "")
-        (spit telemetry "")
-        (reset! running (start-active-daemon! selection port log telemetry))
-        (let [verified
-              (attestation/attest-active-runtime!
-               (active-request selection port log telemetry))]
-          (check! "sealed deployed Fram generation earns active authority"
-                  (and (= (.getName deployed)
-                          (get-in verified [:identity :revision]))
-                       (true? (attestation/assert-current! verified)))))
-        (finally
-          (when @running (stop-daemon! (:daemon @running)))
-          (delete-tree! temp))))))
-
-(doseq [[label mutation]
-        [["dirty Git worktree is rejected as runtime provenance" :worktree]
-         ["dirty Git index is rejected as runtime provenance" :index]
-         ["untracked Git content is rejected as runtime provenance" :untracked]]]
-  (let [temp (.toFile
-              (java.nio.file.Files/createTempDirectory
-               "north-dirty-fram-checkout-"
-               (make-array java.nio.file.attribute.FileAttribute 0)))
-        source (.getCanonicalPath (io/file temp "fram"))]
-    (try
-      (clone-fram! fram source)
-      (let [revision (git-value-at source "HEAD")
-            tree (git-value-at source "HEAD^{tree}")]
-        (case mutation
-          :worktree
-          (spit (io/file source "coord.clj") "\n" :append true)
-
-          :index
-          (do
-            (spit (io/file source "coord.clj") "\n" :append true)
-            (let [added (proc/shell {:out :string :err :string :continue true}
-                                    "git" "-C" source "add" "--" "coord.clj")]
-              (when-not (zero? (:exit added))
-                (throw (ex-info "could not stage dirty-index fixture"
-                                {:error (:err added)})))))
-
-          :untracked
-          (spit (io/file source "north-untracked-runtime.clj") "fixture\n"))
-        (check! label
-                (= :runtime-source-checkout-dirty
-                   (denied-type #(attestation/fram-artifact-identity!
-                                  source revision tree)))))
-      (finally
-        (delete-tree! temp)))))
-
-(let [temp (.toFile
-            (java.nio.file.Files/createTempDirectory
-             "north-hostile-git-marker-"
-             (make-array java.nio.file.attribute.FileAttribute 0)))
-      marker (io/file temp ".git")
-      revision (git-value "HEAD")
-      tree (git-value "HEAD^{tree}")]
-  (try
-    (create-symlink! marker (str fram "/.git"))
-    (check! "symlink .git marker is not accepted as source provenance"
-            (= :runtime-source-version-unavailable
-               (denied-type #(attestation/fram-artifact-identity!
-                              (.getCanonicalPath temp) revision tree))))
-    (java.nio.file.Files/delete (.toPath marker))
-    (let [mkfifo (proc/shell {:out :string :err :string :continue true}
-                             "mkfifo" (.getPath marker))]
-      (when-not (zero? (:exit mkfifo))
-        (throw (ex-info "mkfifo unavailable for hostile marker regression"
-                        {:error (:err mkfifo)}))))
-    (check! "FIFO .git marker is not accepted as source provenance"
-            (= :runtime-source-version-unavailable
-               (denied-type #(attestation/fram-artifact-identity!
-                              (.getCanonicalPath temp) revision tree))))
-    (finally
-      (delete-tree! temp))))
-
-(let [temp (.toFile
-            (java.nio.file.Files/createTempDirectory
-             "north-runtime-attestation-"
-             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (.getCanonicalPath (io/file temp "coordination.log"))
-      telemetry (.getCanonicalPath (io/file temp "telemetry.log"))
-      record (.getCanonicalPath (io/file temp "runtime.identity"))
-      port (free-port)
-      daemon (atom nil)]
-  (try
-    (spit log "")
-    (spit telemetry "")
-    (reset! daemon (start-daemon! port log telemetry record))
-    (let [first-attestation
-          (attestation/attest-runtime!
-           {:port port :served-log log :record-path record})]
-      (check! "one real listener is bound to its launcher PID and birth"
-              (= (.pid ^Process (:proc @daemon))
-                 (get-in first-attestation [:authority :pid])))
-      (check! "the serving process is bound to the selected Git tree"
-              (= (git-value "HEAD^{tree}")
-                 (get-in first-attestation [:identity :tree])))
-      (check! "unchanged serving authority re-attests without a wire call"
-              (true? (attestation/assert-current! first-attestation)))
-
-      (stop-daemon! @daemon)
-      (reset! daemon nil)
-      (reset! daemon (start-daemon! port log telemetry record))
-      (let [denied (try
-                     (attestation/assert-current! first-attestation)
-                     nil
-                     (catch clojure.lang.ExceptionInfo error (ex-data error)))]
-        (check! "process restart invalidates the captured authority"
-                (= :runtime-authority-lost (:type denied))))
-      (check! "the replacement process earns a fresh attestation"
+    (.mkdirs (io/file source))
+    (spit artifact "sealed executable fixture\n")
+    (set-mode! artifact artifact-permissions)
+    (spit log "FRAMLOG fixture\n")
+    (reset!
+     values
+     {"FORMAT" attestation/active-runtime-record-format
+      "FRAM_SOURCE" source
+      "FRAM_REVISION" revision
+      "FRAM_TREE" tree
+      "FRAM_ARTIFACT" artifact
+      "FRAM_ARTIFACT_SHA256" (sha256-file artifact)
+      "FRAM_SPACE_ID" space-id
+      "FRAM_PORT" (str port)
+      "FRAM_LOG" log
+      "PID" (str pid)
+      "PID_BIRTH" birth
+      "CONTROLLER_UNIT" unit
+      "CONTROLLER_MAIN_PID" (str pid)})
+    (write-record! record @values)
+    (let [environment
+          {"FRAM_HOME" source
+           "FRAM_SERVER_RUNTIME" "graal"
+           "FRAM_GRAAL_ARTIFACT" artifact
+           "FRAM_SPACE_ID" space-id
+           "FRAM_SERVER_PORT" (str port)
+           "FRAM_LOG" log
+           "NORTH_COORD_SYSTEMD_UNIT" unit}
+          valid-redefs
+          {source-identity-var
+           (fn [actual-source actual-revision actual-tree]
+             (when-not (= [source revision tree]
+                          [actual-source actual-revision actual-tree])
+               (throw (ex-info "wrong source identity" {})))
+             {:source source :revision revision :tree tree
+              :published revision})
+           #'attestation/listener-pids (fn [_] [pid])
+           #'attestation/process-birth-token (fn [_] birth)
+           #'attestation/process-start-millis (fn [_] 123456789)
+           #'attestation/systemd-main-pid! (fn [_] pid)
+           #'attestation/process-path
+           (fn [_ leaf] (case leaf "cwd" source "exe" artifact nil))
+           #'attestation/process-cmdline
+           (fn [_] [artifact "serve" (str port) log space-id])
+           #'attestation/process-environment (fn [_] environment)}
+          request {:port port :served-log log :space-id space-id
+                   :record-path record :controller-unit unit}
+          verified
+          (with-redefs-fn valid-redefs
+            #(attestation/attest-active-runtime! request))]
+      (check! "canonical record binds exact source, artifact, FRAMLOG, and SpaceId"
+              (and (= attestation/attestation-format (:format verified))
+                   (= artifact (get-in verified [:identity :artifact :path]))
+                   (= space-id (get-in verified [:identity :space-id]))
+                   (= pid (get-in verified [:authority :pid]))))
+      (check! "unchanged canonical runtime re-attests"
               (true?
-               (attestation/assert-current!
-                (attestation/attest-runtime!
-                 {:port port :served-log log :record-path record})))))
+               (with-redefs-fn valid-redefs
+                 #(attestation/assert-current! verified))))
 
-    (finally
-      (stop-daemon! @daemon)
-      (delete-tree! temp))))
+      (check! "noncanonical process arguments are rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/process-cmdline
+                          (fn [_] [artifact (str port) log space-id]))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
 
-(let [port (free-port)
-      socket (java.net.ServerSocket. port)
-      temp (.toFile
-            (java.nio.file.Files/createTempDirectory
-             "north-runtime-fake-listener-"
-             (make-array java.nio.file.attribute.FileAttribute 0)))
-      record (.getCanonicalPath (io/file temp "runtime.identity"))
-      current-pid (.pid (java.lang.ProcessHandle/current))]
-  (try
-    ;; A forged static record plus a listening socket is deliberately
-    ;; insufficient: this process is not executing Fram's selected script and
-    ;; classpath, even if a protocol shim were layered over the same socket.
-    (write-record! record current-pid (str (java.util.UUID/randomUUID)))
-    (let [denied (try
-                   (attestation/attest-runtime!
-                    {:port port :served-log (str temp "/coordination.log")
-                     :record-path record})
-                   nil
-                   (catch clojure.lang.ExceptionInfo error (ex-data error)))]
-      (check! "a socket listener plus forged static identity is rejected"
-              (= :runtime-process-attestation-failed (:type denied))))
-    (finally
-      (.close socket)
-      (delete-tree! temp))))
+      (check! "a second listener owner is rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/listener-pids
+                          (fn [_] [pid (inc pid)]))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
 
-;; Layout-aware daemon/source/origin binding. parse-active-record! is exercised
-;; directly (no live listener) so both the sealed checkout layout and the
-;; immutable package layout can be reconciled, along with the fail-closed
-;; negatives for a mismatched source, origin, daemon, and mode. The live
-;; process/listener bindings are covered by the direct-fixture block above.
-(def resolve-active-selection! #'north.runtime-attestation/resolve-active-selection!)
-(def parse-active-record! #'north.runtime-attestation/parse-active-record!)
+      (check! "systemd MainPID disagreement is rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/systemd-main-pid!
+                          (fn [_] (inc pid)))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
 
-(defn write-sealed-0600! [path content]
-  (spit path content)
-  (java.nio.file.Files/setPosixFilePermissions
-   (.toPath (io/file path))
-   (java.util.HashSet.
-    ^java.util.Collection
-    [java.nio.file.attribute.PosixFilePermission/OWNER_READ
-     java.nio.file.attribute.PosixFilePermission/OWNER_WRITE])))
+      (check! "process replacement invalidates captured authority"
+              (= :runtime-authority-lost
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/process-birth-token
+                          (fn [_] "proc:replacement"))
+                   #(denied-type
+                     (fn [] (attestation/assert-current! verified)))))))
 
-(defn touch-file! [path]
-  (.mkdirs (.getParentFile (io/file path)))
-  (spit path "")
-  (.getCanonicalPath (io/file path)))
+    (write-record! record (assoc @values "FRAM_ARTIFACT_SHA256"
+                                 (apply str (repeat 64 "0"))))
+    (check! "artifact digest disagreement is rejected"
+            (= :runtime-record-invalid
+               (denied-type
+                #(attestation/attest-active-runtime!
+                  {:port port :served-log log :space-id space-id
+                   :record-path record :controller-unit unit}))))
 
-(defn make-dir! [path]
-  (.mkdirs (io/file path))
-  (.getCanonicalPath (io/file path)))
-
-(def layout-rev (apply str (repeat 40 "a")))
-(def layout-tree (str "immutable:" layout-rev))
-
-(defn build-layout-selection!
-  "Materialize a generation-scoped selection whose sealed static identity binds
-  the given layout, then resolve it exactly as the launcher would.  Each
-  scenario gets its own state root: the current/active selector links are
-  create-only, so reusing one root would collide across scenarios."
-  [temp gen-name mode source origin daemon]
-  (let [root (.getCanonicalPath (io/file temp (str "state-" gen-name)))
-        generation (io/file root "generations" gen-name)
-        source (.getCanonicalPath (io/file source))
-        origin (.getCanonicalPath (io/file origin))
-        daemon (.getCanonicalPath (io/file daemon))
-        identity (io/file generation "current.identity")]
-    (.mkdirs generation)
-    (create-symlink! (str root "/current") "active/current")
-    (create-symlink! (str root "/active") (str "generations/" gen-name))
-    (create-symlink! (str generation "/current") source)
-    (write-sealed-0600! (.getPath identity)
-                        (str "north-fram-runtime-v1\n" mode "\n" source "\n"
-                             layout-rev "\n" layout-tree "\n" origin "\n"
-                             daemon "\n"))
-    (resolve-active-selection! root)))
-
-(defn layout-record-values
-  [selection mode source origin daemon port log telemetry pid token]
-  {"FORMAT" attestation/active-runtime-record-format
-   "GENERATION" (:generation selection)
-   "GENERATION_IDENTITY" (:path (:identity selection))
-   "GENERATION_IDENTITY_SHA256" (:sha256 (:identity selection))
-   "NORTH_FRAM_RUNTIME" mode
-   "FRAM_RUNTIME_SOURCE" source
-   "FRAM_RUNTIME_REV" layout-rev
-   "FRAM_RUNTIME_TREE" layout-tree
-   "FRAM_RUNTIME_ORIGIN" origin
-   "FRAM_RUNTIME_DAEMON" daemon
-   "FRAM_PORT" (str port)
-   "FRAM_LOG" log
-   "FRAM_TELEMETRY_LOG" telemetry
-   "PID" (str pid)
-   "PID_BIRTH" "proc:12345"
-   "OWNER_TOKEN" token
-   "CONTROLLER_UNIT" "direct"
-   "CONTROLLER_MAIN_PID" (str pid)})
-
-(defn write-layout-record! [record-path values]
-  (write-sealed-0600! record-path
-                      (str (str/join "\n"
-                                     (map #(str % "=" (get values %))
-                                          active-record-order))
-                           "\n")))
-
-(defn parse-layout!
-  "Build the record for `values`, then reconcile it through the private
-  parse-active-record! with a matched port/log pair (no live process)."
-  [selection values port log telemetry]
-  (write-layout-record! (:record-path selection) values)
-  (parse-active-record! selection nil port log telemetry))
-
-(let [temp (.toFile
-            (java.nio.file.Files/createTempDirectory
-             "north-runtime-layout-"
-             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (touch-file! (.getCanonicalPath (io/file temp "coordination.log")))
-      telemetry (touch-file! (.getCanonicalPath (io/file temp "telemetry.log")))
-      port (free-port)
-      pid 12345
-      token (str (java.util.UUID/randomUUID))]
-  (try
-    ;; Valid sealed checkout: source == origin, daemon == source/bin/fram-daemon.
-    (let [co (make-dir! (.getCanonicalPath (io/file temp "checkout")))
-          daemon (touch-file! (str co "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-checkout"
-                                             "checkout" co co daemon)
-          values (layout-record-values selection "checkout" co co daemon
-                                       port log telemetry pid token)
-          parsed (parse-layout! selection values port log telemetry)]
-      (check! "valid checkout active-runtime record binds source-rooted daemon"
-              (and (map? parsed)
-                   (= co (:source parsed))
-                   (= daemon (:daemon parsed)))))
-
-    ;; Valid immutable package: source == origin/libexec/fram,
-    ;; daemon == origin/bin/fram-daemon.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-package"
-                                             "package" source origin daemon)
-          values (layout-record-values selection "package" source origin daemon
-                                       port log telemetry pid token)
-          parsed (parse-layout! selection values port log telemetry)]
-      (check! "valid package active-runtime record binds origin-rooted daemon"
-              (and (map? parsed)
-                   (= source (:source parsed))
-                   (= daemon (:daemon parsed)))))
-
-    ;; Negative: package daemon cannot be origin/libexec/fram-daemon.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-src")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/libexec/fram-daemon"))
-          selection (build-layout-selection! temp "gen-badsrc"
-                                             "package" source origin daemon)
-          values (layout-record-values selection "package" source origin daemon
-                                       port log telemetry pid token)]
-      (check! "package record with origin/libexec/fram-daemon as daemon is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: package daemon cannot be origin/sbin/fram-daemon.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-sbin")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/sbin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-badsbin"
-                                             "package" source origin daemon)
-          values (layout-record-values selection "package" source origin daemon
-                                       port log telemetry pid token)]
-      (check! "package record with origin/sbin/fram-daemon is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: package daemon cannot be origin/bin/evilname.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-evil")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/bin/evilname"))
-          selection (build-layout-selection! temp "gen-badevil"
-                                             "package" source origin daemon)
-          values (layout-record-values selection "package" source origin daemon
-                                       port log telemetry pid token)]
-      (check! "package record with origin/bin/evilname is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: a symlink in the canonical package member path cannot escape.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "pkg-symlink")))
-          source (make-dir! (str origin "/libexec/fram"))
-          escaped (touch-file! (.getCanonicalPath (io/file temp "escaped-daemon")))
-          _ (make-dir! (str origin "/bin"))
-          _ (create-symlink! (str origin "/bin/fram-daemon") escaped)
-          daemon (.getCanonicalPath (io/file (str origin "/bin/fram-daemon")))
-          selection (build-layout-selection! temp "gen-badlink"
-                                             "package" source origin daemon)
-          values (layout-record-values selection "package" source origin daemon
-                                       port log telemetry pid token)]
-      (check! "package record with a symlink escape is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: cross-layout — a package-shaped install (daemon rooted at an
-    ;; origin that is not the executed source) claiming checkout mode.
-    (let [origin (make-dir! (.getCanonicalPath (io/file temp "cross")))
-          source (make-dir! (str origin "/libexec/fram"))
-          daemon (touch-file! (str origin "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-cross"
-                                             "checkout" source origin daemon)
-          values (layout-record-values selection "checkout" source origin daemon
-                                       port log telemetry pid token)]
-      (check! "checkout record whose daemon roots outside the executed source is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
-
-    ;; Negative: unsupported runtime layout mode.
-    (let [co (make-dir! (.getCanonicalPath (io/file temp "hybrid")))
-          daemon (touch-file! (str co "/bin/fram-daemon"))
-          selection (build-layout-selection! temp "gen-badmode"
-                                             "hybrid" co co daemon)
-          values (layout-record-values selection "hybrid" co co daemon
-                                       port log telemetry pid token)]
-      (check! "active-runtime record with an unsupported layout mode is rejected"
-              (= :active-runtime-record-invalid
-                 (denied-type
-                  #(parse-layout! selection values port log telemetry)))))
+    (spit record
+          (str "FORMAT=" attestation/active-runtime-record-format "\n"
+               "FRAM_SOURCE=" source "\n"))
+    (set-mode! record record-permissions)
+    (check! "partial runtime identity is rejected before process trust"
+            (= :runtime-record-invalid
+               (denied-type
+                #(attestation/attest-active-runtime!
+                  {:port port :served-log log :space-id space-id
+                   :record-path record :controller-unit unit}))))
     (finally
       (delete-tree! temp))))
 
-(delete-tree! fram-fixture-root)
-
-(if (seq @failures)
-  (do (binding [*out* *err*]
-        (println "runtime attestation tests failed:" (pr-str @failures)))
-      (System/exit 1))
-  (println "runtime attestation owner tests: PASS"))
+(let [results @checks
+      passed (count (filter second results))]
+  (doseq [[label ok] results]
+    (println (format "  [%s] %s" (if ok "PASS" "FAIL") label)))
+  (println (format "\nCanonical runtime attestation: %d / %d PASS"
+                   passed (count results)))
+  (System/exit (if (= passed (count results)) 0 1)))

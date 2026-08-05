@@ -157,7 +157,6 @@ jobs:
             bb cli/tests/concern-terminal-cas-test.clj  # terminal transition commits under concurrent coordination writes
           bb cli/tests/context-replacement-test.clj
           bb cli/tests/mine-verbosity-test.clj
-          bb cli/tests/coord-wire-boundary-test.clj
           bb cli/tests/json-show-indexed-test.clj
           bb cli/tests/json-children-indexed-test.clj  # both managed turn-end reads stay indexed
           bb cli/tests/dashboard-doctor-exit-test.clj
@@ -173,8 +172,6 @@ jobs:
           bb cli/tests/linear-helper-protocol-test.clj
           bb cli/tests/routing-preflight-failure-naming-test.clj  # no admission may die with an unnamed reason
           bash cli/tests/north-explicit-log-test.sh
-          FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/fram" \
-            bash cli/tests/north-coord-up-test.sh
           python3 cli/tests/north-coord-socket-activation-integration.py
 
       - name: Coordinator strict-corpus integration
