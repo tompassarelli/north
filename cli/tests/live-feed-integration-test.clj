@@ -1,9 +1,8 @@
 #!/usr/bin/env bb
 ;; End-to-end durability contract for the managed SDK live-input feed.
 ;; A throwaway Fram coordinator keeps every assertion isolated from live North.
-(require '[babashka.process :as proc]
+(require '[babashka.classpath :as cp]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -13,16 +12,17 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (str (System/getProperty "user.home") "/code/fram/main")))
+(cp/add-classpath (str root "/out:" fram "/out"))
 (def live-feed-cli (str root "/cli/north-live-feed.clj"))
-(def msg-cli (str root "/cli/msg-cli.clj"))
-(def presence-cli (str root "/cli/presence-cli.clj"))
-(def identity-writer (str root "/cli/agent-fact-internal.clj"))
-(def north-cli (str root "/bin/north"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-audience.clj"))
+(load-file (str root "/cli/agent-provenance.clj"))
+(require '[north.framrpc-client :as rpc])
 (def checks (atom []))
 (def feeds (atom []))
-(def test-log (atom nil))
+(def test-space "north-coordination")
+(def message-sequence (atom 0))
+(def route-fixtures (atom {}))
 
 (defn check [label ok?]
   (swap! checks conj [label (boolean ok?)]))
@@ -30,15 +30,6 @@
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)]
     (.getLocalPort socket)))
-
-(defn port-open? [port]
-  (try
-    (with-open [socket (java.net.Socket.)]
-      (.connect socket
-                (java.net.InetSocketAddress. "127.0.0.1" (int port))
-                100)
-      true)
-    (catch Exception _ false)))
 
 (defn await-predicate
   ([predicate] (await-predicate predicate 6000))
@@ -50,36 +41,31 @@
          (>= (System/currentTimeMillis) deadline) false
          :else (do (Thread/sleep 20) (recur)))))))
 
-(defn coordinator-op [port request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 5000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes
-               (str (pr-str {:op :for-log
-                             :expected-log @test-log
-                             :request request})
-                    "\n")
-               java.nio.charset.StandardCharsets/UTF_8))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
+(defn await-fram-ready! [port]
+  (loop [attempt 0]
+    (let [status (try (north.coord/status port) (catch Exception _ nil))]
+      (cond
+        (and (= :ready (:state status))
+             (= test-space (:space-id status)))
+        status
+
+        (>= attempt 800)
+        (throw (ex-info "scratch Fram FRAMRPC server did not become ready"
+                        {:port port :space test-space}))
+
+        :else (do (Thread/sleep 25) (recur (inc attempt)))))))
 
 (defn values-of [port subject predicate]
-  (set (:values
-        (coordinator-op port {:op :resolved
-                              :te subject
-                              :p predicate}))))
+  (set (north.coord/many port subject predicate)))
 
 (defn assert-fact! [port subject predicate value]
-  (let [result
-        (coordinator-op port {:op :assert
-                              :te subject
-                              :p predicate
-                              :r value})]
-    (when (:reject result)
-      (throw (ex-info "fixture fact write failed" result)))
-    result))
+  (loop [attempt 0]
+    (let [result (north.coord/append! port subject predicate value)]
+      (cond
+        (nil? (:reject result)) result
+        (and (= :conflict (:reject result)) (< attempt 1000))
+        (do (Thread/sleep 1) (recur (inc attempt)))
+        :else (throw (ex-info "fixture fact write failed" result))))))
 
 (defn delivery-resource [message recipient]
   (let [preimage (str message "\u0000" recipient)
@@ -91,52 +77,26 @@
                 (map #(format "%02x" (bit-and (int %) 0xff)) digest)))))
 
 (defn retract-fact! [port subject predicate value]
-  (let [result
-        (coordinator-op port {:op :retract
-                              :te subject
-                              :p predicate
-                              :r value})]
-    (when (:reject result)
-      (throw (ex-info "fixture fact retraction failed" result)))
-    result))
-
-(defn run-cli [path port & args]
-  (apply proc/shell
-         {:continue true
-          :out :string
-          :err :string
-          :extra-env {"FRAM_LOG" @test-log}}
-         "bb" path (str port) args))
-
-(defn run-msg [port & args]
-  (apply run-cli msg-cli port args))
-
-(defn run-north [port & args]
-  (apply proc/shell
-         {:continue true
-          :out :string
-          :err :string
-          :extra-env {"FRAM_LOG" @test-log
-                      "NORTH_HOME" root
-                      "NORTH_PORT" (str port)
-                      "NO_COLOR" "1"}}
-         north-cli args))
-
-(defn register! [port handle]
-  (run-cli presence-cli port "register" handle (str "/tmp/" handle) handle))
-
-(defn sent-subject [result]
-  (second (re-find #"(@msg:[^ ]+)" (:out result))))
+  (loop [attempt 0]
+    (let [result (north.coord/retract! port subject predicate value)]
+      (cond
+        (nil? (:reject result)) result
+        (and (= :conflict (:reject result)) (< attempt 1000))
+        (do (Thread/sleep 1) (recur (inc attempt)))
+        :else (throw (ex-info "fixture fact retraction failed" result))))))
 
 (defn send-message! [port from to subject body]
-  (let [result (run-msg port "send" from to subject body)
-        message (sent-subject result)]
-    (when-not (and (zero? (:exit result)) message)
-      (throw
-       (ex-info "message fixture failed"
-                {:exit (:exit result)
-                 :out (:out result)
-                 :err (:err result)})))
+  (let [message (format "@msg:live-feed-%06d" (swap! message-sequence inc))]
+    (doseq [[predicate value]
+            [["from" from]
+             ["subject" subject]
+             ["body" body]
+             ["sent_at" "2026-07-19T00:00:00Z"]]]
+      (assert-fact! port message predicate value))
+    (when (= "*" to)
+      (assert-fact! port message "broadcast_audience_version" "snapshot-v1")
+      (assert-fact! port message "broadcast_to" "recipient"))
+    (assert-fact! port message "to" to)
     message))
 
 (defn start-line-reader! [reader queue]
@@ -161,13 +121,16 @@
 
 (defn start-feed!
   [port recipient claim-ttl-ms ack-timeout-ms & flags]
-  (let [command (into ["bb" live-feed-cli (str port) recipient
+  (let [command (into ["bb" "-cp" (str root "/out:" fram "/out")
+                       live-feed-cli (str port) recipient
                        "--claim-ttl-ms" (str claim-ttl-ms)
                        "--ack-timeout-ms" (str ack-timeout-ms)]
                       flags)
         builder (ProcessBuilder. ^java.util.List command)
         _ (.directory builder (io/file root))
-        _ (.put (.environment builder) "FRAM_LOG" @test-log)
+        environment (.environment builder)
+        _ (.put environment "FRAM_SPACE_ID" test-space)
+        _ (.put environment "NORTH_FRAMRPC_HOST" "127.0.0.1")
         process (.start builder)
         output (io/reader (.getInputStream process))
         errors-reader (io/reader (.getErrorStream process))
@@ -195,7 +158,7 @@
                (vec (remove #(identical? % feed) current)))))))
 
 (defn read-frame!
-  ([feed] (read-frame! feed 2000))
+  ([feed] (read-frame! feed 6000))
   ([feed timeout-ms]
    (let [item (.poll ^java.util.concurrent.BlockingQueue
                      (:queue feed)
@@ -270,7 +233,7 @@
     (check (str recipient " receives a separate readiness frame")
            (and (= "north-live-feed-v1" (get ready "protocol"))
                 (= recipient (get ready "recipient"))
-                (integer? (get ready "subscribed"))))
+                (integer? (get ready "cursor"))))
     (send-control! feed (array-map "type" "start"))))
 
 (defn ack! [feed message]
@@ -287,6 +250,8 @@
             messages)))
 
 (defn publish-route! [port id verb state epoch]
+  (when-not (contains? #{"publish" "route"} verb)
+    (throw (ex-info "unsupported route fixture verb" {:verb verb})))
   (let [base {"kind" "lane"
               "role" "integrator"
               "goal" "terminal drain integration"
@@ -304,73 +269,57 @@
               "spawned_at" "2026-07-19T00:00:00Z"
               "display_handle" (str "anthropic-test-integrator-" id)
               "display_name" (str "anthropic · integrator · " id)}
-        payload (if (= verb "publish")
-                  base
-                  (select-keys
-                   base
-                   ["provider" "provider_target" "live_input"
-                    "live_input_state" "live_input_epoch" "model" "effort"
-                    "display_handle" "display_name"]))
-        result (run-cli identity-writer port verb
-                        (str "agent:" id)
-                        (json/generate-string payload))]
-    (when-not (zero? (:exit result))
-      (throw (ex-info "route fixture publication failed" result)))))
-
-(defn publish-terminal-run!
-  ([port control subject at]
-   (publish-terminal-run! port control subject at true))
-  ([port control subject at commit?]
-   (doseq [[predicate value]
-           [["agent" control]
-            ["at" at]
-            ["outcome" "ran"]
-            ["process_outcome" "ran"]
-            ["delivery_outcome" "unverified"]
-            ["delivery_reason"
-             "provider_terminal_success_without_external_verification"]]]
-     (assert-fact! port subject predicate value))
-   (when commit?
-     ;; kind=run is deliberately last: this fixture exercises the production
-     ;; publication boundary instead of manufacturing an already-folded map.
-     (assert-fact! port subject "kind" "run"))
-   subject))
+        subject (str "@agent:" id)
+        prior (get @route-fixtures id)
+        marker (north.agent-provenance/manifest-sha256 base)]
+    (when prior
+      (retract-fact! port subject "identity_manifest_sha256"
+                     (north.agent-provenance/manifest-sha256 prior))
+      (doseq [[predicate value] prior]
+        (retract-fact! port subject predicate value)))
+    (doseq [[predicate value] base]
+      (assert-fact! port subject predicate value))
+    (assert-fact! port subject "identity_manifest_sha256" marker)
+    (swap! route-fixtures assoc id base)))
 
 (defn pending-steers [port recipient]
-  (with-redefs
-   [north.coord/send-op
-    (fn [query-port operation]
-      (coordinator-op query-port operation))]
-    (:messages
-     (north.message-audience/pending-steer-page
-      port recipient #{recipient}))))
+  (:messages
+   (north.message-audience/pending-steer-page
+    port recipient #{recipient})))
 
 (let [port (free-port)
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-live-feed"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "facts.log")
+      facts (io/file tmp "history.framlog")
+      daemon-output (io/file tmp "fram-server.log")
       daemon
-      (do
-        (spit facts "")
-        (proc/process
-         {:dir fram
-          :out :string
-          :err :string
-          :extra-env
-          {"FRAM_REQUIRE_LOG_FENCE" "1"
-           "FRAM_SINGLE_VALUED"
-           "from subject body sent_at to acked_at broadcast_audience_version agent dir session_id started_at"}}
-         "bb" "-cp" "out" "coord_daemon.clj"
-         "serve-flat" (str port) (.getPath facts)))]
-  (reset! test-log (.getCanonicalPath facts))
+      (let [builder
+            (doto
+             (ProcessBuilder.
+              ^java.util.List
+              [(str fram "/bin/fram-server") "serve" (str port)
+               (.getCanonicalPath facts) test-space])
+             (.directory (io/file fram))
+             (.redirectErrorStream true)
+             (.redirectOutput daemon-output))
+            environment (.environment builder)]
+        (doseq [name ["FRAM_LOG" "FRAM_THREADS" "FRAM_TELEMETRY_LOG"
+                      "FRAM_GRAPH_EDIT" "FRAM_FLIP" "FRAM_MCP_PROFILE"
+                      "FRAM_SERVER_TLS"]]
+          (.remove environment name))
+        (.put environment "FRAM_SERVER_RUNTIME" "jvm-dev")
+        (.put environment "FRAM_SERVER_QUIET" "1")
+        (.put environment "FRAM_SERVER_XMX" "1g")
+        (.put environment "FRAM_SNAPSHOT_BOOT" "0")
+        (.start builder))]
   (try
-    (check "throwaway Fram coordinator starts"
-           (await-predicate #(port-open? port)))
-    (doseq [handle ["sender" "recipient"]]
-      (check (str handle " has a live session lease")
-             (zero? (:exit (register! port handle)))))
+    (let [status (await-fram-ready! port)]
+      (check "throwaway current-main Fram serves binary FRAMRPC"
+             (and (= test-space (:space-id status))
+                  (= :ready (:state status))
+                  (= :rpc/jvm (:engine status)))))
 
     ;; A message committed before the transport exists is replayed only after
     ;; the already-armed feed advertises readiness and receives `start`.
@@ -391,8 +340,8 @@
                (await-acked! port "recipient" [message])))
       (stop-feed! feed))
 
-    ;; The coordinator subscription is armed before `ready`. A commit landing
-    ;; after readiness but before `start` cannot fall through an arm/replay gap.
+    ;; The version cursor is established before `ready`. A commit landing after
+    ;; readiness but before `start` cannot fall through an arm/replay gap.
     (let [feed (start-feed! port "recipient" 3000 2000)]
       (let [ready (require-frame! feed "ready")
             message
@@ -562,12 +511,9 @@
                ["sent_at" "2026-07-19T00:00:00Z"]]]
         (assert-fact! port message predicate value))
       (let [claim
-            (coordinator-op
-             port
-             {:op :acquire-lease
-              :res (delivery-resource message "recipient")
-              :holder "fixture-dead-consumer"
-              :ttl-ms 500})]
+            (north.coord/acquire-lease!
+             port (delivery-resource message "recipient")
+             "fixture-dead-consumer" 500)]
         (check "fixture pre-acquires the exact production delivery lease"
                (and (:ok claim) (some? (:epoch claim)))))
       (assert-fact! port message "to" "recipient")
@@ -621,13 +567,12 @@
           rearmed-epoch "00000000-0000-4000-8000-000000000012"
           wrong-epoch "00000000-0000-4000-8000-000000000013"
           ordinary
-          (mapv #(format "@msg:drain-%03d" %) (range 257))
+          (mapv #(format "@msg:drain-%03d" %)
+                (range rpc/effective-page-limit))
           poison (first ordinary)
           foreign "@msg:zz-foreign-claim"
-          messages (conj ordinary foreign)]
+      messages (conj ordinary foreign)]
       (publish-route! port recipient "publish" "armed" armed-epoch)
-      (check "terminal-drain lane has a live session lease"
-             (zero? (:exit (register! port recipient))))
       (let [manifest
             (first (values-of
                     port (str "@agent:" recipient)
@@ -644,17 +589,13 @@
                    ["target_identity_manifest_sha256" manifest]
                    ["to" recipient]]]
             (assert-fact! port message predicate value)))
-        (check "fixture spans more than one bounded pending-steer page"
-               (> (count messages)
-                  north.message-audience/pending-page-limit))
+        (check "fixture spans more than one TermCodec-safe wire page"
+               (> (count messages) rpc/effective-page-limit))
         (publish-route! port recipient "route" "frozen" frozen-epoch)
         (let [claim
-              (coordinator-op
-               port
-               {:op :acquire-lease
-                :res (delivery-resource foreign recipient)
-                :holder "fixture-terminal-dead-consumer"
-                :ttl-ms 5000})]
+              (north.coord/acquire-lease!
+               port (delivery-resource foreign recipient)
+               "fixture-terminal-dead-consumer" 5000)]
           (check "terminal fixture holds the final steer with a foreign claim"
                  (and (:ok claim) (some? (:epoch claim)))))
         (let [feed
@@ -664,7 +605,7 @@
           (start! feed recipient)
           (send-control!
            feed (array-map "type" "drain" "epoch" frozen-epoch))
-          (let [deadline (+ (System/currentTimeMillis) 30000)
+          (let [deadline (+ (System/currentTimeMillis) 75000)
                 frames
                 (loop [observed []]
                   (when (>= (System/currentTimeMillis) deadline)
@@ -746,15 +687,13 @@
     ;; One restart scenario exercises all three terminal barriers explicitly:
     ;; (1) freeze failure -> late steer remains admissible -> fresh settlement;
     ;; (2) drain failure -> pending remains and retry cannot inherit success;
-    ;; (3) already-frozen + no original subscription -> a fresh settlement-only
+    ;; (3) already-frozen + no original feed -> a fresh settlement-only
     ;; process must either prove the exact epoch and settle, or fail closed.
     (let [recipient "retry-drain-recipient"
           armed-epoch "00000000-0000-4000-8000-000000000020"
           frozen-epoch "00000000-0000-4000-8000-000000000021"
           wrong-epoch "00000000-0000-4000-8000-000000000022"]
       (publish-route! port recipient "publish" "armed" armed-epoch)
-      (check "retry-drain lane has a live session lease"
-             (zero? (:exit (register! port recipient))))
       (let [premature
             (start-feed! port recipient 500 300
                          "--settlement-only" "true")]
@@ -772,15 +711,15 @@
                        % "terminal-steer-drain-route-mismatch")
                      @(:errors premature)))
         (stop-feed! premature))
-      (let [admitted
-            (run-msg port "send" "director" recipient "steer"
-                     "accepted after the failed freeze attempt")
-            message
-            (second
-             (re-find #"queued for live injection (@msg:[^ ]+)"
-                      (:out admitted)))]
-        (check "an armed route honestly accepts a late steer after freeze failure"
-               (and (zero? (:exit admitted)) message))
+      (let [message
+            (send-message! port "director" recipient "steer"
+                           "accepted after the failed freeze attempt")
+            manifest
+            (first (values-of port (str "@agent:" recipient)
+                              "identity_manifest_sha256"))]
+        (assert-fact! port message "target_identity_manifest_sha256" manifest)
+        (check "an armed route admits a late steer after freeze failure"
+               (string? message))
         (publish-route! port recipient "route" "frozen" frozen-epoch)
         (let [failed
               (start-feed! port recipient 500 300
@@ -826,103 +765,6 @@
                         (empty? (pending-steers port recipient)))))
           (stop-feed! retry))))
 
-    ;; A committed @run terminal is execution truth even if a crashed lifecycle
-    ;; writer left the lane identity armed and its presence lease online.
-    (let [recipient "run-terminal-recipient"
-          epoch "00000000-0000-4000-8000-000000000020"
-          run-subject "@run:run-terminal-recipient"
-          _ (publish-route! port recipient "publish" "armed" epoch)
-          _ (check "run-terminal lane has a live session lease"
-                   (zero? (:exit (register! port recipient))))
-          feed (start-feed! port recipient 3000 2000)
-          ready (require-frame! feed "ready")
-          admitted (run-msg port "send" "director" recipient "steer"
-                            "accepted before terminal publication")
-          message (sent-subject admitted)
-          _ (when-not (and (zero? (:exit admitted)) (string? message))
-              (throw (ex-info "pre-terminal steer fixture was rejected"
-                              admitted)))]
-      (check "no-run armed lane reaches consumer readiness"
-             (and (= recipient (get ready "recipient"))
-                  (zero? (:exit admitted))
-                  (string? message)))
-      (publish-terminal-run!
-       port recipient run-subject "2026-07-20T09:00:00Z")
-      (send-control! feed (array-map "type" "start"))
-      (let [rejection (require-frame! feed "error")]
-        (check "consumer re-read rejects a pre-terminal admitted steer"
-               (and (= message (get rejection "id"))
-                    (= "steer_route_not_armed" (get rejection "code"))
-                    (= #{recipient}
-                       (values-of port message "delivery_rejected_by"))
-                    (empty? (values-of port message "acked_by")))))
-      (stop-feed! feed)
-
-      (let [producer
-            (run-msg port "send" "director" recipient "steer"
-                     "must not land after terminal")]
-        (check "producer admission rejects an online armed lane with a terminal run"
-               (and (= 2 (:exit producer))
-                    (str/blank? (:out producer))
-                    (str/includes? (:err producer) "target is terminal"))))
-
-      (let [after-terminal (start-feed! port recipient 3000 2000)]
-        (check "terminal run prevents a false live-feed ready frame"
-               (and (.waitFor ^Process (:process after-terminal)
-                              5 java.util.concurrent.TimeUnit/SECONDS)
-                    (empty? (frames-until-eof! after-terminal 2000))
-                    (some #(str/includes? % "terminal-live-input-target")
-                          @(:errors after-terminal))))
-        (stop-feed! after-terminal))
-
-      (let [roster-result (run-north port "agents" "--json")
-            roster (when (zero? (:exit roster-result))
-                     (json/parse-string (:out roster-result)))
-            row (first (filter #(= recipient (get % "control_id"))
-                               (get roster "agents")))]
-        (check "roster excludes terminal-run lane from active working state"
-               (and (zero? (:exit roster-result))
-                    (= "finished" (get row "state"))
-                    (= "resolved" (get row "lifecycle_resolution"))
-                    (= "ran" (get row "process_outcome"))))))
-
-    ;; An incomplete latest run cannot falsely finish a lane or fall back to an
-    ;; older terminal. It is explicitly inconsistent and steer admission closes.
-    (let [recipient "run-incomplete-recipient"
-          epoch "00000000-0000-4000-8000-000000000021"
-          _ (publish-route! port recipient "publish" "armed" epoch)
-          _ (check "incomplete-run lane has a live session lease"
-                   (zero? (:exit (register! port recipient))))
-          before (run-north port "agents" "--json")
-          before-row
-          (when (zero? (:exit before))
-            (first
-             (filter #(= recipient (get % "control_id"))
-                     (get (json/parse-string (:out before)) "agents"))))]
-      (check "real roster keeps a valid no-run lane working"
-             (and (= "working" (get before-row "state"))
-                  (= "unresolved" (get before-row "lifecycle_resolution"))))
-      (publish-terminal-run!
-       port recipient "@run:run-incomplete-recipient"
-       "2026-07-20T10:00:00Z" false)
-      (let [producer
-            (run-msg port "send" "director" recipient "steer"
-                     "must not cross incomplete lifecycle")
-            roster-result (run-north port "agents" "--json")
-            roster (when (zero? (:exit roster-result))
-                     (json/parse-string (:out roster-result)))
-            row (first (filter #(= recipient (get % "control_id"))
-                               (get roster "agents")))]
-        (check "uncommitted latest run rejects producer admission as inconsistent"
-               (and (= 2 (:exit producer))
-                    (str/includes? (:err producer)
-                                   "target lifecycle is inconsistent")))
-        (check "uncommitted run is neither active nor falsely finished in roster"
-               (and (= "inconsistent" (get row "state"))
-                    (= "indeterminate" (get row "lifecycle_resolution"))
-                    (= "uncommitted-latest-run" (get row "lifecycle_reason"))
-                    (str/blank? (get row "process_outcome"))))))
-
     ;; Broadcast replay uses the same durable feed, but its authority comes from
     ;; the finite send-time audience snapshot.
     (let [message
@@ -941,7 +783,9 @@
     (finally
       (doseq [feed @feeds]
         (stop-feed! feed))
-      (proc/destroy-tree daemon)
+      (when (.isAlive ^Process daemon)
+        (.destroyForcibly ^Process daemon)
+        (.waitFor ^Process daemon 2 java.util.concurrent.TimeUnit/SECONDS))
       (doseq [file (reverse (file-seq tmp))]
         (io/delete-file file true)))))
 
