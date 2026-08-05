@@ -1,34 +1,82 @@
 #lang beagle/clj
 (ns north.validate
-  "North's integrity check: the engine's GENERIC structural rules (cycles,
-  dangling refs — fram.kernel/violations-i) PLUS the WORK-semantics rules the
-  engine no longer owns. The work rules were lifted out of the fram kernel to
-  here: part_of/depends_on/relates_to targets must be threads, and a depends_on
-  edge to a withdrawn (abandoned) thread is suspect. The kernel stays
-  domain-free — it knows cycles and dangling entity refs, not thread shape or
-  lifecycle.
+  "North's integrity check over its executable predicate schema. Reference
+  existence, acyclicity, thread shape, and lifecycle are application rules, so
+  they live over North's Triple projection instead of the target-neutral Fram
+  kernel.
 
   Actor refs (lead/driver/proposed_by) are NOT integrity-checked; see the note
   in work-violations-i for why.")
 
-(require fram.kernel :as k)
+(require fram.kernel-classify :as kc)
 (require north.projections :as proj)
 
-;; WORK-semantics violations over the index (the rules lifted out of the kernel's
-;; violations-i). Lifecycle-aware (terminal/withdrawn), which the generic
-;; engine does not know.
 (def thread-ref-preds :- (Vec String) ["part_of" "depends_on" "relates_to"])
 
+(defn- reachable?
+  [idx: proj/ProjectionIndex
+   predicate: String
+   target: String
+   frontier: (Vec String)] -> Bool
+  (loop [remaining frontier
+         seen: (Map String Bool) {}]
+    (cond
+      [(empty? remaining) false]
+      [(= target (first remaining)) true]
+      [(contains? seen (first remaining))
+       (recur (vec (rest remaining)) seen)]
+      [:else
+       (recur
+        (vec (concat (rest remaining)
+                     (proj/string-values-at idx (first remaining) predicate)))
+        (assoc seen (first remaining) true))])))
+
+(defn- cycle?
+  [idx: proj/ProjectionIndex
+   predicate: String
+   subject: String] -> Bool
+  (reachable? idx predicate subject
+              (proj/string-values-at idx subject predicate)))
+
+(defn structural-violations-i
+  [idx: proj/ProjectionIndex
+   subject: String] -> (Vec String)
+  (let [reference-violations
+        (reduce
+         (fn
+           [violations: (Vec String)
+            predicate: String] -> (Vec String)
+           (reduce
+            (fn
+              [found: (Vec String)
+               target: String] -> (Vec String)
+              (if (proj/subject? idx target)
+                found
+                (conj found
+                      (str predicate " references missing entity " target))))
+            violations
+            (proj/string-values-at idx subject predicate)))
+         []
+         (proj/projectionindex-reference-predicates idx))]
+    (reduce
+     (fn
+       [violations: (Vec String)
+        predicate: String] -> (Vec String)
+       (if (cycle? idx predicate subject)
+         (conj violations (str predicate " cycle"))
+         violations))
+     reference-violations
+     (proj/projectionindex-acyclic-predicates idx))))
+
 (defn work-violations-i
-  [idx :- k/Index
+  [idx: proj/ProjectionIndex
    te :- String] :- (Vec String)
   (let [term? (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
         ;; entity refs. Fram verifies generic subject existence; North adds the
-        ;; stronger title-bearing target rule. When schema facts already make a
-        ;; predicate generic-ref-valued, its missing-subject diagnostic comes
-        ;; from Fram; otherwise this domain rule must still reject the missing
-        ;; thread (partial schema metadata cannot disable North integrity).
+        ;; stronger title-bearing target rule. A missing target remains a thread
+        ;; violation even when executable schema also classifies the predicate as
+        ;; a generic ref; partial schema metadata cannot disable North integrity.
         v-thread (reduce
                   (fn
                     [acc :- (Vec String)
@@ -38,15 +86,14 @@
                        [a :- (Vec String)
                         rt :- String] :- (Vec String)
                        (cond
-                         [(and (k/entity-i? idx rt)
-                               (nil? (k/one-i idx rt "title")))
+                         [(and (proj/subject? idx rt)
+                               (nil? (proj/string-value-at idx rt "title")))
                           (conj a (str p " references non-thread entity " rt))]
-                         [(and (not (k/entity-i? idx rt))
-                               (not (k/vec-contains? (:ref-preds idx) p)))
+                         [(not (proj/subject? idx rt))
                           (conj a (str p " references missing thread " rt))]
                          [:else a]))
                      acc
-                     (k/many-i idx te p)))
+                     (proj/string-values-at idx te p)))
                   []
                   thread-ref-preds)
         ;; a depends_on edge to a withdrawn (abandoned) target — only suspect for
@@ -59,15 +106,16 @@
                   (conj acc (str "depends_on points at abandoned " d))
                   acc))
               v-thread
-              (k/many-i idx te "depends_on"))
+              (proj/string-values-at idx te "depends_on"))
         ;; Actor absence is ambiguous under retention, so lifecycle policy—not
         ;; structural validation—owns lead/driver/proposed_by durability.
         ;; Thread refs remain checked because thread identities are durable.
         ]
     v-ab))
 
-;; Full north validate over one thread = engine-generic ++ north-work.
+;; Full North validation over one thread = executable-schema structure + work.
 (defn violations-i
-  [idx :- k/Index
+  [idx: proj/ProjectionIndex
    te :- String] :- (Vec String)
-  (vec (concat (k/violations-i idx te) (work-violations-i idx te))))
+  (vec (concat (structural-violations-i idx te)
+               (work-violations-i idx te))))

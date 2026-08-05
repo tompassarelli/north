@@ -249,7 +249,7 @@ case "${1:-}" in
     fi
     if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec "$@"; fi
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
-  blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|schema-seed|tools|heal|boot)
+  blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|tools|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the fram CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
@@ -277,13 +277,6 @@ case "${1:-}" in
     coord_runtime_ready ;;
   coord-safety)
     coord_safety_ready ;;
-  coord-doctor)
-    # Engine-level coordinator SAFETY handshake + log-hygiene diff (north.main
-    # cmd-doctor): tell/untell safe? daemon state matches on-disk log? This is the
-    # raw primitive the cockpit `north doctor` leads with. Renamed from the old bare
-    # `north doctor` (2026-07-10) when the convoy cockpit doctor folded in.
-    coord_runtime_ready || exit $?
-    north_slot_exec doctor "${@:2}" ;;
   dashboard)
     # Compatibility alias: Bridge owns the operator cockpit command surface.
     exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" dashboard "${@:2}" ;;

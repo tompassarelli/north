@@ -5,7 +5,7 @@
   is now a `relates_to` edge to a real thread, which can't drift), so the tag
   audits retired with them. Pure logic.")
 
-(require fram.kernel :as k)
+(require north.projections :as proj)
 (require clojure.string :as str)
 
 (defrecord DriftGroup
@@ -14,7 +14,7 @@
 
 ;; usage counts for a multi-valued predicate across all threads
 (defn tally
-  [idx :- k/Index
+  [idx: proj/ProjectionIndex
    pred :- String] :- (Map String Int)
   (reduce (fn
             [m :- (Map String Int)
@@ -23,8 +23,8 @@
                       [mm :- (Map String Int)
                        v :- String] :- (Map String Int)
                       (assoc mm v (+ 1 (get mm v 0))))
-                    m (k/many-i idx te pred)))
-          {} (k/thread-ids-i idx)))
+                    m (proj/string-values-at idx te pred)))
+          {} (proj/thread-subjects idx)))
 
 (defn- norm-repo [v :- String] :- String
   (let [low (str/lower-case v)]
@@ -39,7 +39,7 @@
                  (vec (sort (set (keys grouped)))))))
 
 ;; repo values are bare literals now (no `repo:` prefix to strip).
-(defn repo-drift [idx :- k/Index] :- (Vec DriftGroup)
+(defn repo-drift [idx: proj/ProjectionIndex] :- (Vec DriftGroup)
   (let [forms (vec (sort (set (keys (tally idx "repo")))))
         grouped (reduce (fn
                           [m :- (Map String (Vec String))

@@ -3,6 +3,7 @@
   "Read-only dependency-derived views over canonical Fram Triples.")
 
 (require fram.types :as t)
+(require fram.kernel-classify :as kc)
 (require clojure.string :as str)
 
 ;; Triple slots are Any because Fram's recursive Term ABI cannot be expressed
@@ -17,43 +18,108 @@
    many: MultiIndex
    subjects: (Vec Any)
    subject-set: (Map Any Bool)
-   reverse-dependencies: ReverseIndex])
+   reverse-dependencies: ReverseIndex
+   reference-predicates: (Vec String)
+   acyclic-predicates: (Vec String)])
 
 (def no-terms: (Vec Any) [])
+(def fallback-reference-predicates: (Vec String)
+  ["depends_on" "part_of" "relates_to" "clarifies" "amends"])
+(def fallback-acyclic-predicates: (Vec String) ["depends_on" "part_of"])
+
+(defn- schema-predicate-name [subject: String] -> String
+  (if (str/starts-with? subject "@") (subs subject 1) subject))
+
+(defn- set-string-membership
+  [members: (Vec String)
+   value: String
+   present?: Bool] -> (Vec String)
+  (if present?
+    (if (kc/vec-member? members value) members (conj members value))
+    (filterv (fn [member: String] -> Bool (not (= member value))) members)))
 
 (defn index-triples [triples: (Vec t/Triple)] -> ProjectionIndex
-  (reduce
-   (fn
-     [index: ProjectionIndex
-      triple: t/Triple] -> ProjectionIndex
-     (let [subject: Any (t/triple-slot0 triple)
-           predicate: Any (t/triple-slot1 triple)
-           value: Any (t/triple-slot2 triple)
-           key: TermKey [subject predicate]
-           values: (Vec Any)
-           (conj (get (projectionindex-many index) key no-terms) value)
-           reverse: ReverseIndex
-           (if (= predicate "depends_on")
-             (assoc (projectionindex-reverse-dependencies index)
-                    value
-                    (conj (get (projectionindex-reverse-dependencies index)
-                               value no-terms)
-                          subject))
-             (projectionindex-reverse-dependencies index))
-           known-subject: Bool
-           (contains? (projectionindex-subject-set index) subject)]
-       (->ProjectionIndex
-        (assoc (projectionindex-single index) key value)
-        (assoc (projectionindex-many index) key values)
-        (if known-subject
-          (projectionindex-subjects index)
-          (conj (projectionindex-subjects index) subject))
-        (if known-subject
-          (projectionindex-subject-set index)
-          (assoc (projectionindex-subject-set index) subject true))
-        reverse)))
-   (->ProjectionIndex {} {} [] {} {})
-   triples))
+  (let [base: ProjectionIndex
+        (reduce
+         (fn
+           [index: ProjectionIndex
+            triple: t/Triple] -> ProjectionIndex
+           (let [subject: Any (t/triple-slot0 triple)
+                 predicate: Any (t/triple-slot1 triple)
+                 value: Any (t/triple-slot2 triple)
+                 key: TermKey [subject predicate]
+                 values: (Vec Any)
+                 (conj (get (projectionindex-many index) key no-terms) value)
+                 reverse: ReverseIndex
+                 (if (= predicate "depends_on")
+                   (assoc (projectionindex-reverse-dependencies index)
+                          value
+                          (conj (get (projectionindex-reverse-dependencies index)
+                                     value no-terms)
+                                subject))
+                   (projectionindex-reverse-dependencies index))
+                 known-subject: Bool
+                 (contains? (projectionindex-subject-set index) subject)]
+             (->ProjectionIndex
+              (assoc (projectionindex-single index) key value)
+              (assoc (projectionindex-many index) key values)
+              (if known-subject
+                (projectionindex-subjects index)
+                (conj (projectionindex-subjects index) subject))
+              (if known-subject
+                (projectionindex-subject-set index)
+                (assoc (projectionindex-subject-set index) subject true))
+              reverse
+              (projectionindex-reference-predicates index)
+              (projectionindex-acyclic-predicates index))))
+         (->ProjectionIndex {} {} [] {} {} [] [])
+         triples)
+        schema: (Vec (Vec String))
+        (reduce
+         (fn
+           [rows: (Vec (Vec String))
+            subject: Any] -> (Vec (Vec String))
+           (if (string? subject)
+             (let [value-kind: Any
+                   (get (projectionindex-single base) [subject "value_kind"])
+                   acyclic: Any
+                   (get (projectionindex-single base) [subject "acyclic"])]
+               (if (or (string? value-kind) (string? acyclic))
+                 (conj rows [(schema-predicate-name subject)
+                             (if (string? value-kind) value-kind "")
+                             (if (string? acyclic) acyclic "")])
+                 rows))
+             rows))
+         []
+         (projectionindex-subjects base))
+        reference-predicates: (Vec String)
+        (reduce
+         (fn
+           [predicates: (Vec String)
+            row: (Vec String)] -> (Vec String)
+           (let [kind (nth row 1)]
+             (if (= kind "") predicates
+                 (set-string-membership predicates (nth row 0) (= kind "ref")))))
+         fallback-reference-predicates
+         schema)
+        acyclic-predicates: (Vec String)
+        (reduce
+         (fn
+           [predicates: (Vec String)
+            row: (Vec String)] -> (Vec String)
+           (let [declared (nth row 2)]
+             (if (= declared "") predicates
+                 (set-string-membership predicates (nth row 0) (= declared "true")))))
+         fallback-acyclic-predicates
+         schema)]
+    (->ProjectionIndex
+     (projectionindex-single base)
+     (projectionindex-many base)
+     (projectionindex-subjects base)
+     (projectionindex-subject-set base)
+     (projectionindex-reverse-dependencies base)
+     reference-predicates
+     acyclic-predicates)))
 
 (defn value-at
   [index: ProjectionIndex
@@ -85,6 +151,36 @@
      (if (string? value) (conj values value) values))
    []
    (values-at index subject predicate)))
+
+(defn all-subjects [index: ProjectionIndex] -> (Vec String)
+  (reduce
+   (fn
+     [subjects: (Vec String)
+      subject: Any] -> (Vec String)
+     (if (string? subject) (conj subjects subject) subjects))
+   []
+   (projectionindex-subjects index)))
+
+(defn subject?
+  [index: ProjectionIndex
+   subject: String] -> Bool
+  (contains? (projectionindex-subject-set index) subject))
+
+(def configured-single-predicates: (Vec String)
+  (let [configured: String? (System/getenv "FRAM_SINGLE_VALUED")]
+    (if (and (some? configured) (not (str/blank? configured)))
+      (vec (str/split configured #"\s+"))
+      [])))
+
+(defn single-valued?
+  [index: ProjectionIndex
+   predicate: String] -> Bool
+  (let [declared: String?
+        (string-value-at index (str "@" predicate) "cardinality")]
+    (kc/single-eff? (some? declared)
+                    (= declared "single")
+                    (kc/configured-single? configured-single-predicates predicate)
+                    predicate)))
 
 (defn thread-subjects [index: ProjectionIndex] -> (Vec String)
   (reduce

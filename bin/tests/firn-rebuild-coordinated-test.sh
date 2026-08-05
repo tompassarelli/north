@@ -125,7 +125,7 @@ mapfile -t success_calls <"$calls"
   "north rebuild-intent deployment-verified $intent_id firn rebuild rc 0; north coord-ready rc 0 (live runtime identity healthy)" ]]
 grep -Fq 'deployment verified: firn rebuild rc 0; north coord-ready rc 0 (live runtime identity healthy)' \
   "$scratch/success.out"
-if grep -Eq '^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
+if grep -Eq '^north (coord-safety|coord-ready)$' "$calls"; then
   printf 'post-rebuild gate self-verified through the old wrapper\n' >&2
   exit 1
 fi
@@ -159,7 +159,7 @@ failure_rc=$?
 set -e
 [[ "$failure_rc" -eq 7 ]]
 grep -Fxq "north rebuild-intent failed $intent_id firn rebuild rc 7" "$calls"
-if grep -Eq 'north-current (coord-safety|coord-ready)|^north (coord-safety|coord-ready|coord-doctor)$' "$calls"; then
+if grep -Eq 'north-current (coord-safety|coord-ready)|^north (coord-safety|coord-ready)$' "$calls"; then
   printf 'failed rebuild incorrectly ran deployment verification\n' >&2
   exit 1
 fi

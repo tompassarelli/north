@@ -12,7 +12,9 @@
 (load-file (str cli-dir "/framrpc-client.clj"))
 (require '[north.framrpc-client :as rpc])
 
-(def PORT (or (System/getenv "NORTH_PORT") "7977"))
+(def PORT (or (System/getenv "NORTH_PORT")
+              (System/getenv "FRAM_SERVER_PORT")
+              "7977"))
 (def query-page-row-limit 4096)
 (def lease-max-safe-integer 9007199254740991)
 
@@ -192,6 +194,10 @@
 
 (defn show-rows [port subject] (:rows (show-envelope port subject)))
 (defn show [port subject] (show-envelope port subject))
+
+(defn subject-propositions [port subject]
+  (mapv (fn [[predicate value]] (t/triple subject predicate value))
+        (show-rows port subject)))
 
 (defn resolved-envelope [port subject predicate]
   (let [{:keys [version rows]}
@@ -490,6 +496,16 @@
      :complete (empty? unavailable)}))
 
 (defn live-facts [port] (:facts (live-facts-view port)))
+
+(defn live-propositions [port]
+  (let [view (live-facts-view port)]
+    (when-not (:complete view)
+      (throw (ex-info "FRAMRPC live projection is incomplete"
+                      {:type :incomplete-live-projection
+                       :unavailable (:unavailable view)})))
+    (mapv (fn [[subject predicate value]]
+            (t/triple subject predicate value))
+          (:facts view))))
 
 ;; --- mutation ---------------------------------------------------------------
 
@@ -993,5 +1009,6 @@
                                   :domain (second args)})))]
     (prn (status-in-domain port domain))))
 
-(when (= *file* (System/getProperty "babashka.file"))
+(when (and (= *file* (System/getProperty "babashka.file"))
+           (not (contains? #{"-e" "-m"} (first *command-line-args*))))
   (apply -main *command-line-args*))

@@ -1,5 +1,5 @@
 (ns north.audit
-  (:require [fram.kernel :as k]
+  (:require [north.projections :as proj]
             [clojure.string :as str]))
 
 (defrecord DriftGroup [norm forms])
@@ -9,7 +9,7 @@
 (defn driftgroup-forms [r] (:forms r))
 
 (defn tally [idx ^String pred]
-  (reduce (fn [m te] (reduce (fn [mm v] (assoc mm v (+ 1 (get mm v 0)))) m (k/many-i idx te pred))) {} (k/thread-ids-i idx)))
+  (reduce (fn [m te] (reduce (fn [mm v] (assoc mm v (+ 1 (get mm v 0)))) m (proj/string-values-at idx te pred))) {} (proj/thread-subjects idx)))
 
 (defn- ^String norm-repo [^String v]
   (let [low (str/lower-case v)]

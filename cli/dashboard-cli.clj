@@ -42,9 +42,7 @@
                   PORT))))
 
 ;; Doctor is an operational liveness command, so its coordinator handshake must
-;; be bounded independently of corpus size. Full graph projection reconciliation
-;; remains available as the explicit `north coord-doctor` audit; it no longer
-;; sits on the default health path.
+;; be bounded independently of corpus size.
 (def COORD-SAFETY-TIMEOUT-MS 5000)
 
 ;; ---- ANSI (respect NO_COLOR / non-tty) --------------------------------------
@@ -827,8 +825,6 @@
   (reset! doctor-failed? false)
   (println (bold "north doctor"))
   ;; Coordinator safety is a bounded runtime-identity + SpaceId round trip.
-  ;; Full graph projection reconciliation remains an explicit
-  ;; `north coord-doctor` audit and cannot hold the default health path hostage.
   (println (bold "  coordinator"))
   (echo-cmd (str NORTH "/bin/north") "coord-safety")
   (let [{:keys [timeout timeout-ms ok out err error]} (coord-safety-probe)]

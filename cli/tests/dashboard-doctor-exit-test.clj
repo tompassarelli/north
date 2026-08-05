@@ -329,7 +329,6 @@
          (and (str/includes? doctor-source "(coord-safety-probe)")
               (str/includes? doctor-source "\"coord-safety\"")
               (str/includes? doctor-source "(cache-get \"health.edn\" 300000)")
-              (not (str/includes? doctor-source "coord-doctor-probe"))
               (not (str/includes? doctor-source "north-health")))))
 
 (let [failed (remove second @checks)]

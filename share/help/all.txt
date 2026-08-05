@@ -80,14 +80,12 @@ ROUTING — providers, accounts, dispatch posture
 STORE — the fact corpus and its schema
   north schema                    vocabulary census: subjects/facts by kind + predicate metadata
   north predicate ls|show|define  inspect or extend executable predicate entities
-  north schema-seed [--execute]   derive predicate-metadata facts (--dry-run is the default)
   north validate                  full integrity check: engine rules + north work rules
   north audit                     corpus-health report
   north history <id>              a subject's full fact history from the log
   north json <view>               machine-readable projections (plate, ready, show, …)
   north tools                     the curated MCP tool surface + the fram engine core
-  north heal [--adopt]            reconcile threads/ files with the database; fails closed on hand edits
-  north boot                      session orientation: safety verdict, hygiene, the entry-point note
+  north boot                      session orientation from the live coordination projection
   north import                    fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>          regenerate threads/ from the log — never during concurrent work
   north set …                     legacy — direct log append — single-writer/offline only; races otherwise
@@ -106,7 +104,6 @@ OPS — daemons, health, deployment
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
   north health                                  coordination rollup: lanes ran/died, stale concerns, zombies
   north hotspots                                where time goes and what fails, ranked from live telemetry
-  north coord-doctor                            fact-server safety handshake: writes safe? daemon matches log?
   north coord-ready                             cheap exact runtime identity for every active writer
   north coord-safety                            runtime identity + strict log-fence round trip
   north stream-sync                             cursor-based transcript log-shipping

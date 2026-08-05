@@ -7,82 +7,83 @@
 ;; part_of/depends_on/relates_to; generic refs may target any fact-bearing
 ;; entity. (The generic half is covered in fram/tests/kernel_violations_test.clj.)
 ;;   bb -cp out:$FRAM/out tests/validate_test.clj      (run from the repo root)
-(require '[fram.kernel :as k] '[north.validate :as val])
+(require '[fram.types :as t] '[north.projections :as proj]
+         '[north.validate :as val])
 
-(defn idx-of [facts] (k/build-index facts))
+(defn idx-of [facts] (proj/index-triples facts))
 (defn has? [v sub] (some #(clojure.string/includes? % sub) v))
 (defn wv [facts te] (val/work-violations-i (idx-of facts) te))
 (defn fv [facts te] (val/violations-i (idx-of facts) te))
 
 ;; @p is a person (display_name). @w1 lead @p resolves cleanly.
 (def ok-facts
-  [(k/->Fact "@p" "display_name" "Tom")
-   (k/->Fact "@w1" "title" "W1")
-   (k/->Fact "@w1" "lead" "@p")])
+  [(t/triple "@p" "display_name" "Tom")
+   (t/triple "@w1" "title" "W1")
+   (t/triple "@w1" "lead" "@p")])
 
 ;; @w2 driver @ghost — @ghost has no display_name => dangling person ref.
 (def ghost-facts
-  [(k/->Fact "@p" "display_name" "Tom")
-   (k/->Fact "@w2" "title" "W2")
-   (k/->Fact "@w2" "driver" "@ghost")])
+  [(t/triple "@p" "display_name" "Tom")
+   (t/triple "@w2" "title" "W2")
+   (t/triple "@w2" "driver" "@ghost")])
 
 ;; @w3 proposed_by @p (ok) + @ghost (dangling) — only @ghost flags.
 (def proposed-facts
-  [(k/->Fact "@p" "display_name" "Tom")
-   (k/->Fact "@w3" "title" "W3")
-   (k/->Fact "@w3" "proposed_by" "@p")
-   (k/->Fact "@w3" "proposed_by" "@ghost")])
+  [(t/triple "@p" "display_name" "Tom")
+   (t/triple "@w3" "title" "W3")
+   (t/triple "@w3" "proposed_by" "@p")
+   (t/triple "@w3" "proposed_by" "@ghost")])
 
 ;; @w4 (open) depends_on @dead; @dead is abandoned => points-at-abandoned.
 (def abandoned-facts
-  [(k/->Fact "@w4" "title" "W4")
-   (k/->Fact "@dead" "title" "DEAD")
-   (k/->Fact "@dead" "abandoned" "2026-01-01")
-   (k/->Fact "@w4" "depends_on" "@dead")])
+  [(t/triple "@w4" "title" "W4")
+   (t/triple "@dead" "title" "DEAD")
+   (t/triple "@dead" "abandoned" "2026-01-01")
+   (t/triple "@w4" "depends_on" "@dead")])
 
 ;; a RESOLVED thread's stale dep is NOT flagged (term? short-circuits).
 (def abandoned-terminal
-  [(k/->Fact "@w4" "title" "W4")
-   (k/->Fact "@w4" "outcome" "shipped")
-   (k/->Fact "@dead" "title" "DEAD")
-   (k/->Fact "@dead" "abandoned" "2026-01-01")
-   (k/->Fact "@w4" "depends_on" "@dead")])
+  [(t/triple "@w4" "title" "W4")
+   (t/triple "@w4" "outcome" "shipped")
+   (t/triple "@dead" "title" "DEAD")
+   (t/triple "@dead" "abandoned" "2026-01-01")
+   (t/triple "@w4" "depends_on" "@dead")])
 
 ;; composition: full violations-i = engine-generic ++ north-work.
 (def mixed-facts
-  [(k/->Fact "@w5" "title" "W5")
-   (k/->Fact "@w5" "driver" "@ghost")
-   (k/->Fact "@w5" "depends_on" "@missing")])
+  [(t/triple "@w5" "title" "W5")
+   (t/triple "@w5" "driver" "@ghost")
+   (t/triple "@w5" "depends_on" "@missing")])
 
 ;; Fact-bearing titleless entities exist generically, but North's three thread
 ;; relationship predicates must still reject them.
 (def non-thread-target
-  [(k/->Fact "@w6" "title" "W6")
-   (k/->Fact "@entity" "kind" "integration_link")
-   (k/->Fact "@w6" "part_of" "@entity")
-   (k/->Fact "@w6" "depends_on" "@entity")
-   (k/->Fact "@w6" "relates_to" "@entity")])
+  [(t/triple "@w6" "title" "W6")
+   (t/triple "@entity" "kind" "integration_link")
+   (t/triple "@w6" "part_of" "@entity")
+   (t/triple "@w6" "depends_on" "@entity")
+   (t/triple "@w6" "relates_to" "@entity")])
 
 ;; A different declared ref predicate may intentionally target that same
 ;; titleless entity: this is the Linear integration-link shape.
 (def integration-link
-  [(k/->Fact "@linear_link" "value_kind" "ref")
-   (k/->Fact "@w7" "title" "W7")
-   (k/->Fact "@w7" "linear_link" "@link:linear:fixture")
-   (k/->Fact "@link:linear:fixture" "kind" "integration_link")])
+  [(t/triple "@linear_link" "value_kind" "ref")
+   (t/triple "@w7" "title" "W7")
+   (t/triple "@w7" "linear_link" "@link:linear:fixture")
+   (t/triple "@link:linear:fixture" "kind" "integration_link")])
 
 (def missing-integration-link
-  [(k/->Fact "@linear_link" "value_kind" "ref")
-   (k/->Fact "@w7" "title" "W7")
-   (k/->Fact "@w7" "linear_link" "@link:linear:missing")])
+  [(t/triple "@linear_link" "value_kind" "ref")
+   (t/triple "@w7" "title" "W7")
+   (t/triple "@w7" "linear_link" "@link:linear:missing")])
 
 ;; Once any value_kind metadata exists, Fram intentionally uses only the declared
 ;; ref predicates. North's thread-only rules must remain complete even during a
 ;; partial schema migration where depends_on has not been declared yet.
 (def partial-schema-thread-ref
-  [(k/->Fact "@linear_link" "value_kind" "ref")
-   (k/->Fact "@w8" "title" "W8")
-   (k/->Fact "@w8" "depends_on" "@missing-thread")])
+  [(t/triple "@linear_link" "value_kind" "ref")
+   (t/triple "@w8" "title" "W8")
+   (t/triple "@w8" "depends_on" "@missing-thread")])
 
 (def checks
   [["lead -> resolvable actor => no violation"
