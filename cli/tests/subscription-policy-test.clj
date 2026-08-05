@@ -1,13 +1,19 @@
 #!/usr/bin/env bb
 ;; Regression for the subscription-entitlement cutover. Harness decisions and reports
 ;; use observed work facts; historical dollar facts may remain in a corpus but are inert.
-(require '[babashka.process :as proc]
-         '[clojure.edn :as edn]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram (str (System/getProperty "user.home") "/code/fram/main"))
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")
+      (str (System/getProperty "user.home") "/code/fram/main")))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
+(load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 (defn read-source [path] (slurp (io/file root path)))
@@ -46,38 +52,32 @@
                 (throw (ex-info "no free test port" {}))))
   (def tmp (.toFile (java.nio.file.Files/createTempDirectory
                       "north-subscription-policy" (make-array java.nio.file.attribute.FileAttribute 0))))
-  (def log (io/file tmp "facts.log"))
+  (def log (io/file tmp "facts.framlog"))
   (def canonical-log (.getCanonicalPath log))
-  (spit log "")
   (def daemon (proc/process {:dir fram :out :string :err :string
-                             :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-                            "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) (.getPath log)))
+                             :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                                         "FRAM_SERVER_QUIET" "1"
+                                         "FRAM_SERVER_XMX" "1g"}}
+                            (str fram "/bin/fram-server") "serve" (str port)
+                            canonical-log "north-coordination"))
   (defn await-up []
     (loop [n 0]
-      (cond (not (port-free? port)) true
-            (>= n 100) false
-            :else (do (Thread/sleep 50) (recur (inc n))))))
-  (defn op [request]
-    (with-open [s (java.net.Socket. "127.0.0.1" (int port))]
-      (.setSoTimeout s 5000)
-      (let [w (.getOutputStream s) r (io/reader (.getInputStream s))]
-        (.write w
-                (.getBytes
-                 (str (pr-str {:op :for-log
-                               :expected-log canonical-log
-                               :request request})
-                      "\n")))
-        (.flush w)
-        (edn/read-string (.readLine r)))))
+      (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+        (cond (and (= :ready (:state status))
+                   (= "north-coordination" (:space-id status))) true
+              (>= n 800) false
+              :else (do (Thread/sleep 25) (recur (inc n)))))))
   (defn fact! [l p r]
-    (loop [attempt 0]
-      (let [base (:version (op {:op :version}))
-            result (op {:op :assert :te l :p p :r r :base base})]
-        (if (or (:ok result) (:version result))
-          result
-          (if (< attempt 5) (recur (inc attempt)) (throw (ex-info "fact write failed" result)))))))
+    (let [result (north.coord/append! port l p r)]
+      (when (:reject result)
+        (throw (ex-info "fact write failed" result)))
+      result))
   (try
-    (check "throwaway telemetry coordinator starts" (await-up))
+    (let [started? (await-up)]
+      (check "throwaway telemetry coordinator starts" started?)
+      (when-not started?
+        (throw (ex-info "throwaway Fram server did not start"
+                        {:result (deref daemon 1000 nil)}))))
     (doseq [[p r] [["kind" "run"] ["agent" "worker-a"] ["tokens" "350"]
                    ["duration_ms" "1250"] ["num_turns" "3"] ["fallback_count" "1"]
                    ["fallback_path" "anthropic -> openai"]
@@ -94,11 +94,20 @@
     ;; identity and therefore cannot enter the report or influence a decision.
     (fact! "@run-historical" (str "cost" "_usd") "99.99")
     (let [full (proc/shell {:out :string :err :string :continue true
-                            :extra-env {"FRAM_LOG" canonical-log}}
-                           "bb" (str root "/cli/north-reconcile.clj") (str port) "full")
+                            :extra-env {"FRAM_LOG" canonical-log
+                                        "FRAM_SPACE_ID" "north-coordination"
+                                        "NORTH_TELEMETRY_PARTITION" "0"}}
+                           "bb" "-cp" runtime-classpath
+                           (str root "/cli/north-reconcile.clj") (str port) "full")
           recent (proc/shell {:out :string :err :string :continue true
-                              :extra-env {"FRAM_LOG" canonical-log}}
-                             "bb" (str root "/cli/north-reconcile.clj") (str port) "recent" "10")]
+                              :extra-env {"FRAM_LOG" canonical-log
+                                          "FRAM_SPACE_ID" "north-coordination"
+                                          "NORTH_TELEMETRY_PARTITION" "0"}}
+                             "bb" "-cp" runtime-classpath
+                             (str root "/cli/north-reconcile.clj") (str port) "recent" "10")]
+      (when-not (and (zero? (:exit full)) (zero? (:exit recent)))
+        (println "full reconciliation diagnostic:" (pr-str full))
+        (println "recent reconciliation diagnostic:" (pr-str recent)))
       (check "usage reconciliation exits successfully" (and (zero? (:exit full)) (zero? (:exit recent))))
       (check "summary reports exact tokens, duration, turns, and fallbacks"
              (every? #(re-find % (:out full))

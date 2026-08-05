@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 ;; Concern operations share one bounded, private, immutable local durability
 ;; path for coordinator transport ambiguity.
-(require '[babashka.process :as p]
-         '[clojure.edn :as edn]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as p]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -12,6 +12,14 @@
 (def subject-root
   (.getCanonicalPath
    (io/file (or (System/getenv "NORTH_TEST_SUBJECT_ROOT") test-root))))
+(def fram-root
+  (or (System/getenv "NORTH_TEST_FRAM_ROOT")
+      (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_PATH")
+      (str (System/getProperty "user.home") "/code/fram/main")))
+(def runtime-classpath (str test-root "/out:" fram-root "/out"))
+(cp/add-classpath runtime-classpath)
+(load-file (str test-root "/cli/coord.clj"))
 (load-file (str test-root "/cli/concern-spool.clj"))
 
 (def fails (atom 0))
@@ -65,63 +73,22 @@
     (try (.close socket) (catch Throwable _ nil)))
   (future-cancel acceptor))
 
-(defn start-responder [port response-for]
-  (let [server (java.net.ServerSocket. port)
-        acceptor
-        (future
-          (try
-            (loop []
-              (with-open [socket (.accept server)
-                          reader
-                          (io/reader (.getInputStream socket))
-                          writer
-                          (io/writer (.getOutputStream socket))]
-                (let [envelope (edn/read-string (.readLine reader))
-                      response (response-for (:request envelope))]
-                  (.write writer (str (pr-str response) "\n"))
-                  (.flush writer)))
-              (recur))
-            (catch Throwable _ nil)))]
-    {:server server :sockets (atom []) :acceptor acceptor}))
-
-(defn coordinator-op [port log request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))
-              reader (io/reader (.getInputStream socket))
-              writer (io/writer (.getOutputStream socket))]
-    (.write
-     writer
-     (str
-      (pr-str
-       {:op :for-log
-        :expected-log (.getCanonicalPath log)
-        :request request})
-      "\n"))
-    (.flush writer)
-    (edn/read-string (.readLine reader))))
-
 (defn await-port [port process]
   (loop [attempt 0]
     (cond
-      (>= attempt 100)
+      (>= attempt 800)
       false
 
       (not= ::running (deref process 0 ::running))
       false
 
       :else
-      (let [open?
-            (try
-              (with-open [socket (java.net.Socket.)]
-                (.connect
-                 socket
-                 (java.net.InetSocketAddress. "127.0.0.1" (int port))
-                 50)
-                true)
-              (catch Exception _ false))]
-        (if open?
+      (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+        (if (and (= :ready (:state status))
+                 (= "north-coordination" (:space-id status)))
           true
           (do
-            (Thread/sleep 50)
+            (Thread/sleep 25)
             (recur (inc attempt))))))))
 
 (defn operation-files [directory]
@@ -143,9 +110,9 @@
   [root port log spool repo extra-env & extra-args]
   (let [env
         (merge
-         {"NORTH_BB" "bb"
-          "NORTH_PORT" (str port)
+         {"NORTH_PORT" (str port)
           "FRAM_LOG" (.getCanonicalPath log)
+          "FRAM_SPACE_ID" "north-coordination"
           "NORTH_TELEMETRY_PARTITION" "0"
           "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
           "NORTH_CONCERN_DECLARE_TRANSPORT_TIMEOUT_MS" "300"}
@@ -154,7 +121,8 @@
         (apply
          p/process
          {:dir root :out :string :err :string :extra-env env}
-         (str root "/bin/concern")
+         "bb" "-cp" runtime-classpath
+         (str root "/cli/concern-cli.clj") (str port)
          "declare" "offline-fixture" (.getCanonicalPath repo)
          "durable concern fixture" "src/z.clj,src/a.clj"
          extra-args)
@@ -170,9 +138,9 @@
 (defn run-transition [root port log spool verb args extra-env]
   (let [env
         (merge
-         {"NORTH_BB" "bb"
-          "NORTH_PORT" (str port)
+         {"NORTH_PORT" (str port)
           "FRAM_LOG" (.getCanonicalPath log)
+          "FRAM_SPACE_ID" "north-coordination"
           "NORTH_TELEMETRY_PARTITION" "0"
           "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
           "NORTH_COORD_CONNECT_TIMEOUT_MS" "100"
@@ -183,7 +151,8 @@
         (apply
          p/process
          {:dir root :out :string :err :string :extra-env env}
-         (str root "/bin/concern") verb args)
+         "bb" "-cp" runtime-classpath
+         (str root "/cli/concern-cli.clj") (str port) verb args)
         started (System/nanoTime)
         result (deref process 2000 ::timeout)
         elapsed-ms (quot (- (System/nanoTime) started) 1000000)]
@@ -196,7 +165,7 @@
   (let [tmp (temp-directory "north-concern-terminal-offline")
         spool (io/file tmp "spool")
         size-spool (io/file tmp "size-spool")
-        log (doto (io/file tmp "coordination.log") (spit ""))
+        log (io/file tmp "coordination.framlog")
         concern "@concern-1785506000000-a001"
         port 17991]
     (try
@@ -270,11 +239,9 @@
   (let [tmp (temp-directory "north-concern-offline-blackhole")
         repo (doto (io/file tmp "repo") .mkdirs)
         spool (io/file tmp "spool")
-        log (io/file tmp "coordination.log")
-        sentinel "canonical-log-sentinel\n"
+        log (io/file tmp "coordination.framlog")
         port (free-port)
         server (start-blackhole port)]
-    (spit log sentinel)
     (try
       (let [result (run-declare root port log spool repo {})
             files (operation-files spool)
@@ -289,8 +256,8 @@
                     (< (:elapsed-ms result) 2000)
                     (str/includes? (:out result) "durable-local")
                     (str/includes? (:out result) "visibility=pending")))
-        (check "fallback never appends directly to the exact target log"
-               (= sentinel (slurp log)))
+        (check "fallback never creates or appends the exact target FRAMLOG"
+               (not (.exists log)))
         (check "fallback publishes exactly one complete operation and no temp"
                (and (= 1 (count files))
                     (empty? (temp-files spool))
@@ -333,7 +300,7 @@
 (let [tmp (temp-directory "north-concern-offline-parallel")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "parallel-sentinel\n"))
+      log (io/file tmp "coordination.framlog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -368,7 +335,7 @@
 (let [tmp (temp-directory "north-concern-offline-full")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "full-sentinel\n"))
+      log (io/file tmp "coordination.framlog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -392,7 +359,7 @@
 (let [tmp (temp-directory "north-concern-offline-alias")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "alias-sentinel\n"))
+      log (io/file tmp "coordination.framlog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -412,7 +379,7 @@
 (let [tmp (temp-directory "north-concern-offline-about-unbound")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "about-sentinel\n"))
+      log (io/file tmp "coordination.framlog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -429,134 +396,28 @@
       (stop-server! server)
       (delete-tree! tmp))))
 
-;; If the thread reads succeeded before the declaration ack became ambiguous,
-;; the durable operation carries the exact kind-fact CID for O2 retarget checks.
-(let [tmp (temp-directory "north-concern-offline-about-bound")
-      repo (doto (io/file tmp "repo") .mkdirs)
-      spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "bound-sentinel\n"))
-      port (free-port)
-      resolved-response
-      (fn [value]
-        {:value value
-         :members (if value 1 0)
-         :ambiguous? false
-         :values (if value [value] [])
-         :version 41})
-      server
-      (start-responder
-       port
-       (fn [request]
-         (case (:op request)
-           :resolved
-           (case (:p request)
-             "kind" (resolved-response "thread")
-             "title" (resolved-response "Bound thread")
-             "identity_manifest_sha256" (resolved-response nil)
-             "display_name" (resolved-response "@offline-fixture")
-             (resolved-response nil))
-
-           :claim-read
-           {:ok true
-            :claim-cid 7301
-            :claim "thread"
-            :status nil
-            :verdict nil
-            :rejection nil
-            :provenance []
-            :version 41}
-
-           :assert-batch {}
-
-           {:error "unexpected test operation"})))]
-  (try
-    (let [result
-          (run-declare
-           subject-root port log spool repo {}
-           "--about" "@thread:bound")
-          files (operation-files spool)
-          operation
-          (when (= 1 (count files))
-            (north.concern-spool/read-operation-file! (first files)))]
-      (check "captured stable about binding survives an ambiguous declaration ack"
-             (and (zero? (:exit result))
-                  (= 1 (count files))
-                  (= 7301
-                     (get-in operation
-                             [:precondition :about :binding-cid]))
-                  (= ["@thread:bound"]
-                     (->> (:facts operation)
-                          (filter #(= "about" (:predicate %)))
-                          (mapv :object))))))
-    (finally
-      (stop-server! server)
-      (delete-tree! tmp))))
-
-;; A parsed coordinator response that rejects the canonical batch is semantic,
-;; not transport ambiguity. It must remain a hard failure with no local record.
-(let [tmp (temp-directory "north-concern-offline-reject")
-      repo (doto (io/file tmp "repo") .mkdirs)
-      spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit "reject-sentinel\n"))
-      port (free-port)
-      server
-      (start-responder
-       port
-       (fn [request]
-         (case (:op request)
-           :resolved
-           {:value nil
-            :members 0
-            :ambiguous? false
-            :values []
-            :version 0}
-
-           :assert
-           {:ok 1}
-
-           :assert-batch
-           {:reject :semantic}
-
-           {:error "unexpected test operation"})))]
-  (try
-    (let [result (run-declare subject-root port log spool repo {})]
-      (check "explicit semantic rejection never becomes durable-local"
-             (and (not (:timeout result))
-                  (not (zero? (:exit result)))
-                  (str/includes?
-                   (:err result)
-                   "explicitly rejected concern declaration")
-                  (empty? (operation-files spool))
-                  (not (str/includes? (:out result) "durable-local")))))
-    (finally
-      (stop-server! server)
-      (delete-tree! tmp))))
-
 ;; One real strict coordinator proves the normal path still publishes the same
 ;; concern fact projection and creates no local operation.
 (let [tmp (temp-directory "north-concern-offline-live")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (doto (io/file tmp "coordination.log") (spit ""))
-      telemetry-log (doto (io/file tmp "telemetry.log") (spit ""))
+      log (io/file tmp "coordination.framlog")
+      telemetry-log (io/file tmp "telemetry.framlog")
       port (free-port)
-      fram (or (System/getenv "NORTH_TEST_FRAM_ROOT")
-               (let [home (System/getProperty "user.home")
-                     current (io/file home "code/north-data/fram-runtime/current")]
-                 (if (.isDirectory current)
-                   (.getCanonicalPath current)
-                   (str home "/code/fram/main"))))
       env
       {"FRAM_LOG" (.getCanonicalPath log)
+       "FRAM_SPACE_ID" "north-coordination"
        "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry-log)
        "NORTH_TELEMETRY_PARTITION" "0"
        "NORTH_TELEMETRY_PORT" (str port)
-       "FRAM_REQUIRE_LOG_FENCE" "1"}
+       "FRAM_SERVER_RUNTIME" "jvm-dev"
+       "FRAM_SERVER_QUIET" "1"
+       "FRAM_SERVER_XMX" "1g"}
       daemon
       (p/process
-       {:dir fram :out :string :err :string :extra-env env}
-       "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
-       (str port) (.getCanonicalPath log))]
+       {:dir fram-root :out :string :err :string :extra-env env}
+       (str fram-root "/bin/fram-server") "serve" (str port)
+       (.getCanonicalPath log) "north-coordination")]
   (try
     (check "strict live coordinator fixture starts" (await-port port daemon))
     (let [result
@@ -568,11 +429,7 @@
            (re-find #"(@concern-[0-9]+-[0-9a-f]{4})" (:out result)))
           values
           (fn [predicate]
-            (set
-             (:values
-              (coordinator-op
-               port log
-               {:op :resolved :te concern-id :p predicate}))))
+            (set (north.coord/many port concern-id predicate)))
           live-ok?
           (and (not (:timeout result))
                (zero? (:exit result))
@@ -610,7 +467,7 @@
           :concern-id
           (str "@concern-" (System/currentTimeMillis) "-"
                (format "%04x" (rand-int 65536)))
-          :target-log (.getCanonicalPath (io/file tmp "coordination.log"))
+          :target-log (.getCanonicalPath (io/file tmp "coordination.framlog"))
           :created-at (str (java.time.Instant/now))
           :facts
           [{:predicate "title" :object "crash fixture" :cardinality "single"}

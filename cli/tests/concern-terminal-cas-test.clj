@@ -1,9 +1,9 @@
 #!/usr/bin/env bb
-;; The terminal transition's read phase is guarded by a LOG-GLOBAL base, so a
+;; The terminal transition's read phase is guarded by a global served version, so a
 ;; read that grows with concern count loses the CAS under ordinary traffic.
 ;;   bb cli/tests/concern-terminal-cas-test.clj
-(require '[babashka.process :as p]
-         '[clojure.edn :as edn]
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as p]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -38,6 +38,9 @@
       (System/getenv "FRAM_PATH")
       (.getCanonicalPath
        (io/file (System/getProperty "user.home") "code" "fram" "main"))))
+(def runtime-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath runtime-classpath)
+(load-file (str root "/cli/coord.clj"))
 ;; A silent skip in CI is a gate that can never fail; CI must set FRAM_TEST_CHECKOUT
 ;; (or FRAM_PATH) so this always runs there — an absent Fram under CI is a hard error.
 (when-not (.isDirectory (io/file fram "out"))
@@ -54,49 +57,38 @@
   (.toFile
    (java.nio.file.Files/createTempDirectory
     "north-concern-cas" (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (io/file tmp "facts.log"))
-(def telemetry (io/file tmp "telemetry.log"))
-(spit log "")
-(spit telemetry "")
+(def log (io/file tmp "facts.framlog"))
 (def canonical-log (.getCanonicalPath log))
 (def isolated-env
   {"FRAM_LOG" canonical-log
-   "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
+   "FRAM_SPACE_ID" "north-coordination"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
   (p/process {:dir fram :out :string :err :string
-              :extra-env (assoc isolated-env "FRAM_REQUIRE_LOG_FENCE" "1")}
-             "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
-             (str port) canonical-log))
+              :extra-env (assoc isolated-env
+                                "FRAM_SERVER_RUNTIME" "jvm-dev"
+                                "FRAM_SERVER_QUIET" "1"
+                                "FRAM_SERVER_XMX" "1g")}
+             (str fram "/bin/fram-server") "serve" (str port)
+             canonical-log "north-coordination"))
 
 (defn cleanup []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))
   (doseq [file (reverse (file-seq tmp))] (io/delete-file file true)))
 (.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
 
-(defn op [request]
-  (with-open [socket (java.net.Socket. "127.0.0.1" (int port))]
-    (.setSoTimeout socket 60000)
-    (let [writer (.getOutputStream socket)
-          reader (io/reader (.getInputStream socket))]
-      (.write writer
-              (.getBytes (str (pr-str {:op :for-log
-                                       :expected-log canonical-log
-                                       :request request})
-                              "\n")))
-      (.flush writer)
-      (edn/read-string (.readLine reader)))))
-
 (defn fact! [subject predicate object]
-  (let [result (op {:op :assert :te subject :p predicate :r object})]
-    (when-not (:ok result) (throw (ex-info "fixture fact write failed" result)))
+  (let [result (north.coord/append! port subject predicate object)]
+    (when (:reject result) (throw (ex-info "fixture fact write failed" result)))
     result))
 
 (when-not (loop [attempt 0]
-            (cond (not (port-free? port)) true
-                  (>= attempt 300) false
-                  :else (do (Thread/sleep 250) (recur (inc attempt)))))
+            (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+              (cond (and (= :ready (:state status))
+                         (= "north-coordination" (:space-id status))) true
+                    (>= attempt 800) false
+                    :else (do (Thread/sleep 25) (recur (inc attempt))))))
   (throw (ex-info "throwaway coordinator failed to start"
                   {:err (:err (deref daemon 2000 nil))})))
 
@@ -125,7 +117,7 @@
   (future
     (loop [i 0]
       (when @writing?
-        (try (op {:op :assert :te "@cmd:cas-test-writer" :p "probe_note" :r (str i)})
+        (try (north.coord/append! port "@cmd:cas-test-writer" "probe_note" (str i))
              (swap! writes inc)
              (catch Throwable _ nil))
         (Thread/sleep write-period-ms)
@@ -136,18 +128,20 @@
   (let [started (System/nanoTime)
         result @(p/process {:dir root :out :string :err :string
                             :extra-env isolated-env}
-                           "bb" "cli/concern-cli.clj" (str port) "done" subject)]
+                           "bb" "-cp" runtime-classpath
+                           "cli/concern-cli.clj" (str port) "done" subject)]
     (assoc result :ms (long (/ (- (System/nanoTime) started) 1000000)))))
 (def writes-during (deref writes))
 (reset! writing? false)
 @writer
 
 (defn reached [concern]
-  (->> (:ok (op {:op :query
-                 :query {:find "value"
-                         :rules [{:head {:rel "value" :args [{:var "value"}]}
-                                  :body [{:rel "triple"
-                                          :args [concern "reached" {:var "value"}]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "value"
+         :rules [{:head {:rel "value" :args [{:var "value"}]}
+                  :body [{:rel "triple"
+                          :args [concern "reached" {:var "value"}]}]}]})
        (map first)
        set))
 
