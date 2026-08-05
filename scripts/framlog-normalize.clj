@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
-;; Sanctioned pre-pass for the frozen North v0.3 logs. Epoch compaction preserves
-;; domain state but does not preserve transaction order, and its header occupies
+;; Sanctioned pre-pass for frozen pre-cutover North logs. Epoch compaction
+;; preserves domain state but not transaction order, and its header occupies
 ;; tx=0. FRAMLOG replay requires increasing coordinates beginning at one.
 (require '[clojure.edn :as edn]
          '[clojure.java.io :as io]
