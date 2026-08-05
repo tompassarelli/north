@@ -1,10 +1,113 @@
 #lang beagle/clj
 (ns north.projections
-  "Read-only dependency-derived views over an indexed fact set (k/Index).
-  O(threads) via the index, not O(threads * facts).")
+  "Read-only dependency-derived views over canonical Fram Triples.")
 
-(require fram.kernel :as k)
+(require fram.types :as t)
 (require clojure.string :as str)
+
+;; Triple slots are Any because Fram's recursive Term ABI cannot be expressed
+;; in-place. The Triple constructor validates the recursive Term boundary.
+(defalias TermKey (Vec Any))
+(defalias SingleIndex (Map TermKey Any))
+(defalias MultiIndex (Map TermKey (Vec Any)))
+(defalias ReverseIndex (Map Any (Vec Any)))
+
+(defrecord ProjectionIndex
+  [single: SingleIndex
+   many: MultiIndex
+   subjects: (Vec Any)
+   subject-set: (Map Any Bool)
+   reverse-dependencies: ReverseIndex])
+
+(def no-terms: (Vec Any) [])
+
+(defn index-triples [triples: (Vec t/Triple)] -> ProjectionIndex
+  (reduce
+   (fn
+     [index: ProjectionIndex
+      triple: t/Triple] -> ProjectionIndex
+     (let [subject: Any (t/triple-slot0 triple)
+           predicate: Any (t/triple-slot1 triple)
+           value: Any (t/triple-slot2 triple)
+           key: TermKey [subject predicate]
+           values: (Vec Any)
+           (conj (get (projectionindex-many index) key no-terms) value)
+           reverse: ReverseIndex
+           (if (= predicate "depends_on")
+             (assoc (projectionindex-reverse-dependencies index)
+                    value
+                    (conj (get (projectionindex-reverse-dependencies index)
+                               value no-terms)
+                          subject))
+             (projectionindex-reverse-dependencies index))
+           known-subject: Bool
+           (contains? (projectionindex-subject-set index) subject)]
+       (->ProjectionIndex
+        (assoc (projectionindex-single index) key value)
+        (assoc (projectionindex-many index) key values)
+        (if known-subject
+          (projectionindex-subjects index)
+          (conj (projectionindex-subjects index) subject))
+        (if known-subject
+          (projectionindex-subject-set index)
+          (assoc (projectionindex-subject-set index) subject true))
+        reverse)))
+   (->ProjectionIndex {} {} [] {} {})
+   triples))
+
+(defn value-at
+  [index: ProjectionIndex
+   subject: Any
+   predicate: Any] -> Any
+  (get (projectionindex-single index) [subject predicate]))
+
+(defn values-at
+  [index: ProjectionIndex
+   subject: Any
+   predicate: Any] -> (Vec Any)
+  (get (projectionindex-many index) [subject predicate] no-terms))
+
+(defn string-value-at
+  [index: ProjectionIndex
+   subject: Any
+   predicate: Any] -> String?
+  (let [value: Any (value-at index subject predicate)]
+    (if (string? value) value nil)))
+
+(defn string-values-at
+  [index: ProjectionIndex
+   subject: Any
+   predicate: Any] -> (Vec String)
+  (reduce
+   (fn
+     [values: (Vec String)
+      value: Any] -> (Vec String)
+     (if (string? value) (conj values value) values))
+   []
+   (values-at index subject predicate)))
+
+(defn thread-subjects [index: ProjectionIndex] -> (Vec String)
+  (reduce
+   (fn
+     [subjects: (Vec String)
+      subject: Any] -> (Vec String)
+     (if (and (string? subject)
+              (some? (string-value-at index subject "title")))
+       (conj subjects subject)
+       subjects))
+   []
+   (projectionindex-subjects index)))
+
+(defn dependents-of
+  [index: ProjectionIndex
+   subject: String] -> (Vec String)
+  (reduce
+   (fn
+     [subjects: (Vec String)
+      candidate: Any] -> (Vec String)
+     (if (string? candidate) (conj subjects candidate) subjects))
+   []
+   (get (projectionindex-reverse-dependencies index) subject no-terms)))
 
 ;; --- lifecycle vocab + derivation (moved out of the fram kernel) -------------
 ;; Lifecycle is DERIVED, never a stored status: the engine stores the facts but
@@ -12,38 +115,37 @@
 ;; superseded_by); withdrawn = a depends_on target that's suspect to depend on
 ;; (abandoned). The vocab mirrors the env contract bin/north exports
 ;; (FRAM_TERMINAL_PREDS / FRAM_WITHDRAWN_PREDS); the defaults ARE the north
-;; lifecycle vocab. (The fram kernel still carries terminal-preds for the
-;; coordinator's the-model §9 terminal-cascade — a separate daemon concern.)
-(def terminal-preds :- (Vec String)
-  (let [env :- Any (System/getenv "FRAM_TERMINAL_PREDS")]
+;; lifecycle vocab.
+(def terminal-preds: (Vec String)
+  (let [env: String? (System/getenv "FRAM_TERMINAL_PREDS")]
     (if (and (some? env) (not (= env "")))
       (vec (str/split env #"\s+"))
       ["outcome" "abandoned" "superseded_by"])))
 
-(def withdrawn-preds :- (Vec String)
-  (let [env :- Any (System/getenv "FRAM_WITHDRAWN_PREDS")]
+(def withdrawn-preds: (Vec String)
+  (let [env: String? (System/getenv "FRAM_WITHDRAWN_PREDS")]
     (if (and (some? env) (not (= env "")))
       (vec (str/split env #"\s+"))
       ["abandoned"])))
 
 (defn- any-of-i?
-  [idx :- k/Index
-   te :- String
-   preds :- (Vec String)] :- Bool
+  [idx: ProjectionIndex
+   te: String
+   preds: (Vec String)] -> Bool
   (loop [ps preds]
     (if (empty? ps) false
-      (if (some? (k/one-i idx te (first ps))) true (recur (rest ps))))))
+      (if (some? (string-value-at idx te (first ps))) true (recur (rest ps))))))
 
 ;; terminal = resolved: any of terminal-preds present (default outcome/abandoned/superseded_by).
 (defn terminal-i?
-  [idx :- k/Index
-   te :- String] :- Bool
+  [idx: ProjectionIndex
+   te: String] -> Bool
   (any-of-i? idx te terminal-preds))
 
 ;; withdrawn = canceled: any of withdrawn-preds present (default abandoned).
 (defn withdrawn-i?
-  [idx :- k/Index
-   te :- String] :- Bool
+  [idx: ProjectionIndex
+   te: String] -> Bool
   (any-of-i? idx te withdrawn-preds))
 
 ;; --- work-thread set (moved out of the fram kernel) --------------------------
@@ -55,47 +157,43 @@
 ;; NO work axis at all (no completion / activity / blocked / schedule /
 ;; composition / planning / accountability / chronology / navigation predicate).
 (defn anchor-i?
-  [idx :- k/Index
-   te :- String] :- Bool
-  (and (some? (k/one-i idx te "title"))
-       (and (some? (k/one-i idx te "committed"))
+  [idx: ProjectionIndex
+   te: String] -> Bool
+  (and (some? (string-value-at idx te "title"))
+       (and (some? (string-value-at idx te "committed"))
             (and (not (terminal-i? idx te))
-                 (and (nil? (k/one-i idx te "driver"))
-                      (and (empty? (k/many-i idx te "depends_on"))
-                           (and (nil? (k/one-i idx te "part_of"))
-                                (and (nil? (k/one-i idx te "do_on"))
-                                     (and (nil? (k/one-i idx te "valid_until"))
-                                          (and (nil? (k/one-i idx te "estimate_hours"))
-                                               (and (nil? (k/one-i idx te "lead"))
-                                                    (and (empty? (k/many-i idx te "proposed_by"))
-                                                         (and (nil? (k/one-i idx te "created_at"))
-                                                              (and (nil? (k/one-i idx te "updated_at"))
-                                                                   (nil? (k/one-i idx te "repo"))))))))))))))))
+                 (and (nil? (string-value-at idx te "driver"))
+                      (and (empty? (string-values-at idx te "depends_on"))
+                           (and (nil? (string-value-at idx te "part_of"))
+                                (and (nil? (string-value-at idx te "do_on"))
+                                     (and (nil? (string-value-at idx te "valid_until"))
+                                          (and (nil? (string-value-at idx te "estimate_hours"))
+                                               (and (nil? (string-value-at idx te "lead"))
+                                                    (and (empty? (string-values-at idx te "proposed_by"))
+                                                         (and (nil? (string-value-at idx te "created_at"))
+                                                              (and (nil? (string-value-at idx te "updated_at"))
+                                                                   (nil? (string-value-at idx te "repo"))))))))))))))))
 
 ;; thread ids that are actual work (anchors excluded) — the basis for plate/
-;; ready/next/leverage/agenda. validate keeps using k/thread-ids-i (sees anchors).
-(defn work-thread-ids-i [idx :- k/Index] :- (Vec String)
-  (filterv (fn [s :- String] :- Bool (not (anchor-i? idx s))) (k/thread-ids-i idx)))
+;; ready/next/leverage/agenda. Structural callers use thread-subjects directly.
+(defn work-thread-ids-i [idx: ProjectionIndex] -> (Vec String)
+  (filterv (fn [s: String] -> Bool (not (anchor-i? idx s)))
+           (thread-subjects idx)))
 
-;; DECIDED NON-GOAL (2026-06-18): do NOT rewrite ready/blocked as Datalog rules.
-;; Measured on the live log (see scripts/diagnostics/leverage_probe.clj): the Datalog twin is ~2.3x MORE
-;; code than these filterv's and forces a hand-listed predicate schema that duplicates
-;; what k/Index already owns — a second source of truth that silently rots. Fact-native
-;; logic is a win ONLY for recursive/relational derivation (the transitive leverage
-;; closure below — proven output-identical, a real 1-rule-vs-loop win IF the reified
-;; store is amortized across the whole layer), never for these flat filters.
+;; Flat eligibility reads the shared index; recursive leverage owns the graph walk.
 
 ;; Direct deps of te that are known threads and not yet terminal.
 (defn incomplete-deps
-  [idx :- k/Index
-   te :- String] :- (Vec String)
-  (filterv (fn [d :- String] :- Bool
-             (and (some? (k/one-i idx d "title")) (not (terminal-i? idx d))))
-           (k/many-i idx te "depends_on")))
+  [idx: ProjectionIndex
+   te: String] -> (Vec String)
+  (filterv (fn [d: String] -> Bool
+             (and (some? (string-value-at idx d "title"))
+                  (not (terminal-i? idx d))))
+           (string-values-at idx te "depends_on")))
 
 (defn blocked?
-  [idx :- k/Index
-   te :- String] :- Bool
+  [idx: ProjectionIndex
+   te: String] -> Bool
   (not (empty? (incomplete-deps idx te))))
 
 ;; Schedule axis (the-model §3/§7): a thread is DORMANT iff it carries a future
@@ -104,11 +202,11 @@
 ;; are threaded through callers exactly as staleness.bclj does (before? =
 ;; fram.rt/str-lt?); projections has no clock access of its own.
 (defn dormant?
-  [idx :- k/Index
-   te :- String
-   today :- String
-   before? :- [String String -> Bool]] :- Bool
-  (let [d (k/one-i idx te "do_on")]
+  [idx: ProjectionIndex
+   te: String
+   today: String
+   before?: [String String -> Bool]] -> Bool
+  (let [d: String? (string-value-at idx te "do_on")]
     (and (some? d) (before? today d))))
 
 ;; --- driver LIVENESS is an explicit classifier input (not a stored fact) -----
@@ -120,9 +218,9 @@
 ;; deterministic predicate. `assigned?` remains orthogonal so grooming can show
 ;; stale assignments without inventing a second lifecycle.
 (defn assigned?
-  [idx :- k/Index
-   te :- String] :- Bool
-  (some? (k/one-i idx te "driver")))
+  [idx: ProjectionIndex
+   te: String] -> Bool
+  (some? (string-value-at idx te "driver")))
 
 ;; The ONE shared precedence classifier (the-model §3): every single-bucket view
 ;; calls this, so two views can never disagree. EXACT precedence:
@@ -134,17 +232,17 @@
 ;; is an eligibility gate, not a display hint — the prior "committed dominates the
 ;; schedule" split let board call it ready while the work queue hid it).
 (defn classify
-  [idx :- k/Index
-   te :- String
-   today :- String
-   before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- String
+  [idx: ProjectionIndex
+   te: String
+   today: String
+   before?: [String String -> Bool]
+   live?: [ProjectionIndex String -> Bool]] -> String
   (cond
     [(terminal-i? idx te) "terminal"]
     [(blocked? idx te) "blocked"]
     [(live? idx te) "active"]
     [(dormant? idx te today before?) "dormant"]
-    [(some? (k/one-i idx te "committed")) "ready"]
+    [(some? (string-value-at idx te "committed")) "ready"]
     [:else "draft"]))
 
 ;; ELIGIBILITY is DERIVED from the one classifier, never a parallel filter: a
@@ -152,19 +250,19 @@
 ;; live driver + not scheduled-later). ready/next/board's READY bucket all reduce
 ;; to this predicate, so their eligibility sets are identical by construction.
 (defn eligible?
-  [idx :- k/Index
-   te :- String
-   today :- String
-   before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- Bool
+  [idx: ProjectionIndex
+   te: String
+   today: String
+   before?: [String String -> Bool]
+   live?: [ProjectionIndex String -> Bool]] -> Bool
   (= (classify idx te today before? live?) "ready"))
 
 (defn ready
-  [idx :- k/Index
-   today :- String
-   before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- (Vec String)
-  (filterv (fn [te :- String] :- Bool (eligible? idx te today before? live?))
+  [idx: ProjectionIndex
+   today: String
+   before?: [String String -> Bool]
+   live?: [ProjectionIndex String -> Bool]] -> (Vec String)
+  (filterv (fn [te: String] -> Bool (eligible? idx te today before? live?))
            (work-thread-ids-i idx)))
 
 ;; One-line human/agent explanation of WHY a thread is (in)eligible — the state
@@ -172,16 +270,16 @@
 ;; and grooming so the answer to "why isn't this in my queue?" is derived from the
 ;; same classifier, never re-explained ad hoc.
 (defrecord Eligibility
-  [state :- String
-   eligible :- Bool
-   reason :- String])
+  [state: String
+   eligible: Bool
+   reason: String])
 
 (defn explain
-  [idx :- k/Index
-   te :- String
-   today :- String
-   before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- Eligibility
+  [idx: ProjectionIndex
+   te: String
+   today: String
+   before?: [String String -> Bool]
+   live?: [ProjectionIndex String -> Bool]] -> Eligibility
   (let [st (classify idx te today before? live?)]
     (->Eligibility
      st
@@ -190,12 +288,12 @@
        [(= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"]
        [(= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")]
        [(= st "active") "a live driver is on it now — being worked, not pull-able"]
-       [(= st "dormant") (str "scheduled for a future do_on (" (let [d (k/one-i idx te "do_on")] (if (some? d) d "?")) ") — dormant until then")]
+       [(= st "dormant") (str "scheduled for a future do_on (" (let [d: String? (string-value-at idx te "do_on")] (if (some? d) d "?")) ") — dormant until then")]
        [(= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"]
        [:else "uncommitted draft — decide + commit before it is work"]))))
 
-(defn blocked [idx :- k/Index] :- (Vec String)
-  (filterv (fn [te :- String] :- Bool
+(defn blocked [idx: ProjectionIndex] -> (Vec String)
+  (filterv (fn [te: String] -> Bool
              (and (not (terminal-i? idx te)) (blocked? idx te)))
            (work-thread-ids-i idx)))
 
@@ -203,17 +301,17 @@
 ;; so plate text + json + the blocked command all agree. live? is threaded through
 ;; exactly as today/before? are (the caller owns the liveness notion).
 (defn condition-i
-  [idx :- k/Index
-   te :- String
-   today :- String
-   before? :- [String String -> Bool]
-   live? :- [k/Index String -> Bool]] :- String
+  [idx: ProjectionIndex
+   te: String
+   today: String
+   before?: [String String -> Bool]
+   live?: [ProjectionIndex String -> Bool]] -> String
   (classify idx te today before? live?))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
 ;; defaults here; any is overridden by a fact `@ui emoji_<condition> "<glyph>"`,
 ;; so the map is data the user owns — not the LLM's stochastic choice.
-(defn- default-emoji [c :- String] :- String
+(defn- default-emoji [c: String] -> String
   (cond
     [(= c "active") "🔵"]
     [(= c "ready") "🟢"]
@@ -224,30 +322,32 @@
     [:else "•"]))
 
 (defn condition-emoji
-  [idx :- k/Index
-   c :- String] :- String
-  (let [o (k/one-i idx "@ui" (str "emoji_" c))]
+  [idx: ProjectionIndex
+   c: String] -> String
+  (let [o: String? (string-value-at idx "@ui" (str "emoji_" c))]
     (if (some? o) o (default-emoji c))))
 
 ;; --- leverage: transitive reverse-dep walk over the prebuilt revdep index ----
 
 (defn transitive-dependents
-  [idx :- k/Index
-   te :- String] :- (Vec String)
-  (loop [frontier (k/dependents-i idx te)
-         seen []]
+  [idx: ProjectionIndex
+   te: String] -> (Vec String)
+  (loop [frontier (dependents-of idx te)
+         seen {}
+         ordered []]
     (if (empty? frontier)
-      seen
+      ordered
       (let [x (first frontier)
             rest-f (vec (rest frontier))]
-        (if (k/vec-contains? seen x)
-          (recur rest-f seen)
-          (recur (vec (concat rest-f (k/dependents-i idx x)))
-                 (conj seen x)))))))
+        (if (contains? seen x)
+          (recur rest-f seen ordered)
+          (recur (vec (concat rest-f (dependents-of idx x)))
+                 (assoc seen x true)
+                 (conj ordered x)))))))
 
 (defn leverage-score
-  [idx :- k/Index
-   te :- String] :- Int
-  (count (filterv (fn [d :- String] :- Bool
+  [idx: ProjectionIndex
+   te: String] -> Int
+  (count (filterv (fn [d: String] -> Bool
                     (and (not (= d te)) (not (terminal-i? idx d))))
                   (transitive-dependents idx te))))

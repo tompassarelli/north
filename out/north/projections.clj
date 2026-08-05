@@ -1,58 +1,101 @@
 (ns north.projections
-  (:require [fram.kernel :as k]
+  (:require [fram.types :as t]
             [clojure.string :as str]))
 
-(def terminal-preds (let [env (System/getenv "FRAM_TERMINAL_PREDS")]
-  (if (and (some? env) (not (= env ""))) (vec (str/split env #"\s+")) ["outcome" "abandoned" "superseded_by"])))
+^{:line 15 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defrecord ProjectionIndex [single many subjects subject-set reverse-dependencies])
 
-(def withdrawn-preds (let [env (System/getenv "FRAM_WITHDRAWN_PREDS")]
-  (if (and (some? env) (not (= env ""))) (vec (str/split env #"\s+")) ["abandoned"])))
+(defn projectionindex-single [r] (:single r))
 
-(defn- ^Boolean any-of-i? [idx ^String te preds]
-  (loop [ps preds]
-  (if (empty? ps) false (if (some? (k/one-i idx te (first ps))) true (recur (rest ps))))))
+(defn projectionindex-many [r] (:many r))
 
-(defn ^Boolean terminal-i? [idx ^String te]
-  (any-of-i? idx te terminal-preds))
+(defn projectionindex-subjects [r] (:subjects r))
 
-(defn ^Boolean withdrawn-i? [idx ^String te]
-  (any-of-i? idx te withdrawn-preds))
+(defn projectionindex-subject-set [r] (:subject-set r))
 
-(defn ^Boolean anchor-i? [idx ^String te]
-  (and (some? (k/one-i idx te "title")) (and (some? (k/one-i idx te "committed")) (and (not (terminal-i? idx te)) (and (nil? (k/one-i idx te "driver")) (and (empty? (k/many-i idx te "depends_on")) (and (nil? (k/one-i idx te "part_of")) (and (nil? (k/one-i idx te "do_on")) (and (nil? (k/one-i idx te "valid_until")) (and (nil? (k/one-i idx te "estimate_hours")) (and (nil? (k/one-i idx te "lead")) (and (empty? (k/many-i idx te "proposed_by")) (and (nil? (k/one-i idx te "created_at")) (and (nil? (k/one-i idx te "updated_at")) (nil? (k/one-i idx te "repo"))))))))))))))))
+(defn projectionindex-reverse-dependencies [r] (:reverse-dependencies r))
 
-(defn work-thread-ids-i [idx]
-  (filterv (fn [s] (not (anchor-i? idx s))) (k/thread-ids-i idx)))
+^{:line 22 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (def no-terms ^{:line 22 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [])
 
-(defn incomplete-deps [idx ^String te]
-  (filterv (fn [d] (and (some? (k/one-i idx d "title")) (not (terminal-i? idx d)))) (k/many-i idx te "depends_on")))
+^{:line 24 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^ProjectionIndex index-triples [triples]
+  ^{:line 25 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (reduce ^{:line 26 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [index triple] ^{:line 29 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [subject ^{:line 29 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (t/triple-slot0 triple)
+   predicate ^{:line 30 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (t/triple-slot1 triple)
+   value ^{:line 31 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (t/triple-slot2 triple)
+   key ^{:line 32 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [subject predicate]
+   values ^{:line 34 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj ^{:line 34 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (get ^{:line 34 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-many index) key no-terms) value)
+   reverse ^{:line 36 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 36 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= predicate "depends_on") ^{:line 37 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (assoc ^{:line 37 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-reverse-dependencies index) value ^{:line 39 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj ^{:line 39 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (get ^{:line 39 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-reverse-dependencies index) value no-terms) subject)) ^{:line 42 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-reverse-dependencies index))
+   known-subject ^{:line 44 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (contains? ^{:line 44 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subject-set index) subject)]
+  ^{:line 45 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (->ProjectionIndex ^{:line 46 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (assoc ^{:line 46 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-single index) key value) ^{:line 47 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (assoc ^{:line 47 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-many index) key values) ^{:line 48 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if known-subject ^{:line 49 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subjects index) ^{:line 50 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj ^{:line 50 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subjects index) subject)) ^{:line 51 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if known-subject ^{:line 52 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subject-set index) ^{:line 53 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (assoc ^{:line 53 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subject-set index) subject true)) reverse))) ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (->ProjectionIndex ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} {} ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} {} ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [] ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} {} ^{:line 55 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} {}) triples))
 
-(defn ^Boolean blocked? [idx ^String te]
-  (not (empty? (incomplete-deps idx te))))
+^{:line 58 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn value-at [^ProjectionIndex index subject predicate]
+  ^{:line 62 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (get ^{:line 62 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-single index) ^{:line 62 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [subject predicate]))
 
-(defn ^Boolean dormant? [idx ^String te ^String today before?]
-  (let [d (k/one-i idx te "do_on")]
-  (and (some? d) (before? today d))))
+^{:line 64 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn values-at [^ProjectionIndex index subject predicate]
+  ^{:line 68 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (get ^{:line 68 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-many index) ^{:line 68 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [subject predicate] no-terms))
 
-(defn ^Boolean assigned? [idx ^String te]
-  (some? (k/one-i idx te "driver")))
+^{:line 70 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn string-value-at [^ProjectionIndex index subject predicate]
+  ^{:line 74 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [value ^{:line 74 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (value-at index subject predicate)]
+  ^{:line 75 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 75 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string? value) value nil)))
 
-(defn ^String classify [idx ^String te ^String today before? live?]
-  (cond
-  (terminal-i? idx te) "terminal"
-  (blocked? idx te) "blocked"
-  (live? idx te) "active"
-  (dormant? idx te today before?) "dormant"
-  (some? (k/one-i idx te "committed")) "ready"
+^{:line 77 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn string-values-at [^ProjectionIndex index subject predicate]
+  ^{:line 81 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (reduce ^{:line 82 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [values value] ^{:line 85 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 85 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string? value) ^{:line 85 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj values value) values)) ^{:line 86 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [] ^{:line 87 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (values-at index subject predicate)))
+
+^{:line 89 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn thread-subjects [^ProjectionIndex index]
+  ^{:line 90 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (reduce ^{:line 91 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [subjects subject] ^{:line 94 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 94 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 94 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string? subject) ^{:line 95 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 95 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at index subject "title"))) ^{:line 96 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj subjects subject) subjects)) ^{:line 98 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [] ^{:line 99 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-subjects index)))
+
+^{:line 101 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn dependents-of [^ProjectionIndex index ^String subject]
+  ^{:line 104 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (reduce ^{:line 105 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [subjects candidate] ^{:line 108 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 108 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string? candidate) ^{:line 108 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj subjects candidate) subjects)) ^{:line 109 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} [] ^{:line 110 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (get ^{:line 110 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (projectionindex-reverse-dependencies index) subject no-terms)))
+
+^{:line 119 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (def terminal-preds ^{:line 120 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [env ^{:line 120 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (System/getenv "FRAM_TERMINAL_PREDS")]
+  ^{:line 121 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 121 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 121 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? env) ^{:line 121 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 121 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= env ""))) ^{:line 122 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (vec ^{:line 122 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (str/split env #"\s+")) ^{:line 123 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} ["outcome" "abandoned" "superseded_by"])))
+
+^{:line 125 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (def withdrawn-preds ^{:line 126 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [env ^{:line 126 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (System/getenv "FRAM_WITHDRAWN_PREDS")]
+  ^{:line 127 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 127 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 127 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? env) ^{:line 127 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 127 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= env ""))) ^{:line 128 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (vec ^{:line 128 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (str/split env #"\s+")) ^{:line 129 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} ["abandoned"])))
+
+^{:line 131 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn- ^Boolean any-of-i? [^ProjectionIndex idx ^String te preds]
+  ^{:line 135 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (loop [ps preds]
+  ^{:line 136 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 136 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (empty? ps) false ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (first ps))) true ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (recur ^{:line 137 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (rest ps))))))
+
+^{:line 140 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean terminal-i? [^ProjectionIndex idx ^String te]
+  ^{:line 143 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (any-of-i? idx te terminal-preds))
+
+^{:line 146 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean withdrawn-i? [^ProjectionIndex idx ^String te]
+  ^{:line 149 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (any-of-i? idx te withdrawn-preds))
+
+^{:line 159 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean anchor-i? [^ProjectionIndex idx ^String te]
+  ^{:line 162 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 162 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 162 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "title")) ^{:line 163 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 163 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 163 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "committed")) ^{:line 164 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 164 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 164 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (terminal-i? idx te)) ^{:line 165 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 165 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 165 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "driver")) ^{:line 166 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 166 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (empty? ^{:line 166 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-values-at idx te "depends_on")) ^{:line 167 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 167 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 167 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "part_of")) ^{:line 168 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 168 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 168 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "do_on")) ^{:line 169 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 169 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 169 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "valid_until")) ^{:line 170 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 170 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 170 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "estimate_hours")) ^{:line 171 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 171 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 171 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "lead")) ^{:line 172 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 172 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (empty? ^{:line 172 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-values-at idx te "proposed_by")) ^{:line 173 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 173 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 173 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "created_at")) ^{:line 174 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 174 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 174 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "updated_at")) ^{:line 175 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (nil? ^{:line 175 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "repo"))))))))))))))))
+
+^{:line 179 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn work-thread-ids-i [^ProjectionIndex idx]
+  ^{:line 180 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (filterv ^{:line 180 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [s] ^{:line 180 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 180 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (anchor-i? idx s))) ^{:line 181 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (thread-subjects idx)))
+
+^{:line 186 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn incomplete-deps [^ProjectionIndex idx ^String te]
+  ^{:line 189 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (filterv ^{:line 189 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [d] ^{:line 190 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 190 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 190 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx d "title")) ^{:line 191 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 191 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (terminal-i? idx d)))) ^{:line 192 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-values-at idx te "depends_on")))
+
+^{:line 194 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean blocked? [^ProjectionIndex idx ^String te]
+  ^{:line 197 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 197 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (empty? ^{:line 197 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (incomplete-deps idx te))))
+
+^{:line 204 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean dormant? [^ProjectionIndex idx ^String te ^String today before?]
+  ^{:line 209 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [d ^{:line 209 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "do_on")]
+  ^{:line 210 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 210 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? d) ^{:line 210 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (before? today d))))
+
+^{:line 220 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean assigned? [^ProjectionIndex idx ^String te]
+  ^{:line 223 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 223 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "driver")))
+
+^{:line 234 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^String classify [^ProjectionIndex idx ^String te ^String today before? live?]
+  ^{:line 240 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (cond
+  ^{:line 241 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (terminal-i? idx te) "terminal"
+  ^{:line 242 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (blocked? idx te) "blocked"
+  ^{:line 243 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (live? idx te) "active"
+  ^{:line 244 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (dormant? idx te today before?) "dormant"
+  ^{:line 245 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? ^{:line 245 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "committed")) "ready"
   :else "draft"))
 
-(defn ^Boolean eligible? [idx ^String te ^String today before? live?]
-  (= (classify idx te today before? live?) "ready"))
+^{:line 252 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Boolean eligible? [^ProjectionIndex idx ^String te ^String today before? live?]
+  ^{:line 258 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= ^{:line 258 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (classify idx te today before? live?) "ready"))
 
-(defn ready [idx ^String today before? live?]
-  (filterv (fn [te] (eligible? idx te today before? live?)) (work-thread-ids-i idx)))
+^{:line 260 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ready [^ProjectionIndex idx ^String today before? live?]
+  ^{:line 265 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (filterv ^{:line 265 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [te] ^{:line 265 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (eligible? idx te today before? live?)) ^{:line 266 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (work-thread-ids-i idx)))
 
-(defrecord Eligibility [state eligible reason])
+^{:line 272 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defrecord Eligibility [state eligible reason])
 
 (defn eligibility-state [r] (:state r))
 
@@ -60,43 +103,44 @@
 
 (defn eligibility-reason [r] (:reason r))
 
-(defn ^Eligibility explain [idx ^String te ^String today before? live?]
-  (let [st (classify idx te today before? live?)]
-  (->Eligibility st (= st "ready") (cond
-  (= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"
-  (= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")
-  (= st "active") "a live driver is on it now — being worked, not pull-able"
-  (= st "dormant") (str "scheduled for a future do_on (" (let [d (k/one-i idx te "do_on")]
-  (if (some? d) d "?")) ") — dormant until then")
-  (= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"
+^{:line 277 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^Eligibility explain [^ProjectionIndex idx ^String te ^String today before? live?]
+  ^{:line 283 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [st ^{:line 283 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (classify idx te today before? live?)]
+  ^{:line 284 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (->Eligibility st ^{:line 286 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "ready") ^{:line 287 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (cond
+  ^{:line 288 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"
+  ^{:line 289 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "blocked") ^{:line 289 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (str "waiting on " ^{:line 289 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (count ^{:line 289 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (incomplete-deps idx te)) " incomplete dependency(ies)")
+  ^{:line 290 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "active") "a live driver is on it now — being worked, not pull-able"
+  ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "dormant") ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (str "scheduled for a future do_on (" ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [d ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx te "do_on")]
+  ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 291 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? d) d "?")) ") — dormant until then")
+  ^{:line 292 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"
   :else "uncommitted draft — decide + commit before it is work"))))
 
-(defn blocked [idx]
-  (filterv (fn [te] (and (not (terminal-i? idx te)) (blocked? idx te))) (work-thread-ids-i idx)))
+^{:line 295 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn blocked [^ProjectionIndex idx]
+  ^{:line 296 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (filterv ^{:line 296 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [te] ^{:line 297 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 297 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 297 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (terminal-i? idx te)) ^{:line 297 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (blocked? idx te))) ^{:line 298 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (work-thread-ids-i idx)))
 
-(defn ^String condition-i [idx ^String te ^String today before? live?]
-  (classify idx te today before? live?))
+^{:line 303 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^String condition-i [^ProjectionIndex idx ^String te ^String today before? live?]
+  ^{:line 309 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (classify idx te today before? live?))
 
-(defn- ^String default-emoji [^String c]
-  (cond
-  (= c "active") "🔵"
-  (= c "ready") "🟢"
-  (= c "blocked") "🔴"
-  (= c "dormant") "🟡"
-  (= c "terminal") "⚫"
-  (= c "draft") "⚪"
+^{:line 314 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn- ^String default-emoji [^String c]
+  ^{:line 315 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (cond
+  ^{:line 316 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "active") "🔵"
+  ^{:line 317 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "ready") "🟢"
+  ^{:line 318 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "blocked") "🔴"
+  ^{:line 319 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "dormant") "🟡"
+  ^{:line 320 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "terminal") "⚫"
+  ^{:line 321 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= c "draft") "⚪"
   :else "•"))
 
-(defn ^String condition-emoji [idx ^String c]
-  (let [o (k/one-i idx "@ui" (str "emoji_" c))]
-  (if (some? o) o (default-emoji c))))
+^{:line 324 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn ^String condition-emoji [^ProjectionIndex idx ^String c]
+  ^{:line 327 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [o ^{:line 327 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (string-value-at idx "@ui" ^{:line 327 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (str "emoji_" c))]
+  ^{:line 328 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 328 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (some? o) o ^{:line 328 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (default-emoji c))))
 
-(defn transitive-dependents [idx ^String te]
-  (loop [frontier (k/dependents-i idx te)
-   seen []]
-  (if (empty? frontier) seen (let [x (first frontier)
-   rest-f (vec (rest frontier))]
-  (if (k/vec-contains? seen x) (recur rest-f seen) (recur (vec (concat rest-f (k/dependents-i idx x))) (conj seen x)))))))
+^{:line 332 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn transitive-dependents [^ProjectionIndex idx ^String te]
+  ^{:line 335 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (loop [frontier ^{:line 335 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (dependents-of idx te)
+   seen ^{:line 336 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} {}
+   ordered ^{:line 337 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} []]
+  ^{:line 338 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 338 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (empty? frontier) ordered ^{:line 340 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (let [x ^{:line 340 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (first frontier)
+   rest-f ^{:line 341 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (vec ^{:line 341 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (rest frontier))]
+  ^{:line 342 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (if ^{:line 342 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (contains? seen x) ^{:line 343 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (recur rest-f seen ordered) ^{:line 344 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (recur ^{:line 344 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (vec ^{:line 344 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (concat rest-f ^{:line 344 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (dependents-of idx x))) ^{:line 345 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (assoc seen x true) ^{:line 346 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (conj ordered x)))))))
 
-(defn leverage-score [idx ^String te]
-  (count (filterv (fn [d] (and (not (= d te)) (not (terminal-i? idx d)))) (transitive-dependents idx te))))
+^{:line 348 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (defn leverage-score [^ProjectionIndex idx ^String te]
+  ^{:line 351 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (count ^{:line 351 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (filterv ^{:line 351 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (fn [d] ^{:line 352 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (and ^{:line 352 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 352 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (= d te)) ^{:line 352 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (not ^{:line 352 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (terminal-i? idx d)))) ^{:line 353 :file "/home/tom/code/north/wt-current-fram-projections/src/north/projections.bclj"} (transitive-dependents idx te))))
