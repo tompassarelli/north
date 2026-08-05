@@ -144,24 +144,48 @@
                             {:type :malformed-intent-fact}))))
         state))))
 
-(defn assert-batch! [subject facts]
+(defn assert-action [subject predicate value]
+  {:op :assert
+   :subject subject
+   :predicate predicate
+   :value (str value)})
+
+(defn publish-facts! [subject facts]
   (let [response
-        (north.coord/send-op
+        (north.coord/publish!
          port
-         {:op :assert-batch
-          :te subject
-          :facts (mapv (fn [[predicate value]]
-                         {:p predicate :r (str value)})
-                       facts)})]
-    (when-not (:ok response)
+         (mapv (fn [[predicate value]]
+                 (assert-action subject predicate value))
+               facts))]
+    (when (:reject response)
       (throw (ex-info "coordinator rejected atomic rebuild-intent publication"
                       {:type :intent-publication-rejected :response response})))
     response))
 
+(defn transact-after-read! [subject actions validate!]
+  (north.coord/retry-conflicts-until!
+   (north.coord/retry-deadline-ns)
+   (fn []
+     (let [base (north.coord/cur-ver-for-subject port subject)
+           _ (validate!)]
+       (north.coord/transact! port actions {:expected-version base})))))
+
 (defn ensure-schema! []
-  (doseq [predicate ["rebuild_intent" "all_clear"
-                     "rebuild_started" "rebuild_outcome"]]
-    (north.coord/put! port (str "@" predicate) "cardinality" "single")))
+  (let [response
+        (north.coord/publish!
+         port
+         (mapv #(hash-map :op :set
+                          :subject (str "@" %)
+                          :predicate "cardinality"
+                          :values ["single"]
+                          :cardinality :one)
+               ["rebuild_intent" "all_clear"
+                "rebuild_started" "rebuild_outcome"]))]
+    (when (:reject response)
+      (throw (ex-info "coordinator rejected rebuild-intent schema publication"
+                      {:type :intent-schema-publication-rejected
+                       :response response})))
+    response))
 
 (defn broadcast! [intent-id phase requested-by body]
   (let [subject (str "@msg:rebuild-intent:" intent-id ":" phase)
@@ -175,7 +199,7 @@
     ;; A synthetic sender intentionally makes the finite snapshot include the
     ;; requesting session too: this protocol says ALL live roster sessions.
     (north.message-audience/snapshot-broadcast! port subject sender)
-    (assert-batch!
+    (publish-facts!
      subject
      [["from" sender]
       ["subject" phase]
@@ -254,8 +278,8 @@
     (retry-coordinator
      #(do
         (ensure-schema!)
-        (assert-batch! subject [["kind" "rebuild-intent"]
-                                ["rebuild_intent" initial]])
+        (publish-facts! subject [["kind" "rebuild-intent"]
+                                 ["rebuild_intent" initial]])
         (broadcast! id "rebuild-intent" (:who state) response-help)))
     (println id)))
 
@@ -310,8 +334,9 @@
            (:reason response) (assoc "reason" (:reason response))
            (:eta-seconds response) (assoc "etaSeconds" (:eta-seconds response))))
         result
-        (north.coord/assert-after-read!
-         port subject "rebuild_response" encoded
+        (transact-after-read!
+         subject
+         [(assert-action subject "rebuild_response" encoded)]
          #(north.rebuild-intent-state/apply-response
            (load-intent subject) response))]
     (when (:reject result)
@@ -355,8 +380,9 @@
                 (sorted-map "atMs" at-ms
                             "at" (north.rebuild-intent-state/millis->instant at-ms)))
         result
-        (north.coord/assert-after-read!
-         port subject "all_clear" marker
+        (transact-after-read!
+         subject
+         [(assert-action subject "all_clear" marker)]
          (fn []
            (let [current (load-intent subject)]
              (when-not (= :all-clear
@@ -429,8 +455,9 @@
         result
         (try
           (retry-coordinator
-           #(north.coord/assert-after-read!
-             port subject "rebuild_started" marker
+           #(transact-after-read!
+             subject
+             [(assert-action subject "rebuild_started" marker)]
              (fn []
                (let [state (load-intent subject)]
                  (if (= :rebuilding (:phase state))
@@ -458,8 +485,9 @@
         result
         (try
           (retry-coordinator
-           #(north.coord/assert-after-read!
-             port subject "rebuild_outcome" marker
+           #(transact-after-read!
+             subject
+             [(assert-action subject "rebuild_outcome" marker)]
              (fn []
                (let [state (load-intent subject)
                      expected-phase
