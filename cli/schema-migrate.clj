@@ -1085,14 +1085,14 @@
 
 (defn simulate-wire-actions [corpus wire-actions]
   (let [base (long (:version corpus))
-        appended (mapv (fn [index action]
-                         {:tx (+ base index 1)
+        appended (mapv (fn [action]
+                         {:tx (inc base)
                           :op (:action action)
                           :l (:subject action)
                           :p (:predicate action)
                           :r (:value action)
                           :frame "schema-candidate-preflight"})
-                       (range) wire-actions)
+                       wire-actions)
         ops (into (vec (:ops corpus)) appended)
         folded (fold-for-cutover ops)]
     {:paths (:paths corpus)
@@ -1101,6 +1101,26 @@
      :version (:version folded)
      :card_map (:card_map folded)
      :files (:files corpus)}))
+
+(defn candidate-publication-actions [simulated wire-actions]
+  (let [touched (->> wire-actions
+                     (map (juxt :subject :predicate))
+                     distinct
+                     sort)]
+    (mapv
+     (fn [[subject predicate]]
+       {:op :set
+        :subject subject
+        :predicate predicate
+        :values (->> (:facts simulated)
+                     (keep (fn [{:keys [l p r]}]
+                             (when (and (= subject l) (= predicate p)) r)))
+                     (sort-by pr-str)
+                     vec)
+        :cardinality (if (effective-single? (:card_map simulated) predicate)
+                       :one
+                       :many)})
+     touched)))
 
 (defn initial-preflight-defects [plan]
   (vec
@@ -1121,6 +1141,8 @@
         wire-actions (candidate-wire-actions plan manifest)
         simulated (when (empty? initial-defects)
                     (simulate-wire-actions corpus wire-actions))
+        publication-actions (when simulated
+                              (candidate-publication-actions simulated wire-actions))
         post-plan (when simulated (plan-for simulated))
         post-audit (when simulated (audit-report simulated))
         defects (vec
@@ -1140,25 +1162,23 @@
     {:ok (empty? defects)
      :plan plan
      :wire_actions wire-actions
+     :publication_actions publication-actions
      :simulated_corpus simulated
      :post_plan post-plan
      :post_audit post-audit
      :defects defects}))
 
-(defn apply-wire-action! [port {:keys [action subject predicate value] :as wire-action}]
-  (let [result (case action
-                 "assert" (north.coord/put! port subject predicate value)
-                 "retract" (north.coord/retract! port subject predicate value))]
-    (when-not (:ok result)
-      (throw (ex-info "offline candidate append action failed"
-                      {:type :candidate-action-failed
-                       :action (select-keys wire-action [:action :subject :predicate :value])
-                       :result result})))
-    true))
-
-(defn apply-wire-actions! [port actions]
-  (doseq [action actions] (apply-wire-action! port action))
-  (count actions))
+(defn apply-wire-actions! [port publication-actions]
+  (when (seq publication-actions)
+    (let [result (north.coord/publish! port publication-actions)]
+      (when-not (and (map? result)
+                     (integer? (:ok result))
+                     (boolean? (:changed? result))
+                     (vector? (:results result)))
+        (throw (ex-info "offline candidate publication failed"
+                        {:type :candidate-publication-failed
+                         :result result})))
+      result)))
 
 (defn possible-live-corpus-paths []
   (let [home (System/getProperty "user.home")]
@@ -2013,10 +2033,12 @@
                       (revalidate-sealed-corpus! sealed)
                       sealed)
                     current)
-                  acknowledged
-                  (if prepared?
-                    (apply-wire-actions! port (:wire_actions preflight))
-                    0)
+                  _ (when prepared?
+                      (apply-wire-actions!
+                       port (:publication_actions preflight)))
+                  acknowledged (if prepared?
+                                 (count (:wire_actions preflight))
+                                 0)
                   post (read-corpus paths)
                   post-plan (plan-for post)
                   report (audit-report post)

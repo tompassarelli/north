@@ -26,33 +26,24 @@
     (fail! (str label " is not canonical")))
   value)
 
-(defn exact-keys? [value expected]
-  (and (map? value) (= (set (keys value)) expected)))
-
 (def max-query-rows 10000)
 (def max-manifest-bytes (* 160 1024))
 (def max-link-subject-bytes 1024)
 
-(defn nonnegative-long? [value]
-  (and (integer? value) (<= 0 value) (<= value Long/MAX_VALUE)))
-
 (defn utf8-bytes [value]
   (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8)))
 
-(defn valid-query-response! [response arity]
+(defn valid-query-rows! [rows arity]
   (when-not
-   (and (exact-keys? response #{:ok :version :engine})
-        (nonnegative-long? (:version response))
-        (#{"index" "scan"} (:engine response))
-        (vector? (:ok response))
-        (<= (count (:ok response)) max-query-rows)
+   (and (vector? rows)
+        (<= (count rows) max-query-rows)
         (every? (fn [row]
                   (and (vector? row)
                        (= arity (count row))
                        (every? string? row)))
-                (:ok response)))
-    (fail! "coordinator returned an invalid query response"))
-  (:ok response))
+                rows))
+    (fail! "coordinator returned invalid Linear query rows"))
+  rows)
 
 (defn canonical-link-subject [subject]
   (let [bare-subject (str/replace subject #"^@" "")]
@@ -140,18 +131,17 @@
           _ (when (> port 65535) (fail! "port must be at most 65535"))
           connector (required-bounded "connector" connector-token 256)
           created-at (required-bounded "createdAt" created-at-token 64)
-          manifest-response
-          (north.coord/send-op
-           port
-           {:op :query
-            :query
-            {:find "linear-bootstrap-links"
-             :rules
-             [{:head {:rel "linear-bootstrap-links"
-                      :args [{:var "link"} {:var "manifest"}]}
-               :body [{:rel "triple"
-                       :args [{:var "link"} "sync_manifest" {:var "manifest"}]}]}]}})
-          manifest-rows (valid-query-response! manifest-response 2)
+          manifest-query
+          {:find "linear-bootstrap-links"
+           :rules
+           [{:head {:rel "linear-bootstrap-links"
+                    :args [{:var "link"} {:var "manifest"}]}
+             :body [{:rel "triple"
+                     :args [{:var "link"} "sync_manifest" {:var "manifest"}]}]}]}
+          manifest-rows
+          (valid-query-rows!
+           (:rows (north.coord/bounded-query port manifest-query max-query-rows))
+           2)
           _manifest-bounds
           (doseq [[subject _] manifest-rows]
             (canonical-link-subject subject))
@@ -168,17 +158,16 @@
                                (= created-at (:createdAt evidence)))
                       bare-subject))))
                set)
-          linked-response
-          (north.coord/send-op
-           port
-           {:op :query
-            :query
-            {:find "linear-partial-links"
-             :rules
-             [{:head {:rel "linear-partial-links" :args [{:var "link"}]}
-               :body [{:rel "triple"
-                       :args [{:var "link"} "linked_thread" {:var "thread"}]}]}]}})
-          linked-rows (valid-query-response! linked-response 1)
+          linked-query
+          {:find "linear-partial-links"
+           :rules
+           [{:head {:rel "linear-partial-links" :args [{:var "link"}]}
+             :body [{:rel "triple"
+                     :args [{:var "link"} "linked_thread" {:var "thread"}]}]}]}
+          linked-rows
+          (valid-query-rows!
+           (:rows (north.coord/bounded-query port linked-query max-query-rows))
+           1)
           partial-v1
           (->> linked-rows
                (map (comp canonical-link-subject first))
