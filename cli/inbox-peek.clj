@@ -2,18 +2,20 @@
 ;; Usage: bb inbox-peek.clj <port> <agent-id>
 ;;
 ;; The local spool is only a scheduling hint: it stores a bounded page of IDs
-;; and the exact continuation cursor Fram issued. The graph remains authority.
+;; and a lossless EDN encoding of the continuation Term Fram issued. The graph
+;; remains authority.
 ;; Every cached ID is claimed and re-read before output, and only a complete,
 ;; flushed rendering is acknowledged.
 (require '[clojure.edn :as edn]
-         '[clojure.java.io :as io])
+         '[clojure.java.io :as io]
+         '[fram.types :as t])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-contract.clj"))
 
 (def one north.coord/resolved)
-(def spool-schema "north-inbox-spool-v1")
+(def spool-schema "north-inbox-spool-v2")
 (def spool-page-limit north.message-audience/pending-page-limit)
 (def candidate-limit 3)
 (def delivery-limit 3)
@@ -26,7 +28,10 @@
 (def spool-byte-limit (* 192 1024))
 (def spool-max-age-ms (* 60 60 1000))
 (def state-keys
-  #{:schema :actor-key :log-key :snapshot-version :created-at-ms :ids :next})
+  #{:schema :actor-key :space-key :snapshot-version :created-at-ms :ids :cursor})
+(def cursor-triple-tag :north-inbox/cursor-triple)
+(def cursor-max-depth 64)
+(def cursor-max-nodes 4096)
 (def nofollow-links
   (into-array java.nio.file.LinkOption
               [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
@@ -57,8 +62,12 @@
                     {:type :invalid-inbox-actor})))
   (sha256 "north-actor-key-v1\u0000managed" value))
 
-(defn canonical-log-key []
-  (sha256 "north-inbox-spool-log-v1" (north.coord/expected-log)))
+(defn canonical-space-key [port]
+  (let [space-id (:space-id (north.coord/status port))]
+    (when-not (and (string? space-id) (pos? (count space-id)))
+      (throw (ex-info "coordination status omitted its SpaceId"
+                      {:type :invalid-inbox-space})))
+    (sha256 "north-inbox-spool-space-v1" space-id)))
 
 (defn valid-message-id? [value]
   (and (string? value)
@@ -67,8 +76,61 @@
        (boolean
         (re-matches #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
 
+(defn cursor-term->edn [term]
+  (let [nodes (volatile! 0)]
+    (letfn [(encode [value depth]
+              (vswap! nodes inc)
+              (when (or (> depth cursor-max-depth)
+                        (> @nodes cursor-max-nodes))
+                (throw (ex-info "query cursor exceeds the spool bound"
+                                {:type :invalid-inbox-cursor})))
+              (cond
+                (t/triple? value)
+                [cursor-triple-tag
+                 (encode (t/triple-slot0 value) (inc depth))
+                 (encode (t/triple-slot1 value) (inc depth))
+                 (encode (t/triple-slot2 value) (inc depth))]
+
+                (or (string? value) (integer? value) (boolean? value)
+                    (keyword? value)
+                    (and (number? value) (not (integer? value))))
+                value
+
+                :else
+                (throw (ex-info "query cursor contains an unsupported Term atom"
+                                {:type :invalid-inbox-cursor}))))]
+      (encode term 0))))
+
+(defn edn->cursor-term [encoded]
+  (let [nodes (volatile! 0)]
+    (letfn [(decode [value depth]
+              (vswap! nodes inc)
+              (when (or (> depth cursor-max-depth)
+                        (> @nodes cursor-max-nodes))
+                (throw (ex-info "spooled query cursor exceeds its bound"
+                                {:type :invalid-inbox-cursor})))
+              (cond
+                (and (vector? value)
+                     (= 4 (count value))
+                     (= cursor-triple-tag (first value)))
+                (t/triple (decode (nth value 1) (inc depth))
+                          (decode (nth value 2) (inc depth))
+                          (decode (nth value 3) (inc depth)))
+
+                (or (string? value) (integer? value) (boolean? value)
+                    (keyword? value)
+                    (and (number? value) (not (integer? value))))
+                value
+
+                :else
+                (throw (ex-info "spooled query cursor is malformed"
+                                {:type :invalid-inbox-cursor}))))]
+      (decode encoded 0))))
+
 (defn valid-cursor? [value]
-  (north.coord/valid-query-page-cursor? value))
+  (try
+    (north.coord/valid-query-page-cursor? (edn->cursor-term value))
+    (catch Exception _ false)))
 
 (defn exact-edn [bytes]
   (try
@@ -194,13 +256,13 @@
     (java.nio.file.Files/delete path)
     (fsync-directory! (.getParent path))))
 
-(defn valid-spool? [value actor-key log-key current-version now]
+(defn valid-spool? [value actor-key space-key current-version now]
   (and
    (map? value)
    (= state-keys (set (keys value)))
    (= spool-schema (:schema value))
    (= actor-key (:actor-key value))
-   (= log-key (:log-key value))
+   (= space-key (:space-key value))
    (integer? (:snapshot-version value))
    (not (neg? (:snapshot-version value)))
    (<= (:snapshot-version value) current-version)
@@ -210,9 +272,9 @@
    (<= (count (:ids value)) spool-page-limit)
    (= (count (:ids value)) (count (distinct (:ids value))))
    (every? valid-message-id? (:ids value))
-   (or (nil? (:next value)) (valid-cursor? (:next value)))))
+   (or (nil? (:cursor value)) (valid-cursor? (:cursor value)))))
 
-(defn read-spool [port path actor-key log-key now]
+(defn read-spool [port path actor-key space-key now]
   (when (path-exists? path)
     (require-regular-state! path)
     (let [value
@@ -223,25 +285,26 @@
           (when-not (= ::invalid value)
             (north.coord/cur-ver port))]
       (if (and (not= ::invalid value)
-               (valid-spool? value actor-key log-key current-version now))
+               (valid-spool? value actor-key space-key current-version now))
         value
         (do (delete-state! path) nil)))))
 
-(defn page-spool [page actor-key log-key now]
+(defn page-spool [page actor-key space-key now]
   (let [ids (->> (:messages page)
                  (filter valid-message-id?)
                  vec)]
     {:schema spool-schema
      :actor-key actor-key
-     :log-key log-key
-     :snapshot-version (:version page)
+     :space-key space-key
+     :snapshot-version (:served-version page)
      :created-at-ms now
      :ids ids
-     ;; This is copied verbatim from Fram. Never derive a cursor from an ID.
-     :next (when (:more page) (:next page))}))
+     ;; Preserve Fram's Term structurally. Never derive a cursor from an ID.
+     :cursor (when-not (:done? page)
+               (cursor-term->edn (:cursor page)))}))
 
 (defn persist-spool! [path spool]
-  (if (or (seq (:ids spool)) (:next spool))
+  (if (or (seq (:ids spool)) (:cursor spool))
     (atomic-write! path spool)
     (delete-state! path)))
 
@@ -378,7 +441,7 @@
         hard-deadline (+ started (* hook-work-budget-ms 1000000))
         recipient (north.message-audience/bare-handle me)
         actor-key (managed-actor-key me)
-        log-key (canonical-log-key)
+        space-key (canonical-space-key port)
         state-root
         (.toPath
          (io/file (or (System/getenv "XDG_RUNTIME_DIR") "/tmp")
@@ -393,14 +456,15 @@
       lock-path lock-deadline
       (fn []
         (let [now (System/currentTimeMillis)
-              cached (read-spool port spool-path actor-key log-key now)
+              cached (read-spool port spool-path actor-key space-key now)
               spool
               (if (seq (:ids cached))
                 cached
                 (let [page
                       (north.message-audience/pending-message-page
-                       port recipient #{recipient} spool-page-limit (:next cached))
-                      fresh (page-spool page actor-key log-key now)]
+                       port recipient #{recipient} spool-page-limit
+                       (some-> cached :cursor edn->cursor-term))
+                      fresh (page-spool page actor-key space-key now)]
                   ;; A fresh page is still only a hint. Deferring its single
                   ;; durable write until after delivery leaves more of the
                   ;; 900ms foreground budget for first output; a crash before
