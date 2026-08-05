@@ -100,8 +100,7 @@
        (remove #(some #{"tests"} (str/split (.getPath %) #"[/\\]")))
        ;; This is a generic FRAMRPC transport: its assert!/retract! accept a
        ;; whole proposition, not a North predicate position.
-       (remove #(contains? #{"framrpc-client.clj" "framrpc-command.clj"}
-                           (.getName %)))
+       (remove #(= "framrpc-client.clj" (.getName %)))
        (sort-by #(.getPath %))))
 
 (def engine-schema-predicates #{"acyclic" "cardinality" "value_kind"})
@@ -577,15 +576,6 @@
 (check "every variable Clojure fact writer is explicitly classified"
        (= audited-clj-variable-sites clj-variable-sites)
        (set-detail audited-clj-variable-sites clj-variable-sites))
-
-;; Removing the compatibility fallback is sequenced after snapshot + canonical
-;; migration + strict audit + restart proof. Until then it must be loudly marked
-;; transitional, while executable graph facts retain engine precedence.
-(let [launcher (slurp-source "bin/north")]
-  (check "launcher cardinality fallback is explicitly transitional until live cutover"
-         (and (str/includes? launcher "TRANSITIONAL_SCHEMA_BOOTSTRAP")
-              (str/includes? launcher "export FRAM_SINGLE_VALUED=")
-              (= 1 (count (re-seq #"export FRAM_SINGLE_VALUED=" launcher))))))
 
 (let [results @checks
       failures (remove :ok results)

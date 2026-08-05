@@ -5,7 +5,7 @@
 # configuration and capture provenance; executable predicate schema lives in
 # the coordination graph itself.
 #
-#   engine: explicit env > temporary production-compatible checkout   data: XDG state
+#   engine: explicit env > current Fram main checkout   data: XDG state
 # `zero` is deliberately before every export below: it is the escape hatch when
 # this wrapper or its state is the broken component.
 if [ "${1:-}" = "zero" ]; then
@@ -52,11 +52,6 @@ if [ "$_north_fram_log_explicit" -eq 0 ]; then
   unset _north_log_dir
 fi
 unset _north_fram_log_explicit
-# TRANSITIONAL_SCHEMA_BOOTSTRAP: graph declarations win whenever present. Keep
-# this compatibility set only until a verified two-corpus snapshot, canonical
-# schema-migrate execution, strict audit, and restart proof have all landed; its
-# removal is deliberately sequenced after that live-data cutover.
-export FRAM_SINGLE_VALUED="${FRAM_SINGLE_VALUED:-title owner lead driver source part_of do_on valid_until estimate_hours wip_floor created_at updated_at name display_name body created_by committed outcome abandoned superseded_by merged_into linear kind coordinator provider_target live_input live_input_state live_input_epoch target_identity_manifest_sha256 requested_target fallback_target_path broadcast_audience_version code_port code_log candidate_rev candidate_git_dir judgment_grade queue_rank}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
 # what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
@@ -67,6 +62,7 @@ export NORTH_AUTHOR="${NORTH_AUTHOR:-tom_passarelli}"
 export NORTH_LEAD="${NORTH_LEAD:-tom_passarelli}"
 export NORTH_DRIVER="${NORTH_DRIVER:-tom_passarelli}"
 export NORTH_PROPOSED_BY="${NORTH_PROPOSED_BY:-tom_passarelli}"
+export NORTH_AGENT_LOGS_DIR="${NORTH_AGENT_LOGS_DIR:-$HOME/.local/state/north/agents}"
 
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -85,24 +81,27 @@ if [ -f "$_north_world_manifest" ]; then
   # shellcheck disable=SC1090
   source "$_north_world_manifest"
 fi
-_north_framrpc_env="${NORTH_FRAMRPC_ENV:-${XDG_STATE_HOME:-$HOME/.local/state}/north/framrpc.env}"
-if [ -f "$_north_framrpc_env" ]; then
-  if ! bash -n "$_north_framrpc_env"; then
-    echo "north: invalid FRAMRPC environment: $_north_framrpc_env" >&2
-    exit 2
-  fi
-  # shellcheck disable=SC1090
-  source "$_north_framrpc_env"
+_north_fram_main="$HOME/code/fram/main"
+_north_live_main="$HOME/code/north/main"
+if [ -d "$_north_live_main" ] &&
+   [ "$(cd "$NORTH" && pwd -P)" = "$(cd "$_north_live_main" && pwd -P)" ]; then
+  FRAM="$_north_fram_main"
+  FRAM_BIN="$FRAM/bin"
+  FRAM_OUT="$FRAM/out"
+  unset FRAM_PACKAGE_REV
+else
+  FRAM="${FRAM_HOME:-$_north_fram_main}"
+  FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
+  FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
 fi
-# TEMPORARY: remove when production speaks FRAMRPC (v0.4 runtime cutover).
-# Production still requires the v0.3 EDN-line client; keep each selector
-# independently overrideable so explicit caller environment always wins.
-_north_v03_fram="$HOME/.local/state/north/fram-runtime/active/current"
-FRAM="${FRAM_HOME:-$_north_v03_fram}"
-FRAM_BIN="${FRAM_BIN:-$_north_v03_fram/bin}"
-FRAM_OUT="${FRAM_OUT:-$_north_v03_fram/out}"
 export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
-unset _north_v03_fram _north_world_manifest _north_framrpc_env
+export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
+export FRAM_SERVER_PORT="${FRAM_SERVER_PORT:-${NORTH_PORT:-7977}}"
+export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
+NORTH_RUNTIME_CLASSPATH="$NORTH/out:$FRAM_OUT"
+BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
+export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
+unset _north_fram_main _north_live_main _north_world_manifest
 
 # A promoted deployment's exec unit may carry a PATH with neither bb nor
 # NORTH_BB: fall back through PATH, then the fixed NixOS system-profile path,
@@ -118,32 +117,9 @@ else
   exit 127
 fi
 BUN="${NORTH_BUN:-bun}"
-# bars-cli speaks the binary FRAMRPC wire, so it needs Fram's out/ tree on
-# the classpath the way NORTH_MAIN does.
-NORTH_BARS=("$BB" -cp "$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}" "$NORTH/cli/bars-cli.clj")
-
-if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
-  if [ ! -d "${NORTH_FRAMRPC_OUT:-}" ]; then
-    echo "north: NORTH_COORD_PROTOCOL=framrpc requires NORTH_FRAMRPC_OUT" >&2
-    exit 2
-  fi
-  export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
-  export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
-  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/framrpc-main.clj")
-elif [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-  if [ -z "${FRAM_TELEMETRY_LOG:-}" ]; then
-    echo "north: NORTH_TELEMETRY_PARTITION=1 requires FRAM_TELEMETRY_LOG" >&2
-    exit 2
-  fi
-  if [[ ! "${NORTH_TELEMETRY_PORT:-}" =~ ^[0-9]+$ ]] ||
-     (( 10#$NORTH_TELEMETRY_PORT < 1 || 10#$NORTH_TELEMETRY_PORT > 65535 )); then
-    echo "north: NORTH_TELEMETRY_PARTITION=1 requires NORTH_TELEMETRY_PORT=1..65535" >&2
-    exit 2
-  fi
-  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/partitioned-main.clj")
-else
-  NORTH_MAIN=("$BB" -cp "$NORTH/out:$FRAM_OUT" -m north.main)
-fi
+# Every North data path speaks canonical FRAMRPC through the one façade.
+NORTH_BARS=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/bars-cli.clj")
+NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" -i "$NORTH/cli/coord.clj" -m north.main)
 
 # CONCURRENCY GATE — bound how many corpus-loading verb JVMs can exist at once.
 #
@@ -358,14 +334,6 @@ case "${1:-}" in
     # turn-end reconciles against, under the SDK's 45s budget.
     # `json child-settlement` is that same turn-end's other half, under the
     # tighter 5s settlement deadline.
-    if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
-       [ "$1" = json ] && [ "$#" -eq 3 ]; then
-      case "${2:-}" in
-        show) exec "$BB" "$NORTH/cli/json-show-cli.clj" "$3" ;;
-        children) exec "$BB" "$NORTH/cli/json-children-cli.clj" "$3" ;;
-        child-settlement) exec "$BB" "$NORTH/cli/json-child-settlement-cli.clj" "$3" ;;
-      esac
-    fi
     north_slot_exec "$@" ;;
   coord-ready)
     coord_runtime_ready ;;
@@ -512,9 +480,7 @@ case "${1:-}" in
       "$NORTH/bin/north-coord-up" "${@:2}" ;;
   lanes)
     # Durable local lifecycle receipts remain readable during coordinator faults.
-    # Title resolution speaks both wires (NORTH_COORD_PROTOCOL), so it needs
-    # the same Fram classpath NORTH_BARS carries for the FRAMRPC branch.
-    exec "$BB" -cp "$NORTH/out:${NORTH_FRAMRPC_OUT:-$FRAM_OUT}" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
+    exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
   agents|templates|spawn|delegate|request|fork|req|watch|steer|retask|escalate)
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
@@ -576,7 +542,8 @@ case "${1:-}" in
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:
     # that exit is the interrupt. Read it, act, re-arm. bin/north-arm = alias.
-    exec "$BB" "$NORTH/cli/north-listen.clj" "${NORTH_PORT:-7977}" "${2:?usage: north listen <agent-id>}" --once --ack "${@:3}" ;;
+    exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/north-listen.clj" \
+      "${NORTH_PORT:-7977}" "${2:?usage: north listen <agent-id>}" --once --ack "${@:3}" ;;
   worktrees)
     # Machine-wide worktree census: every wt-* sibling of a container repo's main
     # checkout, joined to live concerns and graph lane registrations. Read-only.
@@ -596,20 +563,12 @@ case "${1:-}" in
     # subject into a false "no facts" result. Exact namespace-qualified reads
     # follow the same subject router as writes and fail closed when that writer
     # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
-    if [ "${NORTH_COORD_PROTOCOL:-v03}" != framrpc ] &&
-       [ "$1" = show ] && [[ "${2:-}" =~ ^@?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-      exec "$BB" "$NORTH/cli/exact-show-cli.clj" "$2"
-    fi
     if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
       case "${2#@}" in
         run:*|session:*|mine:*|guard_denial:*)
-          if [ "${NORTH_COORD_PROTOCOL:-v03}" = framrpc ]; then
-            exec env FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
-              FRAM_PORT="$NORTH_TELEMETRY_PORT" \
-              "$FRAM_BIN/fram" "$@"
-          fi
-          exec "$BB" -cp "$NORTH/out:$FRAM_OUT" \
-            "$NORTH/cli/subject-read-cli.clj" "$@"
+          exec env FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
+            FRAM_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
+            "$FRAM_BIN/fram" "$@"
           ;;
       esac
     fi
@@ -664,7 +623,7 @@ case "${1:-}" in
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
           exec env -u FRAM_TELEMETRY_LOG \
             FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
-            FRAM_PORT="$NORTH_TELEMETRY_PORT" \
+            FRAM_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
             FRAM_LOG="$FRAM_TELEMETRY_LOG" \
             "$FRAM_BIN/fram" "$framverb" "${@:2}"
         fi ;;

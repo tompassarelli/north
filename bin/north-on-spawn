@@ -8,16 +8,22 @@ set -uo pipefail
 umask 077
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-export NORTH_HOME
+FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
+FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
+FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
+NORTH_RUNTIME_CLASSPATH="$NORTH_HOME/out:$FRAM_OUT"
+BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
+export NORTH_HOME FRAM_HOME FRAM_BIN FRAM_OUT
+export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
-# additionalContext is emitted into a long-lived prompt: resolve a store NORTH_HOME to
-# a rebuild-stable alias there. Verified present in /run/current-system/sw/bin; else bare name.
+# additionalContext is emitted into a long-lived prompt. North and concern use
+# the live main checkout even when the hook itself came from a Nix generation.
 stable_bin() {
   case "$NORTH_HOME" in
     /nix/store/*)
       case "$1" in
-        north|concern) printf '%s/%s' /run/current-system/sw/bin "$1" ;;
+        north|concern) printf '%s/code/north/main/bin/%s' "$HOME" "$1" ;;
         *) printf '%s' "$1" ;;
       esac
       ;;

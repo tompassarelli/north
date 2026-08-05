@@ -7,33 +7,49 @@
 ;; renders + updates live. The graph arm uses fewer tokens and less wall time;
 ;; the control arm burns extra attempts and usage, one task blocks, one fails.
 ;;
-;; One process, one short-lived TCP socket per op through North's shared,
-;; corpus-fenced coordinator transport. Re-drivable: each run mints a FRESH exp
-;; id unless one is passed.
+;; One process speaking canonical FRAMRPC to the current Fram server.
+;; Re-drivable: each run mints a FRESH exp id unless one is passed.
 ;;
 ;;   usage: bin/arena-seed [exp_id]
-(require '[clojure.java.io :as io])
+(require '[babashka.classpath :as classpath]
+         '[clojure.java.io :as io])
 
 (def ROOT
   (some-> (System/getProperty "babashka.file")
           io/file .getCanonicalFile .getParentFile .getParentFile str))
-(load-file (str ROOT "/cli/coord.clj"))
+(def FRAM
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_HOME")
+                (str (System/getProperty "user.home") "/code/fram/main")))))
+(def FRAM-OUT
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_OUT") (str FRAM "/out")))))
+
+(when-not (.isDirectory (io/file FRAM-OUT))
+  (throw (ex-info "current Fram output is unavailable"
+                  {:fram-home FRAM :fram-out FRAM-OUT})))
+
+(classpath/add-classpath FRAM-OUT)
+(load-file (str ROOT "/cli/framrpc-client.clj"))
+(require '[fram.types :as t]
+         '[north.framrpc-client :as rpc])
 
 (defn parse-port [raw]
   (when-not (and (string? raw) (re-matches #"[1-9][0-9]{0,4}" raw))
-    (throw (ex-info "NORTH_PORT/FRAM_PORT must be an integer from 1 through 65535"
+    (throw (ex-info "NORTH_PORT must be an integer from 1 through 65535"
                     {:port raw})))
   (let [port (parse-long raw)]
     (when (> port 65535)
-      (throw (ex-info "NORTH_PORT/FRAM_PORT must be an integer from 1 through 65535"
+      (throw (ex-info "NORTH_PORT must be an integer from 1 through 65535"
                       {:port raw})))
     (int port)))
 
 (def PORT
-  (parse-port
-   (or (System/getenv "NORTH_PORT")
-       (System/getenv "FRAM_PORT")
-       north.coord/PORT)))
+  (parse-port (or (System/getenv "NORTH_PORT") "7977")))
+(def HOST
+  (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1"))
+(def SPACE-ID
+  (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination"))
 (def exp (or (first *command-line-args*)
              (str "EXP-025-demo-"
                   (.format (java.time.LocalTime/now)
@@ -43,12 +59,30 @@
   (.format (java.time.OffsetDateTime/now java.time.ZoneOffset/UTC)
            (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss'Z'")))
 
-(defn assert! [te p r]
-  (let [resp (north.coord/swap! PORT te p r)]
-    (when-not (or (:ok resp) (:version resp))
-      (throw (ex-info (str "arena seed write rejected for " te " " p)
-                      {:response resp :subject te :predicate p})))
-    resp))
+(defn set-subject!
+  "Drive every predicate in FACTS to one exact value as one atomic FRAMRPC
+   transaction. A conflict re-reads and replans; no individual field write can
+   expose a partially updated arena row."
+  [client subject facts]
+  (loop [attempt 1]
+    (let [{:keys [served-version occurrences]}
+          (rpc/subject-projection! client subject)
+          desired (into {} (map (fn [[predicate value]]
+                                  [predicate {value 1}])) facts)
+          actions (rpc/plan-subject-actions subject occurrences desired)
+          result (rpc/fenced-batch! client actions
+                                    {:expected-version served-version})]
+      (cond
+        (contains? #{:applied :no-op} (:outcome result)) result
+        (= :conflict (:outcome result))
+        (if (< attempt 3)
+          (recur (inc attempt))
+          (throw (ex-info "arena seed update lost its conflict retry budget"
+                          {:subject subject :attempts attempt})))
+        :else
+        (throw (ex-info "arena seed update was not published"
+                        {:subject subject :outcome (:outcome result)
+                         :code (:code result)}))))))
 
 (def task-ids ["PR-142" "PR-153" "PR-188" "PR-201" "PR-219"])
 (def titles ["fix cljs reader edge case" "nil-safe transducer arity"
@@ -59,76 +93,87 @@
 ;; the same threads (no duplicate discovery).
 (defn tid [arm idx] (str "@arena-" exp "-" arm "-" idx))
 
-(defn capture! [arm idx]
+(defn capture! [client arm idx]
   (let [id (tid arm idx) t (nth task-ids idx)]
-    (assert! id "title"    (str "[" arm "] " t " " (nth titles idx)))
-    (assert! id "exp_id"   exp)
-    (assert! id "arm"      arm)
-    (assert! id "task_id"  t)
-    (assert! id "state"    "pending")
-    (assert! id "tokens"   "0")
-    (assert! id "wall_s"   "0")
-    (assert! id "updated"  (now-iso))))
+    (set-subject!
+     client id
+     {"title" (str "[" arm "] " t " " (nth titles idx))
+      "exp_id" exp
+      "arm" arm
+      "task_id" t
+      "state" "pending"
+      "tokens" "0"
+      "wall_s" "0"
+      "updated" (now-iso)})))
 
-(defn mut [arm idx state tokens wall]
+(defn mut [client arm idx state tokens wall]
   (let [id (tid arm idx)]
-    (assert! id "state"    state)
-    (assert! id "tokens"   tokens)
-    (assert! id "wall_s"   wall)
-    (assert! id "updated"  (now-iso))))
-
-(println "arena exp:" exp)
-(println "inspect with: north arena" )
-(println)
-(println "capturing 10 task threads…")
-(doseq [idx (range 5) arm ["control" "graph"]] (capture! arm idx))
-(println "seeded. driving states (~60s)…")
+    (set-subject! client id
+                  {"state" state
+                   "tokens" tokens
+                   "wall_s" wall
+                   "updated" (now-iso)})))
 
 (defn step [t ms]
   (println (str "  t+" t "s"))
   (when-not (= "1" (System/getenv "NORTH_ARENA_NO_SLEEP"))
     (Thread/sleep ms)))
 
-;; kick everything to running
-(doseq [idx (range 5)] (mut "graph" idx "running" "50" "3"))
-(doseq [idx (range 5)] (mut "control" idx "running" "80" "4"))
-(step 4 4000)
+(let [client (rpc/connect HOST PORT SPACE-ID
+                          {:connect-timeout-ms 2000
+                           :read-timeout-ms 30000
+                           :max-attempts 3})]
+  (try
+    (println "arena exp:" exp)
+    (println "inspect with: north arena")
+    (println)
+    (println "capturing 10 task threads…")
+    (doseq [idx (range 5) arm ["control" "graph"]]
+      (capture! client arm idx))
+    (println "seeded. driving states (~60s)…")
 
-(mut "graph" 0 "green" "110" "12")
-(mut "graph" 1 "running" "140" "11")
-(mut "control" 0 "running" "310" "18")
-(mut "control" 1 "attempt-2" "440" "22")
-(step 9 5000)
+    ;; kick everything to running
+    (doseq [idx (range 5)] (mut client "graph" idx "running" "50" "3"))
+    (doseq [idx (range 5)] (mut client "control" idx "running" "80" "4"))
+    (step 4 4000)
 
-(mut "graph" 1 "green" "190" "17")
-(mut "graph" 2 "running" "160" "14")
-(mut "control" 0 "attempt-2" "550" "29")
-(mut "control" 2 "blocked" "380" "24")
-(step 15 6000)
+    (mut client "graph" 0 "green" "110" "12")
+    (mut client "graph" 1 "running" "140" "11")
+    (mut client "control" 0 "running" "310" "18")
+    (mut client "control" 1 "attempt-2" "440" "22")
+    (step 9 5000)
 
-(mut "graph" 2 "green" "240" "21")
-(mut "graph" 3 "running" "200" "16")
-(mut "control" 0 "green" "710" "41")
-(mut "control" 1 "attempt-3" "660" "35")
-(mut "control" 4 "attempt-2" "520" "31")
-(step 22 7000)
+    (mut client "graph" 1 "green" "190" "17")
+    (mut client "graph" 2 "running" "160" "14")
+    (mut client "control" 0 "attempt-2" "550" "29")
+    (mut client "control" 2 "blocked" "380" "24")
+    (step 15 6000)
 
-(mut "graph" 3 "green" "270" "24")
-(mut "graph" 4 "running" "220" "18")
-(mut "control" 1 "green" "880" "44")
-(mut "control" 3 "running" "490" "33")
-(step 30 8000)
+    (mut client "graph" 2 "green" "240" "21")
+    (mut client "graph" 3 "running" "200" "16")
+    (mut client "control" 0 "green" "710" "41")
+    (mut client "control" 1 "attempt-3" "660" "35")
+    (mut client "control" 4 "attempt-2" "520" "31")
+    (step 22 7000)
 
-(mut "graph" 4 "green" "310" "27")
-(mut "control" 3 "attempt-2" "740" "46")
-(mut "control" 4 "attempt-3" "810" "48")
-(step 40 10000)
+    (mut client "graph" 3 "green" "270" "24")
+    (mut client "graph" 4 "running" "220" "18")
+    (mut client "control" 1 "green" "880" "44")
+    (mut client "control" 3 "running" "490" "33")
+    (step 30 8000)
 
-(mut "control" 3 "green" "1020" "58")
-(mut "control" 4 "failed" "1190" "63")
-(mut "control" 2 "blocked" "610" "61")
-(step 52 12000)
+    (mut client "graph" 4 "green" "310" "27")
+    (mut client "control" 3 "attempt-2" "740" "46")
+    (mut client "control" 4 "attempt-3" "810" "48")
+    (step 40 10000)
 
-(println)
-(println "done. control landed 3/5 (PR-188 blocked, PR-219 failed); graph landed 5/5.")
-(println "arena facts remain in the corpus; inspect with north arena")
+    (mut client "control" 3 "green" "1020" "58")
+    (mut client "control" 4 "failed" "1190" "63")
+    (mut client "control" 2 "blocked" "610" "61")
+    (step 52 12000)
+
+    (println)
+    (println "done. control landed 3/5 (PR-188 blocked, PR-219 failed); graph landed 5/5.")
+    (println "arena facts remain in the corpus; inspect with north arena")
+    (finally
+      (rpc/close! client))))

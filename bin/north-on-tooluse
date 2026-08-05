@@ -8,7 +8,13 @@ set -uo pipefail
 umask 077
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-export NORTH_HOME
+FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
+FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
+FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
+NORTH_RUNTIME_CLASSPATH="$NORTH_HOME/out:$FRAM_OUT"
+BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
+export NORTH_HOME FRAM_HOME FRAM_BIN FRAM_OUT
+export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
 # The provider harness gives this hook 10s, but several individually bounded
