@@ -96,14 +96,14 @@
 ;; schema-writable fact on the raw @-prefixed predicate-name subject; it is NOT
 ;; reachable through :resolved (which resolves only NAMED entities via
 ;; resolve-name) but IS visible to the :query engine's reified-with-schema view.
-;; Query values wire back as EDN symbols, so compare through str.
+;; Query values may be symbolic terms, so compare through str.
 (defn declared-single? [port pred]
-  (let [res (north.coord/send-op
-             port {:op :query
-                   :query {:find "v"
-                           :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                    :body [{:rel "triple" :args [(at pred) "cardinality" {:var "v"}]}]}]}})]
-    (boolean (some #(= "single" (str (first %))) (:ok res)))))
+  (let [rows (north.coord/query-rows
+              port
+              {:find "v"
+               :rules [{:head {:rel "v" :args [{:var "v"}]}
+                        :body [{:rel "triple" :args [(at pred) "cardinality" {:var "v"}]}]}]})]
+    (boolean (some #(= "single" (str (first %))) rows))))
 
 ;; --- overrides ---------------------------------------------------------------
 ;; A spend_override is a multi-valued fact on the budget entity carrying a
@@ -347,11 +347,11 @@
       (println (str "  HEADROOM   $" (micro->usd headroom))))))
 
 (defn all-budget-targets [port]
-  (->> (:ok (north.coord/send-op
-             port {:op :query
-                   :query {:find "b"
-                           :rules [{:head {:rel "b" :args [{:var "b"}]}
-                                    :body [{:rel "triple" :args [{:var "b"} "kind" "spend-budget"]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "b"
+         :rules [{:head {:rel "b" :args [{:var "b"}]}
+                  :body [{:rel "triple" :args [{:var "b"} "kind" "spend-budget"]}]}]})
        (map first)
        (map #(str/replace (str %) #"^@?spend-budget:" ""))
        sort))
@@ -509,11 +509,11 @@
 ;; Until then this verb IS the surface — every breaker reset whose actor is not the
 ;; human is a review item.
 (defn cmd-reset-audit []
-  (let [rows (->> (:ok (north.coord/send-op
-                        port {:op :query
-                              :query {:find "e"
-                                      :rules [{:head {:rel "e" :args [{:var "e"}]}
-                                               :body [{:rel "triple" :args [{:var "e"} "kind" "spend-breaker-reset"]}]}]}}))
+  (let [rows (->> (north.coord/query-rows
+                   port
+                   {:find "e"
+                    :rules [{:head {:rel "e" :args [{:var "e"}]}
+                             :body [{:rel "triple" :args [{:var "e"} "kind" "spend-breaker-reset"]}]}]})
                   (map (comp str first))
                   (map (fn [e] {:e e
                                 :by (north.coord/resolved port e "reset_by")
