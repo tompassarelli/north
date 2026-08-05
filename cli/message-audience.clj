@@ -15,7 +15,6 @@
 (def audience-predicate "broadcast_to")
 (def audience-version-predicate "broadcast_audience_version")
 (def audience-version "snapshot-v1")
-(def lease-session-prefix "@lease:session:")
 (def delivery-claim-ttl-ms 30000)
 (def rejection-predicate "delivery_rejection")
 (def rejected-by-predicate "delivery_rejected_by")
@@ -65,7 +64,7 @@
 
 (defn complete-message-envelope?
   "A canonical subject prefix is necessary but not sufficient: require the
-   complete legacy mail envelope that every production publisher writes before
+   complete mail envelope that every production publisher writes before
    its routing edge."
   [port message]
   (and
@@ -79,23 +78,9 @@
   "Finite session audience at one coordinator observation. Liveness uses the
    same unexpired renewable-lease rule as the presence roster."
   [port now]
-  (let [rows (:ok (coord/send-op
-                   port
-                   {:op :query
-                    :query {:find "lease"
-                            :rules [{:head {:rel "lease"
-                                            :args [{:var "e"} {:var "v"}]}
-                                     :body [{:rel "triple"
-                                             :args [{:var "e"} "lease" {:var "v"}]}]}]}}))]
-    (into (sorted-set)
-          (keep (fn [[entity value]]
-                  (let [entity (str entity)
-                        lease (coord/decode-lease value)]
-                    (when (and (str/starts-with? entity lease-session-prefix)
-                               lease
-                               (> (:exp lease) now))
-                      (subs entity (count lease-session-prefix))))))
-          (or rows []))))
+  (into (sorted-set)
+        (map :handle)
+        (coord/online-session-leases port now)))
 
 (defn snapshot-broadcast!
   "Persist a finite audience before the wildcard `to` fact, excluding the sender. The caller
@@ -153,8 +138,8 @@
   ;; failure must not turn a successful PostToolUse delivery into a hook failure;
   ;; the lease expires and can then be reclaimed.
   (try
-    (coord/send-op port {:op :release-lease
-                         :res resource :holder holder :epoch epoch})
+    (coord/release-lease!
+     port (coord/lease-fence resource holder epoch))
     (catch Exception _ nil)))
 
 (defn claim-delivery!
@@ -178,12 +163,9 @@
                    (rejected? port message recipient))
        (let [resource (delivery-claim-resource message recipient)
              holder (str "message-consumer:" recipient ":" (java.util.UUID/randomUUID))
-             result (coord/send-op
-                     port
-                     {:op :acquire-lease :res resource :holder holder
-                      :ttl-ms ttl-ms})]
+             result (coord/acquire-lease! port resource holder ttl-ms)]
          (when (:ok result)
-           (let [claim {:resource resource :holder holder :epoch (:epoch result)}]
+           (let [claim (select-keys result [:resource :holder :epoch])]
              ;; A manual ack may have landed between the initial read and acquire.
              (if (or (acknowledged? port message recipient)
                      (rejected? port message recipient))
@@ -320,28 +302,28 @@
         (mapv
          (fn [address]
            {:head {:rel "message_candidate" :args [{:var "e"}]}
-            :body [{:rel "fact"
+            :body [{:rel "triple"
                     :args [{:var "e"} "to" address]}]})
          addresses)
         base-rules
         (into
          direct-rules
          [{:head {:rel "message_candidate" :args [{:var "e"}]}
-           :body [{:rel "fact"
+           :body [{:rel "triple"
                    :args [{:var "e"} "broadcast_to" recipient]}
-                  {:rel "fact"
+                  {:rel "triple"
                    :args [{:var "e"} "to" broadcast-address]}]}
           {:head {:rel "attention_entity" :args [{:var "e"}]}
-           :body [{:rel "fact"
+           :body [{:rel "triple"
                    :args [{:var "e"} "kind" "notification"]}]}
           {:head {:rel "attention_entity" :args [{:var "e"}]}
-           :body [{:rel "fact"
+           :body [{:rel "triple"
                    :args [{:var "e"} "kind" "subscription"]}]}
           {:head {:rel "message_acknowledged" :args [{:var "e"}]}
-           :body [{:rel "fact"
+           :body [{:rel "triple"
                    :args [{:var "e"} "acked_by" recipient]}]}
           {:head {:rel "message_rejected" :args [{:var "e"}]}
-           :body [{:rel "fact"
+           :body [{:rel "triple"
                    :args [{:var "e"} rejected-by-predicate recipient]}]}])]
     {:find "pending_message"
      :strata
@@ -365,7 +347,7 @@
    (pending-query recipient direct-addresses)
    [:strata 1 0 :body]
    conj
-   {:rel "fact"
+   {:rel "triple"
     :args [{:var "e"} steer-manifest-predicate {:var "manifest"}]}))
 
 (defn pending-message-page
@@ -379,24 +361,20 @@
    (let [response
          (coord/query-page
           port (pending-query recipient direct-addresses) limit after)]
-     (when (:error response)
-       (throw (ex-info "pending message page query failed"
-                       {:type :pending-message-page-failed
-                        :error (:error response)})))
-     (when-not (and (<= (count (:ok response)) limit)
+     (when-not (and (<= (count (:rows response)) limit)
                     (every? #(and (vector? %)
                                   (= 1 (count %))
                                   (string? (first %)))
-                            (:ok response)))
+                            (:rows response)))
        (throw (ex-info "pending message page has malformed rows"
                        {:type :malformed-pending-message-page})))
-     (let [rows (->> (:ok response)
+     (let [rows (->> (:rows response)
                      (filter #(canonical-message-id? (first %)))
                      vec)]
        ;; Preserve Fram's cursor/version exactly. Filtering only the returned
        ;; relation keeps any other routed coordination subjects out of
        ;; hook/live-feed consumers without inventing a client-derived cursor.
-       (assoc response :ok rows :messages (mapv first rows))))))
+       (assoc response :rows rows :messages (mapv first rows))))))
 
 (defn pending-steer-page
   "Read one bounded deterministic page of unsettled managed steer messages."
@@ -407,21 +385,17 @@
    (let [response
          (coord/query-page
           port (pending-steer-query recipient direct-addresses) limit after)]
-     (when (:error response)
-       (throw (ex-info "pending steer page query failed"
-                       {:type :pending-steer-page-failed
-                        :error (:error response)})))
-     (when-not (and (<= (count (:ok response)) limit)
+     (when-not (and (<= (count (:rows response)) limit)
                     (every? #(and (vector? %)
                                   (= 1 (count %))
                                   (string? (first %)))
-                            (:ok response)))
+                            (:rows response)))
        (throw (ex-info "pending steer page has malformed rows"
                        {:type :malformed-pending-steer-page})))
-     (let [rows (->> (:ok response)
+     (let [rows (->> (:rows response)
                      (filter #(canonical-message-id? (first %)))
                      vec)]
-       (assoc response :ok rows :messages (mapv first rows))))))
+       (assoc response :rows rows :messages (mapv first rows))))))
 
 (defn- recipient-keyed-ids
   "Message ids from ONE positive-triple rule, evaluated by the coordinator's warm
@@ -434,13 +408,13 @@
    assembled from these simple lookups and one client-side set difference instead."
   [port body]
   (let [response
-        (coord/indexed-query
+        (coord/bounded-query
          port
          {:find "pending_candidate"
           :rules [{:head {:rel "pending_candidate" :args [{:var "e"}]}
                    :body body}]}
          coord/query-page-row-limit)]
-    (into #{} (map first) (:ok response))))
+    (into #{} (map first) (:rows response))))
 
 (defn pending-message-ids
   "All pending ids for human/read-only callers (the `msg inbox` view). Same set as
