@@ -7,6 +7,8 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
+CODE_ROOT="$(cd "$ROOT/../.." && pwd)"
+FRAM_OUT="${FRAM_OUT:-$CODE_ROOT/fram/main/out}"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
@@ -313,61 +315,91 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
 
 (def status-file (System/getenv "NORTH_TEST_STATUS"))
 (def calls (atom []))
-(defn mismatch! [message operation]
-  (spit status-file (str "mismatch: " message " " (pr-str operation)))
+(defn mismatch! [message detail]
+  (spit status-file (str "mismatch: " message " " (pr-str detail)))
   (System/exit 2))
-(defn resolved-envelope [value]
-  {:value value
-   :members (if value 1 0)
-   :ambiguous? false
-   :values (if value [value] [])
-   :version 1})
-(defn fake-send-op [_port operation]
-  (let [step (count (swap! calls conj operation))]
-    (case (:op operation)
-      :query-page
-      (do
-        (when-not (and (= 1 step)
-                       (= 256 (:limit operation))
-                       (nil? (:after operation))
-                       (= "pending_message" (get-in operation [:query :find]))
-                       (some #(= [{:var "e"} "to" "flush-agent"]
-                                 (get-in % [:body 0 :args]))
-                             (get-in operation [:query :strata 0])))
-          (mismatch! "query-page framing" operation))
-        {:ok [["@msg:flush-proof"]]
-         :more false :next nil :version 1 :engine "scan"})
+(defn record! [call]
+  (swap! calls conj call))
 
-      :resolved
-      (cond
-        (contains? #{"acked_by" "delivery_rejected_by"} (:p operation))
-        (resolved-envelope nil)
-        (= "to" (:p operation)) (resolved-envelope "flush-agent")
-        (= "from" (:p operation)) (resolved-envelope "peer")
-        (= "subject" (:p operation)) (resolved-envelope "flush proof")
-        (= "body" (:p operation)) (resolved-envelope "complete body")
-        :else (mismatch! "resolved predicate" operation))
+(defn fake-status [port]
+  (record! :status)
+  (when-not (= 1 port) (mismatch! "status port" port))
+  {:space-id "north-coordination"})
 
-      :acquire-lease
-      (if (and (string? (:res operation))
-               (.startsWith ^String (:res operation) "message-delivery:")
-               (.startsWith ^String (:holder operation)
-                            "message-consumer:flush-agent:"))
-        {:ok true :epoch 1}
-        (mismatch! "delivery lease" operation))
+(defn fake-pending-page [port recipient direct-addresses limit after]
+  (record! [:pending-page recipient direct-addresses limit after])
+  (when-not (and (= 1 port)
+                 (= "flush-agent" recipient)
+                 (= #{"flush-agent"} direct-addresses)
+                 (= 256 limit)
+                 (nil? after))
+    (mismatch! "pending page framing" (last @calls)))
+  {:rows [["@msg:flush-proof"]]
+   :messages ["@msg:flush-proof"]
+   :done? true :cursor nil :served-version 1})
 
-      :assert
-      (if (and (= "@msg:flush-proof" (:te operation))
-               (= "acked_by" (:p operation))
-               (= "flush-agent" (:r operation))
-               (= 11 step))
-        (do
-          (spit status-file "query-page-ok\nack-reached\n")
-          (Thread/sleep 30000)
-          {:ok true})
-        (mismatch! "pre-ACK sequence" operation))
+(def claim
+  {:resource "message-delivery:flush-proof"
+   :holder "message-consumer:flush-agent:fixture"
+   :epoch 1})
 
-      (mismatch! "unexpected operation" operation))))
+(defn fake-claim [port message recipient]
+  (record! [:claim message recipient])
+  (when-not (and (= 1 port)
+                 (= "@msg:flush-proof" message)
+                 (= "flush-agent" recipient))
+    (mismatch! "delivery claim" (last @calls)))
+  claim)
+
+(def resolved-values
+  {"to" "flush-agent"
+   "from" "peer"
+   "subject" "flush proof"
+   "body" "complete body"})
+
+(defn fake-resolved [port message predicate]
+  (record! [:resolved predicate])
+  (when-not (and (= 1 port)
+                 (= "@msg:flush-proof" message)
+                 (contains? resolved-values predicate))
+    (mismatch! "message projection" (last @calls)))
+  (get resolved-values predicate))
+
+(defn fake-deliverable [port message to recipient direct-addresses]
+  (record! [:deliverable message to recipient direct-addresses])
+  (when-not (and (= 1 port)
+                 (= "@msg:flush-proof" message)
+                 (= "flush-agent" to)
+                 (= "flush-agent" recipient)
+                 (= #{"flush-agent"} direct-addresses))
+    (mismatch! "deliverability projection" (last @calls)))
+  true)
+
+(def expected-before-ack
+  [:status
+   [:pending-page "flush-agent" #{"flush-agent"} 256 nil]
+   [:claim "@msg:flush-proof" "flush-agent"]
+   [:resolved "to"]
+   [:resolved "from"]
+   [:resolved "subject"]
+   [:resolved "body"]
+   [:deliverable "@msg:flush-proof" "flush-agent" "flush-agent"
+    #{"flush-agent"}]])
+
+(defn fake-complete [port message recipient actual-claim]
+  (when-not (and (= 1 port)
+                 (= "@msg:flush-proof" message)
+                 (= "flush-agent" recipient)
+                 (= claim actual-claim)
+                 (= expected-before-ack @calls))
+    (mismatch! "pre-ACK sequence" @calls))
+  (spit status-file "pending-page-ok\nack-reached\n")
+  (Thread/sleep 30000)
+  true)
+
+(defn fake-release [_port actual-claim]
+  (record! [:release actual-claim])
+  nil)
 
 (doseq [actor ["" "../escape" (apply str (repeat 513 "a"))]]
   (let [error (try (managed-actor-key actor) nil (catch Exception cause cause))]
@@ -376,7 +408,13 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
 (when (= (managed-actor-key "actor:a") (managed-actor-key "actor_a"))
   (mismatch! "inbox actor domain collision" nil))
 
-(with-redefs [north.coord/send-op fake-send-op]
+(with-redefs [north.coord/status fake-status
+              one fake-resolved
+              north.message-audience/pending-message-page fake-pending-page
+              north.message-audience/claim-delivery! fake-claim
+              north.message-audience/deliverable? fake-deliverable
+              north.message-audience/complete-delivery! fake-complete
+              north.message-audience/release-delivery-claim! fake-release]
   (run-peek! 1 "flush-agent"))
 CLJ
 STATUS_FILE="$TMP/ack-stall.status"
@@ -385,12 +423,17 @@ mkdir -p "$TMP/flush-runtime"
 timeout --signal=TERM --kill-after=0.1s 0.7s \
   env XDG_RUNTIME_DIR="$TMP/flush-runtime" NORTH_TEST_ROOT="$ROOT" \
   NORTH_TEST_STATUS="$STATUS_FILE" \
-  bb "$TMP/ack-stall-fixture.clj" >"$TMP/flush.out" 2>"$TMP/flush.err"
+  bb -cp "$FRAM_OUT" "$TMP/ack-stall-fixture.clj" \
+    >"$TMP/flush.out" 2>"$TMP/flush.err"
 flush_rc=$?
 set -e
-check "fixture observes exact query-page framing before the pre-ACK claim protocol" \
-  grep -Fxq "query-page-ok" "$STATUS_FILE"
-check "fixture reaches ACK only after the ten bounded pre-ACK operations" \
+if [ "$flush_rc" -ne 124 ]; then
+  printf 'ack-stall fixture failed (exit %s):\n' "$flush_rc" >&2
+  sed -n '1,120p' "$TMP/flush.err" >&2
+fi
+check "fixture observes canonical pending-page framing before the claim protocol" \
+  grep -Fxq "pending-page-ok" "$STATUS_FILE"
+check "fixture reaches ACK only after the bounded canonical pre-ACK operations" \
   grep -Fxq "ack-reached" "$STATUS_FILE"
 check "ACK stall reaches the helper deadline" test "$flush_rc" -eq 124
 check "complete subject is flushed before ACK" grep -Fq "✉ from peer — flush proof" "$TMP/flush.out"

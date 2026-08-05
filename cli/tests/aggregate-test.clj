@@ -6,6 +6,18 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/../coord.clj"))
 (alias 'co (the-ns 'north.coord))
 
+(defn publish-record! [port subject pairs]
+  (let [result
+        (co/publish!
+         port
+         (mapv (fn [[predicate value]]
+                 {:op :assert :subject subject :predicate predicate
+                  :value value :cardinality :one})
+               pairs))]
+    (when (:reject result)
+      (throw (ex-info "aggregate fixture publication was rejected" result)))
+    result))
+
 (let [port (Integer/parseInt (or (first *command-line-args*) "7977"))
       tag  (format "%08x" (rand-int 0x7fffffff))
       b    (str "@aggtest:" tag)
@@ -21,8 +33,8 @@
   ;; --- COUNT-DISTINCT (quorum). 3 distinct workers; w2 reports TWICE. ---------
   (doseq [[d w] [["d1" "w1"] ["d2" "w2"] ["d2b" "w2"] ["d3" "w3"]]]
     (let [de (str b ":" d)]
-      (co/put! port de "agg_done_batch" b)
-      (co/put! port de "agg_done_worker" w)))
+      (publish-record! port de [["agg_done_batch" b]
+                                ["agg_done_worker" w]])))
   (chk "count-distinct collapses a double-reporting worker (3 distinct, 4 facts)"
        (= 3 (co/count-distinct port ["w"] done-body)))
   (chk "distinct-of returns the SET (for missing-member diffs)"
@@ -30,8 +42,9 @@
   (chk "quorum-met? FIRES at K=3"      (true?  (co/quorum-met? port 3 ["w"] done-body)))
   (chk "quorum-met? WAITS at K=4"      (false? (co/quorum-met? port 4 ["w"] done-body)))
   (chk "idempotent: re-asserting w2 DONE does not move the count"
-       (do (co/put! port (str b ":d2c") "agg_done_batch" b)
-           (co/put! port (str b ":d2c") "agg_done_worker" "w2")
+       (do (publish-record! port (str b ":d2c")
+                            [["agg_done_batch" b]
+                             ["agg_done_worker" "w2"]])
            (= 3 (co/count-distinct port ["w"] done-body))))
 
   ;; --- Σ (numeric usage). Append-only samples; the total is a fold, never a cell. r4 has
@@ -39,8 +52,8 @@
   ;; collapse them and under-count. [key val] keeps them distinct. -------------
   (doseq [[c n] [["r1" 100] ["r2" 250] ["r3" 50.5] ["r4" 100]]]
     (let [ce (str b ":run:" c)]
-      (co/put! port ce "agg_run_batch" b)
-      (co/put! port ce "agg_run_tokens" n)))
+      (publish-record! port ce [["agg_run_batch" b]
+                                ["agg_run_tokens" n]])))
   (chk "sum-of Σ's [key val] rows (100+250+50.5+100), equal-valued addends NOT deduped"
        (== 500.5 (co/sum-of port ["c" "n"] usage-body)))
   ;; the ROW SEAM: scope rows with a client-side predicate the scan body can't

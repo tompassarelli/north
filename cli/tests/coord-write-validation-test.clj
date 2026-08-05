@@ -1,6 +1,7 @@
 #!/usr/bin/env bb
-;; The shared North write seam must never turn omitted arguments into malformed
-;; facts. Explicit blank literals remain valid because several contracts use them.
+;; Canonical publications must never turn omitted arguments into malformed
+;; propositions. Explicit blank literals remain valid because several contracts
+;; use them.
 (require '[clojure.java.io :as io])
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
@@ -18,22 +19,29 @@
     (catch clojure.lang.ExceptionInfo e
       (= :invalid-write (:type (ex-data e))))))
 
-(def sent (atom []))
-(with-redefs [north.coord/send-op (fn [_ op] (swap! sent conj op) {:ok true})
-              north.coord/cur-ver (constantly 1)]
-  (check "append rejects nil subject before socket write"
-         (invalid-write? #(north.coord/append! 1 nil "note" "x")))
-  (check "put rejects blank subject before socket write"
-         (invalid-write? #(north.coord/put! 1 " " "title" "x")))
-  (check "swap rejects blank predicate before socket write"
-         (invalid-write? #(north.coord/swap! 1 "@x" "" "x")))
-  (check "retract rejects nil object before socket write"
-         (invalid-write? #(north.coord/retract! 1 "@x" "note" nil)))
-  (check "rejected writes never reach send-op" (empty? @sent))
-  (north.coord/append! 1 "@x" "note" "")
-  (north.coord/put! 1 "@x" "estimate" 42)
-  (check "explicit blank object remains valid" (= "" (:r (first @sent))))
-  (check "non-nil objects retain string coercion" (= "42" (:r (second @sent)))))
+(check "publication rejects nil subject before creating a FRAMRPC client"
+       (invalid-write?
+        #(north.coord/publish!
+          1 [{:op :assert :subject nil :predicate "note"
+              :value "x" :cardinality :many}])))
+(check "publication rejects blank subject before creating a FRAMRPC client"
+       (invalid-write?
+        #(north.coord/publish!
+          1 [{:op :assert :subject " " :predicate "title"
+              :value "x" :cardinality :one}])))
+(check "publication rejects blank predicate before creating a FRAMRPC client"
+       (invalid-write?
+        #(north.coord/publish!
+          1 [{:op :set :subject "@x" :predicate ""
+              :values ["x"] :cardinality :one}])))
+(check "publication rejects nil retract value before creating a FRAMRPC client"
+       (invalid-write?
+        #(north.coord/publish!
+          1 [{:op :retract :subject "@x" :predicate "note" :value nil}])))
+(check "explicit blank value remains valid"
+       (= "" (north.coord/write-value! "@x" "note" "")))
+(check "non-nil values retain string coercion"
+       (= "42" (north.coord/write-value! "@x" "estimate" 42)))
 
 (if (zero? @fails)
   (do (println "\ncoord write validation: ALL PASS") (System/exit 0))
