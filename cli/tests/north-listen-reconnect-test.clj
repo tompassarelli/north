@@ -7,9 +7,7 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file test-script)) "../..")))
-(def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
 
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [result @(proc/process

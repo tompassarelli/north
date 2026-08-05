@@ -1,7 +1,8 @@
 #!/usr/bin/env bb
 ;; Fail-closed live-steer admission across the raw fact producer and public CLI.
-;; A rejected steer must be a pure read: no partial @msg facts may reach the log.
-(require '[babashka.process :as proc]
+;; A rejected steer must be a pure read: no partial @msg facts may reach its SpaceId.
+(require '[babashka.classpath :as cp]
+         '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.set :as set]
@@ -10,9 +11,13 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (str (System/getProperty "user.home") "/code/fram/main")))
+(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(cp/add-classpath (str root "/out:" fram "/out"))
+(load-file (str root "/cli/coord.clj"))
+(alter-var-root #'north.coord/telemetry-partition-enabled?
+                (constantly (fn [] false)))
+(load-file (str fram "/database.clj"))
+(require '[database :as database])
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def agents-cli (str root "/cli/agents-cli.clj"))
 (def identity-writer (str root "/cli/agent-fact-internal.clj"))
@@ -25,14 +30,14 @@
   (try (load-file live-feed-cli)
        (finally (System/setProperty "babashka.file" test-file))))
 (def checks (atom []))
-(def test-log (atom nil))
-(def test-telemetry-log (atom nil))
+(def test-space "north-coordination")
+(def identity-fixtures (atom {}))
 
 (defn test-env [port]
-  {"FRAM_LOG" @test-log
-   "FRAM_TELEMETRY_LOG" @test-telemetry-log
+  {"FRAM_SPACE_ID" test-space
+   "NORTH_FRAMRPC_HOST" "127.0.0.1"
+   "BABASHKA_CLASSPATH" (str root "/out:" fram "/out")
    "NORTH_TELEMETRY_PARTITION" "0"
-   "NORTH_TELEMETRY_PORT" (str port)
    "AGENT_TOPOLOGY" "orchestrator"
    "NO_COLOR" "1"})
 
@@ -51,18 +56,18 @@
       (predicate) true
       (>= attempt 240) false
       :else (do (Thread/sleep 25) (recur (inc attempt))))))
-(defn await-daemon-boot [predicate]
+(defn await-server-boot [predicate]
   (loop [attempt 0]
     (cond
       (predicate) true
       (>= attempt 300) false
       :else (do (Thread/sleep 250) (recur (inc attempt))))))
-(defn fail-daemon-boot! [daemon]
-  (try (proc/destroy-tree daemon) (catch Exception _ nil))
-  (let [result (deref daemon 5000 nil)]
+(defn fail-server-boot! [server]
+  (try (proc/destroy-tree server) (catch Exception _ nil))
+  (let [result (deref server 5000 nil)]
     (throw
      (ex-info
-      "throwaway coordinator failed to start"
+      "throwaway Fram server failed to start"
       {:exit (:exit result)
        :stdout (or (:out result) "<unavailable>")
        :stderr (or (:err result) "<unavailable>")}))))
@@ -70,7 +75,7 @@
   (apply proc/shell
          {:continue true :out :string :err :string
           :extra-env (assoc (test-env port) "NORTH_PORT" (str port))}
-         "bb" path args))
+         "bb" "-cp" (str root "/out:" fram "/out") path args))
 (defn publish! [port id provider live-input]
   (let [facts {"kind" "lane"
                "role" "integrator"
@@ -96,40 +101,44 @@
         result (run-cli identity-writer port (str port) "publish"
                         (str "agent:" id) (json/generate-string facts))]
     (when-not (zero? (:exit result))
-      (throw (ex-info "identity fixture publication failed" result)))))
+      (throw (ex-info "identity fixture publication failed" result)))
+    (swap! identity-fixtures assoc id facts)))
 (defn register! [port id]
   (let [result (run-cli presence-cli port (str port) "register" id
                         (str "/tmp/" id) id)]
     (when-not (zero? (:exit result))
       (throw (ex-info "presence fixture publication failed" result)))))
-(defn graph-message-ids [_port]
-  (set (re-seq #"@msg:[A-Za-z0-9._:-]+" (slurp @test-log))))
+(defn graph-message-ids [port]
+  (->> (north.coord/query-rows
+        port
+        {:find "live_steer_message_subject"
+         :rules
+         (mapv
+          (fn [predicate]
+            {:head {:rel "live_steer_message_subject"
+                    :args [{:var "subject"}]}
+             :body [{:rel "triple"
+                     :args [{:var "subject"} predicate {:var "value"}]}]})
+          ["from" "to" "subject" "body" "sent_at" "acked_by"
+           "delivery_rejected_by" "delivery_rejection"])})
+       (map first)
+       (filter #(and (string? %) (str/starts-with? % "@msg:")))
+       set))
 (defn put-fact! [port subject predicate value]
-  (let [result
-        (north.coord/send-op-for-log
-         port @test-log {:op :assert :te subject :p predicate :r value})]
+  (let [result (north.coord/append! port subject predicate value)]
     (when (:reject result)
       (throw (ex-info "fixture fact write failed" result)))
     result))
 (defn fact-one [port subject predicate]
-  (first
-   (:values
-    (north.coord/send-op-for-log
-     port @test-log {:op :resolved :te subject :p predicate}))))
+  (north.coord/resolved port subject predicate))
 (defn fact-values [port subject predicate]
-  (set
-   (:values
-    (north.coord/send-op-for-log
-     port @test-log {:op :resolved :te subject :p predicate}))))
+  (set (north.coord/many port subject predicate)))
 (defmacro with-test-coordinator [& body]
-  `(with-redefs
-     [north.coord/send-op
-      (fn [port# operation#]
-        (north.coord/send-op-for-log port# @test-log operation#))
-      emit-error! (fn [& _#] nil)]
+  `(with-redefs [emit-error! (fn [& _#] nil)]
      ~@body))
 (defn route! [port id state epoch]
-  (let [facts {"provider" "anthropic"
+  (let [expected (get @identity-fixtures id)
+        delta {"provider" "anthropic"
                "provider_target" "anthropic-test"
                "live_input" "streaming"
                "live_input_state" state
@@ -138,34 +147,39 @@
                "effort" "xhigh"
                "display_handle" (str "anthropic-test-integrator-" id)
                "display_name" (str "anthropic · integrator · " id)}
-        result (run-cli identity-writer port (str port) "route"
-                        (str "agent:" id) (json/generate-string facts))]
+        desired (merge expected delta)
+        result
+        (run-cli identity-writer port (str port) "route"
+                 (str "agent:" id) (json/generate-string delta)
+                 "" (str (java.util.UUID/randomUUID))
+                 (json/generate-string desired)
+                 (json/generate-string expected))]
     (when-not (zero? (:exit result))
-      (throw (ex-info "identity fixture route update failed" result)))))
+      (throw (ex-info "identity fixture route update failed" result)))
+    (swap! identity-fixtures assoc id desired)))
 
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-live-steer" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
-      telemetry (io/file tmp "telemetry.log")
-      daemon (do
-               (spit log "")
-               (spit telemetry "")
+      log (io/file tmp "facts.framlog")
+      server (do
+               (database/create-triple-log!
+                (.getCanonicalPath log) test-space)
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"
-                             "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry)
-                             "NORTH_TELEMETRY_PARTITION" "0"
-                             "NORTH_TELEMETRY_PORT" (str port)}}
-                "bb" "-cp" "out" "coord_daemon.clj"
-                "serve-flat" (str port) (.getPath log)))]
-  (reset! test-log (.getCanonicalPath log))
-  (reset! test-telemetry-log (.getCanonicalPath telemetry))
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath log) test-space))]
   (try
-    (let [started? (await-daemon-boot #(port-open? port))]
-      (check "throwaway coordinator starts" started?)
+    (let [started?
+          (await-server-boot
+           #(and (port-open? port)
+                 (= test-space (:space-id (north.coord/status port)))))]
+      (check "throwaway current Fram FRAMRPC server starts" started?)
       (when-not started?
-        (fail-daemon-boot! daemon)))
+        (fail-server-boot! server)))
 
     (let [before (graph-message-ids port)
           invalid-cases
@@ -420,8 +434,8 @@
                                  "steer target is malformed")
                   (= before (graph-message-ids port)))))
     (finally
-      (try (proc/destroy-tree daemon) (catch Exception _ nil))
-      (try @daemon (catch Exception _ nil))
+      (try (proc/destroy-tree server) (catch Exception _ nil))
+      (try @server (catch Exception _ nil))
       (doseq [child (.listFiles tmp)]
         (when child (.delete child)))
       (.delete tmp))))
