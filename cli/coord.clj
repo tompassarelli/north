@@ -885,47 +885,48 @@
        known))
    {} rows))
 
-(defn online-session-leases [port now-ms]
-  (when-not (and (integer? now-ms) (not (neg? now-ms)))
-    (throw (ex-info "online-session-leases requires non-negative now-ms"
-                    {:type :invalid-session-lease-time :now-ms now-ms})))
+(defn- all-session-status [port now]
+  (when-not (and (integer? now) (not (neg? now)))
+    (throw (ex-info "session status requires a non-negative observation time"
+                    {:type :invalid-session-observation-time :now now})))
   (let [result (session-lease-scan port nil)
-        by-handle (session-lease-index! (:rows result))]
-    (->> by-handle vals (filter #(< now-ms (:exp %)))
-         (sort-by :handle) vec)))
+        sessions
+        (into {}
+              (map (fn [[handle lease]]
+                     [handle (assoc lease :online? (> (:exp lease) now))]))
+              (session-lease-index! (:rows result)))]
+    {:version (:served-version result) :sessions sessions}))
+
+(defn online-session-leases [port now]
+  (->> (:sessions (all-session-status port now))
+       vals (filter :online?) (sort-by :handle) vec))
 
 (defn sessions-status [port handles]
-  (let [handles (vec (distinct handles))
-        now (System/currentTimeMillis)
-        _ (when-not (every? #(and (string? %) (not (str/blank? %))) handles)
-            (throw (ex-info "session handles must be nonblank strings"
-                            {:type :invalid-session-handles})))
-        result (session-lease-scan port nil)
-        found (session-lease-index! (:rows result))]
-    {:version (:served-version result)
-     :sessions
-     (into {}
-           (map (fn [handle]
-                  (let [lease (get found handle)]
-                    [handle
-                     (if lease
-                       (assoc lease :online? (> (:exp lease) now))
-                       {:holder nil :online? false :exp nil})])))
-           handles)}))
+  (let [handles (vec (distinct handles))]
+    (when-not (every? #(and (string? %) (not (str/blank? %))) handles)
+      (throw (ex-info "session handles must be nonblank strings"
+                      {:type :invalid-session-handles})))
+    (let [{:keys [version sessions]}
+          (all-session-status port (System/currentTimeMillis))]
+      {:version version
+       :sessions
+       (into {} (map (fn [handle]
+                       [handle (get sessions handle
+                                    {:holder nil :online? false :exp nil})])
+                     handles))})))
+
+(defn online-session-handles
+  ([port] (online-session-handles port (System/currentTimeMillis)))
+  ([port now]
+   (let [{:keys [version sessions]} (all-session-status port now)]
+     {:version version
+      :handles (into (sorted-set)
+                     (keep (fn [[handle status]]
+                             (when (:online? status) handle)))
+                     sessions)})))
 
 (defn session-lease-status [port handle]
-  (when-not (and (string? handle) (not (str/blank? handle)))
-    (throw (ex-info "session handle must be a nonblank string"
-                    {:type :invalid-session-handle :handle handle})))
-  (let [result (session-lease-scan port (str "session:" handle))
-        leases (into [] (keep parse-session-lease!) (:rows result))]
-    (when (> (count leases) 1)
-      (throw (ex-info "session has multiple live lease propositions"
-                      {:type :duplicate-session-lease :handle handle})))
-    (let [lease (first leases)]
-      {:online? (boolean (and lease (> (:exp lease) (System/currentTimeMillis))))
-       :exp (:exp lease)
-       :served-version (:served-version result)})))
+  (get-in (sessions-status port [handle]) [:sessions handle]))
 
 (defn session-online? [port handle]
   (boolean (:online? (session-lease-status port handle))))
