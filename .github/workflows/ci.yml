@@ -175,6 +175,7 @@ jobs:
           bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
           bb cli/tests/nix-rebuild-worker-test.clj  # one queue consumer, synchronous rebuild, durable fallback
           bb cli/tests/coordinator-jvm-health-test.clj
+          bb cli/tests/framlog-cutover-test.clj  # exact forward-only Fram migration and selection
           bb cli/tests/deployed-cli-test.clj
           BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj
           bb cli/tests/linear-helper-protocol-test.clj
