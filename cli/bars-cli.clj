@@ -43,7 +43,6 @@
 
 ;; SpaceId is the whole fence: connect validates the served space before any
 ;; read, so a coordinator serving another corpus is refused rather than answered.
-;; The v0.3 :for-log envelope has no native analogue and needs none.
 (defn- connect! []
   (let [host (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
         port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
@@ -93,8 +92,7 @@
     (reduce (fn [acc triple]
               (let [predicate (triple-slot1 triple)
                     value (triple-slot2 triple)]
-                ;; The v0.3 :show envelope was string-typed; a non-string Term
-                ;; carries no groomable bar fact.
+                ;; A non-string Term carries no groomable North bar fact.
                 (if (and (string? predicate) (string? value))
                   (update acc predicate (fnil conj #{}) value)
                   acc)))
