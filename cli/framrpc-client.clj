@@ -11,7 +11,7 @@
 
 (def max-body-bytes 1048576)
 (def effective-page-limit 200)
-;; Must stay equal to the daemon's own retryable set (fram coord_daemon.clj);
+;; Must stay equal to the Fram server's own retryable set;
 ;; a code the server marks retryable but the client omits fails a caller that
 ;; the server expected to ask again.
 (def retryable-error-codes

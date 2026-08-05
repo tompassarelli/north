@@ -114,7 +114,7 @@
                (not (mail-query-settles-server-side? query))
                (conj ["@msg:acked" "sender-d" "dead-session"
                       "2026-07-27T08:00:00Z"]))
-       (= role "@role:legacy-reviewer") [["@agent:armed-session"]]
+       (= role "@role:reviewer-alias") [["@agent:armed-session"]]
        same-route? [["@agent:dead-session"] ["@agent:live-session"]]
        :else [])
      :more false
@@ -162,7 +162,7 @@
          (= "armed-session"
             (:recipient
              (north.message-routing/require-live-address
-              1 "legacy-reviewer"))))
+              1 "reviewer-alias"))))
   (check "durable armed state without its native listener lease is unreachable"
          (false? (north.message-routing/recipient-live? 1 "stale-native")))
   (check "an ambiguous listener state rejects even when armed is selected"
