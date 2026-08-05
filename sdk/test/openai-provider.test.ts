@@ -26,6 +26,10 @@ import { scrubAmbientGraphEnv } from "./support/managed-env";
 import { gatedTest } from "./support/capabilities";
 import { providerSessionKey } from "../src/providers/provider-join";
 import { causeChain } from "../src/death";
+import { kw } from "../src/coord-wire";
+import {
+  decodeFrame, encodeResponseFrame, rpcRecord, RPC_V1_HEADER_BYTES,
+} from "../src/framrpc-codec";
 
 // The proxy tracks the declared `web` capability, not the sandbox. Spelled out
 // rather than imported from managedCodexNetworkArguments: an independent statement
@@ -53,7 +57,6 @@ let restoreGraphEnv: (() => void) | undefined;
 const savedBin = process.env.NORTH_CODEX_BIN;
 const savedHome = process.env.HOME;
 const savedPort = process.env.NORTH_PORT;
-const savedFramLog = process.env.FRAM_LOG;
 const savedLaws = process.env.AGENT_LAWS;
 const savedOrchestration = process.env.NORTH_ORCHESTRATION_HOME;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
@@ -100,8 +103,6 @@ afterEach(() => {
   else process.env.HOME = savedHome;
   if (savedPort === undefined) delete process.env.NORTH_PORT;
   else process.env.NORTH_PORT = savedPort;
-  if (savedFramLog === undefined) delete process.env.FRAM_LOG;
-  else process.env.FRAM_LOG = savedFramLog;
   if (savedLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = savedLaws;
   if (savedOrchestration === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
@@ -951,8 +952,6 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   process.env.AGENT_LAWS = "on";
   process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
   process.env.NORTH_PORT = "65534";
-  const coordinatorLogPath = join(home, "must-not-reach-coordinator.log");
-  process.env.FRAM_LOG = coordinatorLogPath;
   const codexHome = join(home, ".codex");
   mkdirSync(codexHome);
   writeFileSync(join(codexHome, "AGENTS.md"), "COMMAND_PREFLIGHT_CANONICAL\n");
@@ -1018,20 +1017,31 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   expect(resolverCalls).toBe(1);
   expect(queryConstructed).toBe(false);
   expect(routePublished).toBe(false);
-  expect(existsSync(coordinatorLogPath)).toBe(false);
 });
 
 gatedTest("loopback-bind", "selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
-  let coordinatorLog = "";
   const server = createServer((socket) => {
-    socket.once("data", (chunk) => {
-      if (chunk.toString("utf8").includes(":for-log")) {
-        socket.end("{:version 23}\n");
-      } else {
-        socket.end(
-          `{:reject ["fence required"] :code :log-fence-required :served-log ${JSON.stringify(coordinatorLog)}}\n`,
-        );
-      }
+    const chunks: Buffer[] = [];
+    socket.on("data", (chunk) => {
+      chunks.push(chunk);
+      const buffer = Buffer.concat(chunks);
+      if (buffer.length < RPC_V1_HEADER_BYTES) return;
+      const bodyLength = new DataView(
+        buffer.buffer, buffer.byteOffset, buffer.length,
+      ).getUint32(14, true);
+      if (buffer.length < RPC_V1_HEADER_BYTES + bodyLength) return;
+      const frame = decodeFrame(Uint8Array.from(buffer));
+      socket.end(Buffer.from(encodeResponseFrame(frame.requestId, {
+        space: frame.request!.space,
+        op: frame.request!.op,
+        servedVersion: 23,
+        page: null,
+        error: null,
+        payload: rpcRecord(kw("rpc/status"), [
+          kw("serving"), 0, kw("native"),
+          rpcRecord(kw("rpc/result-cache"), [0, 0, 0, 0]),
+        ]),
+      })));
     });
   });
   await new Promise<void>((resolve, reject) => {
@@ -1044,8 +1054,9 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   process.env.AGENT_LAWS = "on";
   process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
   process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
-  process.env.FRAM_LOG = join(home, "north target admission.log");
-  coordinatorLog = process.env.FRAM_LOG;
+  process.env.FRAM_SERVER_PORT = process.env.NORTH_PORT;
+  process.env.FRAM_SPACE_ID = "north-coordination";
+  process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
   const codexHome = join(home, ".codex");
   mkdirSync(codexHome);
   writeFileSync(join(codexHome, "AGENTS.md"), "TARGET_ADMISSION_CANONICAL\n");

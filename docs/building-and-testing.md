@@ -86,12 +86,6 @@ Other Babashka suites under [`tests/`](../tests) follow the same shape —
 `tests/schema_test.clj` and the rest — as do the CLI suites under
 [`cli/tests/`](../cli/tests).
 
-The gateway has its own smoke test covering auth and tenant routing:
-
-```console
-$ bash deploy/gateway/smoke_test.sh
-```
-
 The TypeScript agent SDK is driven by its own package scripts, which own the
 hermetic preloads and test isolation. Do not bypass them by invoking `bun test`
 directly:

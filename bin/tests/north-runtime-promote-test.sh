@@ -20,7 +20,6 @@ export NORTH_RUNTIME_STATE=$state
 # No listener here on purpose: a coordinator that cannot be reached must warn,
 # never block delivery.
 export NORTH_PORT=1
-export FRAM_LOG=$work/coordination.log
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
 pass() { echo "ok: $1"; }

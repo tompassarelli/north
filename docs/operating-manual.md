@@ -198,8 +198,7 @@ fact wins; else a reserved namespace in the subject id (`concern-`, `agent:`,
 `msg:`, `topic-`, `mine:`, and the `session:`/`run-`/`sess-`/… telemetry
 prefixes); else a `title` means `thread`; else a schema-as-facts subject is a
 `predicate`; else `other`. Buckets sort by fact count, so the biggest blobs name
-themselves — today the `session-telemetry` bulk dwarfs the work graph, which is
-the number that drives the log split below.
+themselves.
 
 The AI tool surface reflects this. `north tools` lists NORTH's **curated** verbs
 (the MCP surface: `ready`/`next`/`board`/…/`tell`/`show`/`dispatch`/`spawn`);
@@ -207,65 +206,18 @@ the fram engine core underneath is **10 tools** (`tell`/`retract`/`show`/`ask`/
 `validate` + 5 graph-edit verbs). Vocabulary is data, not tools — there is no
 per-predicate tool catalog to memorize; `north show <pred>` reveals a predicate.
 
-### The log split — telemetry stays out of the coordination log
+### FRAMRPC and FRAMLOG
 
-Facts are written to one of **two append logs**. The configured coordination
-origin holds work/intent threads and their schema. Experiment
-runs, telemetry, benchmark samples, and other high-volume machine output are
-routed to a **separate** telemetry log, never the coordination log. Mixing them
-would bury the work graph under machine noise and drag every fold/validate over
-data that isn't about coordination. Keep the coordination log small and
-human-meaningful; give telemetry its own log.
+North clients address the canonical Fram server by host, port, and SpaceId.
+They never select or fold a physical log. The installed wrappers inherit the
+sealed FRAMRPC environment published by the one-way cutover; missing endpoint
+identity fails closed. Coordination and telemetry remain separate logical
+spaces and every cross-space read names its domain explicitly.
 
-Each origin has one serialized writer. A representative deployment contract is:
-
-```sh
-export FRAM_LOG=~/.local/state/north/coordination.log
-export FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.log
-export NORTH_PORT=7977
-export NORTH_TELEMETRY_PORT=7978
-export NORTH_TELEMETRY_PARTITION=1
-```
-
-These variables configure the deployed writers. Do not carry an ambient
-`FRAM_LOG` into an ordinary client shell: a client-side override is fenced
-against the served corpus and turns exact-subject reads into refusals.
-
-The runtime serves one strictly log-fenced Fram writer per origin. Subjects whose
-token is `run`, `session`, `mine`, or `guard_denial` route to the telemetry
-writer; coordination subjects remain on `NORTH_PORT`. Variable-subject queries
-that read run telemetry declare the telemetry domain explicitly. Whole-corpus
-North reads ask each writer for its **materialized live facts** and compose
-those views set-wise. They do not concatenate independently sequenced event
-histories: each origin log resolves its own order before crossing the seam.
-This preserves the origin-aware ordering gate and leaves both origin logs
-directly recoverable. If one writer is unavailable, the composed adapter names
-the unavailable domain on stderr instead of presenting a silent complete view.
-
-Rollback changes one deployment flag and restarts the operator-owned service:
-
-```sh
-export NORTH_TELEMETRY_PARTITION=0
-```
-
-The pre-Stage-A coordinator resumes serving the same coordination and telemetry
-origin logs. Do not merge, move, truncate, or delete either log; historical
-telemetry remains readable in both modes. Keep `FRAM_TELEMETRY_LOG` configured
-during rollback so the single coordinator folds and routes the existing
-two-origin corpus.
-
-Every new entity **self-identifies its kind at birth**: `north capture` stamps
-`kind thread` in the same coordinator write batch (`kind` is single-valued;
-concern-cli already stamps `kind concern`, telemetry writers `kind run`/`session`).
-No backfill — old subjects stay un-kinded and fall to the census's prefix
-heuristic; the kinded set grows forward. This is the seam the log split rides
-on: once entities carry their kind, `north schema` counts each log's mass
-exactly, and moving telemetry to its own log is a filter on a fact, not a guess.
-(One open overlap to reconcile: reflection entities also use `kind`
-document/decision/observation — see the reflections section — so a reflection
-captured via `north capture` starts `kind thread` and must be re-told its
-reflection kind; a follow-up should decide whether entity-kind and reflection-kind
-are one predicate or two.)
+Every new entity self-identifies its kind at birth. `north capture` publishes
+`kind thread` in the same atomic transaction, while concern and telemetry
+writers publish their own kinds. FRAMLOG is server-owned persistence beneath
+that typed interface, not a client compatibility surface.
 
 ### ids and filenames
 
@@ -625,16 +577,10 @@ fine. The system handles both.
 ## The CLI: `north`
 
 One binary. Run it via the north wrapper: **`~/code/north/main/bin/north`**.
-The wrapper aims the Fram engine (`~/code/fram/main`) at north's private data
-(`FRAM_THREADS` and the configured coordination/telemetry origins under
-`~/.local/state/north/`) and sets capture provenance defaults.
-`~/code/north/main/bin/north-mcp` materializes the same instance selectors once from
-its captured parent environment before launching children: explicit selectors
-win; otherwise it supplies canonical `FRAM_LOG`, `FRAM_THREADS`, and
-`NORTH_PORT` defaults. It selects the split coordination/telemetry logs only
-when no log is pinned and the seeded coordination log already exists. Stage-A
-independent writers additionally require `NORTH_TELEMETRY_PARTITION=1` and
-`NORTH_TELEMETRY_PORT`; disabling that one flag is the documented rollback.
+The installed wrapper inherits the sealed current-Fram FRAMRPC endpoint and
+sets capture provenance defaults. `~/code/north/main/bin/north-mcp` forwards
+that exact inherited endpoint to managed children and refuses to invent a
+default when the wrapper contract is absent.
 
 `los` is **gone entirely** — `los thread`/`los validate` retired (use `north`).
 One CLI.
@@ -727,11 +673,6 @@ north config dispatch     # native | managed | auto dispatch-surface selection
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
 north config learning     # frozen consistency vs bounded ordinary-operation exploration
 north templates           # Orchestration's reusable stock templates and routing defaults
-north routing report performance       # complete current managed-run evidence
-north routing report performance --all # include legacy/incomplete historical rows
-north routing report usage             # observed-token lower bounds + exact coverage
-north routing report waste             # trailing 1M-token machinery-waste gate
-north routing report learning          # authoring observations + exact evaluation cohorts/exclusions
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
@@ -748,26 +689,9 @@ artifacts, never North's metadata source.
 says **template** while the versioned machine contract retains `presets`,
 `composition.kind="preset"`, and `nearestPreset`. Templates are reusable
 starting points, not limits: select an exact template, justify an axis override,
-or author a complete bespoke composition. Routing performance defaults to
-complete current v4 managed-run evidence: an explicit terminal reason and
-proof-valid process/delivery outcomes plus the applied role, capabilities, and
-every routing axis. The applied role must match the composition ID, preset IDs
-must still exist in the current stock catalog, and bespoke compositions need
-matching fingerprint evidence. `--all` exposes legacy and unattributed history.
-Empirical Orchestration promotion qualification is paused until North has an
-independently enforceable verifier boundary. Current `reported` runs and
-historical same-UID `verified` projections cannot manufacture qualified
-recurrence; the promotions report labels this
-`verification-boundary-unavailable`. Thread review counters use `thread*`
-names and never imply independent verification.
-Usage totals are exact
-only when every included run has exact token evidence; otherwise the displayed
-sum is a lower bound with its exact-run coverage.
-The waste gate uses the newest whole terminal runs through the run that crosses
-1,000,000 tokens and requires at least 20 runs. Missing-token runs are gating
-waste at the window's mean exact-run token weight (minimum one token), remain a
-separate unknown-coverage line, and prevent a non-failing verdict below 90%
-exact-run coverage.
+or author a complete bespoke composition. Empirical promotion remains paused
+until North has an independently enforceable verifier boundary. Recorded run
+metadata is evidence for later analysis, not a live causal verdict.
 
 The dispatch surface has exactly three values. `native` pins the
 provider-native surface, `north` pins the North-managed surface, and `auto` lets
@@ -781,8 +705,8 @@ provider selection or execution. Discovery observations never become
 comparison evidence; evaluation observations enter cohorts only with exact task
 identity, prompt and environment receipts, a tied run envelope, and observed
 accepted-contract evidence. Unknown evidence remains unknown. See
-[`docs/learning-regime.md`](learning-regime.md) for the policy, receipt, and
-offline-report contracts.
+[`docs/learning-regime.md`](learning-regime.md) for the policy and receipt
+contracts.
 
 `north account add|login|status|list|usage` manages provider-owned subscription login
 inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is

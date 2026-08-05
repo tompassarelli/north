@@ -84,19 +84,10 @@ offline comparison cohort only when all of the following are exact:
 - the run envelope ties those receipts to the assignment and admitted route;
 - at least one done bar exists and every done bar has observed evidence.
 
-Unknown evidence is never converted to zero. The report retains excluded rows
-and names every exclusion reason:
-
-```sh
-north routing report learning
-north routing report learning --json
-```
-
-Eligible observations are grouped by exact task-signature digest, changed
-axis, and arm. Control and exploratory observations under the same experiment
-and task signature are labeled comparison-ready; North reports wall time,
-tokens, turns, process/delivery outcomes, struggle signals, and bar evidence.
-It does not infer causal model quality or invent a winner.
+Unknown evidence is never converted to zero. Any future evaluation projection
+must retain excluded rows and name every exclusion reason. Eligible observations
+are grouped by exact task-signature digest, changed axis, and arm; no live
+operator command currently turns those observations into a causal verdict.
 
 ## Content-addressed construction evidence
 

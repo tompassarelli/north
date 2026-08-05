@@ -1,5 +1,5 @@
 // Binary FRAMRPC v1 codec. Every byte here MUST match fram:src/
-// coord_daemon_wire.bclj (TermCodecV1 + FRAMRPC v1) — one daemon decoder parses
+// framrpc.bclj (TermCodecV1 + FRAMRPC v1) — one server decoder parses
 // this module and north:cli/framrpc-client.clj alike; test/fixtures golden
 // frames come from that Clojure encoder.
 // Framing only: no IO, no retry, no publication orchestration.
@@ -46,7 +46,7 @@ function fail(code: string, message: string): never {
   throw new FramRpcCodecError(code, message);
 }
 
-// --- limits (fram:src/coord_daemon_wire.bclj FRAMRPC v1) --------------------
+// --- limits (fram:src/framrpc.bclj FRAMRPC v1) -------------------------------
 export const RPC_V1_MAJOR = 1;
 export const RPC_V1_MINOR = 0;
 export const RPC_V1_HEADER_BYTES = 26;

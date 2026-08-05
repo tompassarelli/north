@@ -9,16 +9,9 @@
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
 
-    # Fram owns and verifies its complete runtime closure. North consumes that
-    # package directly and uses its published runtime/classpath contract; it
-    # must not maintain a second partial Fram packager.
-    fram = {
-      url = "github:tompassarelli/fram";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils }:
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -283,19 +276,6 @@ PY
         runtimePath = lib.makeBinPath runtimePackages
           + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin
             ":/usr/bin:/bin:/usr/sbin:/sbin";
-        framPkg = fram.packages.${system}.default;
-        framPackageRev =
-          let revision = fram.rev or (throw "North requires a revision-pinned Fram input");
-          in if builtins.stringLength revision == 40
-                && builtins.match "[0-9a-f]+" revision != null
-             then revision
-             else throw "North requires Fram's exact 40-character Git revision";
-        framRuntimeRoot =
-          framPkg.runtimeRoot or
-            (throw "Fram package must publish passthru.runtimeRoot");
-        framBabashkaClasspath =
-          framPkg.babashkaClasspath or
-            (throw "Fram package must publish passthru.babashkaClasspath");
         sdkPlatform =
           if pkgs.stdenv.hostPlatform.isLinux then
             if pkgs.stdenv.hostPlatform.isx86_64 then
@@ -446,84 +426,14 @@ PY
             ./bin/north-on-spawn
             ./bin/north-on-stop
             ./bin/north-on-tooluse
-            ./bin/north-coord-sd-listen
             ./bin/north-succession
-            ./bin/north-coord-up
             ./bin/firn-rebuild-coordinated
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
-            ./bin/north-pinned
-            ./bin/north-effort
-            ./bin/north-graph
             ./bin/concern
             ./bin/ensure-private-docs
           ];
         };
-        schemaStageRuntime = pkgs.runCommand "north-schema-stage-io-runtime" {
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-        } ''
-          mkdir -p $out/bin $out/libexec
-          cp ${runtimeSource}/cli/schema-stage-io.py \
-            $out/libexec/schema-stage-io.py
-          makeWrapper ${pkgs.python3}/bin/python3 \
-            $out/bin/north-schema-stage-io \
-            --add-flags $out/libexec/schema-stage-io.py
-        '';
-        schemaStageRuntimeClosure = pkgs.closureInfo {
-          rootPaths = [ schemaStageRuntime ];
-        };
-        schemaStageRuntimeSmoke = pkgs.runCommand
-          "north-schema-stage-runtime-smoke"
-          { }
-          ''
-            test -f ${schemaStageRuntime}/libexec/schema-stage-io.py
-            ${pkgs.gnugrep}/bin/grep -Fq \
-              '${pkgs.python3}/bin/python3' \
-              ${schemaStageRuntime}/bin/north-schema-stage-io
-            ${pkgs.gnugrep}/bin/grep -Fxq \
-              '${pkgs.python3}' \
-              ${schemaStageRuntimeClosure}/store-paths
-
-            schema_smoke_parent="$(${pkgs.coreutils}/bin/mktemp -d)"
-            schema_smoke_owned="$schema_smoke_parent/owned"
-            printf 'schema stage runtime closure probe\n' > "$schema_smoke_owned"
-            schema_smoke_identity="$(${pkgs.python3}/bin/python3 - \
-              "$schema_smoke_owned" <<'PY'
-import json
-import os
-import stat
-import sys
-
-row = os.lstat(sys.argv[1])
-print(json.dumps({
-    "dev": row.st_dev,
-    "ino": row.st_ino,
-    "uid": row.st_uid,
-    "mode": stat.S_IMODE(row.st_mode),
-    "kind": stat.S_IFMT(row.st_mode),
-}, sort_keys=True))
-PY
-            )"
-            ${pkgs.coreutils}/bin/env -i PATH= \
-              ${schemaStageRuntime}/bin/north-schema-stage-io \
-              inspect-retained-file "$schema_smoke_parent" owned \
-              "$schema_smoke_identity" > schema-stage-runtime.out
-            ${pkgs.gnugrep}/bin/grep -Fq '"ok": true' \
-              schema-stage-runtime.out
-            ${pkgs.gnugrep}/bin/grep -Fq '"retained": "owned"' \
-              schema-stage-runtime.out
-            test -e "$schema_smoke_owned"
-            ${pkgs.coreutils}/bin/env -i PATH= \
-              ${schemaStageRuntime}/bin/north-schema-stage-io \
-              read-object "$schema_smoke_parent" owned - \
-              > schema-stage-runtime-read.out
-            ${pkgs.gnugrep}/bin/grep -Fq '"ok": true' \
-              schema-stage-runtime-read.out
-            ${pkgs.gnugrep}/bin/grep -Fq \
-              'schema stage runtime closure probe' \
-              schema-stage-runtime-read.out
-            touch $out
-          '';
         # Runtime-only Orchestration contract. Generated adapters, authoring scripts,
         # skills, and private docs stay out of North's closure.
         orchestrationContract = pkgs.stdenvNoCC.mkDerivation {
@@ -582,10 +492,8 @@ PY
 
         # The checkout launcher and immutable package have one runtime contract.
         # Keep the contract data-only here so neither can drift from the other.
+        framRpcEnvironment = "/home/tom/.local/state/north/framrpc.env";
         northRuntimeVariables = {
-          FRAM_HOME = framRuntimeRoot;
-          FRAM_BIN = "${framPkg}/bin";
-          FRAM_OUT = framBabashkaClasspath;
           NORTH_ORCHESTRATION_HOME = orchestrationContract;
           NORTH_BB = "${pkgs.babashka}/bin/bb";
           NORTH_BUN = "${pkgs.bun}/bin/bun";
@@ -594,11 +502,9 @@ PY
           NORTH_PEER_BB = "${pkgs.babashka}/bin/bb";
           NORTH_MCP_BB = "${pkgs.babashka}/bin/bb";
           NORTH_MCP_BUN = "${pkgs.bun}/bin/bun";
-          NORTH_SCHEMA_STAGE_PYTHON = "${pkgs.python3}/bin/python3";
           NORTH_MANAGED_CODEX_BIN = "${codexPkg}/bin/codex";
           NORTH_PACKAGE_MODE = "nix-store";
           NORTH_PACKAGE_REV = builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty");
-          FRAM_PACKAGE_REV = framPackageRev;
         };
         northWrapperArgs = variables:
           [ "--prefix" "PATH" ":" runtimePath ]
@@ -620,6 +526,8 @@ set -euo pipefail
 
 ${northRuntimeExports}
 
+source ${framRpcEnvironment}
+
 export NORTH_HOME="''${NORTH_HOME:-$PWD}"
 export NORTH_BIN="''${NORTH_BIN:-$NORTH_HOME/bin/north}"
 exec "$NORTH_BIN" "$@"
@@ -632,11 +540,9 @@ EOF
           };
         };
 
-        # north CLI + MCP. Same relocatable layout. FRAM_HOME is baked to the
-        # packaged engine so the CLI is self-contained. Package-owned code and
-        # provenance selectors are exact wrapper values; only public data/store
-        # selectors remain caller-configurable. NORTH_BIN points the MCP server
-        # at the wrapped CLI in this same out.
+        # north CLI + MCP. Same relocatable layout. Installed entrypoints source
+        # the host-published FRAMRPC identity; North does not package or select a
+        # second engine. NORTH_BIN points MCP at the wrapped CLI in this out.
         northPkg = pkgs.stdenvNoCC.mkDerivation {
           pname = "north";
           version = "0.1.0";
@@ -666,23 +572,20 @@ EOF
             cp contracts/agent-run-ledger-v1.json $out/contracts/
             cp profiles/tom/hooks/lib/harness-dial.sh \
               $out/profiles/tom/hooks/lib/
-            # bb-verb CLIs (agents/watch/trace/health/dials/dashboard/config/...)
+            # bb-verb CLIs (agents/watch/trace/health/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
             # on the packaged binary with "File does not exist: .../cli/*.clj".
             cp -r cli $out/cli
             test ! -e "$out/cli/tests"
-            test -f "$out/cli/schema-stage-io.py"
             # Package the complete TypeScript runtime tree. Hand-maintained
             # transitive import lists inevitably rot as provider adapters grow.
             cp -r sdk/src $out/sdk/src
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
             cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
-              bin/north-on-tooluse bin/north-coord-sd-listen \
-              bin/north-coord-up bin/firn-rebuild-coordinated \
-              bin/north-stream-sync bin/north-stream-sync-all bin/north-pinned bin/north-effort \
+              bin/north-on-tooluse bin/firn-rebuild-coordinated \
+              bin/north-stream-sync bin/north-stream-sync-all \
               bin/north-succession \
-              bin/north-graph \
               bin/concern bin/ensure-private-docs \
               $out/bin/
             patchShebangs $out/bin
@@ -699,14 +602,13 @@ EOF
 
             wrapProgram $out/bin/north \
               ${lib.escapeShellArgs (northWrapperArgs northRuntimeVariables)} \
+              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
               --set NORTH_HOME "$out" \
               --set NORTH_BIN "$out/bin/north"
 
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
-              --set FRAM_HOME ${framRuntimeRoot} \
-              --set FRAM_BIN ${framPkg}/bin \
-              --set FRAM_OUT ${framBabashkaClasspath} \
+              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
               --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
@@ -717,7 +619,6 @@ EOF
               --set NORTH_PEER_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BB ${pkgs.babashka}/bin/bb \
               --set NORTH_MCP_BUN ${pkgs.bun}/bin/bun \
-              --set NORTH_SCHEMA_STAGE_PYTHON ${pkgs.python3}/bin/python3 \
               --set NORTH_MANAGED_CODEX_BIN ${codexPkg}/bin/codex
 
             wrapProgram $out/bin/north-comms \
@@ -739,21 +640,13 @@ EOF
             wrapProgram $out/bin/north-stream-sync-all \
               --prefix PATH : ${runtimePath}
 
-            wrapProgram $out/bin/north-coord-up \
-              --prefix PATH : ${runtimePath} \
-              --set FRAM_HOME ${framRuntimeRoot} \
-              --set FRAM_BIN ${framPkg}/bin \
-              --set NORTH_HOME $out
-
-            wrapProgram $out/bin/north-coord-sd-listen \
-              --prefix PATH : ${runtimePath}
-
             wrapProgram $out/bin/firn-rebuild-coordinated \
               --prefix PATH : ${runtimePath} \
               --set NORTH_BIN $out/bin/north
 
             wrapProgram $out/bin/concern \
               --prefix PATH : ${runtimePath} \
+              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
               --set NORTH_HOME $out \
               --set NORTH_BB ${pkgs.babashka}/bin/bb
 
@@ -772,22 +665,14 @@ EOF
             # NORTH_GIT_BIN / NORTH_BB. The exemption is line-exact: any other
             # path in that same file, any other system-profile target, and every
             # match in every other file stays fatal.
-            # (2) cli/canary-cli.clj's delegate-from-checkout default. The
-            # canary's deliverable IS the live production checkout path — an
-            # installed adapter in /nix/store cannot seed a worktree, so the
-            # canary delegates from a real checkout, derived at RUNTIME from
-            # user.home (never baked as an absolute path) and overridable via
-            # NORTH_CANARY_TARGET_REPO. Line-exact on that one expression.
-            # (3) cli/deployed-cli.clj's two generation-observation pointers.
-            # This diagnostic compares committed/built/running code, so it must
-            # inspect the switched system rather than its own immutable package.
-            # Both exemptions are expression-exact and remain read-only.
-            # (4) bin/{north,concern}'s fixed bb fallback. Packaged launchers
+            # (2) bin/{north,concern}'s fixed bb fallback. Packaged launchers
             # receive NORTH_BB from their wrappers; promoted checkout launchers
             # retain this root-managed entry hint for units with a minimal PATH.
             # Only the three exact fallback expressions in each wrapped launcher
             # are exempt.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)cli/canary-cli\.clj:[0-9]+:[[:space:]]*\(str \(System/getProperty "user\.home"\) "/code/north"\)\)\)\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/north-coord-runtime"\)$|(^|/)cli/deployed-cli\.clj:[0-9]+:[[:space:]]*sys \(sh "readlink" "-f" "/run/current-system/sw/bin/north"\)\]$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$'
+            # (3) The installed North entrypoints source the one host-published
+            # FRAMRPC identity file. It is data authority, not executable code.
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern):[0-9]+:source /home/tom/[.]local/state/north/framrpc[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
@@ -812,15 +697,7 @@ EOF
                 if (actual !== process.env.EXPECTED_NORTH_BIN)
                   throw new Error("packaged worktree North CLI mismatch: " + actual);
               '
-            coord_pid=
             cleanup_smoke() {
-              if [ -n "$coord_pid" ]; then
-                kill "$coord_pid" 2>/dev/null || true
-                for _ in $(seq 1 40); do
-                  kill -0 "$coord_pid" 2>/dev/null || break
-                  sleep 0.1
-                done
-              fi
               rm -rf "$smoke"
             }
             trap cleanup_smoke EXIT
@@ -843,106 +720,24 @@ EOF
             test -e ${codexVersionSmoke}
             expected_codex_export="export NORTH_MANAGED_CODEX_BIN='${codexPkg}/bin/codex'"
             expected_mkfifo_export="export NORTH_MKFIFO_BIN='${pkgs.coreutils}/bin/mkfifo'"
-            expected_schema_python_export="export NORTH_SCHEMA_STAGE_PYTHON='${pkgs.python3}/bin/python3'"
-            expected_fram_rev_export="export FRAM_PACKAGE_REV='${framPackageRev}'"
-            test "$(grep -Fxc "$expected_fram_rev_export" "$out/bin/north")" -eq 1
-            test "$(grep -Fc 'FRAM_PACKAGE_REV=' "$out/bin/north")" -eq 1
             for wrapper in "$out/bin/north" "$out/bin/north-mcp"; do
               test "$(grep -Fxc "$expected_codex_export" "$wrapper")" -eq 1
               test "$(grep -Fc 'NORTH_MANAGED_CODEX_BIN=' "$wrapper")" -eq 1
               test "$(grep -Fxc "$expected_mkfifo_export" "$wrapper")" -eq 1
               test "$(grep -Fc 'NORTH_MKFIFO_BIN=' "$wrapper")" -eq 1
-              test "$(grep -Fxc "$expected_schema_python_export" "$wrapper")" -eq 1
-              test "$(grep -Fc 'NORTH_SCHEMA_STAGE_PYTHON=' "$wrapper")" -eq 1
+              test "$(grep -Fxc 'source ${framRpcEnvironment}' "$wrapper")" -eq 1
             done
+            test "$(grep -Fxc 'source ${framRpcEnvironment}' "$out/bin/concern")" -eq 1
             mkdir -p "$smoke/home/.local/state/north/threads"
-            : > "$smoke/home/.local/state/north/facts.log"
             client_repo="$smoke/home/code/client/smoke/widget"
             mkdir -p "$client_repo"
             ${pkgs.git}/bin/git -C "$client_repo" init -q
             # Every public executable must work with no ambient PATH or checkout.
             ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= \
-              $out/bin/north help > "$smoke/help.out"
+              HOME="$smoke/home" PATH= NORTH_HOME="$out" \
+              $out/bin/.north-wrapped help > "$smoke/help.out"
             grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
             test -x "$out/bin/firn-rebuild-coordinated"
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= NORTH_DASHBOARD_LIB=1 \
-              $out/bin/north dashboard
-            if ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= \
-              $out/bin/concern > "$smoke/concern-usage.out" 2>&1; then
-              echo "north package smoke: bare concern unexpectedly succeeded" >&2
-              exit 1
-            fi
-            grep -q 'usage: concern-cli.clj' "$smoke/concern-usage.out"
-            if ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= \
-              $out/bin/north-coord-up --invalid \
-              > "$smoke/north-coord-up-usage.out" 2>&1; then
-              echo "north package smoke: invalid north-coord-up unexpectedly succeeded" >&2
-              exit 1
-            fi
-            grep -q 'usage: north up' "$smoke/north-coord-up-usage.out"
-            ${pkgs.coreutils}/bin/env -i PATH= \
-              $out/bin/north-coord-sd-listen ${pkgs.coreutils}/bin/true
-
-            # The legacy store-revision fallback is based on the actual
-            # canonical closure, never a store-shaped string. Symlinked public
-            # seams may converge on one immutable output; mixed executables or
-            # mutable code/classpath seams must fail provenance before probing.
-            fallback_port="$(${pkgs.babashka}/bin/bb -e \
-              '(with-open [socket (java.net.ServerSocket. 0)] (println (.getLocalPort socket)))')"
-            mkdir -p "$smoke/fram-bin-links"
-            ln -s ${framRuntimeRoot} "$smoke/fram-home-link"
-            ln -s ${framPkg}/bin/fram "$smoke/fram-bin-links/fram"
-            ln -s ${framPkg}/bin/fram-daemon "$smoke/fram-bin-links/fram-daemon"
-            fallback_rc=0
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH="${runtimePath}" \
-              NORTH_BB=${pkgs.babashka}/bin/bb NORTH_FRAM_RUNTIME=package \
-              FRAM_HOME="$smoke/fram-home-link" FRAM_BIN="$smoke/fram-bin-links" \
-              FRAM_PACKAGE_REV= FRAM_RUNTIME_REV= FRAM_PORT="$fallback_port" \
-              FRAM_LOG="$smoke/home/.local/state/north/facts.log" \
-              $out/bin/.north-coord-up-wrapped --check-runtime \
-              > "$smoke/store-fallback.out" 2>&1 || fallback_rc=$?
-            test "$fallback_rc" -eq 1
-            grep -Fq 'no listener identity available' "$smoke/store-fallback.out"
-            if grep -Fq 'package runtime provenance is unknown' "$smoke/store-fallback.out"; then
-              echo "north package smoke: coherent canonical store fallback was rejected" >&2
-              exit 1
-            fi
-
-            rm "''${smoke:?}/fram-bin-links/fram-daemon"
-            ln -s ${pkgs.coreutils}/bin/true "$smoke/fram-bin-links/fram-daemon"
-            mixed_rc=0
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH="${runtimePath}" \
-              NORTH_BB=${pkgs.babashka}/bin/bb NORTH_FRAM_RUNTIME=package \
-              FRAM_HOME="$smoke/fram-home-link" FRAM_BIN="$smoke/fram-bin-links" \
-              FRAM_PACKAGE_REV= FRAM_RUNTIME_REV= FRAM_PORT="$fallback_port" \
-              FRAM_LOG="$smoke/home/.local/state/north/facts.log" \
-              $out/bin/.north-coord-up-wrapped --check-runtime \
-              > "$smoke/mixed-store-fallback.out" 2>&1 || mixed_rc=$?
-            test "$mixed_rc" -eq 2
-            grep -Fq 'package runtime provenance is unknown' \
-              "$smoke/mixed-store-fallback.out"
-
-            rm "''${smoke:?}/fram-bin-links/fram-daemon"
-            ln -s ${framPkg}/bin/fram-daemon "$smoke/fram-bin-links/fram-daemon"
-            mixed_code_rc=0
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH="${runtimePath}" \
-              NORTH_BB=${pkgs.babashka}/bin/bb NORTH_FRAM_RUNTIME=package \
-              FRAM_HOME="$smoke/fram-home-link" FRAM_BIN="$smoke/fram-bin-links" \
-              FRAM_OUT="$smoke/home" FRAM_PACKAGE_REV= FRAM_RUNTIME_REV= \
-              FRAM_PORT="$fallback_port" \
-              FRAM_LOG="$smoke/home/.local/state/north/facts.log" \
-              $out/bin/.north-coord-up-wrapped --check-runtime \
-              > "$smoke/mixed-code-fallback.out" 2>&1 || mixed_code_rc=$?
-            test "$mixed_code_rc" -eq 2
-            grep -Fq 'package runtime provenance is unknown' \
-              "$smoke/mixed-code-fallback.out"
 
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
@@ -958,7 +753,7 @@ EOF
               > "$stream_src/12345678-1234-1234-1234-123456789abc.jsonl"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" XDG_STATE_HOME="$smoke/xdg" PATH= \
-              $out/bin/north stream-sync --days 30 --min-bytes 1 \
+              $out/bin/north-stream-sync --days 30 --min-bytes 1 \
                 --src-dir "$smoke/source with spaces"
             stream_raw="$smoke/xdg/north/streams/raw"
             stream_dest="$(${pkgs.findutils}/bin/find "$stream_raw" -maxdepth 1 \
@@ -970,7 +765,7 @@ EOF
             cursor_hash="$(${pkgs.coreutils}/bin/sha256sum "$stream_raw/.cursors")"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" XDG_STATE_HOME="$smoke/xdg" PATH= \
-              $out/bin/north stream-sync --days 30 --min-bytes 1 \
+              $out/bin/north-stream-sync --days 30 --min-bytes 1 \
                 --src-dir "$smoke/source with spaces"
             test "$cursor_hash" = \
               "$(${pkgs.coreutils}/bin/sha256sum "$stream_raw/.cursors")"
@@ -994,366 +789,6 @@ EOF
               "$stream_all_src/rollout-2026-07-29T00-00-00-package.jsonl" \
               "$stream_all_dest"
             test ! -e "$out/streams/raw"
-            # Load North's compiled namespace graph against Fram's published bb
-            # classpath. This is the seam the old partial packager left untested.
-            HOME="$smoke/home" PATH="$smoke" NORTH_GIT_BIN="$smoke/forged-git" FRAM_PORT=39123 \
-              $out/bin/north validate > "$smoke/validate.out"
-            grep -q 'no violations' "$smoke/validate.out"
-            # Exercise the composed lifecycle seam, not merely namespace
-            # loading: North's public revive command must start Fram's packaged
-            # daemon through its public wrapper and verify the exact temp log.
-            coord_port="$(${pkgs.babashka}/bin/bb -e \
-              '(with-open [socket (java.net.ServerSocket. 0)] (println (.getLocalPort socket)))')"
-            coord_log="$smoke/state with spaces/facts.log"
-            HOME="$smoke/home" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
-              NORTH_COORD_PID_FILE="$smoke/coord.pid" \
-              $out/bin/north up > "$smoke/up.out"
-            coord_pid=$(cat "$smoke/coord.pid")
-            kill -0 "$coord_pid"
-            HOME="$smoke/home" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
-              $out/bin/north coord-doctor > "$smoke/coord-doctor.out"
-            grep -q 'serving the canonical log' "$smoke/coord-doctor.out"
-
-            # Provider hooks are public North runtime surfaces too. Exercise
-            # their Python shebang/import path and sibling actor-key lookup with
-            # an empty ambient PATH, then cross the real hook mail fast path.
-            hook_runtime="$smoke/hook-runtime"
-            hook_session=package-hook-session
-            hook_actor=package-hook-agent
-            mkdir -p "$hook_runtime"
-            test -x "$(${pkgs.coreutils}/bin/env -i PATH="${runtimePath}" \
-              ${pkgs.bash}/bin/bash -c 'command -v pgrep')"
-            hook_key="$(${pkgs.coreutils}/bin/env -i PATH= \
-              $out/bin/north-actor-key session "$hook_session")"
-            printf '%s\n' "$hook_key" | \
-              ${pkgs.gnugrep}/bin/grep -Eq '^[0-9a-f]{64}$'
-            hook_input="$(printf \
-              '{"cwd":"%s","session_id":"%s","hook_event_name":"SessionStart","model":"package-smoke","effort":{"level":"low"}}' \
-              "$smoke/home" "$hook_session")"
-            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
-              NORTH_AGENT_ID="$hook_actor" NORTH_PORT="$coord_port" \
-              FRAM_LOG="$coord_log" AGENT_PROVIDER=openai \
-              $out/bin/north-on-spawn > "$smoke/hook-spawn.out"
-            ${pkgs.python3}/bin/python3 - \
-              "$smoke/hook-spawn.out" "$out" "$hook_actor" <<'PY'
-import json
-import pathlib
-import sys
-
-value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-specific = value["hookSpecificOutput"]
-assert specific["hookEventName"] == "SessionStart"
-context = specific["additionalContext"]
-assert sys.argv[3] in context
-assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in context
-assert f"{sys.argv[2]}/bin/north rebuild request --why" in context
-# Anti-ratchet: the injection must never hand an agent the wrapper back.
-assert f"{sys.argv[2]}/bin/firn-rebuild-coordinated --why" not in context
-PY
-            test "$(cat "$hook_runtime/north-agent-ids/$hook_key")" = \
-              "$hook_actor"
-
-            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
-              NORTH_AGENT_ID="$hook_actor" \
-              $out/bin/north-mark-delegated
-            test "$(head -n1 "$hook_runtime/north-delegated/$hook_key")" = \
-              "$hook_actor"
-            printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
-              NORTH_AGENT_ID="$hook_actor" \
-              $out/bin/north-on-stop > "$smoke/hook-stop.out"
-            ${pkgs.python3}/bin/python3 - \
-              "$smoke/hook-stop.out" "$out" "$hook_actor" <<'PY'
-import json
-import pathlib
-import sys
-
-value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert value["decision"] == "block"
-assert f"{sys.argv[2]}/bin/north listen {sys.argv[3]}" in value["reason"]
-PY
-
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH="${runtimePath}" \
-              FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb $out/cli/msg-cli.clj "$coord_port" \
-                send package-hook-sender "$hook_actor" \
-                package-hook-mail 'ambient-PATH-free delivery' \
-                > "$smoke/hook-send.out"
-            grep -q 'sent @msg:' "$smoke/hook-send.out"
-            if ! printf '%s' "$hook_input" | ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= XDG_RUNTIME_DIR="$hook_runtime" \
-              NORTH_AGENT_ID="$hook_actor" NORTH_PORT="$coord_port" \
-              FRAM_LOG="$coord_log" AGENT_PROVIDER=openai \
-              $out/bin/north-on-tooluse > "$smoke/hook-tooluse.out" \
-              2> "$smoke/hook-tooluse.err"; then
-              echo "north package smoke: north-on-tooluse failed; stderr follows" >&2
-              cat "$smoke/hook-tooluse.err" >&2
-              sed -n '1,40p' "$smoke/hook-tooluse.out" >&2
-              exit 1
-            fi
-            ${pkgs.python3}/bin/python3 - \
-              "$smoke/hook-tooluse.out" <<'PY'
-import json
-import pathlib
-import sys
-
-value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-specific = value["hookSpecificOutput"]
-assert specific["hookEventName"] == "PostToolUse"
-assert "package-hook-mail" in specific["additionalContext"]
-assert "ambient-PATH-free delivery" in specific["additionalContext"]
-PY
-            doctor_rc=0
-            ${pkgs.coreutils}/bin/env -i \
-              HOME="$smoke/home" PATH= NO_COLOR=1 \
-              NORTH_PACKAGE_MODE=forged NORTH_PACKAGE_REV=forged FRAM_PACKAGE_REV=forged \
-              NORTH_PORT="$coord_port" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
-              $out/bin/north doctor > "$smoke/doctor.out" || doctor_rc=$?
-            # The hermetic smoke deliberately has no scheduled workers. Doctor
-            # must render every section and report that critical absence via exit 1.
-            doctor_block_fail() {
-              echo "north package smoke: doctor block failed at: $1 (doctor_rc=$doctor_rc)" >&2
-              sed -n '1,120p' "$smoke/doctor.out" >&2
-              exit 1
-            }
-            test "$doctor_rc" -eq 1 || doctor_block_fail rc
-            grep -Fq '[ERR]  spend-guard heartbeat MISSING' "$smoke/doctor.out" || doctor_block_fail maintenance
-            grep -Fq 'guard hooks' "$smoke/doctor.out" || doctor_block_fail guard-hooks
-            grep -Fq 'north  package rev ${builtins.substring 0 12 (self.rev or self.dirtyRev or "dirty")}' "$smoke/doctor.out" || doctor_block_fail north-rev
-            grep -Fq 'fram  package rev ${builtins.substring 0 12 (fram.rev or fram.dirtyRev or "local")}' "$smoke/doctor.out" || doctor_block_fail fram-rev
-            if grep -q forged "$smoke/doctor.out"; then
-              echo "north package smoke: ambient provenance overrode the package pins" >&2
-              exit 1
-            fi
-            # Cross the packaged TypeScript graph-store seam with FRAM_BIN in
-            # its public form: a bin directory, never an executable path.
-            HOME="$smoke/home" PATH="${runtimePath}" \
-              NORTH_BIN="$out/bin/north" NORTH_PORT="$coord_port" \
-              FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" FRAM_BIN="${framPkg}/bin" \
-              ${pkgs.bun}/bin/bun -e \
-              'import {
-                 CoordinatorSyncLeaseManager, LINEAR_GRAPH_VALUE_MAX_BYTES, NorthGraphStore,
-               } from "'$out'/sdk/src/integrations/linear/north-state.ts";
-               import { canonicalJson } from "'$out'/sdk/src/integrations/linear/normalize.ts";
-               import { createLinearSyncBaseline } from "'$out'/sdk/src/integrations/linear/reconcile.ts";
-               const store = new NorthGraphStore();
-               const before = await store.show("package-linear-graph-store");
-               if (before.length !== 0)
-                 throw new Error("north package smoke: isolated graph store was not empty");
-               await store.put("package-linear-graph-store", "kind", "package_smoke");
-               const written = await store.show("package-linear-graph-store");
-               if (!written.some((fact) => fact.predicate === "kind" && fact.value === "package_smoke"))
-                 throw new Error("north package smoke: packaged graph store put was not visible");
-               const bootstrapSubject = "link:linear:mcp-bootstrap-v1:linear-package:" + "a".repeat(64);
-               await store.put(bootstrapSubject, "kind", "integration_link");
-               await store.put(
-                 bootstrapSubject,
-                 "sync_manifest",
-                 canonicalJson({
-                   version: 1,
-                   phase: "prepared",
-                   baseline: createLinearSyncBaseline(
-                     {
-                       identityKind: "mcp-bootstrap-v1",
-                       connector: "linear-package",
-                       fingerprint: "a".repeat(64),
-                     },
-                     "package-bootstrap-thread",
-                     {
-                       title: "Package bootstrap smoke",
-                       body: "",
-                       doneWhen: [],
-                       barEvidence: [],
-                       repos: [],
-                       lifecycle: "ready",
-                     },
-                   ),
-                   evidence: {
-                     connector: "linear-package",
-                     createdAt: "2026-07-19T00:00:00.000Z",
-                     initialKey: "PACKAGE-1",
-                     workspace: "package",
-                   },
-                 }),
-               );
-               const found = await store.findBootstrapLinkSubjects(
-                 "linear-package",
-                 "2026-07-19T00:00:00.000Z",
-               );
-               if (found.length !== 1 || found[0] !== bootstrapSubject)
-                 throw new Error("north package smoke: packaged bootstrap evidence lookup disagreed");
-               const leases = new CoordinatorSyncLeaseManager();
-               const lease = await leases.acquire("linear-sync:package-private-frame");
-               try {
-                 const unit = String.fromCharCode(34, 92, 10);
-                 const value = unit.repeat(Math.floor(LINEAR_GRAPH_VALUE_MAX_BYTES / unit.length))
-                   + "x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES % unit.length);
-                 if (Buffer.byteLength(value, "utf8") !== LINEAR_GRAPH_VALUE_MAX_BYTES)
-                   throw new Error("north package smoke: private-frame boundary fixture is the wrong size");
-                 await store.putFenced(lease, "package-linear-private-frame", "note", value);
-                 const privateFacts = await store.show("package-linear-private-frame");
-                 if (!privateFacts.some((fact) => fact.predicate === "note" && fact.value === value))
-                   throw new Error("north package smoke: maximum private frame did not round-trip");
-                 let rejected = false;
-                 try {
-                   await store.putFenced(
-                     lease,
-                     "package-linear-private-frame",
-                     "note",
-                     "x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES + 1),
-                   );
-                 } catch (error) {
-                   rejected = String(error).includes("exceeds " + LINEAR_GRAPH_VALUE_MAX_BYTES + " bytes");
-                 }
-                 if (!rejected)
-                   throw new Error("north package smoke: oversized private frame was not rejected");
-               } finally {
-                 await lease.release();
-               }'
-            # The Linear identity↔thread invariant depends on the packaged
-            # global-version CAS helper, not merely the TypeScript entrypoint.
-            # Reserve one partial link, then prove a second identity cannot
-            # claim the same thread even though the first link has no kind fact.
-            linear_thread="package-linear-thread"
-            linear_link_a="link:linear:uuid:22222222-2222-8222-8222-222222222222:11111111-1111-8111-8111-111111111111"
-            linear_resource_a="linear-sync:identity:linear%3Auuid%3A22222222-2222-8222-8222-222222222222%3A11111111-1111-8111-8111-111111111111"
-            linear_holder_a="package-linear-a"
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb "$out/cli/lease-cli.clj" "$coord_port" --json \
-              acquire "$linear_resource_a" "$linear_holder_a" 300000 \
-              > "$smoke/linear-lease-a.json"
-            if ! linear_epoch_a="$(${pkgs.jq}/bin/jq -er '.epoch' \
-              "$smoke/linear-lease-a.json" 2> "$smoke/linear-lease-a.err")"; then
-              echo "north package smoke: first Linear reservation lease was invalid" >&2
-              sed -n '1,80p' "$smoke/linear-lease-a.json" >&2
-              sed -n '1,80p' "$smoke/linear-lease-a.err" >&2
-              exit 1
-            fi
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb \
-              "$out/sdk/src/integrations/linear/reserve-link.clj" \
-              "$coord_port" "$linear_resource_a" "$linear_holder_a" "$linear_epoch_a" \
-              "$linear_link_a" "$linear_thread" "linear-package" "linear-uuid" \
-              > "$smoke/linear-reserve-a.json"
-            if ! ${pkgs.jq}/bin/jq -e '.ok | numbers' \
-              "$smoke/linear-reserve-a.json" > /dev/null; then
-              echo "north package smoke: first Linear binding reservation failed" >&2
-              sed -n '1,80p' "$smoke/linear-reserve-a.json" >&2
-              exit 1
-            fi
-
-            linear_link_b="link:linear:uuid:22222222-2222-8222-8222-222222222222:33333333-3333-8333-8333-333333333333"
-            linear_resource_b="linear-sync:identity:linear%3Auuid%3A22222222-2222-8222-8222-222222222222%3A33333333-3333-8333-8333-333333333333"
-            linear_holder_b="package-linear-b"
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb "$out/cli/lease-cli.clj" "$coord_port" --json \
-              acquire "$linear_resource_b" "$linear_holder_b" 300000 \
-              > "$smoke/linear-lease-b.json"
-            if ! linear_epoch_b="$(${pkgs.jq}/bin/jq -er '.epoch' \
-              "$smoke/linear-lease-b.json" 2> "$smoke/linear-lease-b.err")"; then
-              echo "north package smoke: second Linear reservation lease was invalid" >&2
-              sed -n '1,80p' "$smoke/linear-lease-b.json" >&2
-              sed -n '1,80p' "$smoke/linear-lease-b.err" >&2
-              exit 1
-            fi
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb \
-              "$out/sdk/src/integrations/linear/reserve-link.clj" \
-              "$coord_port" "$linear_resource_b" "$linear_holder_b" "$linear_epoch_b" \
-              "$linear_link_b" "$linear_thread" "linear-package" "linear-uuid" \
-              > "$smoke/linear-reserve-b.json"
-            if ! ${pkgs.jq}/bin/jq -e \
-              '.reject | strings | contains("already reserved by")' \
-              "$smoke/linear-reserve-b.json" > /dev/null; then
-              echo "north package smoke: competing Linear binding was not rejected exactly" >&2
-              sed -n '1,80p' "$smoke/linear-reserve-b.json" >&2
-              exit 1
-            fi
-            # The adapter-owned schema installer is also a packaged CAS helper.
-            # Prove it installs once, rejects an incompatible value, and leaves
-            # the original value authoritative.
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb \
-              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
-              "$coord_port" exact linear_package_schema value_kind literal \
-              > "$smoke/linear-schema-first.json"
-            ${pkgs.jq}/bin/jq -e '.ok | numbers' \
-              "$smoke/linear-schema-first.json" > /dev/null
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb \
-              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
-              "$coord_port" exact linear_package_schema value_kind ref \
-              > "$smoke/linear-schema-conflict.json"
-            ${pkgs.jq}/bin/jq -e \
-              '.reject | strings | contains("conflicts")' \
-              "$smoke/linear-schema-conflict.json" > /dev/null
-            HOME="$smoke/home" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb \
-              "$out/sdk/src/integrations/linear/reserve-schema-fact.clj" \
-              "$coord_port" exact linear_package_schema value_kind literal \
-              > "$smoke/linear-schema-authority.json"
-            ${pkgs.jq}/bin/jq -e '.ok | numbers' \
-              "$smoke/linear-schema-authority.json" > /dev/null
-            # North-managed daemons require the log-fence protocol. Exercise
-            # the shared CLI seam against strict mode, then prove a mismatched
-            # corpus and a raw bypass are both rejected without changing either
-            # file.
-            HOME="$smoke/home" FRAM_PORT="$coord_port" FRAM_LOG="$coord_log" \
-              ${pkgs.babashka}/bin/bb $out/cli/coord.clj "$coord_port" \
-              > "$smoke/strict-shared.out"
-            grep -Eq ':version [0-9]+' "$smoke/strict-shared.out"
-            wrong_log="$smoke/state with spaces/wrong.log"
-            : > "$wrong_log"
-            cp "$coord_log" "$smoke/coord.before"
-            cp "$wrong_log" "$smoke/wrong.before"
-            HOME="$smoke/home" NORTH_ROOT="$out" FRAM_PORT="$coord_port" \
-              FRAM_LOG="$wrong_log" ${pkgs.babashka}/bin/bb -e \
-              '(load-file (str (System/getenv "NORTH_ROOT") "/cli/coord.clj"))
-               (prn (north.coord/append!
-                     (Integer/parseInt (System/getenv "FRAM_PORT"))
-                     "@package-fence" "note" "must-not-land"))' \
-              > "$smoke/wrong-log.out"
-            grep -q ':code :log-mismatch' "$smoke/wrong-log.out"
-            NORTH_TEST_PORT="$coord_port" ${pkgs.babashka}/bin/bb -e \
-              '(require (quote [clojure.edn :as edn])
-                        (quote [clojure.java.io :as io]))
-               (with-open [s (java.net.Socket.
-                              "127.0.0.1"
-                              (Integer/parseInt
-                               (System/getenv "NORTH_TEST_PORT")))]
-                 (let [w (.getOutputStream s)
-                       r (io/reader (.getInputStream s))]
-                   (.write w (.getBytes
-                              (str (pr-str {:op :assert
-                                            :te "@raw-package-fence"
-                                            :p "note"
-                                            :r "must-not-land"})
-                                   "\n")))
-                   (.flush w)
-                   (prn (edn/read-string (.readLine r)))))' \
-              > "$smoke/raw-fence.out"
-            grep -q ':code :log-fence-required' "$smoke/raw-fence.out"
-            ${pkgs.diffutils}/bin/cmp "$smoke/coord.before" "$coord_log"
-            ${pkgs.diffutils}/bin/cmp "$smoke/wrong.before" "$wrong_log"
-            ${lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              ${pkgs.iproute2}/bin/ss -tlnH "sport = :$coord_port" | grep -q .
-            ''}
-            ${lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-              test "$(${pkgs.lsof}/bin/lsof -nP -iTCP:"$coord_port" -sTCP:LISTEN -t)" = "$coord_pid"
-            ''}
-            kill "$coord_pid"
-            for _ in $(seq 1 40); do
-              kill -0 "$coord_pid" 2>/dev/null || break
-              sleep 0.1
-            done
-            kill -0 "$coord_pid" 2>/dev/null && {
-              echo "north package smoke: coordinator ignored SIGTERM" >&2
-              exit 1
-            }
-            coord_pid=
             # Import the public SDK and prove npm selected an executable native
             # Claude binary for this exact Nix system. This resolves no account
             # and makes no model turn.
@@ -1376,14 +811,15 @@ PY
               "$now" "$reset" > "$smoke/openai-pin-evidence.json"
             HOME="$smoke/home" NORTH_CLAUDE_BIN="$smoke/bin/claude" NORTH_CODEX_BIN="$smoke/bin/codex" \
               NORTH_STAFFING_SOURCE=file \
-              NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" $out/bin/north providers --json > "$smoke/providers.json"
+              NORTH_HOME="$out" NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" \
+              $out/bin/.north-wrapped providers --json > "$smoke/providers.json"
             ${pkgs.jq}/bin/jq -e \
               '([.providers[].targets[] | select(.id == "anthropic")][0] | .installed and .authenticated) and
                ([.providers[].targets[] | select(.id == "openai")][0] |
                  .installed and .authenticated and .headroom == "plenty")' \
               "$smoke/providers.json" > /dev/null
             HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file \
-              $out/bin/north spawn implementer probe \
+              NORTH_HOME="$out" $out/bin/.north-wrapped spawn implementer probe \
               --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
               --ad-hoc --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
@@ -1401,8 +837,8 @@ PY
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["oracle-strength:judgment-only","reasoning-shape:multi-hypothesis"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment.json"
             NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
-              NORTH_STAFFING_SOURCE=file \
-              $out/bin/north spawn verifier probe \
+              NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
+              $out/bin/.north-wrapped spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --ad-hoc --dry-run \
               > "$smoke/assessed-spawn.out"
             grep -q 'grade=senior tier=senior reasoning=high role=verifier' "$smoke/assessed-spawn.out"
@@ -1413,8 +849,8 @@ PY
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["forged"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment-forged.json"
             if NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
-                 NORTH_STAFFING_SOURCE=file \
-                 $out/bin/north spawn verifier probe \
+                 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
+                 $out/bin/.north-wrapped spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --ad-hoc --dry-run \
                  > "$smoke/assessed-forged.out" 2>&1; then
               echo "north package smoke: forged assessment was admitted" >&2
@@ -1452,8 +888,8 @@ PY
             grep -q '^## worker$' ${orchestrationContract}/docs/topologies.md
             grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
-              ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= \
-              $out/bin/north-mcp > "$smoke/north-mcp-tools.json"
+              ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= NORTH_HOME="$out" \
+              $out/bin/.north-mcp-wrapped > "$smoke/north-mcp-tools.json"
             ${pkgs.jq}/bin/jq -e \
               '([.result.tools[] | select(.name | startswith("linear_")) | .name] | sort) == ["linear_get", "linear_import", "linear_plan", "linear_sync"]' \
               "$smoke/north-mcp-tools.json" > /dev/null
@@ -1465,7 +901,7 @@ PY
               HOME="$smoke/home" \
               CLAUDE_CONFIG_DIR="$smoke/home/.local/state/north/accounts/anthropic/claude-smoke" \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/ingested.json" \
-              $out/bin/north provider-observe claude-statusline
+              NORTH_HOME="$out" $out/bin/.north-wrapped provider-observe claude-statusline
             test -s "$smoke/ingested.json"
             runHook postInstall
           '';
@@ -1488,14 +924,11 @@ PY
           # This is the exact derivation injected into managed OpenAI lanes;
           # Firn can install and attest the same executable without repackaging.
           codex = codexPkg;
-          fram-engine = framPkg;
         };
 
         checks = {
           codex-app-server-contract = codexAppServerContractSmoke;
           codex-version = codexVersionSmoke;
-        } // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          schema-stage-runtime = schemaStageRuntimeSmoke;
         } // lib.optionalAttrs (system == "x86_64-linux") {
           codex-managed-hook-failure = codexManagedHookFailureSmoke;
         };

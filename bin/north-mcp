@@ -2,14 +2,13 @@
 ;; North MCP server — the AI-facing edge of one instance.
 ;;
 ;; Speaks MCP (JSON-RPC 2.0, newline-delimited, over stdio) and maps each tool
-;; call to the existing `north` engine, so it reuses every tested op + the
-;; coordinator write path. Reads are off the warm log; writes serialize through
-;; the coordinator exactly as the CLI does. A consumer chat AI connects, gets the
+;; call to the existing `north` engine, so it reuses every tested op and the
+;; canonical FRAMRPC path. A consumer chat AI connects, gets the
 ;; tools + the cheatsheet (server `instructions`), and never touches a CLI.
 ;;
 ;; Config (per instance, via env — the same vars the engine reads):
 ;;   NORTH_BIN   path to the engine wrapper to invoke (default: sibling `north`)
-;;   FRAM_LOG / FRAM_THREADS / provenance vars  passed through to it
+;;   canonical FRAMRPC endpoint + FRAM_THREADS / provenance vars passed through
 ;;
 ;; Transport here is stdio (local, zero-setup). HTTP/SSE + auth is the next layer.
 (require '[cheshire.core :as json]
@@ -382,38 +381,37 @@
 ;;      the immediate parent, not a leaked top-of-tree pin;
 ;;   3. NORTH_AGENT_ID — a pinned session id (last, so an inherited pin never beats #2).
 ;; Captured from `env` BEFORE cmd-env reassigns AGENT_ID to the new lane.
-(defn canonical-default-path [home & segments]
-  (.getCanonicalPath (apply io/file home segments)))
+(def required-framrpc-instance-keys
+  ["FRAM_HOME" "FRAM_BIN" "FRAM_OUT" "NORTH_FRAMRPC_OUT"
+   "FRAM_SPACE_ID" "FRAM_SERVER_PORT" "NORTH_PORT"
+   "NORTH_TELEMETRY_SPACE_ID" "NORTH_TELEMETRY_PORT"
+   "NORTH_TELEMETRY_PARTITION"])
 
 (defn materialize-instance-env
-  "Compile the MCP server's captured process environment into the exact North
-  instance selectors a managed child receives. Explicit instance pins win;
-  otherwise this mirrors bin/north's facts.log default and seeded split switch."
-  ([source]
-   (materialize-instance-env source #(.isFile (io/file %))))
-  ([source regular-file?]
-   (let [home (or (not-empty (get source "HOME"))
-                  (System/getProperty "user.home"))
-         explicit-log (not-empty (get source "FRAM_LOG"))
-         explicit-telemetry (not-empty (get source "FRAM_TELEMETRY_LOG"))
-         default-log (canonical-default-path home ".local" "state" "north" "facts.log")
-         initial-log (or explicit-log default-log)
-         log-parent (or (.getParent (io/file initial-log)) ".")
-         split-log (.getCanonicalPath (io/file log-parent "coordination.log"))
-         split? (and (nil? explicit-log)
-                     (regular-file? split-log))
-         selected-log (if split? split-log initial-log)
-         threads (or (not-empty (get source "FRAM_THREADS"))
-                     (canonical-default-path home ".local" "state" "north" "threads"))
-         port (or (not-empty (get source "NORTH_PORT")) "7977")]
-     (cond-> (assoc source
-                    "HOME" home
-                    "FRAM_LOG" selected-log
-                    "FRAM_THREADS" threads
-                    "NORTH_PORT" port)
-       (and split? (nil? explicit-telemetry))
-       (assoc "FRAM_TELEMETRY_LOG"
-              (.getCanonicalPath (io/file log-parent "telemetry.log")))))))
+  "Pass the one sealed FRAMRPC instance inherited from the installed wrapper.
+  Missing selector keys fail closed; MCP never invents or parses a second
+  runtime selection and never forwards physical log paths to managed clients."
+  [source]
+  (let [missing (->> required-framrpc-instance-keys
+                     (filter #(str/blank? (get source %)))
+                     vec)]
+    (when (seq missing)
+      (throw (ex-info
+              (str "canonical FRAMRPC environment is incomplete; missing "
+                   (str/join ", " missing))
+              {:north/error :missing-framrpc-environment
+               :missing missing})))
+    (let [home (or (not-empty (get source "HOME"))
+                   (System/getProperty "user.home"))
+          classpath (str root "/out:" (get source "NORTH_FRAMRPC_OUT"))]
+      (assoc source
+             "HOME" home
+             "BABASHKA_CLASSPATH" classpath
+             "NORTH_RUNTIME_CLASSPATH" classpath
+             "FRAM_THREADS"
+             (or (not-empty (get source "FRAM_THREADS"))
+                 (.getCanonicalPath
+                  (io/file home ".local" "state" "north" "threads")))))))
 
 (defn resolve-coordinator [env args]
   (or (not-empty (get args "coordinator"))

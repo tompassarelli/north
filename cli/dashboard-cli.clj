@@ -376,7 +376,6 @@
          package-mode (when (= name "north") (getenv "NORTH_PACKAGE_MODE"))
          package-rev (case name
                        "north" (getenv "NORTH_PACKAGE_REV")
-                       "fram" (getenv "FRAM_PACKAGE_REV")
                        "beagle" (getenv "BEAGLE_PACKAGE_REV")
                        nil)
          identity (cond
@@ -590,7 +589,7 @@
           (cond
             thrashing?
             (str (red "[ERR] ") " coordinator JVM is thrashing: " detail
-                 " — perform the paired cutover (`sudo north-coord-runtime restart`)")
+                 " — operator intervention required")
 
             high-old-gen?
             (str (ylw "[warn]") " coordinator JVM old-gen occupancy is high: " detail

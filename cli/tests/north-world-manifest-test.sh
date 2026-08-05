@@ -64,14 +64,13 @@ actual="$(
     FRAM_HOME="$explicit" \
     FRAM_BIN="$explicit/bin" \
     FRAM_OUT="$explicit/out" \
-    FRAM_PACKAGE_REV=stale-package \
     FRAM_TEST_ENV_LOG="$fixture/resolved.env" \
     "$home/code/north/main/bin/north" world-manifest-probe
 )"
 unlink "$home/code/north/main"
 actual_env="$(<"$fixture/resolved.env")"
 if [ "$actual" != current-main ] || [ "$actual_env" != "$expected_env" ]; then
-  printf 'FAIL live North main accepted an injected Fram package pin\n  expected: %s\n  actual:   %s\n' \
+  printf 'FAIL live North main accepted injected Fram paths\n  expected: %s\n  actual:   %s\n' \
     "$expected_env" "$actual_env" >&2
   exit 1
 fi

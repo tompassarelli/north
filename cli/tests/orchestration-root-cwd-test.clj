@@ -61,15 +61,6 @@
               " (got " out ")")
          (= expected-orchestration out)))
 
-;; --- routing-report.clj ---
-(let [{:keys [exit out err]} (probe (str (io/file cli-dir "routing-report.clj"))
-                                    "orchestration-catalog-root")]
-  (check (str "routing-report.clj: exits 0 from unrelated cwd (stderr: " err ")")
-         (zero? exit))
-  (check (str "routing-report.clj: resolves inside the checkout, not " unrelated-cwd
-              " (got " out ")")
-         (= expected-orchestration out)))
-
 (fs/delete-tree unrelated-cwd)
 
 (let [rs @results passed (count (filter true? rs))]

@@ -1075,13 +1075,8 @@ export function recordRun(
 }
 
 export function newRunId(agent: string): string {
-  // `@run:` (colon), NOT `@run-`: the coordinator log-split routes a subject to
-  // telemetry.log by its stored `kind` OR, kind-less, the token before its first
-  // colon (fram coord_daemon subject-token). A run's body facts are written
-  // BEFORE the terminal `kind run` commit marker, so during that window the
-  // subject is kind-less; a dash id has no colon -> token nil -> the body facts
-  // misroute to coordination.log (regression 2026-07-17). The colon puts `run`
-  // in the token so every run-scoped write lands in telemetry.log immediately,
-  // matching the @session:/@mine:/@guard_denial: telemetry-subject convention.
+  // Keep run ids in the same colon-delimited subject family as session, mine,
+  // and guard-denial ids. Body facts precede the terminal `kind run` marker, so
+  // the id itself must remain an unambiguous run-scoped identity.
   return `run:${agent}-${randomUUID()}`;
 }
