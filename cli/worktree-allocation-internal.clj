@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 ;; Internal, content-free physical worktree allocation writer. Registration is
-;; logically atomic: immutable allocation facts are written on a fresh nonce
-;; subject and `kind=worktree_allocation` is committed last against the exact
-;; coordinator version. Readers only treat kind-marked subjects as allocations.
+;; logically atomic: every immutable allocation fact and its manifest marker is
+;; committed in one transaction against the exact coordinator version. Readers
+;; only treat kind-marked subjects as allocations.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.set :as set]
@@ -268,8 +268,17 @@
    "worktree_allocation_lease" (canonical-json (get registration "lease"))))
 
 (defn facts-of [port subject]
-  (into {} (map (fn [predicate] [predicate (set (north.coord/many port subject predicate))]))
-        all-predicates))
+  (reduce (fn [snapshot [predicate value]]
+            (if (contains? all-predicates predicate)
+              (update snapshot predicate conj value)
+              snapshot))
+          (zipmap all-predicates (repeat #{}))
+          (north.coord/show-rows port subject)))
+
+(defn desired-singletons? [snapshot desired]
+  (every? (fn [[predicate value]]
+            (= #{value} (get snapshot predicate)))
+          desired))
 
 (defn committed-registration? [snapshot desired marker]
   (and (= #{"worktree_allocation"} (get snapshot "kind"))
@@ -279,12 +288,6 @@
                    (= #{value} (get snapshot predicate))
                    (contains? (get snapshot predicate) value)))
                desired)))
-
-(defn clear-desired! [port subject desired marker]
-  (doseq [[predicate value] (concat desired [[marker-predicate marker]
-                                              ["kind" "worktree_allocation"]])]
-    (checked! (north.coord/retract! port subject predicate value)
-              [:rollback subject predicate value])))
 
 (defn clear-reservation! [port subject desired]
   ;; A losing concurrent claimant must never retract the winner's shared path/
@@ -297,88 +300,84 @@
 
 (defn acquire-reservation! [port registration]
   (let [subject (reservation-subject registration)
-        desired (reservation-facts registration)
-        nonce (get desired "worktree_allocation_nonce")
-        before (facts-of port subject)]
-    (cond
-      (= desired (into (sorted-map)
-                       (map (fn [[predicate values]] [predicate (first values)]))
-                       (filter (fn [[predicate values]]
-                                 (and (contains? (set (keys desired)) predicate)
-                                      (= 1 (count values)))) before)))
-      subject
+        desired (reservation-facts registration)]
+    (try
+      (let [outcome
+            (north.coord/assert-batch-after-read!
+             port subject
+             (fn []
+               (let [snapshot (facts-of port subject)]
+                 (cond
+                   (desired-singletons? snapshot desired)
+                   {:done :exact-replay}
 
-      (some seq (vals before))
-      (fail! "physical worktree identity is already reserved"
-             {:reservation subject
-              :owner (first (get before "worktree_allocation_nonce"))})
+                   (some seq (vals snapshot))
+                   (fail! "physical worktree identity is already reserved"
+                          {:reservation subject
+                           :owner (first (get snapshot "worktree_allocation_nonce"))})
 
-      :else
-      (try
-        (checked!
-         (north.coord/assert-after-read!
-          port subject "worktree_allocation_nonce" nonce
-          (fn []
-            (when (some seq (vals (facts-of port subject)))
-              (fail! "physical worktree identity became reserved" {:reservation subject}))))
-         [:reserve subject])
-        (doseq [[predicate value] (dissoc desired "worktree_allocation_nonce")]
-          (checked! (north.coord/append! port subject predicate value)
-                    [:reserve subject predicate]))
-        (when-not (every? (fn [[predicate value]]
-                            (= #{value} (get (facts-of port subject) predicate)))
-                          desired)
-          (fail! "physical worktree reservation readback differs" {:reservation subject}))
-        subject
-        (catch Exception error
-          (clear-reservation! port subject desired)
+                   :else
+                   {:facts (mapv (fn [[predicate value]]
+                                   {:p predicate :r value})
+                                 desired)}))))]
+        (checked! outcome [:reserve subject])
+        (when-not (or (= :exact-replay (:done outcome))
+                      (desired-singletons? (facts-of port subject) desired))
+          (fail! "physical worktree reservation readback differs"
+                 {:reservation subject}))
+        subject)
+      (catch Exception error
+        ;; A lost response can follow a successful atomic commit. Recover that
+        ;; exact outcome; any other state remains fail-closed for its owner.
+        (if (desired-singletons? (facts-of port subject) desired)
+          subject
           (throw error))))))
 
 (defn register! [port registration]
   (let [subject (get registration "subject")
         desired (registration-facts registration)
         marker (sha256 (apply str (map (fn [[p v]] (str p "\u0000" v "\n")) desired)))
-        before (facts-of port subject)
         reservation (acquire-reservation! port registration)]
-    (cond
-      (committed-registration? before desired marker)
-      {:ok true :subject subject :manifest marker :result "exact-replay"}
+    (try
+      (let [outcome
+            (north.coord/assert-batch-after-read!
+             port subject
+             (fn []
+               (let [snapshot (facts-of port subject)]
+                 (cond
+                   (committed-registration? snapshot desired marker)
+                   {:done :exact-replay}
 
-      (some seq (vals before))
-      (fail! "allocation subject already carries a different or partial generation"
-             {:subject subject})
+                   (some seq (vals snapshot))
+                   (fail! "allocation subject already carries a different or partial generation"
+                          {:subject subject})
 
-      :else
-      (try
-        (doseq [[predicate value] desired]
-          (checked! (north.coord/append! port subject predicate value)
-                    [:register subject predicate]))
-        (checked! (north.coord/append! port subject marker-predicate marker)
-                  [:register subject marker-predicate])
-        (checked!
-         (north.coord/assert-after-read!
-          port subject "kind" "worktree_allocation"
-          (fn []
-            (let [snapshot (facts-of port subject)]
-              (when-not (and (= #{marker} (get snapshot marker-predicate))
-                             (every? (fn [[predicate value]]
-                                       (contains? (get snapshot predicate) value))
-                                     desired))
-                (fail! "allocation registration readback differs before commit" {})))))
-         [:commit subject])
-        (when-not (committed-registration? (facts-of port subject) desired marker)
-          (fail! "allocation registration commit marker was not acknowledged" {}))
-        {:ok true :subject subject :manifest marker :result "committed"}
-        (catch Exception error
-          (try
-            (clear-desired! port subject desired marker)
-            (when (some seq (vals (facts-of port subject)))
-              (fail! "allocation registration rollback left a visible prefix" {}))
-            (clear-reservation! port reservation (reservation-facts registration))
-            (catch Exception rollback
-              (throw (ex-info "allocation registration failed and rollback is indeterminate"
-                              {:subject subject} rollback))))
-          (throw error))))))
+                   :else
+                   {:facts (conj (mapv (fn [[predicate value]]
+                                         {:p predicate :r value})
+                                       desired)
+                                 {:p marker-predicate :r marker}
+                                 {:p "kind" :r "worktree_allocation"})}))))]
+        (checked! outcome [:register subject])
+        (if (= :exact-replay (:done outcome))
+          {:ok true :subject subject :manifest marker :result "exact-replay"}
+          (do
+            (when-not (committed-registration? (facts-of port subject) desired marker)
+              (fail! "allocation registration atomic commit was not acknowledged" {}))
+            {:ok true :subject subject :manifest marker :result "committed"})))
+      (catch Exception error
+        (let [snapshot (facts-of port subject)]
+          (cond
+            (committed-registration? snapshot desired marker)
+            {:ok true :subject subject :manifest marker :result "committed"}
+
+            (every? empty? (vals snapshot))
+            (do
+              (clear-reservation! port reservation (reservation-facts registration))
+              (throw error))
+
+            :else
+            (throw error)))))))
 
 (defn committed-subject! [port subject]
   (when-not (and (string? subject)
