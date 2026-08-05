@@ -133,24 +133,17 @@
    :summary "unavailable until verifier lanes have OS isolation"}
 
   ;; --------------------------------------------------------------- comms
-  {:verb "inbox" :form "north inbox [--all] [--mark-read]" :topic :comms
+  {:verb "inbox" :form "north inbox [--as <recipient>]" :topic :comms
    :aliases ["notifications"]
-   :summary "durable notifications waiting on you; acknowledge them"
-   :details ["--as <principal> — inspect another principal's inbox"]
+   :summary "durable messages waiting on you"
+   :details ["--as <recipient> — inspect another recipient's inbox"]
    :card {:section :now :rank 3 :form "north inbox"
-          :text "notifications waiting on you"}}
+          :text "messages waiting on you"}}
   {:verb "mention" :form "north mention <recipient> \"<body>\"" :topic :comms
    :summary "durable sender-driven request; offline recipient allowed"
    :details ["--about <thread> — attach the request to a thread"]}
   {:verb "interrupt" :form "north interrupt <recipient> \"<body>\"" :topic :comms
    :summary "urgent sender-driven request; live recipient required"}
-  {:verb "follow" :form "north follow <thread> [--as <principal>]" :topic :comms
-   :summary "subscribe to observer-driven thread attention"}
-  {:verb "unfollow" :form "north unfollow <thread>" :topic :comms
-   :summary "drop a thread subscription"}
-  {:verb "following" :form "north following" :topic :comms
-   :summary "what you're subscribed to"}
-
   ;; ------------------------------------------------------------- routing
   {:verb "config" :form "north config" :topic :routing
    :summary "every posture setting + routing policy, one report"

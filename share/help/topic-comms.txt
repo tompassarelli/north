@@ -1,12 +1,9 @@
 north help comms — attention between people and agents
 
-  north inbox [--all] [--mark-read]         durable notifications waiting on you; acknowledge them  (alias: notifications)
-                                            --as <principal> — inspect another principal's inbox
-  north mention <recipient> "<body>"        durable sender-driven request; offline recipient allowed
-                                            --about <thread> — attach the request to a thread
-  north interrupt <recipient> "<body>"      urgent sender-driven request; live recipient required
-  north follow <thread> [--as <principal>]  subscribe to observer-driven thread attention
-  north unfollow <thread>                   drop a thread subscription
-  north following                           what you're subscribed to
+  north inbox [--as <recipient>]        durable messages waiting on you  (alias: notifications)
+                                        --as <recipient> — inspect another recipient's inbox
+  north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
+                                        --about <thread> — attach the request to a thread
+  north interrupt <recipient> "<body>"  urgent sender-driven request; live recipient required
 
   north help --all — the complete reference · bare `north` — the daily card
