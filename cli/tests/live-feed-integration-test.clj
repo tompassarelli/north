@@ -78,7 +78,10 @@
 
 (defn retract-fact! [port subject predicate value]
   (loop [attempt 0]
-    (let [result (north.coord/retract! port subject predicate value)]
+    (let [result
+          (north.coord/publish!
+           port [{:op :retract :subject subject
+                  :predicate predicate :value value}])]
       (cond
         (nil? (:reject result)) result
         (and (= :conflict (:reject result)) (< attempt 1000))
