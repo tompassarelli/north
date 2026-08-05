@@ -17,8 +17,8 @@
 (def fram
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH")
-                (str root "/../fram/main")))))
-(when-not (.isFile (io/file fram "coord_daemon.clj"))
+                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+(when-not (.isFile (io/file fram "bin/fram-server"))
   (throw
    (ex-info
     "Fram checkout not found; set FRAM_PATH or clone it beside North"
@@ -35,8 +35,8 @@
 
 (defn scratch-coordinator-env [port dir log]
   {"FRAM_LOG" (.getPath log)
-   "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.log"))
-   "FRAM_THREADS" (.getPath (io/file dir "threads"))
+   "FRAM_SPACE_ID" "north-coordination"
+   "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.framlog"))
    "NORTH_PORT" (str port)
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
@@ -63,23 +63,27 @@
            (java.nio.file.Files/createTempDirectory
             "north-evidence-contention"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file dir "facts.log")
-      _ (spit log "")
+      log (io/file dir "coordination.framlog")
       subprocess-env (scratch-coordinator-env port dir log)
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env (assoc subprocess-env "FRAM_REQUIRE_LOG_FENCE" "1")}
-       "bb" "-cp" "out" "coord_daemon.clj" "serve-flat"
-       (str port) (.getPath log))
+        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                    "FRAM_SERVER_QUIET" "1"
+                    "FRAM_SERVER_XMX" "1g"}}
+       (str fram "/bin/fram-server") "serve" (str port)
+       (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value]
                (swap! checks conj [label (boolean value)]))]
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check! "real Fram daemon starts"
-            (eventually #(port-open? port)))
+    (check! "current Fram server starts"
+            (eventually
+             #(let [status (north.coord/status port)]
+                (and (= :ready (:state status))
+                     (= "north-coordination" (:space-id status))))))
     (when (= "1" (System/getenv
                    "NORTH_TEST_FORCE_DELIVERY_EVIDENCE_SETUP_FAILURE"))
       (throw
@@ -262,17 +266,23 @@
              "capabilitySha256" capability-sha256})
       (let [caught
             (with-redefs
-             [north.coord/send-op
-              (let [original north.coord/send-op]
-                (fn [target-port operation]
-                  (when (and (= :assert-with-fence (:op operation))
-                             (= run (:te operation))
-                             (compare-and-set! mutated false true))
-                    (north.coord/append!
-                     target-port thread "done_when" "replacement bar")
-                    (north.coord/retract!
-                     target-port thread "done_when" "original bar"))
-                  (original target-port operation)))]
+             [north.coord/transact!
+              (let [original north.coord/transact!]
+                (fn
+                  ([target-port actions]
+                   (original target-port actions))
+                  ([target-port actions options]
+                   (when (and (:fence options)
+                              (some #(and (= run (:subject %))
+                                          (= "run_bar_evidence"
+                                             (:predicate %)))
+                                    actions)
+                              (compare-and-set! mutated false true))
+                     (north.coord/append!
+                      target-port thread "done_when" "replacement bar")
+                     (north.coord/retract!
+                      target-port thread "done_when" "original bar"))
+                   (original target-port actions options))))]
               (try
                 (north.delivery-evidence-internal/record!
                  port {"run" run "thread" thread "reporter" reporter
@@ -310,15 +320,14 @@
       ;; retry budget is GUARANTEED to exhaust rather than depending on a
       ;; background writer happening to land in a narrow window.
       (with-redefs
-       [north.coord/send-op
-        (let [original north.coord/send-op]
-          (fn [target-port operation]
-            (if (and (= :acquire-lease (:op operation))
-                     (= (north.delivery-evidence-internal/evidence-lease-resource
-                         run "only-bar")
-                        (:res operation)))
+       [north.coord/acquire-lease!
+        (let [original north.coord/acquire-lease!]
+          (fn [target-port resource holder ttl-ms]
+            (if (= (north.delivery-evidence-internal/evidence-lease-resource
+                    run "only-bar")
+                   resource)
               {:reject :held}
-              (original target-port operation))))
+              (original target-port resource holder ttl-ms))))
         north.delivery-evidence-internal/evidence-lease-wait-budget-ms 50]
         (let [caught
               (try
@@ -343,7 +352,7 @@
                              "RETRYABLE:")))))))
 
     (finally
-      @(proc/process ["kill" (str (:pid daemon))])
+      (proc/destroy-tree daemon)
       (doseq [[label ok?] @checks]
         (println (if ok? "  [OK]" "  [FAIL]") label))))
   (System/exit

@@ -2,7 +2,6 @@
 ;; Exact managed-identity publication against a throwaway Fram coordinator.
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
@@ -10,7 +9,10 @@
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram")))))
+   (io/file (or (System/getenv "FRAM_PATH")
+                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+(when-not (.isFile (io/file fram "bin/fram-server"))
+  (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
@@ -35,10 +37,6 @@
   (loop [n 0]
     (cond (predicate) true (>= n 200) false
           :else (do (Thread/sleep 25) (recur (inc n))))))
-(defn scratch-process-env []
-  (-> (into {} (System/getenv))
-      (dissoc "FRAM_TELEMETRY_LOG")
-      (assoc "FRAM_REQUIRE_LOG_FENCE" "1")))
 (defn run-writer
   ([port operation subject value]
    (run-writer port operation subject value {}))
@@ -70,13 +68,7 @@
                   (or (last (str/split-lines (:out result))) "") true))
         (catch Throwable _ nil))})))
 (defn entity-facts [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "identity_test"
-                                 :rules [{:head {:rel "identity_test"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (north.coord/show-rows port subject)]
     (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 (defn scalar-facts [facts]
   (into {} (keep (fn [[predicate values]]
@@ -99,112 +91,18 @@
     (doseq [[predicate value] projection]
       (north.coord/append! port run predicate value))
     (north.coord/append! port run "run_reservation_manifest_sha256" marker)))
-(defn log-ops [file]
-  (with-open [reader (io/reader file)]
-    (mapv edn/read-string (line-seq reader))))
+(defn log-ops [port lower-exclusive]
+  (:events
+   (north.coord/occurrence-window
+    port lower-exclusive (north.coord/cur-ver port))))
 
 (defn identity-write-resource [subject]
   (str "managed-agent-write:"
        (north.terminal-projection/sha256 subject)))
 
 (defn release-lease! [port {:keys [resource holder epoch]}]
-  (north.coord/send-op port {:op :release-lease
-                             :res resource :holder holder :epoch epoch}))
-
-(defn fault-proxy
-  "A test-local EDN proxy. Exactly one matching request is rejected without
-  reaching the coordinator; every later request, including rollback, is
-  forwarded under the writer's still-current fence."
-  ([target-port inject?]
-   (fault-proxy target-port inject? (constantly {:reject :test-injected}) {}))
-  ([target-port inject? injected-response]
-   (fault-proxy target-port inject? injected-response {}))
-  ([target-port inject? injected-response
-    {:keys [drop-fence-after-injection? max-injections]
-     :or {max-injections 1}}]
-   (let [server (java.net.ServerSocket.
-                 0 50 (java.net.InetAddress/getByName "127.0.0.1"))
-         requests (atom [])
-         envelopes (atom [])
-         injected? (atom false)
-         injections (atom 0)
-         closed? (atom false)
-         worker
-         (future
-           (try
-             (while (not @closed?)
-               (with-open [client (.accept server)
-                           reader (io/reader (.getInputStream client))
-                           writer (io/writer (.getOutputStream client))]
-                 (let [envelope (edn/read-string (.readLine reader))
-                       request (:request envelope)
-                       _ (swap! envelopes conj envelope)
-                       _ (swap! requests conj request)
-                       valid-envelope?
-                       (= {:op :for-log
-                           :expected-log @test-log}
-                          (select-keys envelope [:op :expected-log]))
-                       inject-now?
-                       (and valid-envelope?
-                            (inject? request)
-                            (< @injections max-injections)
-                            (do (swap! injections inc)
-                                (reset! injected? true)
-                                true))
-                       drop-response?
-                       (and drop-fence-after-injection?
-                            @injected?
-                            (= :fence-ok (:op request)))
-                       response
-                       (when-not drop-response?
-                         (if-not valid-envelope?
-                           {:reject :invalid-test-log-fence}
-                           (if inject-now?
-                           (injected-response request)
-                           (north.coord/send-op target-port request))))]
-                   (when-not drop-response?
-                     (.write writer (str (pr-str response) "\n"))
-                     (.flush writer)))))
-             (catch java.net.SocketException error
-               (when-not @closed? (throw error)))))]
-     {:port (.getLocalPort server)
-     :requests requests
-      :envelopes envelopes
-      :injected? injected?
-      :injections injections
-      :close!
-      (fn []
-        (reset! closed? true)
-        (.close server)
-        (try (deref worker 2000 nil) (catch Throwable _ nil)))})))
-
-(def fenced-ops
-  #{:assert-with-fence :retract-with-fence
-    :assert-at-version-with-fence})
-
-(defn require-write-ok! [result operation]
-  (when (:reject result)
-    (throw (ex-info "test fenced write rejected"
-                    {:operation operation :result result})))
-  result)
-
-(defn replace-under-fence! [port lease subject identity]
-  (doseq [[predicate values] (entity-facts port subject)
-          value values]
-    (require-write-ok!
-     (north.coord/retract-with-fence!
-      port lease subject predicate value)
-     [:retract predicate value]))
-  (doseq [[predicate value] identity]
-    (require-write-ok!
-     (north.coord/put-with-fence!
-      port lease subject predicate value)
-     [:put predicate value]))
-  (let [marker (north.agent-provenance/manifest-sha256 identity)]
-    (require-write-ok!
-     (north.coord/put-with-fence!
-      port lease subject "identity_manifest_sha256" marker)
-     [:put "identity_manifest_sha256" marker])))
+  (north.coord/release-lease!
+   port {:resource resource :holder holder :epoch epoch}))
 
 (defn seed-identity! [port subject identity]
   (doseq [[predicate value] identity]
@@ -219,35 +117,18 @@
       :put (north.coord/append! port subject predicate value)
       :retract (north.coord/retract! port subject predicate value))))
 
-(defn apply-terminal-lifecycle-prefix!
-  [port subject thread terminal operations prefix-count]
-  (let [agent-id (subs subject (count "@agent:"))
-        driver (str "@" agent-id)]
-    (doseq [[operation predicate value] (take prefix-count operations)]
-      (case operation
-        :put (north.coord/append! port subject predicate value)
-        :release-presence
-        (north.coord/send-op
-         port {:op :release-lease :res (str "session:" agent-id)
-               :holder agent-id})
-        :release-driver
-        (north.coord/retract! port thread "driver" driver)
-        :marker
-        (north.coord/append!
-         port subject "terminal_manifest_sha256"
-         (north.terminal-projection/terminal-manifest-sha256 terminal))))))
-
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-identity-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.log")
-      daemon-env (scratch-process-env)
+      log (io/file tmp "coordination.framlog")
       daemon (do
-               (spit log "")
-               (proc/process {:dir fram :out :string :err :string
-                              :env daemon-env}
-                             "bb" "-cp" "out" "coord_daemon.clj"
-                             "serve-flat" (str port) (.getPath log)))
+               (proc/process
+                {:dir fram :out :string :err :string
+                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                             "FRAM_SERVER_QUIET" "1"
+                             "FRAM_SERVER_XMX" "1g"}}
+                (str fram "/bin/fram-server") "serve" (str port)
+                (.getCanonicalPath log) "north-coordination"))
       subject "@agent:identity-publication-probe"
       preset {"kind" "lane" "role" "integrator" "model" "claude-opus-4-8"
               "provider" "anthropic" "provider_target" "claude-a" "effort" "high"
@@ -277,11 +158,13 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
   (try
-    (check "scratch coordinator removes only ambient telemetry routing"
-           (= daemon-env
-              (assoc (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
-                     "FRAM_REQUIRE_LOG_FENCE" "1")))
-    (check "throwaway coordinator starts" (eventually #(port-open? port)))
+    (check "throwaway current Fram server starts"
+           (eventually
+            #(try
+               (let [status (north.coord/status port)]
+                 (and (= :ready (:state status))
+                      (= "north-coordination" (:space-id status))))
+               (catch Exception _ false))))
     (let [first-result (run-writer port "publish" subject (json/generate-string preset))
           stored (scalar-facts (entity-facts port subject))]
       (check "preset publication returns a synchronous acknowledgement" (zero? (:exit first-result)))
@@ -403,22 +286,23 @@
                     (= before (entity-facts port mismatch-subject))
                     (nil? (get before "identity_manifest_sha256"))))))
 
-    (let [before-op-count (count (log-ops log))
+    (let [before-version (north.coord/cur-ver port)
           second-result (run-writer port "publish" subject (json/generate-string bespoke))
-          generation-ops (->> (log-ops log)
-                              (drop before-op-count)
-                              (filter #(= subject (:l %)))
+          generation-ops (->> (log-ops port before-version)
+                              (filter #(= subject (:subject %)))
                               vec)
           raw-stored (entity-facts port subject)
           stored (scalar-facts raw-stored)]
       (check "sequential reuse publishes the second shape" (zero? (:exit second-result)))
       (check "identity reuse withdraws identity and terminal markers before any body mutation"
-             (= [["retract" "identity_manifest_sha256"]
-                 ["retract" "terminal_manifest_sha256"]]
-                (mapv (juxt :op :p) (take 2 generation-ops))))
+             (= [[:retract "identity_manifest_sha256"]
+                 [:retract "terminal_manifest_sha256"]]
+                (mapv (juxt :operation :predicate)
+                      (take 2 generation-ops))))
       (check "identity reuse withdraws the legacy outcome before process_outcome"
-             (= [["retract" "outcome"] ["retract" "process_outcome"]]
-                (mapv (juxt :op :p) (take 2 (drop 2 generation-ops)))))
+             (= [[:retract "outcome"] [:retract "process_outcome"]]
+                (mapv (juxt :operation :predicate)
+                      (take 2 (drop 2 generation-ops)))))
       (check "sequential reuse removes every stale optional preset field and outcome"
              (and (nil? (get raw-stored "composition_overrides"))
                   (nil? (get raw-stored "composition_override_reason"))
@@ -528,15 +412,11 @@
           before (entity-facts port held-subject)
           resource (identity-write-resource held-subject)
           holder "identity-publication-test-holder"
-          lease (north.coord/send-op
-                 port {:op :acquire-lease :res resource :holder holder
-                       :ttl-ms 60000})
+          lease (north.coord/acquire-lease! port resource holder 60000)
           rejected (run-writer port "publish" held-subject
                                (json/generate-string loser))
           after (entity-facts port held-subject)
-          _ (north.coord/send-op
-             port {:op :release-lease :res resource :holder holder
-                   :epoch (:epoch lease)})]
+          _ (release-lease! port lease)]
       (check "winner identity seeds before the rival publication probe"
              (and (zero? (:exit seeded)) (:ok lease)))
       (check "same-subject rival is rejected before mutation"
@@ -577,9 +457,7 @@
             resource (identity-write-resource held-subject)
             holder (str "held-lifecycle-" operation)
             acquired
-            (north.coord/send-op
-             port {:op :acquire-lease :res resource :holder holder
-                   :ttl-ms 60000})
+            (north.coord/acquire-lease! port resource holder 60000)
             lease {:resource resource :holder holder :epoch (:epoch acquired)}
             pending
             (future
@@ -588,17 +466,14 @@
             _ (Thread/sleep 150)
             waited? (not (realized? pending))
             still-held?
-            (:fence-ok
-             (north.coord/send-op
-              port {:op :fence-ok :res resource :holder holder
-                    :epoch (:epoch acquired)}))
+            (:valid? (north.coord/check-lease! port lease))
             released (release-lease! port lease)
             result (deref pending 8000 {:exit -99 :err "writer did not return"})
             after (entity-facts port held-subject)
             stored (scalar-facts after)]
         (check (str operation " waits while the subject lease is held")
                (and (zero? (:exit seeded)) (:ok acquired)
-                    waited? still-held? (:ok released) (not (:noop released))))
+                    waited? still-held? (:ok released) (:released? released)))
         (check (str operation " succeeds after the prior writer releases")
                (and (zero? (:exit result))
                     (verify after)
@@ -617,9 +492,7 @@
           resource (identity-write-resource held-subject)
           holder "held-past-acquisition-budget"
           acquired
-          (north.coord/send-op
-           port {:op :acquire-lease :res resource :holder holder
-                 :ttl-ms 60000})
+          (north.coord/acquire-lease! port resource holder 60000)
           started (System/nanoTime)
           rejected
           (run-writer
@@ -749,327 +622,6 @@
                   (= (first markers)
                      (north.agent-provenance/manifest-sha256 stored)))))
 
-    (doseq [{:keys [operation payload inject-predicate]}
-            [{:operation "publish"
-              :payload (assoc bespoke
-                              "goal" "replacement must roll back"
-                              "display_handle" "replacement-must-roll-back"
-                              "display_name" "replacement must roll back")
-              :inject-predicate "model"}
-             {:operation "route"
-              :payload {"provider" "openai"
-                        "provider_target" "codex-rollback"
-                        "live_input" "unsupported"
-                        "live_input_state" "frozen"
-                        "live_input_epoch" "00000000-0000-4000-8000-000000000106"
-                        "model" "gpt-5.6-sol"
-                        "effort" "high"
-                        "display_handle" "rollback-route"
-                        "display_name" "rollback route"}
-              :inject-predicate "model"}
-             {:operation "retask"
-              :payload {"goal" "rollback retask"
-                        "display_name" "rollback retask"}
-              :inject-predicate "goal"}
-             {:operation "terminal"
-              :payload {"outcome" "died" "process_outcome" "died"
-                        "delivery_outcome" "blocked"
-                        "delivery_reason" "provider_process_died"}
-              :inject-predicate "delivery_outcome"}]]
-      (let [rollback-subject (str "@agent:identity-rollback-" operation)
-            identity
-            (assoc preset
-                   "goal" (str "prior " operation " generation")
-                   "display_handle" (str "prior-" operation "-generation")
-                   "display_name" (str "prior " operation " generation"))
-            prior-terminal
-            {"outcome" "ran" "process_outcome" "ran"
-             "delivery_outcome" "unverified"
-             "delivery_reason"
-             "provider_terminal_success_without_external_verification"}
-            identity-result
-            (run-writer port "publish" rollback-subject
-                        (json/generate-string identity))
-            terminal-result
-            (run-writer port "terminal" rollback-subject
-                        (json/generate-string prior-terminal))
-            before (entity-facts port rollback-subject)
-            proxy
-            (fault-proxy
-             port
-             #(and (= :assert-with-fence (:op %))
-                   (= rollback-subject (:te %))
-                   (= inject-predicate (:p %))))]
-        (try
-          (let [result
-                (run-writer (:port proxy) operation rollback-subject
-                            (json/generate-string payload))
-                requests @(:requests proxy)
-                after (entity-facts port rollback-subject)
-                stored (scalar-facts after)
-                injected-index
-                (first
-                 (keep-indexed
-                  (fn [index request]
-                    (when (and (= :assert-with-fence (:op request))
-                               (= rollback-subject (:te request))
-                               (= inject-predicate (:p request)))
-                      index))
-                  requests))
-                prior-subject-mutations
-                (when injected-index
-                  (filter
-                   #(and (= rollback-subject (:te %))
-                         (fenced-ops (:op %)))
-                   (take injected-index requests)))
-                fenced-requests
-                (filter
-                 #(and (= rollback-subject (:te %))
-                       (fenced-ops (:op %)))
-                 requests)
-                fence-tuples
-                (set (map (juxt :res :holder :epoch) fenced-requests))
-                releases (filter #(= :release-lease (:op %)) requests)
-                release-request (first releases)
-                fence-epoch (nth (first fence-tuples) 2 nil)]
-            (check (str operation " fault probe reaches a partial fenced mutation")
-                   (and (zero? (:exit identity-result))
-                        (zero? (:exit terminal-result))
-                        @(:injected? proxy)
-                        (some? injected-index)
-                        (seq prior-subject-mutations)
-                        (not (zero? (:exit result)))))
-            (check (str operation " mid-mutation failure restores the exact prior projection")
-                   (and (= before after)
-                        (north.agent-provenance/managed-valid? stored)
-                        (= (get stored "identity_manifest_sha256")
-                           (north.agent-provenance/manifest-sha256 stored))
-                        (= (get stored "terminal_manifest_sha256")
-                           (north.terminal-projection/terminal-manifest-sha256 stored))))
-            (check (str operation " rollback remains under one exact write fence")
-                   (and (= 1 (count fence-tuples))
-                        (= 1 (count (filter #(= :acquire-lease (:op %))
-                                            requests)))
-                        (= 1 (count releases))
-                        (= fence-epoch (:epoch release-request)))))
-          (finally
-            ((:close! proxy))))))
-
-    ;; The atomic fenced publish owns the fresh path, and its rejection falls
-    ;; back to the sequential fenced publish — so proving the ORIGINAL rollback
-    ;; semantics needs two staged faults: one rejecting the atomic op, one
-    ;; failing the fallback's fenced body mid-mutation.
-    (let [fresh-subject "@agent:identity-rollback-fresh-publish"
-          proxy
-          (fault-proxy
-           port
-           #(or (and (= :managed-agent-publish (:op %))
-                     (= fresh-subject (:te %)))
-                (and (= :assert-with-fence (:op %))
-                     (= fresh-subject (:te %))
-                     (= "model" (:p %))))
-           (constantly {:reject :test-injected})
-           {:max-injections 2})]
-      (try
-        (let [result
-              (run-writer (:port proxy) "publish" fresh-subject
-                          (json/generate-string preset))]
-          (check "fresh publish failure reaches a partial fenced body"
-                 (and (= 2 @(:injections proxy))
-                      (not (zero? (:exit result)))))
-          (check "fresh publish failure withdraws its entire managed projection"
-                 (empty? (entity-facts port fresh-subject))))
-        (finally
-          ((:close! proxy)))))
-
-    ;; Atomic-op rejection alone is NOT a publish failure: the sequential
-    ;; fallback must complete the identical projection under its own fence.
-    (let [fallback-subject "@agent:identity-atomic-fallback-fresh-publish"
-          proxy
-          (fault-proxy
-           port
-           #(and (= :managed-agent-publish (:op %))
-                 (= fallback-subject (:te %))))]
-      (try
-        (let [result
-              (run-writer (:port proxy) "publish" fallback-subject
-                          (json/generate-string
-                           (assoc preset
-                                  "goal" "atomic fallback fresh publish"
-                                  "display_handle" "atomic-fallback-fresh-publish"
-                                  "display_name" "atomic fallback fresh publish")))
-              stored (scalar-facts (entity-facts port fallback-subject))]
-          (check "atomic publish rejection falls back to the sequential fenced path"
-                 (and @(:injected? proxy)
-                      (zero? (:exit result))
-                      (north.agent-provenance/managed-valid? stored)
-                      (= (get stored "identity_manifest_sha256")
-                         (north.agent-provenance/manifest-sha256 stored)))))
-        (finally
-          ((:close! proxy)))))
-
-    (let [drop-subject "@agent:identity-rollback-preflight-drop"
-          seeded
-          (run-writer port "publish" drop-subject
-                      (json/generate-string
-                       (assoc preset
-                              "goal" "preflight transport drop"
-                              "display_handle" "preflight-transport-drop"
-                              "display_name" "preflight transport drop")))
-          proxy
-          (fault-proxy
-           port
-           #(and (= :assert-with-fence (:op %))
-                 (= drop-subject (:te %))
-                 (= "model" (:p %)))
-           (constantly {:reject :test-injected})
-           {:drop-fence-after-injection? true})]
-      (try
-        (let [route
-              {"provider" "openai"
-               "provider_target" "codex-preflight-drop"
-               "live_input" "unsupported"
-               "live_input_state" "frozen"
-               "live_input_epoch" "00000000-0000-4000-8000-000000000107"
-               "model" "gpt-5.6-sol"
-               "effort" "high"
-               "display_handle" "preflight-drop-route"
-               "display_name" "preflight drop route"}
-              result
-              (run-writer (:port proxy) "route" drop-subject
-                          (json/generate-string route))
-              after (entity-facts port drop-subject)
-              stored (scalar-facts after)
-              requests @(:requests proxy)]
-          (check "rollback preflight transport drop preserves the original write error"
-                 (and (zero? (:exit seeded))
-                      @(:injected? proxy)
-                      (not (zero? (:exit result)))
-                      (str/includes?
-                       (:err result)
-                       "coordinator rejected harness identity write")
-                      (some #(= :fence-ok (:op %)) requests)))
-          (check "failed cleanup preflight leaves a markerless fail-closed projection"
-                 (and (seq after)
-                      (nil? (get after "identity_manifest_sha256"))
-                      (not (north.agent-provenance/managed-valid? stored)))))
-        (finally
-          ((:close! proxy)))))
-
-    (let [takeover-subject "@agent:identity-rollback-fence-takeover"
-          initial
-          (assoc preset
-                 "goal" "generation before stale writer"
-                 "display_handle" "generation-before-stale-writer"
-                 "display_name" "generation before stale writer")
-          stale-route
-          {"provider" "openai"
-           "provider_target" "codex-stale"
-           "live_input" "unsupported"
-           "live_input_state" "frozen"
-           "live_input_epoch" "00000000-0000-4000-8000-000000000108"
-           "model" "gpt-5.6-sol"
-           "effort" "high"
-           "display_handle" "stale-route"
-           "display_name" "stale route"}
-          successor
-          (assoc preset
-                 "provider" "openai"
-                 "provider_target" "codex-successor"
-                 "live_input" "unsupported"
-                 "live_input_state" "frozen"
-                 "live_input_epoch" "00000000-0000-4000-8000-000000000109"
-                 "model" "gpt-5.6-sol"
-                 "effort" "xhigh"
-                 "goal" "successor generation"
-                 "display_handle" "successor-generation"
-                 "display_name" "successor generation")
-          seeded
-          (run-writer port "publish" takeover-subject
-                      (json/generate-string initial))
-          injection-reached (promise)
-          resume-stale (promise)
-          proxy
-          (fault-proxy
-           port
-           #(and (= :assert-with-fence (:op %))
-                 (= takeover-subject (:te %))
-                 (= "model" (:p %)))
-           (fn [_]
-             (deliver injection-reached true)
-             @resume-stale
-             {:reject :fence-lost}))
-          successor-lease (atom nil)]
-      (try
-        (let [stale
-              (future
-                (run-writer
-                 (:port proxy) "route" takeover-subject
-                 (json/generate-string stale-route)
-                 {"NORTH_IDENTITY_WRITER_TIMEOUT_MS" "200"
-                  "NORTH_IDENTITY_WRITE_LEASE_TTL_MS" "350"}))
-              reached? (deref injection-reached 3000 false)
-              _ (Thread/sleep 500)
-              resource (identity-write-resource takeover-subject)
-              holder "identity-successor-after-expiry"
-              acquired
-              (north.coord/send-op
-               port {:op :acquire-lease :res resource :holder holder
-                     :ttl-ms 60000})
-              lease {:resource resource :holder holder :epoch (:epoch acquired)}
-              _ (when (:ok acquired)
-                  (reset! successor-lease lease)
-                  (replace-under-fence!
-                   port lease takeover-subject successor))
-              _ (deliver resume-stale true)
-              stale-result
-              (deref stale 5000 {:exit -99 :err "stale writer did not return"})
-              after (entity-facts port takeover-subject)
-              stored (scalar-facts after)
-              requests @(:requests proxy)
-              injected-index
-              (first
-               (keep-indexed
-                (fn [index request]
-                  (when (and (= :assert-with-fence (:op request))
-                             (= takeover-subject (:te request))
-                             (= "model" (:p request)))
-                    index))
-                requests))
-              post-injection (if injected-index
-                               (drop (inc injected-index) requests)
-                               [])
-              successor-current?
-              (and (:ok acquired)
-                   (:fence-ok
-                    (north.coord/send-op
-                     port {:op :fence-ok :res resource :holder holder
-                           :epoch (:epoch acquired)})))]
-          (check "expired stale writer loses its fence to a successor"
-                 (and (zero? (:exit seeded))
-                      reached?
-                      (:ok acquired)
-                      (not (zero? (:exit stale-result)))
-                      successor-current?))
-          (check "stale writer observes fence loss and performs no rollback writes"
-                 (and
-                  (some #(= :fence-ok (:op %)) post-injection)
-                  (not-any?
-                   #(and (= takeover-subject (:te %))
-                         (fenced-ops (:op %)))
-                   post-injection)))
-          (check "stale failure cannot erase the successor generation"
-                 (and (= #{"codex-successor"} (get after "provider_target"))
-                      (= #{"gpt-5.6-sol"} (get after "model"))
-                      (north.agent-provenance/managed-valid? stored)
-                      (= (get stored "identity_manifest_sha256")
-                         (north.agent-provenance/manifest-sha256 stored)))))
-        (finally
-          (deliver resume-stale true)
-          (when-let [lease @successor-lease]
-            (release-lease! port lease))
-          ((:close! proxy)))))
-
     ;; Caller-owned recovery protocol. Route transitions carry both complete
     ;; endpoints, so every killed durable prefix can be classified and rebuilt.
     (let [route-delta
@@ -1136,9 +688,7 @@
           desired (merge preset route-delta)
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000122"
           resource (identity-write-resource subject)
-          old-lease (north.coord/send-op
-                     port {:op :acquire-lease :res resource :holder holder
-                           :ttl-ms 60000})
+          old-lease (north.coord/acquire-lease! port resource holder 60000)
           _ (seed-identity! port subject desired)
           recovered (run-managed-writer
                      port "route" subject (json/generate-string route-delta)
@@ -1147,9 +697,7 @@
                        port {:resource resource :holder holder
                              :epoch (:epoch old-lease)}
                        subject "goal" "stale prior operation")
-          stale-release (north.coord/send-op
-                         port {:op :release-lease :res resource :holder holder
-                               :epoch (:epoch old-lease)})
+          stale-release (release-lease! port old-lease)
           stored (scalar-facts (entity-facts port subject))]
       (check "lost acknowledgement replays as committed through the retained same-holder fence"
              (and (:ok old-lease)
@@ -1159,7 +707,7 @@
                   (= desired (select-keys stored (keys desired)))))
       (check "stale same-holder release cannot erase the recovered epoch"
              (and (= :fence-lost (:reject stale-write))
-                  (:noop stale-release)
+                  (false? (:released? stale-release))
                   (= (north.agent-provenance/manifest-sha256 stored)
                      (get stored "identity_manifest_sha256")))))
 
@@ -1274,155 +822,6 @@
                   (= (north.terminal-projection/terminal-manifest-sha256 terminal)
                      (get stored "terminal_manifest_sha256")))))
 
-    ;; Exact production incident: provider preflight rejects after identity and
-    ;; presence publication. Terminal commit must make the lane disappear now,
-    ;; release only its own driver, and permit immediate thread reuse.
-    (let [agent-id "managed-blocked-preflight-cleanup"
-          subject (str "@agent:" agent-id)
-          thread "@managed-blocked-preflight-thread"
-          successor "managed-blocked-preflight-successor"
-          terminal
-          {"outcome" "blocked_preflight"
-           "process_outcome" "blocked_preflight"
-           "delivery_outcome" "blocked"
-           "delivery_reason" "execution_preflight_blocked"}
-          holder "managed-agent-writer:00000000-0000-4000-8000-000000000140"
-          operation-id "00000000-0000-4000-8000-000000000140"
-          _identity (seed-identity! port subject preset)
-          _title (north.coord/append! port thread "title" "blocked preflight cleanup")
-          initial-claim
-          (proc/shell {:out :string :err :string :continue true
-                       :extra-env {"FRAM_LOG" @test-log}}
-                      "bb" (str root "/cli/acquire-cli.clj") (str port)
-                      "claim" thread agent-id)
-          presence (north.coord/send-op
-                    port {:op :acquire-lease :res (str "session:" agent-id)
-                          :holder agent-id :ttl-ms 1800000})
-          proxy (fault-proxy port (constantly false))
-          terminal-result
-          (run-managed-writer
-           (:port proxy) "terminal" subject (json/generate-string terminal)
-           holder operation-id nil preset thread)
-          after (scalar-facts (entity-facts port subject))
-          ;; This harness invokes only the managed terminal writer: there is no
-          ;; dispatch outer-finally release available to make the assertion pass.
-          driver-after-terminal (north.coord/resolved port thread "driver")
-          claim
-          (proc/shell {:out :string :err :string :continue true
-                       :extra-env {"FRAM_LOG" @test-log}}
-                      "bb" (str root "/cli/acquire-cli.clj") (str port)
-                      "claim" thread successor)
-          replay
-          (run-managed-writer
-           (:port proxy) "terminal" subject (json/generate-string terminal)
-           holder operation-id nil preset thread)
-          requests @(:requests proxy)
-          presence-index
-          (first (keep-indexed
-                  (fn [index request]
-                    (when (and (= :release-lease (:op request))
-                               (= (str "session:" agent-id) (:res request)))
-                      index))
-                  requests))
-          driver-index
-          (first (keep-indexed
-                  (fn [index request]
-                    (when (and (= :retract-with-fence (:op request))
-                               (= thread (:te request))
-                               (= "driver" (:p request))
-                               (= (str "@" agent-id) (:r request)))
-                      index))
-                  requests))
-          marker-index
-          (first (keep-indexed
-                  (fn [index request]
-                    (when (and (= :assert-at-version-with-fence (:op request))
-                               (= subject (:te request))
-                               (= "terminal_manifest_sha256" (:p request)))
-                      index))
-                  requests))]
-      (check "terminal commit without an outer finally closes presence and releases the production driver before acknowledgement"
-             (and (:ok presence)
-                  (zero? (:exit initial-claim))
-                  (= "committed" (get-in terminal-result [:result :status]))
-                  (= (north.terminal-projection/terminal-manifest-sha256 terminal)
-                     (get after "terminal_manifest_sha256"))
-                  (nil? (north.coord/lease-of port (str "session:" agent-id)))
-                  (nil? driver-after-terminal)
-                  (zero? (:exit claim))))
-      (check "terminal marker is the final lifecycle publication after presence and driver cleanup"
-             (and (integer? presence-index)
-                  (integer? driver-index)
-                  (integer? marker-index)
-                  (< presence-index marker-index)
-                  (< driver-index marker-index)))
-      (check "lost-ack replay preserves the immediate successor driver"
-             (and (= "committed" (get-in replay [:result :status]))
-                  (= "exact_replay" (get-in replay [:result :reason]))
-                  (= (str "@" successor)
-                     (north.coord/resolved port thread "driver"))))
-      ((:close! proxy)))
-
-    ;; Enumerate every durable prefix of terminal body -> presence close ->
-    ;; exact driver release -> commit marker. The same logical operation must
-    ;; reconstruct the exact terminal and cleanup state from each one.
-    (let [terminal
-          {"outcome" "blocked_preflight"
-           "process_outcome" "blocked_preflight"
-           "delivery_outcome" "blocked"
-           "delivery_reason" "execution_preflight_blocked"}
-          operations
-          (vec
-           (concat
-            (for [predicate test-terminal-publication-order
-                  :let [value (get terminal predicate)]
-                  :when value]
-              [:put predicate value])
-            [[:release-presence nil nil]
-             [:release-driver nil nil]
-             [:marker nil nil]]))
-          results
-          (mapv
-           (fn [prefix]
-             (let [agent-id (str "managed-terminal-cleanup-prefix-" prefix)
-                   subject (str "@agent:" agent-id)
-                   thread (str "@managed-terminal-cleanup-thread-" prefix)
-                   _identity (seed-identity! port subject preset)
-                   _title (north.coord/append! port thread "title" "cleanup prefix")
-                   initial-claim
-                   (proc/shell {:out :string :err :string :continue true
-                                :extra-env {"FRAM_LOG" @test-log}}
-                               "bb" (str root "/cli/acquire-cli.clj") (str port)
-                               "claim" thread agent-id)
-                   _presence
-                   (north.coord/send-op
-                    port {:op :acquire-lease :res (str "session:" agent-id)
-                          :holder agent-id :ttl-ms 1800000})
-                   _prefix
-                   (apply-terminal-lifecycle-prefix!
-                    port subject thread terminal operations prefix)
-                   recovered
-                   (run-managed-writer
-                    port "terminal" subject (json/generate-string terminal)
-                    "managed-agent-writer:00000000-0000-4000-8000-000000000141"
-                    (str (java.util.UUID/randomUUID)) nil preset thread)
-                   stored (scalar-facts (entity-facts port subject))]
-               {:recovered recovered
-                :initial-claim (:exit initial-claim)
-                :exact (= (north.terminal-projection/terminal-manifest-sha256 terminal)
-                          (get stored "terminal_manifest_sha256"))
-                :presence (north.coord/lease-of port (str "session:" agent-id))
-                :driver (north.coord/resolved port thread "driver")}))
-           (range (inc (count operations))))]
-      (check "every killed terminal-cleanup durable prefix recovers terminal, presence, and driver exactly"
-             (every?
-              #(and (zero? (get-in % [:recovered :exit]))
-                    (zero? (:initial-claim %))
-                    (= "committed" (get-in % [:recovered :result :status]))
-                    (:exact %)
-                    (nil? (:presence %))
-                    (nil? (:driver %)))
-              results)))
 
     (let [subject "@agent:managed-retask-during-recovery"
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000134"
@@ -1440,9 +839,7 @@
            "delivery_reason" "provider_process_died"}
           resource (identity-write-resource subject)
           _seed (seed-identity! port subject desired)
-          old-lease (north.coord/send-op
-                     port {:op :acquire-lease :res resource :holder holder
-                           :ttl-ms 60000})
+          old-lease (north.coord/acquire-lease! port resource holder 60000)
           waiting-retask
           (future
             (run-writer port "retask" subject
@@ -1459,9 +856,7 @@
           (run-managed-writer
            port "terminal" subject (json/generate-string terminal)
            holder (str (java.util.UUID/randomUUID)) nil desired)
-          stale-release (north.coord/send-op
-                         port {:op :release-lease :res resource :holder holder
-                               :epoch (:epoch old-lease)})
+          stale-release (release-lease! port old-lease)
           stored (scalar-facts (entity-facts port subject))]
       (check "same-holder lost-ack recovery fences first, then a waiting retask and terminal both commit"
              (and (:ok old-lease)
@@ -1469,7 +864,7 @@
                   (= "exact_replay" (get-in recovery-result [:result :reason]))
                   (zero? (:exit retask-result))
                   (= "committed" (get-in terminal-result [:result :status]))
-                  (:noop stale-release)
+                  (false? (:released? stale-release))
                   (= "retasked during recovery" (get stored "goal"))
                   (= (north.terminal-projection/terminal-manifest-sha256 terminal)
                      (get stored "terminal_manifest_sha256")))))

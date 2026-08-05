@@ -15,8 +15,9 @@
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH") (str root "/../fram/main")))))
-(when-not (.isFile (io/file fram "coord_daemon.clj"))
+           (io/file (or (System/getenv "FRAM_PATH")
+                        "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+(when-not (.isFile (io/file fram "bin/fram-server"))
   (throw (ex-info "Fram checkout not found; set FRAM_PATH or clone it beside North" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/spend-cli.clj"))
@@ -32,7 +33,7 @@
                                   :or {schema? true prices? true}}]
   (when schema?
     (doseq [p ["reserved_microusd" "settled_microusd"]]
-      (north.coord/send-op port {:op :assert :te (str "@" p) :p "cardinality" :r "single"})))
+      (north.coord/put! port (str "@" p) "cardinality" "single")))
   (doseq [[p v] [["kind" "spend-budget"] ["billing" "api"]
                  ["budget_cap_microusd" (str cap)]
                  ["lane_envelope_default_microusd" (str env)]
@@ -47,16 +48,20 @@
 
 (let [port (free-port)
       dir (.toFile (java.nio.file.Files/createTempDirectory "spend-cli-test" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file dir "facts.log")
-      _ (spit log "")
+      log (io/file dir "facts.framlog")
       daemon (proc/process
-              {:dir fram :out :string :err :string :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-              "bb" "-cp" "out" "coord_daemon.clj" "serve-flat" (str port) (.getPath log))
+              {:dir fram :out :string :err :string
+               :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
+                           "FRAM_SERVER_QUIET" "1"
+                           "FRAM_SERVER_XMX" "1g"}}
+              (str fram "/bin/fram-server") "serve" (str port)
+              (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value] (swap! checks conj [label (boolean value)]))]
   (alter-var-root #'north.coord/expected-log (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check! "real Fram daemon starts" (eventually #(port-open? port)))
+    (check! "current Fram server starts"
+            (eventually #(= :ready (:state (north.coord/status port)))))
 
     ;; --- fail-closed: missing cardinality declaration --------------------------
     (setup-budget! port "t-schema" {:cap 60000000 :env 1500000 :schema? false})
