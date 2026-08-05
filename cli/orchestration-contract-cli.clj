@@ -18,7 +18,6 @@
          '[cheshire.core :as json])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op  north.coord/send-op)
 
 (def SUBJECT "@contract:dispatch")
 
@@ -73,9 +72,10 @@
 (defn- cjson [x] (json/generate-string (canon x)))
 
 (defn exact-facts [port subject]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
-                                                        :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
+                               :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]})
        (map (fn [row] [(nth row 0) (nth row 1)]))
        (sort-by (juxt first second))))
 

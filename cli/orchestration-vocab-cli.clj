@@ -22,7 +22,6 @@
 (require '[clojure.java.io :as io] '[clojure.string :as str])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op  north.coord/send-op)
 
 (defn read-forms [path]
   (with-open [rdr (java.io.PushbackReader. (io/reader path))]
@@ -46,9 +45,10 @@
 (def ORCHESTRATION-ENTITY-KINDS (eval (literal-def (schema-migrate-path) 'ORCHESTRATION-ENTITY-KINDS)))
 
 (defn exact-facts [port subject]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
-                                                        :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
+                               :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]})
        (map (fn [row] [(nth row 0) (nth row 1)]))
        (sort-by (juxt first second))))
 

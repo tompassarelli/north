@@ -33,10 +33,8 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/orchestration-staffing.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/batch-id.clj"))
 
-;; shared coord substrate: cardinality-typed write verbs (move-C) live once in
-;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
+;; Shared coordination access lives in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op    north.coord/send-op)
 (def one        north.coord/resolved)
 (def many       north.coord/many)
 (def distinct-of north.coord/distinct-of)   ; count-distinct quorum, set form
@@ -61,7 +59,7 @@
       (catch Exception e
         {:error (str "Orchestration staffing catalog unavailable: " path " (" (.getMessage e) ")")}))))
 
-(defn q [port query] (:ok (send-op port {:op :query :query query})))
+(defn q [port query] (north.coord/query-rows port query))
 
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
