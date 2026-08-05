@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,27 +64,6 @@ describe("managed dispatch authority", () => {
   test("native denies North-managed admission", () => {
     expect(() => admitManagedDispatchAuthority(environment("native")))
       .toThrow("managed_dispatch_denied_by_native");
-  });
-
-  test("legacy stored values use their canonical authority decisions", () => {
-    const warning = spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      expect(() => admitManagedDispatchAuthority(environment("north"))).not.toThrow();
-      expect(() => admitManagedDispatchAuthority(environment("managed-forced"))).not.toThrow();
-      expect(() => admitManagedDispatchAuthority(environment("native-biased"))).not.toThrow();
-      expect(() => admitManagedDispatchAuthority(environment("managed-biased"))).not.toThrow();
-      expect(() => admitManagedDispatchAuthority(environment("native-forced")))
-        .toThrow("managed_dispatch_denied_by_native");
-      expect(warning.mock.calls).toEqual([
-        ["dispatch migration: legacy 'north' → 'managed'"],
-        ["dispatch migration: legacy 'managed-forced' → 'managed'"],
-        ["dispatch migration: legacy 'native-biased' → 'auto'"],
-        ["dispatch migration: legacy 'managed-biased' → 'auto'"],
-        ["dispatch migration: legacy 'native-forced' → 'native'"],
-      ]);
-    } finally {
-      warning.mockRestore();
-    }
   });
 
   test("unknown persisted values fail closed with the parser diagnostic", () => {

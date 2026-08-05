@@ -15,13 +15,6 @@
    ["managed" "deny" "allow"]
    ["auto" "allow" "allow"]])
 
-(def aliases
-  {"north" "managed"
-   "native-forced" "native"
-   "managed-forced" "managed"
-   "native-biased" "auto"
-   "managed-biased" "auto"})
-
 (def home (.toFile (java.nio.file.Files/createTempDirectory
                     "north-dispatch-mode-"
                     (make-array java.nio.file.attribute.FileAttribute 0))))
@@ -43,8 +36,6 @@
          (= (mapv first expected) (north.dispatch-mode/canonical-names)))
   (check "usage exposes exactly the canonical triple"
          (= "native|managed|auto" (north.dispatch-mode/usage)))
-  (check "legacy vocabulary covers the old name and former four modes"
-         (= aliases north.dispatch-mode/legacy-aliases))
   (check "default is the managed surface"
          (= "managed" north.dispatch-mode/default-mode))
 
@@ -60,7 +51,7 @@
           guard-result (config "dispatch" "--guard-action")
           admission-result (config "dispatch" "--managed-admission")
           display (config "dispatch")]
-      (check (str mode " set succeeds without a migration note")
+      (check (str mode " set succeeds silently")
              (and (zero? (:exit set-result))
                   (str/includes? (:out set-result) (str "dispatch → " mode))
                   (str/blank? (:err set-result))))
@@ -80,25 +71,6 @@
              (and (zero? (:exit display))
                   (str/includes? (:out display) (str "dispatch = " mode))))))
 
-  (doseq [[legacy canonical] aliases]
-    (spit state (str "dispatch=" legacy "\n"))
-    (let [read-result (config "dispatch" "--canonical")
-          note (north.dispatch-mode/migration-note legacy)]
-      (check (str "legacy read " legacy " normalizes to " canonical)
-             (and (zero? (:exit read-result))
-                  (= canonical (str/trim (:out read-result)))
-                  (= note (str/trim (:err read-result)))
-                  (= (str "dispatch=" legacy "\n") (slurp state))))
-      (let [set-result (config "dispatch" legacy)
-            reread-result (config "dispatch" "--canonical")]
-        (check (str "legacy set " legacy " persists only " canonical)
-               (and (zero? (:exit set-result))
-                    (str/includes? (:out set-result) (str "dispatch → " canonical))
-                    (= note (str/trim (:err set-result)))
-                    (= (str "dispatch=" canonical "\n") (slurp state))
-                    (= canonical (str/trim (:out reread-result)))
-                    (str/blank? (:err reread-result)))))))
-
   (io/delete-file state true)
   (let [canonical (config "dispatch" "--canonical")
         guard-result (config "dispatch" "--guard-action")
@@ -108,10 +80,10 @@
                 (= "deny" (str/trim (:out guard-result)))
                 (= "allow" (str/trim (:out admission-result))))))
 
-  (let [removed-alias (config "dispatch" "warn")]
-    (check "the pre-ontology warn alias is no longer accepted"
-           (and (not (zero? (:exit removed-alias)))
-                (str/includes? (:err removed-alias)
+  (let [outside-vocabulary (config "dispatch" "somewhere-else")]
+    (check "a value outside the canonical triple is refused by name"
+           (and (not (zero? (:exit outside-vocabulary)))
+                (str/includes? (:err outside-vocabulary)
                                "usage: north config dispatch [native|managed|auto]"))))
 
   (io/make-parents state)

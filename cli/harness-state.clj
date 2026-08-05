@@ -66,33 +66,22 @@
                  (#(subs % (count prefix))))
         default)))
 
-(defn dispatch-selection
+(defn get-dispatch-mode
   "Read and validate the effective dispatch mode. Missing state uses North's
-   canonical default; known legacy aliases normalize without mutating a
-   read-only legacy source."
+   canonical default; any other unrecognized token throws."
   [home]
-  (let [raw (get-value home "dispatch" nil)
-        canonical (if (nil? raw)
-                    north.dispatch-mode/default-mode
-                    (north.dispatch-mode/normalize raw))]
-    {:raw raw
-     :canonical canonical
-     :legacy? (north.dispatch-mode/legacy-alias? raw)}))
+  (let [raw (get-value home "dispatch" nil)]
+    (if (nil? raw)
+      north.dispatch-mode/default-mode
+      (north.dispatch-mode/normalize raw))))
 
-(defn get-dispatch-mode [home]
-  (:canonical (dispatch-selection home)))
-
-(defn- canonicalize-stored-dispatch [lines]
-  (let [prefix "dispatch="
-        stored (some->> lines
-                        (filter #(str/starts-with? % prefix))
-                        last
-                        (#(subs % (count prefix))))]
-    (if (nil? stored)
-      lines
-      (concat
-       (remove #(str/starts-with? % prefix) lines)
-       [(str prefix (north.dispatch-mode/normalize stored))]))))
+(defn- validate-stored-dispatch [lines]
+  (let [prefix "dispatch="]
+    (some->> lines
+             (filter #(str/starts-with? % prefix))
+             last
+             (#(subs % (count prefix)))
+             north.dispatch-mode/normalize)))
 
 (defn- permission-attribute [permissions]
   (into-array FileAttribute
@@ -204,11 +193,10 @@
               prefix (str key "=")
               source-lines (if (str/blank? source) [] (str/split-lines source))
               ;; Replacing an invalid dispatch value is the recovery path, so
-              ;; only unrelated writes validate/normalize the stored value.
-              lines (if (= key "dispatch")
-                      source-lines
-                      (canonicalize-stored-dispatch source-lines))
-              kept (remove #(str/starts-with? % prefix) lines)
+              ;; only unrelated writes validate the stored value.
+              _ (when-not (= key "dispatch")
+                  (validate-stored-dispatch source-lines))
+              kept (remove #(str/starts-with? % prefix) source-lines)
               next-content (str (str/join "\n" (concat kept [(str key "=" value)])) "\n")]
           (atomic-spit! canonical next-content))))
     canonical))

@@ -203,9 +203,9 @@ export class ManagedDispatchAuthorityError extends ExecutionAdmissionError {
 /**
  * Honor the live operator dispatch mode before any managed provider work.
  *
- * The existing `north config` surface owns parsing, canonical/legacy
- * normalization, and the mode vocabulary. The SDK consumes only its bounded
- * admission decision, so CLI, MCP, and direct SDK entrypoints cannot drift.
+ * The existing `north config` surface owns parsing and the mode vocabulary. The
+ * SDK consumes only its bounded admission decision, so CLI, MCP, and direct SDK
+ * entrypoints cannot drift.
  */
 export function admitManagedDispatchAuthority(
   environment: NodeJS.ProcessEnv = process.env,

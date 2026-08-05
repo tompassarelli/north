@@ -107,18 +107,18 @@ has "records the privacy-bounded provider session join key" \
   "tell agent:$ID provider_session_key $ID_KEY"
 lacks "does not record ambient model over exact input" "tell agent:$ID model wrong-model"
 
-echo "== legacy dispatch mode is normalized before identity publication =="
-LEGACY_SID="22223333-4444-4555-8666-777788889999"
-LEGACY_ID="native-$(key_of session "$LEGACY_SID")"
-printf 'dispatch=native-forced\n' >"$FAKE_HOME/.local/state/north/harness.conf"
+echo "== unrecognized dispatch state degrades identity evidence, never invents one =="
+INVALID_SID="22223333-4444-4555-8666-777788889999"
+INVALID_ID="native-$(key_of session "$INVALID_SID")"
+printf 'dispatch=surprise\n' >"$FAKE_HOME/.local/state/north/harness.conf"
 : > "$LOG"
 run_hook "$SPAWN" \
-  "{\"session_id\":\"$LEGACY_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-opus-4-8\"}" \
+  "{\"session_id\":\"$INVALID_SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-opus-4-8\"}" \
   CLAUDECODE=1
-has "normalizes legacy native-forced identity evidence to native" \
-  "tell agent:$LEGACY_ID dispatch_mode_at_start native"
-lacks "does not publish the legacy dispatch token" \
-  "tell agent:$LEGACY_ID dispatch_mode_at_start native-forced"
+has "records the invalid dispatch state honestly" \
+  "tell agent:$INVALID_ID dispatch_mode_at_start invalid"
+lacks "does not publish the unrecognized dispatch token" \
+  "tell agent:$INVALID_ID dispatch_mode_at_start surprise"
 printf 'dispatch=native\n' >"$FAKE_HOME/.local/state/north/harness.conf"
 
 echo "== Codex SessionStart records exact provider/model and honest effort absence =="

@@ -2,8 +2,7 @@
   "Canonical dispatch-mode vocabulary and interpretation.
 
    This is policy data, not persisted state. Callers supply the stored token;
-   known legacy aliases normalize to a canonical mode and every other unknown
-   value fails closed."
+   anything outside the canonical vocabulary fails closed."
   (:require [clojure.string :as str]))
 
 (def default-mode "managed")
@@ -28,13 +27,6 @@
     :summary "system chooses per dispatch via the learning regime"
     :help "choose per dispatch: frozen is deterministic known-best; learning permits bounded experiments."}])
 
-(def legacy-aliases
-  {"north" "managed"
-   "native-forced" "native"
-   "managed-forced" "managed"
-   "native-biased" "auto"
-   "managed-biased" "auto"})
-
 (def ^:private specs-by-name
   (into {} (map (juxt :name identity) mode-specs)))
 
@@ -45,28 +37,16 @@
   (str/join "|" (canonical-names)))
 
 (defn recognized? [value]
-  (or (contains? specs-by-name value)
-      (contains? legacy-aliases value)))
-
-(defn legacy-alias? [value]
-  (contains? legacy-aliases value))
+  (contains? specs-by-name value))
 
 (defn normalize [value]
-  (if-let [canonical (or (when (contains? specs-by-name value) value)
-                         (get legacy-aliases value))]
-    canonical
+  (if (recognized? value)
+    value
     (throw
      (ex-info
-      (str "invalid dispatch mode " (pr-str value)
-           "; expected " (usage)
-           " (legacy aliases: " (str/join "|" (keys legacy-aliases)) ")")
+      (str "invalid dispatch mode " (pr-str value) "; expected " (usage))
       {:value value
-       :canonical (canonical-names)
-       :legacy (keys legacy-aliases)}))))
-
-(defn migration-note [value]
-  (when (legacy-alias? value)
-    (str "dispatch migration: legacy '" value "' → '" (normalize value) "'")))
+       :canonical (canonical-names)}))))
 
 (defn spec [value]
   (get specs-by-name (normalize value)))

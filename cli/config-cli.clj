@@ -68,11 +68,7 @@
 (defn- eprintln [& xs] (binding [*out* *err*] (apply println xs)))
 (defn- die [& xs] (apply eprintln xs) (System/exit 1))
 
-(defn- read-dispatch-selection []
-  (let [selection (north.harness-state/dispatch-selection home)]
-    (when-let [note (north.dispatch-mode/migration-note (:raw selection))]
-      (eprintln note))
-    selection))
+(defn- dispatch-mode [] (north.harness-state/get-dispatch-mode home))
 
 ;; --- state accessors (key=value lines; last wins) --------------------------
 (defn get' [k default]
@@ -1382,7 +1378,7 @@
     (str executable "/" (count hooks) " executable")))
 
 (defn status []
-  (let [d  (:canonical (read-dispatch-selection))
+  (let [d  (dispatch-mode)
         c  (get' "coord" "north")
         comms-native (comms-resolution "native")
         comms-managed (comms-resolution "managed")
@@ -1453,9 +1449,6 @@
 
  1 DISPATCH — execution surface selection.
 " (dispatch-help-lines) "
-   Legacy values north/native-forced/native-biased/managed-biased/managed-forced
-   remain readable and map to managed/native/auto/auto/managed with a one-line
-   migration note; only canonical values are persisted.
    Auto is governed by the orthogonal `north config learning` axis: frozen
    uses deterministic known-best assignment; learning permits bounded
    experimental assignment. Account allocation is a routing detail, not a
@@ -1585,33 +1578,29 @@
     (= sub "--canonical")
     (if (seq extra)
       (die "usage: north config dispatch --canonical")
-      (println (:canonical (read-dispatch-selection))))
+      (println (dispatch-mode)))
 
     (= sub "--guard-action")
     (if (seq extra)
       (die "usage: north config dispatch --guard-action")
       (println
        (north.dispatch-mode/guard-action
-        (:canonical (read-dispatch-selection)))))
+        (dispatch-mode))))
 
     (= sub "--managed-admission")
     (if (seq extra)
       (die "usage: north config dispatch --managed-admission")
       (println
        (north.dispatch-mode/managed-admission
-        (:canonical (read-dispatch-selection)))))
+        (dispatch-mode))))
 
     (north.dispatch-mode/recognized? sub)
-    (let [canon (north.dispatch-mode/normalize sub)
-          legacy? (north.dispatch-mode/legacy-alias? sub)
-          summary (:summary (north.dispatch-mode/spec canon))]
-      (put' "dispatch" canon)
-      (when legacy?
-        (eprintln (north.dispatch-mode/migration-note sub)))
-      (println (str "dispatch → " canon " (" summary ")")))
+    (let [summary (:summary (north.dispatch-mode/spec sub))]
+      (put' "dispatch" sub)
+      (println (str "dispatch → " sub " (" summary ")")))
 
     (nil? sub)
-    (let [d (:canonical (read-dispatch-selection))]
+    (let [d (dispatch-mode)]
       (println (str "dispatch = " d "\n" (north.dispatch-mode/grid)
                     "\n   (north config dispatch " (north.dispatch-mode/usage) ")")))
 
