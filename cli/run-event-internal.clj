@@ -69,13 +69,12 @@
       entries)))
 
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "run_event_writer_fact"
-                                 :rules [{:head {:rel "run_event_writer_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (north.coord/query-rows
+              port {:find "run_event_writer_fact"
+                    :rules [{:head {:rel "run_event_writer_fact"
+                                    :args [{:var "p"} {:var "r"}]}
+                             :body [{:rel "triple"
+                                     :args [subject {:var "p"} {:var "r"}]}]}]})]
     (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 
 (defn previous-subject [{:keys [subject event]}]

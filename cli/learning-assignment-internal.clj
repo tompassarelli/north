@@ -68,13 +68,12 @@
           parsed)))
 
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "learning_assignment_fact"
-                                 :rules [{:head {:rel "learning_assignment_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (north.coord/query-rows
+              port {:find "learning_assignment_fact"
+                    :rules [{:head {:rel "learning_assignment_fact"
+                                    :args [{:var "p"} {:var "r"}]}
+                             :body [{:rel "triple"
+                                     :args [subject {:var "p"} {:var "r"}]}]}]})]
     (reduce (fn [acc [predicate value]]
               (update acc predicate (fnil conj #{}) value))
             {}

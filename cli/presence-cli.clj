@@ -1,49 +1,34 @@
 ;; presence-cli.clj — presence-as-facts (North gate-2 #30).
 ;;
-;; THE TRICK: presence = a renewable LEASE. Liveness is judged by the COORDINATOR's
-;; clock (the lease expiry), never a self-stamped wall-clock heartbeat. This kills
+;; Presence is a renewable Fram lease. Liveness is judged by Fram's clock,
+;; never a self-stamped wall-clock heartbeat. This kills
 ;; agentchat's heartbeat clock-skew AND its separate reaper in one move: a dead
 ;; agent's lease simply lapses and online? flips false on its own.
 ;;
-;; Sibling to lease-cli.clj. Wire (daemon b619283): :assert/:version/:acquire-lease/:resolved/:query.
-;; A live presence descriptor is @agent:<handle> in the coordination origin;
-;; liveness = lease on resource session:<handle> -> fact
-;; @lease:session:<handle> = "holder|exp|epoch". Historical @session:<handle>
-;; telemetry descriptors remain readable history, but never participate in the
-;; live roster.
+;; A live presence descriptor is @agent:<handle>; read-only rosters scan Fram's
+;; canonical :kernel/lease projection. Exact epochs stay with the owning SDK.
 ;;
 ;; usage:
 ;;   bb presence-cli.clj <port> register <handle> <dir> <session_id>
-;;   bb presence-cli.clj <port> renew    <handle>                     ; the new heartbeat
+;;   bb presence-cli.clj <port> renew    <handle> <fence-json>        ; the new heartbeat
 ;;   bb presence-cli.clj <port> task     <handle> "<task>"
 ;;   bb presence-cli.clj <port> presence                             ; projection (replaces ls presence/ + age math)
 ;;   bb presence-cli.clj <port> presence-online                      ; bounded live-only projection for cockpit/roster
 ;;   bb presence-cli.clj <port> presence-online-json                 ; stable machine projection (never parse columns)
 ;;   bb presence-cli.clj <port> coordination-probe-json              ; doctor health probe: fence + write-readback + lease/lineage divergence
-;;   bb presence-cli.clj <port> slackers [minutes]                   ; derived: online + holds no work-lease
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str]
+(require '[clojure.java.io :as io] '[clojure.string :as str]
          '[cheshire.core :as json])
 
 (def TTL 1800000)         ; 30min lease; renewed on every tool call (PostToolUse hook)
-;; shared coord substrate: the cardinality-typed write verbs (move-C) live once in
-;; cli/coord.clj. append! = MULTI coexist; put! = SINGLE last-writer-wins.
-;; decode-lease/lease-of/online? — the renewable-lease liveness rule — ALSO live there
-;; now, so this roster and concern-cli judge "online" by the exact same definition.
+;; Shared coordination substrate: canonical FRAMRPC reads, writes, and leases.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
-(def send-op  north.coord/send-op)
 (def append!  north.coord/append!)
 (def put!     north.coord/put!)
 (def retract! north.coord/retract!)
 (def resolved north.coord/resolved)
-(def decode-lease north.coord/decode-lease)
-(def lease-of     north.coord/lease-of)
 
-(declare strict-query-rows)
-
-(def lease-session-prefix "@lease:session:")
 (def presence-agent-prefix "@agent:")
-(def max-session-lease-rows 100000)
 (def max-live-session-controls 256)
 (def max-control-bytes 256)
 (def max-safe-integer 9007199254740991)
@@ -58,40 +43,120 @@
 (defn presence-entity [handle]
   (str presence-agent-prefix handle))
 
-(defn strict-query-rows
-  "Return an exact coordinator query result or throw. A transport/protocol
-   failure is not an empty graph: callers must never publish a successful empty
-   roster after the coordinator failed or returned a malformed row."
-  [response]
-  (when-not (and (map? response)
-                 (= #{:ok :version :engine} (set (keys response)))
-                 (integer? (:version response))
-                 (not (neg? (:version response)))
-                 (<= (:version response) max-safe-integer)
-                 (#{"index" "scan"} (:engine response))
-                 (vector? (:ok response))
-                 (every? #(and (vector? %)
-                               (= 2 (count %))
-                               (string? (nth % 0))
-                               (string? (nth % 1)))
-                         (:ok response)))
-    (throw (ex-info "coordinator returned a malformed presence projection"
-                    {:type :malformed-presence-query
-                     :response response})))
-  (:ok response))
+(defn canonical-fence [value]
+  (select-keys value [:resource :holder :epoch]))
+
+(defn release-grant-best-effort! [port grant]
+  (when (and (string? (:resource grant))
+             (string? (:holder grant))
+             (integer? (:epoch grant))
+             (pos? (:epoch grant)))
+    (try
+      (north.coord/release-lease! port (canonical-fence grant))
+      (catch Exception _ nil))))
+
+(defn fence-json! [handle raw]
+  (let [parsed
+        (try
+          (json/parse-string (str raw))
+          (catch Exception error
+            (throw (ex-info "presence fence must be valid JSON"
+                            {:type :invalid-presence-fence}
+                            error))))
+        expected-resource (str "session:" handle)]
+    (when-not (and (map? parsed)
+                   (= #{"resource" "holder" "epoch"} (set (keys parsed)))
+                   (= expected-resource (get parsed "resource"))
+                   (= handle (get parsed "holder"))
+                   (integer? (get parsed "epoch"))
+                   (pos? (get parsed "epoch"))
+                   (<= (get parsed "epoch") max-safe-integer))
+      (throw (ex-info "presence fence does not match its session"
+                      {:type :invalid-presence-fence :handle handle})))
+    {:resource expected-resource
+     :holder handle
+     :epoch (get parsed "epoch")}))
+
+(defn print-fence! [fence]
+  (println
+   (json/generate-string
+    (array-map "resource" (:resource fence)
+               "holder" (:holder fence)
+               "epoch" (:epoch fence)))))
+
+(defn subject-values [rows]
+  (reduce (fn [values [predicate value]]
+            (update values predicate (fnil conj #{}) value))
+          {}
+          rows))
+
+(defn replace-subject-facts! [port subject desired]
+  (loop [remaining 8]
+    (let [{:keys [version rows]} (north.coord/show-envelope port subject)
+          current (subject-values rows)
+          actions
+          (vec
+           (concat
+            (mapcat (fn [[predicate desired-value]]
+                      (for [old-value (get current predicate #{})
+                            :when (not= old-value desired-value)]
+                        {:op :retract :subject subject
+                         :predicate predicate :value old-value}))
+                    desired)
+            (keep (fn [[predicate desired-value]]
+                    (when-not (contains? (get current predicate #{}) desired-value)
+                      {:op :assert :subject subject
+                       :predicate predicate :value desired-value}))
+                  desired)))
+          result (if (seq actions)
+                   (north.coord/transact! port actions {:expected-version version})
+                   {:ok version :changed? false})]
+      (cond
+        (nil? (:reject result)) result
+        (and (= :conflict (:reject result)) (> remaining 1)) (recur (dec remaining))
+        :else (throw (ex-info "presence projection transaction failed"
+                              {:type :presence-write-rejected
+                               :subject subject :reject (:reject result)}))))))
+
+(defn remove-subject-facts! [port subject predicates]
+  (loop [remaining 8]
+    (let [{:keys [version rows]} (north.coord/show-envelope port subject)
+          current (subject-values rows)
+          actions (vec (for [predicate predicates
+                             value (get current predicate #{})]
+                         {:op :retract :subject subject
+                          :predicate predicate :value value}))
+          result (if (seq actions)
+                   (north.coord/transact! port actions {:expected-version version})
+                   {:ok version :changed? false})]
+      (cond
+        (nil? (:reject result)) result
+        (and (= :conflict (:reject result)) (> remaining 1)) (recur (dec remaining))
+        :else (throw (ex-info "presence removal transaction failed"
+                              {:type :presence-write-rejected
+                               :subject subject :reject (:reject result)}))))))
+
+(defn session-grant! [handle grant]
+  (when-not (and (= (str "session:" handle) (:resource grant))
+                 (= handle (:holder grant))
+                 (integer? (:epoch grant)) (pos? (:epoch grant))
+                 (<= (:epoch grant) max-safe-integer)
+                 (integer? (:exp grant)) (pos? (:exp grant))
+                 (<= (:exp grant) max-safe-integer))
+    (throw (ex-info "Fram returned an invalid session lease grant"
+                    {:type :invalid-presence-grant :handle handle})))
+  (canonical-fence grant))
 
 (defn presence-registrations
   "Return coordination-owned presence descriptors. Historical @session rows
    intentionally do not enter this projection."
   [port]
-  (let [rows (strict-query-rows
-              (send-op port {:op :query
-                             :query {:find "presence"
-                                     :rules [{:head {:rel "presence"
-                                                     :args [{:var "e"} {:var "h"}]}
-                                              :body [{:rel "triple"
-                                                      :args [{:var "e"} "agent"
-                                                             {:var "h"}]}]}]}}))
+  (let [rows (north.coord/query-rows
+              port {:find "presence"
+                    :rules [{:head {:rel "presence"
+                                    :args [{:var "e"} {:var "h"}]}
+                             :body [{:rel "triple"
+                                     :args [{:var "e"} "agent" {:var "h"}]}]}]})
         registrations
         (->> rows
              (filter (fn [[entity _]]
@@ -109,71 +174,39 @@
                       {:type :duplicate-presence-descriptor})))
     registrations))
 
-(defn strict-lease
-  [entity value]
-  (let [lease (north.coord/decode-lease value)]
-    (when-not (north.coord/authoritative-lease? lease)
-      (throw (ex-info "coordinator returned a malformed lease value"
-                      {:type :malformed-presence-lease
-                       :entity entity})))
-    lease))
-
 (defn online-sessions
-  "Return only unexpired session leases using one indexed graph query. The full
-   historical session registry contains thousands of lapsed rows, so enriching
-   all of it and filtering later makes live rosters grow without bound."
+  "Return registered sessions whose canonical kernel lease is unexpired."
   [port now]
-  (let [rows (strict-query-rows
-              (send-op port {:op :query
-                             :query {:find "lease"
-                                     :rules [{:head {:rel "lease" :args [{:var "e"} {:var "v"}]}
-                                              :body [{:rel "triple" :args [{:var "e"} "lease" {:var "v"}]}]}]}}))]
-    (when (> (count rows) max-session-lease-rows)
-      (throw (ex-info "live session lease projection exceeds its bounded input"
-                      {:rows (count rows) :max max-session-lease-rows})))
-    (let [parsed (mapv (fn [[entity value]]
-                         {:entity entity
-                          :lease (strict-lease entity value)})
-                       rows)
-          session-entities (->> parsed
-                                (map :entity)
-                                (filter #(str/starts-with? % lease-session-prefix))
-                                vec)]
-      (when-not (= (count session-entities) (count (distinct session-entities)))
-        (throw (ex-info "coordinator returned duplicate session lease rows"
-                        {:type :duplicate-presence-lease})))
-      (let [live
-            (->> parsed
-                 (keep (fn [{:keys [entity lease]}]
-                         (when (and (str/starts-with? entity lease-session-prefix)
-                                    (> (:exp lease) now))
-                           (let [handle (subs entity (count lease-session-prefix))]
-                             (when-not (= handle (:holder lease))
-                               (throw (ex-info "session lease holder does not match its control"
-                                               {:type :malformed-presence-lease
-                                                :entity entity})))
-                             (when-not (valid-control? handle)
-                               (throw (ex-info "session lease control is malformed"
-                                               {:type :malformed-presence-control
-                                                :entity entity})))
-                             {:entity (presence-entity handle)
-                              :handle handle
-                              :lease lease}))))
-                 vec)]
-        (when (> (count live) max-live-session-controls)
-          (throw (ex-info "live session roster exceeds its bounded control set"
-                          {:controls (count live) :max max-live-session-controls})))
-        (->> live (sort-by :handle) vec)))))
+  (let [registered (set (map second (presence-registrations port)))
+        live (north.coord/online-session-leases port now)]
+    (when (> (count live) max-live-session-controls)
+      (throw (ex-info "live session roster exceeds its bounded control set"
+                      {:controls (count live) :max max-live-session-controls})))
+    (->> live
+         (keep (fn [{:keys [handle exp] :as lease}]
+                 (when-not (and (valid-control? handle)
+                                (integer? exp) (pos? exp)
+                                (<= exp max-safe-integer))
+                   (throw (ex-info "malformed canonical session lease"
+                                   {:type :malformed-presence-lease
+                                    :lease lease})))
+                 (when (contains? registered handle)
+                   {:entity (presence-entity handle)
+                    :handle handle :lease {:exp exp}})))
+         (sort-by :handle)
+         vec)))
 
 (defn print-presence!
   [port now session-rows]
   (let [enriched (mapv (fn [{:keys [entity handle lease]}]
                          (let [ae (str "@agent:" handle)
-                               l (or lease (lease-of port (str "session:" handle)))
+                               status (when-not lease
+                                        (north.coord/session-lease-status port handle))
+                               l (or lease (when (:online? status) {:exp (:exp status)}))
                                on (boolean (and l (> (:exp l) now)))
                                pinned (= "true" (resolved port ae "pinned"))
                                exp (if (and l on) (str (int (/ (- (:exp l) now) 1000)) "s") "lapsed")
-                               rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
+                               rs (north.coord/many port ae "holds")
                                resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")
                                focus (or (resolved port entity "active_workflow")
                                          (resolved port entity "current_thread")
@@ -206,11 +239,9 @@
 (def max-lineage-rows 4096)
 
 (defn- probe-fence [port]
-  (let [expected (north.coord/expected-log)
-        raw (north.coord/send-raw-op port {:op :version})
-        served (:served-log raw)]
-    {"expected_log" expected
-     "served_log" (when (string? served) (.getCanonicalPath (io/file served)))}))
+  (let [status (north.coord/status port)]
+    {"space_id" (:space-id status)
+     "space_fence_ok" (string? (:space-id status))}))
 
 (defn- probe-write-readback [port]
   ;; Registration is a WRITE. Reading the registry cannot prove a hook can renew.
@@ -218,25 +249,22 @@
   ;; or the fence diagnosis below is lost behind a generic exception.
   (try
     (let [holder (str "doctor-" (System/currentTimeMillis))
-          granted (send-op port {:op :acquire-lease :res probe-lease-resource
-                                 :holder holder :ttl-ms probe-lease-ttl-ms})
-          back (resolved port (str "@lease:" probe-lease-resource) "lease")]
-      (boolean (and (map? granted) (nil? (:reject granted)) (integer? (:exp granted))
-                    (string? back) (str/starts-with? back (str holder "|")))))
+          granted (north.coord/acquire-lease!
+                   port probe-lease-resource holder probe-lease-ttl-ms)
+          fence (canonical-fence granted)]
+      (try
+        (boolean (:valid? (north.coord/check-lease! port fence)))
+        (finally (north.coord/release-lease! port fence))))
     (catch Exception _ false)))
 
 (defn- lineage-registrations-within [port window-ms now]
-  ;; Registration and the liveness marker share the coordination origin. Legacy
-  ;; telemetry session descriptors are history and cannot satisfy this probe.
-  (let [resp (north.coord/query-page-in-domain
-              port :coordination
-              {:find "s" :rules [{:head {:rel "s" :args [{:var "e"} {:var "v"}]}
-                                  :body [{:rel "triple"
-                                          :args [{:var "e"} "started_at" {:var "v"}]}]}]}
-              max-lineage-rows nil)
-        rows (:ok resp)]
-    (when-not (and (vector? rows) (false? (:more resp)))
-      (throw (ex-info "session lineage projection was truncated or malformed" {})))
+  (let [rows (north.coord/query-rows
+              port {:find "s"
+                    :rules [{:head {:rel "s" :args [{:var "e"} {:var "v"}]}
+                             :body [{:rel "triple"
+                                     :args [{:var "e"} "started_at" {:var "v"}]}]}]})]
+    (when (> (count rows) max-lineage-rows)
+      (throw (ex-info "session lineage projection exceeds its bound" {})))
     (count
      (filter (fn [[e v]]
                (and (string? e) (str/starts-with? e presence-agent-prefix)
@@ -255,7 +283,7 @@
         base (if (contains? base "error")
                base
                (assoc base
-                      "log_fence_ok" (= (get fence "expected_log") (get fence "served_log"))
+                      "space_fence_ok" (true? (get fence "space_fence_ok"))
                       "lease_write_readback_ok" (probe-write-readback port)))
         payload
         (merge base
@@ -265,55 +293,54 @@
                     (catch Exception e {"error" (exception-message e)})))]
     (println (json/generate-string payload))
     (when (or (contains? payload "error")
-              (not (get payload "log_fence_ok"))
+              (not (get payload "space_fence_ok"))
               (not (get payload "lease_write_readback_ok")))
       (System/exit 1))))
 
 ;; The hook throttle advances only on a zero exit, so a lease that did not land
 ;; must exit nonzero — a printed :reject with rc=0 reads as a renewed lease.
-(defn acquire-session-lease! [port h]
-  (let [reply (send-op port {:op :acquire-lease :res (str "session:" h) :holder h :ttl-ms TTL})]
-    (prn reply)
-    (when-not (and (map? reply)
-                   (nil? (:reject reply))
-                   (= h (:holder reply))
-                   (integer? (:epoch reply))
-                   (pos? (:epoch reply))
-                   (= (:epoch reply) (:ok reply))
-                   (integer? (:exp reply))
-                   (> (:exp reply) (System/currentTimeMillis)))
-      (binding [*out* *err*]
-        (println (str "presence: session lease was not granted for " h ": " (pr-str reply))))
-      (System/exit 1))
-    reply))
+(defn acquire-session-lease! [port handle registration]
+  (let [grant (north.coord/acquire-lease!
+               port (str "session:" handle) handle TTL)
+        validated-fence (session-grant! handle grant)
+        fence (try
+                (replace-subject-facts!
+                 port (presence-entity handle) registration)
+                validated-fence
+                (catch Exception error
+                  (release-grant-best-effort! port grant)
+                  (throw error)))]
+    (print-fence! fence)
+    fence))
+
+(defn renew-session-lease! [port handle fence]
+  (let [grant (north.coord/renew-lease! port fence TTL)
+        next-fence (session-grant! handle grant)]
+    (print-fence! next-fence)
+    next-fence))
 
 (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)
       now  (System/currentTimeMillis)]      ; same machine as coord -> agent-now ~ coord-now
   (case verb
     "register"
-    ;; SESSION-START facts (agent/dir/session_id/started_at) are written ONCE per
-    ;; session — NOT on every register. The PostToolUse hook calls `register` on every
-    ;; tool call to renew the liveness lease; before this guard it ALSO re-put!
-    ;; started_at with a fresh (Instant/now) each time, and since started_at is single-
-    ;; valued that supersede appended ~1 log line PER TOOL CALL of pure churn (a busy
-    ;; agent bloats the log by hundreds of lines/session; agent/dir/session_id were
-    ;; already idempotent — same value each call — so started_at's ever-moving value was
-    ;; the entire bloat). The LEASE renewal MUST stay per-call: that IS the heartbeat.
-    ;; Re-stamp the session-start block only on a genuinely NEW session (session_id
-    ;; changed for this handle) or if started_at is somehow missing.
-    (let [[h dir sid] args, se (presence-entity h)
-          new-session? (or (nil? (resolved port se "started_at"))
-                           (not= (str (or sid "?")) (str (resolved port se "session_id"))))]
-      (when new-session?
-        (put! port se "agent" h)                     ; single
-        (put! port se "dir" (or dir "?"))            ; single
-        (put! port se "session_id" (or sid "?"))     ; single
-        (put! port se "started_at" (str (java.time.Instant/now))))  ; single, once/session
-      (acquire-session-lease! port h))
+    (let [[h dir sid] args
+          se (presence-entity h)
+          sid (str (or sid "?"))
+          prior-sid (resolved port se "session_id")
+          prior-started (resolved port se "started_at")
+          started-at (if (and (= sid prior-sid) prior-started)
+                       prior-started
+                       (str (java.time.Instant/now)))]
+      (acquire-session-lease!
+       port h {"agent" h
+               "dir" (or dir "?")
+               "session_id" sid
+               "started_at" started-at}))
 
     "renew"
-    (let [[h] args] (acquire-session-lease! port h))
+    (let [[h raw-fence] args]
+      (renew-session-lease! port h (fence-json! h raw-fence)))
 
     "task"
     (let [[h t] args] (prn (put! port (presence-entity h) "task" t)))   ; single
@@ -347,9 +374,9 @@
     (let [[h] args, ae (str "@agent:" h)]
       (doseq [p ["model" "effort" "context_tokens" "lifecycle" "supervisor"]]
         (println (format "%-15s %s" p (or (resolved port ae p) "-"))))
-      (let [rs (:values (send-op port {:op :resolved :te ae :p "holds"}))]
+      (let [rs (north.coord/many port ae "holds")]
         (println (format "%-15s %s" "roles" (if (seq rs) (str/join ", " (map #(subs % 6) (sort rs))) "-"))))
-      (let [ws (:values (send-op port {:op :resolved :te ae :p "watches"}))]
+      (let [ws (north.coord/many port ae "watches")]
         (println (format "%-15s %s" "watches" (if (seq ws) (str/join ", " (sort ws)) "-")))))
 
     "define-role"                           ; <slug> <exclusive|inclusive> "<title>"  — register a role
@@ -358,9 +385,8 @@
       (put! port re "exclusivity" (or excl "inclusive")) ; single
       (prn {:role re :exclusivity (or excl "inclusive")}))
 
-    ;; assign/unassign — COEXIST-ELECT, no lease (thread 019f100f-eefe). The exclusive-role
-    ;; @lease:role:<slug> family is DELETED: a role holder is graph-internal, so it collapses
-    ;; onto coexist-elect. `holds` is MULTI, so rival assigns to an exclusive role BOTH land
+    ;; assign/unassign — COEXIST-ELECT, no lease. A role holder is graph-internal,
+    ;; so it collapses onto coexist-elect. `holds` is MULTI, so rival assigns to an exclusive role BOTH land
     ;; (no block, no refusal); the single true holder is ELECTED at read time (earliest holder
     ;; wins — `holders` lists them in election order). A loser sees it lost on its next read and
     ;; yields — dup is cheaper than coordination. (Lease survives only for EXTERNAL resources.)
@@ -369,10 +395,11 @@
       (north.topology-authority/require-self-agent! "assign peer agent" h)
       (let [ae (str "@agent:" h), re (str "@role:" slug)
             excl (resolved port re "exclusivity")
-            prior (->> (send-op port {:op :query :query {:find "a"
-                         :rules [{:head {:rel "a" :args [{:var "a"}]}
-                                  :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]}})
-                       :ok (mapv first) (remove #(= ae %)) vec)]
+            prior (->> (north.coord/query-rows
+                        port {:find "a"
+                              :rules [{:head {:rel "a" :args [{:var "a"}]}
+                                       :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]})
+                       (mapv first) (remove #(= ae %)) vec)]
         (append! port ae "holds" re)          ; coexist — both land, no lease
         (if (= excl "exclusive")
           (prn {:assigned re :to h :exclusive true :coexist true
@@ -388,15 +415,16 @@
 
     "roles"                      ; <uuid>  — what this agent holds
     (let [[h] args, ae (str "@agent:" h)
-          rs (:values (send-op port {:op :resolved :te ae :p "holds"}))]
+          rs (north.coord/many port ae "holds")]
       (doseq [r (sort rs)]
         (println (format "%-22s %-10s %s" (subs r 6) (or (resolved port r "exclusivity") "?") (or (resolved port r "title") "")))))
 
     "holders"                               ; <slug>  — which agents hold this role (reverse edge)
     (let [[slug] args, re (str "@role:" slug)
-          hs (:ok (send-op port {:op :query :query {:find "a"
-                  :rules [{:head {:rel "a" :args [{:var "a"}]}
-                           :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]}}))]
+          hs (north.coord/query-rows
+              port {:find "a"
+                    :rules [{:head {:rel "a" :args [{:var "a"}]}
+                             :body [{:rel "triple" :args [{:var "a"} "holds" re]}]}]})]
       (println (str "@role:" slug " (" (or (resolved port re "exclusivity") "?") ") held by:"))
       (doseq [row (or hs [])] (println "  " (first row))))
 
@@ -419,17 +447,6 @@
     "coordination-probe-json"               ; doctor's honest health signal; exits 1 when broken
     (print-coordination-probe-json! port now)
 
-    "slackers"                              ; derived; replaces the polling slacker-detector/reaper
-    (let [_mins (if (seq args) (parse-long (first args)) 10)
-          ss (sort-by second (presence-registrations port))]
-      (println "online but holding NO build-lease (slacker candidates):")
-      (doseq [[_e h] ss]
-        (let [l (lease-of port (str "session:" h))
-              on (boolean (and l (> (:exp l) now)))
-              b (lease-of port "build")
-              has-build (boolean (and b (= (:holder b) h) (> (:exp b) now)))]
-          (when (and on (not has-build)) (println "  -" h)))))
-
     "pin"                                   ; <uuid> [reason]  — mark agent as important (surfaces first in roster)
     (let [[h & reason-parts] args, ae (str "@agent:" h)]
       (put! port ae "pinned" "true")    ; single (flag; LWW intent)
@@ -443,7 +460,7 @@
 
     "stale"                                 ; composite staleness: idle time + generation + playbook drift
     (let [;; playbook learning count (from :7977) — how many learnings exist now
-          playbook-count (try (count (:values (send-op 7977 {:op :resolved :te "@2026-06-22-232740" :p "learning"})))
+          playbook-count (try (count (north.coord/many 7977 "@2026-06-22-232740" "learning"))
                               (catch Exception _ 0))
           ss (presence-registrations port)]
       (println (format "%-14s %-5s %5s %4s %4s %-7s %-4s %s"
@@ -466,7 +483,7 @@
               gen-score (min 1.0 (/ (double gen) 5.0))
               score (+ (* 0.4 idle-score) (* 0.35 gen-score) (* 0.25 playbook-drift))
               bucket (cond pinned "PINNED" (< score 0.3) "GREEN" (< score 0.7) "YELLOW" :else "RED")
-              rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
+              rs (north.coord/many port ae "holds")
               resp (if (seq rs) (str/join "," (map #(subs % 6) (sort rs))) "-")]
           (println (format "%-14s %5.2f %5s %4d %4d %-7s %-4s %s"
                            h score
@@ -488,7 +505,7 @@
           model (resolved port ae "model")
           lifecycle (resolved port ae "lifecycle")
           prev-input (resolved port ae "prev_input_tokens")
-          playbook-count (try (count (:values (send-op 7977 {:op :resolved :te "@2026-06-22-232740" :p "learning"})))
+          playbook-count (try (count (north.coord/many 7977 "@2026-06-22-232740" "learning"))
                               (catch Exception _ 0))
           boot-playbook-s (resolved port ae "playbook_count_at_boot")
           boot-playbook (or (when boot-playbook-s (parse-long boot-playbook-s)) 0)
@@ -523,12 +540,18 @@
                        "managed lane with an explicit context brief; do not reuse "
                        h "."))))
 
-    "forget"                                ; deregister: retract session facts + release the lease
-    (let [[h] args, se (presence-entity h)]
-      (doseq [p ["agent" "dir" "session_id" "started_at" "task"
-                 "current_thread" "active_workflow"]]
-        (when-let [v (resolved port se p)] (retract! port se p v)))
-      (prn (send-op port {:op :release-lease :res (str "session:" h) :holder h})))
+    "forget"
+    (let [[h raw-fence] args
+          fence (fence-json! h raw-fence)
+          released (north.coord/release-lease! port fence)]
+      (when-not (:released? released)
+        (throw (ex-info "presence lease was not released"
+                        {:type :presence-release-failed :handle h})))
+      (remove-subject-facts!
+       port (presence-entity h)
+       ["agent" "dir" "session_id" "started_at" "task"
+        "current_thread" "active_workflow"])
+      (println (json/generate-string {"released" true})))
 
     "runmeta"                               ; <uuid> <session_id> <json>  — full per-run telemetry tuple
     (let [[h sid json-str] args
@@ -556,8 +579,8 @@
 
     "subscriptions"                         ; <uuid>  — channel = uuid ∪ held roles ∪ watched threads
     (let [[h] args, ae (str "@agent:" h)
-          rs (:values (send-op port {:op :resolved :te ae :p "holds"}))
-          ws (:values (send-op port {:op :resolved :te ae :p "watches"}))]
+          rs (north.coord/many port ae "holds")
+          ws (north.coord/many port ae "watches")]
       (println (str "@agent:" h " self-channel: to ∈ {" h ", "
                     (str/join ", " (map #(subs % 6) (sort rs))) ", *}  (uuid ∪ held-roles)"))
       (doseq [t (sort ws)] (println (str "  watches " t))))
@@ -566,5 +589,5 @@
         (println "                                |identify|card  (agent card)")
         (println "                                |define-role|assign|unassign|roles|holders  (roles)")
         (println "                                |watch|unwatch|subscriptions  (thread subs)")
-        (println "                                |presence|presence-online|presence-online-json|slackers}  (projections)")
+        (println "                                |presence|presence-online|presence-online-json}  (projections)")
         (System/exit 2))))

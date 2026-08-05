@@ -5,11 +5,10 @@
 ;; usage:
 ;;   bb dispatch-guard.clj <port> <uuid>
 ;;   bb dispatch-guard.clj <port> <role>    — resolves role to its current holder
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
+(require '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; shared coord substrate (Foundation Part B): send-op/resolved live once in cli/coord.clj.
+;; Shared coordination substrate: typed FRAMRPC reads live in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op  north.coord/send-op)
 (def resolved north.coord/resolved)
 
 (defn replacement-guidance [uuid reason]
@@ -19,10 +18,10 @@
        "compaction primitive."))
 
 (defn resolve-role [port slug]
-  (let [rows (:ok (send-op port {:op :query
-                                 :query {:find "h"
-                                         :rules [{:head {:rel "h" :args [{:var "a"}]}
-                                                  :body [{:rel "triple" :args [{:var "a"} "holds" (str "@role:" slug)]}]}]}}))]
+  (let [rows (north.coord/query-rows
+              port {:find "h"
+                    :rules [{:head {:rel "h" :args [{:var "a"}]}
+                             :body [{:rel "triple" :args [{:var "a"} "holds" (str "@role:" slug)]}]}]})]
     (when (seq rows) (str/replace (ffirst rows) #"^@agent:" ""))))
 
 (let [[port-s target] *command-line-args*
@@ -38,7 +37,7 @@
       needs-rotation (= "true" (resolved port ae "needs_rotation"))
       last-run (resolved port ae "last_run_at")
       gen (or (some-> (resolved port ae "generation") parse-long) 0)
-      playbook-count (try (count (:values (send-op port {:op :resolved :te "@2026-06-22-232740" :p "learning"})))
+      playbook-count (try (count (north.coord/many port "@2026-06-22-232740" "learning"))
                           (catch Exception _ 0))
       boot-pb (or (some-> (resolved port ae "playbook_count_at_boot") parse-long) 0)
       pb-drift (- playbook-count boot-pb)
@@ -58,7 +57,7 @@
                 (when pinned " [PINNED]")
                 (when needs-rotation " [NEEDS ROTATION]")))
   (case bucket
-    :replace (do (println (replacement-guidance uuid "legacy rotation flag"))
+    :replace (do (println (replacement-guidance uuid "rotation flag"))
                  (System/exit 2))
     :pinned (do (println "-> REUSE (pinned — user trusts this context)") (System/exit 3))
     :green  (do (println "-> REUSE (fresh)") (System/exit 0))
