@@ -183,6 +183,20 @@ the commentary too. Downstream consumers do not block an explicit removal; they
 fail clearly or migrate separately. Finish with a tracked-tree, case-insensitive
 token search for the removed name and delete every real match.
 
+## Personal projects break forward — legacy clients are opt-in
+<!-- north-section: breaking-forward · bucket: write -->
+
+In personal projects under `~/code/<project>`, current main is the supported
+line. A breaking change migrates every in-tree consumer in the same change.
+Never create or retain machinery for "legacy clients" — compatibility shims,
+dual protocols or formats, fallback readers or writers, support branches,
+version negotiation, migration windows, or stale runtime pins — unless the
+human explicitly names the legacy client and requests a bounded compatibility
+contract. Do not invent legacy support or backward compatibility for imaginary
+clients. Releases, tags, and git history preserve the old behavior; unknown or
+hypothetical consumers have no standing. When a current local service is behind,
+migrate its consumer and data forward instead of preserving the old engine.
+
 ## External code — license first
 <!-- north-section: external-code · bucket: write -->
 
