@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, connect } from "node:net";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "bun:test";
@@ -15,11 +15,9 @@ import {
   type AgentRunEvent,
 } from "../src/run-ledger";
 import { runFacts } from "../src/telemetry";
-import {
-  framBabashkaArguments,
-  framEngineEnvironment,
-  framEngineSelection,
-} from "../src/fram-engine";
+import { framEngineSelection } from "../src/fram-engine";
+import { FramRpcClient } from "../src/framrpc-client";
+import { FramTriple } from "../src/framrpc-codec";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const repo = resolve(import.meta.dir, "../..");
@@ -227,45 +225,69 @@ async function unusedPort(): Promise<number> {
   return address.port;
 }
 
-async function waitForPort(port: number): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const open = await new Promise<boolean>((resolveProbe) => {
-      const socket = connect({ host: "127.0.0.1", port });
-      socket.once("connect", () => {
-        socket.destroy();
-        resolveProbe(true);
-      });
-      socket.once("error", () => resolveProbe(false));
-    });
-    if (open) return;
-    await Bun.sleep(25);
-  }
-  throw new Error("isolated Fram coordinator did not start");
+function framServerFixture(): {
+  home: string; bin: string; out: string; server: string;
+} {
+  const selected = framEngineSelection(process.env);
+  const home = process.env.FRAM_TEST_CHECKOUT ?? selected.home;
+  const bin = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "bin") : selected.bin;
+  const out = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "out") : selected.out;
+  const server = resolve(bin, "fram-server");
+  if (!existsSync(server))
+    throw new Error("current Fram bin/fram-server is unavailable for the run-ledger fixture");
+  return { home, bin, out, server };
 }
 
-test("one real writer process commits seven ordered events inside the production timeout", async () => {
-  const fram = framEngineSelection(process.env).home;
+async function waitForFramServer(port: number, spaceId: string): Promise<FramRpcClient> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    try {
+      return await FramRpcClient.connect({
+        port, spaceId, connectTimeoutMs: 100, readTimeoutMs: 500,
+        maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
+      });
+    } catch {}
+    await Bun.sleep(25);
+  }
+  throw new Error("isolated Fram server did not become FRAMRPC-ready");
+}
+
+test("one current Fram server commits seven ordered events inside the production timeout", async () => {
+  const fram = framServerFixture();
   const scratch = mkdtempSync(join(tmpdir(), "north-run-event-batch-"));
-  const log = join(scratch, "facts.log");
-  writeFileSync(log, "");
+  const log = join(scratch, "history.framlog");
+  const spaceId = "north-run-event-batch";
   const port = await unusedPort();
-  const daemon = Bun.spawn(["bb", ...framBabashkaArguments([
-    "coord_daemon.clj", "serve-flat", String(port), log,
-  ])], {
-    cwd: fram,
-    env: framEngineEnvironment({
+  const fixtureEnvironment = {
+    NORTH_PORT: String(port),
+    FRAM_LOG: log,
+    FRAM_SPACE_ID: spaceId,
+    FRAM_HOME: fram.home,
+    FRAM_BIN: fram.bin,
+    FRAM_OUT: fram.out,
+  };
+  const priorEnvironment = new Map(
+    Object.keys(fixtureEnvironment).map((key) => [key, process.env[key]]),
+  );
+  const serverProcess = Bun.spawn([
+    fram.server, "serve", String(port), log, spaceId,
+  ], {
+    cwd: fram.home,
+    env: {
       ...process.env,
-      FRAM_REQUIRE_LOG_FENCE: "1",
-    }),
+      ...fixtureEnvironment,
+      FRAM_SERVER_RUNTIME: "jvm-dev",
+      FRAM_SERVER_QUIET: "1",
+      FRAM_SERVER_XMX: "1g",
+      FRAM_SNAPSHOT_BOOT: "0",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
-  const priorPort = process.env.NORTH_PORT;
-  const priorLog = process.env.FRAM_LOG;
+  let client: FramRpcClient | undefined;
   try {
-    await waitForPort(port);
-    process.env.NORTH_PORT = String(port);
-    process.env.FRAM_LOG = log;
+    client = await waitForFramServer(port, spaceId);
+    Object.assign(process.env, fixtureEnvironment);
+    const versionBefore = await client.version();
     const ledger = new AgentRunLedger({
       run: "@run:batch-writer-integration",
       thread: "(ad-hoc)",
@@ -287,58 +309,34 @@ test("one real writer process commits seven ordered events inside the production
     const elapsedMs = performance.now() - started;
     expect(elapsedMs).toBeLessThan(4_000);
 
-    const lines = readFileSync(log, "utf8").trim().split("\n");
-    let predecessorKind = -1;
-    const eventTransactions = new Set<string>();
+    const versionAfter = await client.version();
+    expect(versionAfter.servedVersion - versionBefore.servedVersion).toBe(events.length);
     for (const event of events) {
-      const subjectNeedle = `:l "${event.subject}"`;
-      const subjectRows = lines
-        .map((line, index) => ({ line, index }))
-        .filter(({ line }) => line.includes(subjectNeedle));
-      const subjectIndexes = subjectRows.map(({ index }) => index);
-      const transactions = new Set(subjectRows.map(({ line }) => {
-        const match = line.match(/:tx\s+(\d+)/);
-        expect(match).not.toBeNull();
-        return match![1];
-      }));
-      const digestIndex = lines.findIndex((line) =>
-        line.includes(subjectNeedle)
-        && line.includes(':p "run_event_sha256"')
-        && line.includes(`:r "${event.digest}"`)
-      );
-      const sequenceIndex = lines.findIndex((line) =>
-        line.includes(subjectNeedle)
-        && line.includes(':p "run_event_sequence"')
-        && line.includes(`:r "${event.sequence}"`)
-      );
-      const kindIndex = lines.findIndex((line) =>
-        line.includes(subjectNeedle)
-        && line.includes(':p "kind"')
-        && line.includes(':r "run_event"')
-      );
-      expect(subjectIndexes.length).toBeGreaterThan(0);
-      expect(subjectIndexes.length).toBe(eventFacts(event).length);
-      expect(transactions.size).toBe(1);
-      const transaction = [...transactions][0];
-      expect(eventTransactions.has(transaction)).toBe(false);
-      eventTransactions.add(transaction);
-      expect(subjectIndexes[0]).toBeGreaterThan(predecessorKind);
-      expect(sequenceIndex).toBeGreaterThan(predecessorKind);
-      expect(digestIndex).toBeGreaterThan(predecessorKind);
-      expect(kindIndex).toBeGreaterThan(digestIndex);
-      predecessorKind = kindIndex;
+      const stored = await client.scanAll(event.subject, null, null);
+      const actualFacts = stored.rows.map((row) => {
+        expect(row).toBeInstanceOf(FramTriple);
+        const fact = row as FramTriple;
+        expect(fact.slot0).toBe(event.subject);
+        expect(typeof fact.slot1).toBe("string");
+        expect(typeof fact.slot2).toBe("string");
+        return JSON.stringify([fact.slot1, fact.slot2]);
+      }).sort();
+      const expectedFacts = eventFacts(event)
+        .map(([predicate, value]) => JSON.stringify([predicate, value]))
+        .sort();
+      expect(actualFacts).toEqual(expectedFacts);
     }
-    expect(eventTransactions.size).toBe(events.length);
   } finally {
-    if (priorPort === undefined) delete process.env.NORTH_PORT;
-    else process.env.NORTH_PORT = priorPort;
-    if (priorLog === undefined) delete process.env.FRAM_LOG;
-    else process.env.FRAM_LOG = priorLog;
-    daemon.kill();
-    await daemon.exited;
+    client?.close();
+    for (const [key, value] of priorEnvironment) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    serverProcess.kill("SIGTERM");
+    await serverProcess.exited;
     rmSync(scratch, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 test("terminal success publishes exact ordered lifecycle evidence and a complete summary", async () => {
   const published: AgentRunEvent[] = [];

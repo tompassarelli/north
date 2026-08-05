@@ -103,21 +103,14 @@ for (const key of ["NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY"])
   delete process.env[key];
 
 // Same leak, Fram side, and this one is a WRITE hazard rather than just a slow read.
-// A managed lane exports FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.log. The
-// log-split router reads it from the environment only — it is not derivable from the
-// coordinator's argv — so run-ledger.test.ts's "isolated" coordinator (spawned as
-// `bb -cp out coord_daemon.clj serve-flat <port> <scratch log>`) inherits it, is forced
-// onto the whole-log MERGE boot of both logs, and folds the operator's real telemetry
-// corpus. Observed 2026-07-26: `[fram] boot(flat): whole-log fold — disabled
-// (FRAM_SNAPSHOT_BOOT unset) in 15023 ms · 180449 live facts` from a log the test had
-// just created empty — 15s of boot behind a 5s test and a 5s waitForPort budget, and
-// the test's own telemetry writes routed at the production log. Unset, the same file
-// runs 10/10 green in 760ms. Delete it; a hermetic suite has no business resolving the
-// operator's telemetry log. FRAM_LOG is deliberately left alone: the coordinator takes
-// its canonical log as argv, and the tests that need one set FRAM_LOG explicitly.
+// A managed lane exports FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.framlog.
+// Canonical process fixtures launch `bin/fram-server` with their own FRAMLOG and
+// SpaceId, and test children must not inherit a second endpoint that targets the
+// operator's telemetry space. Delete it; partition tests set their own telemetry
+// endpoint. FRAM_LOG is deliberately left alone because fixtures select their own
+// FRAMLOG explicitly.
 delete process.env.FRAM_TELEMETRY_LOG;
-// NORTH_TELEMETRY_PARTITION=1 and FRAM_TELEMETRY_LOG are one precondition
-// (coord.clj throws on the split pair) — scrub both; partition tests set both.
+// Scrub the routing switch with its endpoint; partition tests set both.
 delete process.env.NORTH_TELEMETRY_PARTITION;
 delete process.env.NORTH_TELEMETRY_PORT;
 //

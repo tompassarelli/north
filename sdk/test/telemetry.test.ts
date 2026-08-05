@@ -16,14 +16,10 @@ import {
 } from "../src/learning-regime";
 import { sha256Bytes } from "../src/composition-receipt";
 
-// Mirror of the fram coord_daemon log-split contract (coord_daemon.clj
-// subject-token + default-telemetry-kinds). A subject routes to telemetry.log
-// iff its stored `kind` OR — kind-less — the token before its first colon is in
-// this allow-list. A run's body facts are written BEFORE its `kind run` commit
-// marker, so during that window the run subject is kind-less and MUST carry a
-// colon token to route correctly. A dash-form `@run-…` id has no colon → token
-// undefined → its body facts misroute to coordination.log (the 2026-07-17
-// regression). This guards the id format so that never recurs.
+// Canonical North routing selects the telemetry FRAMRPC endpoint and SpaceId by
+// the subject token before publication. A run's body facts are written before
+// its `kind run` marker, so the minted subject must carry the `run` token without
+// depending on stored graph state.
 const TELEMETRY_KINDS = new Set(["run", "session", "mine", "guard_denial"]);
 
 test("terminal publication derives the coordinator read timeout without overriding callers", () => {
@@ -42,11 +38,10 @@ function subjectToken(subject: string): string | undefined {
   return colon > 0 ? s.slice(1, colon) : undefined;
 }
 
-test("a minted run subject routes to telemetry.log before its kind marker lands", () => {
+test("a minted run subject selects the telemetry SpaceId before its kind marker lands", () => {
   for (const agent of ["lane-abc123", "sdk-spawn-mrok0z6m-165cef51", "codex-work"]) {
     const runId = newRunId(agent);
-    // kind-less window: routing falls back to the first-colon token, which must
-    // be an allow-listed telemetry kind or the body facts land in coordination.log.
+    // The pre-kind publication routes from the first-colon token alone.
     const token = subjectToken(runId);
     expect(token).toBe("run");
     expect(TELEMETRY_KINDS.has(token as string)).toBe(true);
