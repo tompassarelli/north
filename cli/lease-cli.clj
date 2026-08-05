@@ -1,5 +1,5 @@
 ;; lease-cli.clj — agent-side North lease helper (P0 shadow).
-;; Speaks the daemon lease wire verbs. EDN remains the human/legacy default;
+;; Speaks canonical typed FRAMRPC lease operations. Human output remains EDN;
 ;; --json is the exact machine envelope used by the Linear bridge.
 ;; This is the contract every agent session uses to take the build mutex over the socket
 ;; INSTEAD of dropping a per-agent BUILD-LOCK-<agent>.md lockfile.
@@ -7,18 +7,16 @@
 ;; usage:
 ;;   bb lease-cli.clj <port> [--json] acquire <res> <holder> <ttl-ms>
 ;;   bb lease-cli.clj <port> [--json] renew  <res> <holder> <epoch> <ttl-ms>
-;;   bb lease-cli.clj <port> [--json] release <res> <holder> [<epoch>]
+;;   bb lease-cli.clj <port> [--json] release <res> <holder> <epoch>
 ;;   bb lease-cli.clj <port> [--json] fence   <res> <holder> <epoch>
 ;;   printf %s <value> | bb lease-cli.clj <port> [--json] put-fenced-stdin <res> <holder> <epoch> <subject> <predicate>
 ;;   bb lease-cli.clj <port> [--json] status
 (require '[cheshire.core :as json]
-         '[clojure.edn :as edn]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
-;; shared coord substrate (Foundation Part B): send-op lives once in cli/coord.clj.
+;; Shared coordination substrate: typed lease operations live once in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op north.coord/send-op)
 
 (defn fail! [message]
   (binding [*out* *err*] (println (str "lease-cli: " message)))
@@ -34,9 +32,7 @@
   (when (str/blank? value) (fail! (str label " must not be blank")))
   value)
 
-;; The Fram coordinator admits one 1 MiB EDN request line. 160 KiB remains
-;; above Linux's per-argument ceiling while leaving enough room for worst-case
-;; EDN string escaping plus the fenced metadata envelope.
+;; Stay below both FRAMRPC's body cap and Linux's per-argument ceiling.
 (def max-fenced-value-bytes (* 160 1024))
 
 (defn read-fenced-value []
@@ -52,6 +48,26 @@
       (catch java.nio.charset.CharacterCodingException _
         (fail! "fenced value must be valid UTF-8")))))
 
+(defn public-result [verb result]
+  (if-let [reject (:reject result)]
+    {:reject reject :version (or (:version result) (:served-version result))}
+    (case verb
+      "acquire"
+      {:ok (:epoch result) :holder (:holder result)
+       :epoch (:epoch result) :exp (:exp result)}
+
+      "renew"
+      {:ok (:epoch result) :holder (:holder result)
+       :epoch (:epoch result) :exp (:exp result)}
+
+      "release"
+      (cond-> {:ok (:ok result)}
+        (false? (:released? result)) (assoc :noop true))
+
+      "fence" {:fence-ok (boolean (:valid? result))}
+      "put-fenced-stdin" {:ok (:ok result)}
+      result)))
+
 (let [[port-token maybe-format & tail] *command-line-args*
       json? (= maybe-format "--json")
       [verb & args] (if json? tail (cons maybe-format tail))
@@ -60,28 +76,33 @@
       result
       (case verb
      "acquire"
-     (send-op port {:op :acquire-lease
-                    :res (required-text "resource" (nth args 0 nil))
-                    :holder (required-text "holder" (nth args 1 nil))
-                    :ttl-ms (positive-long "ttl-ms" (nth args 2 nil))})
+     (north.coord/acquire-lease!
+      port
+      (required-text "resource" (nth args 0 nil))
+      (required-text "holder" (nth args 1 nil))
+      (positive-long "ttl-ms" (nth args 2 nil)))
      "renew"
-     (send-op port {:op :renew-lease
-                    :res (required-text "resource" (nth args 0 nil))
-                    :holder (required-text "holder" (nth args 1 nil))
-                    :epoch (positive-long "epoch" (nth args 2 nil))
-                    :ttl-ms (positive-long "ttl-ms" (nth args 3 nil))})
+     (north.coord/renew-lease!
+      port
+      (north.coord/lease-fence
+       (required-text "resource" (nth args 0 nil))
+       (required-text "holder" (nth args 1 nil))
+       (positive-long "epoch" (nth args 2 nil)))
+      (positive-long "ttl-ms" (nth args 3 nil)))
      "release"
-     (send-op port
-              (cond-> {:op :release-lease
-                       :res (required-text "resource" (nth args 0 nil))
-                       :holder (required-text "holder" (nth args 1 nil))}
-                (nth args 2 nil)
-                (assoc :epoch (positive-long "epoch" (nth args 2)))))
+     (north.coord/release-lease!
+      port
+      (north.coord/lease-fence
+       (required-text "resource" (nth args 0 nil))
+       (required-text "holder" (nth args 1 nil))
+       (positive-long "epoch" (nth args 2 nil))))
      "fence"
-     (send-op port {:op :fence-ok
-                    :res (required-text "resource" (nth args 0 nil))
-                    :holder (required-text "holder" (nth args 1 nil))
-                    :epoch (positive-long "epoch" (nth args 2 nil))})
+     (north.coord/check-lease!
+      port
+      (north.coord/lease-fence
+       (required-text "resource" (nth args 0 nil))
+       (required-text "holder" (nth args 1 nil))
+       (positive-long "epoch" (nth args 2 nil))))
      "put-fenced-stdin"
      (north.coord/put-with-fence!
       port
@@ -92,8 +113,9 @@
       (required-text "predicate" (nth args 4 nil))
       (read-fenced-value))
      "status"
-     (send-op port {:op :status})
-     (fail! (str "unknown verb: " verb)))]
+     (north.coord/status port)
+     (fail! (str "unknown verb: " verb)))
+      result (public-result verb result)]
   (if json?
     (println (json/generate-string result))
     (prn result)))

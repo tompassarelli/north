@@ -1,24 +1,18 @@
 ;; acquire-cli.clj <port> {claim|verify|acquire|release|status} <thread> [holder]
-;; Atomic work acquisition WITHOUT a lease (thread 019f100f-eefe). The @lease:<thread>
-;; work-acquire lease is DELETED: driving a thread is GRAPH-INTERNAL, so it collapses onto
-;; DECLARED-SINGLE — `driver` is a single-valued cardinality fact, and the engine's own
-;; per-(subject,predicate) base-version reject IS the mutual exclusion. Two agents racing
-;; to drive the SAME thread both pass the empty-group base (0); the writer serialized first
-;; wins, the second's now-stale base is rejected (:conflict). No @lease:, no epoch/ttl — a
-;; stuck driver is force-released explicitly or retracted by the lane-liveness reaper.
-;; acquire-lease!/lease-cli survive ONLY for EXTERNAL resources (build dir / external API),
-;; never a graph-internal subject like @lease:<thread>.
-(require '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
+;; Atomic work acquisition without a lease. Driving a thread is graph-internal:
+;; the `driver` assertion commits against the exact version that observed no
+;; driver. Two racers can both read empty, but only one expected-version
+;; transaction commits; the other replans and sees the winner.
+(require '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; shared coord substrate (Foundation Part B): send-op lives once in cli/coord.clj.
+;; Shared coordination substrate: typed FRAMRPC reads and transactions live once.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
-(def send-op north.coord/send-op)
 
 (defn- driver-of [port thread]
-  (:value (send-op port {:op :resolved :te thread :p "driver"})))
+  (north.coord/resolved port thread "driver"))
 
 (defn- thread-exists? [port thread]
-  (some? (:value (send-op port {:op :resolved :te thread :p "title"}))))
+  (some? (north.coord/resolved port thread "title")))
 
 (defn- thread-subject [thread]
   (let [value (when (string? thread) thread)
@@ -35,19 +29,41 @@
   ;; reads and the retract, retry the whole observation. This prevents a stale
   ;; releaser from clearing a successor installed during the read/retract gap.
   (loop [remaining 8]
-    (let [base (:version (send-op port {:op :version}))]
+    (let [base (north.coord/cur-ver port)]
       (when-not (integer? base)
-        (throw (ex-info "coordinator version unavailable" {})))
+        (throw (ex-info "Fram version unavailable" {})))
       (let [cur (driver-of port thread)]
         (if (not= cur me)
           {:state :noop :driver cur}
-          (let [result (send-op port {:op :retract
-                                      :te thread :p "driver" :r me :base base})]
+          (let [result (north.coord/transact!
+                        port [{:op :retract :subject thread
+                               :predicate "driver" :value me}]
+                        {:expected-version base})]
             (cond
               (nil? (:reject result)) {:state :released}
               (and (= :conflict (:reject result)) (> remaining 1))
               (recur (dec remaining))
               :else {:state :failed :reject (:reject result)})))))))
+
+(defn- claim-driver! [port thread me require-thread?]
+  (try
+    (let [result
+          (north.coord/assert-after-read!
+           port thread "driver" me
+           (fn []
+             (when (and require-thread? (not (thread-exists? port thread)))
+               (throw (ex-info "thread does not exist" {:driver-state :missing})))
+             (when-let [current (driver-of port thread)]
+               (throw (ex-info "thread already has a driver"
+                               {:driver-state (if (= current me) :already-mine :held)
+                                :driver current})))))]
+      (if (:reject result)
+        {:state :failed :reject (:reject result)}
+        {:state :acquired}))
+    (catch clojure.lang.ExceptionInfo error
+      (if-let [state (:driver-state (ex-data error))]
+        {:state state :driver (:driver (ex-data error))}
+        (throw error)))))
 
 (let [[ps verb & args] *command-line-args*
       port (Integer/parseInt ps)
@@ -72,10 +88,11 @@
         (do (println (format "DENIED %s — already driven" thread)) (System/exit 3))
 
         :else
-        (let [r (send-op port {:op :assert :te thread :p "driver" :r me :base 0})]
-          (if (:reject r)
-            (do (println (format "DENIED %s — lost the race" thread)) (System/exit 3))
-            (println (format "CLAIMED %s by %s" thread holder))))))
+        (let [{:keys [state]} (claim-driver! port thread me true)]
+          (if (= :acquired state)
+            (println (format "CLAIMED %s by %s" thread holder))
+            (do (println (format "DENIED %s — lost the race" thread))
+                (System/exit 3))))))
 
     "verify"                             ; <thread> <holder> — MCP pre-claim handoff
     (let [[thread holder] args
@@ -107,14 +124,14 @@
         (some? cur)                      ; driven by someone else — read-check denial
         (do (println (format "DENIED %s — driven by %s" thread cur)) (System/exit 1))
 
-        :else                            ; undriven: assert with the empty-group base (0).
-        ;; Concurrent racers both pass base 0; the engine commits the first and rejects the
-        ;; second (bv > 0). The OCC reject IS the lock — no lease.
-        (let [r (send-op port {:op :assert :te thread :p "driver" :r me :base 0})]
-          (if (:reject r)
-            (do (println (format "DENIED %s — lost the race (driver=%s)" thread (driver-of port thread)))
-                (System/exit 1))
-            (println (format "ACQUIRED %s by %s" thread holder))))))
+        :else
+        (let [{:keys [state driver]} (claim-driver! port thread me false)]
+          (case state
+            :acquired (println (format "ACQUIRED %s by %s" thread holder))
+            :already-mine (println (format "ACQUIRED %s by %s (already held)" thread holder))
+            (do (println (format "DENIED %s — lost the race (driver=%s)"
+                                 thread (or driver (driver-of port thread))))
+                (System/exit 1))))))
 
     "release"                            ; <thread> <holder> — only the live driver may release
     (let [[thread holder] args

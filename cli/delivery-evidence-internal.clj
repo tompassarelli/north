@@ -19,15 +19,8 @@
   (when (:reject result)
     (fail! (if (or (= :deadline (:reject result)) (:deadline result))
              "delivery evidence publication deadline exceeded"
-             "coordinator rejected delivery evidence write")
+             "Fram rejected delivery evidence write")
            {:operation operation}))
-  ;; An engine-level error ("unknown op" from a coordinator predating the verb)
-  ;; is neither :reject nor :done; silently proceeding to the readback turned
-  ;; an unsupported operation into a phantom "lost race" for every dispatch.
-  (when (:error result)
-    (fail! (str "coordinator cannot execute delivery evidence write: "
-                (:error result))
-           {:operation operation :error (:error result)}))
   result)
 
 (defn parse-request [raw]
@@ -67,62 +60,15 @@
       (fail! "invalid delivery evidence thread" {:thread raw}))
     canonical))
 
-;; "The coordinator answered: this subject has no facts" and "the coordinator
-;; did not answer" are DIFFERENT worlds, and every guard below reads them as
-;; graph truth. Folding a non-answer into {} is what let one transient
-;; :query-time-limit — Fram aborts a query whose cold projection rebuild outruns
-;; FRAM_QUERY_TIMEOUT_MS, and every write invalidates that projection, so the
-;; read right after a capture is exactly the one that pays it — reject a
-;; well-formed thread as "a non-thread subject", and would equally have let a
-;; non-fresh run subject pass the freshness gate. Only an :ok answer is evidence.
-(def transient-query-stops
-  #{:query-time-limit :query-work-limit :query-cancelled})
-
-(defn query-answered? [response]
-  (vector? (:ok response)))
-
-;; ONE waiting budget for every read in a writer invocation, not one per read.
-;; The budget is created on the FIRST retry, so an answering coordinator never
-;; opens a second deadline (the reservation's one publication deadline stays
-;; the only one), and every read still ATTEMPTS once even after the budget
-;; is spent — exhaustion stops waiting, not asking. A single Fram query may use
-;; its full 5s evaluation limit, so the SDK's finite subprocess boundary must
-;; cover the first attempt, one retry, publication, and readback.
-;; Rides above coordinator read latency under load (4-6.5s observed at
-;; ~300k-version scale); 2s starved the pre-publication read.
-(def read-retry-budget-ms 15000)
-(def ^:private read-retry-deadline-ns (atom nil))
-
-(defn- read-deadline-ns []
-  (or @read-retry-deadline-ns
-      (reset! read-retry-deadline-ns
-              (north.coord/retry-deadline-ns read-retry-budget-ms))))
-
 (defn query-rows!
-  "Rows of one coordinator query, or a loud failure. A transient evaluation stop
-   is retried inside the shared read budget; anything else fails immediately
-   under its own name rather than impersonating an empty subject."
+  "Rows of one typed FRAMRPC query. A transport or evaluation failure is never
+   converted into an empty subject."
   [port subject query]
-  (let [unanswered (atom nil)
-        attempt!
-        (fn []
-          (let [response (north.coord/send-op port {:op :query :query query})]
-            (if (query-answered? response)
-              {:answered response}
-              (do (reset! unanswered response)
-                  (if (contains? transient-query-stops (:code response))
-                    {:reject :conflict}
-                    {:unanswered true})))))
-        first-outcome (attempt!)
-        outcome (if (= :conflict (:reject first-outcome))
-                  (north.coord/retry-conflicts-until! (read-deadline-ns) attempt!)
-                  first-outcome)]
-    (if-let [answered (:answered outcome)]
-      (:ok answered)
-      (fail! "coordinator did not answer a delivery evidence read"
-             {:subject subject
-              :code (:code @unanswered)
-              :response @unanswered}))))
+  (try
+    (north.coord/query-rows port query)
+    (catch Exception error
+      (fail! "Fram did not answer a delivery evidence read"
+             {:subject subject :cause (.getMessage error)}))))
 
 (defn facts-of [port subject]
   (let [rows (query-rows!
@@ -439,10 +385,8 @@
         (fn []
           (let [result
                 (try
-                  (north.coord/send-op
-                   port {:op :acquire-lease
-                         :res resource :holder holder
-                         :ttl-ms evidence-lease-ttl-ms})
+                  (north.coord/acquire-lease!
+                   port resource holder evidence-lease-ttl-ms)
                   (catch Exception error
                     (proof-transport-failure!
                      run bar :acquire (.getMessage error))))]
@@ -473,19 +417,23 @@
   ;; The bounded lease expires on its own, so cleanup cannot turn an irreversible
   ;; success into a false publication failure.
   (try
-    (north.coord/send-op
-     port {:op :release-lease
-           :res resource :holder holder :epoch epoch})
+    (north.coord/release-lease!
+     port {:resource resource :holder holder :epoch epoch})
     (catch Exception _ nil)))
 
 (defn fenced-proof-write!
   [port lease run bar phase operation]
   (let [result
         (try
-          (north.coord/send-op port (merge operation
-                                            {:res (:resource lease)
-                                             :holder (:holder lease)
-                                             :epoch (:epoch lease)}))
+          (let [action-op (:op operation)]
+            (when-not (contains? #{:assert :retract} action-op)
+              (throw (ex-info "unsupported fenced proof action"
+                              {:operation action-op})))
+            (north.coord/transact!
+             port [{:op action-op :subject (:subject operation)
+                    :predicate (:predicate operation)
+                    :value (:value operation)}]
+             {:fence lease}))
           (catch Exception error
             (proof-transport-failure!
              run bar phase (.getMessage error))))]
@@ -502,7 +450,7 @@
           (catch Exception error
             (if (str/starts-with?
                  (.getMessage error)
-                 "coordinator did not answer a delivery evidence read")
+                 "Fram did not answer a delivery evidence read")
               (proof-transport-failure!
                run bar :confirm (.getMessage error))
               (throw error))))]
@@ -533,8 +481,8 @@
               (do
                 (fenced-proof-write!
                  port lease run bar :retract
-                 {:op :retract-with-fence
-                  :te run :p "run_bar_evidence" :r stale})
+                 {:op :retract
+                  :subject run :predicate "run_bar_evidence" :value stale})
                 [(:superseded-observed context)])
               [])]
         (if-let [existing (:existing context)]
@@ -542,8 +490,8 @@
           (do
             (fenced-proof-write!
              port lease run bar :assert
-             {:op :assert-with-fence
-              :te run :p "run_bar_evidence" :r raw})
+             {:op :assert
+              :subject run :predicate "run_bar_evidence" :value raw})
             ;; The run/bar lease excludes rival supported evidence writers.
             ;; Re-reading the full provenance + active-contract context catches
             ;; an external reservation/thread mutation in the validation/write

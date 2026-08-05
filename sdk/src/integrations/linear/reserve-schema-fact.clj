@@ -32,21 +32,15 @@
   ;; `cardinality` and `value_kind` live in Fram's schema-as-facts client view,
   ;; not in the reified domain group served by :resolved. Query the public fact
   ;; relation so the CAS validates the same schema facts that `north show` sees.
-  (let [response
-        (north.coord/send-op
+  (let [rows
+        (north.coord/query-rows
          port
-         {:op :query
-          :query
-          {:find "value"
-           :rules
-           [{:head {:rel "value" :args [{:var "value"}]}
-             :body [{:rel "triple"
-                     :args [subject predicate {:var "value"}]}]}]}})
-        rows (:ok response)]
-    (when-not (and (exact-keys? response #{:ok :version :engine})
-                   (nonnegative-long? (:version response))
-                   (#{"index" "scan"} (:engine response))
-                   (vector? rows)
+         {:find "value"
+          :rules
+          [{:head {:rel "value" :args [{:var "value"}]}
+            :body [{:rel "triple"
+                    :args [subject predicate {:var "value"}]}]}]})]
+    (when-not (and (vector? rows)
                    (every? (fn [row]
                              (and (vector? row)
                                   (= 1 (count row))
@@ -57,8 +51,10 @@
     (set (map first rows))))
 
 (defn exact-success? [result]
-  (and (exact-keys? result #{:ok})
-       (nonnegative-long? (:ok result))))
+  (and (exact-keys? result #{:ok :changed? :results})
+       (nonnegative-long? (:ok result))
+       (boolean? (:changed? result))
+       (vector? (:results result))))
 
 (defn exact-reject? [result]
   (and (exact-keys? result #{:reject :version})

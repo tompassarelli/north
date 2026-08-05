@@ -45,13 +45,12 @@
           parsed)))
 
 (defn facts-of [port subject]
-  (let [rows (:ok (north.coord/send-op
-                   port {:op :query
-                         :query {:find "run_writer_fact"
-                                 :rules [{:head {:rel "run_writer_fact"
-                                                 :args [{:var "p"} {:var "r"}]}
-                                          :body [{:rel "triple"
-                                                  :args [subject {:var "p"} {:var "r"}]}]}]}}))]
+  (let [rows (north.coord/query-rows
+              port {:find "run_writer_fact"
+                    :rules [{:head {:rel "run_writer_fact"
+                                    :args [{:var "p"} {:var "r"}]}
+                             :body [{:rel "triple"
+                                     :args [subject {:var "p"} {:var "r"}]}]}]})]
     (reduce (fn [acc [predicate value]]
               (update acc predicate (fnil conj #{}) value))
             {}
@@ -286,9 +285,6 @@
           (fail! "run telemetry delivery predicates must be singleton"
                  {:predicate predicate :values (mapv second entries)}))
         (when (seq delivery-facts)
-          (when-not (= (get delivery-facts "outcome")
-                       (get delivery-facts "process_outcome"))
-            (fail! "run legacy outcome must equal process_outcome" {}))
           (when-not (north.terminal-projection/delivery-projection-valid? delivery-facts)
             (fail! "run delivery outcome lacks a valid proof projection"
                    {:delivery-outcome (get delivery-facts "delivery_outcome")}))

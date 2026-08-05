@@ -98,8 +98,7 @@
                 (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))))
 
 (defn values-of [port subject predicate]
-  (let [response (north.coord/send-op
-                  port {:op :resolved :te subject :p predicate})]
+  (let [response (north.coord/resolved-envelope port subject predicate)]
     (when-not
      (and (exact-keys? response #{:value :members :ambiguous? :values :version})
           (nonnegative-long? (:version response))
@@ -127,30 +126,25 @@
            max-bootstrap-authority-bytes)))
 
 (defn query-pairs [port relation predicate]
-  (let [response
-        (north.coord/send-op
+  (let [rows
+        (north.coord/query-rows
          port
-         {:op :query
-          :query
-          {:find relation
-           :rules
-           [{:head {:rel relation
-                    :args [{:var "subject"} {:var "value"}]}
-             :body [{:rel "triple"
-                     :args [{:var "subject"} predicate {:var "value"}]}]}]}})]
+         {:find relation
+          :rules
+          [{:head {:rel relation
+                   :args [{:var "subject"} {:var "value"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} predicate {:var "value"}]}]}]})]
     (when-not
-     (and (exact-keys? response #{:ok :version :engine})
-          (nonnegative-long? (:version response))
-          (#{"index" "scan"} (:engine response))
-          (vector? (:ok response))
-          (<= (count (:ok response)) max-bootstrap-authorities)
+     (and (vector? rows)
+          (<= (count rows) max-bootstrap-authorities)
           (every? (fn [row]
                     (and (vector? row)
                          (= 2 (count row))
                          (every? authority-row-string? row)))
-                  (:ok response)))
+                  rows))
       (fail! "Linear reservation received an invalid authority-query response"))
-    (:ok response)))
+    rows))
 
 (def bootstrap-election-keys
   #{"canonicalLink" "connector" "createdAt" "initialKey" "linkedThread"})
@@ -265,24 +259,9 @@
               (fail! "Linear reservation found conflicting bootstrap projections"))
             (when (= thread-ref (:linked-thread election))
               (:canonical-link election)))
-          (let [links (get projected-links subject #{})
-                threads (get projected-threads subject #{})]
-            ;; Historical releases wrote projections without the atomic
-            ;; election. A projected thread is still a claim, but only an
-            ;; exact singleton link/thread pair is safe to interpret.
-            (when (seq threads)
-              (when-not
-               (and (= 1 (count links))
-                    (= 1 (count threads))
-                    (re-matches
-                     #"@link:linear:[A-Za-z0-9:._!~*'()%-]+"
-                     (first links))
-                    (re-matches
-                     #"@[A-Za-z0-9][A-Za-z0-9._:-]*"
-                     (first threads)))
-                (fail! "Linear reservation found partial legacy bootstrap authority"))
-              (when (= thread-ref (first threads))
-                (first links))))))
+          (when (or (seq (get projected-links subject))
+                    (seq (get projected-threads subject)))
+            (fail! "Linear reservation found bootstrap projections without an election"))))
       subjects))))
 
 (defn reverse-claimants [port thread-ref]
@@ -304,8 +283,10 @@
       (fail! (str "Linear reservation conflicts on " predicate)))))
 
 (defn exact-success? [result]
-  (and (exact-keys? result #{:ok})
-       (nonnegative-long? (:ok result))))
+  (and (exact-keys? result #{:ok :changed? :results})
+       (nonnegative-long? (:ok result))
+       (boolean? (:changed? result))
+       (vector? (:results result))))
 
 (defn exact-reject? [result]
   (and (exact-keys? result #{:reject :version})
@@ -487,22 +468,14 @@
                        [predicate expected
                         (values-of port evidence-subject predicate)])
                      evidence-projections)
-                    legacy-present?
+                    projection-present?
                     (some (fn [[_ _ values]] (seq values)) projection-values)]
                 (when (or (> (count elections) 1)
                           (and (seq elections)
                                (not= elections #{bootstrap-election})))
                   (fail! "Linear reservation conflicts on bootstrap_election"))
-                ;; Old releases wrote the projection facts directly. Adopt
-                ;; those only when the whole legacy envelope is already exact;
-                ;; a prefix cannot be completed by a different key or thread.
-                (when (and (empty? elections) legacy-present?
-                           (not-every?
-                            (fn [[_ expected values]]
-                              (= values #{expected}))
-                            projection-values))
-                  (fail!
-                   "legacy Linear bootstrap evidence is partial or conflicting"))
+                (when (and (empty? elections) projection-present?)
+                  (fail! "Linear reservation conflicts on bootstrap_election"))
                 (doseq [[predicate expected _] projection-values]
                   (compatible-singleton!
                    port evidence-subject predicate expected)))))
