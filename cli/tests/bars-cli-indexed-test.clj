@@ -84,11 +84,11 @@
                                (throw (ex-info "raw wire retract is not the prune path" {})))
                 rpc/retract-projected!
                 (fn [_ proposition]
-                  (swap! retracted conj [(t/triple-slot1 proposition)
-                                         (t/triple-slot2 proposition)])
+                  (swap! retracted conj [(t/triple-t2 proposition)
+                                         (t/triple-t3 proposition)])
                   (swap! rows (fn [current]
-                                (vec (remove #(= % [(t/triple-slot1 proposition)
-                                                    (t/triple-slot2 proposition)])
+                                (vec (remove #(= % [(t/triple-t2 proposition)
+                                                    (t/triple-t3 proposition)])
                                              current))))
                   {:changed? true})]
     (let [pruned (with-out-str

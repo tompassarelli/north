@@ -76,8 +76,8 @@
    ["pred_value_kind"  "single" "literal" "literal|ref — interned value vs @-ref object"]
    ["doc"         "single" "literal" "human description of a predicate"]
    ["predicate_example" "multi" "ref" "connected teaching example entity for a predicate"]
-   ["example_slot0" "single" "ref" "subject slot of a connected predicate teaching example"]
-   ["example_slot2" "single" "literal" "object slot of a connected predicate teaching example"]
+   ["example_t1" "single" "ref" "subject slot of a connected predicate teaching example"]
+   ["example_t3" "single" "literal" "object slot of a connected predicate teaching example"]
    ["see_also" "multi" "ref" "directed related-predicate teaching edge"]
    ["minted_by"   "single" "literal" "who registered this predicate"]
    ["minted_at"   "single" "literal" "instant the predicate was registered"]
@@ -716,10 +716,10 @@
         [(set-action entity "see_also" (map pred-ent see-also) :many)
          (set-action entity "predicate_example" example-entities :many)]
         (mapcat
-         (fn [[example [slot0 slot2]]]
+         (fn [[example [t1 t3]]]
            [(set-action example "entity_kind" ["predicate_example"] :one)
-            (set-action example "example_slot0" [slot0] :one)
-            (set-action example "example_slot2" [slot2] :one)])
+            (set-action example "example_t1" [t1] :one)
+            (set-action example "example_t3" [t3] :one)])
          (map vector example-entities examples)))))
    TEACHING))
 

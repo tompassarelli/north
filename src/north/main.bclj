@@ -44,13 +44,13 @@
                     {:type :north/non-string-triple}))))
 
 (defn- triple-subject [value: t/Triple] -> String
-  (string-term (t/triple-slot0 value)))
+  (string-term (t/triple-t1 value)))
 
 (defn- triple-predicate [value: t/Triple] -> String
-  (string-term (t/triple-slot1 value)))
+  (string-term (t/triple-t2 value)))
 
 (defn- triple-value [value: t/Triple] -> String
-  (string-term (t/triple-slot2 value)))
+  (string-term (t/triple-t3 value)))
 
 ;; bin/north preloads the Clojure coordination facade before loading this
 ;; compiled namespace. Resolve that runtime boundary lazily so pure projection

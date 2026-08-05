@@ -289,16 +289,16 @@ test("status decodes the served state, live count, engine, and cache", () => {
 test("every Term atom survives the Clojure encoding", () => {
   const rows = decodeTriples(decodeFrame(golden("term-atoms-response")).response!.payload);
   const first = rows[0] as FramTriple;
-  expect(first.slot0).toBe(Number.MIN_SAFE_INTEGER);
-  expect((first.slot1 as FramFloat).value).toBe(1.5);
-  expect(first.slot2).toBe(true);
+  expect(first.t1).toBe(Number.MIN_SAFE_INTEGER);
+  expect((first.t2 as FramFloat).value).toBe(1.5);
+  expect(first.t3).toBe(true);
   const second = rows[1] as FramTriple;
-  expect(second.slot0).toBe(false);
-  expect((second.slot1 as Keyword).name).toBe("rpc/unit");
-  expect(second.slot2).toBe("naïve 😀");
+  expect(second.t1).toBe(false);
+  expect((second.t2 as Keyword).name).toBe("rpc/unit");
+  expect(second.t3).toBe("naïve 😀");
   const third = rows[2] as FramTriple;
-  expect(third.slot0).toEqual(framInstant(0, 0));
-  expect(third.slot1).toEqual(framInstant(-1, 999999999));
+  expect(third.t1).toEqual(framInstant(0, 0));
+  expect(third.t2).toEqual(framInstant(-1, 999999999));
 });
 
 // --- ontology ---------------------------------------------------------------

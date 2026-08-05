@@ -138,9 +138,9 @@
                          {:type :missing-telemetry-log}))))))
 
 (defn- triple-row! [triple]
-  (let [row [(t/triple-slot0 triple)
-             (t/triple-slot1 triple)
-             (t/triple-slot2 triple)]]
+  (let [row [(t/triple-t1 triple)
+             (t/triple-t2 triple)
+             (t/triple-t3 triple)]]
     (when-not (every? string? row)
       (throw (ex-info "North coordination data contains a non-string triple"
                       {:type :malformed-coordination-triple :row row})))
@@ -177,11 +177,11 @@
 (defn cur-ver-for-subject [port subject]
   (cur-ver-in-domain port (domain-for-subject subject)))
 
-(defn- scan-rows! [port domain slot0 slot1 slot2]
+(defn- scan-rows! [port domain t1 t2 t3]
   (with-client!
    port domain
    (fn [client]
-     (let [result (rpc/scan-all! client slot0 slot1 slot2
+     (let [result (rpc/scan-all! client t1 t2 t3
                                  {:page-size rpc/effective-page-limit})]
        {:version (:served-version result)
         :rows (mapv triple-row! (:rows result))}))))
@@ -381,10 +381,10 @@
     (throw (ex-info "occurrence window returned a malformed row"
                     {:type :malformed-occurrence-window :row row})))
   (let [[subject predicate value] (triple-row! proposition)
-        transaction (t/triple-slot0 coordinate)]
+        transaction (t/triple-t1 coordinate)]
     {:operation (if (= action t/asserts) :assert :retract)
      :subject subject :predicate predicate :value value
-     :version (t/triple-slot2 transaction)}))
+     :version (t/triple-t3 transaction)}))
 
 (defn poll-occurrence-window-in-domain!
   [port domain lower-exclusive upper-inclusive handle!]
@@ -552,7 +552,7 @@
   ([port actions options]
    (let [actions (mapv raw-action! actions)
          domains (into #{} (map #(domain-for-subject
-                                  (t/triple-slot0 (:proposition %)))) actions)]
+                                  (t/triple-t1 (:proposition %)))) actions)]
      (when (> (count domains) 1)
        (throw (ex-info "one transaction cannot cross SpaceIds"
                        {:type :cross-domain-transaction :domains domains})))
@@ -845,19 +845,19 @@
                       {:type :duplicate-resource-lease
                        :resource resource})))
     (if-let [proposition (first rows)]
-      (let [lease (t/triple-slot2 proposition)]
+      (let [lease (t/triple-t3 proposition)]
         (when-not
          (and (t/triple? proposition)
-              (= resource (t/triple-slot0 proposition))
-              (= :kernel/lease (t/triple-slot1 proposition))
+              (= resource (t/triple-t1 proposition))
+              (= :kernel/lease (t/triple-t2 proposition))
               (t/triple? lease)
-              (= :kernel/expires-at (t/triple-slot1 lease))
-              (integer? (t/triple-slot2 lease)))
+              (= :kernel/expires-at (t/triple-t2 lease))
+              (integer? (t/triple-t3 lease)))
           (throw (ex-info "lease projection is malformed"
                           {:type :malformed-resource-lease
                            :resource resource})))
-        (let [holder (t/triple-slot0 lease)
-              exp (t/triple-slot2 lease)]
+        (let [holder (t/triple-t1 lease)
+              exp (t/triple-t3 lease)]
           {:resource resource :holder holder :exp exp
            :online? (> exp now) :version (:served-version result)}))
       {:resource resource :holder nil :exp nil
@@ -867,21 +867,21 @@
 
 (defn- parse-session-lease! [proposition]
   (let [resource (when (t/triple? proposition)
-                   (t/triple-slot0 proposition))]
+                   (t/triple-t1 proposition))]
     (when (and (string? resource)
                (str/starts-with? resource session-resource-prefix))
       (let [handle (subs resource (count session-resource-prefix))
-            value (t/triple-slot2 proposition)]
+            value (t/triple-t3 proposition)]
         (when-not (and (not (str/blank? handle))
                        (t/triple? value)
-                       (= handle (t/triple-slot0 value))
-                       (= :kernel/expires-at (t/triple-slot1 value))
-                       (integer? (t/triple-slot2 value))
-                       (<= 0 (t/triple-slot2 value) lease-max-safe-integer))
+                       (= handle (t/triple-t1 value))
+                       (= :kernel/expires-at (t/triple-t2 value))
+                       (integer? (t/triple-t3 value))
+                       (<= 0 (t/triple-t3 value) lease-max-safe-integer))
           (throw (ex-info "session lease proposition is malformed"
                           {:type :malformed-session-lease
                            :resource resource})))
-        {:handle handle :holder handle :exp (t/triple-slot2 value)}))))
+        {:handle handle :holder handle :exp (t/triple-t3 value)}))))
 
 (defn- session-lease-scan [port resource]
   (with-client!

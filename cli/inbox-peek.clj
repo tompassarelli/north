@@ -87,9 +87,9 @@
               (cond
                 (t/triple? value)
                 [cursor-triple-tag
-                 (encode (t/triple-slot0 value) (inc depth))
-                 (encode (t/triple-slot1 value) (inc depth))
-                 (encode (t/triple-slot2 value) (inc depth))]
+                 (encode (t/triple-t1 value) (inc depth))
+                 (encode (t/triple-t2 value) (inc depth))
+                 (encode (t/triple-t3 value) (inc depth))]
 
                 (or (string? value) (integer? value) (boolean? value)
                     (keyword? value)

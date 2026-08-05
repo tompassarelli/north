@@ -89,7 +89,7 @@
                  nil))
 
 (defn triple-value [triple]
-  (term/triple-slot2 triple))
+  (term/triple-t3 triple))
 
 (defn current-queue-observation []
   (with-client

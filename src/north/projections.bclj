@@ -44,9 +44,9 @@
          (fn
            [index: ProjectionIndex
             triple: t/Triple] -> ProjectionIndex
-           (let [subject: Any (t/triple-slot0 triple)
-                 predicate: Any (t/triple-slot1 triple)
-                 value: Any (t/triple-slot2 triple)
+           (let [subject: Any (t/triple-t1 triple)
+                 predicate: Any (t/triple-t2 triple)
+                 value: Any (t/triple-t3 triple)
                  key: TermKey [subject predicate]
                  values: (Vec Any)
                  (conj (get (projectionindex-many index) key no-terms) value)

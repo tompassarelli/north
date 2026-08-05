@@ -16,13 +16,13 @@
   (if (string? value) value (throw (ex-info "North coordination data requires String Triple terms" {:type :north/non-string-triple}))))
 
 (defn- ^String triple-subject [value]
-  (string-term (t/triple-slot0 value)))
+  (string-term (t/triple-t1 value)))
 
 (defn- ^String triple-predicate [value]
-  (string-term (t/triple-slot1 value)))
+  (string-term (t/triple-t2 value)))
 
 (defn- ^String triple-value [value]
-  (string-term (t/triple-slot2 value)))
+  (string-term (t/triple-t3 value)))
 
 (defn- coord-invoke [^String operation args]
   (let [callable (ns-resolve (symbol "north.coord") (symbol operation))]

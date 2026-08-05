@@ -247,7 +247,7 @@ test("framrpc fresh publish sends one sorted fenced batch with marker last", asy
   expect(batch.request.expectedVersion).toBe(11);
   expect(termEquals(decoded.fence, rpcFence(RESOURCE, HOLDER, 11))).toBe(true);
   expect(decoded.actions.every((action) => action.policy.name === RPC_SUBJECT_ANY.name)).toBe(true);
-  const predicates = decoded.actions.map((action) => action.proposition.slot1);
+  const predicates = decoded.actions.map((action) => action.proposition.t2);
   expect(predicates.at(-1)).toBe("identity_manifest_sha256");
   expect(predicates.slice(0, -1)).toEqual(
     Object.keys(PRESET).sort((left, right) => left < right ? -1 : left > right ? 1 : 0),

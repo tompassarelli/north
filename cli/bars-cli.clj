@@ -67,8 +67,8 @@
 ;; fram.types is only resolved once framrpc-client.clj (which requires it)
 ;; has loaded, i.e. after a successful ensure-native-client! — never at
 ;; bars-cli's own namespace analysis.
-(defn- triple-slot1 [triple] ((ns-resolve 'fram.types 'triple-slot1) triple))
-(defn- triple-slot2 [triple] ((ns-resolve 'fram.types 'triple-slot2) triple))
+(defn- triple-t2 [triple] ((ns-resolve 'fram.types 'triple-t2) triple))
+(defn- triple-t3 [triple] ((ns-resolve 'fram.types 'triple-t3) triple))
 (defn- new-triple [subject predicate object]
   ((ns-resolve 'fram.types 'triple) subject predicate object))
 
@@ -90,8 +90,8 @@
             (die! (str "coordinator did not answer a read for " subject
                        " (" (.getMessage error) ")"))))]
     (reduce (fn [acc triple]
-              (let [predicate (triple-slot1 triple)
-                    value (triple-slot2 triple)]
+              (let [predicate (triple-t2 triple)
+                    value (triple-t3 triple)]
                 ;; A non-string Term carries no groomable North bar fact.
                 (if (and (string? predicate) (string? value))
                   (update acc predicate (fnil conj #{}) value)
