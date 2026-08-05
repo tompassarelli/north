@@ -1,17 +1,21 @@
 (ns north.runtime-attestation
-  "Bind one canonical FRAMRPC listener to its exact current-Fram source,
-  sealed Graal executable, FRAMLOG, SpaceId, and systemd owner."
+  "Bind one canonical FRAMRPC listener to its exact frozen Fram source,
+  sealed Native READY artifact, FRAMLOG, SpaceId, and systemd owner."
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (def attestation-format "north-framrpc-runtime-attestation/v1")
 (def active-runtime-record-format "north-framrpc-runtime/v1")
+(def frozen-fram-source "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(def frozen-fram-revision "5db9b38fb05a618d76bd6e386f6a542274d9a8b9")
+(def frozen-fram-tree "e3c2bdedf8bd2f1e5c775d16628acc0169785e8f")
 (def runtime-record-order
   ["FORMAT" "FRAM_SOURCE" "FRAM_REVISION" "FRAM_TREE"
-   "FRAM_ARTIFACT" "FRAM_ARTIFACT_SHA256" "FRAM_SPACE_ID" "FRAM_PORT"
-   "FRAM_LOG" "PID" "PID_BIRTH" "CONTROLLER_UNIT"
-   "CONTROLLER_MAIN_PID"])
+   "FRAM_NATIVE_ARTIFACT_DIR" "FRAM_NATIVE_CLOSURE_SHA256"
+   "FRAM_SERVER_ARTIFACT" "FRAM_SERVER_ARTIFACT_SHA256"
+   "FRAM_SPACE_ID" "FRAM_PORT" "FRAM_LOG" "PID" "PID_BIRTH"
+   "CONTROLLER_UNIT" "CONTROLLER_MAIN_PID"])
 (def runtime-record-keys (set runtime-record-order))
 (def proc-read-limit (* 16 1024 1024))
 (def record-read-limit (* 1024 1024))
@@ -68,9 +72,55 @@
         canonical (.getCanonicalPath (io/file (str path)))]
     {:path canonical :state state}))
 
+(defn- canonical-directory! [label path]
+  (let [raw (str path)
+        file (io/file raw)
+        nio (.toPath file)
+        options (no-follow-options)]
+    (when (or (str/blank? raw)
+              (java.nio.file.Files/isSymbolicLink nio)
+              (not (java.nio.file.Files/isDirectory nio options)))
+      (fail! (str label " is missing, linked, or not a directory: " path)
+             :runtime-path-invalid {:label label :path raw}))
+    (let [canonical (.getCanonicalPath file)]
+      (when-not (= raw canonical)
+        (fail! (str label " is not an exact canonical directory: " path)
+               :runtime-path-invalid
+               {:label label :path raw :canonical canonical}))
+      canonical)))
+
 (defn artifact-record [label path]
-  (let [{:keys [path state]} (canonical-regular-file! label path)]
-    {:path path :bytes (:size state) :sha256 (sha256-file path) :state state}))
+  (let [{:keys [path state]} (canonical-regular-file! label path)
+        sha256 (sha256-file path)
+        after (unix-file-state! label path)]
+    (when-not (= state after)
+      (fail! (str label " changed while it was hashed")
+             :runtime-artifact-raced {:label label :path path}))
+    {:path path :bytes (:size after) :sha256 sha256 :state after}))
+
+(defn- ready-record! [path closure-sha256]
+  (let [{canonical :path before :state}
+        (canonical-regular-file! "Native READY receipt" path)]
+    (when-not (and (= 1 (:nlink before))
+                   (zero? (bit-and (:mode before) 18)))
+      (fail! "Native READY receipt is not a safe regular file"
+             :runtime-record-invalid {:path canonical :state before}))
+    (when (> (:size before) 256)
+      (fail! "Native READY receipt exceeds its exact bound"
+             :runtime-record-invalid {:path canonical :bytes (:size before)}))
+    (let [payload (java.nio.file.Files/readAllBytes (.toPath (io/file canonical)))
+          after (unix-file-state! "Native READY receipt" canonical)
+          expected
+          (.getBytes (str "fram-native-build/v1 " closure-sha256 "\n")
+                     java.nio.charset.StandardCharsets/UTF_8)]
+      (when-not (and (= before after)
+                     (= (:size before) (alength payload))
+                     (java.util.Arrays/equals ^bytes expected ^bytes payload))
+        (fail! "Native READY receipt differs from the exact closure"
+               :runtime-record-invalid
+               {:path canonical :closure-sha256 closure-sha256}))
+      {:path canonical :bytes (alength payload)
+       :sha256 (sha256-bytes payload)})))
 
 (defn- read-record! [path]
   (let [{canonical :path before :state}
@@ -213,8 +263,11 @@
 
 (defn process-cmdline [pid]
   (let [payload (read-proc-bytes (str "/proc/" pid "/cmdline"))
-        text (String. ^bytes payload java.nio.charset.StandardCharsets/UTF_8)]
-    (vec (remove str/blank? (str/split text #"\u0000")))))
+        text (String. ^bytes payload java.nio.charset.StandardCharsets/UTF_8)
+        arguments (vec (str/split text #"\u0000" -1))]
+    (if (and (seq arguments) (= "" (peek arguments)))
+      (pop arguments)
+      arguments)))
 
 (defn process-environment [pid]
   (let [payload (read-proc-bytes (str "/proc/" pid "/environ"))
@@ -237,7 +290,7 @@
         value (str/trim (:out result))]
     (when-not (and (zero? (:exit result))
                    (re-matches #"[0-9a-f]{40,64}" value))
-      (fail! "current Fram source lacks exact Git provenance"
+      (fail! "frozen Fram source lacks exact Git provenance"
              :runtime-source-invalid
              {:source source :expression expression :error (str/trim (:err result))}))
     value))
@@ -248,25 +301,24 @@
     (when (or (not (.isDirectory (io/file canonical)))
               (java.nio.file.Files/isSymbolicLink marker)
               (not (java.nio.file.Files/exists marker (no-follow-options))))
-      (fail! "current Fram source is not an exact Git checkout"
+      (fail! "frozen Fram source is not an exact Git checkout"
              :runtime-source-invalid {:source canonical}))
     (let [revision (git-value! canonical "HEAD")
           tree (git-value! canonical "HEAD^{tree}")
-          published (git-value! canonical "origin/main")
           dirty (proc/shell {:out :string :err :string :continue true}
                             "git" "-C" canonical "status" "--porcelain"
                             "--untracked-files=all")]
-      (when-not (and (= expected-revision revision published)
+      (when-not (and (= expected-revision revision)
                      (= expected-tree tree)
                      (zero? (:exit dirty))
                      (str/blank? (:out dirty)))
-        (fail! "listener source is not the exact clean published current Fram"
+        (fail! "listener source is not the exact clean frozen Fram"
                :runtime-source-mismatch
                {:source canonical
                 :expected {:revision expected-revision :tree expected-tree}
-                :actual {:revision revision :tree tree :published published}
+                :actual {:revision revision :tree tree}
                 :changes (str/split-lines (:out dirty))}))
-      {:source canonical :revision revision :tree tree :published published})))
+      {:source canonical :revision revision :tree tree})))
 
 (defn- parse-positive-long! [label value]
   (let [parsed (parse-long (str value))]
@@ -308,14 +360,14 @@
     pid))
 
 (defn- exact-process-shape!
-  [pid source artifact port log space-id]
+  [pid source artifact]
   (let [cwd (process-path pid "cwd")
         executable (process-path pid "exe")
         arguments (process-cmdline pid)
-        expected [artifact "serve" (str port) log space-id]]
+        expected [artifact]]
     (when-not (and (= source cwd) (= artifact executable)
                    (= expected arguments))
-      (fail! "FRAMRPC listener is not the sealed current-Fram executable"
+      (fail! "FRAMRPC listener is not the sealed Native executable"
              :runtime-process-attestation-failed
              {:reason :process-shape-mismatch :pid pid
               :expected {:cwd source :executable artifact :arguments expected}
@@ -323,6 +375,13 @@
     {:cwd cwd :arguments-sha256
      (sha256-bytes
       (.getBytes (pr-str arguments) java.nio.charset.StandardCharsets/UTF_8))}))
+
+(defn- runtime-identity-environment [environment]
+  (into {}
+        (filter (fn [[key _]]
+                  (or (str/starts-with? key "FRAM_")
+                      (str/starts-with? key "NORTH_"))))
+        environment))
 
 (defn attest-active-runtime!
   "Attest one active canonical writer from its launcher-owned 0600 record."
@@ -336,57 +395,85 @@
         pid (parse-positive-long! "PID" (get values "PID"))
         main-pid (parse-positive-long! "CONTROLLER_MAIN_PID"
                                        (get values "CONTROLLER_MAIN_PID"))
-        source (.getCanonicalPath (io/file (get values "FRAM_SOURCE")))
-        artifact-path (.getCanonicalPath (io/file (get values "FRAM_ARTIFACT")))
+        source-field (get values "FRAM_SOURCE")
+        source (.getCanonicalPath (io/file source-field))
+        closure-sha256 (get values "FRAM_NATIVE_CLOSURE_SHA256")
+        _ (when-not (re-matches #"[0-9a-f]{64}" closure-sha256)
+            (fail! "Native closure SHA-256 is not canonical"
+                   :runtime-record-invalid {:sha256 closure-sha256}))
+        artifact-directory
+        (canonical-directory! "Native READY artifact directory"
+                              (get values "FRAM_NATIVE_ARTIFACT_DIR"))
+        ready-path (.getPath (io/file artifact-directory "READY"))
+        manifest-path (.getPath (io/file artifact-directory "input.manifest"))
+        expected-server-path
+        (.getPath (io/file artifact-directory "bin" "fram-server-native"))
+        ready (ready-record! ready-path closure-sha256)
+        input-manifest (artifact-record "Native input manifest" manifest-path)
+        server-artifact
+        (artifact-record "sealed Native Fram server" expected-server-path)
         log (.getCanonicalPath (io/file (get values "FRAM_LOG")))
-        requested-log (.getCanonicalPath (io/file served-log))
-        artifact (artifact-record "sealed current-Fram executable" artifact-path)]
-    (when-not (and (= (long port) record-port)
+        requested-log (.getCanonicalPath (io/file served-log))]
+    (when-not (and (= frozen-fram-source source-field source)
+                   (= frozen-fram-revision (get values "FRAM_REVISION"))
+                   (= frozen-fram-tree (get values "FRAM_TREE"))
+                   (= artifact-directory
+                      (get values "FRAM_NATIVE_ARTIFACT_DIR"))
+                   (= expected-server-path
+                      (get values "FRAM_SERVER_ARTIFACT")
+                      (:path server-artifact))
+                   (= closure-sha256 (:sha256 input-manifest))
+                   (= (long port) record-port)
                    (= requested-log log)
                    (= space-id (get values "FRAM_SPACE_ID"))
                    (= controller-unit (get values "CONTROLLER_UNIT"))
                    (= pid main-pid)
-                   (= (:sha256 artifact) (get values "FRAM_ARTIFACT_SHA256"))
-                   (.canExecute (io/file artifact-path)))
+                   (= (:sha256 server-artifact)
+                      (get values "FRAM_SERVER_ARTIFACT_SHA256"))
+                   (.canExecute (io/file expected-server-path)))
       (fail! "FRAMRPC runtime record does not bind the requested canonical writer"
              :runtime-record-invalid
              {:request {:port port :log requested-log :space-id space-id
                         :controller-unit controller-unit}
               :record (dissoc values "PID_BIRTH")}))
     (let [source-identity
-          (source-identity! source (get values "FRAM_REVISION")
-                            (get values "FRAM_TREE"))
+          (source-identity! source frozen-fram-revision frozen-fram-tree)
           listener-owners (listener-pids record-port)
           birth (process-birth-token pid)
           start (process-start-millis pid)
           controller-pid (systemd-main-pid! controller-unit)
-          shape (exact-process-shape! pid source artifact-path record-port log space-id)
+          shape (exact-process-shape! pid source expected-server-path)
           environment (process-environment pid)
           expected-environment
           {"FRAM_HOME" source
-           "FRAM_SERVER_RUNTIME" "graal"
-           "FRAM_GRAAL_ARTIFACT" artifact-path
+           "FRAM_SERVER_RUNTIME" "native"
+           "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
            "FRAM_SPACE_ID" space-id
            "FRAM_SERVER_PORT" (str record-port)
            "FRAM_LOG" log
-           "NORTH_COORD_SYSTEMD_UNIT" controller-unit}]
+           "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
+          actual-environment (runtime-identity-environment environment)]
       (when-not (and (= [pid] listener-owners)
                      (= (get values "PID_BIRTH") birth)
                      (integer? start)
                      (= pid controller-pid)
-                     (= expected-environment
-                        (select-keys environment (keys expected-environment))))
+                     (= expected-environment actual-environment))
         (fail! "FRAMRPC runtime record, listener, environment, and systemd owner disagree"
                :runtime-process-attestation-failed
                {:pid pid :listener-pids listener-owners
                 :expected-birth (get values "PID_BIRTH") :actual-birth birth
                 :process-start-millis start :controller-pid controller-pid
-                :environment-keys (sort (keys expected-environment))}))
+                :environment-keys (sort (keys actual-environment))}))
       {:format attestation-format
        :request {:port record-port :served-log log :space-id space-id
                  :record-path (:path sealed) :controller-unit controller-unit}
        :identity (merge source-identity
-                        {:artifact (dissoc artifact :state)
+                        {:native-artifact
+                         {:directory artifact-directory
+                          :closure-sha256 closure-sha256
+                          :ready ready
+                          :input-manifest (dissoc input-manifest :state)
+                          :server (dissoc server-artifact :state)}
                          :space-id space-id :port record-port :served-log log
                          :arguments-sha256 (:arguments-sha256 shape)})
        :authority {:pid pid :pid-birth birth :process-start-millis start
@@ -403,11 +490,11 @@
         (try
           (attest-active-runtime! (:request attestation))
           (catch Throwable error
-            (fail! "selected current-Fram authority changed"
+            (fail! "selected frozen Fram authority changed"
                    :runtime-authority-lost
                    {:cause (.getMessage error) :cause-data (ex-data error)})))]
     (when-not (= attestation current)
-      (fail! "selected current-Fram authority changed"
+      (fail! "selected frozen Fram authority changed"
              :runtime-authority-lost
              {:expected attestation :actual current}))
     true))
