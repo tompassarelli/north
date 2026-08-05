@@ -37,12 +37,10 @@
           (fn [_]
             (swap! events conj :validate)
             (throw (ex-info "subscription refused" {:type :refused})))
-          with-native-listener-generation!
-          (fn [_ _ _ _ body]
-            (swap! events conj :arm)
-            (body))]
+          arm-listener-generation!
+          (fn [_] (swap! events conj :arm))]
           (with-validated-native-listener-generation!
-           0 "@agent:test" "test" nil {:reject :refused}
+           nil {:reject :refused}
            #(swap! events conj :body)))
         false
         (catch clojure.lang.ExceptionInfo _ true))]
@@ -53,15 +51,74 @@
   (with-redefs
    [north.coord/validate-subscription!
     (fn [_] (swap! events conj :validate))
-    with-native-listener-generation!
-    (fn [_ _ _ _ body]
-      (swap! events conj :arm)
-      (body))]
+    arm-listener-generation!
+    (fn [_] (swap! events conj :arm))]
     (with-validated-native-listener-generation!
-     0 "@agent:test" "test" nil {:ok :subscribed}
+     {:generation :test} {:ok :subscribed}
      #(swap! events conj :body)))
   (check "listener generation is armed only after a validated handshake"
          (= [:validate :arm :body] @events)))
+
+(let [events (atom [])
+      generation {:generation :test
+                  :stop-renewal? (atom false)
+                  :renewal-error (atom nil)}]
+  (with-redefs
+   [acquire-listener-generation!
+    (fn [_ _ _] (swap! events conj :acquire) generation)
+    start-listener-renewer! (fn [_] (future nil))
+    finish-listener-generation! (fn [_] (swap! events conj :finish))
+    north.coord/validate-subscription!
+    (fn [_] (swap! events conj :validate))
+    arm-listener-generation!
+    (fn [_] (swap! events conj :arm))]
+    (with-native-listener-generation!
+     0 "@agent:test" "test" "session"
+     (fn [owned]
+       (swap! events conj :scope)
+       (with-validated-native-listener-generation!
+        owned {:ok :subscribed}
+        #(swap! events conj :body)))))
+  (check "native listener fences before scope projection and arms after handshake"
+         (= [:acquire :scope :validate :arm :body :finish] @events)))
+
+(let [calls (atom 0)
+      projection
+      (with-redefs
+       [north.coord/show-rows
+        (fn [_ _]
+          (swap! calls inc)
+          [["kind" "session"]
+           ["holds" "@role:engine"]
+           ["watches" "@thread:one"]])]
+        (listener-node-projection 0 "@agent:test"))]
+  (check "listener identity scope uses one exact subject projection"
+         (and (= 1 @calls)
+              (= {:kind "session"
+                  :holds ["@role:engine"]
+                  :watches ["@thread:one"]}
+                 projection))))
+
+(let [held-error
+      (try
+        (require-listener-lease-grant!
+         "rival" {:reject :held :holder "owner" :exp 1234})
+        nil
+        (catch clojure.lang.ExceptionInfo error error))
+      calls (atom 0)
+      sleeps (atom [])
+      result
+      (run-with-reconnect!
+       (fn []
+         (swap! calls inc)
+         (listener-pass-failure held-error))
+       #(swap! sleeps conj %)
+       (fn [_ _]))]
+  (check "a held listener generation exits without scope-query retries"
+         (and (= :listener-generation-held (:type (ex-data held-error)))
+              (= :superseded (:reason result))
+              (= 1 @calls)
+              (empty? @sleeps))))
 
 (let [mismatch
       {:reject ["wrong log"]
