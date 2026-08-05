@@ -89,10 +89,12 @@
               :body [{:rel "triple"
                       :args [{:var "e"} "agent" control]}]}]}
            max-steer-run-candidates nil)
-          rows (:ok response)]
+          rows (:rows response)]
       (when-not
        (and (map? response) (vector? rows)
-            (false? (:more response))
+            (true? (:done? response))
+            (nil? (:cursor response))
+            (integer? (:served-version response))
             (<= (count rows) max-steer-run-candidates)
             (every? #(and (vector? %) (= 1 (count %))
                           (every? string? %))
