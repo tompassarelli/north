@@ -227,55 +227,43 @@ grep -Fq 'restart-mutex-busy:' "$scratch/automatic-mutex.err"
 [[ ! -s "$calls" ]]
 
 # Exercise the public cheap-readiness primitive itself. Run a copied North
-# wrapper against a fake north-coord-up so the test proves exact per-writer
-# environment selection without needing either daemon or a corpus.
+# wrapper against a fake Babashka boundary so the test proves the exact
+# per-SpaceId FRAMRPC status and runtime-attestation calls without a live server.
 north_cli_root="$scratch/north-cli-root"
 north_cli="$north_cli_root/bin/north"
-coord_up_fake="$north_cli_root/bin/north-coord-up"
-bb_fail="$scratch/bb-must-not-run"
+bb_fake="$scratch/bb"
 ready_calls="$scratch/ready-calls"
-bb_calls="$scratch/bb-calls"
 coord_log="$scratch/coordination.log"
 telemetry_log="$scratch/telemetry.log"
-coord_state="$scratch/state/fram-runtime"
-telemetry_state="$scratch/state/fram-telemetry-runtime"
+state_home="$scratch/state"
 mkdir -p "$north_cli_root/bin"
 cp "$root/bin/north" "$north_cli"
 
-cat >"$coord_up_fake" <<'SH'
+cat >"$bb_fake" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-port="${FRAM_PORT:-7977}"
-printf 'port=%s log=%s state=%s unit=%s partition=%s telemetry-log=%s\n' \
-  "$port" \
-  "${FRAM_LOG:?}" \
-  "${NORTH_COORD_RUNTIME_STATE:-${HOME:?}/.local/state/north/fram-runtime}" \
-  "${NORTH_COORD_SYSTEMD_UNIT:-north-coord.service}" \
-  "${NORTH_TELEMETRY_PARTITION:-0}" \
-  "${FRAM_TELEMETRY_LOG:-unset}" \
-  >>"${READY_CALLS:?}"
-[[ "$*" == "--check-runtime" ]]
-[[ "${READY_FAIL_PORT:-}" != "$port" ]] || exit 19
-printf 'coordinator runtime identity OK on :%s\n' "$port"
+{
+  printf 'bb'
+  printf ' %s' "$@"
+  printf '\n'
+} >>"${READY_CALLS:?}"
+for argument in "$@"; do
+  [[ -z "${READY_FAIL_PORT:-}" || "$argument" != "$READY_FAIL_PORT" ]] || exit 19
+done
+case "${1##*/}" in
+  coord.clj|runtime-attestation.clj) ;;
+  *) printf 'unexpected bb entrypoint: %s\n' "$1" >&2; exit 2 ;;
+esac
 SH
-
-cat >"$bb_fail" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-printf 'bb %s\n' "$*" >>"${BB_CALLS:?}"
-exit 99
-SH
-chmod +x "$north_cli" "$coord_up_fake" "$bb_fail"
+chmod +x "$north_cli" "$bb_fake"
 
 run_ready() {
   env \
     HOME="$scratch/home" \
-    NORTH_BB="$bb_fail" \
-    BB_CALLS="$bb_calls" \
+    XDG_STATE_HOME="$state_home" \
+    NORTH_BB="$bb_fake" \
     READY_CALLS="$ready_calls" \
     FRAM_LOG="$coord_log" \
-    NORTH_COORD_RUNTIME_STATE="$coord_state" \
-    NORTH_TELEMETRY_RUNTIME_STATE="$telemetry_state" \
     NORTH_TELEMETRY_PARTITION="${NORTH_TELEMETRY_PARTITION:-0}" \
     NORTH_TELEMETRY_PORT="${NORTH_TELEMETRY_PORT:-7978}" \
     FRAM_TELEMETRY_LOG="$telemetry_log" \
@@ -283,21 +271,24 @@ run_ready() {
 }
 
 : >"$ready_calls"
-: >"$bb_calls"
 NORTH_TELEMETRY_PARTITION=0 run_ready >"$scratch/coord-ready.out"
-[[ "$(wc -l <"$ready_calls")" -eq 1 ]]
-grep -Fxq \
-  "port=7977 log=$coord_log state=$coord_state unit=north-coord.service partition=0 telemetry-log=$telemetry_log" \
-  "$ready_calls"
+mapfile -t coordination_calls <"$ready_calls"
+[[ "${#coordination_calls[@]}" -eq 2 ]]
+[[ "${coordination_calls[0]}" == \
+  "bb $north_cli_root/cli/coord.clj 7977 coordination" ]]
+[[ "${coordination_calls[1]}" == \
+  "bb $north_cli_root/cli/runtime-attestation.clj 7977 $coord_log north-coordination $state_home/north/framrpc-runtime/north-coord.runtime north-coord.service" ]]
 
 : >"$ready_calls"
 NORTH_TELEMETRY_PARTITION=1 run_ready >"$scratch/stage-a-ready.out"
 mapfile -t stage_a_calls <"$ready_calls"
-[[ "${#stage_a_calls[@]}" -eq 2 ]]
-[[ "${stage_a_calls[0]}" == \
-  "port=7977 log=$coord_log state=$coord_state unit=north-coord.service partition=1 telemetry-log=$telemetry_log" ]]
-[[ "${stage_a_calls[1]}" == \
-  "port=7978 log=$telemetry_log state=$telemetry_state unit=north-telemetry-coord.service partition=0 telemetry-log=unset" ]]
+[[ "${#stage_a_calls[@]}" -eq 4 ]]
+[[ "${stage_a_calls[0]}" == "${coordination_calls[0]}" ]]
+[[ "${stage_a_calls[1]}" == "${coordination_calls[1]}" ]]
+[[ "${stage_a_calls[2]}" == \
+  "bb $north_cli_root/cli/coord.clj 7978 telemetry" ]]
+[[ "${stage_a_calls[3]}" == \
+  "bb $north_cli_root/cli/runtime-attestation.clj 7978 $telemetry_log north-telemetry $state_home/north/framrpc-runtime/north-telemetry-coord.runtime north-telemetry-coord.service" ]]
 
 : >"$ready_calls"
 set +e
@@ -315,11 +306,6 @@ READY_FAIL_PORT=7978 NORTH_TELEMETRY_PARTITION=1 run_ready \
 telemetry_not_ready_rc=$?
 set -e
 [[ "$telemetry_not_ready_rc" -eq 19 ]]
-[[ "$(wc -l <"$ready_calls")" -eq 2 ]]
-
-if [[ -s "$bb_calls" ]]; then
-  printf 'coord-ready invoked north.main/full doctor: %s\n' "$(<"$bb_calls")" >&2
-  exit 1
-fi
+[[ "$(wc -l <"$ready_calls")" -eq 3 ]]
 
 echo "PASS coordinated wrapper preserves human ceremony and gives automatic windows mutexed rebuild/readiness without coordinator intent traffic"

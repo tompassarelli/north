@@ -19,10 +19,8 @@
 (import java.util.Random)   ; non-java.lang classes need an explicit import
 (import java.util.UUID)
 
-;; NOTE: NO write-log extern. North is a CLIENT — it mutates state ONLY through
-;; the coordinator (tell-retry -> coord-assert/retract). The removed `write-log`
-;; was a direct log-file bypass; capture reached for it and stranded data in files
-;; (the 2026-06-23 divergence bug). Not declaring it makes the bypass impossible.
+;; North publishes mutations only through canonical FRAMRPC. Deliberately
+;; omitting a storage writer keeps this client from opening FRAMLOG bytes.
 (declare-extern fram.rt/today-iso [-> String])
 (declare-extern fram.rt/now-iso [-> String])
 (declare-extern fram.rt/iso-to-seconds [String -> Int])
@@ -39,18 +37,18 @@
 (declare-extern fram.rt/delete-file [String -> Nil])
 (declare-extern fram.rt/slugify [String -> String])
 (declare-extern fram.rt/getenv-or [String String -> String])
-(declare-extern fram.rt/coord-version-for-log [Int String -> Int])
-(declare-extern fram.rt/coord-assert-for-log [Int String String String String Int -> String])
-(declare-extern fram.rt/coord-retract-for-log [Int String String String String Int -> String])
-;; Raw for-log request — used ONLY for the :assert-at-version global-version CAS
+(declare-extern fram.rt/server-version-for-log [Int String -> Int])
+(declare-extern fram.rt/server-assert-for-log [Int String String String String Int -> String])
+(declare-extern fram.rt/server-retract-for-log [Int String String String String Int -> String])
+;; Raw FRAMRPC request — used ONLY for the :assert-at-version global-version CAS
 ;; (the atomic read-set commit seam cli/coord.clj assert-after-read! also rides).
-;; Ordinary writes stay on the typed coord-assert/retract wrappers above.
-(declare-extern fram.rt/coord-port [-> Int])
-(declare-extern fram.rt/coord-status-for-log [Int String -> String])
-(declare-extern fram.rt/coord-live-facts [Int String -> (Vec k/Fact)])
+;; Ordinary writes stay on the typed server-assert/retract wrappers above.
+(declare-extern fram.rt/server-port [-> Int])
+(declare-extern fram.rt/server-status-for-log [Int String -> String])
+(declare-extern fram.rt/server-live-facts [Int String -> (Vec k/Fact)])
 ;; Exact-subject warm read ({:version :rows [[p r] ...]} | nil). Any because the
 ;; extern is the untyped wire seam.
-(declare-extern fram.rt/coord-show-for-log [Int String String -> Any])
+(declare-extern fram.rt/server-show-for-log [Int String String -> Any])
 
 ;; --- thread id: north-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -120,14 +118,13 @@
 ;; --- entity KIND: the census classifier ------------------------------------
 ;; `entity_kind` is the structural authority and remains open: namespaced
 ;; extensions are rendered exactly as stored. Legacy `kind`, reserved namespaces,
-;; shapes, and executable predicate metadata are migration-compatible fallbacks
-;; for subjects not yet stamped by schema-migrate.
+;; shapes, and executable predicate metadata classify subjects without an
+;; explicit `entity_kind` fact.
 (defn- legacy-entity-kind [ek :- String] :- String
   (cond
     [(or (= ek "lane") (or (= ek "managed") (= ek "session"))) "agent"]
     [(or (= ek "msg") (= ek "command")) "message"]
     [(= ek "mine") "north/mine"]
-    [(= ek "snapshot") "north/snapshot"]
     [:else ek]))
 
 ;; DEFINITIVE namespaces — a subject id in one of these is that kind regardless of
@@ -145,7 +142,6 @@
     [(or (str/starts-with? bare "session:")
          (or (str/starts-with? bare "sess-") (str/starts-with? bare "cc-"))) "agent"]
     [(str/starts-with? bare "denial:") "guard_denial"]
-    [(str/starts-with? bare "snapshot:") "north/snapshot"]
     [(str/starts-with? bare "arena-") "north/arena_run"]
     [:else ""]))
 
@@ -323,29 +319,29 @@
 ;; Reads are server-authoritative. A stopped or mismatched server is an error;
 ;; North never opens database storage bytes as a client-side fallback.
 (defn- live-facts [log :- String] :- (Vec k/Fact)
-  (let [port (fram.rt/coord-port)
-        version (fram.rt/coord-version-for-log port log)]
+  (let [port (fram.rt/server-port)
+        version (fram.rt/server-version-for-log port log)]
     (if (< version 0)
       (throw (ex-info (str "North server read failed on 127.0.0.1:" port
                            " (code " version ")")
                       {:type :north/server-unavailable
                        :port port
                        :log log}))
-      (fram.rt/coord-live-facts port log))))
+      (fram.rt/server-live-facts port log))))
 
 (defn- live-idx [log :- String] :- k/Index
   (k/build-index (live-facts log)))
 
-;; :show rows keep the whole-corpus :facts projection's order (coord_daemon.clj
-;; subject-wire-snapshot) — that contract is what makes a slice render byte-identical.
-;; [] conflates daemon-down/no-:show/wrong-corpus with an absent subject, so every
-;; caller needs a whole-corpus fallback through the validated live-state path.
-(defn- coord-subject-facts
+;; :show rows keep the whole-database projection order, which makes a subject
+;; slice render byte-identically to the canonical query result.
+;; [] conflates an unavailable server, a failed query, and an absent subject, so
+;; every caller needs a whole-database query through the validated live path.
+(defn- server-subject-facts
   [log :- String
    te :- String] :- (Vec k/Fact)
   (let [rows :- (Vec (Vec String))
         (try
-          (let [resp (fram.rt/coord-show-for-log (fram.rt/coord-port) log te)]
+          (let [resp (fram.rt/server-show-for-log (fram.rt/server-port) log te)]
             (if (nil? resp) [] (:rows resp)))
           (catch Exception _ []))]
     (mapv (fn [row :- (Vec String)] :- k/Fact
@@ -355,11 +351,11 @@
 (defn- subject-facts
   [log :- String
    te :- String] :- (Vec k/Fact)
-  (let [warm (coord-subject-facts log te)]
+  (let [warm (server-subject-facts log te)]
     (if (empty? warm) (k/q-by-l (live-facts log) te) warm)))
 
-;; --- write THROUGH the coordinator (serialized, safe under concurrent agents) --
-(defn coordinator-failure-message
+;; --- write through canonical FRAMRPC (serialized under concurrent agents) ---
+(defn framrpc-failure-message
   [code :- Int
    port :- Int
    log :- String
@@ -367,22 +363,22 @@
   (let [summary
         (cond
           [(= code -1)
-           (str "coordinator UNREACHABLE on 127.0.0.1:" port)]
+           (str "FRAMRPC SERVER UNREACHABLE on 127.0.0.1:" port)]
           [(= code -2)
-           (str "coordinator CORPUS MISMATCH on 127.0.0.1:" port
-                " (this command requires " log ")")]
+           (str "FRAMRPC SPACE MISMATCH on 127.0.0.1:" port
+                " (this command selected FRAMLOG database " log ")")]
           [(= code -3)
-           (str "coordinator PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)]
+           (str "FRAMRPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)]
           [:else
-           (str "coordinator preflight failed on 127.0.0.1:" port
+           (str "FRAMRPC preflight failed on 127.0.0.1:" port
                 " (code " code ")")])
         remedy
         (cond
-          [(= code -1) "Run `north up`"]
+          [(= code -1) "Start the configured Fram service"]
           [(= code -2)
-           "Stop the coordinator serving the other corpus, then run `north up`"]
+           "Select the intended FRAMLOG database and SpaceId before retrying"]
           [(= code -3)
-           "Rebuild and restart North + Fram from one matched release"]
+           "Use one matched North + Fram release"]
           [:else "Inspect `north doctor` before retrying"])]
     (str summary
          (if (str/blank? consequence) "" (str " — " consequence))
@@ -395,12 +391,12 @@
    te :- String
    pred :- String
    rv :- String] :- String
-  (let [v (fram.rt/coord-version-for-log port log)]
+  (let [v (fram.rt/server-version-for-log port log)]
     (if (< v 0)
-      (if (= v -2) "log-mismatch" (if (= v -3) "protocol-incompatible" "nodaemon"))
+      (if (= v -2) "space-mismatch" (if (= v -3) "protocol-incompatible" "server-unavailable"))
       (if (= op "assert")
-        (fram.rt/coord-assert-for-log port log te pred rv v)
-        (fram.rt/coord-retract-for-log port log te pred rv v)))))
+        (fram.rt/server-assert-for-log port log te pred rv v)
+        (fram.rt/server-retract-for-log port log te pred rv v)))))
 
 (defn- tell-retry
   [port :- Int
@@ -443,9 +439,8 @@
   ;; pickup (`tell <id> driver @x`), never a capture default — a driver cell here is
   ;; exactly the "stray driver" pollution the-model warns about.
   (let [c (add-fact [] te "title" title)
-        ;; KIND AT CAPTURE (coordination-v2): every new thread self-identifies as
-        ;; kind=thread in the SAME coordinator write batch — so `north schema` and any
-        ;; log-separation view can group by kind without a subject-prefix guess.
+        ;; Every new thread self-identifies as kind=thread in the same FRAMRPC
+        ;; publication, so schema and database views need no subject-prefix guess.
         ;; single-valued (bin/north FRAM_SINGLE_VALUED); mirrors concern-cli, which
         ;; already stamps kind=concern. NO backfill of old subjects (maintenance/migration).
         c (add-fact c te "kind" "thread")
@@ -530,7 +525,7 @@
         _ (fram.rt/delete-file path)
         remaining
         (filterv (fn [fact :- k/Fact] :- Bool (= te (:l fact)))
-                 (fram.rt/coord-live-facts port log))]
+                 (fram.rt/server-live-facts port log))]
     (and retracted
          (empty? remaining)
          (not (fram.rt/file-exists path)))))
@@ -560,22 +555,18 @@
              created-at (fram.rt/now-iso)
              te (str "@" id)
              path (str threads-dir "/" id "-" slug ".md")
-             port (fram.rt/coord-port)
-             coord-v (fram.rt/coord-version-for-log port log)]
-         ;; Coordinator-native: assert each capture fact THROUGH the daemon (the
-         ;; same serialized path as `tell`), then render the .md FROM the log. The
-         ;; log is the source of truth; the file is a regenerated view — so a
-         ;; capture can never strand title/provenance in a file. (The old file-first
-         ;; path did exactly that whenever the log had pending coordinator writes,
-         ;; i.e. routinely under a live swarm — the recurring two-way divergence.)
+             port (fram.rt/server-port)
+             server-v (fram.rt/server-version-for-log port log)]
+         ;; Publish each capture fact through the same FRAMRPC path as `tell`, then
+         ;; render the .md from FRAMLOG state. The file remains a regenerated view.
          ;; UUIDv7 is collision-proof, so capture no longer reserves a file-lock id
          ;; (the old now-id/reserve-id dance guarded same-second timestamp clashes).
-         (if (< coord-v 0)
+         (if (< server-v 0)
            (if (structured-capture?)
              (print-capture-receipt
-              id te title path 0 0 false "coordinator-unavailable")
-             (println (coordinator-failure-message
-                       coord-v port log "capture was not recorded")))
+              id te title path 0 0 false "framrpc-unavailable")
+             (println (framrpc-failure-message
+                       server-v port log "capture was not recorded")))
            (let [facts (capture-facts te title owner source author lead proposed created-at today)
                  results (mapv (fn [c :- k/Fact] :- String
                                  (tell-retry port log "assert" (:l c) (:p c) (:r c) 5))
@@ -587,11 +578,11 @@
                  ;; never that the subject is absent.
                  ;; thread-md resolves predicate metadata out of the vector it is handed,
                  ;; so a value_kind declared on a capture predicate renders as its
-                 ;; fallback kind here until the next whole-corpus re-render.
+                 ;; fallback kind here until the next whole-database re-render.
                  (fram.rt/spit-file
                   path
                   (exp/thread-md
-                   (let [warm (coord-subject-facts log te)]
+                   (let [warm (server-subject-facts log te)]
                      (if (empty? warm) facts warm))
                    te))
                  (if (structured-capture?)
@@ -599,7 +590,7 @@
                     id te title path (count facts) oks true "captured")
                    (println (str "captured -> " te "  " title "  [owner: " owner "]\n"
                                  "  file:      " path "\n"
-                                 "  committed: " oks " facts via coordinator. Next: north tell " id " <pred> <value>"))))
+                                 "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>"))))
                (if (structured-capture?)
                  (let [cleaned
                        (cleanup-partial-capture
@@ -609,7 +600,7 @@
                     (if cleaned "partial-cleaned"
                         "partial-cleanup-failed")))
                  (println (str "capture PARTIAL: only " oks "/" (count facts)
-                               " fact(s) committed (write conflict / no daemon?). Re-run — nothing is stranded in files."))))))))])))
+                               " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files."))))))))])))
 
 ;; Resolve a thread ref (@id OR @handle) to its canonical @id and print it. The
 ;; bin/north wrapper calls this before routing tell/untell to fram, so a
@@ -701,11 +692,11 @@
 ;; by combining two honest signals, in strict preference order:
 ;;   (a) AGENT presence lease — the strong positive. A session driver renews an
 ;;       @lease:session:<handle> lease (30-min TTL, bumped on every tool call);
-;;       live iff its exp is still in the coordinator's future. SAME renewable-lease
+;;       live iff its exp is still in the FRAMRPC server's future. SAME renewable-lease
 ;;       rule concern-cli/coord.clj `online?` uses for STALE concerns — reused, not
 ;;       forked, so "online" can't drift between the two. Leases ride the warm
-;;       :facts view (in-memory ephemeral txs the daemon serves), so they're already
-;;       in the index — no extra coordinator round-trip here.
+;;       :facts view (in-memory ephemeral transactions the server exposes), so
+;;       they are already in the index — no extra FRAMRPC round-trip here.
 ;;   (b) RECENCY fallback — a human driver (e.g. Tom Passarelli) holds no session
 ;;       lease, so lease-absence is not death. Fall back to `updated_at`, the most
 ;;       honest liveness signal carried in the warm triple view: the day the thread
@@ -1245,7 +1236,7 @@
                    base)]
     (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
 
-;; Split out of cmd-json's corpus-wide let so a single-subject show never binds
+;; Split out of cmd-json's database-wide let so a single-subject show never binds
 ;; live-facts: the whole point is that this verb touches ONE subject.
 (defn- cmd-json-show
   [log :- String
@@ -1254,7 +1245,7 @@
             (mapv (fn [c :- k/Fact] :- JFact (->JFact (:p c) (:r c)))
                   (subject-facts log (str "@" arg))))))
 
-(defn- cmd-json-corpus
+(defn- cmd-json-database
   [log :- String
    what :- String
    arg :- String
@@ -1301,7 +1292,7 @@
                          (filterv (fn [c :- k/Fact] :- Bool (get subject-set (:l c) false))
                                   facts)))))]
       [(= what "child-settlement")
-       ;; One warm fact-vector projection is an actual snapshot. The SDK used to
+       ;; One warm fact-vector projection is a coherent read. The SDK used to
        ;; compose child/run state from four separate CLI reads; process startup
        ;; consumed the deadline and concurrent child growth made the result only
        ;; consistency-checked, never atomic. Keep this read mechanical and return
@@ -1329,7 +1320,7 @@
        (println (fram.rt/to-json
                  (mapv (fn [c :- k/Fact] :- JAgentFact
                          (->JAgentFact (subs (:l c) (count "@agent:")) (:p c) (:r c)))
-                       ;; The coordinator's unified warm view can contain
+                       ;; The FRAMRPC server's unified warm view can contain
                        ;; lease-only/tombstone-shaped rows with no subject. They
                        ;; are not agent facts. One such row must not crash the
                        ;; whole bulk identity projection and erase every valid
@@ -1351,7 +1342,7 @@
    all? :- Bool] :- Nil
   (if (= what "show")
     (cmd-json-show log arg)
-    (cmd-json-corpus log what arg all?)))
+    (cmd-json-database log what arg all?)))
 
 (defn cmd-needs-review [log :- String] :- Nil
   (let [live-idx-now (live-idx log)
@@ -1372,13 +1363,13 @@
 ;; SAFETY (can I write + warm-read right now?) and HYGIENE (is the file projection
 ;; tidy?) are ORTHOGONAL: a hand-edited .md never makes writes unsafe, and a stale
 ;; server never means a file was tampered with. `probe` computes both from one
-;; served snapshot and one corpus read so doctor/heal/boot classify identically.
+;; served database state and one file-projection read so doctor/heal/boot agree.
 (defrecord Probe
   [up :- Bool
    serving :- Bool
    port :- Int
    status :- String
-   daemon-v :- Int
+   server-v :- Int
    log-facts :- (Vec k/Fact)
    idx :- k/Index
    stale :- (Vec k/Fact)                           ; file-ahead, superseded projection
@@ -1387,9 +1378,9 @@
 
 ;; A file-ahead fact is a STALE PROJECTION (superseded, NOT a hand edit) iff its
 ;; predicate is single-valued (k/single? reads FRAM_SINGLE_VALUED, the same vocab
-;; bin/north exports) AND the log holds a DIFFERENT value for the same (subject,pred)
+;; bin/north exports) AND FRAMLOG holds a DIFFERENT value for the same (subject,pred)
 ;; — i.e. a `tell` replaced the value and the .md just wasn't re-rendered. Otherwise
-;; the log has no competing value: a genuine hand edit a human must reconcile.
+;; FRAMLOG has no competing value: a genuine hand edit a human must reconcile.
 (defn- stale-projection?
   [idx :- k/Index
    c :- k/Fact] :- Bool
@@ -1400,17 +1391,17 @@
 (defn- probe
   [threads-dir :- String
    log :- String] :- Probe
-  (let [port (fram.rt/coord-port)
-        status (fram.rt/coord-status-for-log port log)
-        daemon-v (fram.rt/coord-version-for-log port log)
-        up (not (= daemon-v -1))
-        serving (>= daemon-v 0)
-        log-facts (if serving (fram.rt/coord-live-facts port log) [])
+  (let [port (fram.rt/server-port)
+        status (fram.rt/server-status-for-log port log)
+        server-v (fram.rt/server-version-for-log port log)
+        up (not (= server-v -1))
+        serving (>= server-v 0)
+        log-facts (if serving (fram.rt/server-live-facts port log) [])
         idx (k/build-index log-facts)
         file-facts (:facts (fold/fold (imp/load-corpus threads-dir)))
-        ;; Files are a PROJECTION of the log: only title-bearing threads render to a
-        ;; .md, so person nodes / non-thread entities live ONLY in the log. Compare
-        ;; against the thread-fact slice, not the whole log.
+        ;; Files are a projection of FRAMLOG: only title-bearing threads render to
+        ;; .md, so non-thread entities remain database-only. Compare against the
+        ;; thread-fact slice, not the whole database.
         thread-log (filterv (fn [c :- k/Fact] :- Bool (some? (k/one-i idx (:l c) "title"))) log-facts)
         tl-sigs (sig-member-map thread-log)
         file-sigs (sig-member-map file-facts)
@@ -1418,9 +1409,9 @@
         log-behind (filterv (fn [c :- k/Fact] :- Bool (nil? (get file-sigs (fact-sig c)))) thread-log)
         stale (filterv (fn [c :- k/Fact] :- Bool (stale-projection? idx c)) file-ahead)
         hand (filterv (fn [c :- k/Fact] :- Bool (not (stale-projection? idx c))) file-ahead)]
-    (->Probe up serving port status daemon-v log-facts idx stale hand log-behind)))
+    (->Probe up serving port status server-v log-facts idx stale hand log-behind)))
 
-;; SAFETY verdict: writes + warm reads are safe IFF the daemon is up, serving this
+;; SAFETY verdict: writes + warm reads are safe IFF the server is up, serving this
 ;; database. Hygiene NEVER enters this — a stale .md is not a write hazard.
 (defn- safe? [p :- Probe] :- Bool (and (:up p) (:serving p)))
 
@@ -1428,8 +1419,8 @@
   (if (safe? p)
     "healthy: tell/untell + warm reads are safe"
     (cond
-      [(not (:up p)) (str "DEGRADED: coordinator DOWN on 127.0.0.1:" (:port p) " — run `north up` (writes won't serialize)")]
-      [(not (:serving p)) (str "DEGRADED: daemon not serving the canonical log — status: " (:status p))]
+      [(not (:up p)) (str "DEGRADED: FRAMRPC server DOWN on 127.0.0.1:" (:port p) " — writes cannot publish")]
+      [(not (:serving p)) (str "DEGRADED: server not serving the selected FRAMLOG database — status: " (:status p))]
       [:else "DEGRADED: server read failed"])))
 
 ;; One-line hygiene summary ("" when tidy) for the boot screen.
@@ -1446,14 +1437,14 @@
    log :- String] :- Nil
   (let [p (probe threads-dir log)]
     (println "north doctor")
-    ;; SAFETY: the daemon handshake — the only inputs to the verdict.
+    ;; SAFETY: the FRAMRPC handshake is the only input to this verdict.
     (if (:up p)
       (do
-        (println (str "  [ok]    coordinator UP on 127.0.0.1:" (:port p)))
+        (println (str "  [ok]    FRAMRPC server UP on 127.0.0.1:" (:port p)))
         (if (:serving p)
-          (println (str "  [ok]    serving database version " (:daemon-v p)))
+          (println (str "  [ok]    serving database version " (:server-v p)))
           (println (str "  [WARN]  server is not serving the selected database — status: " (:status p)))))
-      (println (str "  [DOWN]  no coordinator on 127.0.0.1:" (:port p) " — writes won't serialize. Run `north up`.")))
+      (println (str "  [DOWN]  no FRAMRPC server on 127.0.0.1:" (:port p) " — writes cannot publish.")))
     (if (safe? p)
       (println "  => healthy: tell/untell + warm reads are safe")
       (println "  => DEGRADED: fix the warnings above"))
@@ -1470,8 +1461,8 @@
           (when (> nb 0)
             (println (str "    " nb " database fact(s) not yet in files — benign projection lag; run `north heal`"))))))))
 
-;; --- heal: re-render stale/lagging thread files FROM the log (never the log) --
-;; Idempotent, fail-closed. Flushes projection drift WITHOUT whole-corpus `export`
+;; --- heal: re-render stale/lagging thread files from FRAMLOG -----------------
+;; Idempotent, fail-closed. Flushes projection drift without whole-database `export`
 ;; (which touches every file and refuses on any hand edit). Writes only .md files.
 (defn- distinct-ids [xs :- (Vec String)] :- (Vec String)
   (reduce (fn
@@ -1479,7 +1470,7 @@
              x :- String] :- (Vec String)
             (if (k/vec-contains? acc x) acc (conj acc x))) [] xs))
 
-;; Subjects whose .md diverges from the log: a superseded fact OR a log fact not
+;; Subjects whose .md diverges from FRAMLOG: a superseded fact or a database fact not
 ;; yet rendered. (hand edits are handled separately — heal refuses if any exist.)
 (defn- heal-targets [p :- Probe] :- (Vec String)
   (distinct-ids (mapv (fn [c :- k/Fact] :- String (:l c))
@@ -1560,8 +1551,8 @@
            [] scan)))
 
 ;; The normal projection pass: re-render every thread file whose .md diverges
-;; from the log (superseded/lagging diff ∪ broken-head). Writes only .md files —
-;; the log is never touched. Shared by bare `heal` and `heal --adopt`'s tail.
+;; from FRAMLOG (superseded/lagging diff ∪ broken-head). Writes only .md files;
+;; database state is never touched. Shared by `heal` and `heal --adopt`.
 (defn- heal-project
   [threads-dir :- String
    p :- Probe] :- Nil
@@ -1572,7 +1563,7 @@
         diff-ids (mapv (fn [te :- String] :- String (short-id te)) (heal-targets p))
         targets (distinct-ids (vec (concat diff-ids (broken-head-ids scan (:idx p)))))]
     (if (empty? targets)
-      (println "heal: nothing to do — every thread file already matches the log.")
+      (println "heal: nothing to do — every thread file already matches FRAMLOG.")
       (do
         (doseq [id targets]
           (let [te (str "@" id)
@@ -1584,7 +1575,7 @@
             (fram.rt/spit-file path (exp/thread-md (:log-facts p) te))
             (println (str "  re-rendered " id "  " (trunc title 52)))))
         (println (str "heal: re-rendered " (count targets)
-                      " thread file(s) from the log. Log untouched."))))))
+                      " thread file(s) from FRAMLOG. Database untouched."))))))
 
 (defrecord AdoptResult
   [adopted :- Int
@@ -1592,20 +1583,20 @@
    failed :- Int
    dropped :- Int])
 
-;; A blank predicate or blank value is never a real hand edit — it's a corpus
+;; A blank predicate or blank value is never a real hand edit — it is a file
 ;; PARSE ARTIFACT (a stray line the importer split into `("" "")`). Asserting it
-;; would strand a phantom in the log that no projection can render (eternal
+;; would strand a phantom in FRAMLOG that no projection can render (eternal
 ;; log-behind). capture's `add-fact` guards the same way; adopt mirrors it.
 (defn- adoptable? [c :- k/Fact] :- Bool
   (and (not (str/blank? (:p c))) (not (str/blank? (:r c)))))
 
-;; Absorb each file-ahead HAND-edited fact into the log THROUGH the coordinator
-;; (the serialized `tell` path — same rule-checks as any tell, never a raw log
+;; Absorb each file-ahead hand-edited fact into FRAMLOG through FRAMRPC
+;; (the serialized `tell` path — same rule-checks as any tell, never a storage
 ;; append). Multiline `body` values ride pr-str/edn intact over the wire. Three
 ;; guards: (1) a blank pred/value is DROPPED (parse artifact, never assert junk);
-;; (2) a single-valued fact the log has SINCE superseded (a newer coordinator
-;; value) is SKIPPED — the log wins; never overwrite coordinator history with a
-;; stale file line; (3) everything else is asserted. `live` is re-read at call
+;; (2) a single-valued fact FRAMLOG has since superseded is skipped — database
+;; state wins; never overwrite canonical history with a stale file line; (3)
+;; everything else is asserted. `live` is re-read at call
 ;; time so a supersession that landed AFTER the probe is still caught (safe under
 ;; concurrent writers).
 (defn- adopt-hand-facts
@@ -1625,7 +1616,7 @@
        [(and (k/single? (:p c))
              (let [v (k/one-i live (:l c) (:p c))] (and (some? v) (not (= v (:r c))))))
         (do
-          (println (str "  skip (log won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
+          (println (str "  skip (FRAMLOG won) " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 56)))
           (->AdoptResult (:adopted acc) (+ (:skipped acc) 1) (:failed acc) (:dropped acc)))]
        [:else
         (let [r (tell-retry port log "assert" (:l c) (:p c) (:r c) 5)]
@@ -1652,23 +1643,23 @@
       ;; absence from current state is never guessed to mean a safe resurrection.
       [(and has-hand (not adopt))
        (do
-         (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in the log "
+         (println (str "heal REFUSED — " (count (:hand p)) " genuinely-new file fact(s) not in FRAMLOG "
                        "(hand edits). A human decides: adopt via `heal --adopt` (or `tell`/bulk `import`). "
                        "Nothing was touched:"))
          (doseq [c (:hand p)]
            (println (str "    " (short-id (:l c)) "  " (:p c) "  " (trunc (:r c) 72)))))]
       [:else
        (if (and adopt has-adoptable)
-         (let [port (fram.rt/coord-port)
-               coord-v (fram.rt/coord-version-for-log port log)]
-           (if (< coord-v 0)
-             (println (coordinator-failure-message
-                       coord-v port log "heal --adopt was not recorded"))
+         (let [port (fram.rt/server-port)
+               server-v (fram.rt/server-version-for-log port log)]
+           (if (< server-v 0)
+             (println (framrpc-failure-message
+                       server-v port log "heal --adopt was not recorded"))
              (do
                (let [res (adopt-hand-facts port log (live-idx log) adopt-list)]
                  (println (str "heal --adopt: " (:adopted res) " adopted, " (:skipped res)
-                               " skipped (log won), " (:dropped res) " dropped (parse artifact), "
-                               (:failed res) " failed via coordinator."))
+                               " skipped (FRAMLOG won), " (:dropped res) " dropped (parse artifact), "
+                               (:failed res) " failed via FRAMRPC."))
                  (heal-project threads-dir (probe threads-dir log))))))
          (heal-project threads-dir p))])))
 
@@ -1743,16 +1734,6 @@
         (doseq [it ranked]
           (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
 
-;; Historical compatibility only. The env-derived schema-seed writer was a
-;; second, incomplete authority and is permanently non-mutating. The exact-fold
-;; schema-migrate command owns cutover, audit, collision checks, and receipts.
-(defn cmd-schema-seed
-  [_log :- String
-   _execute :- Bool] :- Nil
-  (do
-    (println "schema-seed RETIRED — no facts were written.")
-    (println "Use `north schema-migrate plan`, then maintenance-approved `migrate --execute`, and `audit --strict`.")))
-
 ;; --- tools: NORTH's curated tool surface (NOT the generated per-predicate one) -
 ;; fram's engine dispatch would print the generated per-predicate catalog; north
 ;; owns its AI surface, so `north tools` lists the curated MCP verbs (bin/north-mcp
@@ -1761,14 +1742,14 @@
   (do
     (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
     (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
-    (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage · schema-migrate (cutover/audit)")
+    (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage")
     (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
     (println "  agents     : dispatch · spawn")
     (println "  view       : presentation")
     (println "")
     (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
     (println "Vocabulary is DATA, not tools: `north show <pred>` reveals metadata and connected teaching facts")
-    (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate` and `north schema-migrate`.")))
+    (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate`.")))
 
 ;; --- schema: the vocabulary census (generated from graph authority) ----------
 ;; "What schemas exist in north?" answered as a standing tool: subjects + live-fact
@@ -1901,8 +1882,8 @@
                          (pad7 (- 9999999 (:subs fs))) "|" (:pred fs)))
                   stats))))
 
-;; declared cardinality/value_kind for a predicate, if present (schema-migrate and
-;; predicate define write @<pred> subjects; tolerate a bare legacy subject too).
+;; declared cardinality/value_kind for a predicate, if present (`predicate
+;; define` writes @<pred> subjects; tolerate a bare legacy subject too).
 (defn- pred-ann
   [idx :- k/Index
    p :- String] :- String
@@ -1924,9 +1905,9 @@
     [(= kind "run") "managed task telemetry -> sdk/src/telemetry.ts recordRun (kind=run)"]
     [(= kind "message") "mail + commands -> cli/msg-cli.clj (@msg: mail, @cmd: commands)"]
     [(= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"]
-    [(= kind "predicate") "executable schema -> north predicate define + north schema-migrate"]
+    [(= kind "predicate") "executable schema -> north predicate define"]
     [(= kind "topic") "topic grouping anchors (topic- prefix)"]
-    [:else "(writer not curated — grep the coordination log for this kind's writer)"]))
+    [:else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"]))
 
 (defn- print-schema-kind
   [idx :- k/Index
@@ -2036,7 +2017,6 @@
       ;; Back-compatible direct `run` callers remain non-terminating. Callers
       ;; that need status use `run-status` below.
       [(= cmd "validate") (do (cmd-validate log) nil)]
-      [(= cmd "schema-seed") (cmd-schema-seed log (has-flag? args "--execute"))]
       [(= cmd "tools")    (cmd-tools)]
       [(= cmd "doctor")   (cmd-doctor threads-dir log)]
       [(= cmd "heal")     (cmd-heal threads-dir log (has-flag? args "--adopt"))]
@@ -2045,19 +2025,17 @@
        (cmd-json log (if (> (count args) 1) (nth args 1) "")
                  (if (> (count args) 2) (nth args 2) "")
                  (has-flag? args "--all"))]
-      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | schema-seed (retired; use schema-migrate) | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
+      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | doctor | heal | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)")])))
 
 ;; Composable command boundary: returns the exact validation status without
-;; terminating its host process. Retired schema-seed is a deliberate compatibility
-;; refusal (2); other commands succeed after their normal `run` side effects.
+;; terminating its host process; other commands succeed after their normal
+;; `run` side effects.
 (defn run-status
   [args :- (Vec String)
    threads-dir :- String
    log :- String] :- Int
   (cond
     [(and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)]
-    [(and (not (empty? args)) (= (first args) "schema-seed"))
-     (do (cmd-schema-seed log (has-flag? args "--execute")) 2)]
     [:else (do (run args threads-dir log) 0)]))
 
 (defn -main [& args] :- Nil

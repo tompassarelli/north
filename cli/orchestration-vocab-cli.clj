@@ -3,11 +3,8 @@
 ;; design doc: north-orchestration-vocabulary-design.md in the repo's private docs —
 ;; packaged code must not embed checkout paths, per the package path-hygiene lint).
 ;;
-;; This registers DATA only: the 13 new @entity-kind:* kind definitions (source
-;; of truth: schema-migrate.clj ORCHESTRATION-ENTITY-KINDS, read the same way
-;; schema-migrate.clj reads pred-cli.clj's VOCAB — literal source parsing, not a
-;; runtime require, so this script needs no fram classpath) and the five
-;; @shape:<kind> subjects design section 2.1 spells out explicitly
+;; This registers DATA only: the 13 @entity-kind:* definitions owned below and
+;; the five @shape:<kind> subjects design section 2.1 spells out explicitly
 ;; (template, model, selection_rule, task, shape-the-meta-shape).
 ;;
 ;; Every shape is seeded with enforcement "unshaped" — the inert dial (design
@@ -19,30 +16,26 @@
 ;;   bb orchestration-vocab-cli.clj <port> seed     assert kind + shape data (idempotent)
 ;;   bb orchestration-vocab-cli.clj <port> show     print what is on the graph
 ;;   bb orchestration-vocab-cli.clj <port> retract  undo seed (rollback path)
-(require '[clojure.java.io :as io] '[clojure.string :as str])
+(require '[clojure.java.io :as io])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
-(defn read-forms [path]
-  (with-open [rdr (java.io.PushbackReader. (io/reader path))]
-    (let [eof (Object.)]
-      (loop [acc []]
-        (let [f (read {:eof eof :read-cond :allow} rdr)]
-          (if (= f eof) acc (recur (conj acc f))))))))
-
-(defn literal-def [path sym]
-  (some (fn [form] (when (and (seq? form) (= 'def (first form)) (= sym (second form)))
-                     (nth form 2 nil)))
-        (read-forms path)))
-
-(defn script-dir [] (.getParent (io/file (System/getProperty "babashka.file"))))
-(defn schema-migrate-path [] (str (script-dir) "/schema-migrate.clj"))
-
-;; Single source of truth: schema-migrate.clj ORCHESTRATION-ENTITY-KINDS. Its def
-;; form is `(sorted-map "kind" "doc" ...)`, a data-only call (not a self-evaluating
-;; literal like pred-cli's VOCAB vector), so the parsed form is evaluated — no
-;; other code from schema-migrate.clj is read or run.
-(def ORCHESTRATION-ENTITY-KINDS (eval (literal-def (schema-migrate-path) 'ORCHESTRATION-ENTITY-KINDS)))
+;; This command owns the exact orchestration kind vocabulary it publishes.
+(def ORCHESTRATION-ENTITY-KINDS
+  (sorted-map
+   "template" "A named role composition (axes + capabilities + prompt block) resolved by spawn."
+   "axis_value" "A first-class value of an orchestration axis (task_grade/tier/reasoning/posture/topology/capability/...)."
+   "provider_catalog" "A provider's calibrated model/transport/provenance catalog vintage."
+   "model" "One provider model with its calibrated routes, context window, and delta."
+   "tier_row" "The canonical model + deliberation levels resolved for one provider/tier pair."
+   "selection_policy" "A named, digest-pinned set of selection_rule subjects (e.g. minimum-sufficient-v1)."
+   "selection_rule" "One signal -> minimum tier/reasoning floor rule under a selection_policy."
+   "selection_signal" "A routing signal's name and enumerated legal values."
+   "shape" "A kind-scoped default-deny predicate allowlist, itself governed by @shape:shape."
+   "wire_contract" "A queryable subject documenting one coordinator wire contract (fields, example, error codes)."
+   "staffing_catalog" "Catalog-level defaults for template axes (task_grade/tier/reasoning/posture/topology)."
+   "doctrine_block" "A graph-resident prompt_block not attached to a template (e.g. comms doctrine)."
+   "task" "An accepted delegation subject: proposed_by (director) != delegate (child lane), position 3."))
 
 (defn exact-facts [port subject]
   (->> (north.coord/query-rows
@@ -82,10 +75,7 @@
   (queue-set! subject predicate values :many))
 
 ;; ============================================================================
-;; Entity-kind definitions — mirrors schema-migrate.clj's entity-kind-definition
-;; shape exactly (entity_kind ENTITY-KIND-DEFINITION, entity_kind_name, doc) so
-;; a later `north schema-migrate migrate --execute` sees these as already
-;; satisfied, idempotent facts rather than a divergent second writer.
+;; Entity-kind definitions use the canonical entity_kind definition shape.
 ;; ============================================================================
 (def ENTITY-KIND-DEFINITION "north/entity_kind_definition")
 

@@ -3,7 +3,7 @@
 ;; value_kind, acyclic, doc, entity_kind, and extension metadata all live there.
 ;; The historical @pred:p descriptive registry is intentionally never read.
 ;;
-;; VOCAB below is migration bootstrap material, not a second live authority.
+;; VOCAB below is initial bootstrap material, not a second live authority.
 ;; `seed` fills those values into executable entities. Connected reads and
 ;; strict lint use only graph facts; `lint-offline` is the deliberately weak
 ;; bootstrap-only source check for CI without a coordinator.
@@ -86,7 +86,6 @@
    ["burn_limit_microusd_per_hour" "single" "literal" "maximum reserved spend burn admitted per rolling hour"]
    ["forced" "single" "literal" "whether an operator explicitly forced a guarded reset"]
    ["lane" "single" "literal" "managed lane identifier associated with a resource reservation"]
-   ["north_restore_checkpoint" "multi" "literal" "content-sealed audit marker for a planned snapshot restoration; paired assert/retract preserves raw provenance without a live graph fact"]
    ["period" "single" "literal" "budget/accounting period identifier"]
    ["pid" "single" "literal" "operating-system process id associated with a live reservation"]
    ["reserved_microusd" "single" "literal" "currently reserved spend in integer micro-USD"]
@@ -106,7 +105,6 @@
    ["window_action" "single" "literal" "current lifecycle action of one rebuild request window"]
    ["window_intent" "single" "literal" "rebuild intent fulfilled by one rebuild request window"]
    ["window_generation" "single" "literal" "Nix generation produced by one fired rebuild request window"]
-   ["window_canary" "single" "literal" "post-window canary result for the landed generation"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]
@@ -183,12 +181,16 @@
    ["turn_capped"    "multi"  "literal" "observed agent turn-cap event"]
    ["early_exit_children" "multi" "literal" "agent exit event naming children still live"]
    ["agent_death"    "multi"  "literal" "agent-death event recorded on a thread or shared roster"]
+   ["notify"         "multi"  "literal" "durable human-readable completion, stall, or coordination notification"]
+   ["blocks"         "multi"  "ref"     "reference edge from a blocker to the entity it blocks; explanatory prose belongs in reason or note"]
+   ["depends_on"     "multi"  "ref"     "dependency edge from an entity to a prerequisite that must precede it"]
+   ["part_of"        "single" "ref"     "containment edge from a child entity to its single parent"]
    ["outcome"        "single" "literal" "terminal result for a thread, agent, or run"]
    ["process_outcome" "single" "literal" "terminal state of the provider process or preflight"]
    ["delivery_outcome" "single" "literal" "delivery state: unverified, run-scoped reported, legacy verified, or blocked; current shared-UID lanes cannot issue verified"]
    ["delivery_reason" "single" "literal" "stable machine reason for the delivery outcome"]
-   ["delivery_evidence" "single" "literal" "canonical self-reported done-bar evidence snapshot for one managed delivery"]
-   ["delivery_evidence_sha256" "single" "literal" "SHA-256 of the exact canonical delivery evidence snapshot"]
+   ["delivery_evidence" "single" "literal" "canonical self-reported done-bar evidence record for one managed delivery"]
+   ["delivery_evidence_sha256" "single" "literal" "SHA-256 of the exact canonical delivery evidence record"]
    ["delivery_attestation" "single" "literal" "legacy verifier attestation envelope; current shared-UID lanes cannot issue or promote it"]
    ["delivery_attestation_sha256" "single" "literal" "SHA-256 of a legacy canonical delivery attestation"]
    ["run_reservation_version" "multi" "literal" "conflict-visible version of the pre-execution managed run reservation"]
@@ -238,7 +240,7 @@
    ["bar_evidence_unreserved" "multi" "literal" "self-labelled observation recorded with no run reservation; never run-bound verification"]
    ["judgment_grade" "single" "literal" "dispatcher's S/M/L estimate of a thread's judgment saturation (s|m|l)"]
    ["judgment_grade_status" "single" "literal" "run-local validation status of the admission-time judgment grade (valid|unavailable|invalid)"]
-   ["judgment_grade_source" "single" "literal" "run-local origin of the judgment-grade snapshot (thread|ad-hoc)"]
+   ["judgment_grade_source" "single" "literal" "run-local origin of the judgment-grade selection (thread|ad-hoc)"]
    ["owner"          "single" "literal" "organizational owner of a thread"]
    ["source"         "single" "literal" "system from which an entity originated"]
    ["created_by"     "single" "ref"     "person or agent that created an entity"]
@@ -259,25 +261,14 @@
    ["acked_by" "multi"  "literal" "handles that have acked this message"]
    ["delivery_class" "single" "literal" "directed-attention delivery class"]
    ["requires_ack" "single" "literal" "whether directed attention requires acknowledgement"]
-   ;; --- durable attention (attention-cli) ---
-   ["subscriber" "single" "ref" "stable role, agent, or person principal that owns a subscription"]
-   ["about" "single" "ref" "thread observed by a subscription or described by a notification"]
-   ["event_filter" "multi" "literal" "semantic event kinds selected by a subscription"]
+   ;; --- concern and message notifications ---
+   ["about" "single" "ref" "thread or entity described by a concern or notification"]
    ["delivery" "single" "literal" "requested attention delivery posture"]
-   ["start_version" "single" "literal" "coordinator version at which a subscription begins observing"]
-   ["cursor_version" "single" "literal" "highest coordinator log version replayed for a subscription"]
-   ["start_offset" "single" "literal" "physical log boundary at which a subscription begins observing"]
-   ["cursor_offset" "single" "literal" "physical append boundary replayed by a subscription"]
-   ["cursor_anchor" "single" "literal" "prefix fence proving the replay cursor still names the same log"]
-   ["end_offset" "single" "literal" "physical append boundary captured atomically at unfollow"]
-   ["end_version" "single" "literal" "coordinator version captured atomically at unfollow"]
-   ["end_anchor" "single" "literal" "prefix fence proving the unfollow boundary"]
    ["recipient" "single" "ref" "stable principal addressed by a notification"]
    ["read_by" "multi" "ref" "stable principals that have read a notification"]
    ["read_at" "single" "literal" "instant a notification was read"]
    ["attention_kind" "single" "literal" "semantic kind carried by a notification"]
    ["source_version" "single" "literal" "coordinator log version that caused a notification"]
-   ["subscription" "single" "ref" "subscription that materialized a notification"]
    ["source_concern" "multi" "ref" "concern whose lifecycle or overlap caused a notification"]
    ["event_key" "single" "literal" "publisher-defined idempotency key for a notification"]
    ["attention_event_intent" "multi" "literal" "bounded canonical EDN concern-attention outbox event"]
@@ -309,9 +300,9 @@
    ["candidate_git_dir" "single" "literal" "durable local Git common directory used to derive candidate landing"]
    ["driver"  "single" "ref"     "the @handle currently driving a thread/concern (presence ⇒ active)"]
    ["touches" "multi"  "literal" "file paths a concern touches (display label + the path-string footprint fallback for non-flipped repos)"]
-   ["footprint" "multi" "ref"    "code NODE (@mod#n) in a concern's footprint — the cross-frame bridge (thread 019f1010-2705); asserted on the repo's warm CODE port, joined via the daemon's calls_defn blast closure (calls_defn itself is a fram daemon-internal derived edge, not a :7977 fact)"]
-   ["code_port" "single" "literal" "port of the repo's warm code daemon, so a reader finds where a concern's footprint code store lives"]
-   ["code_log" "single" "literal" "canonical log identity served by a concern's per-repo code daemon"]
+   ["footprint" "multi" "ref"    "code node (@mod#n) in a concern's footprint; asserted on the repo's warm code port and joined through the server-derived calls_defn closure"]
+   ["code_port" "single" "literal" "port of the repo's warm code server, so a reader finds the concern footprint database"]
+   ["code_log" "single" "literal" "canonical FRAMLOG identity served by a concern's per-repo code server"]
    ;; --- fan-out / barrier (north-map) ---
    ["batch_kind"     "single" "literal" "kind of fan-out batch"]
    ["expected_count" "single" "literal" "N workers expected in a fan-out batch"]
@@ -393,7 +384,6 @@
    ["run_event_terminal_sequence" "single" "literal" "terminal_cleanup sequence that finalized the run ledger"]
    ["run_event_ledger_sha256" "single" "literal" "SHA-256 committing the ordered event digest sequence"]
    ["run_observation_coverage" "multi" "literal" "canonical JSON source coverage statement for the finalized run ledger"]
-   ["canary_outcome" "multi" "literal" "recurring production-path canary verdict recorded against one terminal run (full-green|failure)"]
    ["run" "single" "ref" "exact run header referenced by an append-only run event"]
    ["run_event_sequence" "single" "literal" "zero-based append-only event sequence within one run"]
    ["run_event_type" "single" "literal" "typed AgentRun observation class from the versioned ledger contract"]
@@ -406,8 +396,8 @@
    ["usage_scope" "single" "literal" "provider-declared scope of terminal usage"]
    ["usage_total_status" "single" "literal" "whether aggregate tokens are exact or why unknown"]
    ["duration_ms"    "single" "literal" "run wall duration (ms)"]
-   ["estimate_delta_ms" "single" "literal" "signed terminal duration_ms minus the dispatch-time estimate_hours snapshot, in milliseconds"]
-   ["estimate_ratio" "single" "literal" "terminal duration_ms divided by the dispatch-time estimate_hours snapshot"]
+   ["estimate_delta_ms" "single" "literal" "signed terminal duration_ms minus the dispatch-time estimate_hours value, in milliseconds"]
+   ["estimate_ratio" "single" "literal" "terminal duration_ms divided by the dispatch-time estimate_hours value"]
    ["estimate_classification" "single" "literal" "exact signed-delta classification: under, on, or over"]
    ["provider_duration_ms" "single" "literal" "provider-reported duration when available (ms)"]
    ["num_turns"      "single" "literal" "real assistant-turn count on providers that report it honestly (e.g. Claude SDK); the openai/codex provider never writes this fact — see codex_turn_units, which is a different quantity and not comparable"]
@@ -606,12 +596,6 @@
    ["atomic"        "single" "literal" "flag: a thread is atomic and must not be decomposed"]
    ["priority"      "single" "literal" "priority band of a thread (e.g. low|med|high)"]
    ["queue_rank"    "single" "literal" "versioned manual move replayed over a lane's derived fallback order"]
-   ;; --- claims-log split snapshots (acquire claims substrate / log-split) ---
-   ["byte_offset"   "single" "literal" "byte offset a snapshot covers within the source claims log"]
-   ["covers_through" "single" "literal" "highest claim/tx a log snapshot covers"]
-   ["snapshot_hash" "single" "literal" "content hash of a claims-log snapshot"]
-   ["image_path"    "single" "literal" "filesystem path of a claims-log snapshot image"]
-   ["claim_count"   "single" "literal" "number of claims a snapshot covers"]
    ;; --- aggregate batch usage rollup (north-map aggregate harness) ---
    ["agg_run_tokens" "single" "literal" "tokens attributed to one aggregate batch run member"]
    ["agg_done_worker" "single" "literal" "worker handle recorded for one aggregate batch DONE slot"]
@@ -688,6 +672,7 @@
     :reason "operators may explicitly define an additional executable predicate entity"}])
 
 (def VOCAB-CARD (into {} (map (fn [[n c k d]] [n {:card c :kind k :doc d}]) VOCAB)))
+(def ACYCLIC-PREDICATES #{"depends_on" "part_of"})
 
 ;; Bootstrap input only. `seed` materializes this into connected graph facts;
 ;; every reader below then uses only those facts. The predicate is implicit in
@@ -744,12 +729,14 @@
 
 ;; ---- registry reads ----
 (defn registration-actions [entity card kind doc minter minted-at]
-  [(set-action entity "cardinality" [card] :one)
-   (set-action entity "value_kind" [kind] :one)
-   (set-action entity "doc" (if (seq (str doc)) [(str doc)] []) :one)
-   (set-action entity "entity_kind" ["predicate"] :one)
-   (set-action entity "minted_by" [minter] :one)
-   (set-action entity "minted_at" [minted-at] :one)])
+  (cond-> [(set-action entity "cardinality" [card] :one)
+           (set-action entity "value_kind" [kind] :one)
+           (set-action entity "doc" (if (seq (str doc)) [(str doc)] []) :one)
+           (set-action entity "entity_kind" ["predicate"] :one)
+           (set-action entity "minted_by" [minter] :one)
+           (set-action entity "minted_at" [minted-at] :one)]
+    (contains? ACYCLIC-PREDICATES (pred-name entity))
+    (conj (set-action entity "acyclic" ["true"] :one))))
 
 (defn register! [port nm card kind doc minter]
   (let [e (pred-ent nm)
@@ -939,7 +926,7 @@
         (println "  ✓ clean — every predicate-position literal has an executable graph declaration")
         (do (println (str "  ✗ " (count misses) " predicate literal(s) with NO entry:"))
             (doseq [[p fs] misses] (println (format "    %-24s used in %s" p (str/join "," (sort fs)))))
-            (println "  -> run `north schema-migrate migrate --execute` or `pred-cli.clj <port> define ...`")
+            (println "  -> register intentional predicates with `north predicate define ...`")
             (when strict (System/exit 1)))))
 
     "lint-offline"
@@ -949,7 +936,7 @@
       (println (format "pred lint-offline (WEAK, BOOTSTRAP-ONLY) — %d predicate literals across %d files, %d bootstrap names"
                        (count used) (count (lint-files)) (count BOOTSTRAP-SET)))
       (if (empty? misses)
-        (println "  ✓ clean against migration bootstrap inventory (not a runtime schema verdict)")
+        (println "  ✓ clean against bootstrap inventory (not a runtime schema verdict)")
         (do (println (str "  ✗ " (count misses) " predicate literal(s) absent from migration bootstrap:"))
             (doseq [[p fs] misses] (println (format "    %-24s used in %s" p (str/join "," (sort fs)))))
             (println "  -> add bootstrap material only if the predicate is intentional; runtime authority remains the graph")

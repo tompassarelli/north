@@ -26,7 +26,7 @@ jobs:
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
-          mapfile -d '' candidates < <(find bin cli/tests deploy/gateway -type f -print0)
+          mapfile -d '' candidates < <(find bin cli/tests -type f -print0)
           scripts=()
           for file in "${candidates[@]}"; do
             IFS= read -r first < "$file" || true
@@ -50,8 +50,7 @@ jobs:
       - name: Expose hermetic test runner
         run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
-      # Resolve the exact source inputs used by North's Nix packages, CI, and
-      # Docker image. There are no second hand-maintained source pointers.
+      # Resolve the exact source inputs used by North's Nix packages and CI.
       - name: Resolve locked source inputs
         id: sources
         run: |
@@ -68,6 +67,11 @@ jobs:
           ref: ${{ steps.sources.outputs.fram_ref }}
           path: fram
 
+      - name: Bind bare Babashka tests to locked Fram
+        run: |
+          echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out" \
+            >> "$GITHUB_ENV"
+
       - name: Install babashka
         run: |
           set -euo pipefail
@@ -80,11 +84,9 @@ jobs:
           test "$(bb --version)" = "babashka v1.12.218"
           rm -f "$asset"
 
-      # Fram's coordinator daemon (bin/fram-daemon) runs on the JVM via `clojure -M`,
-      # NOT babashka — bb's native image lacks javax.net.ssl.SSLServerSocket (engine
-      # mTLS). The gateway tests stand up a real coordinator, so the runner needs the
-      # Clojure CLI + a JDK (ubuntu-latest ships a JDK; rlwrap isn't needed for `clojure`).
-      - name: Install Clojure CLI (Fram's coordinator daemon is JVM, not bb)
+      # Current-main Fram integration tests launch bin/fram-server through the
+      # checkout-only JVM development route.
+      - name: Install Clojure CLI for Fram server integration tests
         run: |
           set -euo pipefail
           curl -fL --retry 5 -o clojure-install.sh \
@@ -95,8 +97,7 @@ jobs:
           clojure -Sdescribe | grep -F '"1.12.5.1654"'
           rm -f clojure-install.sh
 
-      # Pre-download Fram's JVM deps (cheshire) so the daemon boots within the test
-      # poll window instead of racing a cold Maven fetch on first launch.
+      # Pre-download the current Fram server's JVM development dependencies.
       - name: Warm Fram JVM deps
         working-directory: fram
         run: clojure -P
@@ -119,11 +120,6 @@ jobs:
           bash bin/tests/north-on-stop-test.sh
           bash bin/tests/north-runtime-promote-test.sh  # runtime promote selector: exact commit, atomic swap, rollback
 
-      - name: Docker context and runtime closure
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: CONTAINER_ENGINE=docker bash bin/tests/docker-context-test.sh
-
       - name: Domain tests (run on the committed out/, no Beagle build needed)
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
@@ -132,22 +128,20 @@ jobs:
         run: |
           set -euo pipefail
           CP="out:../fram/out"
-          bb -cp "$CP" tests/clock_test.clj
-          bb -cp "$CP" cli/tests/coordinator-diagnostic-test.clj
           bb -cp "$CP" tests/staleness_test.clj
           bb cli/tests/rebuild-intent-state-test.clj
           bb cli/tests/rebuild-intent-two-session-integration-test.clj
           bash bin/tests/firn-rebuild-coordinated-test.sh
-          bb tests/reap_test.clj      # lifecycle-reap verdict (daemon-free; guards the @run-join false positive)
+          bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
           bb cli/tests/worker-heartbeat-test.clj   # per-task durable heartbeat + doctor stale/missing verdict
           bb cli/tests/coordination-projection-worker-test.clj  # projection worker scopes healing to coordination
           bb cli/tests/maintenance-task-lifecycle-test.clj  # bounded one-shot, reconnect, and per-task lock
           bb cli/tests/worktree-allocation-integration-test.clj  # marker-last physical ownership + rollback/quarantine
-          bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated coordinator, scheduled task twice
-          bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed wt-* reap: real Git, deferred graph joins, daemon-free
+          bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated Fram server, scheduled task twice
+          bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed wt-* reap: real Git, deferred graph joins, server-free
           bb cli/tests/maintenance-large-corpus-test.clj  # >221k live facts + 48 lanes complete without scan/fixpoint amplification
-      - name: Coordinator policy and startup boundaries
+      - name: FRAMRPC policy and startup boundaries
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
@@ -165,26 +159,11 @@ jobs:
           bb cli/tests/dashboard-promoted-runtime-test.clj  # promoted-runtime selector reading + code-adoption gauge
           bb cli/tests/rebuild-request-window-test.clj  # window owner decides on fixture time, never wall-clock
           bb cli/tests/nix-rebuild-worker-test.clj  # one queue consumer, synchronous rebuild, durable fallback
-          bb cli/tests/coordinator-jvm-health-test.clj
           bb cli/tests/framlog-cutover-test.clj  # exact forward-only Fram migration and selection
-          bb cli/tests/deployed-cli-test.clj
           BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj
           bb cli/tests/linear-helper-protocol-test.clj
           bb cli/tests/routing-preflight-failure-naming-test.clj  # no admission may die with an unnamed reason
-          bash cli/tests/north-explicit-log-test.sh
           python3 cli/tests/north-coord-socket-activation-integration.py
-
-      - name: Coordinator strict-corpus integration
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: |
-          set -euo pipefail
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" \
-            bash cli/tests/coord-log-fence-integration-test.sh
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" \
-            bash cli/tests/telemetry-partition-integration-test.sh
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" \
-            bb cli/tests/linear-reservation-integration-test.clj
 
       - name: Hook, native, and managed identity boundaries
         working-directory: north
@@ -201,7 +180,7 @@ jobs:
             bb cli/tests/agent-identity-publication-integration-test.clj
           timeout --foreground 120s bb cli/tests/spawn-process-integration-test.clj
 
-      - name: Agent projection and routing report boundaries
+      - name: Agent projection boundaries
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
@@ -215,17 +194,6 @@ jobs:
           timeout --foreground 120s bb cli/tests/agents-cli-test.clj
           timeout --foreground 120s bb cli/tests/map-contract-test.clj
           timeout --foreground 120s bb cli/tests/pred-cli-test.clj
-          timeout --foreground 120s bb cli/tests/routing-report-test.clj
-          timeout --foreground 120s bb cli/tests/canary-cli-test.clj
-
-      - name: Warm/cold CLI output parity
-        working-directory: fram
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: |
-          set -euo pipefail
-          FRAM_HOME="$GITHUB_WORKSPACE/fram" \
-            bb -cp "$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out" \
-            "$GITHUB_WORKSPACE/north/cli/tests/daemon-cold-output-parity-test.clj"
 
       - name: Durable coordination delivery boundaries
         working-directory: north
@@ -243,7 +211,7 @@ jobs:
           timeout --foreground 180s bb cli/tests/pending-pagination-integration-test.clj
           timeout --foreground 180s bb cli/tests/peer-command-integration-test.clj
 
-      - name: Spend-guard ledger, breaker, and scheduled checks (real daemon)
+      - name: Spend-guard ledger, breaker, and scheduled checks (Fram server)
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
@@ -251,30 +219,7 @@ jobs:
           FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-cli-test.clj
           FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-breaker-test.clj
 
-      - name: Gateway policy boundaries
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: |
-          set -euo pipefail
-          bb -cp out cli/tests/gateway-policy-test.clj
-          GATEWAY_LIB_ONLY=1 bb -cp out cli/tests/gateway-boundary-test.clj
-
-      - name: Gateway provision transaction boundaries
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: bash deploy/gateway/provision_test.sh
-
-      - name: Gateway integration smoke test
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/smoke_test.sh
-
-      - name: Gateway cross-host test (FRAM_BIND=0.0.0.0 + :coordinator-host)
-        working-directory: north
-        shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash deploy/gateway/crosshost_test.sh
-
-      - name: Arena strict-corpus integration
+      - name: Arena FRAMRPC integration
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash bin/tests/arena-seed-test.sh
