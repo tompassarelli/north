@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FRAM="${FRAM_HOME:-/home/tom/code/fram/wt-core-target-production-5db9b38}"
+FRAM="${FRAM_HOME:-/home/tom/code/fram/main}"
 TMP="$(mktemp -d)"
 LOG="$TMP/history.framlog"
 SERVER_LOG="$TMP/server.log"

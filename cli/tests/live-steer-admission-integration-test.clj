@@ -11,7 +11,10 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(def fram
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_HOME")
+      "/home/tom/code/fram/main"))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?

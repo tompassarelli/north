@@ -22,7 +22,7 @@
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
 (def FRAM (or (System/getenv "FRAM_HOME")
-              "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+              "/home/tom/code/fram/main"))
 (def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))

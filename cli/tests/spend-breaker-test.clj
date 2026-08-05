@@ -18,7 +18,7 @@
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
            (io/file (or (System/getenv "FRAM_PATH")
-                        "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+                        "/home/tom/code/fram/main"))))
 (when-not (.isFile (io/file fram "bin/fram-server"))
   (throw (ex-info "Fram checkout not found; set FRAM_PATH or clone it beside North" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))

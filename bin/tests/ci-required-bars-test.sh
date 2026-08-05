@@ -100,8 +100,7 @@ grep -Fq 'FRAM_HOME=$GITHUB_WORKSPACE/fram' "$WORKFLOW"
 grep -Fq 'FRAM_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
 grep -Fq 'NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
 grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
-if grep -Fq '/home/tom/code/fram/main' "$WORKFLOW" ||
-   grep -Fq '/home/tom/code/fram/wt-core-target-production-5db9b38' "$WORKFLOW"; then
+if grep -Fq '/home/tom/code/fram' "$WORKFLOW"; then
   echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local Fram path' >&2
   exit 1
 fi

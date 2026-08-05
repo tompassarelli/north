@@ -13,7 +13,7 @@
             "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+      "/home/tom/code/fram/main"))
 (when-not (.isFile (io/file fram "bin/fram-server"))
   (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (load-file (str fram "/database.clj"))

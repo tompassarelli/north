@@ -23,7 +23,7 @@ const repo = resolve(import.meta.dir, "../..");
 // The fixture server and the bb writer child must share one Fram vocabulary.
 const frozenFramHome = process.env.FRAM_TEST_CHECKOUT
   ?? process.env.FRAM_HOME
-  ?? "/home/tom/code/fram/wt-core-target-production-5db9b38";
+  ?? "/home/tom/code/fram/main";
 const identity = {
   run: "@run:lane-ledger-001",
   thread: "@019f89ac-a86a-7399-b915-358d44a1be15",

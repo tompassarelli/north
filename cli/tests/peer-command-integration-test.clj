@@ -11,7 +11,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+      "/home/tom/code/fram/main"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (when-not (.isFile (io/file fram "bin/fram-server"))

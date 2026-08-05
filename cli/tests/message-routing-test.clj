@@ -8,7 +8,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-out
   (str (or (System/getenv "FRAM_HOME")
-           "/home/tom/code/fram/wt-core-target-production-5db9b38")
+           "/home/tom/code/fram/main")
        "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-routing.clj"))

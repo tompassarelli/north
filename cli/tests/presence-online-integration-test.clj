@@ -14,7 +14,7 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
-      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+      "/home/tom/code/fram/main"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (when-not (.isFile (io/file fram "bin/fram-server"))
   (throw (ex-info "current Fram checkout is required" {:fram fram})))
