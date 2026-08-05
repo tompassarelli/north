@@ -50,15 +50,13 @@ jobs:
       - name: Expose hermetic test runner
         run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
-      # Resolve the exact source inputs used by North's Nix packages and CI.
+      # Resolve the exact Fram source used by CI.
       - name: Resolve locked source inputs
         id: sources
         run: |
           {
             echo "fram_repository=$(north/bin/github-flake-input-pin north/flake.lock fram repository)"
             echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)"
-            echo "orchestration_repository=$(north/bin/github-flake-input-pin north/flake.lock orchestration repository)"
-            echo "orchestration_ref=$(north/bin/github-flake-input-pin north/flake.lock orchestration revision)"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -67,10 +65,15 @@ jobs:
           ref: ${{ steps.sources.outputs.fram_ref }}
           path: fram
 
-      - name: Bind bare Babashka tests to locked Fram
+      - name: Bind tests to locked Fram
         run: |
-          echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out" \
-            >> "$GITHUB_ENV"
+          {
+            echo "FRAM_HOME=$GITHUB_WORKSPACE/fram"
+            echo "FRAM_BIN=$GITHUB_WORKSPACE/fram/bin"
+            echo "FRAM_OUT=$GITHUB_WORKSPACE/fram/out"
+            echo "NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/fram/out"
+            echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out"
+          } >> "$GITHUB_ENV"
 
       - name: Install babashka
         run: |
@@ -182,7 +185,7 @@ jobs:
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
-          ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration
+          ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration
         run: |
           set -euo pipefail
           timeout --foreground 120s bb cli/tests/spawn-thread-title-validation-test.clj

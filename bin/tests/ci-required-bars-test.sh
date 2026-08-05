@@ -93,13 +93,12 @@ done
 
 # These are literal workflow expressions, not shell expansions in this process.
 # shellcheck disable=SC2016
-grep -Fq 'orchestration_repository=$(north/bin/github-flake-input-pin north/flake.lock orchestration repository)' "$WORKFLOW"
-# shellcheck disable=SC2016
-grep -Fq 'orchestration_ref=$(north/bin/github-flake-input-pin north/flake.lock orchestration revision)' "$WORKFLOW"
-# shellcheck disable=SC2016
 grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram' "$WORKFLOW"
 # shellcheck disable=SC2016
-grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/orchestration' "$WORKFLOW"
+grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration' "$WORKFLOW"
+grep -Fq 'FRAM_HOME=$GITHUB_WORKSPACE/fram' "$WORKFLOW"
+grep -Fq 'FRAM_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
+grep -Fq 'NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
 grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
 if grep -Fq '/home/tom/code/fram/main' "$WORKFLOW" ||
    grep -Fq '/home/tom/code/fram/wt-core-target-production-5db9b38' "$WORKFLOW"; then
