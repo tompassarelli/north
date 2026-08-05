@@ -12,6 +12,7 @@
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
       (str (System/getProperty "user.home") "/code/fram/main")))
+(load-file (str fram-root "/tests/log_split_readiness_lib.clj"))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI
@@ -23,20 +24,13 @@
 
 (def checks (atom []))
 (defn check [label result] (swap! checks conj [label (boolean result)]))
-(defn free-port []
-  (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
-(defn port-open? [port]
-  (try
-    (with-open [socket (java.net.Socket.)]
-      (.connect socket (java.net.InetSocketAddress. "127.0.0.1" (int port)) 100)
-      true)
-    (catch Exception _ false)))
-(defn eventually [predicate]
-  (loop [attempt 0]
-    (cond
-      (predicate) true
-      (>= attempt 200) false
-      :else (do (Thread/sleep 25) (recur (inc attempt))))))
+(def daemon-ready-deadline-ms 75000)
+(defn await-coordinator! [daemon port log]
+  (await-ready
+   daemon port
+   #(:ready (north.coord/strict-coordinator-status % log))
+   :deadline-ms daemon-ready-deadline-ms
+   :poll-ms 100))
 
 (defn registration [nonce suffix]
   (let [subject (str "@worktree-allocation:" nonce)
@@ -84,8 +78,10 @@
       daemon (do
                (spit log "")
                (proc/process {:dir fram-root :out :string :err :string
-                              :extra-env {"FRAM_REQUIRE_LOG_FENCE" "1"}}
-                             "bb" "-cp" "out" "coord_daemon.clj"
+                              :env (scratch-process-env
+                                    {"FRAM_REQUIRE_LOG_FENCE" "1"
+                                     "NORTH_COORD_SINGLE_ORIGIN" "1"})}
+                             (str fram-root "/bin/fram-daemon")
                              "serve-flat" (str port) (.getCanonicalPath log)))
       first-registration (registration "11111111-1111-4111-8111-111111111111" "1")
       second-registration (registration "22222222-2222-4222-8222-222222222222" "2")
@@ -93,7 +89,8 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check "throwaway coordinator starts" (eventually #(port-open? port)))
+    (await-coordinator! daemon port (.getCanonicalPath log))
+    (check "throwaway coordinator is strict-ready on its scratch log" true)
 
     (let [encoded (json/generate-string first-registration)
           committed (shell log "bb" writer-path (str port) "register" encoded)
