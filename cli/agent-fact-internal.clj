@@ -437,17 +437,17 @@
         (fail! "delivery attestation target must be the managed terminal subject"
                {:subject subject :target (get attestation "target")})))))
 
-(defn validate-reported-run!
+(defn validate-reported-run-with!
   "A syntactically valid snapshot is not proof by itself. Before exposing a
   reported lane terminal, bind it to the committed reservation and exact
   writer-scoped self-report already present on the named run subject."
-  [port subject facts]
+  [read-facts subject facts]
   (when (= "reported" (get facts "delivery_outcome"))
     (let [evidence (json/parse-string (get facts "delivery_evidence"))
           run (get evidence "run")
           thread (get evidence "thread")
           run-facts
-          (facts-of port run north.lifecycle-projection/reported-run-predicates)
+          (read-facts run north.lifecycle-projection/reported-run-predicates)
           reservation-origin
           (north.terminal-projection/singleton-value
            run-facts "run_reservation_contract_origin")
@@ -455,8 +455,8 @@
           (north.terminal-projection/run-reservation-done-when run-facts)
           current-bars
           (north.terminal-projection/canonical-done-when
-           (facts-of port thread
-                     north.lifecycle-projection/reported-thread-predicates))
+           (read-facts thread
+                       north.lifecycle-projection/reported-thread-predicates))
           cited-records
           (set
            (mapcat (fn [match]
@@ -492,6 +492,11 @@
                {:subject subject :run run
                 :missing (vec (remove stored-records cited-records))
                 :uncited (vec (remove cited-records stored-records))})))))
+
+(defn validate-reported-run! [port subject facts]
+  (validate-reported-run-with!
+   (fn [entity predicates] (facts-of port entity predicates))
+   subject facts))
 
 (defn publish-terminal! [port subject facts]
   (let [before (facts-of port subject)]
@@ -1113,12 +1118,6 @@
 (defn optional-payload [raw]
   (when-not (str/blank? raw) (payload raw)))
 
-(defn framrpc-protocol? []
-  (= "framrpc" (System/getenv "NORTH_COORD_PROTOCOL")))
-
-;; The deployed FRAM_OUT may predate the binary wire. Loading the client at
-;; analysis time would therefore break the v0.3 default before the selector can
-;; choose it; resolve every native symbol only after the native branch is live.
 (defn ensure-native-client! []
   (when-not (find-ns 'north.framrpc-client)
     (load-file (str writer-root "/framrpc-client.clj"))))
@@ -1144,6 +1143,41 @@
                 :read-timeout-ms writer-timeout-bound-ms
                 :max-attempts 1}))
 
+(defn presence-fence! [raw subject]
+  (when (str/blank? raw)
+    (fail! "managed lifecycle operation requires its exact presence fence"
+           {:subject subject}))
+  (let [parsed
+        (try (json/parse-string raw)
+             (catch Throwable error
+               (fail! "managed presence fence must be valid JSON"
+                      {:subject subject :cause (.getMessage error)})))
+        expected-holder (subs subject (count "@agent:"))
+        expected-resource (str "session:" expected-holder)]
+    (when-not (and (map? parsed)
+                   (= #{"resource" "holder" "epoch"} (set (keys parsed)))
+                   (= expected-resource (get parsed "resource"))
+                   (= expected-holder (get parsed "holder"))
+                   (integer? (get parsed "epoch"))
+                   (pos? (get parsed "epoch")))
+      (fail! "managed presence fence does not exactly match its subject"
+             {:subject subject :fence parsed}))
+    {:resource expected-resource
+     :holder expected-holder
+     :epoch (get parsed "epoch")}))
+
+(defn native-fence-term [fence]
+  (let [constructor (ns-resolve 'north.coord 'lease-fence)]
+    (when-not constructor
+      (fail! "canonical FRAMRPC lease-fence constructor is unavailable" {}))
+    (constructor (:resource fence) (:holder fence) (:epoch fence))))
+
+(defn native-presence-valid? [client fence]
+  (:valid? (native-rpc! 'lease-check! client (native-fence-term fence))))
+
+(defn native-release-presence! [client fence]
+  (:released? (native-rpc! 'lease-release! client (native-fence-term fence))))
+
 (defn occurrence-snapshot [occurrences]
   (into {}
         (keep (fn [[predicate values]]
@@ -1157,6 +1191,41 @@
             (into {} (map (fn [predicate] [predicate {}])
                           managed-projection-predicates))
             (assoc identity marker-predicate (identity-marker identity)))))
+
+(defn terminal-occurrences [facts]
+  (let [marker (north.terminal-projection/terminal-manifest-sha256 facts)]
+    (when-not marker
+      (fail! "cannot encode an incomplete managed terminal projection" {}))
+    (into {}
+          (map (fn [predicate]
+                 (let [value (if (= terminal-marker-predicate predicate)
+                               marker
+                               (get facts predicate))]
+                   [predicate (if value {value 1} {})])))
+          (conj terminal-predicates terminal-marker-predicate))))
+
+(defn native-facts-of
+  ([client subject]
+   (native-facts-of client subject managed-projection-predicates))
+  ([client subject predicates]
+   (let [projection (native-rpc! 'subject-projection! client subject)
+         snapshot (occurrence-snapshot (:occurrences projection))]
+     {:served-version (:served-version projection)
+      :facts (into {}
+                   (keep (fn [predicate]
+                           (when-let [values (seq (get snapshot predicate))]
+                             [predicate (set values)])))
+                   predicates)})))
+
+(defn native-facts-at-version!
+  [client served-version subject predicates]
+  (let [projection (native-facts-of client subject predicates)]
+    (when-not (= served-version (:served-version projection))
+      (throw (ex-info "FRAMRPC validation snapshot changed"
+                      {:type :native/snapshot-conflict
+                       :expected-version served-version
+                       :served-version (:served-version projection)})))
+    (:facts projection)))
 
 (defn exact-native-identity? [occurrences identity]
   (= (into {} (remove (comp empty? val)) (identity-occurrences identity))
@@ -1266,13 +1335,36 @@
       {:result (unresolved-result "indeterminate" operation-id
                                   "unrecognized_partial_generation")})))
 
-(defn native-plan [subject before desired]
+(defn native-plan-with-marker [subject before desired marker]
   (native-rpc!
    'plan-subject-actions subject before (identity-occurrences desired)
    {:rank (fn [action]
-            (if (= marker-predicate
+            (if (= marker
                    (native-triple-predicate (:proposition action)))
               1 0))}))
+
+(defn native-plan [subject before desired]
+  (native-plan-with-marker subject before desired marker-predicate))
+
+(defn native-plan-occurrences [subject before desired marker]
+  (native-rpc!
+   'plan-subject-actions subject before desired
+   {:rank (fn [action]
+            (if (= marker
+                   (native-triple-predicate (:proposition action)))
+              1 0))}))
+
+(defn native-submit-scoped-batch!
+  [client subject before desired actions fence expected-version]
+  (let [outcome (native-rpc! 'fenced-batch! client actions
+                             {:fence fence
+                              :expected-version expected-version})]
+    (if (contains? #{:applied :no-op :sent-ambiguous} (:outcome outcome))
+      (assoc outcome
+             :readback
+             (native-rpc! 'subject-readback! client subject desired
+                          {:before before}))
+      outcome)))
 
 (defn native-readback! [client subject before desired]
   (native-rpc! 'subject-readback! client subject
@@ -1389,9 +1481,309 @@
             (try (native-rpc! 'lease-release! client fence)
                  (catch Throwable _ nil))))))))
 
+(defn validate-retask! [facts]
+  (when-not (= #{"goal" "display_name"} (set (keys facts)))
+    (fail! "retask requires exactly goal and display_name"
+           {:predicates (set (keys facts))})))
+
+(defn native-retask!
+  [client subject operation-id facts holder presence-fence]
+  (validate-retask! facts)
+  (let [deadline (+ (System/nanoTime) (* writer-timeout-bound-ms 1000000))
+        acquire (native-acquire-lease! client subject holder)]
+    (if-let [result (:result acquire)]
+      (with-operation-id result operation-id)
+      (let [fence (:fence acquire)]
+        (try
+          (loop [conflicts 0]
+            (if-not (native-presence-valid? client presence-fence)
+              (unresolved-result "not_committed" operation-id
+                                 "presence_fence_mismatch")
+              (let [{:keys [served-version occurrences]}
+                    (native-rpc! 'subject-projection! client subject)
+                    before (occurrence-snapshot occurrences)
+                    current (committed-identity before)]
+                (cond
+                  (terminal-projection-present? before)
+                  (if (valid-committed-terminal? subject before)
+                    (unresolved-result "not_committed" operation-id
+                                       "terminal_committed")
+                    (unresolved-result "indeterminate" operation-id
+                                       "partial_or_invalid_terminal"))
+
+                  (nil? current)
+                  (unresolved-result "indeterminate" operation-id
+                                     "invalid_identity_generation")
+
+                  :else
+                  (let [desired (merge current facts)
+                        _ (validate-publish! desired)
+                        desired-occurrences (identity-occurrences desired)]
+                    (if (exact-native-identity? occurrences desired)
+                      (committed-result operation-id "exact_replay")
+                      (let [mutation-predicates
+                            #{"goal" "display_name" marker-predicate}
+                            target (select-keys desired-occurrences
+                                                mutation-predicates)
+                            actions
+                            (native-plan-occurrences subject occurrences target
+                                                     marker-predicate)
+                            outcome
+                            (native-submit-scoped-batch!
+                             client subject occurrences desired-occurrences actions
+                             fence served-version)]
+                        (case (:outcome outcome)
+                          :conflict
+                          (if (and (< conflicts 32)
+                                   (< (System/nanoTime) deadline))
+                            (recur (inc conflicts))
+                            (unresolved-result "not_committed" operation-id
+                                               "conflict_retry_exhausted"))
+
+                          :durability-ambiguous
+                          (unresolved-result
+                           "indeterminate" operation-id
+                           "restart_required_durability_ambiguous")
+
+                          :fence-mismatch
+                          (unresolved-result "not_committed" operation-id
+                                             "lease_fence_mismatch")
+
+                          :not-sent
+                          (unresolved-result "not_committed" operation-id
+                                             "batch_not_sent")
+
+                          (native-result-after-readback
+                           operation-id nil (:readback outcome))))))))))
+          (finally
+            (try (native-rpc! 'lease-release! client fence)
+                 (catch Throwable _ nil))))))))
+
+(defn native-classify-terminal
+  [subject operation-id desired expected occurrences]
+  (validate-terminal! subject desired)
+  (when expected (validate-publish! expected))
+  (let [before (occurrence-snapshot occurrences)
+        current (committed-identity before)]
+    (cond
+      (exact-committed-terminal? subject before desired)
+      {:result (committed-result operation-id "exact_replay")}
+
+      (valid-committed-terminal? subject before)
+      {:result (unresolved-result "not_committed" operation-id
+                                  "conflicting_terminal")}
+
+      (not (and current
+                (or (nil? expected)
+                    (identity-matches-except?
+                     current expected retask-overlay-predicates))))
+      {:result (unresolved-result "indeterminate" operation-id
+                                  "identity_generation_changed")}
+
+      (terminal-prefix-compatible? before desired)
+      {:desired desired
+       :prefix? (terminal-projection-present? before)}
+
+      :else
+      {:result (unresolved-result "indeterminate" operation-id
+                                  "unrecognized_partial_terminal")})))
+
+(defn native-stage-terminal-body!
+  [client subject operation-id desired expected fence deadline]
+  (let [target (assoc (terminal-occurrences desired)
+                      terminal-marker-predicate {})]
+    (loop [conflicts 0]
+      (let [{:keys [served-version occurrences]}
+            (native-rpc! 'subject-projection! client subject)
+            classification
+            (native-classify-terminal subject operation-id desired expected
+                                      occurrences)]
+        (if-let [result (:result classification)]
+          {:result result}
+          (let [actions
+                (native-plan-occurrences subject occurrences target
+                                         terminal-marker-predicate)
+                preexisting? (:prefix? classification)
+                outcome
+                (native-submit-scoped-batch!
+                 client subject occurrences target actions fence served-version)]
+            (case (:outcome outcome)
+              :conflict
+              (if (and (< conflicts 32) (< (System/nanoTime) deadline))
+                (recur (inc conflicts))
+                {:result (unresolved-result "not_committed" operation-id
+                                            "terminal_body_conflict_retry_exhausted")})
+
+              :durability-ambiguous
+              {:result
+               (unresolved-result "indeterminate" operation-id
+                                  "restart_required_durability_ambiguous")}
+
+              :fence-mismatch
+              {:result (unresolved-result "not_committed" operation-id
+                                          "lease_fence_mismatch")}
+
+              :not-sent
+              {:result (unresolved-result "not_committed" operation-id
+                                          "terminal_body_not_sent")}
+
+              (case (get-in outcome [:readback :state])
+                :committed {:body-ready? true :preexisting? preexisting?}
+                :absent (if (< (System/nanoTime) deadline)
+                          (recur (inc conflicts))
+                          {:result (unresolved-result
+                                    "not_committed" operation-id
+                                    "terminal_body_absent")})
+                :foreign-writer
+                {:result (unresolved-result "indeterminate" operation-id
+                                            "foreign_writer_after_terminal_body")}
+                {:result (unresolved-result "indeterminate" operation-id
+                                            "terminal_body_readback_mismatch")}))))))))
+
+(defn native-driver-actions-at-version!
+  [client served-version thread subject]
+  (if-not thread
+    []
+    (let [projection (native-rpc! 'subject-projection! client thread)]
+      (when-not (= served-version (:served-version projection))
+        (throw (ex-info "FRAMRPC driver snapshot changed"
+                        {:type :native/snapshot-conflict})))
+      (let [driver (str "@" (subs subject (count "@agent:")))
+            before (:occurrences projection)
+            desired {"driver" (dissoc (get before "driver" {}) driver)}]
+        (native-rpc! 'plan-subject-actions thread before desired {})))))
+
+(defn native-driver-released? [client thread subject]
+  (or (nil? thread)
+      (let [driver (str "@" (subs subject (count "@agent:")))
+            projection (native-rpc! 'subject-projection! client thread)]
+        (not (contains? (get (:occurrences projection) "driver" {}) driver)))))
+
+(defn native-commit-terminal!
+  [client subject operation-id desired expected thread fence deadline]
+  (let [target (terminal-occurrences desired)]
+    (loop [conflicts 0]
+      (let [base (:served-version (native-rpc! 'version! client))
+            projection (native-rpc! 'subject-projection! client subject)]
+        (if-not (= base (:served-version projection))
+          (if (< (System/nanoTime) deadline)
+            (recur (inc conflicts))
+            (unresolved-result "not_committed" operation-id
+                               "terminal_snapshot_retry_exhausted"))
+          (let [classification
+                (native-classify-terminal subject operation-id desired expected
+                                          (:occurrences projection))]
+            (if-let [result (:result classification)]
+              result
+              (let [validation
+                    (try
+                      (validate-reported-run-with!
+                       (fn [entity predicates]
+                         (native-facts-at-version!
+                          client base entity predicates))
+                       subject desired)
+                      :valid
+                      (catch Throwable error
+                        (if (= :native/snapshot-conflict (:type (ex-data error)))
+                          :retry
+                          (throw error))))]
+                (if (= :retry validation)
+                  (if (< (System/nanoTime) deadline)
+                    (recur (inc conflicts))
+                    (unresolved-result "not_committed" operation-id
+                                       "terminal_validation_retry_exhausted"))
+                  (let [driver-actions
+                        (try
+                          (native-driver-actions-at-version!
+                           client base thread subject)
+                          (catch Throwable error
+                            (if (= :native/snapshot-conflict
+                                   (:type (ex-data error)))
+                              ::retry
+                              (throw error))))]
+                    (if (= ::retry driver-actions)
+                      (if (< (System/nanoTime) deadline)
+                        (recur (inc conflicts))
+                        (unresolved-result "not_committed" operation-id
+                                           "terminal_driver_retry_exhausted"))
+                      (let [terminal-actions
+                            (native-plan-occurrences
+                             subject (:occurrences projection) target
+                             terminal-marker-predicate)
+                            actions (vec (concat driver-actions terminal-actions))
+                            outcome
+                            (native-submit-scoped-batch!
+                             client subject (:occurrences projection) target actions
+                             fence base)]
+                        (case (:outcome outcome)
+                          :conflict
+                          (if (and (< conflicts 32)
+                                   (< (System/nanoTime) deadline))
+                            (recur (inc conflicts))
+                            (unresolved-result "not_committed" operation-id
+                                               "terminal_conflict_retry_exhausted"))
+
+                          :durability-ambiguous
+                          (unresolved-result
+                           "indeterminate" operation-id
+                           "restart_required_durability_ambiguous")
+
+                          :fence-mismatch
+                          (unresolved-result "not_committed" operation-id
+                                             "lease_fence_mismatch")
+
+                          :not-sent
+                          (unresolved-result "not_committed" operation-id
+                                             "terminal_batch_not_sent")
+
+                          (let [result
+                                (native-result-after-readback
+                                 operation-id
+                                 (when (:prefix? classification)
+                                   "recovered_killed_prefix")
+                                 (:readback outcome))]
+                            (if (and (= "committed" (:status result))
+                                     (not (native-driver-released?
+                                           client thread subject)))
+                              (unresolved-result
+                               "indeterminate" operation-id
+                               "terminal_driver_readback_mismatch")
+                              result)))))))))))))))
+
+(defn native-terminal!
+  [client subject operation-id desired expected thread holder presence-fence]
+  (validate-terminal! subject desired)
+  (let [deadline (+ (System/nanoTime) (* writer-timeout-bound-ms 1000000))
+        acquire (native-acquire-lease! client subject holder)]
+    (if-let [result (:result acquire)]
+      (with-operation-id result operation-id)
+      (let [fence (:fence acquire)]
+        (try
+          (let [staged
+                (native-stage-terminal-body!
+                 client subject operation-id desired expected fence deadline)]
+            (if-let [result (:result staged)]
+              result
+              (if (or (native-release-presence! client presence-fence)
+                      (:preexisting? staged))
+                (native-commit-terminal!
+                 client subject operation-id desired expected thread fence deadline)
+                (unresolved-result "indeterminate" operation-id
+                                   "presence_fence_not_released"))))
+          (finally
+            (try (native-rpc! 'lease-release! client fence)
+                 (catch Throwable _ nil))))))))
+
+(defn native-attest!
+  [client subject request presence-fence]
+  (when-not (native-presence-valid? client presence-fence)
+    (fail! "attesting actor presence fence is stale"
+           {:subject subject}))
+  (attest! nil subject request))
+
 (defn native-main! [args]
   (let [[port-s operation raw-subject raw supplied-holder supplied-operation-id
-         desired-raw expected-raw _terminal-thread-raw] args
+         desired-raw expected-raw terminal-thread-raw presence-fence-raw] args
         port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
         subject (entity raw-subject)
         operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
@@ -1401,9 +1793,18 @@
         managed-recovery? (not (str/blank? supplied-operation-id))
         delta (payload raw)
         desired (if managed-recovery? (optional-payload desired-raw) delta)
-        expected (optional-payload expected-raw)]
-    (when-not (contains? #{"publish" "route"} operation)
-      (fail! "native agent writer currently supports publish and route"
+        expected (optional-payload expected-raw)
+        terminal-thread (terminal-thread terminal-thread-raw)
+        presence-subject
+        (if (= "attest" operation)
+          (entity (get delta "actor"))
+          subject)
+        presence-fence
+        (when (contains? #{"retask" "terminal" "attest"} operation)
+          (presence-fence! presence-fence-raw presence-subject))]
+    (when-not (contains? #{"publish" "route" "retask" "terminal" "attest"}
+                         operation)
+      (fail! "unsupported managed agent fact operation"
              {:operation operation}))
     (require-write-lease-policy!)
     (let [holder (validated-writer-holder supplied-holder)
@@ -1412,111 +1813,24 @@
         (println
          (json/generate-string
           {:ok true
-           :result (native-publish-identity!
-                    client subject operation operation-id delta desired expected holder)}))
+           :result
+           (case operation
+             ("publish" "route")
+             (native-publish-identity!
+              client subject operation operation-id delta desired expected holder)
+
+             "retask"
+             (native-retask!
+              client subject operation-id delta holder presence-fence)
+
+             "terminal"
+             (native-terminal!
+              client subject operation-id delta expected terminal-thread holder
+              presence-fence)
+
+             "attest"
+             (native-attest! client subject delta presence-fence))}))
         (finally (try (native-rpc! 'close! client) (catch Throwable _ nil)))))))
 
-;; Guard predicates for the atomic op's clean-fresh gate. identity-predicates
-;; already feed the manifest (the server verifies each present/absent), the facts
-;; carry the projection predicates, so these are the terminal bodies + terminal
-;; marker whose presence must force a publish-conflict — byte-for-byte the
-;; fresh?/reuse discriminant the sequential publish! applies.
-(def managed-agent-guard-predicates
-  (vec (distinct (concat projection-predicates
-                         terminal-predicates
-                         [terminal-marker-predicate]))))
-
-(defn atomic-fresh-publish!
-  "Attempt the ONE server-side :managed-agent-publish op (fram, promoted 2893706):
-  the whole identity body + manifest marker committed in a single transaction under
-  the canonical per-subject write lease. Returns a committed result on success, or
-  nil so the caller falls back to the sequential lease-fenced path, which owns every
-  reused, partial, or recovery generation (the atomic op rejects those WITHOUT
-  mutating, so the fallback starts from the exact prior state). A coordinator that
-  does not advertise the op answers {:error \"unknown op\"} and is likewise treated
-  as a fallback. validate-publish! runs FIRST so North's vocabulary/shape rejection
-  reaches the caller before any wire op, exactly as the sequential path would."
-  [port subject facts supplied-holder operation-id]
-  (validate-publish! facts)
-  (require-write-lease-policy!)
-  (let [marker (identity-marker facts)
-        holder (validated-writer-holder supplied-holder)
-        response (try
-                   (north.coord/send-op
-                    port {:op :managed-agent-publish
-                          :te subject
-                          :holder holder
-                          :ttl-ms write-lease-ttl-ms
-                          :facts (mapv (fn [[predicate value]]
-                                         {:p predicate :r value})
-                                       (sort-by key facts))
-                          :identity-preds (vec identity-predicates)
-                          :guard-preds managed-agent-guard-predicates
-                          :manifest-sha256 marker})
-                   (catch Throwable _ nil))]
-    (when (and (map? response)
-               (:ok response)
-               (:fenced-publish response)
-               (= subject (:te response))
-               (= marker (:marker response)))
-      (committed-result operation-id (when (:idempotent response) "exact_replay")))))
-
-(defn legacy-main! [args]
- (let [[port-s operation subject raw supplied-holder supplied-operation-id
-       desired-raw expected-raw terminal-thread-raw] args
-      port (Integer/parseInt (or port-s (or (System/getenv "NORTH_PORT") "7977")))
-      subject (entity subject)
-      terminal-thread (terminal-thread terminal-thread-raw)
-      managed-recovery? (not (str/blank? supplied-operation-id))
-      operation-id (or supplied-operation-id (str (java.util.UUID/randomUUID)))
-      _ (when-not (re-matches uuid-v4-pattern operation-id)
-          (fail! "invalid managed agent logical operation id"
-                 {:operation-id operation-id}))
-      desired (optional-payload desired-raw)
-      expected (optional-payload expected-raw)
-      operation!
-      (fn []
-        (case operation
-          "publish" (if managed-recovery?
-                      (recover-identity-write!
-                       port subject operation operation-id
-                       (payload raw) desired expected)
-                      (publish! port subject (payload raw)))
-          "route" (if managed-recovery?
-                    (recover-identity-write!
-                     port subject operation operation-id
-                     (payload raw) desired expected)
-                    (update-route! port subject (payload raw)))
-          "retask" (retask! port subject (payload raw))
-          "terminal" (if managed-recovery?
-                       (recover-terminal-write!
-                        port subject operation-id (payload raw) expected terminal-thread)
-                       (terminal! port subject (payload raw)))
-          (fail! "internal agent fact operation must be publish, route, retask, terminal, or attest"
-                 {:operation operation})))
-      ;; Fresh publish preferred path: ONE atomic server-side fenced publish
-      ;; (thread 019f9374), collapsing the ~115 sequential lease-fenced ops. Only
-      ;; a genuinely fresh subject (or a byte-identical idempotent replay) commits
-      ;; through it; every reused/partial/recovery generation returns nil and falls
-      ;; back to with-write-lease below with no atomic mutation to reconcile. Route
-      ;; carries its own overlay semantics and stays on the sequential path. A
-      ;; recovery publish only shortcuts when its delta IS the complete desired
-      ;; projection, the precondition recover-identity-write! enforces anyway.
-      atomic-result
-      (when (and (= "publish" operation)
-                 (or (not managed-recovery?)
-                     (= desired (payload raw))))
-        (atomic-fresh-publish! port subject (payload raw)
-                               supplied-holder operation-id))
-      result (cond
-               (= "attest" operation)
-               (attest! port subject (payload raw))
-               atomic-result atomic-result
-               :else
-               (with-write-lease port subject operation supplied-holder operation!))]
-  (println (json/generate-string {:ok true :result result}))))
-
 (when (= *file* (System/getProperty "babashka.file"))
-  (if (framrpc-protocol?)
-    (native-main! *command-line-args*)
-    (legacy-main! *command-line-args*)))
+  (native-main! *command-line-args*))
