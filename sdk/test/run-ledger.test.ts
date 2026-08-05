@@ -15,12 +15,12 @@ import {
   type AgentRunEvent,
 } from "../src/run-ledger";
 import { runFacts } from "../src/telemetry";
-import { framEngineSelection } from "../src/fram-engine";
 import { FramRpcClient } from "../src/framrpc-client";
 import { FramTriple } from "../src/framrpc-codec";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const repo = resolve(import.meta.dir, "../..");
+const frozenFramHome = "/home/tom/code/fram/wt-core-target-production-5db9b38";
 const identity = {
   run: "@run:lane-ledger-001",
   thread: "@019f89ac-a86a-7399-b915-358d44a1be15",
@@ -228,13 +228,12 @@ async function unusedPort(): Promise<number> {
 function framServerFixture(): {
   home: string; bin: string; out: string; server: string;
 } {
-  const selected = framEngineSelection(process.env);
-  const home = process.env.FRAM_TEST_CHECKOUT ?? selected.home;
-  const bin = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "bin") : selected.bin;
-  const out = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "out") : selected.out;
+  const home = frozenFramHome;
+  const bin = resolve(home, "bin");
+  const out = resolve(home, "out");
   const server = resolve(bin, "fram-server");
   if (!existsSync(server))
-    throw new Error("current Fram bin/fram-server is unavailable for the run-ledger fixture");
+    throw new Error("frozen Fram bin/fram-server is unavailable for the run-ledger fixture");
   return { home, bin, out, server };
 }
 
@@ -251,7 +250,7 @@ async function waitForFramServer(port: number, spaceId: string): Promise<FramRpc
   throw new Error("isolated Fram server did not become FRAMRPC-ready");
 }
 
-test("one current Fram server commits seven ordered events inside the production timeout", async () => {
+test("one frozen Fram server commits seven ordered events inside the production timeout", async () => {
   const fram = framServerFixture();
   const scratch = mkdtempSync(join(tmpdir(), "north-run-event-batch-"));
   const log = join(scratch, "history.framlog");
