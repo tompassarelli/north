@@ -14,7 +14,6 @@ import { spawnSync } from "node:child_process";
 import {
   framBabashkaArguments,
   framEngineEnvironment,
-  framEngineSelection,
 } from "../src/fram-engine";
 import { FramRpcClient } from "../src/framrpc-client";
 import { triple } from "../src/framrpc-codec";
@@ -24,6 +23,7 @@ const north = resolve(import.meta.dir, "../..");
 const orchestration = resolve(north, "orchestration");
 const acquireCli = resolve(north, "cli/acquire-cli.clj");
 const thread = "019fa4ec-d2e6-7f8f-b375-a4f2ea407a0c";
+const frozenFramHome = "/home/tom/code/fram/wt-core-target-production-5db9b38";
 
 async function unusedPort(): Promise<number> {
   const server = createServer();
@@ -54,13 +54,12 @@ async function waitForFramServer(port: number, spaceId: string): Promise<FramRpc
 function framServerFixture(): {
   home: string; bin: string; out: string; server: string;
 } {
-  const selected = framEngineSelection(process.env);
-  const home = process.env.FRAM_TEST_CHECKOUT ?? selected.home;
-  const bin = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "bin") : selected.bin;
-  const out = process.env.FRAM_TEST_CHECKOUT ? resolve(home, "out") : selected.out;
+  const home = frozenFramHome;
+  const bin = resolve(home, "bin");
+  const out = resolve(home, "out");
   const server = resolve(bin, "fram-server");
   if (!existsSync(server))
-    throw new Error("current Fram bin/fram-server is unavailable for the MCP fixture");
+    throw new Error("frozen Fram bin/fram-server is unavailable for the MCP fixture");
   return { home, bin, out, server };
 }
 
