@@ -208,7 +208,9 @@
         [request/mint-id (constantly "2000000000002-deadbeef")
          request/ensure-schema! (fn [_] nil)
          request/assert-batch! (fn [_ subject _] (swap! durable conj subject))
-         request/enqueue-request! (fn [_ queued] (swap! durable conj (:id queued)))
+         request/enqueue-request!
+         (fn [_ queued actions]
+           (swap! durable conj [(:id queued) (count actions)]))
          babashka.process/shell
          (fn [& _]
            (reset! shell-called? true)
@@ -219,8 +221,7 @@
                :urgent-reason "latency probe"}))]
   (check "requester publishes durable state without invoking rebuild code"
          (and (= "2000000000002-deadbeef" id)
-              (= ["@rebuild-request:2000000000002-deadbeef"
-                  "2000000000002-deadbeef"]
+              (= [["2000000000002-deadbeef" 3]]
                  @durable)
               (false? @shell-called?))
          {:id id :durable @durable :shell-called @shell-called?}))
