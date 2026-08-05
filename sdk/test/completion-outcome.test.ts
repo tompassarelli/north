@@ -362,13 +362,13 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
 
   expect(queryConstructionCalls).toBe(0);
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain(
+  expect(logged).not.toContain(
     "tell agent:test-prompt-composition-preflight process_outcome blocked_preflight",
   );
-  expect(logged).toContain(
+  expect(logged).not.toContain(
     "tell agent:test-prompt-composition-preflight delivery_outcome blocked",
   );
-  expect(logged).toContain(
+  expect(logged).not.toContain(
     "tell agent:test-prompt-composition-preflight delivery_reason execution_preflight_blocked",
   );
   expect(logged).not.toContain("tell @swarm agent_death");
@@ -962,7 +962,10 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
         line.includes(`presence-cli.clj 59999 register ${agentId} `)
       );
       const forgetIndex = lines.findIndex((line) =>
-        line.endsWith(`presence-cli.clj 59999 forget ${agentId}`)
+        line.endsWith(
+          `presence-cli.clj 59999 forget ${agentId} `
+          + `{"resource":"session:${agentId}","holder":"${agentId}","epoch":1}`,
+        )
       );
       const releaseIndex = lines.findIndex((line) =>
         line.endsWith(`acquire-cli.clj 59999 release thread-${agentId} ${agentId}`)

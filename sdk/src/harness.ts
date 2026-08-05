@@ -55,6 +55,9 @@ import {
   framCoordinatorChildTimeout,
   framEngineEnvironment,
 } from "./fram-engine";
+import {
+  loadPresenceFence, parsePresenceFence, persistPresenceFence, presenceFenceJson,
+} from "./presence-fence";
 
 // sdk/src/harness.ts -> its relocatable runtime root.
 const REPO = resolve(import.meta.dir, "../..");
@@ -398,13 +401,17 @@ function registerPresence(self: string, cwd: string): void {
   // Registration is a bounded synchronous admission edge. A detached child can
   // otherwise land its lease after a fast provider-preflight terminal has
   // already withdrawn presence, resurrecting a 30-minute ghost roster row.
-  execFileSync(presenceBb(), framBabashkaArguments([
+  const output = execFileSync(presenceBb(), framBabashkaArguments([
     `${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self,
   ]), {
     env: framEngineEnvironment(),
-    stdio: "ignore",
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
     timeout: framCoordinatorChildTimeout(5_000),
   });
+  persistPresenceFence(self, process.env.NORTH_IDENTITY_TEST_REDIRECT === "1"
+    ? { resource: `session:${self}`, holder: self, epoch: 1 }
+    : parsePresenceFence(output, self));
 }
 
 // SDK-lane presence heartbeat (F2). registerPresence writes the lease ONCE at
@@ -429,13 +436,22 @@ function renewPresence(self: string): void {
   // returns so no detached renew can recreate presence after terminal cleanup.
   // On failure, roll the stamp back so the next tool call retries.
   try {
-    execFileSync(presenceBb(), framBabashkaArguments([
-      `${REPO}/cli/presence-cli.clj`, northPort(), "renew", self,
+    const fence = loadPresenceFence(self);
+    const fenceJson = presenceFenceJson(fence);
+    const output = execFileSync(presenceBb(), framBabashkaArguments([
+      `${REPO}/cli/presence-cli.clj`, northPort(), "renew", self, fenceJson,
     ]), {
       env: framEngineEnvironment(),
-      stdio: ["ignore", "ignore", "pipe"],
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
       timeout: framCoordinatorChildTimeout(5_000),
     });
+    const renewed = process.env.NORTH_IDENTITY_TEST_REDIRECT === "1"
+      ? fence
+      : parsePresenceFence(output, self);
+    if (process.env.NORTH_IDENTITY_TEST_REDIRECT !== "1" && renewed.epoch <= fence.epoch)
+      throw new Error("presence renewal did not advance the exact lease fence");
+    persistPresenceFence(self, renewed);
     // Throttle observability: a dispatched renewal is otherwise indistinguishable
     // from a throttled no-op, so the ≥60s rule has no field evidence. Off by default.
     if (process.env.NORTH_PRESENCE_DEBUG === "1")

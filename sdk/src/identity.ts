@@ -17,7 +17,6 @@ import {
   BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION,
 } from "./bespoke-contract";
 import type { ExecutionTerminal } from "./execution-outcome";
-import { classifyExecutionTerminal } from "./execution-outcome";
 import type { LiveInputCapability, ProviderId } from "./providers/types";
 import { canonicalWriteModel } from "./providers/catalog";
 import { fastPublish } from "./managed-writer-fastpath";
@@ -26,6 +25,9 @@ import {
   framCoordinatorChildTimeout,
   framEngineEnvironment,
 } from "./fram-engine";
+import {
+  loadPresenceFence, removePresenceFence, presenceFenceJson, type PresenceFence,
+} from "./presence-fence";
 export { bespokeContractFingerprint } from "./bespoke-contract";
 
 export type LiveInputState = "pending" | "armed" | "frozen";
@@ -315,6 +317,7 @@ function writeHarnessAgentOperation(
     desiredIdentity?: Record<string, string>;
     expectedIdentity?: Record<string, string>;
     terminalThreadId?: string;
+    presenceFence?: PresenceFence;
   },
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
   runtime = defaultManagedWriterRuntime,
@@ -336,7 +339,8 @@ function writeHarnessAgentOperation(
       }
       const agentId = subject.replace(/^agent:/, "");
       execFileSync(lifecycleBb(), framBabashkaArguments([resolve(REPO, "cli/presence-cli.clj"),
-        process.env.NORTH_PORT ?? "7977", "forget", agentId], {
+        process.env.NORTH_PORT ?? "7977", "forget", agentId,
+        presenceFenceJson(recovery.presenceFence!)], {
         ...process.env,
       }), {
         env: framEngineEnvironment(),
@@ -387,6 +391,7 @@ function writeHarnessAgentOperation(
     recovery.desiredIdentity ? JSON.stringify(recovery.desiredIdentity) : "",
     recovery.expectedIdentity ? JSON.stringify(recovery.expectedIdentity) : "",
     recovery.terminalThreadId ?? "",
+    recovery.presenceFence ? presenceFenceJson(recovery.presenceFence) : "",
   ];
   const startedAt = runtime.now();
   const execute = (attemptTimeoutMs: number): ManagedWriteResult => {
@@ -596,9 +601,20 @@ export function writeAgentTerminal(
   timeoutMs = INTERNAL_WRITER_TIMEOUT_MS,
   runtime = defaultManagedWriterRuntime,
   terminalThreadId?: string,
+  suppliedPresenceFence?: PresenceFence,
 ): TerminalPublicationStatus {
   if (!terminal.processOutcome) return "unavailable";
   const session = managedWriterSession(agentId);
+  let presenceFence: PresenceFence;
+  try {
+    presenceFence = suppliedPresenceFence ?? loadPresenceFence(agentId);
+  } catch (error) {
+    console.error(
+      `[terminal] @agent:${agentId} authoritative publication unavailable: `
+      + (error instanceof Error ? error.message : String(error)),
+    );
+    return "unavailable";
+  }
   try {
     writeHarnessAgentOperation("terminal", `agent:${agentId}`, JSON.stringify({
       outcome: terminal.processOutcome,
@@ -618,8 +634,11 @@ export function writeAgentTerminal(
       operationId: randomUUID(),
       expectedIdentity: session.identity,
       terminalThreadId,
+      presenceFence,
     }, timeoutMs, runtime);
     session.terminalCommitted = true;
+    if (!removePresenceFence(agentId, presenceFence))
+      console.error(`[terminal] @agent:${agentId} committed but its exact presence fence file was not removed`);
     return "recorded";
   } catch (error) {
     // Finalization continues to the independently committed run trail, but a
@@ -633,11 +652,6 @@ export function writeAgentTerminal(
     );
     return status;
   }
-}
-
-/** Compatibility wrapper for callers not yet carrying the delivery axis. */
-export function writeAgentOutcome(agentId: string, outcome: string): void {
-  writeAgentTerminal(agentId, classifyExecutionTerminal(outcome));
 }
 
 // First sentence (or first 100 chars) of a spawn prompt — the goal fact seed.
