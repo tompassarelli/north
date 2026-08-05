@@ -20,13 +20,11 @@
 ;;
 ;; usage:
 ;;   bb orchestration-import-cli.clj <port> import   [orchestration-home]  stage + flip pointer
-;;   bb orchestration-import-cli.clj <port> measure  [orchestration-home]  R2 throwaway interning probe
 ;;   bb orchestration-import-cli.clj <port> retract  <N|vN>         undo one imported version
 ;;   bb orchestration-import-cli.clj <port> show     [N|vN]         print the pointed subgraph ids
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
-         '[cheshire.core :as json]
-         '[babashka.process :as p])
+         '[cheshire.core :as json])
 
 ;; *file*, not babashka.file: under a test's load-file only *file* still names THIS
 ;; file, so the sibling loads below resolve either way.
@@ -330,50 +328,6 @@
     (flip! port ver)
     ver))
 
-;; measure — R2: import ONLY the multi-KB prompt_block literals to a throwaway
-;; namespace, measure coordination.log growth + query latency, then retract.
-(defn log-size []
-  (let [f (io/file (north.coord/expected-log))]
-    (if (.isFile f) (.length f) 0)))
-
-(defn query-latency-ms [port subj]
-  (let [t0 (System/nanoTime)]
-    (dotimes [_ 20] (exact-values port subj "prompt_block"))
-    (/ (- (System/nanoTime) t0) 1e6 20.0)))
-
-(defn measure! [port root]
-  (let [catalog (read-json root "staffing" "catalog.json")
-        blocks (concat
-                (for [p (get catalog "presets")] [(get p "name") (section-fence root "roles.md" (get p "name"))])
-                (for [g (get-in catalog ["vocabulary" "taskGrades"])] [g (section-fence root "task-grades.md" g)])
-                (for [t (get-in catalog ["vocabulary" "topologies"])] [t (section-fence root "topologies.md" t)])
-                (for [ps (get-in catalog ["vocabulary" "postures"])] [ps (section-fence root "postures.md" ps)])
-                [["comms" (section-fence root "comms.md" "universal")]]
-                (for [d ["gpt-5.6-luna" "gpt-5.6-terra" "gpt-5.6-sol" "opus" "sonnet"]]
-                  [d (extract-first-fence (slurp (io/file root "docs" "deltas" (str d ".md"))))]))
-        subs (map (fn [[k _]] (str "@throwaway:probe:" k)) blocks)
-        total-bytes (reduce + (map (fn [[_ b]] (count (.getBytes ^String b "UTF-8"))) blocks))
-        before (log-size)
-        t0 (System/nanoTime)]
-    (publish-actions!
-     port
-     (for [[k block] blocks]
-       {:op :set :subject (str "@throwaway:probe:" k)
-        :predicate "prompt_block" :values [block] :cardinality :one}))
-    (let [write-ms (/ (- (System/nanoTime) t0) 1e6)
-          after (log-size)
-          lat (/ (reduce + (map #(query-latency-ms port %) subs)) (count subs))]
-      (publish-actions!
-       port
-       (for [subject subs]
-         {:op :set :subject subject :predicate "prompt_block" :values []
-          :cardinality :one}))
-      {:blocks (count blocks)
-       :prompt_block_bytes total-bytes
-       :log_growth_bytes (- after before)
-       :write_ms (Math/round (double write-ms))
-       :mean_query_ms (Double/parseDouble (format "%.3f" lat))})))
-
 (defn retract-version! [port ver]
   ;; retract every fact whose subject is under @catalog:v<ver>: plus the pointer
   (let [prefix (str "@catalog:v" ver ":")
@@ -409,13 +363,11 @@
     (case verb
       "import"  (let [ver (import! port (orchestration-home arg))]
                   (println (format "✓ imported catalog v%d on :%d; @catalog:current -> v%d" ver port ver)))
-      "measure" (let [m (measure! port (orchestration-home arg))]
-                  (println (json/generate-string m)))
       "retract" (let [ver (version-arg port arg)
                       n (retract-version! port ver)]
                   (println (format "✓ retracted %d facts under @catalog:v%d:" n ver)))
       "show"    (show! port (version-arg port arg))
-      (do (println "usage: orchestration-import-cli.clj <port> {import|measure|retract <N|vN>|show [N|vN]} [orchestration-home]")
+      (do (println "usage: orchestration-import-cli.clj <port> {import|retract <N|vN>|show [N|vN]} [orchestration-home]")
           (System/exit 2)))))
 
 ;; DUAL MODE (the projector's precedent): dormant when a sibling test load-file's

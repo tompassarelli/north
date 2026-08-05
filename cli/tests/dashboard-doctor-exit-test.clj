@@ -28,9 +28,8 @@
 
 (def healthy-coordination-probe
   {:version "north:coordination-probe:v1"
-   :expected_log "/data/coordination.log"
-   :served_log "/data/coordination.log"
-   :log_fence_ok true
+   :space_id "north-coordination"
+   :space_fence_ok true
    :lease_write_readback_ok true
    :live_session_leases 3
    :lineage_registrations_in_ttl 4
@@ -169,7 +168,7 @@
   (check "coordination health is green when the hook path registers and reads back"
          (and healthy
               (str/includes? output "coordination health")
-              (str/includes? output "hook-path log fence /data/coordination.log")
+              (str/includes? output "FRAMRPC SpaceId fence north-coordination")
               (str/includes? output "presence write + readback")
               (str/includes? output "presence 3 live lease(s)")
               (str/includes? output "roster projection north:agent-roster:v1"))))
@@ -178,29 +177,24 @@
       (exercise-doctor
        false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
        {:probe (assoc healthy-coordination-probe
-                      :log_fence_ok false
-                      :expected_log "/data/facts.log")})]
-  (check "hook-path log fence mismatch fails doctor" (false? healthy))
-  (check "hook-path log fence mismatch names both logs"
+                      :space_fence_ok false
+                      :space_id nil)})]
+  (check "missing FRAMRPC SpaceId fails doctor" (false? healthy))
+  (check "missing FRAMRPC SpaceId is diagnosed directly"
          (and (str/includes? output "[ERR]")
-              (str/includes? output "/data/facts.log")
-              (str/includes? output "/data/coordination.log"))))
+              (str/includes? output "FRAMRPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
        false [] (fn [_ _] {:available true :behind 0 :dirty-files 0})
        {:probe {:version "north:coordination-probe:v1"
-                :expected_log "/data/facts.log"
-                :served_log "/data/coordination.log"
-                :log_fence_ok false
+                :space_id nil
+                :space_fence_ok false
                 :lease_write_readback_ok false
                 :error "coordinator returned a malformed resolved response"}})]
-  ;; Everything downstream of a broken fence throws. Name the fence, not the
-  ;; exception it caused.
-  (check "a broken fence is diagnosed by cause, not by the exception it produced"
+  (check "a missing SpaceId is diagnosed before a downstream exception"
          (and (false? healthy)
-              (str/includes? output "hook-path log fence mismatch")
-              (str/includes? output "/data/facts.log"))))
+              (str/includes? output "FRAMRPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
