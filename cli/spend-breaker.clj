@@ -5,7 +5,7 @@
 ;; This load-safe library owns the shared logic; both callers are thin adapters.
 ;;
 ;; DESIGN (spend-guard-design-2026-07-19.md §4): ONE global breaker
-;; `@spend-breaker:global`. Trip = assert `tripped <ts>` + `trip_reason "..."`.
+;; `@spend-breaker:global`. Trip state is one atomic FRAMRPC publication.
 ;; Tripped ⇒ every API-billed reservation refuses (~1ms coord read, checked in
 ;; spend-cli reserve!). Human-only reset. Trip conditions computed here:
 ;;   1. trailing-window ledger accrual > burn_limit × window (the burn-rate sweep)
@@ -31,18 +31,54 @@
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
-;; Sibling-relative paths captured at LOAD time (*file* = this file while loading,
-;; the coord.clj precedent). Used to shell `spend-cli.clj settle` for the FULL
-;; reservation settlement of killed/dead lanes — the design's "settle via spend-cli
-;; settle" wording, and the only way the worker (which never load-file's spend-cli)
-;; reaches the settlement primitive.
-(def ^:private here (.getParent (io/file *file*)))
-(def ^:private spend-cli-path (str here "/spend-cli.clj"))
-
 (def BREAKER "spend-breaker:global")
 (def WINDOW-MS      (* 60 60 1000))      ; trailing burn window = 1h (burn_limit is per-hour)
 (def MIN-ELAPSED-MS (* 15 60 1000))      ; need ≥15min of spanning history before a rate is meaningful
 (def RING-KEEP-MS   (* 2 WINDOW-MS))     ; retain ~2 windows of samples, drop older
+(def OCC-TRIES 16)
+
+(defn- action [op subject predicate value cardinality]
+  {:op op
+   :subject subject
+   :predicate predicate
+   :value (str value)
+   :cardinality cardinality})
+
+(defn- raw-action [op subject predicate value]
+  {:op op :subject subject :predicate predicate :value (str value)})
+
+(defn- replacement-actions [subject predicate before after]
+  (let [before (set (map str before))
+        after (set (map str after))]
+    (concat
+     (map #(raw-action :retract subject predicate %) (sort (remove after before)))
+     (map #(raw-action :assert subject predicate %) (sort (remove before after))))))
+
+(defn- plan-publication-actions [port actions]
+  (mapcat
+   (fn [{:keys [op subject predicate value cardinality] :as planned}]
+     (when-not (= :assert op)
+       (throw (ex-info "spend-lane extra action must be an assertion"
+                       {:type :invalid-spend-lane-extra-action
+                        :action planned})))
+     (let [current (north.coord/many port subject predicate)]
+       (case cardinality
+         :one (replacement-actions subject predicate current [value])
+         :many (when-not (contains? (set (map str current)) (str value))
+                 [(raw-action :assert subject predicate value)])
+         (throw (ex-info "spend-lane extra assertion requires cardinality"
+                         {:type :invalid-spend-lane-extra-cardinality
+                          :action planned})))))
+   actions))
+
+(defn- publish! [port operation actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info (str operation " publication rejected")
+                      {:type :spend-breaker-publication-rejected
+                       :operation operation
+                       :result result})))
+    result))
 
 ;; --- money counters (mirror spend-cli's fail-closed reads; the worker does not
 ;; --- load spend-cli, so the 3-line period math is duplicated deliberately) -----
@@ -157,19 +193,39 @@
 (defn trip!
   "Trip the global breaker (idempotent-ish: refreshes reason). Human-only reset."
   [port reason]
-  (let [now (str (java.time.Instant/now))]
-    (north.coord/put! port (str "@" BREAKER) "kind" "spend-breaker")
-    (north.coord/put! port (str "@" BREAKER) "tripped" now)
-    (north.coord/put! port (str "@" BREAKER) "trip_reason" (str reason))
+  (let [now (str (java.time.Instant/now))
+        breaker (str "@" BREAKER)]
+    (publish! port :breaker-trip
+              [(action :assert breaker "kind" "spend-breaker" :one)
+               (action :assert breaker "tripped" now :one)
+               (action :assert breaker "trip_reason" reason :one)])
     now))
 
 (defn retract-tripped!
   "Clear the live trip facts (the reset ceremony's terminal write). Retracts the
    exact live values so a concurrent re-trip between read and retract is untouched."
   [port]
-  (doseq [p ["tripped" "trip_reason"]]
-    (when-let [v (north.coord/resolved port (str "@" BREAKER) p)]
-      (when (seq (str v)) (north.coord/retract! port (str "@" BREAKER) p (str v))))))
+  (let [breaker (str "@" BREAKER)]
+    (loop [tries OCC-TRIES]
+      (let [base (north.coord/cur-ver port)
+            values (keep (fn [predicate]
+                           (when-let [value (north.coord/resolved port breaker predicate)]
+                             (when (seq (str value)) [predicate value])))
+                         ["tripped" "trip_reason"])
+            actions (map (fn [[predicate value]]
+                           (raw-action :retract breaker predicate value))
+                         values)]
+        (if (empty? actions)
+          {:ok base :changed? false :results []}
+          (let [result (north.coord/transact! port (vec actions)
+                                              {:expected-version base})]
+            (cond
+              (:ok result) result
+              (and (= :conflict (:reject result)) (> tries 1)) (recur (dec tries))
+              :else
+              (throw (ex-info "breaker trip removal rejected"
+                              {:type :breaker-trip-removal-rejected
+                               :result result})))))))))
 
 ;; --- live trip-condition re-evaluation (the reset ceremony's refusal gate) ----
 ;; Returns nil when NO trip condition currently holds, else a machine reason.
@@ -272,35 +328,57 @@
         #{}))
     (catch Throwable _ #{})))
 
-;; babashka.process is required by the task host + test entry scripts; reference it
-;; through requiring-resolve so this lib needs no top-level require of it.
-(defn proc-shell-settle [port target period reserved]
-  ((requiring-resolve 'babashka.process/shell)
-   {:out :string :err :string :continue true
-    :extra-env {"NORTH_PORT" (str port) "FRAM_LOG" (north.coord/expected-log)}}
-   "bb" spend-cli-path "settle" target
-   "--period" period "--reserved-microusd" (str reserved) "--status" "unknown"))
-
 (defn settle-lane-full!
-  "Settle one open spend-lane at its FULL reservation (status unknown) by shelling
-   `spend-cli.clj settle`, then stamp settled_at. Idempotent: skips if already
-   stamped. WHY: the exact micro-USD settle math + CAS lives in spend-cli; the
-   worker never load-file's it, so the settlement primitive is reached by shell —
-   the design's 'settle via spend-cli settle'."
-  [port {:keys [id target period reserved]} dry? note]
-  (if (north.coord/resolved port id "settled_at")
-    :already-settled
-    (do
-      (when-not dry?
-        (let [r (try
-                  (proc-shell-settle port target period reserved)
-                  (catch Throwable t {:exit 1 :err (.getMessage t)}))]
-          (when-not (zero? (:exit r 1))
-            (println (str "[sweep] spend-lane settle shell exit=" (:exit r) " " (:err r))))
-          (north.coord/put! port id "settled_at" (str (java.time.Instant/now)))))
-      (println (str "[sweep] " (if dry? "WOULD settle" "settled") " open reservation " id
-                    " target " target " $" (format "%.6f" (/ reserved 1e6)) " full (" note ")"))
-      :settled)))
+  "Settle one lane at its full reservation and stamp it in the same transaction.
+   EXTRA-ACTIONS lets the kill path include killed_at and trip_note without a
+   second publication. A concurrent settlement is detected after every fresh
+   expected-version read and never charges the reservation twice."
+  ([port lane dry? note]
+   (settle-lane-full! port lane dry? note []))
+  ([port {:keys [id target period reserved]} dry? note extra-actions]
+   (if dry?
+     (do
+       (println (str "[sweep] WOULD settle open reservation " id
+                     " target " target " $" (format "%.6f" (/ reserved 1e6))
+                     " full (" note ")"))
+       :settled)
+     (loop [tries OCC-TRIES]
+       (let [base (north.coord/cur-ver port)
+             settled-at (north.coord/resolved port id "settled_at")
+             settlement-actions
+             (when-not (seq (str settled-at))
+               (let [settled (counter port period "settled_microusd")
+                     reserved-now (counter port period "reserved_microusd")]
+                 (concat
+                  (replacement-actions (str "@" period) "settled_microusd"
+                                       [settled] [(+ settled reserved)])
+                  (replacement-actions (str "@" period) "reserved_microusd"
+                                       [reserved-now]
+                                       [(max 0 (- reserved-now reserved))])
+                  [(raw-action :assert id "settled_at"
+                               (str (java.time.Instant/now)))])))
+             planned-extra (plan-publication-actions port extra-actions)
+             actions (vec (concat settlement-actions planned-extra))]
+         (if (empty? actions)
+           :already-settled
+           (let [result (north.coord/transact! port actions {:expected-version base})]
+             (cond
+               (:ok result)
+               (do
+                 (println (str "[sweep] "
+                               (if settlement-actions "settled" "already settled")
+                               " open reservation " id " target " target " $"
+                               (format "%.6f" (/ reserved 1e6)) " full (" note ")"))
+                 (if settlement-actions :settled :already-settled))
+
+               (and (= :conflict (:reject result)) (> tries 1))
+               (recur (dec tries))
+
+               :else
+               (throw (ex-info "spend-lane settlement transaction rejected"
+                               {:type :spend-lane-settlement-rejected
+                                :lane id
+                                :result result}))))))))))
 
 (defn sigkill-group!
   "SIGKILL the process GROUP of PID (negative-pid kill), then force the process
@@ -335,13 +413,15 @@
           :else
           (do
             (when-not dry?
-              (sigkill-group! pid)
-              (settle-lane-full! port l false (str "sweep-kill lane " lane))
-              (north.coord/put! port id "killed_at" (str (java.time.Instant/now)))
-              ;; note the lane on a DISTINCT multi predicate — never mutate the
-              ;; single trip_reason the reset ceremony must quote back verbatim.
-              (north.coord/append! port (str "@" BREAKER) "trip_note"
-                                   (str "sweep-killed lane " lane " (pid " pid ", target " target ")")))
+              (let [now (str (java.time.Instant/now))
+                    trip-note (str "sweep-killed lane " lane
+                                   " (pid " pid ", target " target ")")]
+                (sigkill-group! pid)
+                (settle-lane-full!
+                 port l false (str "sweep-kill lane " lane)
+                 [(action :assert id "killed_at" now :one)
+                  ;; Keep the human-confirmed trip_reason stable; notes coexist.
+                  (action :assert (str "@" BREAKER) "trip_note" trip-note :many)])))
             (swap! killed inc)
             (println (str "[sweep] " (if dry? "WOULD SIGKILL" "SIGKILLED") " breached lane " id
                           " pid " pid " (lane " lane ", target " target ") + settled full")))))
