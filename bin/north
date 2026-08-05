@@ -5,7 +5,7 @@
 # configuration and capture provenance; executable predicate schema lives in
 # the coordination graph itself.
 #
-#   engine: explicit env > current Fram main checkout   data: XDG state
+#   engine: Nix-published FRAMRPC environment or explicit test env   data: XDG state
 # `zero` is deliberately before every export below: it is the escape hatch when
 # this wrapper or its state is the broken component.
 if [ "${1:-}" = "zero" ]; then
@@ -34,36 +34,17 @@ if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi
 
-_north_world_manifest="${WORLD_MANIFEST_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/world/manifest.env}"
-if [ -f "$_north_world_manifest" ]; then
-  if ! bash -n "$_north_world_manifest"; then
-    echo "north: invalid world manifest: $_north_world_manifest" >&2
-    exit 2
-  fi
-  # shellcheck disable=SC1090
-  source "$_north_world_manifest"
-fi
-_north_fram_main="$HOME/code/fram/main"
-_north_live_main="$HOME/code/north/main"
-if [ -d "$_north_live_main" ] &&
-   [ "$(cd "$NORTH" && pwd -P)" = "$(cd "$_north_live_main" && pwd -P)" ]; then
-  FRAM="$_north_fram_main"
-  FRAM_BIN="$FRAM/bin"
-  FRAM_OUT="$FRAM/out"
-  unset FRAM_PACKAGE_REV
-else
-  FRAM="${FRAM_HOME:-$_north_fram_main}"
-  FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
-  FRAM_OUT="${FRAM_OUT:-$FRAM/out}"
-fi
-export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT
+FRAM="${FRAM_HOME:?north requires the Nix-published FRAMRPC environment or explicit FRAM_HOME}"
+FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
+FRAM_OUT="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-$FRAM/out}}"
+NORTH_FRAMRPC_OUT="${NORTH_FRAMRPC_OUT:-$FRAM_OUT}"
+export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT NORTH_FRAMRPC_OUT
 export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
 export FRAM_SERVER_PORT="${FRAM_SERVER_PORT:-${NORTH_PORT:-7977}}"
 export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
 NORTH_RUNTIME_CLASSPATH="$NORTH/out:$FRAM_OUT"
 BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
 export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
-unset _north_fram_main _north_live_main _north_world_manifest
 
 # A promoted deployment's exec unit may carry a PATH with neither bb nor
 # NORTH_BB: fall back through PATH, then the fixed NixOS system-profile path,
@@ -318,13 +299,6 @@ case "${1:-}" in
     # telemetry that ALREADY exists (coordinator slow-read attribution, agent
     # logs). Adds no instrumentation and no daemon. cli/hotspots-cli.clj.
     exec "$BB" "$NORTH/cli/hotspots-cli.clj" "${@:2}" ;;
-  deployed)
-    # Is the code I committed the code that is RUNNING? Three columns, because a
-    # change gets stuck in three different places: committed but not built
-    # (rebuild), built but not adopted by the live process (restart), or live.
-    # Those need opposite actions, so the table never merges them.
-    # cli/deployed-cli.clj.
-    exec "$BB" "$NORTH/cli/deployed-cli.clj" "${@:2}" ;;
   config)
     # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)

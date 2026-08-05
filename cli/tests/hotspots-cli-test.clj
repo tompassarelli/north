@@ -42,10 +42,9 @@
 (check! "percentile of empty is nil" (nil? (percentile [] 0.5)))
 
 ;; --- the slow-read parse ----------------------------------------------------
-;; A real line from the live coordinator. The phase split IS the diagnosis, so a
-;; parse that silently loses a field would produce a confident wrong verdict.
+;; The phase split is the diagnosis, so every field must survive parsing.
 (def REAL-LINE
-  "Jul 29 05:31:16 whiterabbit north-coord-sd-listen[3221912]: [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
+  "Jul 29 05:31:16 whiterabbit fram-server-native[3221912]: [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
 
 (let [[_ route total reload lock execute] (re-find slow-read-re REAL-LINE)]
   (check! "parses the route" (= "fenced-query" route))

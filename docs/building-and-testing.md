@@ -9,9 +9,10 @@ Running the ledger needs only [babashka](https://babashka.org): the compiled
 Clojure is committed under [`out/`](../out), so no Beagle toolchain is required
 at runtime — the same arrangement Fram uses.
 
-You also need the Fram engine checked out. [`bin/north`](../bin/north) resolves
-it from `FRAM_HOME`, falling back to a world manifest and then to
-`~/code/fram/main`, and puts both North's and Fram's `out/` on the classpath.
+You also need the Fram engine selected by the Nix-owned
+`~/.local/state/north/framrpc.env`. The installed wrapper sources that exact
+selection and puts both North's and Fram's `out/` on the classpath. Tests may
+instead pass an explicit `FRAM_HOME` and matching `FRAM_OUT`.
 
 The agent SDK and the MCP edge additionally need [Bun](https://bun.sh).
 
@@ -41,16 +42,15 @@ compiles each coordination-domain module into `out/`. **Commit the result** —
 is a change that does not take effect for anyone running from the checkout.
 
 `build.sh` reads `BEAGLE_HOME` (default `~/code/beagle`) and `FRAM_HOME`
-(default `~/code/fram`). Note that these defaults differ from `bin/north`'s
-runtime default of `~/code/fram/main`; set both explicitly if your checkouts do
-not sit at the defaults.
+(default `~/code/fram`). Set both explicitly if your checkouts do not sit at
+those authoring defaults.
 
 ## Tests
 
 Set `FRAM_HOME` first so the classpath resolves the matching Fram output.
 
 ```console
-$ export FRAM_HOME="$HOME/code/fram/main"
+$ export FRAM_HOME=/path/to/the/exact-fram-checkout
 $ CP="out:$FRAM_HOME/out"
 $ bb -cp "$CP" tests/clock_test.clj
 $ bb -cp "$CP" tests/staleness_test.clj

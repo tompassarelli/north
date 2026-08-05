@@ -163,21 +163,8 @@
    :details ["fire --thread ID --brief PATH [--dry-run] — only fire may launch"]}
   {:verb "spend" :form "north spend status|init|override" :topic :routing
    :summary "API-billing budget: cap, reserved, settled, headroom"}
-  {:verb "routing" :form "north routing report <which>" :topic :routing
-   :summary "managed-run evidence, joined to exact lane terminals"
-   :details ["performance [--all] — current managed evidence (--all: legacy history)"
-             "usage — provider work usage (never dollars / API credits)"
-             "waste — trailing 1M-token managed machinery-waste gate"
-             "economics — bounded routing-cost signals + alert-only findings"
-             "promotions — bespoke patterns for stock-template review"
-             "calibration — run-local judgment/struggle detector cohorts"
-             "learning — exact evaluation cohorts plus explicit evidence exclusions"]}
-  {:verb "canary" :form "north canary run|report" :topic :routing
-   :summary "production-path managed-lane reliability probe"}
   {:verb "ccr" :form "north ccr prepare|retrieve" :topic :routing
    :summary "default-off structured-output CCR canary"}
-  {:verb "dials" :form "north dials" :topic :routing :status :legacy
-   :summary "compatibility bridge to the evidence-aware routing report"}
   {:verb "handoff" :form "north handoff" :topic :routing :status :legacy
    :summary "renamed — use north failover"}
   {:verb "provider-observe" :form "north provider-observe" :topic :routing
@@ -231,8 +218,6 @@
    :summary "coordination rollup: lanes ran/died, stale concerns, zombies"}
   {:verb "hotspots" :form "north hotspots" :topic :ops
    :summary "where time goes and what fails, ranked from live telemetry"}
-  {:verb "deployed" :form "north deployed" :topic :ops
-   :summary "committed vs built vs live, per component"}
   {:verb "coord-doctor" :form "north coord-doctor" :topic :ops
    :summary "fact-server safety handshake: writes safe? daemon matches log?"}
   {:verb "coord-ready" :form "north coord-ready" :topic :ops

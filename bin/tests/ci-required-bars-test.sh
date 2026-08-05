@@ -106,8 +106,6 @@ if grep -Fq '/home/tom/code/fram/main' "$WORKFLOW" ||
   echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local Fram path' >&2
   exit 1
 fi
-grep -Fq 'python3 cli/tests/north-coord-socket-activation-integration.py' "$WORKFLOW"
-
 # The patched executable's behavioral smoke must remain connected all the way
 # from its reusable entrypoint to the x86_64 check and the release build job.
 # shellcheck disable=SC2016
