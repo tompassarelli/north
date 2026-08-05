@@ -11,7 +11,7 @@
 (def fram-source
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_PATH")
-      "/home/tom/code/fram/wt-core-target-production-5db9b38"))
+      "/home/tom/code/fram/main"))
 (def fram
   (.getCanonicalPath (io/file fram-source)))
 (when-not (.isFile (io/file fram "bin/fram-server"))

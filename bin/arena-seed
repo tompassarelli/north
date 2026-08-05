@@ -20,7 +20,7 @@
 (def FRAM
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+                "/home/tom/code/fram/main"))))
 (def FRAM-OUT
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_OUT") (str FRAM "/out")))))

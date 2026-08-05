@@ -9,7 +9,7 @@
 (def fram
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/fram/wt-core-target-production-5db9b38"))))
+                "/home/tom/code/fram/main"))))
 (when-not (.isFile (io/file fram "bin/fram-server"))
   (throw (ex-info "current Fram checkout is required" {:fram fram})))
 (def run-writer (str root "/cli/run-fact-internal.clj"))

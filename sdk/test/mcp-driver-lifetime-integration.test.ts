@@ -23,7 +23,9 @@ const north = resolve(import.meta.dir, "../..");
 const orchestration = resolve(north, "orchestration");
 const acquireCli = resolve(north, "cli/acquire-cli.clj");
 const thread = "019fa4ec-d2e6-7f8f-b375-a4f2ea407a0c";
-const frozenFramHome = "/home/tom/code/fram/wt-core-target-production-5db9b38";
+const frozenFramHome = process.env.FRAM_TEST_CHECKOUT
+  ?? process.env.FRAM_HOME
+  ?? "/home/tom/code/fram/main";
 
 async function unusedPort(): Promise<number> {
   const server = createServer();

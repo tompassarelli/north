@@ -78,7 +78,10 @@
    (io/file (.getParent (io/file (or *file*
                                      (System/getProperty "babashka.file"))))
             "../..")))
-(def fram-root "/home/tom/code/fram/wt-core-target-production-5db9b38")
+(def fram-root
+  (or (System/getenv "FRAM_TEST_CHECKOUT")
+      (System/getenv "FRAM_HOME")
+      "/home/tom/code/fram/main"))
 (def north-out (str north-root "/out"))
 (def fram-out (str fram-root "/out"))
 (def read-classpath (str north-out java.io.File/pathSeparator fram-out))
