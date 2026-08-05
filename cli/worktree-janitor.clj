@@ -14,12 +14,7 @@
 (def ^:private clone-push-sentinel "north-disabled://managed-clone-no-push")
 
 (defn- query-rows! [port query]
-  (let [response (north.coord/send-op port {:op :query :query query})]
-    (if (and (map? response) (contains? response :ok))
-      (:ok response)
-      (throw (ex-info "worktree janitor coordinator query failed"
-                      {:type :worktree-janitor-query-failed
-                       :response response})))))
+  (north.coord/query-rows port query))
 
 (defn- q-col [port body]
   (->> (query-rows!

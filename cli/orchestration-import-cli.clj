@@ -1,4 +1,4 @@
-;; orchestration-import-cli.clj — Phase 1 (publish + dual-read) catalog importer
+;; orchestration-import-cli.clj — canonical orchestration catalog importer
 ;; for the Orchestration -> North Orchestration migration (thread
 ;; 019f8f5c-74e0-7be7-ba65-3179f1bccde1; design doc:
 ;; north-orchestration-vocabulary-design.md in the repo's private docs —
@@ -8,7 +8,7 @@
 ;;
 ;; Lifts the machine catalog into the coordination graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
-;; pointer in one serialized coordinator write — the atomic pointer flip of
+;; pointer in one atomic FRAMRPC transaction — the atomic pointer flip of
 ;; design R3. Consumers read the pointer, so a torn/partial import is never
 ;; visible. Sources (all Orchestration-repo-relative, read at runtime):
 ;;   staffing/catalog.json          templates + axis vocabulary + defaults
@@ -33,8 +33,6 @@
 (def CLI-DIR (.getParent (io/file *file*)))
 (load-file (str CLI-DIR "/coord.clj"))
 (load-file (str CLI-DIR "/orchestration-selection.clj"))
-(def send-op  north.coord/send-op)
-(def resolved-envelope north.coord/resolved-envelope)
 (def enumerate-selection-rules north.orchestration-selection/enumerate-selection-rules)
 (def rules-digest              north.orchestration-selection/rules-digest)
 
@@ -112,9 +110,10 @@
 (def POINTER "@catalog:current")
 
 (defn exact-values [port subject predicate]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                                      :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}}))
+  (->> (north.coord/query-rows
+        port
+        {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
+                             :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]})
        (map first)))
 
 (defn current-version [port]
@@ -136,11 +135,6 @@
       (current-version port)
       (throw (ex-info "no @catalog:current pointer — import first" {}))))
 
-;; resolved-envelope, not exact-values: an unreadable coordinator must raise its own
-;; typed failure, never masquerade as an empty pointer that never flipped.
-(defn pointer-values [port]
-  (vec (:values (resolved-envelope port POINTER "catalog_version"))))
-
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
@@ -148,15 +142,6 @@
                       {:type :catalog-publication-rejected :result result})))
     result))
 
-(defn declare-single! [port]
-  (publish-actions!
-   port
-   [{:op :set :subject "@catalog_version" :predicate "cardinality"
-     :values ["single"] :cardinality :one}]))
-
-;; Verify-then-repair rather than preflight-declare: on an already-declared
-;; coordinator (the steady state) this costs one read and never re-declares —
-;; each schema write invalidates the coordinator's whole read-side cache.
 (defn flip! [port ver]
   (publish-actions!
    port
@@ -392,10 +377,11 @@
 (defn retract-version! [port ver]
   ;; retract every fact whose subject is under @catalog:v<ver>: plus the pointer
   (let [prefix (str "@catalog:v" ver ":")
-        rows (:ok (send-op port {:op :query
-                                 :query {:find "s,p,o"
-                                         :rules [{:head {:rel "s,p,o" :args [{:var "s"} {:var "p"} {:var "o"}]}
-                                                  :body [{:rel "triple" :args [{:var "s"} {:var "p"} {:var "o"}]}]}]}}))
+        rows (north.coord/query-rows
+              port
+              {:find "s,p,o"
+               :rules [{:head {:rel "s,p,o" :args [{:var "s"} {:var "p"} {:var "o"}]}
+                        :body [{:rel "triple" :args [{:var "s"} {:var "p"} {:var "o"}]}]}]})
         mine (filter (fn [[s _ _]] (str/starts-with? s prefix)) rows)]
     (publish-actions!
      port
@@ -410,9 +396,10 @@
 
 (defn show! [port ver]
   (let [prefix (str "@catalog:v" ver ":")
-        rows (:ok (send-op port {:op :query
-                                 :query {:find "s" :rules [{:head {:rel "s" :args [{:var "s"}]}
-                                                            :body [{:rel "triple" :args [{:var "s"} "kind" {:var "k"}]}]}]}}))
+        rows (north.coord/query-rows
+              port
+              {:find "s" :rules [{:head {:rel "s" :args [{:var "s"}]}
+                                   :body [{:rel "triple" :args [{:var "s"} "kind" {:var "k"}]}]}]})
         mine (sort (distinct (filter #(str/starts-with? % prefix) (map first rows))))]
     (println (format "pointer @catalog:current -> v%s (%d subjects)" ver (count mine)))
     (doseq [s mine] (println "  " s))))
