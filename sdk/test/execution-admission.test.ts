@@ -137,7 +137,7 @@ gatedTest("loopback-bind", "admission never falls back to an ambient North port"
       )).rejects.toThrow("north_coordination_port_missing");
       await expect(admitExecution(
         "openai", workerCapabilities, process.cwd(),
-      )).rejects.toThrow("north_framrpc_environment_missing");
+      )).rejects.toThrow("north_coordination_contract_missing");
     },
   );
 });
