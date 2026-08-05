@@ -19,9 +19,6 @@
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def send-op  north.coord/send-op)
-(def append!  north.coord/append!)
-(def put!     north.coord/put!)
-(def retract! north.coord/retract!)
 
 (def SUBJECT "@contract:dispatch")
 
@@ -75,12 +72,6 @@
     :else           x))
 (defn- cjson [x] (json/generate-string (canon x)))
 
-(defn exact-values [port subject predicate]
-  (->> (:ok (send-op port {:op :query
-                           :query {:find "v" :rules [{:head {:rel "v" :args [{:var "v"}]}
-                                                      :body [{:rel "triple" :args [subject predicate {:var "v"}]}]}]}}))
-       (map first)))
-
 (defn exact-facts [port subject]
   (->> (:ok (send-op port {:op :query
                            :query {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
@@ -88,24 +79,38 @@
        (map (fn [row] [(nth row 0) (nth row 1)]))
        (sort-by (juxt first second))))
 
-(defn set-multi! [port subject predicate values]
-  (let [current (set (exact-values port subject predicate))
-        wanted  (set values)]
-    (doseq [v (clojure.set/difference current wanted)] (retract! port subject predicate v))
-    (doseq [v (clojure.set/difference wanted current)] (append! port subject predicate v))))
+(defn set-action [subject predicate values cardinality]
+  {:op :set :subject subject :predicate predicate :values (vec values)
+   :cardinality cardinality})
+
+(defn publish-actions! [port actions]
+  (let [result (north.coord/publish! port (vec actions))]
+    (when (:reject result)
+      (throw (ex-info "FRAMRPC rejected orchestration contract publication"
+                      {:type :contract-publication-rejected :result result})))
+    result))
 
 (defn seed! [port]
-  (put! port SUBJECT "kind" "wire_contract")
-  (put! port SUBJECT "doc" "the child-dispatch payload contract; north show @contract:dispatch to recover a valid shape")
-  (set-multi! port SUBJECT "payload_field" (map cjson PAYLOAD-FIELDS))
-  (set-multi! port SUBJECT "error_code"    (map cjson ERROR-CODES))
-  (put! port SUBJECT "example_payload" (cjson EXAMPLE-PAYLOAD))
+  (publish-actions!
+   port
+   (concat
+    [(set-action SUBJECT "kind" ["wire_contract"] :one)
+     (set-action SUBJECT "doc"
+                 ["the child-dispatch payload contract; north show @contract:dispatch to recover a valid shape"]
+                 :one)
+     (set-action SUBJECT "example_payload" [(cjson EXAMPLE-PAYLOAD)] :one)
+     (set-action SUBJECT "payload_field" (map cjson PAYLOAD-FIELDS) :many)
+     (set-action SUBJECT "error_code" (map cjson ERROR-CODES) :many)]))
   (println (format "✓ published %s on :%d (%d payload_field, %d error_code, 1 example_payload)"
                    SUBJECT port (count PAYLOAD-FIELDS) (count ERROR-CODES))))
 
 (defn retract-all! [port]
-  (doseq [p ["kind" "doc" "payload_field" "error_code" "example_payload"]]
-    (doseq [v (exact-values port SUBJECT p)] (retract! port SUBJECT p v)))
+  (publish-actions!
+   port
+   (for [predicate ["kind" "doc" "payload_field" "error_code" "example_payload"]]
+     (set-action SUBJECT predicate []
+                 (if (contains? #{"payload_field" "error_code"} predicate)
+                   :many :one))))
   (println (format "✓ retracted %s on :%d" SUBJECT port)))
 
 (let [[ps verb] *command-line-args*
