@@ -796,7 +796,7 @@
        set))
 
 ;; The connected registry is generated solely from executable graph entities.
-;; Keeping the bootstrap set separately makes its weaker, migration-only role
+;; Keeping the bootstrap set separately makes its weaker, bootstrap-only role
 ;; mechanically visible to callers and tests.
 (def BOOTSTRAP-SET (set (keys VOCAB-CARD)))
 
@@ -937,7 +937,7 @@
                        (count used) (count (lint-files)) (count BOOTSTRAP-SET)))
       (if (empty? misses)
         (println "  ✓ clean against bootstrap inventory (not a runtime schema verdict)")
-        (do (println (str "  ✗ " (count misses) " predicate literal(s) absent from migration bootstrap:"))
+        (do (println (str "  ✗ " (count misses) " predicate literal(s) absent from bootstrap inventory:"))
             (doseq [[p fs] misses] (println (format "    %-24s used in %s" p (str/join "," (sort fs)))))
             (println "  -> add bootstrap material only if the predicate is intentional; runtime authority remains the graph")
             (when strict (System/exit 1)))))
