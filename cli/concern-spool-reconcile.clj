@@ -664,29 +664,20 @@
         (rotate-after marked last-file)
         (rotate-after pending last-file))))))
 
-(defn- wrong-log-response? [response]
-  (and (map? response) (= :log-mismatch (:code response))))
-
 (defn- explicit-rejection? [response]
-  (and (map? response)
-       (or (contains? response :reject)
-           (contains? response :error))))
+  (and (map? response) (contains? response :reject)))
 
-(defn- response-conflict! [response]
-  (if (wrong-log-response? response)
-    (conflict!
-     "wrong-log"
-     {:response response
-      :observed-version (:version response)})
-    (conflict!
-     "coordinator-rejected-read"
-     {:response response
-      :observed-version (:version response)})))
+(defn- require-configured-target! [target-log]
+  (let [configured-log (north.coord/expected-log)]
+    (when-not (= target-log configured-log)
+      (conflict!
+       "wrong-log"
+       {:target-log target-log
+        :configured-log configured-log}))))
 
 (defn- exact-show! [port target-log subject]
-  (let [response
-        (north.coord/send-op-for-log
-         port target-log {:op :show :te subject})]
+  (require-configured-target! target-log)
+  (let [response (north.coord/show-envelope port subject)]
     (cond
       (and (map? response)
            (= #{:version :rows} (set (keys response)))
@@ -701,12 +692,9 @@
             (:rows response)))
       response
 
-      (explicit-rejection? response)
-      (response-conflict! response)
-
       :else
       (deferred!
-       "coordinator returned a malformed show response"
+       "FRAMRPC returned a malformed show response"
        {:subject subject
         :response response}))))
 
@@ -716,44 +704,6 @@
     (and (= ["thread"] kinds)
          (= 1 (count titles))
          (not (str/blank? (first titles))))))
-
-(defn- exact-about-binding!
-  [port target-log subject binding-cid]
-  (if-not binding-cid
-    {:binding-valid false
-     :binding-unproven true}
-    (let [response
-          (north.coord/send-op-for-log
-           port
-           target-log
-           {:op :claim-read
-            :cid binding-cid
-            :te subject
-            :p "kind"})]
-      (cond
-        (and (map? response)
-             (true? (:ok response))
-             (= binding-cid (:claim-cid response))
-             (= "thread" (:claim response))
-             (integer? (:version response)))
-        {:binding-valid true
-         :version (:version response)}
-
-        (wrong-log-response? response)
-        (response-conflict! response)
-
-        (and (explicit-rejection? response)
-             (integer? (:version response)))
-        {:binding-valid false
-         :version (:version response)
-         :response response}
-
-        :else
-        (deferred!
-         "coordinator returned a malformed about-binding response"
-         {:subject subject
-          :binding-cid binding-cid
-          :response response})))))
 
 (defn- reconciliation-facts [operation]
   (let [facts (:facts operation)]
@@ -942,12 +892,8 @@
           (exact-show! port target-log about-subject))
         about-binding
         (when about-subject
-          (exact-about-binding!
-           port
-           target-log
-           about-subject
-           (get-in operation
-                   [:precondition :about :binding-cid])))]
+          {:binding-valid false
+           :binding-unproven true})]
     (if (or (and about-view (not= base (:version about-view)))
             (and (:version about-binding)
                  (not= base (:version about-binding))))
@@ -976,19 +922,41 @@
 
 (defn- valid-commit-ack? [response fact-count]
   (and (map? response)
-       (= #{:ok :written :idempotent :batch} (set (keys response)))
        (integer? (:ok response))
        (not (neg? (:ok response)))
-       (vector? (:written response))
-       (every? string? (:written response))
-       (vector? (:idempotent response))
-       (every? string? (:idempotent response))
-       (= fact-count
-          (+ (count (:written response))
-             (count (:idempotent response))))
-       (true? (:batch response))))
+       (boolean? (:changed? response))
+       (vector? (:results response))
+       (= fact-count (count (:results response)))
+       (= (range fact-count) (map :input-index (:results response)))))
+
+(defn- declaration-actions [operation]
+  (mapv
+   (fn [{:keys [predicate object]}]
+     {:op :assert
+      :subject (:concern-id operation)
+      :predicate predicate
+      :value object})
+   (reconciliation-facts operation)))
+
+(defn- transition-actions [operation facts]
+  (mapv
+   (fn [{:keys [p r]}]
+     {:op :assert
+      :subject (:concern-id operation)
+      :predicate p
+      :value r})
+   facts))
+
+(defn- code-store-operation? [operation]
+  (boolean
+   (some #(contains? #{"code_port" "code_log"} (:predicate %))
+         (:facts operation))))
 
 (defn- declaration-commit-attempt! [port operation]
+  (when (code-store-operation? operation)
+    (deferred!
+     "code-store concern reconciliation requires an explicit FRAMRPC SpaceId"
+     {:operation-id (:operation-id operation)}))
   (let [snapshot (read-snapshot-at-base port operation)]
     (if (= :conflict (:reject snapshot))
       snapshot
@@ -1011,24 +979,15 @@
            (*reconcile-stage!* :pre-commit
                                {:operation operation
                                 :base (:base snapshot)})
-           (let [response
-                 (north.coord/send-op-for-log
-                  port
-                  (:target-log operation)
-                  {:op :assert-batch-at-version
-                   :te (:concern-id operation)
-                   :facts
-                   (mapv
-                    (fn [{:keys [predicate object]}]
-                      {:p predicate :r object})
-                    (reconciliation-facts operation))
-                   :base (:base snapshot)})]
+           (let [actions (declaration-actions operation)
+                 response
+                 (north.coord/transact!
+                  port actions {:expected-version (:base snapshot)})]
              (cond
                (= :conflict (:reject response))
                response
 
-               (valid-commit-ack?
-                response (count (reconciliation-facts operation)))
+               (valid-commit-ack? response (count actions))
                (do
                  (*reconcile-stage!* :post-commit-pre-ack
                                      {:operation operation
@@ -1036,9 +995,6 @@
                  {:done :committed
                   :observed-version (:ok response)
                   :ack response})
-
-               (wrong-log-response? response)
-               (response-conflict! response)
 
                (explicit-rejection? response)
                {:local-conflict true
@@ -1048,7 +1004,7 @@
 
                :else
                (deferred!
-                "coordinator acknowledgement for reconciled concern is ambiguous"
+                "FRAMRPC acknowledgement for reconciled concern is ambiguous"
                 {:response response})))))))))
 
 (defn- transition-snapshot-at-base [port operation]
@@ -1091,18 +1047,14 @@
                 (*reconcile-stage!* :pre-commit
                                     {:operation operation
                                      :base (:base snapshot)})
-                (let [response
-                      (north.coord/send-op-for-log
-                       port
-                       (:target-log operation)
-                       {:op :assert-batch-at-version
-                        :te (:concern-id operation)
-                        :facts facts
-                        :base (:base snapshot)})]
+                (let [actions (transition-actions operation facts)
+                      response
+                      (north.coord/transact!
+                       port actions {:expected-version (:base snapshot)})]
                   (cond
                     (= :conflict (:reject response)) response
 
-                    (valid-commit-ack? response (count facts))
+                    (valid-commit-ack? response (count actions))
                     (do
                       (*reconcile-stage!*
                        :post-commit-pre-ack
@@ -1110,9 +1062,6 @@
                       {:done :committed
                        :observed-version (:ok response)
                        :ack response})
-
-                    (wrong-log-response? response)
-                    (response-conflict! response)
 
                     (explicit-rejection? response)
                     {:local-conflict true
@@ -1123,7 +1072,7 @@
 
                     :else
                     (deferred!
-                     "coordinator acknowledgement for reconciled concern transition is ambiguous"
+                     "FRAMRPC acknowledgement for reconciled concern transition is ambiguous"
                      {:response response})))))))))))
 
 (defn- commit-attempt! [port operation]
