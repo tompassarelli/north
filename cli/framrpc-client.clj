@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 (ns north.framrpc-client
   (:require [clojure.string :as str]
-            [coord-daemon-wire :as wire]
+            [framrpc :as wire]
             [fram.types :as t])
   (:import [java.io IOException]
            [java.net InetSocketAddress Socket SocketTimeoutException]
@@ -335,8 +335,12 @@
 
 (declare connect)
 
-(defn connect
-  ([host port space-id] (connect host port space-id {}))
+(defn client
+  "Construct a canonical FRAMRPC client without an implicit probe. The client
+   owns configuration, not a persistent socket; each named operation performs
+   exactly its own bounded request. Use connect when an eager status probe is
+   itself part of the caller's contract."
+  ([host port space-id] (client host port space-id {}))
   ([host port space-id options]
    (when (str/blank? host)
      (throw (ex-info "FRAMRPC host must be nonblank"
@@ -363,6 +367,12 @@
                            :jitter-ms
                            (get options :jitter-ms 25))
                           (atom false))]
+     client)))
+
+(defn connect
+  ([host port space-id] (connect host port space-id {}))
+  ([host port space-id options]
+   (let [client (client host port space-id options)]
      (try
        (status! client)
        client

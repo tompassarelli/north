@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 (require '[babashka.fs :as fs]
          '[clojure.java.io :as io]
-         '[coord-daemon-wire :as wire]
+         '[framrpc :as wire]
          '[fram.types :as t])
 
 (def root
@@ -12,14 +12,14 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH") "/home/tom/code/fram/main"))))
 
-(when-not (.isFile (io/file fram "coord_daemon.clj"))
+(when-not (.isFile (io/file fram "server.clj"))
   (throw (ex-info "Fram head checkout is required; set FRAM_PATH"
                   {:fram fram})))
 
 (load-file (str root "/cli/framrpc-client.clj"))
 (require '[north.framrpc-client :as rpc])
-(load-file (str fram "/coord.clj"))
-(require '[coord :as coord])
+(load-file (str fram "/database.clj"))
+(require '[database :as database])
 
 (def checks (atom []))
 (defn check! [label value]
@@ -87,18 +87,19 @@
 (def daemon (atom nil))
 
 (try
-  (coord/create-triple-log! log-path space-id)
+  (database/create-triple-log! log-path space-id)
   (let [builder
         (doto (ProcessBuilder.
                ^java.util.List
-               [(str fram "/bin/fram-daemon") "serve" (str port)
+               [(str fram "/bin/fram-server") "serve" (str port)
                 log-path space-id])
           (.directory (io/file fram))
           (.redirectErrorStream true)
           (.redirectOutput daemon-output))
         environment (.environment builder)]
-    (.put environment "FRAM_DAEMON_QUIET" "1")
-    (.put environment "FRAM_DAEMON_XMX" "1g")
+    (.put environment "FRAM_SERVER_RUNTIME" "jvm-dev")
+    (.put environment "FRAM_SERVER_QUIET" "1")
+    (.put environment "FRAM_SERVER_XMX" "1g")
     (.put environment "CLJ_CACHE" (str (io/file scratch "clj-cache")))
     (reset! daemon (.start builder)))
 
