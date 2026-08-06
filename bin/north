@@ -34,6 +34,42 @@ if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi
 
+# The PreToolUse dispatch guard needs these two policy answers before every
+# shell call. Keep this read-only probe independent of Fram so a missing or
+# restarting engine cannot disable the harness itself. Full `north config`
+# remains engine-backed below.
+if [ "${1:-}" = "config" ] && [ "${2:-}" = "dispatch" ] \
+  && [ "$#" -eq 3 ] \
+  && { [ "$3" = "--guard-action" ] || [ "$3" = "--managed-admission" ]; }; then
+  NORTH_DISPATCH_STATE="${NORTH_HARNESS_STATE:-$HOME/.local/state/north/harness.conf}"
+  if [ ! -f "$NORTH_DISPATCH_STATE" ]; then
+    NORTH_DISPATCH_STATE="${NORTH_LEGACY_HARNESS_STATE:-$HOME/.claude/my-config.state}"
+  fi
+  NORTH_DISPATCH_MODE=managed
+  if [ -r "$NORTH_DISPATCH_STATE" ]; then
+    while IFS= read -r NORTH_DISPATCH_LINE || [ -n "$NORTH_DISPATCH_LINE" ]; do
+      case "$NORTH_DISPATCH_LINE" in
+        dispatch=*) NORTH_DISPATCH_MODE="${NORTH_DISPATCH_LINE#dispatch=}" ;;
+      esac
+    done < "$NORTH_DISPATCH_STATE"
+  fi
+  case "$NORTH_DISPATCH_MODE" in
+    native) NORTH_DISPATCH_GUARD=allow; NORTH_DISPATCH_ADMISSION=deny ;;
+    managed) NORTH_DISPATCH_GUARD=deny; NORTH_DISPATCH_ADMISSION=allow ;;
+    auto) NORTH_DISPATCH_GUARD=allow; NORTH_DISPATCH_ADMISSION=allow ;;
+    *)
+      echo "north: invalid dispatch mode: $NORTH_DISPATCH_MODE" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$3" = "--guard-action" ]; then
+    printf '%s\n' "$NORTH_DISPATCH_GUARD"
+  else
+    printf '%s\n' "$NORTH_DISPATCH_ADMISSION"
+  fi
+  exit 0
+fi
+
 FRAM="${FRAM_HOME:?north requires the Nix-published FRAMRPC environment or explicit FRAM_HOME}"
 FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
 FRAM_OUT="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-$FRAM/out}}"
