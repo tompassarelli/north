@@ -22,7 +22,6 @@ hooks=(
   git-blind-stage-guard.sh
   tripwire-guard.sh
   beagle-session-start.sh
-  racket-build-guard.sh
   logcompress-hook.js
   north-session-end.sh
 )
@@ -89,12 +88,6 @@ envelopes = {
         "hook_event_name": "SessionStart",
         "session_id": f"drain-{mode}-{size}",
         "source": "startup",
-        "cwd": plain,
-    },
-    "racket-build-guard.sh": {
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": target},
         "cwd": plain,
     },
     "logcompress-hook.js": {
