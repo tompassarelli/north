@@ -99,7 +99,6 @@ const promotedHooks = {
   "launch-critical-worktree-guard.sh":
     "north/profiles/tom/hooks/launch-critical-worktree-guard.sh",
   "logcompress-hook.js": "north/profiles/tom/hooks/logcompress-hook.js",
-  "racket-build-guard.sh": "beagle/integrations/north/hooks/racket-build-guard.sh",
   "tripwire-guard.sh": "north/profiles/tom/hooks/tripwire-guard.sh",
 } as const;
 

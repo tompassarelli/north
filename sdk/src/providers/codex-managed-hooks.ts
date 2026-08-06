@@ -38,10 +38,6 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "profiles/tom/hooks/logcompress-hook.js",
   },
-  "racket-build-guard.sh": {
-    repository: "beagle",
-    path: "integrations/north/hooks/racket-build-guard.sh",
-  },
   "tripwire-guard.sh": {
     repository: "north",
     path: "profiles/tom/hooks/tripwire-guard.sh",
@@ -159,10 +155,7 @@ export function expectedManagedCodexHooks(
       },
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
-        hooks: [
-          command("racket-build-guard.sh", 15, managedDir),
-          command("north-on-tooluse-codex", 10, managedDir),
-        ],
+        hooks: [command("north-on-tooluse-codex", 10, managedDir)],
       },
       {
         matcher: "^(mcp__north__spawn|mcp__north__dispatch|Task|Agent)$",

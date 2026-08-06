@@ -12,7 +12,7 @@
 ;;   verb votes    — "No such tool available: X" tool_result errors -> attempted name
 ;;   input errors  — InputValidationError per tool (deferred-tool + param friction)
 ;;   retry loops   — same tool+input fingerprint failing >=3 times w/o a success
-;;   guard denials — racket-build / firn guard + hook blocks
+;;   guard denials — firn guard + hook blocks
 ;;   engine rejects— coordinator "reject:<reason>" replies (e.g. reserved predicate)
 ;;   doc re-reads  — the same .md Read from the top >=3 times in one session
 ;;
@@ -113,8 +113,6 @@
 (defn guard-label [s]
   (let [t (str/triml s)]
     (cond
-      (str/includes? t "Racket version mismatch")                 "racket-build-guard"
-      (str/includes? t "Stale bytecode")                          "racket-build-guard"
       (str/starts-with? t "BLOCKED:")                             "firn-guard"
       (str/includes? t "operation blocked by hook")               "hook-block"
       (str/starts-with? t "Permission for this action was denied by the Claude Code auto mode classifier")

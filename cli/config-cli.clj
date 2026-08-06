@@ -1400,7 +1400,7 @@
 
  3  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
     " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-guard") " firn
-    " (wired "tripwire-guard") " tripwire            " (wired "racket-build-guard") " racket-build      " (wired "beagle-session-start") " beagle-session
+    " (wired "tripwire-guard") " tripwire            " (wired "beagle-session-start") " beagle-session
     [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
     [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
@@ -1770,7 +1770,7 @@
     (nil? sub)
     (do (println (str "kill-switch: " (effective-ks)))
         (doseq [g ["agent-spawn-guard" "firn-guard"
-                   "tripwire-guard" "racket-build-guard" "beagle-session-start"]]
+                   "tripwire-guard" "beagle-session-start"]]
           (println (str "  " (wired g) " " g))))
     :else (die "usage: north config guards [on|off]")))
 

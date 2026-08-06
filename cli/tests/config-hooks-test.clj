@@ -53,7 +53,7 @@
            (every? #(str/includes? (:out listed) %)
                    ["firn-guard" "launch-critical-worktree-guard" "git-blind-stage-guard"
                     "tripwire-guard" "agent-spawn-guard"
-                    "racket-build-guard" "logcompress-hook"
+                    "logcompress-hook"
                     "beagle-session-start" "north-session-end" "hook-detach"]))
     (check "list reports executable paths and decision provenance"
            (and (str/includes? (:out listed) "EXEC")

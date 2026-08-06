@@ -17,7 +17,6 @@ git-blind-stage-guard	authoring	deny	yes	yes	git-blind-stage-guard.sh	PreToolUse
 tripwire-guard	authoring	deny	yes	yes	tripwire-guard.sh	PreToolUse:Bash
 agent-spawn-guard	dispatch	deny	yes	yes	agent-spawn-guard.sh	PreToolUse:Agent|Task|Workflow,PreToolUse:Bash
 comment-bloat-guard	authoring	advisory	yes	no	comment-bloat-guard.sh	PreToolUse:Edit|Write|MultiEdit
-racket-build-guard	build	advisory	yes	no	racket-build-guard.sh	PostToolUse:Edit|Write|MultiEdit
 logcompress-hook	context	advisory	yes	no	logcompress-hook.js	PostToolUse:Bash
 beagle-session-start	context	advisory	yes	no	beagle-session-start.sh	SessionStart
 north-session-end	coordination	identity	no	no	north-session-end.sh	SessionEnd
