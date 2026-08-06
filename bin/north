@@ -29,7 +29,7 @@ export NORTH_AGENT_LOGS_DIR="${NORTH_AGENT_LOGS_DIR:-$HOME/.local/state/north/ag
 NORTH="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Panic is deliberately the first route after locating this checkout. It must
-# remain usable when bb, Fram, the world manifest, and the coordinator are unavailable.
+# remain usable when bb, Fram, the coordination data store, and the coordinator are unavailable.
 if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi

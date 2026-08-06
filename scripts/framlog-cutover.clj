@@ -53,7 +53,7 @@
     "/nix/store/xcnqqnhw9hb4j5rjgds2yjryi8qki5f3-gcc-wrapper-15.2.0/bin/gcc"
     :version-line "gcc (GCC) 15.2.0"}
    :link "dynamic"})
-(def exact-native-world
+(def exact-native-program
   {:scope "fram-native-server"
    :configuration "profile=3"
    :closure-sha256
@@ -115,7 +115,7 @@
 (def exact-native-closure-provenance
   {:build exact-native-build-command
    :identity exact-native-build-identity
-   :world exact-native-world
+   :native-program exact-native-program
    :sources exact-native-closure-sources
    :host-sources exact-native-host-sources})
 (def migration-encoding
