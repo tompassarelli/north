@@ -315,11 +315,11 @@ objectively the smaller move.
 primitives and Beagle machinery target the target-neutral **Beagle Native
 Core** profile: target-independent typed/effect/region/layout/control/
 capability/ABI semantics. Their authoritative lowered program is an immutable
-**Native World**. Fram stays entirely Beagle. Materializers are disposable projections:
+**validated Native Core program**. Fram stays entirely Beagle. Materializers are disposable projections:
 restricted C11 for bootstrap/reference/sanitizers, QBE as the first
 direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
 LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage
-means 30/39 archived core modules lower into a validated Native World, never
+means 30/39 archived core modules lower into a validated Native Core program, never
 "30 modules that print a backend language."
 
 App-layer code (CLIs, projections, higher-level tooling) may stay Clojure
