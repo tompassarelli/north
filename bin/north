@@ -93,7 +93,7 @@ north_slot_exec() {
     mkdir -p "$dir" 2>/dev/null || { exec "${NORTH_MAIN[@]}" "$@"; }
     # First pass: any free slot, without blocking.
     for ((i = 1; i <= NORTH_VERB_SLOTS; i++)); do
-      exec {fd}>>"$dir/slot-$i" 2>/dev/null || continue
+      { exec {fd}>>"$dir/slot-$i"; } 2>/dev/null || continue
       if flock -n "$fd" 2>/dev/null; then
         exec "${NORTH_MAIN[@]}" "$@"
       fi
@@ -101,7 +101,7 @@ north_slot_exec() {
     done
     # All busy: block on one slot with a deadline.
     i=$(( (RANDOM % NORTH_VERB_SLOTS) + 1 ))
-    exec {fd}>>"$dir/slot-$i" 2>/dev/null && {
+    { exec {fd}>>"$dir/slot-$i"; } 2>/dev/null && {
       if flock -w "$NORTH_VERB_SLOT_WAIT" "$fd" 2>/dev/null; then
         exec "${NORTH_MAIN[@]}" "$@"
       fi
