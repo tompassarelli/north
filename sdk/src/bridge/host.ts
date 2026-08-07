@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { ExecutionJournal, type JournalRecord, type JournalScan } from "./journal";
 import {
   codexBridgeProvider, type BridgeProviderExecution, type BridgeProviderSession,
@@ -13,6 +14,17 @@ import {
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const TERMINAL_KINDS = new Set(["execution.completed", "execution.failed"]);
+const STALE_POLL_MS = 15_000;
+
+// HEAD is the identity: main is never dirty by policy, so committed state is live state.
+function bridgeSourceIdentity(): string | undefined {
+  const repo = resolve(import.meta.dir, "../../..");
+  const git = process.env.NORTH_GIT_BIN ?? "git";
+  const result = spawnSync(git, ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" });
+  if (result.status !== 0 || typeof result.stdout !== "string") return undefined;
+  const revision = result.stdout.trim();
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision : undefined;
+}
 
 type BridgeMessage =
   | { type: "launched"; executionId: string }
@@ -26,6 +38,11 @@ export interface NorthdOptions {
   journalRoot?: string;
   provider?: BridgeProviderExecution;
   providerAdapter?: string;
+  /** Test injection. Production reads this checkout's HEAD. */
+  sourceIdentity?: () => string | undefined;
+  stalePollMs?: number;
+  /** Invoked once when the daemon is stale and idle; owns process teardown. */
+  onRetire?: () => void;
 }
 
 interface QueuedInput {
@@ -78,12 +95,21 @@ export class Northd {
   private readonly runtimes = new Map<string, ExecutionRuntime>();
   private readonly sockets = new Set<Socket>();
   private readonly drives = new Set<Promise<void>>();
+  private readonly sourceIdentity: () => string | undefined;
+  private readonly stalePollMs: number;
+  private readonly onRetire: () => void;
+  private loadedIdentity?: string;
+  private staleTimer?: ReturnType<typeof setInterval>;
+  private retiring = false;
 
   constructor(options: NorthdOptions = {}) {
     this.socketPath = options.socketPath ?? bridgeSocketPath();
     this.journalRoot = options.journalRoot ?? bridgeJournalRoot();
     this.provider = options.provider ?? codexBridgeProvider;
     this.providerAdapter = options.providerAdapter ?? "codex-app-server";
+    this.sourceIdentity = options.sourceIdentity ?? bridgeSourceIdentity;
+    this.stalePollMs = options.stalePollMs ?? STALE_POLL_MS;
+    this.onRetire = options.onRetire ?? (() => { void this.close(); });
     this.server = createServer((socket) => this.accept(socket));
   }
 
@@ -106,9 +132,35 @@ export class Northd {
       this.server.listen(this.socketPath);
     });
     chmodSync(this.socketPath, 0o600);
+    this.loadedIdentity = this.sourceIdentity();
+    if (this.loadedIdentity !== undefined)
+      this.staleTimer = setInterval(() => this.retireWhenStale(), this.stalePollMs);
+  }
+
+  /** Stale means the checkout moved under a live daemon; unknown identity never retires. */
+  private stale(): boolean {
+    if (this.loadedIdentity === undefined) return false;
+    const disk = this.sourceIdentity();
+    return disk !== undefined && disk !== this.loadedIdentity;
+  }
+
+  private liveExecutions(): number {
+    let live = 0;
+    for (const runtime of this.runtimes.values()) {
+      if (!runtime.terminal && (runtime.session !== undefined || runtime.activeTurn)) live += 1;
+    }
+    return live;
+  }
+
+  private retireWhenStale(): void {
+    if (this.retiring || this.liveExecutions() > 0 || !this.stale()) return;
+    this.retiring = true;
+    this.onRetire();
   }
 
   async close(): Promise<void> {
+    if (this.staleTimer !== undefined) clearInterval(this.staleTimer);
+    this.staleTimer = undefined;
     const terminations: Promise<void>[] = [];
     for (const runtime of this.runtimes.values()) {
       runtime.terminating = true;
@@ -259,6 +311,14 @@ export class Northd {
     });
     wire(socket, { type: "launched", executionId });
     this.attach(socket, runtime, 0);
+    if (this.stale()) {
+      this.finish(runtime, "execution.failed", {
+        message: "bridge_daemon_source_stale",
+        loaded: this.loadedIdentity,
+        disk: this.sourceIdentity(),
+      });
+      return;
+    }
     const drive = this.drive(runtime, request.prompt, request.cwd, request.role);
     this.drives.add(drive);
     void drive.finally(() => this.drives.delete(drive));
