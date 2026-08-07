@@ -570,13 +570,23 @@ function mustBeEmptyLayer(value: unknown, label: string): void {
     throw new Error(`${label} must be empty but carries: ${present.join(", ")}`);
 }
 
+// The probe resolves North's own binary, so its output is paths and never a token:
+// naming what came back is the one fact that separates a wrong PATH from a dead exec.
 function validateShellPreflight(response: unknown): void {
   const result = record(response, "Codex command/exec response");
   onlyKeys(result, ["exitCode", "stdout", "stderr"], "Codex command/exec response");
   const expectedOutput = `${ENGINE}\n${ENGINE}\n`;
   if (!Number.isSafeInteger(result.exitCode) || result.exitCode !== 0
-      || result.stdout !== expectedOutput || result.stderr !== "")
-    throw new Error("Codex command/exec did not preserve North's managed shell identity");
+      || result.stdout !== expectedOutput || result.stderr !== "") {
+    const seen = (value: unknown) => JSON.stringify(String(value ?? "").slice(0, 512));
+    throw new Error("Codex command/exec did not preserve North's managed shell identity", {
+      cause: new Error(
+        `exitCode ${JSON.stringify(result.exitCode)}`
+        + `; stdout ${seen(result.stdout)} wanted ${JSON.stringify(expectedOutput)}`
+        + `; stderr ${seen(result.stderr)}`,
+      ),
+    });
+  }
 }
 
 // Field names are diagnostic and never a token, so the drift is always named.
