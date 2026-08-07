@@ -32,12 +32,26 @@ export function bridgeSystemPrompt(role: BridgeLaunchRole): string {
     : "You are a North Bridge implementation worker. Complete the attached operator request in the assigned workspace and report the result; do not spawn or delegate other agents.";
 }
 
-class InputChannel implements AsyncIterable<string> {
-  private values: string[] = [];
-  private pulls: Array<(result: IteratorResult<string>) => void> = [];
+// Codex takes a bare turn; the Claude Agent SDK's streaming input accepts only a
+// user-message envelope and silently produces no turn for anything else.
+type BridgeInput = string | {
+  type: "user";
+  message: { role: "user"; content: string };
+  parent_tool_use_id: null;
+};
+
+function bridgeInput(provider: BridgeLaunchProvider, text: string): BridgeInput {
+  return provider === "anthropic"
+    ? { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null }
+    : text;
+}
+
+class InputChannel implements AsyncIterable<BridgeInput> {
+  private values: BridgeInput[] = [];
+  private pulls: Array<(result: IteratorResult<BridgeInput>) => void> = [];
   private ended = false;
 
-  push(value: string): void {
+  push(value: BridgeInput): void {
     if (this.ended) throw new Error("provider input channel is closed");
     const pull = this.pulls.shift();
     if (pull) pull({ done: false, value });
@@ -50,13 +64,13 @@ class InputChannel implements AsyncIterable<string> {
     for (const pull of this.pulls.splice(0)) pull({ done: true, value: undefined });
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<string> {
+  [Symbol.asyncIterator](): AsyncIterator<BridgeInput> {
     return {
       next: async () => {
         const value = this.values.shift();
         if (value !== undefined) return { done: false, value };
         if (this.ended) return { done: true, value: undefined };
-        return new Promise<IteratorResult<string>>((resolve) => this.pulls.push(resolve));
+        return new Promise<IteratorResult<BridgeInput>>((resolve) => this.pulls.push(resolve));
       },
       return: async () => {
         this.close();
@@ -118,13 +132,19 @@ export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
     const [
       { harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }, { anthropicProvider },
+      { selectProviderForExecution },
     ] = await Promise.all([
       import("../harness"),
       import("../orchestration-staffing"),
       import("../providers/openai"),
       import("../providers/anthropic"),
+      import("../provider-routing"),
     ]);
     const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
+    // Without a routed target the adapter falls back to ambient credentials, which
+    // are nobody's account: the Claude SDK then fails the turn on an expired OAuth.
+    const decision = await selectProviderForExecution({ provider: context.provider });
+    const target = decision.routingTargets[decision.target];
     const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
     const options = harnessOptions({
@@ -140,11 +160,13 @@ export const bridgeProvider: BridgeProviderExecution = {
       systemPrompt: bridgeSystemPrompt(context.role),
       abortController,
     });
-    await agentProvider.admit?.({ options });
+    await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
 
     const input = new InputChannel();
-    input.push(context.prompt);
-    const query = agentProvider.query({ prompt: input, options });
+    input.push(bridgeInput(context.provider, context.prompt));
+    const query = agentProvider.query({
+      prompt: input, options, ...(target ? { target } : {}),
+    });
     const events = new EventChannel();
     events.push({
       kind: "session.config",
@@ -152,6 +174,7 @@ export const bridgeProvider: BridgeProviderExecution = {
         model: options.model,
         effort: options.effort,
         cwd: options.cwd ?? context.cwd,
+        target: decision.target,
       },
     });
     let activitySequence = query.executionActivity?.snapshot().sequence ?? 0;
@@ -204,7 +227,7 @@ export const bridgeProvider: BridgeProviderExecution = {
     if (context.signal.aborted) void terminateSession();
 
     return {
-      async submitInput(value) { input.push(value); },
+      async submitInput(value) { input.push(bridgeInput(context.provider, value)); },
       async interruptTurn() {
         if (!query.interruptTurn) throw new Error("provider does not support turn interruption");
         await query.interruptTurn();
