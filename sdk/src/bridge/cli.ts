@@ -16,8 +16,8 @@ type ServerMessage =
 
 function usage(): never {
   console.error(
-    "usage: north bridge [--role director|implementer] <prompt>"
-    + " | north bridge app|tui [--view-id ID]"
+    "usage: north bridge [app|tui] [--view-id ID]  (bare `north bridge` opens the app)"
+    + " | north bridge [--role director|implementer] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
@@ -181,7 +181,7 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 }
 
 async function main(args: string[]): Promise<number> {
-  if (args[0] === "app" || args[0] === "tui") return runApp(args.slice(1));
+  if (args.length === 0 || args[0] === "app" || args[0] === "tui") return runApp(args.slice(1));
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "pending") return runPending(args.slice(1));
   if (args[0] === "accept") {
