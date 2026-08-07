@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
 import { resolve } from "node:path";
 import {
-  bridgeSocketPath, parseBridgeLaunchRole, type BridgeLaunchRole, type BridgeRequest,
+  bridgeSocketPath, parseBridgeLaunchRole, type BridgeLaunchProvider,
+  type BridgeLaunchRole, type BridgeRequest,
 } from "./protocol";
 import type { JournalRecord, TornTail } from "./journal";
 import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
@@ -17,7 +18,7 @@ type ServerMessage =
 function usage(): never {
   console.error(
     "usage: north bridge [app|tui] [--view-id ID]  (bare `north bridge` opens the app)"
-    + " | north bridge [--role director|implementer] <prompt>"
+    + " | north bridge [--role director|implementer] [--claude|--openai] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
@@ -29,14 +30,34 @@ function usage(): never {
 
 export function parseBridgeLaunchArguments(args: string[]): {
   role: BridgeLaunchRole;
+  provider?: BridgeLaunchProvider;
   promptArguments: string[];
 } {
-  if (args[0] !== "--role") return { role: "implementer", promptArguments: args };
-  if (args.length < 2) throw new Error("bridge --role requires director or implementer");
-  return {
-    role: parseBridgeLaunchRole(args[1]),
-    promptArguments: args.slice(2),
-  };
+  let role: BridgeLaunchRole = "implementer";
+  let provider: BridgeLaunchProvider | undefined;
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index];
+    if (argument === "--role") {
+      if (index + 1 >= args.length)
+        throw new Error("bridge --role requires director or implementer");
+      role = parseBridgeLaunchRole(args[index + 1]);
+      index += 2;
+      continue;
+    }
+    if (argument === "--claude" || argument === "--anthropic") {
+      provider = "anthropic";
+      index += 1;
+      continue;
+    }
+    if (argument === "--openai" || argument === "--codex") {
+      provider = "openai";
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return { role, ...(provider ? { provider } : {}), promptArguments: args.slice(index) };
 }
 
 async function runApp(args: string[]): Promise<number> {
@@ -217,7 +238,10 @@ async function main(args: string[]): Promise<number> {
     let prompt = launch.promptArguments.join(" ").trim();
     if (!prompt && !process.stdin.isTTY) prompt = (await Bun.stdin.text()).trim();
     if (!prompt) usage();
-    request = { op: "launch", prompt, cwd: process.cwd(), role: launch.role };
+    request = {
+      op: "launch", prompt, cwd: process.cwd(), role: launch.role,
+      ...(launch.provider ? { provider: launch.provider } : {}),
+    };
   }
   const socket = await connectedSocket(bridgeSocketPath());
   return runClient(socket, request);

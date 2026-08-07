@@ -4,6 +4,16 @@ import { join, resolve } from "node:path";
 export const BRIDGE_LAUNCH_ROLES = ["director", "implementer"] as const;
 export type BridgeLaunchRole = typeof BRIDGE_LAUNCH_ROLES[number];
 
+export const BRIDGE_LAUNCH_PROVIDERS = ["anthropic", "openai"] as const;
+export type BridgeLaunchProvider = typeof BRIDGE_LAUNCH_PROVIDERS[number];
+
+/** Absent means the daemon selects by headroom; a pin is always honored. */
+export function parseBridgeLaunchProvider(value: unknown): BridgeLaunchProvider | undefined {
+  if (value === undefined) return undefined;
+  if (value === "anthropic" || value === "openai") return value;
+  throw new Error("bridge launch provider must be anthropic or openai");
+}
+
 export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
   if (value === undefined) return "implementer";
   if (value === "director" || value === "implementer") return value;
@@ -11,7 +21,10 @@ export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
 }
 
 export type BridgeRequest =
-  | { op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole }
+  | {
+    op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole;
+    provider?: BridgeLaunchProvider;
+  }
   | { op: "attach"; executionId: string; cursor: number }
   | { op: "submitInput"; executionId: string; input: string }
   | { op: "interruptTurn"; executionId: string }
@@ -40,9 +53,11 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
       throw new Error("bridge launch requires a non-empty prompt");
     if (typeof request.cwd !== "string" || !request.cwd)
       throw new Error("bridge launch requires cwd");
+    const provider = parseBridgeLaunchProvider(request.provider);
     return {
       op: "launch", prompt: request.prompt, cwd: request.cwd,
       role: parseBridgeLaunchRole(request.role),
+      ...(provider ? { provider } : {}),
     };
   }
   if (request.op === "attach") {

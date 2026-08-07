@@ -1,4 +1,4 @@
-import type { BridgeLaunchRole } from "./protocol";
+import type { BridgeLaunchProvider, BridgeLaunchRole } from "./protocol";
 
 export interface NormalizedProviderEvent {
   kind: string;
@@ -20,6 +20,7 @@ export interface BridgeProviderExecution {
       prompt: string;
       cwd: string;
       role: BridgeLaunchRole;
+      provider: BridgeLaunchProvider;
       signal: AbortSignal;
     },
   ): Promise<BridgeProviderSession>;
@@ -113,18 +114,22 @@ function jsonData(value: unknown): Record<string, unknown> {
     : { value: normalized };
 }
 
-export const codexBridgeProvider: BridgeProviderExecution = {
+export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
-    const [{ harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }] = await Promise.all([
+    const [
+      { harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }, { anthropicProvider },
+    ] = await Promise.all([
       import("../harness"),
       import("../orchestration-staffing"),
       import("../providers/openai"),
+      import("../providers/anthropic"),
     ]);
+    const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
     const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
     const options = harnessOptions({
       self: `bridge-${context.executionId}`,
-      provider: "openai",
+      provider: context.provider,
       routingMetadata,
       role: routingMetadata.role,
       posture: routingMetadata.posture,
@@ -135,11 +140,11 @@ export const codexBridgeProvider: BridgeProviderExecution = {
       systemPrompt: bridgeSystemPrompt(context.role),
       abortController,
     });
-    await openaiProvider.admit?.({ options });
+    await agentProvider.admit?.({ options });
 
     const input = new InputChannel();
     input.push(context.prompt);
-    const query = openaiProvider.query({ prompt: input, options });
+    const query = agentProvider.query({ prompt: input, options });
     const events = new EventChannel();
     events.push({
       kind: "session.config",
@@ -209,3 +214,31 @@ export const codexBridgeProvider: BridgeProviderExecution = {
     };
   },
 };
+
+const BRIDGE_PRESSURE_RANK: Record<string, number> = {
+  plenty: 4, normal: 3, low: 2, unknown: 1, exhausted: 0,
+};
+
+/**
+ * Unpinned launches follow capacity: an exhausted entitlement is the one failure
+ * a supervisor cannot work around, and it surfaces only as a provider error mid-turn.
+ * Falls back to openai so a probe failure never blocks a launch outright.
+ */
+export async function selectBridgeProvider(): Promise<BridgeLaunchProvider> {
+  try {
+    const { collectProvidersStatus } = await import("../providers-cli");
+    const document = await collectProvidersStatus();
+    let best: { provider: BridgeLaunchProvider; rank: number } | undefined;
+    for (const entry of document.providers) {
+      for (const target of entry.targets) {
+        if (target.routing !== "eligible") continue;
+        if (target.provider !== "anthropic" && target.provider !== "openai") continue;
+        const rank = BRIDGE_PRESSURE_RANK[target.headroom] ?? 0;
+        if (!best || rank > best.rank) best = { provider: target.provider, rank };
+      }
+    }
+    return best?.provider ?? "openai";
+  } catch {
+    return "openai";
+  }
+}
