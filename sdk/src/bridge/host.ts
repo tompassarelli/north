@@ -5,11 +5,12 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { ExecutionJournal, type JournalRecord, type JournalScan } from "./journal";
 import {
-  codexBridgeProvider, type BridgeProviderExecution, type BridgeProviderSession,
-  type NormalizedProviderEvent,
+  bridgeProvider, selectBridgeProvider, type BridgeProviderExecution,
+  type BridgeProviderSession, type NormalizedProviderEvent,
 } from "./provider";
 import {
-  bridgeJournalRoot, bridgeSocketPath, parseBridgeRequest, type BridgeRequest,
+  bridgeJournalRoot, bridgeSocketPath, parseBridgeRequest, type BridgeLaunchProvider,
+  type BridgeRequest,
 } from "./protocol";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -38,6 +39,8 @@ export interface NorthdOptions {
   journalRoot?: string;
   provider?: BridgeProviderExecution;
   providerAdapter?: string;
+  /** Test injection. Production selects by entitlement headroom. */
+  selectProvider?: () => Promise<BridgeLaunchProvider>;
   /** Test injection. Production reads this checkout's HEAD. */
   sourceIdentity?: () => string | undefined;
   stalePollMs?: number;
@@ -102,6 +105,7 @@ export class Northd {
   readonly journalRoot: string;
   private readonly provider: BridgeProviderExecution;
   private readonly providerAdapter: string;
+  private readonly selectProvider: () => Promise<BridgeLaunchProvider>;
   private readonly server: Server;
   private readonly runtimes = new Map<string, ExecutionRuntime>();
   private readonly sockets = new Set<Socket>();
@@ -116,8 +120,9 @@ export class Northd {
   constructor(options: NorthdOptions = {}) {
     this.socketPath = options.socketPath ?? bridgeSocketPath();
     this.journalRoot = options.journalRoot ?? bridgeJournalRoot();
-    this.provider = options.provider ?? codexBridgeProvider;
+    this.provider = options.provider ?? bridgeProvider;
     this.providerAdapter = options.providerAdapter ?? "codex-app-server";
+    this.selectProvider = options.selectProvider ?? selectBridgeProvider;
     this.sourceIdentity = options.sourceIdentity ?? bridgeSourceIdentity;
     this.stalePollMs = options.stalePollMs ?? STALE_POLL_MS;
     this.onRetire = options.onRetire ?? (() => { void this.close(); });
@@ -279,14 +284,21 @@ export class Northd {
     prompt: string,
     cwd: string,
     role: Extract<BridgeRequest, { op: "launch" }>["role"],
+    pinned: BridgeLaunchProvider | undefined,
   ): Promise<void> {
     try {
-      this.append(runtime, "provider.starting", { adapter: this.providerAdapter });
+      const provider = pinned ?? await this.selectProvider();
+      this.append(runtime, "provider.starting", {
+        adapter: this.providerAdapter,
+        provider,
+        selection: pinned ? "pinned" : "headroom",
+      });
       const session = await this.provider.open({
         executionId: runtime.executionId,
         prompt,
         cwd,
         role,
+        provider,
         signal: runtime.abort.signal,
       });
       runtime.session = session;
@@ -319,6 +331,7 @@ export class Northd {
     this.runtimes.set(executionId, runtime);
     this.append(runtime, "execution.accepted", {
       prompt: request.prompt, cwd: request.cwd, role: request.role,
+      ...(request.provider ? { provider: request.provider } : {}),
     });
     wire(socket, { type: "launched", executionId });
     this.attach(socket, runtime, 0);
@@ -330,7 +343,9 @@ export class Northd {
       });
       return;
     }
-    const drive = this.drive(runtime, request.prompt, request.cwd, request.role);
+    const drive = this.drive(
+      runtime, request.prompt, request.cwd, request.role, request.provider,
+    );
     this.drives.add(drive);
     void drive.finally(() => this.drives.delete(drive));
   }
