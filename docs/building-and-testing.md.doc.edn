@@ -1,0 +1,7 @@
+{:kind :user-manual
+ :sources [{:path "build.sh" :revision "content"}
+           {:path "bin/test-suite" :revision "content"}]
+ :refresh-policy :on-change
+ :source-digests {"build.sh" "13ac65646f9c180456b807d4f62641c58f7c052dd08dd64b997ea0e431098437"
+                  "bin/test-suite" "c4d4f2d117913c390b1837e103052bbcf04557b71a759812731ab62d778cb770"}
+ :verified-at "2026-08-08"}

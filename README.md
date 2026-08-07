@@ -30,6 +30,8 @@ substrate.
   [docs/PROPOSAL.md](docs/PROPOSAL.md) — the design record.
 - [docs/building-and-testing.md](docs/building-and-testing.md) — rebuilding
   from source and running the suites.
+- [docs/docctl.md](docs/docctl.md) — Markdown dependency manifests and the
+  deterministic freshness queue.
 
 ## Quickstart
 

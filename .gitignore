@@ -28,3 +28,6 @@ streams/raw/
 
 # Graph-native code-authoring cache, corpus, and local coordinator state.
 .fram/
+
+# docctl state is normally outside the checkout; keep explicit local overrides out.
+.docctl/

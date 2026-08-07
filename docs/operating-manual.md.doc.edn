@@ -1,0 +1,9 @@
+{:kind :user-manual
+ :sources [{:path "docs/architecture.md" :revision "content"}
+           {:path "cli/surface.edn" :revision "content"}
+           {:path "bin/north" :revision "content"}]
+ :refresh-policy :weekly
+ :source-digests {"docs/architecture.md" "a8985b2cb079cc950bacaca09b8bd7f150165ea096c7e399fecefb1dd4513838"
+                  "cli/surface.edn" "f33acd7862d15a867bb059e59a297680f3ea7bca2462f83dfa294b97e534a4ff"
+                  "bin/north" "65feeed1469710e37d517485fb3781cecaaef44ccb962cc67a6c25da0d1490af"}
+ :verified-at "2026-08-08"}

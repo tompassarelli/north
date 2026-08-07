@@ -94,6 +94,17 @@ directly:
 $ cd sdk && bun run check && bun run test
 ```
 
+Documentation freshness is independent of the Fram coordinator and needs only
+Babashka:
+
+```console
+$ bin/docctl scan
+$ bin/docctl invalidate
+$ bin/docctl queue
+```
+
+See [`docctl.md`](docctl.md) for sidecar manifests and review policy.
+
 `bun run check` runs the license-integrity check, `tsc --noEmit`, and a
 no-bundle build of every entry point; `bun run test` runs
 [`sdk/test/support/run-suite.sh`](../sdk/test/support/run-suite.sh).
