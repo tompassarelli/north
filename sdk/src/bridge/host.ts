@@ -74,6 +74,17 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Provider preaccept codes are deliberately opaque; without the chain the journal names a stage, not a defect. */
+function failureData(error: unknown): Record<string, unknown> {
+  const causes: string[] = [];
+  let cause: unknown = error instanceof Error ? error.cause : undefined;
+  while (cause !== undefined && causes.length < 8) {
+    causes.push(errorMessage(cause));
+    cause = cause instanceof Error ? cause.cause : undefined;
+  }
+  return { message: errorMessage(error), ...(causes.length ? { causes } : {}) };
+}
+
 function liveSocket(path: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const socket = connect(path);
@@ -245,7 +256,7 @@ export class Northd {
         delivery: next.delivery,
       });
     } catch (error) {
-      this.finish(runtime, "execution.failed", { message: errorMessage(error) });
+      this.finish(runtime, "execution.failed", failureData(error));
     }
   }
 
@@ -288,7 +299,7 @@ export class Northd {
         this.finish(runtime, "execution.failed", { message: "provider session closed before termination" });
     } catch (error) {
       if (!runtime.terminating)
-        this.finish(runtime, "execution.failed", { message: errorMessage(error) });
+        this.finish(runtime, "execution.failed", failureData(error));
     }
   }
 
