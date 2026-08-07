@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Deterministic documentation dependency scanner and review queue.
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+BB="${NORTH_BB:-$(command -v bb || true)}"
+if [[ -z "$BB" ]]; then
+  echo "docctl: babashka is required" >&2
+  exit 127
+fi
+exec "$BB" -cp "$HERE/cli" "$HERE/cli/docctl.clj" "$@"

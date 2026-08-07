@@ -1,0 +1,9 @@
+{:kind :distilled
+ :sources [{:path "src/north/main.bclj" :revision "content"}
+           {:path "build.sh" :revision "content"}
+           {:path "bin/north" :revision "content"}]
+ :refresh-policy :on-change
+ :source-digests {"src/north/main.bclj" "7fb1a49bdae04cb969e6ff8ac9b71fc89269a1a270f0f3190926216c714bbec2"
+                  "build.sh" "13ac65646f9c180456b807d4f62641c58f7c052dd08dd64b997ea0e431098437"
+                  "bin/north" "65feeed1469710e37d517485fb3781cecaaef44ccb962cc67a6c25da0d1490af"}
+ :verified-at "2026-08-08"}
