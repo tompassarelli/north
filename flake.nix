@@ -433,6 +433,7 @@ PY
             ./bin/firn-rebuild-coordinated
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
+            ./bin/docctl
             ./bin/concern
             ./bin/ensure-private-docs
           ];
@@ -589,7 +590,7 @@ EOF
               bin/north-on-tooluse bin/firn-rebuild-coordinated \
               bin/north-stream-sync bin/north-stream-sync-all \
               bin/north-succession \
-              bin/concern bin/ensure-private-docs \
+              bin/docctl bin/concern bin/ensure-private-docs \
               $out/bin/
             patchShebangs $out/bin
 
@@ -641,6 +642,9 @@ EOF
               --set NORTH_PACKAGE_MODE nix-store
 
             wrapProgram $out/bin/north-stream-sync-all \
+              --prefix PATH : ${runtimePath}
+
+            wrapProgram $out/bin/docctl \
               --prefix PATH : ${runtimePath}
 
             wrapProgram $out/bin/firn-rebuild-coordinated \
