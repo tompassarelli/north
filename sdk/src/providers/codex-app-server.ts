@@ -23,8 +23,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  closeSync, constants, fsyncSync, lstatSync, mkdtempSync, openSync, realpathSync,
-  renameSync, rmSync, unlinkSync, writeSync,
+  accessSync, closeSync, constants, fsyncSync, lstatSync, mkdtempSync, openSync, realpathSync,
+  renameSync, rmSync, statSync, unlinkSync, writeSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -680,6 +680,30 @@ function sandboxWritableRoots(surface: OpenAIAuthoritySurface, cwd: string): str
   return managedCodexWritableRoots(cwd);
 }
 
+function executableFile(candidate: string): string | undefined {
+  try {
+    if (!statSync(candidate).isFile()) return undefined;
+    accessSync(candidate, constants.X_OK);
+    return candidate;
+  } catch {
+    return undefined;
+  }
+}
+
+// Codex cannot exec without its sandbox binary; North's bin stays first because the
+// managed-shell contract pins that position.
+function sandboxCapablePath(env: Record<string, string | undefined>): string | undefined {
+  const path = env.PATH;
+  if (typeof path !== "string" || !path) return path;
+  const entries = path.split(delimiter).filter(Boolean);
+  if (entries.some((directory) => executableFile(join(directory, "bwrap")))) return path;
+  const override = env.NORTH_BWRAP_BIN?.trim();
+  const resolved = override ? executableFile(resolve(override)) : undefined;
+  if (!resolved) throw new ManagedCodexPreThreadError("openai_codex_sandbox_binary_unavailable");
+  const [northBin, ...rest] = entries;
+  return [northBin, dirname(resolved), ...rest].join(delimiter);
+}
+
 export function managedCodexAppServerLaunch(
   options: ManagedCodexAppServerOptions,
 ): LaunchContract {
@@ -734,12 +758,13 @@ export function managedCodexAppServerLaunch(
   options.env.CODEX_SQLITE_HOME = sqliteHome;
   options.env.CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED = "1";
 
-  const managedPath = options.env.PATH;
+  const managedPath = sandboxCapablePath(options.env);
   if (typeof managedPath !== "string" || !managedPath
       || managedPath !== managedPath.trim()
       || managedPath.split(delimiter)[0] !== dirname(ENGINE)
       || options.env.NORTH_BIN !== ENGINE)
     throw new ManagedCodexPreThreadError("openai_managed_shell_environment_invalid");
+  options.env.PATH = managedPath;
   const shellEnvironmentPolicy = {
     inherit: "core",
     set: { PATH: managedPath, NORTH_BIN: ENGINE },
