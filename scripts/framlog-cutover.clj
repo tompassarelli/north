@@ -18,15 +18,23 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "..")))
 (def state-home (str (System/getProperty "user.home") "/.local/state/north"))
-(def exact-fram-revision "668515f23e490d59dbb14aef2a89ac9646d987d7")
-(def exact-fram-tree "a712566e805bd8d3a632ced269f72c9b8a064d91")
+(def exact-fram-revision "6da2eb6279a857b098f8b7e45c95aa3d3c9b4a30")
+(def exact-fram-tree "9a42e1f2510e01af9ceb613d9ecd83b3823bf609")
 (def exact-native-closure-sha256
-  "508bedc10caa5131765454db7b905283db342f78bb27c8005c3666fb8cdecdea")
+  "f3709fe81a73af436bf5a1065c06a97f510ab5cf02d47a27847104d0d15c43b9")
 (def exact-native-artifact-dir
   (str "/home/tom/.cache/fram/"
-       "native-build-core-target-production-5484b79a-668515f/"
+       "native-build-core-target-production-201ec968-6da2eb6/"
        exact-native-closure-sha256))
-(def exact-fram-source "/home/tom/code/fram/wt-core-target-production-668515f")
+(def exact-fram-source "/home/tom/code/fram/wt-core-target-production-6da2eb6")
+;; The one-shot shells these two out of the frozen source, so their bytes are
+;; part of the pin, not an incidental property of the checkout.
+(def exact-fram-converter
+  {:bytes 471
+   :sha256 "bb6d6a023d08617a9e23d9fc077e140e0c9b8e2b7f703810c7034645b54d50a4"})
+(def exact-fram-server
+  {:bytes 8000
+   :sha256 "9712c1ef0bdabee634b37795bc77a9afb46cabf917e8c72b4afb71c76e0b19a2"})
 
 ;; Inert transcription of everything fram-native-build's input.manifest digests:
 ;; without it the closure hash above cannot be re-derived from source.
@@ -36,18 +44,18 @@
    :environment
    {"FRAM_NATIVE_CACHE"
     (str "/home/tom/.cache/fram/"
-         "native-build-core-target-production-5484b79a-668515f")}
+         "native-build-core-target-production-201ec968-6da2eb6")}
    :working-directory exact-fram-source
    :source-list (str exact-fram-source "/native/core_closure_sources.txt")})
 (def exact-native-build-identity
   {:builder-sha256
-   "ae938f8f2db6df6c819de37f3d5be17fa4045784482745841b32278276275948"
+   "c78946197a83bbeef57dbe15c3b98a777cd4af9562d0e5b87751479034476a0e"
    :beagle
    {:realpath "/home/tom/code/beagle/main/bin/beagle"
     :identity
-    (str "git:5484b79a00bb7d1ef459858a3a45176cd1ef77ce"
+    (str "git:201ec968ff688695378802d3998dad71e17baa6c"
          ":build-core-"
-         "a8f6cac1f749d0a22ee8a9a8bed3e2e2ade9126a8fb579402a1febfab83f32b4")}
+         "e97697233654145fb8b13a66666a1b47df3e60349a73ba7f13affe4c811417b3")}
    :cc
    {:realpath
     "/nix/store/xcnqqnhw9hb4j5rjgds2yjryi8qki5f3-gcc-wrapper-15.2.0/bin/gcc"
@@ -56,10 +64,11 @@
 (def exact-native-program
   {:scope "fram-native-server"
    :configuration "profile=3"
+   :abi "lp64"
    :closure-sha256
-   "af2a1db5fe5e9d46c0ce330cfbdd67978de1632895e2c0d76c11919ebc290dfc"
+   "f7a5ccd43dd34d750af05115726525c9e499de7c0396b9503f9efe9dac44fb0d"
    :digest
-   "ac197f1cfbb47af2c8c0eba0eb49496a6355b8577c43ddc83d7c36d09cc9837c"
+   "0a0bf7114569afad8a69aaf4bceecc9be9a49eaa70d589a642489cf2ab62298f"
    :entries
    ["fram.native-server/server-generated-abi"
     "fram.native-server/server-store-boot!"
@@ -71,47 +80,51 @@
     "fram.native-server/server-codec-release-response"]})
 ;; Dependency-first and index-significant: the manifest digests this order.
 (def exact-native-closure-sources
-  [["src/fram/types.bgl"
-    "261c4ff4360f01ef3f2457aa06d9418f3a8de2974ea3ec7bbb6e286cae144770"]
+  [["src/fram/slots.bgl"
+    "5ba91a6c86b887ea70584c6f66bc15e1ef0e5b2e98973f049dca7a464f305429"]
+   ["src/fram/types.bgl"
+    "b7152ace4e19f2a8c388e3a7f057a03eb1e6dec09b19943f72782a5c2a7efafc"]
    ["src/fram/store.bgl"
-    "a0ab9c0383d9a164a199fc7a3b3332f034b119cd4fafc6631549e5edb6a013a4"]
+    "49fbed624852695995c29b3361d9d07607c50a99e9e5f1a77bd226d838ccb9de"]
    ["src/fram/rotation.bgl"
-    "6173a5ee5d859d2c01abd53f35f16811d0048568b9090f5db602a137a748769e"]
+    "b70a00b3d90e4daa540c9ca05132c57119ad9e598da7ec29dfefc5c088d2d418"]
    ["src/fram/txn.bgl"
-    "5efbd7fc4349d2250130b3981657a4ce5c1698e62d4370e952a5b12ba3f42787"]
+    "4f601e0bdcba00a7db0aab361c5da680ce9d43730d6201a78049a8aa76ea537a"]
    ["src/fram/schema.bgl"
-    "7d4046c89f77e86d99e15a1adf32deedda90114d1fa5c188c4736358a57a7537"]
+    "6fd39b71f2887845fddb2d9cd75ab73255d4d691ddba8bfd5ae2a363b5b961a0"]
    ["src/fram/kernel.bgl"
     "db8025377776873cae0dc6cc07c12e3eced629bc587f100aaa07ca4f303eebda"]
    ["src/fram/text_index.bgl"
-    "6ff59b4e9bef1636fc1a671c2120f6657577b0d9887c504628a91cbe1ef05c3d"]
+    "31f4630ebd0ef85947eec8c6e14b63a1783354dad2b3bffccc17de561dc02376"]
    ["src/fram/text_search.bgl"
-    "ff431b18ecb2bbe3a7eb672bbd639b528f216996e4ffb4bf39c2b222b2a2072e"]
+    "6d3b2709d6d826f80d5e21d8a2df9b252458359f9746f6855c58d629807e3ed0"]
    ["src/fram/datalog.bgl"
-    "47170543f7c03718de0de5ab6f4ae952e0331ecbe9e768e07d8f41b93c4ca0ed"]
+    "0a002a1c20a9732286a326abd26c67186c0f74fac08d4092b52f8b01183d7172"]
    ["src/fram/query.bgl"
-    "1a0ab7b943fcd3f26cc82c9ec6311678c79b7771573b2f42e27f8f2d1e20cfff"]
+    "1298bc6a72efc043a85323b4a1308d305b160f287fcc2a44e1ee8b559f8f5e04"]
    ["src/fram/native_wire_codec.bgl"
-    "237182794573011034fd1921e90dce5c7156e19d63c64be6e84afb831c0773c9"]
+    "4ae095727e466b5d52a6e290db520aa734afa6322990f028f3091f6d203e1d8f"]
    ["src/commit_plan.bgl"
-    "f1e4ad6aa4c8966103309fb30100209844aebb0224477e68ca5f7ec09f1bf770"]
+    "8c3808d45c4664fc6fbbb3cc98742ebf4835f37449a8c8bc4daa4c58b783e0b3"]
    ["src/fram/log_codec.bgl"
-    "068515170892255a3159aa0410080276a7eea375135bd2b55ab9232b3b18411b"]
+    "dd38012896bea5b820907f85e8c9ccb8716858e2b934cc6081b0a146c39e8990"]
+   ["src/fram/snapshot_codec.bgl"
+    "9fa3ddbe910586965630e4f9cefd3b0684be76a98592917c50b1211679653bda"]
    ["src/fram/native_lease_ops.bgl"
-    "09e045d3159e2bb33e49a27de7bf5d708c4a59e5557960920824454b8ab45b9c"]
+    "b50047b437bd27f8a1fa689662503885a36174ff566facc71a2f4e51b6d6ebc5"]
    ["src/fram/native_query_ops.bgl"
-    "fa2d8605c9b4d087b789abc97d1123351c6d2f47fd02cdb2f35c7ce5610b4499"]
+    "9c33e649112a2d9b354a5e2d34c04b1750d62500f756719147e092d4fabb17a2"]
    ["src/fram/native_dispatch.bgl"
-    "b764c395a15da84a9a2f57bdf023776aa9faa587b6168b533cd6a2576d896ae9"]
+    "eef0c5ec09aa3e85e0278119c85c3f186ac33da29ea94c13f4d3389eb0a87913"]
    ["src/fram/native_server.bgl"
-    "423c8ed57068758dcaeeb8753cea22e899f1abce348adf118aec42a9a735c152"]])
+    "fa80f5067a133f7737cd1d324611f132b62c3286bc10268aeeea1f0e31565799"]])
 (def exact-native-host-sources
   [["native/server_host.c"
-    "a7dd027c974478576733b4ba68065178057babd2bff8d4bd3f35ff58016fc6bd"]
+    "ad135914ecd8950e63229a5bec7b65d2bab89edf7e3bce6c33299ad8bef3c73b"]
    ["native/server_host.h"
-    "149650a96f65a5a595740ea28873b35103f31f37f36ec7dc3043a055ac2d6b36"]
+    "0522ea73947cfcdfb7285e99f323b2df48bf9ea884bea4c7f7eb21579c2e9d3c"]
    ["native/server_generated.c"
-    "007888f3a6b3dc5b245f146987bbf71286c4a93f4da2b58b3ea22ac134235a0c"]])
+    "543319fb870d45fd6706f8be28ed6dc028308dc25765f21a4a25055df1e1067b"]])
 (def exact-native-closure-provenance
   {:build exact-native-build-command
    :identity exact-native-build-identity
@@ -132,6 +145,8 @@
    :fram-source exact-fram-source
    :fram-revision exact-fram-revision
    :fram-tree exact-fram-tree
+   :fram-converter exact-fram-converter
+   :fram-server exact-fram-server
    :native-artifact-dir exact-native-artifact-dir
    :native-closure-sha256 exact-native-closure-sha256
    :native-closure-provenance exact-native-closure-provenance})
@@ -263,9 +278,14 @@
          (required-executable!
           "exact Native Fram server"
           (str (.getPath artifact-dir) "/bin/fram-server-native")))
-        migrator (required-executable!
-                  "exact Fram converter" (str source "/bin/fram-migrate-triple-log"))
-        launcher (required-executable! "exact Fram server" (str source "/bin/fram-server"))
+        migrator (fingerprint!
+                  "exact Fram converter"
+                  (required-executable!
+                   "exact Fram converter" (str source "/bin/fram-migrate-triple-log")))
+        launcher (fingerprint!
+                  "exact Fram server"
+                  (required-executable!
+                   "exact Fram server" (str source "/bin/fram-server")))
         out (.getCanonicalFile (io/file source "out"))]
     (when-not (= (:fram-revision config) revision)
       (fail! "Fram source is not the exact frozen cutover revision"
@@ -276,6 +296,13 @@
     (when-not (str/blank? dirty)
       (fail! "exact Fram source must be clean"
              {:path source :changes (str/split-lines dirty)}))
+    (when-not (= (:fram-converter config)
+                 (select-keys migrator [:bytes :sha256]))
+      (fail! "exact Fram converter differs from the frozen cutover converter"
+             {:expected (:fram-converter config) :actual migrator}))
+    (when-not (= (:fram-server config) (select-keys launcher [:bytes :sha256]))
+      (fail! "exact Fram server differs from the frozen cutover server"
+             {:expected (:fram-server config) :actual launcher}))
     (when-not (= (str "fram-native-build/v1 " closure-sha256 "\n") ready-line)
       (fail! "Native READY receipt differs from the exact closure"
              {:path (:path ready) :closure-sha256 closure-sha256
@@ -287,8 +314,8 @@
     (when-not (.isDirectory out)
       (fail! "exact Fram generated output is unavailable" {:path (.getPath out)}))
     {:source {:path source :revision revision :tree tree
-              :converter (fingerprint! "exact Fram converter" migrator)
-              :server (fingerprint! "exact Fram server" launcher)
+              :converter migrator
+              :server launcher
               :out (.getPath out)}
      :native-artifact
      {:directory (.getPath artifact-dir)

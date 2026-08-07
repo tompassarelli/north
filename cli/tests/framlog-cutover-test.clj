@@ -49,16 +49,16 @@
 (let [directory (temp-directory "fram-forward-header-")
       path (str directory "/history.framlog")]
   (Files/write (.toPath (java.io.File. path))
-               (framlog-bytes "north-coordination" 1)
+               (framlog-bytes "north-coordination" 0)
                (make-array java.nio.file.OpenOption 0))
-  (check! "FRAMLOG header verifies exact version, flags=1, and SpaceId"
-          (= {:version 1 :flags 1 :space-id "north-coordination"}
+  (check! "FRAMLOG header verifies exact version, flags=0, and SpaceId"
+          (= {:version 1 :flags 0 :space-id "north-coordination"}
              (framlog-header! path))))
 
 (let [normalized {:path "/sealed/coordination.normalized.log"
                   :bytes 10 :sha256 sha-a}
       output {:path "/sealed/coordination.framlog" :bytes 20 :sha256 sha-b}
-      header {:version 1 :flags 1 :space-id "north-coordination"}
+      header {:version 1 :flags 0 :space-id "north-coordination"}
       manifest {:format "fram-triple-log-migration-manifest/v1"
                 :space-id "north-coordination"
                 :source normalized
@@ -68,9 +68,9 @@
                 :torn-tail nil}]
   (check! "sealed manifest binds input hash, output hash, flags, and SpaceId"
           (valid-migration? "north-coordination" manifest normalized output header))
-  (check! "flags=0 is rejected"
+  (check! "flags=1 is rejected"
           (not (valid-migration? "north-coordination"
-                                 (assoc-in manifest [:output :framlog-flags] 0)
+                                 (assoc-in manifest [:output :framlog-flags] 1)
                                  normalized output header)))
   (check! "a different SpaceId is rejected"
           (not (valid-migration? "north-telemetry" manifest normalized output header)))
