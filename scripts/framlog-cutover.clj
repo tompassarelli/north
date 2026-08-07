@@ -119,7 +119,7 @@
    :sources exact-native-closure-sources
    :host-sources exact-native-host-sources})
 (def migration-encoding
-  {:encoding :deflate :framlog-version 1 :framlog-flags 1})
+  {:encoding :uncompressed :framlog-version 1 :framlog-flags 0})
 (def spaces {:coordination "north-coordination" :telemetry "north-telemetry"})
 (def ports {:coordination 7977 :telemetry 7978})
 (def production-config
@@ -420,7 +420,7 @@
        (= migration-encoding
           (select-keys (:output manifest)
                        [:encoding :framlog-version :framlog-flags]))
-       (= {:version 1 :flags 1 :space-id space} header)
+       (= {:version 1 :flags 0 :space-id space} header)
        (zero? (get-in manifest [:summary :diagnostic-count] -1))
        (nil? (:torn-tail manifest))))
 
@@ -434,8 +434,8 @@
         space (get-in config [:spaces store])]
     (Files/createDirectories (.toPath (io/file clj-config))
                              (make-array java.nio.file.attribute.FileAttribute 0))
-    (process! (str (name store) " Deflate FRAMLOG conversion")
-              [converter "--deflate" (:path normalized) space target]
+    (process! (str (name store) " uncompressed FRAMLOG conversion")
+              [converter (:path normalized) space target]
               (:fram-source config) {:CLJ_CONFIG clj-config})
     (let [manifest-file (fingerprint! (str (name store) " migration manifest")
                                       manifest-path)
