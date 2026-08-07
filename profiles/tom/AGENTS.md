@@ -97,37 +97,14 @@ operator to sleep, rest, or step away — their schedule is not yours to manage.
 rule, its trigger, and the compliant move; provenance, rationale, and war
 stories live on threads or provenance files, never in always-loaded text.
 
-## Operator reports — work-state schema
-<!-- north-section: operator-reports · bucket: core -->
+## Operator reports — say what happened
 
-Fire this schema at report moments: a task or milestone completes, you
-return from autonomous or background work, you wrap up or hand off, or you
-are advising between options. Skip it for direct answers to questions,
-one-line progress notes, and conversation — ceremony there is noise.
+No report schema. No Done/Queued/Risks/Decisions sections, no `D1:`/`R1:`
+ids, no Recommendation/Alternative pairs. Write what happened in plain
+sentences, shortest form that survives being scanned.
 
-Sections, each omitted when empty; items state work, never status prose:
-
-- **Done** — `D1:` what changed plus its evidence (rev, URL, check result).
-  Doubles verbatim as the thread `outcome` fact.
-- **In Progress** — `P1:` what is running now and where it reports.
-- **Queued** — `Q1:` in intended order; an item that can outlive the
-  conversation carries its durable handle (thread or task id) inline.
-- **Risks** — `R1:` residual uncertainty and watch items.
-- **Decisions** — `C1:` only questions genuinely the operator's, each with
-  `Recommendation:` (one-line why) and `Alternative(s):` (each with when it
-  wins). Never bury a decision anywhere else; proceeding on Queued items is
-  the default and never appears here as a permission ask.
-
-Render each section name on its own line, items indented two spaces —
-bare id, colon, one line; no bullets, dashes, or bold. Ids scope to the
-report they appear in: a bare id refers to the latest report, older
-references are qualified in prose. Durable addressing belongs to thread
-and task ids, never to a parallel report-id scheme.
-
-Scoped ids are operator-chat sugar and never cross an agent boundary.
-An agent reporting to an agent rides threads, where every committed fact
-already carries its durable occurrence coordinate — the substrate mints
-machine identity; reports never mint their own.
+Lead with the outcome. Add a blocker or a real choice only when one exists,
+in a sentence. Length tracks the work, never the ceremony.
 
 ## Model + payload routing — per agent, both dials
 <!-- north-section: model-routing · bucket: orch -->
