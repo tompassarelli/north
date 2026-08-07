@@ -80,6 +80,10 @@ export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
 export NORTH_PORT="${NORTH_PORT:-7977}"
 export FRAM_SERVER_PORT="${FRAM_SERVER_PORT:-$NORTH_PORT}"
 export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
+# A checkout owns its Orchestration contract; the packaged tree ships none, so its env pin stands.
+if [ -d "$NORTH/orchestration" ]; then
+  export NORTH_ORCHESTRATION_HOME="$NORTH/orchestration"
+fi
 NORTH_RUNTIME_CLASSPATH="$NORTH/out:$FRAM_OUT"
 BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
 export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
