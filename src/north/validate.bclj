@@ -18,7 +18,7 @@
    predicate: String
    target: String
    frontier: (Vec String)] -> Bool
-  (loop [remaining frontier
+  (loop [remaining: (Vec String) frontier
          seen: (Map String Bool) {}]
     (cond
       [(empty? remaining) false]
@@ -70,7 +70,7 @@
 
 (defn work-violations-i
   [idx: proj/ProjectionIndex
-   te :- String] :- (Vec String)
+   te: String] -> (Vec String)
   (let [term? (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
         ;; entity refs. Fram verifies generic subject existence; North adds the
@@ -116,6 +116,6 @@
 ;; Full North validation over one thread = executable-schema structure + work.
 (defn violations-i
   [idx: proj/ProjectionIndex
-   te :- String] :- (Vec String)
+   te: String] -> (Vec String)
   (vec (concat (structural-violations-i idx te)
                (work-violations-i idx te))))
