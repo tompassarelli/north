@@ -268,6 +268,9 @@ PY
           pkgs.python3
           pkgs.util-linux
         ] ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+          # The read-only shell and managed Codex both exec through it; undeclared,
+          # it was supplied only by whatever ambient PATH the launcher happened to carry.
+          pkgs.bubblewrap
           pkgs.iproute2
           pkgs.procps
         ] ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [

@@ -667,12 +667,14 @@
 (defn sound-pack-from-env [value: String] -> String
   (if (identical? (.toLowerCase (.trim value)) "peasant") "peasant" "peon"))
 
+;; Derived from NORTH_HOME, never from a composed checkout path: the packaged
+;; tree's purity scan rejects one, and a checkout may live anywhere.
 (defn sound-directory-from-env [value: String] -> String
   (let [directory (.trim value)
-        home (.trim (text (.-HOME (.-env process))))]
+        north-home (.trim (text (.-NORTH_HOME (.-env process))))]
     (cond
       (not (identical? directory "")) directory
-      (not (identical? home "")) (str home "/code/north/warcraft-sounds")
+      (not (identical? north-home "")) (str north-home "/../warcraft-sounds")
       :else "warcraft-sounds")))
 
 (defn discover-sound-player [] -> SoundPlayer?

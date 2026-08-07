@@ -516,8 +516,8 @@ function sound_pack_from_env(value) {
 
 function sound_directory_from_env(value) {
   const directory = value.trim();
-  const home = text(process.env.HOME).trim();
-  return ((!(directory === ""))) ? directory : ((!(home === ""))) ? ("".concat(home, "/code/north/warcraft-sounds")) : "warcraft-sounds";
+  const north_home = text(process.env.NORTH_HOME).trim();
+  return ((!(directory === ""))) ? directory : ((!(north_home === ""))) ? ("".concat(north_home, "/../warcraft-sounds")) : "warcraft-sounds";
 }
 
 function discover_sound_player() {
