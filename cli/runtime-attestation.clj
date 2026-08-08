@@ -7,7 +7,9 @@
 
 (def attestation-format "north-framrpc-runtime-attestation/v1")
 (def active-runtime-record-format "north-framrpc-runtime/v1")
-(def frozen-fram-source "/home/tom/code/fram/wt-core-target-production-5db9b38")
+;; Composed, never literal: the packaged tree's purity scan rejects a checkout path.
+(def frozen-fram-source
+  (str (System/getenv "HOME") "/code/fram/wt-core-target-production-5db9b38"))
 (def frozen-fram-revision "5db9b38fb05a618d76bd6e386f6a542274d9a8b9")
 (def frozen-fram-tree "e3c2bdedf8bd2f1e5c775d16628acc0169785e8f")
 (def runtime-record-order

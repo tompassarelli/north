@@ -560,6 +560,9 @@ EOF
           nativeBuildInputs = [
             pkgs.makeWrapper
             pkgs.babashka
+            # The install-phase smoke checks exercise the packaged CLI directly,
+            # which reaches its TypeScript surface through bun.
+            pkgs.bun
             pkgs.python3
             pkgs.ripgrep
           ];
@@ -824,7 +827,8 @@ EOF
               "$now" "$reset" > "$smoke/openai-pin-evidence.json"
             HOME="$smoke/home" NORTH_CLAUDE_BIN="$smoke/bin/claude" NORTH_CODEX_BIN="$smoke/bin/codex" \
               NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" \
+              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" \
               $out/bin/.north-wrapped providers --json > "$smoke/providers.json"
             ${pkgs.jq}/bin/jq -e \
               '([.providers[].targets[] | select(.id == "anthropic")][0] | .installed and .authenticated) and
@@ -832,7 +836,8 @@ EOF
                  .installed and .authenticated and .headroom == "plenty")' \
               "$smoke/providers.json" > /dev/null
             HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" $out/bin/.north-wrapped spawn implementer probe \
+              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              $out/bin/.north-wrapped spawn implementer probe \
               --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
               --ad-hoc --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
@@ -851,6 +856,7 @@ EOF
               > "$smoke/verifier-assessment.json"
             NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
               NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
+              NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
               $out/bin/.north-wrapped spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --ad-hoc --dry-run \
               > "$smoke/assessed-spawn.out"
@@ -863,6 +869,7 @@ EOF
               > "$smoke/verifier-assessment-forged.json"
             if NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
                  NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
+                 NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
                  $out/bin/.north-wrapped spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --ad-hoc --dry-run \
                  > "$smoke/assessed-forged.out" 2>&1; then
@@ -916,7 +923,8 @@ EOF
               HOME="$smoke/home" \
               CLAUDE_CONFIG_DIR="$smoke/home/.local/state/north/accounts/anthropic/claude-smoke" \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/ingested.json" \
-              NORTH_HOME="$out" $out/bin/.north-wrapped provider-observe claude-statusline
+              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              $out/bin/.north-wrapped provider-observe claude-statusline
             test -s "$smoke/ingested.json"
             runHook postInstall
           '';

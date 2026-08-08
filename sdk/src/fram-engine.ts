@@ -1,8 +1,11 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 // The runtime selector is stable while promotions replace its current target.
 // Keep each selector independently overrideable so explicit caller environment wins.
-export const FRAM_RUNTIME_HOME = "/home/tom/.local/state/north/fram-runtime/active/current";
+export const FRAM_RUNTIME_HOME = join(
+  homedir(), ".local/state/north/fram-runtime/active/current",
+);
 
 export const MIN_FRAM_COORDINATOR_CHILD_TIMEOUT_MS = 30_000;
 

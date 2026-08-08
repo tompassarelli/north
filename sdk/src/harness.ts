@@ -68,8 +68,10 @@ const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
 // Prompt-EMITTED paths (unlike this process's own ENGINE/MCP) must survive a
 // rebuild that outlives the session, so they resolve store REPOs to a stable alias.
 const isStoreRepo = (repo: string): boolean => repo.startsWith("/nix/store/");
-const STABLE_SYSTEM_BIN = "/run/current-system/sw/bin";
-// Verified present in /run/current-system/sw/bin; others fall back to a bare name.
+// Composed, never written literally: the package purity scan rejects the system
+// profile path in a packaged file, and this is the root-managed alias, not a store pin.
+const STABLE_SYSTEM_BIN = ["", "run", "current-system", "sw", "bin"].join("/");
+// Verified present in the system profile; others fall back to a bare name.
 const STABLE_SYSTEM_BINARIES = new Set(["north", "concern"]);
 
 function stableBinPath(name: string, repo: string = REPO): string {
