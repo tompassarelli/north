@@ -137,3 +137,24 @@ test("live executions pin a stale daemon and new launches fail explicitly", asyn
   await client(socketPath, { op: "terminateSession", executionId: launchedId });
   await waitFor(() => retireCount() === 1, "retirement after termination");
 });
+
+test("every connection opens with an identity hello", async () => {
+  const { socketPath } = await fixture(() => "rev-a");
+  const session = await client(socketPath, { op: "attach", executionId: "missing", cursor: 0 });
+  await waitFor(() => session.messages.length > 0, "hello");
+  const hello = session.messages[0];
+  expect(hello.type).toBe("hello");
+  expect(hello.identity).toBe("rev-a");
+  expect(hello.liveExecutions).toBe(0);
+  expect(hello.pid).toBe(process.pid);
+  session.socket.destroy();
+});
+
+test("retire op retires an idle daemon on demand", async () => {
+  const { socketPath, retireCount } = await fixture(() => "rev-a");
+  const session = await client(socketPath, { op: "retire" });
+  await session.closed;
+  const accepted = session.messages.find((message) => message.type === "controlled");
+  expect(accepted.control).toBe("retire");
+  await waitFor(() => retireCount() === 1, "retire on demand");
+});
