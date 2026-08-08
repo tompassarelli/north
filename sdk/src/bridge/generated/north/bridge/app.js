@@ -634,8 +634,16 @@ function config_manifest_path() {
   return ("".concat(text(process.env.HOME), "/.config/agents/manifest.conf"));
 }
 
+async function ensure_config_manifest_bang() {
+  return (async () => { try {
+    return await run_command(["test", "-f", config_manifest_path()]);
+  } catch (__) {
+    return await run_command([AGENTS_BIN, "status"]);
+  } })();
+}
+
 async function load_config_entries_bang(runtime) {
-  await run_command([AGENTS_BIN, "status"]);
+  await ensure_config_manifest_bang();
   const content = await run_command(["cat", config_manifest_path()]);
   const config_filter = text_or(text(runtime.configFilter), "all");
   const lines = content.split("\n").filter((line) => (!(line.trim() === "")));

@@ -160,6 +160,9 @@ export const bridgeProvider: BridgeProviderExecution = {
       systemPrompt: bridgeSystemPrompt(context.role),
       abortController,
     });
+    // Bridge sessions are interactive chat: provider + auth are the only
+    // structural dependencies; the coordinator is telemetry when reachable.
+    (options as Record<string, unknown>).coordinationOptional = true;
     await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
 
     const input = new InputChannel();

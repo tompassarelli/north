@@ -201,6 +201,31 @@ gatedTest("loopback-bind", "admission rejects a response from another FRAMRPC sp
   );
 });
 
+test("coordinationOptional admits an interactive session against a dead coordinator", async () => {
+  const blocker = createServer();
+  await new Promise<void>((resolveListen) => blocker.listen(0, "127.0.0.1", resolveListen));
+  const port = (blocker.address() as AddressInfo).port;
+  await new Promise<void>((resolveClose) => blocker.close(() => resolveClose()));
+  await expect(admitExecution(
+    "openai", workerCapabilities, process.cwd(),
+    {
+      coordinationOptional: true,
+      mcpServers: { north: { env: canonicalEnvironment(port) } },
+    },
+  )).resolves.toBeUndefined();
+});
+
+test("a managed lane still fails closed against a dead coordinator", async () => {
+  const blocker = createServer();
+  await new Promise<void>((resolveListen) => blocker.listen(0, "127.0.0.1", resolveListen));
+  const port = (blocker.address() as AddressInfo).port;
+  await new Promise<void>((resolveClose) => blocker.close(() => resolveClose()));
+  await expect(admitExecution(
+    "openai", workerCapabilities, process.cwd(),
+    { mcpServers: { north: { env: canonicalEnvironment(port) } } },
+  )).rejects.toThrow("north_coordinator_preflight_failed");
+});
+
 test("a shell-bearing capability set cannot hide effective file authority", async () => {
   await expect(admitExecution(
     "anthropic",
