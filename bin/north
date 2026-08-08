@@ -80,6 +80,23 @@ if [ ! -f "$_north_fram_wire/framrpc.clj" ] \
   FRAM_HOME="$_north_fram_checkout"
   unset FRAM_BIN FRAM_OUT NORTH_FRAMRPC_OUT
 fi
+# Both sandboxed paths — managed Codex exec and the read-only shell — refuse to run
+# without bwrap, and an interactive PATH rarely carries one. The provider packages
+# already declare it, so take it from the closure that requires it.
+if [ -z "${NORTH_BWRAP_BIN:-}" ] && ! command -v bwrap >/dev/null 2>&1; then
+  _north_codex_bin="${NORTH_MANAGED_CODEX_BIN:-${NORTH_MCP_MANAGED_CODEX_BIN:-}}"
+  if [ -n "$_north_codex_bin" ] && command -v nix-store >/dev/null 2>&1; then
+    _north_codex_pkg="$(cd "$(dirname "$(readlink -f "$_north_codex_bin")")/.." && pwd -P)"
+    for _north_ref in $(nix-store --query --references "$_north_codex_pkg" 2>/dev/null); do
+      case "$_north_ref" in
+        *-bubblewrap-*)
+          [ -x "$_north_ref/bin/bwrap" ] && export NORTH_BWRAP_BIN="$_north_ref/bin/bwrap"
+          break ;;
+      esac
+    done
+  fi
+  unset _north_codex_bin _north_codex_pkg _north_ref
+fi
 FRAM="${FRAM_HOME:?north requires the Nix-published FRAMRPC environment or explicit FRAM_HOME}"
 FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
 FRAM_OUT="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-$FRAM/out}}"
