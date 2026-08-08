@@ -399,6 +399,38 @@ check("an allowed envelope cannot shield a later destructive git command",
 check("generic non-apply_patch argv handling remains out of scope",
       run(bash(["rm", f"{NORTH}/x"])) is None)
 
+print("--- removing what git does not track ---")
+
+# A real repo: the fixtures above only mkdir a .git, so git commands there fail
+# and the exemption correctly stays closed.
+REPO_ROOT = os.path.join(FIX, "code2")
+REPO = os.path.join(REPO_ROOT, "proj", "main")
+os.makedirs(os.path.join(REPO, "src"), exist_ok=True)
+os.makedirs(os.path.join(REPO, "build"), exist_ok=True)
+open(os.path.join(REPO, "src", "kept.txt"), "w").write("tracked\n")
+open(os.path.join(REPO, "build", "out.js"), "w").write("generated\n")
+_q = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+subprocess.run(["git", "init", "-q", REPO], **_q)
+subprocess.run(["git", "-C", REPO, "add", "src/kept.txt"], **_q)
+subprocess.run(["git", "-C", REPO, "-c", "user.email=t@x", "-c", "user.name=t",
+                "commit", "-qm", "seed"], **_q)
+
+
+def repo_fixture(command):
+    return run(bash(command, cwd=REPO_ROOT), code_root=REPO_ROOT)
+
+
+check("rm of an untracked directory is allowed — it is not part of the tree",
+      repo_fixture(f"rm -rf {os.path.join(REPO, 'build')}") is None)
+check("rm of a tracked file is still denied",
+      repo_fixture(f"rm {os.path.join(REPO, 'src', 'kept.txt')}"))
+check("rm of a directory holding tracked files is still denied",
+      repo_fixture(f"rm -rf {os.path.join(REPO, 'src')}"))
+check("rm of the whole main checkout is still denied",
+      repo_fixture(f"rm -rf {REPO}"))
+check("the exemption is for removal only — writing a new file still denied",
+      repo_fixture(f"echo x > {os.path.join(REPO, 'build', 'new.js')}"))
+
 print("--- fail-open ---")
 
 check("no command field is allowed", run({"tool_name": "Bash", "tool_input": {}}) is None)

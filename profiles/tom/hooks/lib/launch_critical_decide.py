@@ -44,6 +44,7 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -104,6 +105,30 @@ def _resolve(path, cwd):
         return os.path.realpath(path)
     except Exception:
         return None
+
+
+def _tracks_nothing(path):
+    """True when git tracks no file at or under `path`.
+
+    Removing such a path cannot change tracked state, so the guard has nothing
+    to protect there — it is not part of the tree. Fails closed: any git error
+    reports False and the caller denies as before.
+    """
+    if not path:
+        return False
+    try:
+        parent = path if os.path.isdir(path) else os.path.dirname(path)
+        result = subprocess.run(
+            ["git", "-C", parent, "ls-files", "--error-unmatch", "--", path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        if result.returncode == 0:
+            return False
+        listed = subprocess.run(
+            ["git", "-C", parent, "ls-files", "--", path],
+            capture_output=True, text=True, timeout=5)
+        return listed.returncode == 0 and not listed.stdout.strip()
+    except Exception:
+        return False
 
 
 def _effective_cwd(command, cwd):
@@ -498,8 +523,11 @@ def _scan_write_commands(tokens, eff, deny):
                     return deny(a, hit[0], hit[1], "edit in place")
         elif base in WRITE_COMMANDS or base in DESTRUCTIVE_COMMANDS:
             for a in args:
-                hit = protected_project(_resolve(os.path.expanduser(a), eff))
+                resolved = _resolve(os.path.expanduser(a), eff)
+                hit = protected_project(resolved)
                 if hit:
+                    if base in DESTRUCTIVE_COMMANDS and _tracks_nothing(resolved):
+                        continue
                     return deny(a, hit[0], hit[1], f"run `{base}`")
         elif base in COPY_COMMANDS and args:
             dest = args[-1]
