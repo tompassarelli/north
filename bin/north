@@ -9,7 +9,9 @@
 # `zero` is deliberately before every export below: it is the escape hatch when
 # this wrapper or its state is the broken component.
 if [ "${1:-}" = "zero" ]; then
-  NORTH="$(cd "$(dirname "$0")/.." && pwd)"
+  _north_self_dir="${0%/*}"
+  [ "$_north_self_dir" = "$0" ] && _north_self_dir="."
+  NORTH="$(cd "$_north_self_dir/.." && pwd)"
   exec "$NORTH/bin/north-zero" "${@:2}"
 fi
 
@@ -26,7 +28,43 @@ export NORTH_DRIVER="${NORTH_DRIVER:-tom_passarelli}"
 export NORTH_PROPOSED_BY="${NORTH_PROPOSED_BY:-tom_passarelli}"
 export NORTH_AGENT_LOGS_DIR="${NORTH_AGENT_LOGS_DIR:-$HOME/.local/state/north/agents}"
 
-NORTH="$(cd "$(dirname "$0")/.." && pwd)"
+_north_self_dir="${0%/*}"
+[ "$_north_self_dir" = "$0" ] && _north_self_dir="."
+NORTH="$(cd "$_north_self_dir/.." && pwd)"
+
+# Help is answered before any interpreter, Fram, or coordinator is resolved,
+# using shell builtins only: it must work on a completely empty PATH.
+north_help() {
+    # THE CARD + topic pages — projections of cli/surface.edn (regenerate:
+    # bb cli/surface-gen.clj); cli/tests/surface-sync-test.clj welds registry,
+    # rendered pages, and these case arms together.
+    _north_help_dir="$NORTH/share/help"
+    case "${2:-}" in
+      "")        _north_help_file="$_north_help_dir/card.txt" ;;
+      --all|all) _north_help_file="$_north_help_dir/all.txt" ;;
+      *)         _north_help_file="$_north_help_dir/topic-${2}.txt" ;;
+    esac
+    if [ -f "$_north_help_file" ]; then
+      printf '%s\n' "$(<"$_north_help_file")"
+      exit 0
+    fi
+    if [ ! -f "$_north_help_dir/card.txt" ]; then
+      echo "north: help pages missing from $_north_help_dir — regenerate: bb $NORTH/cli/surface-gen.clj" >&2
+      exit 1
+    fi
+    echo "north: no help topic '${2:-}'" >&2
+    _north_topics=""
+    for _north_topic_file in "$_north_help_dir"/topic-*.txt; do
+      _north_topic_file="${_north_topic_file##*/topic-}"
+      _north_topics="$_north_topics ${_north_topic_file%.txt}"
+    done
+    echo "north: topics:$_north_topics  (north help --all = everything)" >&2
+    exit 2
+}
+
+case "${1:-}" in
+  ""|help|-h|--help) north_help "$@" ;;
+esac
 
 # Panic is deliberately the first route after locating this checkout. It must
 # remain usable when bb, Fram, the coordination data store, and the coordinator are unavailable.
@@ -278,32 +316,6 @@ coord_safety_ready() {
 }
 
 case "${1:-}" in
-  ""|help|-h|--help)
-    # THE CARD + topic pages — projections of cli/surface.edn (regenerate:
-    # bb cli/surface-gen.clj); cli/tests/surface-sync-test.clj welds registry,
-    # rendered pages, and these case arms together.
-    _north_help_dir="$NORTH/share/help"
-    case "${2:-}" in
-      "")        _north_help_file="$_north_help_dir/card.txt" ;;
-      --all|all) _north_help_file="$_north_help_dir/all.txt" ;;
-      *)         _north_help_file="$_north_help_dir/topic-${2}.txt" ;;
-    esac
-    if [ -f "$_north_help_file" ]; then
-      cat "$_north_help_file"
-      exit 0
-    fi
-    if [ ! -f "$_north_help_dir/card.txt" ]; then
-      echo "north: help pages missing from $_north_help_dir — regenerate: bb $NORTH/cli/surface-gen.clj" >&2
-      exit 1
-    fi
-    echo "north: no help topic '${2:-}'" >&2
-    _north_topics=""
-    for _north_topic_file in "$_north_help_dir"/topic-*.txt; do
-      _north_topic_file="${_north_topic_file##*/topic-}"
-      _north_topics="$_north_topics ${_north_topic_file%.txt}"
-    done
-    echo "north: topics:$_north_topics  (north help --all = everything)" >&2
-    exit 2 ;;
   threads)
     # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
     # among several in the store — see `north schema`; people/concerns/runs are
