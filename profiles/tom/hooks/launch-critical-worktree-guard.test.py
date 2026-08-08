@@ -442,6 +442,17 @@ check("a real install(1) into a main checkout is still denied",
 check("a package manager cannot shield a later destructive command",
       repo_fixture(f"bun install && rm {os.path.join(REPO, 'src', 'kept.txt')}"))
 
+print("--- shell redirections are not arguments ---")
+
+check("rm of an untracked path with 2>/dev/null is still allowed",
+      repo_fixture(f"rm -rf {os.path.join(REPO, 'build')} 2>/dev/null") is None)
+check("a redirection does not become an rm target",
+      repo_fixture(f"rm -rf /tmp/elsewhere 2>/dev/null") is None)
+check("rm of a tracked file is still denied with a redirection attached",
+      repo_fixture(f"rm {os.path.join(REPO, 'src', 'kept.txt')} 2>/dev/null"))
+check("a real redirect INTO a main checkout is still denied",
+      repo_fixture(f"echo hi > {os.path.join(REPO, 'src', 'new.txt')}"))
+
 print("--- fail-open ---")
 
 check("no command field is allowed", run({"tool_name": "Bash", "tool_input": {}}) is None)

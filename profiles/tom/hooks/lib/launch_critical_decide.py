@@ -187,6 +187,15 @@ def _tokens(command):
         return command.split()
 
 
+# `rm x 2>/dev/null` has one target, not two: a redirection is shell syntax,
+# not an argument. shlex keeps it as a token, so it has to be dropped here.
+_REDIRECT_TOKEN = re.compile(r"^\d*(?:>>|>|<)")
+
+
+def _redirection(token):
+    return bool(_REDIRECT_TOKEN.match(token))
+
+
 def _leads_with(segment, names):
     """True when SEGMENT invokes one of NAMES as its own command."""
     for tok in _tokens(segment):
@@ -526,7 +535,8 @@ def _scan_write_commands(tokens, eff, deny):
         base = os.path.basename(tok)
         if package_manager and i > 0:
             continue
-        args = [a for a in tokens[i + 1:] if not a.startswith("-")]
+        args = [a for a in tokens[i + 1:]
+                if not a.startswith("-") and not _redirection(a)]
         if base == "sed" and any(a.startswith("-i") for a in tokens[i + 1:]):
             for a in args[1:]:
                 hit = protected_project(_resolve(os.path.expanduser(a), eff))
