@@ -86,6 +86,13 @@ STASH_READS = {"list", "show"}
 # Denying one leaves the deny message recommending a move the guard forbids.
 SANCTIONED_TOOLS = {"wt-rescue"}
 
+# `bun install` is not install(1). A package manager's subcommand collides with
+# a real write command's name, and its arguments are package names, not paths.
+PACKAGE_MANAGERS = {
+    "bun", "bunx", "npm", "npx", "pnpm", "pnpx", "yarn", "deno",
+    "cargo", "pip", "pip3", "uv", "poetry", "gem", "go", "nix",
+}
+
 # Header forms are the complete grammar the Codex binary accepts:
 # Add File / Update File / Delete File, plus Move to inside an update hunk.
 PATCH_BEGIN = "*** Begin Patch"
@@ -513,8 +520,12 @@ def decide(payload):
 
 
 def _scan_write_commands(tokens, eff, deny):
+    lead = os.path.basename(tokens[0]) if tokens else ""
+    package_manager = lead in PACKAGE_MANAGERS
     for i, tok in enumerate(tokens):
         base = os.path.basename(tok)
+        if package_manager and i > 0:
+            continue
         args = [a for a in tokens[i + 1:] if not a.startswith("-")]
         if base == "sed" and any(a.startswith("-i") for a in tokens[i + 1:]):
             for a in args[1:]:
