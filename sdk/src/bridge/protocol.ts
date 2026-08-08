@@ -1,5 +1,25 @@
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+
+// HEAD is the identity: main is never dirty by policy, so committed state is
+// live state. Client and daemon both compute this; equality at connect is the
+// freshness contract that makes a silently stale daemon unreachable.
+export function bridgeSourceIdentity(): string | undefined {
+  const repo = resolve(import.meta.dir, "../../..");
+  const git = process.env.NORTH_GIT_BIN ?? "git";
+  const result = spawnSync(git, ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" });
+  if (result.status !== 0 || typeof result.stdout !== "string") return undefined;
+  const revision = result.stdout.trim();
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision : undefined;
+}
+
+export interface BridgeHello {
+  type: "hello";
+  identity?: string;
+  liveExecutions: number;
+  pid: number;
+}
 
 export const BRIDGE_LAUNCH_ROLES = ["director", "implementer"] as const;
 export type BridgeLaunchRole = typeof BRIDGE_LAUNCH_ROLES[number];
@@ -29,7 +49,8 @@ export type BridgeRequest =
   | { op: "submitInput"; executionId: string; input: string }
   | { op: "interruptTurn"; executionId: string }
   | { op: "redirectNow"; executionId: string; input: string }
-  | { op: "terminateSession"; executionId: string };
+  | { op: "terminateSession"; executionId: string }
+  | { op: "retire" };
 
 export function bridgeStateDirectory(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.NORTH_BRIDGE_STATE_DIR?.trim();
@@ -60,6 +81,7 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
       ...(provider ? { provider } : {}),
     };
   }
+  if (request.op === "retire") return { op: "retire" };
   if (request.op === "attach") {
     if (typeof request.executionId !== "string" || !request.executionId)
       throw new Error("bridge attach requires an execution id");

@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
@@ -9,25 +8,16 @@ import {
   type BridgeProviderSession, type NormalizedProviderEvent,
 } from "./provider";
 import {
-  bridgeJournalRoot, bridgeSocketPath, parseBridgeRequest, type BridgeLaunchProvider,
-  type BridgeRequest,
+  bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity, parseBridgeRequest,
+  type BridgeLaunchProvider, type BridgeRequest,
 } from "./protocol";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const TERMINAL_KINDS = new Set(["execution.completed", "execution.failed"]);
 const STALE_POLL_MS = 15_000;
 
-// HEAD is the identity: main is never dirty by policy, so committed state is live state.
-function bridgeSourceIdentity(): string | undefined {
-  const repo = resolve(import.meta.dir, "../../..");
-  const git = process.env.NORTH_GIT_BIN ?? "git";
-  const result = spawnSync(git, ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" });
-  if (result.status !== 0 || typeof result.stdout !== "string") return undefined;
-  const revision = result.stdout.trim();
-  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(revision) ? revision : undefined;
-}
-
 type BridgeMessage =
+  | { type: "hello"; identity?: string; liveExecutions: number; pid: number }
   | { type: "launched"; executionId: string }
   | { type: "controlled"; executionId: string; control: string; delivery: string }
   | { type: "event"; record: JournalRecord }
@@ -432,6 +422,15 @@ export class Northd {
   }
 
   private async dispatch(socket: Socket, request: BridgeRequest): Promise<void> {
+    if (request.op === "retire") {
+      wire(socket, {
+        type: "controlled", executionId: "northd", control: "retire", delivery: "accepted",
+      });
+      socket.end();
+      this.retiring = true;
+      this.onRetire();
+      return;
+    }
     if (request.op === "launch") this.launch(socket, request);
     else if (request.op === "attach") this.attach(socket, this.runtime(request.executionId), request.cursor);
     else await this.control(socket, this.runtime(request.executionId), request);
@@ -440,6 +439,14 @@ export class Northd {
   private accept(socket: Socket): void {
     this.sockets.add(socket);
     socket.once("close", () => this.sockets.delete(socket));
+    // The freshness contract: every client learns who it reached before asking
+    // anything, so a stale daemon can be detected and replaced at connect.
+    wire(socket, {
+      type: "hello",
+      ...(this.loadedIdentity !== undefined ? { identity: this.loadedIdentity } : {}),
+      liveExecutions: this.liveExecutions(),
+      pid: process.pid,
+    });
     let buffer = "";
     let handled = false;
     socket.setEncoding("utf8");

@@ -1,14 +1,17 @@
 import { spawn } from "node:child_process";
+import { unlinkSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { resolve } from "node:path";
 import {
-  bridgeSocketPath, parseBridgeLaunchRole, type BridgeLaunchProvider,
-  type BridgeLaunchRole, type BridgeRequest,
+  bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole,
+  type BridgeHello, type BridgeLaunchProvider, type BridgeLaunchRole,
+  type BridgeRequest,
 } from "./protocol";
 import type { JournalRecord, TornTail } from "./journal";
 import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
 
 type ServerMessage =
+  | BridgeHello
   | { type: "launched"; executionId: string }
   | { type: "controlled"; executionId: string; control: string; delivery: string }
   | { type: "event"; record: JournalRecord }
@@ -166,6 +169,61 @@ async function connectedSocket(path: string): Promise<Socket> {
   throw new Error(`northd did not open ${path}`, { cause: lastError });
 }
 
+function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | null> {
+  return new Promise((resolveHello) => {
+    let buffer = "";
+    const finish = (value: BridgeHello | null) => {
+      clearTimeout(timer);
+      socket.off("data", onData);
+      resolveHello(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const onData = (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      try {
+        const message = JSON.parse(buffer.slice(0, newline)) as ServerMessage;
+        finish(message.type === "hello" ? message : null);
+      } catch { finish(null); }
+    };
+    socket.setEncoding("utf8");
+    socket.on("data", onData);
+  });
+}
+
+/**
+ * The staleness contract, client side: never talk to a daemon whose source
+ * identity differs from the checkout — retire it when idle, replace it when
+ * it predates the handshake, and only tolerate it while live sessions drain.
+ */
+async function verifiedSocket(path: string): Promise<Socket> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const socket = await connectedSocket(path);
+    const hello = await readHello(socket, 750);
+    const disk = bridgeSourceIdentity();
+    const fresh = hello !== null
+      && (hello.identity === undefined || disk === undefined || hello.identity === disk);
+    if (fresh) return socket;
+    if (hello !== null && hello.liveExecutions > 0) {
+      console.error(`north bridge: northd is stale with ${hello.liveExecutions} live session(s);`
+        + " new launches will be refused until it drains");
+      return socket;
+    }
+    if (hello !== null) {
+      socket.write(`${JSON.stringify({ op: "retire" })}\n`);
+      await new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
+    } else {
+      socket.destroy();
+      try { unlinkSync(path); } catch { /* replaced concurrently */ }
+      console.error("north bridge: replacing a northd that predates the identity handshake;"
+        + " reap the orphan with: pkill -f bridge/northd");
+    }
+    await Bun.sleep(50);
+  }
+  throw new Error("northd did not present a fresh identity after replacement");
+}
+
 function renderRecord(record: JournalRecord): string {
   const data = Object.keys(record.data).length ? ` ${JSON.stringify(record.data)}` : "";
   return `[${record.seq}] ${record.kind}${data}`;
@@ -185,6 +243,7 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
         buffer = buffer.slice(newline + 1);
         if (!line) continue;
         const message = JSON.parse(line) as ServerMessage;
+        if (message.type === "hello") continue;
         if (message.type === "launched") console.log(`execution ${message.executionId}`);
         else if (message.type === "controlled")
           console.log(`${message.executionId} ${message.delivery}`);
@@ -262,7 +321,7 @@ async function main(args: string[]): Promise<number> {
       ...(launch.provider ? { provider: launch.provider } : {}),
     };
   }
-  const socket = await connectedSocket(bridgeSocketPath());
+  const socket = await verifiedSocket(bridgeSocketPath());
   return runClient(socket, request);
 }
 
