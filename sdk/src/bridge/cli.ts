@@ -17,7 +17,7 @@ type ServerMessage =
 
 function usage(): never {
   console.error(
-    "usage: north bridge [app|tui] [--view-id ID]  (bare `north bridge` opens the app)"
+    "usage: north bridge [app|tui] [--claude|--openai] [--view-id ID]  (opens the app)"
     + " | north bridge [--role director|implementer] [--claude|--openai] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge pending [--json | --consume <execution-id>]"
@@ -62,9 +62,21 @@ export function parseBridgeLaunchArguments(args: string[]): {
 
 async function runApp(args: string[]): Promise<number> {
   let viewId: string | undefined;
-  if (args.length) {
-    if (args.length !== 2 || args[0] !== "--view-id" || !args[1]) usage();
-    viewId = args[1];
+  const rest: string[] = [];
+  for (const argument of args) {
+    if (argument === "--claude" || argument === "--anthropic") {
+      process.env.NORTH_BRIDGE_PROVIDER = "anthropic";
+      continue;
+    }
+    if (argument === "--openai" || argument === "--codex") {
+      process.env.NORTH_BRIDGE_PROVIDER = "openai";
+      continue;
+    }
+    rest.push(argument);
+  }
+  if (rest.length) {
+    if (rest.length !== 2 || rest[0] !== "--view-id" || !rest[1]) usage();
+    viewId = rest[1];
   }
   process.env.NORTH_BIN ??= resolve(import.meta.dir, "../../../bin/north");
   const appModule = new URL("./generated/north/bridge/app.js", import.meta.url).href;
@@ -202,7 +214,14 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 }
 
 async function main(args: string[]): Promise<number> {
-  if (args.length === 0 || args[0] === "app" || args[0] === "tui") return runApp(args.slice(1));
+  // A provider pin with no prompt is still an app launch: it selects the
+  // supervisor the app will start, not a one-shot turn.
+  const appFlags = new Set(["--claude", "--anthropic", "--openai", "--codex", "--view-id"]);
+  if (args.length === 0 || args[0] === "app" || args[0] === "tui")
+    return runApp(args[0] === "app" || args[0] === "tui" ? args.slice(1) : args);
+  if (args.every((argument, index) =>
+    appFlags.has(argument) || (index > 0 && args[index - 1] === "--view-id")))
+    return runApp(args);
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "pending") return runPending(args.slice(1));
   if (args[0] === "accept") {
