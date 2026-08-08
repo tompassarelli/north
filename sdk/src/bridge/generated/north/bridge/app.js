@@ -997,7 +997,7 @@ return push_chunk_bang(chunks, white("\n\n")); })(); });
     push_chunk_bang(chunks, brightBlack(session_context_text(runtime)));
   }
   if (((items.length === 0) && (!runtime.working))) {
-    push_chunk_bang(chunks, brightBlack("Starting Codex supervisor…"));
+    push_chunk_bang(chunks, brightBlack(("".concat("Starting ", supervisor_label(), "…"))));
   }
   return new StyledText(chunks);
 }
@@ -1257,7 +1257,7 @@ function work_content_bang(runtime, state, view, selected) {
 }
 
 function minibuffer_placeholder(runtime) {
-  return ((text(runtime.pane) === "agents") ? "Message Codex supervisor…" : "/view list|graph|board, /capture, /filter, /assign");
+  return ((text(runtime.pane) === "agents") ? ("".concat("Message ", supervisor_label(), "…")) : "/view list|graph|board, /capture, /filter, /assign");
 }
 
 function render_minibuffer_bang(runtime, ui) {
@@ -1315,7 +1315,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
     (runtime.supervisorId = execution_id);
     (runtime.agentIndex = 0);
   }
-  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? "Codex supervisor" : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
+  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? supervisor_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
   return runtime.render();
 }
 
@@ -1424,6 +1424,16 @@ return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starti
 } })() : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null; });
 }
 
+function supervisor_provider_flag() {
+  const value = text(process.env.NORTH_BRIDGE_PROVIDER).trim();
+  return ((value === "anthropic")) ? "--claude" : ((value === "openai")) ? "--openai" : "";
+}
+
+function supervisor_label() {
+  const value = text(process.env.NORTH_BRIDGE_PROVIDER).trim();
+  return ((value === "anthropic")) ? "Claude supervisor" : ((value === "openai")) ? "Codex supervisor" : "Supervisor";
+}
+
 async function launch_agent_bang(runtime, prompt, role) {
   if ((prompt.trim() === "")) {
     (() => { throw new Error("launch requires a prompt"); })();
@@ -1431,9 +1441,9 @@ async function launch_agent_bang(runtime, prompt, role) {
   if ((!(role === "supervisor"))) {
     upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "user"), "user", "", prompt.trim(), "done"));
   }
-  set_working_bang(runtime, true, "Starting Codex");
+  set_working_bang(runtime, true, ("".concat("Starting ", supervisor_label())));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
-  const exit_code = await stream_command([NORTH_BIN, "bridge", "--role", ((role === "supervisor") ? "director" : "implementer"), prompt], (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
+  const exit_code = await stream_command((() => { const flag = supervisor_provider_flag(); const base = [NORTH_BIN, "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")]; return ((flag === "") ? [...base, prompt] : [...[...base, flag], prompt]); })(), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
     return append_error_bang(runtime, ("".concat("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : ("".concat("\n", text(stream_state.stderr).trim()))))));
@@ -1908,7 +1918,7 @@ async function open_app_bang(view_id) {
   const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
   const composer_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
   const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: "Message Codex supervisor…"});
+  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", supervisor_label(), "…"))});
   const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);

@@ -1427,7 +1427,7 @@
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc to interrupt)\n  ")))
         (push-chunk! chunks (brightBlack (session-context-text runtime)))))
     (when (and (identical? (.-length items) 0) (not (.-working runtime)))
-      (push-chunk! chunks (brightBlack "Starting Codex supervisor…")))
+      (push-chunk! chunks (brightBlack (str "Starting " (supervisor-label) "…"))))
     (StyledText. chunks)))
 
 (defn visible-notice [notice: Any] -> String
@@ -1926,7 +1926,7 @@
 
 (defn minibuffer-placeholder [runtime: Any] -> String
   (if (identical? (text (.-pane runtime)) "agents")
-    "Message Codex supervisor…"
+    (str "Message " (supervisor-label) "…")
     "/view list|graph|board, /capture, /filter, /assign"))
 
 (defn render-minibuffer!
@@ -2001,7 +2001,7 @@
         (upsert-agent (.-model runtime)
                       (->Agent execution-id
                                (if (identical? role "supervisor")
-                                 "Codex supervisor"
+                                 (supervisor-label)
                                  (str "Codex " (.slice execution-id 0 8)))
                                status
                                (if (identical? role "supervisor")
@@ -2287,6 +2287,20 @@
 
            :else nil))))))
 
+(defn supervisor-provider-flag [] -> String
+  (let [value (.trim (text (.-NORTH_BRIDGE_PROVIDER (.-env process))))]
+    (cond
+      (identical? value "anthropic") "--claude"
+      (identical? value "openai") "--openai"
+      :else "")))
+
+(defn supervisor-label [] -> String
+  (let [value (.trim (text (.-NORTH_BRIDGE_PROVIDER (.-env process))))]
+    (cond
+      (identical? value "anthropic") "Claude supervisor"
+      (identical? value "openai") "Codex supervisor"
+      :else "Supervisor")))
+
 (defn launch-agent!
   [runtime: Any
    prompt: String
@@ -2297,15 +2311,18 @@
     (upsert-conversation!
      runtime
      (conversation-item (next-item-id! runtime "user") "user" "" (.trim prompt) "done")))
-  (set-working! runtime true "Starting Codex")
+  (set-working! runtime true (str "Starting " (supervisor-label)))
   (let [stream-state {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code
         (js/await
          (stream-command
-          [NORTH-BIN "bridge" "--role"
-           (if (identical? role "supervisor") "director" "implementer")
-           prompt]
+          (let [flag (supervisor-provider-flag)
+                base [NORTH-BIN "bridge" "--role"
+                      (if (identical? role "supervisor") "director" "implementer")]]
+            (if (identical? flag "")
+              (conj base prompt)
+              (conj (conj base flag) prompt)))
           (fn [chunk: String] -> Any
             (parse-bridge-stream! runtime stream-state chunk))
           (fn [chunk: String] -> Any
@@ -3148,7 +3165,7 @@
                                           :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
                                           :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
                                           :placeholderColor "#6b7280"
-                                          :placeholder "Message Codex supervisor…"})
+                                          :placeholder (str "Message " (supervisor-label) "…")})
         ui {:root root :workspace workspace :agentsPane agents-pane :workPane work-pane
             :agentsHeader agents-header :agentsText agents-text :transcriptText transcript-text-view
             :tabsText tabs-text-view :workScroll work-scroll
