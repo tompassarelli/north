@@ -431,6 +431,17 @@ check("rm of the whole main checkout is still denied",
 check("the exemption is for removal only — writing a new file still denied",
       repo_fixture(f"echo x > {os.path.join(REPO, 'build', 'new.js')}"))
 
+print("--- package-manager subcommands are not write commands ---")
+
+check("bun install in a main checkout is allowed",
+      repo_fixture(f"cd {REPO} && bun install") is None)
+check("npm install is allowed", repo_fixture(f"cd {REPO} && npm install") is None)
+check("cargo install is allowed", repo_fixture(f"cd {REPO} && cargo install x") is None)
+check("a real install(1) into a main checkout is still denied",
+      repo_fixture(f"install -m 644 /tmp/x {os.path.join(REPO, 'src', 'x')}"))
+check("a package manager cannot shield a later destructive command",
+      repo_fixture(f"bun install && rm {os.path.join(REPO, 'src', 'kept.txt')}"))
+
 print("--- fail-open ---")
 
 check("no command field is allowed", run({"tool_name": "Bash", "tool_input": {}}) is None)
