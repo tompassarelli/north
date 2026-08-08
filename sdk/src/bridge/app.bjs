@@ -115,6 +115,10 @@
   (let [configured (text (.-NORTH_BIN (.-env process)))]
     (if (identical? configured "") "north" configured)))
 
+(def AGENTS-BIN: String
+  (let [configured (text (.-AGENTS_BIN (.-env process)))]
+    (if (identical? configured "") "agents" configured)))
+
 (def SUPERVISOR-BOOT-PROMPT: String
   "You are the Northbridge supervisor. Reply only READY, then wait for operator input.")
 
@@ -219,6 +223,7 @@
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
+   (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -235,6 +240,7 @@
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
+   (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show work commands" false "" false)])
 
@@ -799,6 +805,46 @@
          " · player " (if player (soundplayer-kind player) "none")
          " · " (text (.-soundDirectory runtime)))))
 
+(defrecord ConfigEntry
+  [kind: String
+   name: String
+   state: String])
+
+(defn config-manifest-path [] -> String
+  (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
+
+(defn load-config-entries! [runtime: Any] -> (Promise Any)
+  ;; `agents status` guarantees the manifest exists before it is read.
+  (js/await (run-command [AGENTS-BIN "status"]))
+  (let [content (js/await (run-command ["cat" (config-manifest-path)]))
+        lines (.filter (.split content "\n")
+                       (fn [line: String] -> Bool
+                         (not (identical? (.trim line) ""))))
+        entries (.map lines
+                      (fn [line: String] -> Any
+                        (let [parts (.split (.trim line) " ")]
+                          (->ConfigEntry (text (aget parts 0))
+                                         (text (aget parts 1))
+                                         (text (aget parts 2))))))
+        total (.-length entries)
+        raw (.-configIndex runtime)
+        current (if raw raw 0)]
+    (set! (.-configEntries runtime) entries)
+    (set! (.-configIndex runtime)
+          (Math/max 0 (Math/min current (- total 1))))))
+
+(defn toggle-config-entry! [runtime: Any] -> (Promise Any)
+  (let [entries (.-configEntries runtime)]
+    (when (and entries (> (.-length entries) 0))
+      (let [raw (.-configIndex runtime)
+            index (Math/max 0 (Math/min (if raw raw 0)
+                                        (- (.-length entries) 1)))
+            entry (aget entries index)
+            verb (if (identical? (configentry-state entry) "on") "off" "on")]
+        (js/await (run-command [AGENTS-BIN verb (configentry-name entry)]))
+        (js/await (load-config-entries! runtime))
+        (.render runtime)))))
+
 (defn handle-sound-command!
   [runtime: Any
    rest: String] -> Any
@@ -863,6 +909,14 @@
           (do (set! (.-soundEnabled runtime) false)
               (publish-line! runtime (sound-status runtime))
               true)
+
+          (identical? name "config")
+          (do
+            (set! (.-showConfig runtime) (not (.-showConfig runtime)))
+            (when (.-showConfig runtime)
+              (report-promise! runtime (load-config-entries! runtime)))
+            (.render runtime)
+            true)
 
           :else false)))))
 
@@ -1437,6 +1491,33 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
+(defn render-config-panel [runtime: Any] -> Any
+  (let [entries (.-configEntries runtime)
+        total (if entries (.-length entries) 0)]
+    (if (identical? total 0)
+      (StyledText. [(brightYellow "context switchboard ")
+                    (brightBlack "loading…")])
+      (let [raw (.-configIndex runtime)
+            index (Math/max 0 (Math/min (if raw raw 0) (- total 1)))
+            window 12
+            start (Math/max 0 (Math/min (- index 5) (- total window)))
+            stop (Math/min total (+ start window))
+            parts [(brightYellow "context switchboard")
+                   (brightBlack "  ↑/↓ move · space toggle · esc close\n")]]
+        (.forEach (.slice entries start stop)
+                  (fn [entry: Any offset: Int] -> Any
+                    (let [i (+ start offset)
+                          cursor? (identical? i index)
+                          on? (identical? (configentry-state entry) "on")
+                          tail (if (identical? (+ i 1) stop) "" "\n")]
+                      (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
+                      (.push parts (if on? (brightGreen "on  ") (brightBlack "off ")))
+                      (.push parts
+                             ((if cursor? brightWhite brightBlack)
+                              (str (configentry-kind entry) " "
+                                   (configentry-name entry) tail))))))
+        (StyledText. parts)))))
+
 (defn render-status
   [runtime: Any
    state: BridgeSnapshot] -> Any
@@ -1450,6 +1531,9 @@
        [(brightGreen "Ctrl-w")
         (brightYellow (if (identical? count-text "") "" (str " · count " count-text)))
         (brightBlack "  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")])
+
+      (.-showConfig runtime)
+      (render-config-panel runtime)
 
       (.-showHelp runtime)
       (StyledText.
@@ -2934,6 +3018,30 @@
                       (not meta)
                       (or (identical? name "left") (identical? name "right")))]
              (cond
+             (and (.-showConfig runtime)
+                  (or (identical? name "up") (identical? name "down")
+                      (identical? name "space") (submit-key? name)
+                      (identical? name "escape") (identical? name "esc")))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (cond
+                   (or (identical? name "escape") (identical? name "esc"))
+                   (set! (.-showConfig runtime) false)
+
+                   (or (identical? name "up") (identical? name "down"))
+                   (let [entries (.-configEntries runtime)
+                         total (if entries (.-length entries) 0)]
+                     (when (> total 0)
+                       (let [raw (.-configIndex runtime)
+                             current (if raw raw 0)
+                             delta (if (identical? name "up") -1 1)]
+                         (set! (.-configIndex runtime)
+                               (mod (+ current delta total) total)))))
+
+                   :else
+                   (report-promise! runtime (toggle-config-entry! runtime)))
+                 (.render runtime))
+
              (and palette-open
                   (or (identical? name "up")
                       (identical? name "down")

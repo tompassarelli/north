@@ -177,6 +177,8 @@ function filechangesummary_files(r) { return r.files; }
 
 const NORTH_BIN = (() => { const configured = text(process.env.NORTH_BIN); return ((configured === "") ? "north" : configured); })();
 
+const AGENTS_BIN = (() => { const configured = text(process.env.AGENTS_BIN); return ((configured === "") ? "agents" : configured); })();
+
 const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
 
 const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
@@ -195,9 +197,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/steer", "steer the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/steer", "steer the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Graph, or Board view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
+const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Graph, or Board view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -338,7 +340,7 @@ function palette_options(pane, input) {
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
   const commands = ((pane === "agents") ? AGENT_COMMANDS : WORK_COMMANDS);
-  return ((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)).slice(0, 8);
+  return (((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)).slice(0, 8));
 }
 
 function submit_key_p(name) {
@@ -435,7 +437,7 @@ function terminal_condition_p(condition) {
 }
 
 function list_section_id(condition) {
-  return (terminal_condition_p(condition)) ? "terminal" : (["active", "ready", "blocked", "dormant", "draft"].includes(condition)) ? condition : "other";
+  return ((terminal_condition_p(condition)) ? "terminal" : (["active", "ready", "blocked", "dormant", "draft"].includes(condition)) ? condition : "other");
 }
 
 function list_section_title(section_id) {
@@ -464,7 +466,7 @@ if ((count > 0)) {
 }
 
 function board_lane_id(condition) {
-  return ((condition === "active")) ? "in-progress" : (terminal_condition_p(condition)) ? "done" : "not-started";
+  return (((condition === "active")) ? "in-progress" : (terminal_condition_p(condition)) ? "done" : "not-started");
 }
 
 function ordered_board_items(open_items, done_items) {
@@ -517,14 +519,14 @@ function sound_pack_from_env(value) {
 function sound_directory_from_env(value) {
   const directory = value.trim();
   const north_home = text(process.env.NORTH_HOME).trim();
-  return ((!(directory === ""))) ? directory : ((!(north_home === ""))) ? ("".concat(north_home, "/../warcraft-sounds")) : "warcraft-sounds";
+  return (((!(directory === ""))) ? directory : ((!(north_home === ""))) ? ("".concat(north_home, "/../warcraft-sounds")) : "warcraft-sounds");
 }
 
 function discover_sound_player() {
   const mpv = Bun.which("mpv");
   const ffplay = Bun.which("ffplay");
   const pw_play = Bun.which("pw-play");
-  return (mpv) ? SoundPlayer("mpv", text(mpv)) : (ffplay) ? SoundPlayer("ffplay", text(ffplay)) : (pw_play) ? SoundPlayer("pw-play", text(pw_play)) : null;
+  return ((mpv) ? SoundPlayer("mpv", text(mpv)) : (ffplay) ? SoundPlayer("ffplay", text(ffplay)) : (pw_play) ? SoundPlayer("pw-play", text(pw_play)) : null);
 }
 
 function sound_warning_bang(runtime, message) {
@@ -540,7 +542,7 @@ function sound_path(directory, filename) {
 
 function sound_argv(player, path) {
   const executable = soundplayer_path(player);
-  return ((soundplayer_kind(player) === "mpv")) ? [executable, "--no-video", "--really-quiet", path] : ((soundplayer_kind(player) === "ffplay")) ? [executable, "-nodisp", "-autoexit", "-loglevel", "quiet", path] : [executable, path];
+  return (((soundplayer_kind(player) === "mpv")) ? [executable, "--no-video", "--really-quiet", path] : ((soundplayer_kind(player) === "ffplay")) ? [executable, "-nodisp", "-autoexit", "-loglevel", "quiet", path] : [executable, path]);
 }
 
 function spawn_sound_bang(runtime, path) {
@@ -579,7 +581,7 @@ function play_sound_path_bang(runtime, path) {
 
 function select_sound_path_bang(runtime, event) {
   const pack = ((text(runtime.soundPack) === "peasant") ? PEASANT_SOUND_PACK : PEON_SOUND_PACK);
-  const files = ((event === "ready")) ? soundpack_ready(pack) : ((event === "done")) ? soundpack_done(pack) : ((event === "interrupted")) ? soundpack_interrupted(pack) : ((event === "failed")) ? soundpack_failed(pack) : [];
+  const files = (((event === "ready")) ? soundpack_ready(pack) : ((event === "done")) ? soundpack_done(pack) : ((event === "interrupted")) ? soundpack_interrupted(pack) : ((event === "failed")) ? soundpack_failed(pack) : []);
   const count = files.length;
   if ((count === 0)) {
     return "";
@@ -611,9 +613,49 @@ function sound_status(runtime) {
   return ("".concat("sound ", (runtime.soundEnabled ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (player ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory)));
 }
 
+function ConfigEntry(kind, name, state) {
+  return Object.freeze({_tag: "ConfigEntry", kind, name, state});
+}
+
+function configentry_kind(r) { return r.kind; }
+
+function configentry_name(r) { return r.name; }
+
+function configentry_state(r) { return r.state; }
+
+function config_manifest_path() {
+  return ("".concat(text(process.env.HOME), "/.config/agents/manifest.conf"));
+}
+
+async function load_config_entries_bang(runtime) {
+  await run_command([AGENTS_BIN, "status"]);
+  const content = await run_command(["cat", config_manifest_path()]);
+  const lines = content.split("\n").filter((line) => (!(line.trim() === "")));
+  const entries = lines.map((line) => { const parts = line.trim().split(" ");
+return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2])); });
+  const total = entries.length;
+  const raw = runtime.configIndex;
+  const current = (raw ? raw : 0);
+  (runtime.configEntries = entries);
+  return (runtime.configIndex = Math.max(0, Math.min(current, (total - 1))));
+}
+
+async function toggle_config_entry_bang(runtime) {
+  const entries = runtime.configEntries;
+  if ((entries && (entries.length > 0))) {
+    const raw = runtime.configIndex;
+    const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
+    const entry = entries[index];
+    const verb = ((configentry_state(entry) === "on") ? "off" : "on");
+    await run_command([AGENTS_BIN, verb, configentry_name(entry)]);
+    await load_config_entries_bang(runtime);
+    return runtime.render();
+  }
+}
+
 function handle_sound_command_bang(runtime, rest) {
   const request = rest.trim().toLowerCase();
-  return (((request === "") || (request === "status"))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
+  return ((((request === "") || (request === "status"))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
 publish_line_bang(runtime, sound_status(runtime));
 if ((runtime.soundPlayer == null)) {
   return sound_warning_bang(runtime, "install mpv, ffplay, or pw-play to play local assets");
@@ -622,7 +664,7 @@ return publish_line_bang(runtime, sound_status(runtime)); })() : (request.starts
   (() => { throw new Error("sound pack must be peon or peasant"); })();
 }
 (runtime.soundPack = pack);
-return publish_line_bang(runtime, sound_status(runtime)); })() : (() => { throw new Error("sound requires on, off, status, or pack peon|peasant"); })();
+return publish_line_bang(runtime, sound_status(runtime)); })() : (() => { throw new Error("sound requires on, off, status, or pack peon|peasant"); })());
 }
 
 function handle_local_command_bang(runtime, ui, input) {
@@ -633,7 +675,7 @@ function handle_local_command_bang(runtime, ui, input) {
     const parsed = command(trimmed);
     const name = parsedcommand_name(parsed);
     const rest = parsedcommand_rest(parsed);
-    return (((name === "glyph") || (name === "prompt"))) ? (() => { if ((rest.toLowerCase() === "reset")) {
+    return ((((name === "glyph") || (name === "prompt"))) ? (() => { if ((rest.toLowerCase() === "reset")) {
   set_prompt_glyph_bang(runtime, DEFAULT_PROMPT_GLYPH);
 } else {
   set_prompt_glyph_bang(runtime, rest);
@@ -648,7 +690,12 @@ runtime.render();
 return true; })() : ((name === "sound")) ? (() => { handle_sound_command_bang(runtime, rest);
 return true; })() : ((name === "mute")) ? (() => { (runtime.soundEnabled = false);
 publish_line_bang(runtime, sound_status(runtime));
-return true; })() : false;
+return true; })() : ((name === "config")) ? (() => { (runtime.showConfig = (!runtime.showConfig));
+if (runtime.showConfig) {
+  report_promise_bang(runtime, load_config_entries_bang(runtime));
+}
+runtime.render();
+return true; })() : false);
   }
 }
 
@@ -728,7 +775,7 @@ async function refresh_bang(runtime) {
 }
 
 function canonical_work_view(view_id) {
-  return (((view_id === "graph") || (view_id === "dag"))) ? "graph" : (((view_id === "board") || (view_id === "kanban"))) ? "board" : "list";
+  return ((((view_id === "graph") || (view_id === "dag"))) ? "graph" : (((view_id === "board") || (view_id === "kanban"))) ? "board" : "list");
 }
 
 function recognized_work_view_p(view_id) {
@@ -887,7 +934,7 @@ return push_chunk_bang(chunks, dim(("".concat("\n  ", (last_p ? "└ " : "│ ")
 function push_command_card_bang(chunks, title, body, status) {
   const parts = command_parts(title);
   const running_p = (status === "running");
-  push_chunk_bang(chunks, (((status === "failed")) ? brightRed : (running_p) ? brightYellow : brightGreen)("• "));
+  push_chunk_bang(chunks, ((((status === "failed")) ? brightRed : (running_p) ? brightYellow : brightGreen))("• "));
   push_chunk_bang(chunks, brightWhite((running_p ? "Running " : "Ran ")));
   push_chunk_bang(chunks, brightCyan(commandparts_executable(parts)));
   if ((!(commandparts_arguments(parts) === ""))) {
@@ -912,7 +959,7 @@ function append_diff_row(state, row) {
 
 function diff_rows(diff) {
   const source = clean_text(diff);
-  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => (line.startsWith("@@ ")) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : ((line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ "))) ? state : (line.startsWith("+")) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (line.startsWith("-")) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (line.startsWith("\\ No newline")) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line)), DiffState(0, 0, 0, 0, [])));
+  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => ((line.startsWith("@@ ")) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : ((line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ "))) ? state : (line.startsWith("+")) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (line.startsWith("-")) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (line.startsWith("\\ No newline")) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line))), DiffState(0, 0, 0, 0, [])));
 }
 
 function file_change_details(change) {
@@ -938,7 +985,7 @@ function push_diff_rows_bang(chunks, rows, width) {
 const numbers = ("".concat(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ "));
 const line = compact_text(("".concat(numbers, diffrow_text(row))), width);
 push_chunk_bang(chunks, white("\n"));
-return push_chunk_bang(chunks, ((kind === "add")) ? (bg("#173326"))(brightGreen(line.padEnd(width, " "))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(line.padEnd(width, " "))) : ((kind === "hunk")) ? brightCyan(line) : dim(line)); });
+return push_chunk_bang(chunks, (((kind === "add")) ? (bg("#173326"))(brightGreen(line.padEnd(width, " "))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(line.padEnd(width, " "))) : ((kind === "hunk")) ? brightCyan(line) : dim(line))); });
   if ((overflow > 0)) {
     return push_chunk_bang(chunks, dim(("".concat("\n          └ … +", overflow, " diff lines"))));
   }
@@ -974,7 +1021,7 @@ function render_conversation_bang(runtime) {
 const title = conversationitem_title(item);
 const body = clipped(conversationitem_body(item), 6000);
 const status = conversationitem_status(item);
-return ((kind === "user")) ? (() => { push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(user_block_text(runtime, body))));
+return (((kind === "user")) ? (() => { push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(user_block_text(runtime, body))));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "assistant")) ? (() => { push_chunk_bang(chunks, brightGreen("• "));
 push_chunk_bang(chunks, brightWhite(body));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "command")) ? push_command_card_bang(chunks, title, body, status) : ((kind === "interrupted")) ? (() => { push_chunk_bang(chunks, brightRed("■ Conversation interrupted"));
@@ -989,7 +1036,7 @@ push_chunk_bang(chunks, dim(body));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "error")) ? (() => { push_chunk_bang(chunks, brightRed("• Error\n  "));
 push_chunk_bang(chunks, red(body.replaceAll("\n", "\n  ")));
 return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack(("".concat("• ", body))));
-return push_chunk_bang(chunks, white("\n\n")); })(); });
+return push_chunk_bang(chunks, white("\n\n")); })()); });
   if (runtime.working) {
     const elapsed = Math.floor(((Date.now() - runtime.workingSince) / 1000));
     push_working_wave_bang(chunks, runtime);
@@ -1004,14 +1051,37 @@ return push_chunk_bang(chunks, white("\n\n")); })(); });
 
 function visible_notice(notice) {
   const value = text(notice);
-  return ((value === "view dag")) ? "view graph" : ((value === "view kanban")) ? "view board" : value;
+  return (((value === "view dag")) ? "view graph" : ((value === "view kanban")) ? "view board" : value);
+}
+
+function render_config_panel(runtime) {
+  const entries = runtime.configEntries;
+  const total = (entries ? entries.length : 0);
+  if ((total === 0)) {
+    return new StyledText([brightYellow("context switchboard "), brightBlack("loading…")]);
+  } else {
+    const raw = runtime.configIndex;
+    const index = Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
+    const window = 12;
+    const start = Math.max(0, Math.min((index - 5), (total - window)));
+    const stop = Math.min(total, (start + window));
+    const parts = [brightYellow("context switchboard"), brightBlack("  ↑/↓ move · space toggle · esc close\n")];
+    entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+const cursor_p = (i === index);
+const on_p = (configentry_state(entry) === "on");
+const tail = (((i + 1) === stop) ? "" : "\n");
+parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
+parts.push((on_p ? brightGreen("on  ") : brightBlack("off ")));
+return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(configentry_kind(entry), " ", configentry_name(entry), tail)))); });
+    return new StyledText(parts);
+  }
 }
 
 function render_status(runtime, state) {
   const count_text = text(runtime.windowCount);
   const workspace_notice = text(runtime.workspaceNotice);
   const notice = ((workspace_notice === "") ? visible_notice(bridgesnapshot_notice(state)) : workspace_notice);
-  return (runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("←/→"), brightBlack(" switch work view · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(notice)]);
+  return ((runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showConfig) ? render_config_panel(runtime) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("←/→"), brightBlack(" switch work view · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(notice)]));
 }
 
 function render_pane_header(title, __focused_p) {
@@ -1047,7 +1117,7 @@ function short_thread_id(item) {
 }
 
 function push_condition_bang(chunks, condition, label) {
-  return push_chunk_bang(chunks, (((condition === "active")) ? brightCyan : ((condition === "ready")) ? brightGreen : ((condition === "blocked")) ? brightRed : brightYellow)(label));
+  return push_chunk_bang(chunks, ((((condition === "active")) ? brightCyan : ((condition === "ready")) ? brightGreen : ((condition === "blocked")) ? brightRed : brightYellow))(label));
 }
 
 function available_work_width(runtime, state) {
@@ -1165,7 +1235,7 @@ async function move_ready_thread_bang(runtime, thread_id, position, anchor_id) {
 }
 
 function unsupported_drop_notice(source_condition, target_lane) {
-  return (terminal_condition_p(source_condition)) ? "Done is derived from an outcome; reopening requires explicitly retracting that outcome." : ((target_lane === "in-progress")) ? "In Progress is derived from a live run; dispatch or /launch the thread to start it." : ((source_condition === "active")) ? "Active work is derived from its live run; /interrupt and settle that run before moving it." : ((!(source_condition === "ready"))) ? "Only ready work has a durable queue order; resolve its prerequisites before reordering it." : "That lane is derived from lifecycle facts; use the corresponding North lifecycle action.";
+  return ((terminal_condition_p(source_condition)) ? "Done is derived from an outcome; reopening requires explicitly retracting that outcome." : ((target_lane === "in-progress")) ? "In Progress is derived from a live run; dispatch or /launch the thread to start it." : ((source_condition === "active")) ? "Active work is derived from its live run; /interrupt and settle that run before moving it." : ((!(source_condition === "ready"))) ? "Only ready work has a durable queue order; resolve its prerequisites before reordering it." : "That lane is derived from lifecycle facts; use the corresponding North lifecycle action.");
 }
 
 function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
@@ -1180,7 +1250,7 @@ function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
   const source_lane = board_lane_id(source_condition);
   const target_id = (target_card ? bare(target_card.northThreadId) : "");
   const target_condition = work_item_condition_for(items, target_id);
-  return ((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((target_lane === "done") && (!terminal_condition_p(source_condition)))) ? prefill_outcome_bang(runtime, ui, source_id) : (((source_lane === "not-started") && (target_lane === "not-started") && (source_condition === "ready") && ((target_id === "") || (target_condition === "ready")))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const position = ((target_id === "") ? ((event.x < (event.currentTarget.screenX + (event.currentTarget.width / 2))) ? "first" : "last") : ((event.x < (target_card.screenX + (target_card.width / 2))) ? "before" : "after")); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane));
+  return (((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((target_lane === "done") && (!terminal_condition_p(source_condition)))) ? prefill_outcome_bang(runtime, ui, source_id) : (((source_lane === "not-started") && (target_lane === "not-started") && (source_condition === "ready") && ((target_id === "") || (target_condition === "ready")))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const position = ((target_id === "") ? ((event.x < (event.currentTarget.screenX + (event.currentTarget.width / 2))) ? "first" : "last") : ((event.x < (target_card.screenX + (target_card.width / 2))) ? "before" : "after")); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane)));
 }
 
 function card_content(item, width) {
@@ -1253,7 +1323,7 @@ function sync_board_bang(runtime, ui, items, selected, width) {
 function work_content_bang(runtime, state, view, selected) {
   const items = workview_items(view);
   const width = available_work_width(runtime, state);
-  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : ((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width));
+  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : (((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width)));
 }
 
 function minibuffer_placeholder(runtime) {
@@ -1374,21 +1444,21 @@ function handle_codex_event_bang(runtime, stream_state, data) {
   const method = text(data.method);
   const params = (data.params || {});
   const execution_id = text(stream_state.executionId);
-  return ((method === "thread/started")) ? adopt_session_metadata_bang(runtime, params.thread) : ((method === "model/safetyBuffering/updated")) ? adopt_session_metadata_bang(runtime, params) : ((method === "turn/started")) ? (() => { adopt_session_metadata_bang(runtime, (params.turn || params));
+  return (((method === "thread/started")) ? adopt_session_metadata_bang(runtime, params.thread) : ((method === "model/safetyBuffering/updated")) ? adopt_session_metadata_bang(runtime, params) : ((method === "turn/started")) ? (() => { adopt_session_metadata_bang(runtime, (params.turn || params));
 set_working_bang(runtime, true, "Codex is working");
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
-} })() : ((method === "item/started")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), "", "running", item)) : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), safe_json(item.arguments), "running")) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", "", "running", item)) : null; })() : ((method === "item/commandExecution/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "command", "command", text(params.delta), "running") : ((method === "item/agentMessage/delta")) ? ((!stream_state.booting) ? (() => { return append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "assistant", "", text(params.delta), "running"); })() : null) : (((method === "item/reasoning/summaryTextDelta") || (method === "item/plan/delta"))) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "thought", "", text(params.delta), "running") : ((method === "item/fileChange/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "change", "Editing files", text(params.delta), "running") : ((method === "item/fileChange/patchUpdated")) ? (() => { const id = event_item_id(execution_id, params.itemId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", (existing ? conversationitem_body(existing) : ""), "running", params)); })() : ((method === "item/mcpToolCall/progress")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "tool", "Tool activity", text(params.message), "running") : ((method === "item/completed")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return ((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), clipped(item.aggregatedOutput, 6000), (((text(item.status) === "completed") && (item.exitCode === 0)) ? "done" : "failed"), item)) : ((kind === "agentMessage")) ? (() => { const body = clean_text(item.text); (runtime.lastAssistantText = body);
+} })() : ((method === "item/started")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return (((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), "", "running", item)) : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), safe_json(item.arguments), "running")) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", "", "running", item)) : null); })() : ((method === "item/commandExecution/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "command", "command", text(params.delta), "running") : ((method === "item/agentMessage/delta")) ? ((!stream_state.booting) ? (() => { return append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "assistant", "", text(params.delta), "running"); })() : null) : (((method === "item/reasoning/summaryTextDelta") || (method === "item/plan/delta"))) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "thought", "", text(params.delta), "running") : ((method === "item/fileChange/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "change", "Editing files", text(params.delta), "running") : ((method === "item/fileChange/patchUpdated")) ? (() => { const id = event_item_id(execution_id, params.itemId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", (existing ? conversationitem_body(existing) : ""), "running", params)); })() : ((method === "item/mcpToolCall/progress")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "tool", "Tool activity", text(params.message), "running") : ((method === "item/completed")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return (((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), clipped(item.aggregatedOutput, 6000), (((text(item.status) === "completed") && (item.exitCode === 0)) ? "done" : "failed"), item)) : ((kind === "agentMessage")) ? (() => { const body = clean_text(item.text); (runtime.lastAssistantText = body);
 if ((!stream_state.booting)) {
   return upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", body, "done"));
-} })() : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), clipped(safe_json(item.result), 6000), ((text(item.status) === "failed") ? "failed" : "done"))) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Edited files", "", ((text(item.status) === "failed") ? "failed" : "done"), item)) : (((kind === "webSearch") || (kind === "todoList"))) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", kind, clipped(safe_json(item), 3000), "done")) : null; })() : ((method === "turn/completed")) ? (runtime.workingLabel = "Finishing") : null;
+} })() : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), clipped(safe_json(item.result), 6000), ((text(item.status) === "failed") ? "failed" : "done"))) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Edited files", "", ((text(item.status) === "failed") ? "failed" : "done"), item)) : (((kind === "webSearch") || (kind === "todoList"))) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", kind, clipped(safe_json(item), 3000), "done")) : null); })() : ((method === "turn/completed")) ? (runtime.workingLabel = "Finishing") : null);
 }
 
 function handle_record_bang(runtime, stream_state, record) {
   const kind = parsedrecord_kind(record);
   const data = (parsedrecord_data(record) || {});
   const execution_id = text(stream_state.executionId);
-  return ((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); if ((!(cwd === ""))) {
+  return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); if ((!(cwd === ""))) {
   return (runtime.sessionCwd = cwd);
 } })() : ((kind === "provider.starting")) ? ((!(execution_id === "")) ? (() => { return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : null) : ((kind === "provider.codex.event")) ? handle_codex_event_bang(runtime, stream_state, data) : ((kind === "provider.session.config")) ? adopt_session_metadata_bang(runtime, data) : ((kind === "provider.assistant")) ? (() => { const body = assistant_message_text(data); if (((!stream_state.booting) && (!(body === "")) && (!(body === runtime.lastAssistantText)))) {
   (runtime.lastAssistantText = body);
@@ -1409,7 +1479,7 @@ if ((!(execution_id === ""))) {
 } })() : ((kind === "execution.failed")) ? (() => { set_working_bang(runtime, false, "");
 play_sound_event_bang(runtime, stream_state, "failed");
 return append_error_bang(runtime, ("".concat(kind, ": ", safe_json(data)))); })() : ((kind.includes("failed") || kind.includes("error"))) ? (() => { set_working_bang(runtime, false, "");
-return append_error_bang(runtime, ("".concat(kind, ": ", safe_json(data)))); })() : null;
+return append_error_bang(runtime, ("".concat(kind, ": ", safe_json(data)))); })() : null);
 }
 
 function parse_bridge_stream_bang(runtime, stream_state, chunk) {
@@ -1417,21 +1487,21 @@ function parse_bridge_stream_bang(runtime, stream_state, chunk) {
   const remainder = lines.pop();
   (stream_state.buffer = remainder);
   return lines.forEach((raw_line) => { const line = raw_line.trim();
-return (line.startsWith("execution ")) ? (() => { const execution_id = line.slice(10).trim(); (stream_state.executionId = execution_id);
+return ((line.startsWith("execution ")) ? (() => { const execution_id = line.slice(10).trim(); (stream_state.executionId = execution_id);
 (stream_state.soundLive = true);
 return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : (line.startsWith("attached ")) ? (stream_state.soundLive = true) : (line.startsWith("[")) ? (() => { const record = record_line(line); if (record) {
   return handle_record_bang(runtime, stream_state, record);
-} })() : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null; });
+} })() : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null); });
 }
 
 function supervisor_provider_flag() {
   const value = text(process.env.NORTH_BRIDGE_PROVIDER).trim();
-  return ((value === "anthropic")) ? "--claude" : ((value === "openai")) ? "--openai" : "";
+  return (((value === "anthropic")) ? "--claude" : ((value === "openai")) ? "--openai" : "");
 }
 
 function supervisor_label() {
   const value = text(process.env.NORTH_BRIDGE_PROVIDER).trim();
-  return ((value === "anthropic")) ? "Claude supervisor" : ((value === "openai")) ? "Codex supervisor" : "Supervisor";
+  return (((value === "anthropic")) ? "Claude supervisor" : ((value === "openai")) ? "Codex supervisor" : "Supervisor");
 }
 
 async function launch_agent_bang(runtime, prompt, role) {
@@ -1456,7 +1526,7 @@ function popout_bang(runtime, view_id) {
   const wezterm = Bun.which("wezterm");
   const foot = Bun.which("foot");
   const xterm = Bun.which("xterm");
-  const argv = (ghostty) ? [ghostty, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (kitty) ? [kitty, "--detach", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (wezterm) ? [wezterm, "start", "--always-new-process", "--", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (foot) ? [foot, NORTH_BIN, "bridge", "app", "--view-id", view_id] : (xterm) ? [xterm, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : null;
+  const argv = ((ghostty) ? [ghostty, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (kitty) ? [kitty, "--detach", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (wezterm) ? [wezterm, "start", "--always-new-process", "--", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (foot) ? [foot, NORTH_BIN, "bridge", "app", "--view-id", view_id] : (xterm) ? [xterm, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : null);
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }
@@ -1486,7 +1556,7 @@ async function submit_agent_bang(runtime, ui, input, selection) {
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
   const target = text_or(selection, text(runtime.supervisorId));
-  return (handle_local_command_bang(runtime, ui, input) ? null : ((slash_p && exit_command_p(name))) ? destroy_bang(runtime) : ((slash_p && (name === "launch"))) ? await launch_agent_bang(runtime, rest, "worker") : ((slash_p && (name === "refresh"))) ? await refresh_bang(runtime) : ((slash_p && (name === "popout"))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : ((slash_p && (name === "help"))) ? (() => { (runtime.showHelp = (!runtime.showHelp));
+  return (handle_local_command_bang(runtime, ui, input) ? null : (((slash_p && exit_command_p(name))) ? destroy_bang(runtime) : ((slash_p && (name === "launch"))) ? await launch_agent_bang(runtime, rest, "worker") : ((slash_p && (name === "refresh"))) ? await refresh_bang(runtime) : ((slash_p && (name === "popout"))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : ((slash_p && (name === "help"))) ? (() => { (runtime.showHelp = (!runtime.showHelp));
 return runtime.render(); })() : (async () => { if ((target === "")) {
   (() => { throw new Error("select an agent before steering or interrupting"); })();
 }
@@ -1510,7 +1580,7 @@ if ((slash_p && (name === "interrupt"))) {
     await run_command([NORTH_BIN, "steer", target, message]);
   }
   return runtime.render();
-} })());
+} })()));
 }
 
 async function submit_work_bang(runtime, ui, input, selection) {
@@ -1519,7 +1589,7 @@ async function submit_work_bang(runtime, ui, input, selection) {
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
-  return ((!slash_p) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : (exit_command_p(name)) ? destroy_bang(runtime) : ((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
+  return ((!slash_p) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : ((exit_command_p(name)) ? destroy_bang(runtime) : ((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
 return runtime.render(); })() : ((name === "view")) ? (() => { if ((!recognized_work_view_p(rest))) {
   (() => { throw new Error("view requires list, graph, or board"); })();
 }
@@ -1553,7 +1623,7 @@ if ((result === "")) {
 }
 await run_command([NORTH_BIN, "tell", thread_id, "outcome", result]);
 (runtime.workspaceNotice = ("".concat("Recorded outcome for @", thread_id, ".")));
-return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|graph|board, /split h|v, /refresh, /popout, /exit") : (() => { throw new Error("unknown work command; use /help"); })()));
+return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|graph|board, /split h|v, /refresh, /popout, /exit") : (() => { throw new Error("unknown work command; use /help"); })())));
 }
 
 function report_promise_bang(runtime, promise) {
@@ -1597,7 +1667,7 @@ function active_palette_options(runtime, ui) {
 function pane_for_direction(runtime, state, direction) {
   const pane = text(runtime.pane);
   const layout = bridgesnapshot_layout(state);
-  return ((direction === "w")) ? (() => { const next_pane = ((pane === "agents") ? "work" : "agents"); return (pane_visible_p(runtime, next_pane) ? next_pane : pane); })() : (((layout === "vertical") && (direction === "h") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "vertical") && (direction === "l") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : (((layout === "horizontal") && (direction === "k") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "horizontal") && (direction === "j") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : pane;
+  return (((direction === "w")) ? (() => { const next_pane = ((pane === "agents") ? "work" : "agents"); return (pane_visible_p(runtime, next_pane) ? next_pane : pane); })() : (((layout === "vertical") && (direction === "h") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "vertical") && (direction === "l") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : (((layout === "horizontal") && (direction === "k") && (pane === "work") && pane_visible_p(runtime, "agents"))) ? "agents" : (((layout === "horizontal") && (direction === "j") && (pane === "agents") && pane_visible_p(runtime, "work"))) ? "work" : pane);
 }
 
 function restore_workspace_bang(runtime, ui, layout) {
@@ -1648,7 +1718,7 @@ function workspace_count(context) {
 
 function workspace_action_bang(runtime, ui, action, count) {
   const state = snapshot(runtime.model);
-  return (((action === "h") || (action === "j") || (action === "k") || (action === "l") || (action === "w"))) ? focus_pane_surface_bang(runtime, ui, pane_for_direction(runtime, state, action)) : ((action === "v")) ? restore_workspace_bang(runtime, ui, "vertical") : ((action === "s")) ? restore_workspace_bang(runtime, ui, "horizontal") : ((action === "c")) ? close_focused_pane_bang(runtime, ui) : ((action === "=")) ? equalize_panes_bang(runtime) : ((action === ">")) ? resize_focused_pane_bang(runtime, ui, count) : ((action === "<")) ? resize_focused_pane_bang(runtime, ui, (-count)) : null;
+  return ((((action === "h") || (action === "j") || (action === "k") || (action === "l") || (action === "w"))) ? focus_pane_surface_bang(runtime, ui, pane_for_direction(runtime, state, action)) : ((action === "v")) ? restore_workspace_bang(runtime, ui, "vertical") : ((action === "s")) ? restore_workspace_bang(runtime, ui, "horizontal") : ((action === "c")) ? close_focused_pane_bang(runtime, ui) : ((action === "=")) ? equalize_panes_bang(runtime) : ((action === ">")) ? resize_focused_pane_bang(runtime, ui, count) : ((action === "<")) ? resize_focused_pane_bang(runtime, ui, (-count)) : null);
 }
 
 function workspace_handler_bang(runtime, ui, action) {
@@ -1734,7 +1804,7 @@ if ((!(input === ""))) {
 
 function work_tab_at(tabs, event) {
   const x = (event.x - tabs.x);
-  return (((x >= 6) && (x < 12))) ? "list" : (((x >= 14) && (x < 21))) ? "graph" : (((x >= 23) && (x < 30))) ? "board" : "";
+  return ((((x >= 6) && (x < 12))) ? "list" : (((x >= 14) && (x < 21))) ? "graph" : (((x >= 23) && (x < 30))) ? "board" : "");
 }
 
 function complete_clicked_palette_bang(runtime, ui, pane, palette_renderable, event) {
@@ -1841,7 +1911,23 @@ function install_keys_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
   const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  return ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) ? (() => { key.preventDefault();
+  return (((runtime.showConfig && ((name === "up") || (name === "down") || (name === "space") || submit_key_p(name) || (name === "escape") || (name === "esc")))) ? (() => { key.preventDefault();
+key.stopPropagation();
+if (((name === "escape") || (name === "esc"))) {
+  (runtime.showConfig = false);
+} else if (((name === "up") || (name === "down"))) {
+  const entries = runtime.configEntries;
+  const total = (entries ? entries.length : 0);
+  if ((total > 0)) {
+    const raw = runtime.configIndex;
+    const current = (raw ? raw : 0);
+    const delta = ((name === "up") ? -1 : 1);
+    (runtime.configIndex = ((current + delta + total) % total));
+  }
+} else {
+  report_promise_bang(runtime, toggle_config_entry_bang(runtime));
+}
+return runtime.render(); })() : ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 (runtime.paletteIndex = ((runtime.paletteIndex + (((name === "up") || (key.ctrl && (name === "k"))) ? -1 : 1) + palette.length) % palette.length));
 active_input(runtime, ui).focus();
@@ -1886,13 +1972,13 @@ if ((runtime.pane === "agents")) {
   const thread_id = ((items.length > 0) ? workitem_id(items[next_index]) : "");
   (runtime.workIndex = next_index);
   (runtime.model = select_thread(runtime.model, thread_id));
-  ui.workScroll.scrollBy((delta * ((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1), "step");
+  ui.workScroll.scrollBy((delta * (((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1)), "step");
 }
 return runtime.render(); })() : (((name === "escape") || (name === "esc"))) ? (() => { const target = text(runtime.supervisorId); if ((runtime.working && (!(target === "")))) {
   key.preventDefault();
   key.stopPropagation();
   return report_promise_bang(runtime, submit_agent_bang(runtime, ui, "/interrupt", target));
-} })() : null;
+} })() : null);
 } });
 }
 
