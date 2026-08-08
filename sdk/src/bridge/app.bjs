@@ -833,9 +833,15 @@
 (defn config-manifest-path [] -> String
   (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
 
+(defn ensure-config-manifest! [] -> (Promise Any)
+  ;; `agents status` creates the manifest; only pay for it when absent.
+  (try
+    (js/await (run-command ["test" "-f" (config-manifest-path)]))
+    (catch Error _
+      (js/await (run-command [AGENTS-BIN "status"])))))
+
 (defn load-config-entries! [runtime: Any] -> (Promise Any)
-  ;; `agents status` guarantees the manifest exists before it is read.
-  (js/await (run-command [AGENTS-BIN "status"]))
+  (js/await (ensure-config-manifest!))
   (let [content (js/await (run-command ["cat" (config-manifest-path)]))
         config-filter (text-or (text (.-configFilter runtime)) "all")
         lines (.filter (.split content "\n")

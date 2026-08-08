@@ -453,10 +453,16 @@ export async function admitExecution(
       throw error;
     }
   }
-  // North MCP is part of every managed lane's identity and reporting surface,
-  // not only an orchestrator tool. A worker starting against a dead coordinator
-  // would be an unrecorded native run wearing managed metadata.
-  await requireCoordinator(options?.mcpServers?.north?.env);
+  // North MCP is every managed lane's identity and reporting surface, so a
+  // managed worker fails closed against a dead coordinator. An interactive
+  // session (coordinationOptional) may run unrecorded: for chat, the
+  // coordinator is telemetry when present, never a launch gate.
+  try {
+    await requireCoordinator(options?.mcpServers?.north?.env);
+  } catch (error) {
+    if (!options?.coordinationOptional) throw error;
+    console.warn("north: coordinator unreachable — session proceeds unrecorded");
+  }
 }
 
 export function admitPinnedProvider(
