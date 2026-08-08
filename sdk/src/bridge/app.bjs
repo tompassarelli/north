@@ -224,6 +224,9 @@
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
+   (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
+   (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -241,6 +244,9 @@
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
+   (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
+   (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show work commands" false "" false)])
 
@@ -266,6 +272,20 @@
   (try
     (JSON/stringify value nil 2)
     (catch Error _ (String value))))
+
+(defn failure-summary [data: Any] -> String
+  (let [message (text (.-message data))
+        causes (.-causes data)
+        cause (if (and causes (> (.-length causes) 0))
+                (text (aget causes 0)) "")]
+    (cond
+      (or (.includes message "north_coordinator_preflight")
+          (.includes cause "ECONNREFUSED 127.0.0.1:7977"))
+      "coordinator offline — supervision unavailable; /config and /help still work"
+
+      (identical? message "") (safe-json data)
+      (identical? cause "") message
+      :else (str message " — " cause))))
 
 (defn clean-text [value: Any] -> String
   (stripAnsiSequences (text value)))
@@ -817,21 +837,71 @@
   ;; `agents status` guarantees the manifest exists before it is read.
   (js/await (run-command [AGENTS-BIN "status"]))
   (let [content (js/await (run-command ["cat" (config-manifest-path)]))
+        config-filter (text-or (text (.-configFilter runtime)) "all")
         lines (.filter (.split content "\n")
                        (fn [line: String] -> Bool
                          (not (identical? (.trim line) ""))))
-        entries (.map lines
-                      (fn [line: String] -> Any
-                        (let [parts (.split (.trim line) " ")]
-                          (->ConfigEntry (text (aget parts 0))
-                                         (text (aget parts 1))
-                                         (text (aget parts 2))))))
+        all-entries (.map lines
+                          (fn [line: String] -> Any
+                            (let [parts (.split (.trim line) " ")]
+                              (->ConfigEntry (text (aget parts 0))
+                                             (text (aget parts 1))
+                                             (text (aget parts 2))))))
+        entries (if (identical? config-filter "all")
+                  all-entries
+                  (.filter all-entries
+                           (fn [entry: Any] -> Bool
+                             (identical? (configentry-kind entry)
+                                         config-filter))))
         total (.-length entries)
         raw (.-configIndex runtime)
         current (if raw raw 0)]
     (set! (.-configEntries runtime) entries)
     (set! (.-configIndex runtime)
           (Math/max 0 (Math/min current (- total 1))))))
+
+(defn open-config-panel!
+  [runtime: Any
+   config-filter: String] -> Any
+  (let [already (and (.-showConfig runtime)
+                     (identical? (text (.-configFilter runtime)) config-filter))]
+    (if already
+      (set! (.-showConfig runtime) false)
+      (do
+        (set! (.-configFilter runtime) config-filter)
+        (set! (.-configIndex runtime) 0)
+        (set! (.-showConfig runtime) true)
+        (report-promise! runtime (load-config-entries! runtime))))
+    (.render runtime)))
+
+(defn edit-config-entry! [runtime: Any] -> (Promise Any)
+  (let [entries (.-configEntries runtime)]
+    (when (and entries (> (.-length entries) 0))
+      (let [raw (.-configIndex runtime)
+            index (Math/max 0 (Math/min (if raw raw 0)
+                                        (- (.-length entries) 1)))
+            entry (aget entries index)
+            raw-path (js/await (run-command
+                                [AGENTS-BIN "path"
+                                 (configentry-name entry)]))
+            path (.trim raw-path)
+            editor (text-or (text (.-EDITOR (.-env process))) "vi")
+            ghostty (.which Bun "ghostty")
+            kitty (.which Bun "kitty")
+            foot (.which Bun "foot")
+            xterm (.which Bun "xterm")
+            argv (cond
+                   ghostty [ghostty "-e" editor path]
+                   kitty [kitty "--detach" editor path]
+                   foot [foot editor path]
+                   xterm [xterm "-e" editor path]
+                   :else nil)]
+        (when (nil? argv)
+          (throw (Error. "no supported terminal found for edit")))
+        (let [child (.spawn Bun {:cmd argv :stdin "ignore"
+                                 :stdout "ignore" :stderr "ignore"})]
+          (.unref child)
+          (publish-line! runtime (str "editing " path)))))))
 
 (defn toggle-config-entry! [runtime: Any] -> (Promise Any)
   (let [entries (.-configEntries runtime)]
@@ -911,12 +981,16 @@
               true)
 
           (identical? name "config")
-          (do
-            (set! (.-showConfig runtime) (not (.-showConfig runtime)))
-            (when (.-showConfig runtime)
-              (report-promise! runtime (load-config-entries! runtime)))
-            (.render runtime)
-            true)
+          (do (open-config-panel! runtime "all") true)
+
+          (identical? name "hooks")
+          (do (open-config-panel! runtime "hook") true)
+
+          (identical? name "skills")
+          (do (open-config-panel! runtime "skill") true)
+
+          (identical? name "agentsmd")
+          (do (open-config-panel! runtime "item") true)
 
           :else false)))))
 
@@ -1491,31 +1565,52 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
+(defn config-section-title [kind: String] -> String
+  (cond
+    (identical? kind "item") "AGENTS.MD & GLOBALS"
+    (identical? kind "hook") "HOOKS"
+    (identical? kind "skill") "SKILLS"
+    :else kind))
+
+(defn config-panel-title [config-filter: String] -> String
+  (cond
+    (identical? config-filter "hook") "hooks"
+    (identical? config-filter "skill") "skills"
+    (identical? config-filter "item") "agents.md & globals"
+    :else "context switchboard"))
+
 (defn render-config-panel [runtime: Any] -> Any
   (let [entries (.-configEntries runtime)
-        total (if entries (.-length entries) 0)]
+        total (if entries (.-length entries) 0)
+        config-filter (text-or (text (.-configFilter runtime)) "all")
+        sections? (identical? config-filter "all")]
     (if (identical? total 0)
-      (StyledText. [(brightYellow "context switchboard ")
-                    (brightBlack "loading…")])
+      (StyledText. [(brightYellow (config-panel-title config-filter))
+                    (brightBlack " loading…")])
       (let [raw (.-configIndex runtime)
             index (Math/max 0 (Math/min (if raw raw 0) (- total 1)))
             window 12
             start (Math/max 0 (Math/min (- index 5) (- total window)))
             stop (Math/min total (+ start window))
-            parts [(brightYellow "context switchboard")
-                   (brightBlack "  ↑/↓ move · space toggle · esc close\n")]]
+            parts [(brightYellow (config-panel-title config-filter))
+                   (brightBlack "  ↑/↓ move · space on/off · enter edit · esc close\n")]]
         (.forEach (.slice entries start stop)
                   (fn [entry: Any offset: Int] -> Any
                     (let [i (+ start offset)
                           cursor? (identical? i index)
                           on? (identical? (configentry-state entry) "on")
+                          kind (configentry-kind entry)
+                          prior (if (identical? i start)
+                                  "" (configentry-kind (aget entries (- i 1))))
                           tail (if (identical? (+ i 1) stop) "" "\n")]
+                      (when (and sections? (not (identical? kind prior)))
+                        (.push parts (brightYellow
+                                      (str (config-section-title kind) "\n"))))
                       (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
                       (.push parts (if on? (brightGreen "on  ") (brightBlack "off ")))
                       (.push parts
                              ((if cursor? brightWhite brightBlack)
-                              (str (configentry-kind entry) " "
-                                   (configentry-name entry) tail))))))
+                              (str (configentry-name entry) tail))))))
         (StyledText. parts)))))
 
 (defn render-status
@@ -2331,13 +2426,17 @@
           (bridge-agent! runtime execution-id (text (.-role stream-state)) "ready")))
 
       (identical? kind "execution.failed")
-      (do (set-working! runtime false "")
-          (play-sound-event! runtime stream-state "failed")
-          (append-error! runtime (str kind ": " (safe-json data))))
+      (let [execution-id (text (.-executionId stream-state))]
+        (set-working! runtime false "")
+        (play-sound-event! runtime stream-state "failed")
+        (append-error! runtime (failure-summary data))
+        (when (not (identical? execution-id ""))
+          (bridge-agent! runtime execution-id
+                         (text (.-role stream-state)) "offline")))
 
       (or (.includes kind "failed") (.includes kind "error"))
       (do (set-working! runtime false "")
-          (append-error! runtime (str kind ": " (safe-json data))))
+          (append-error! runtime (str kind ": " (failure-summary data))))
 
       :else nil)))
 
@@ -3038,8 +3137,11 @@
                          (set! (.-configIndex runtime)
                                (mod (+ current delta total) total)))))
 
+                   (identical? name "space")
+                   (report-promise! runtime (toggle-config-entry! runtime))
+
                    :else
-                   (report-promise! runtime (toggle-config-entry! runtime)))
+                   (report-promise! runtime (edit-config-entry! runtime)))
                  (.render runtime))
 
              (and palette-open
