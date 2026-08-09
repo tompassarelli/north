@@ -198,7 +198,7 @@ test("/globals is the global scope: the profile, skills, hooks, modules, other",
   const frame = await frameOf("globals");
   expect(frame).toContain("globals");
   // The global profile is a directory row, so its section header comes with it.
-  expect(frame).toContain("FILETREE-SCOPED INSTRUCTIONS");
+  expect(frame).toContain("DIRECTORY INSTRUCTIONS");
   expect(frame).toContain("global  ~");
   expect(frame).toContain("SKILLS");
   expect(frame).toContain("HOOKS");
@@ -213,12 +213,12 @@ test("/globals is the global scope: the profile, skills, hooks, modules, other",
   expect(frame).not.toContain("/tmp/switchboard-fixture/north");
 });
 
-test("/agentsmd is the filetree section entire, root scope first", async () => {
+test("/agentsmd is the directory section entire, root scope first", async () => {
   const frame = await frameOf("agentsmd");
-  expect(frame).toContain("filetree-scoped instructions");
-  expect(frame).toContain("FILETREE-SCOPED INSTRUCTIONS");
-  // These rows are instruction files scoped to a subtree; the header says that
-  // rather than naming the manifest token behind them.
+  expect(frame).toContain("directory instructions");
+  expect(frame).toContain("DIRECTORY INSTRUCTIONS");
+  // These rows are instruction files scoped to a directory; the header says
+  // that rather than naming the manifest token behind them.
   expect(frame).not.toContain("DIRECTORY CONTEXT");
   expect(frame).not.toContain("agents.md & directory context");
   // The root scope reads above the narrower scopes layered on it.
@@ -239,7 +239,7 @@ test("/agentsmd is the filetree section entire, root scope first", async () => {
 test("/config carries all six sections in reading order", async () => {
   const frame = await frameOf("all");
   const order = [
-    "FILETREE-SCOPED INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "DIRECTORY INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);

@@ -1338,11 +1338,11 @@ function visible_notice(notice) {
 }
 
 function config_section_title(kind) {
-  return (((kind === "dir")) ? "FILETREE-SCOPED INSTRUCTIONS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
+  return (((kind === "dir")) ? "DIRECTORY INSTRUCTIONS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "filetree-scoped instructions" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "directory instructions" : "context switchboard");
 }
 
 function config_empty_note(loaded_p) {

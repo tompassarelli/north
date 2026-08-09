@@ -2136,13 +2136,13 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
-;; `dir` rows are instruction files that scope to a filetree — everything at or
-;; under one directory reads them — and `global` is that same shape with the
-;; root as its scope, which is why it heads the section rather than sitting in
-;; one of its own.
+;; `dir` rows are instruction files scoped to a directory — everything at or
+;; under it reads them — and `global` is that same shape with the root as its
+;; directory, which is why it heads the section rather than sitting in one of
+;; its own.
 (defn config-section-title [kind: String] -> String
   (cond
-    (identical? kind "dir") "FILETREE-SCOPED INSTRUCTIONS"
+    (identical? kind "dir") "DIRECTORY INSTRUCTIONS"
     (identical? kind "hook") "HOOKS"
     (identical? kind "skill") "SKILLS"
     (identical? kind "module") "MODULES"
@@ -2157,7 +2157,7 @@
     (identical? config-filter "plugin") "plugins"
     (identical? config-filter "module") "modules"
     (identical? config-filter "globals") "globals"
-    (identical? config-filter "agentsmd") "filetree-scoped instructions"
+    (identical? config-filter "agentsmd") "directory instructions"
     :else "context switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
