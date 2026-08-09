@@ -10,12 +10,12 @@
             [north.bridge.model :refer [Agent BridgeSnapshot WorkItem ->Agent ->WorkItem
                                         agent-id agent-name agent-status agent-task
                                         bridgesnapshot-active-view-id bridgesnapshot-agents
-                                        bridgesnapshot-board bridgesnapshot-layout
+                                        bridgesnapshot-board
                                         bridgesnapshot-list bridgesnapshot-notice
                                         bridgesnapshot-selected-thread
                                         focus-view make-model
                                         replace-projection select-agent select-thread
-                                        set-filter set-layout snapshot upsert-agent
+                                        set-filter snapshot upsert-agent
                                         workitem-body workitem-condition workitem-dependencies
                                         workitem-driver workitem-id workitem-title]]))
 
@@ -158,9 +158,10 @@
 (def STRIP-INDENT: Int 2)
 
 ;; Rows a frame owes to everything that is not a scrolling list: the root's
-;; single top padding row, the composer line, its context line, and the agent
-;; strip. The root owes no bottom padding — the stack sits on the last row.
-(def CHROME-ROWS: Int 4)
+;; single top padding row, the view bar, the composer line, its context line,
+;; and the agent strip. The root owes no bottom padding — the stack sits on the
+;; last row.
+(def CHROME-ROWS: Int 5)
 
 ;; The workspace never collapses entirely, however long a list gets.
 (def MIN-WORKSPACE-ROWS: Int 4)
@@ -264,7 +265,11 @@
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
    (->SlashCommand "/msg" "message the selected agent" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
-   (->SlashCommand "/refresh" "refresh agents and work" false "" false)
+   ;; Capturing a thread is not the Threads view's privilege: it shells the same
+   ;; `north capture` from wherever you are and needs nothing from the view.
+   (->SlashCommand "/capture" "capture a new thread" true "" false)
+   (->SlashCommand "/threads" "show Threads (or `popout`)" true "" false)
+   (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
@@ -274,19 +279,25 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global knobs, hooks, skills" false "" false)
+   (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
+   (->SlashCommand "/q" "back to Agents, or quit from Agents" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
-(def WORK-COMMANDS: (Vec SlashCommand)
-  [(->SlashCommand "/capture" "capture a new work thread" true "" false)
-   (->SlashCommand "/filter" "filter visible work" true "" false)
-   (->SlashCommand "/assign" "reassign the selected work" true "" false)
+(def THREAD-COMMANDS: (Vec SlashCommand)
+  [(->SlashCommand "/capture" "capture a new thread" true "" false)
+   (->SlashCommand "/filter" "filter visible threads" true "" false)
+   (->SlashCommand "/assign" "reassign the selected thread" true "" false)
    (->SlashCommand "/outcome" "record a selected thread outcome" true "" false)
-   (->SlashCommand "/view" "switch List, Board, or Graph view" true "" false)
-   (->SlashCommand "/split" "switch horizontal or vertical layout" true "" false)
-   (->SlashCommand "/refresh" "refresh agents and work" false "" false)
+   ;; One command per view, not a verb with an argument. `dag` and `kanban`
+   ;; survive as data inside canonical-work-view — they are what other surfaces
+   ;; call these views, never a second way to type this one.
+   (->SlashCommand "/list" "threads as a list" false "" false)
+   (->SlashCommand "/board" "threads as a board" false "" false)
+   (->SlashCommand "/graph" "threads as a graph" false "" false)
+   (->SlashCommand "/agents" "back to Agents" false "" false)
+   (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
@@ -296,10 +307,11 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global knobs, hooks, skills" false "" false)
+   (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
+   (->SlashCommand "/q" "back to Agents, or quit from Agents" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
-   (->SlashCommand "/help" "show work commands" false "" false)])
+   (->SlashCommand "/help" "show thread commands" false "" false)])
 
 (defn text [value: Any] -> String
   (if (identical? (js/typeof value) "string") value ""))
@@ -473,6 +485,22 @@
       (identical? name "close")
       (identical? name "esc")))
 
+;; One view is on screen at a time, full width, and Northbridge opens on Agents.
+(def BOOT-FRAME: String "agents")
+
+(js/export
+ (defn boot-frame [] -> String BOOT-FRAME))
+
+(js/export
+ (defn threads-frame? [frame: Any] -> Bool
+  (identical? (text frame) "threads")))
+
+;; Pure: vim's `:q` with nothing to close. Threads goes back to Agents; Agents
+;; is the last thing on screen, so from there it quits.
+(js/export
+ (defn quit-command-exits? [frame: Any] -> Bool
+  (not (threads-frame? frame))))
+
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
 (defn emoji-options [query: String] -> (Vec SlashCommand)
@@ -497,13 +525,16 @@
                           (slashcommand-description candidate)))
                     needle))))))
 
-(defn palette-options
-  [pane: String
+;; Which command set a slash is read against: the one belonging to the view
+;; that is on screen.
+(js/export
+ (defn palette-options
+  [frame: String
    input: String] -> (Vec SlashCommand)
   (let [query (.toLowerCase (.trim input))
         parsed (command input)
         name (parsedcommand-name parsed)
-        commands (if (identical? pane "agents") AGENT-COMMANDS WORK-COMMANDS)]
+        commands (if (threads-frame? frame) THREAD-COMMANDS AGENT-COMMANDS)]
     (cond
       (not (.startsWith query "/")) []
       (identical? name "emoji") (emoji-options (parsedcommand-rest parsed))
@@ -513,7 +544,7 @@
       :else
       (.filter commands
                (fn [candidate: SlashCommand] -> Bool
-                 (.startsWith (slashcommand-name candidate) query))))))
+                 (.startsWith (slashcommand-name candidate) query)))))))
 
 (defn submit-key? [name: String] -> Bool
   (or (identical? name "return")
@@ -890,11 +921,76 @@
 (defrecord ConfigEntry
   [kind: String
    name: String
+   ;; The stored axis, which is not the same question for every kind. A skill or
+   ;; a knob stores `on`/`off` — whether it is active. A hook stores
+   ;; `enabled`/`disabled` — whether the user permits it; its activity is
+   ;; derived (see config-entry-active?).
    state: String
    ;; Whatever the manifest carries past the state column — for `dir` rows the
-   ;; triggering directory. Empty when the line has three fields, which is
-   ;; every kind that has no fourth thing to say.
+   ;; triggering directory, for a bound `hook` row the skill it follows. Empty
+   ;; when the line has three fields, which is every row with no fourth thing
+   ;; to say.
    detail: String])
+
+;; A hook's stored axis is permission, not activity. `on` is the pre-two-axis
+;; spelling of the same permission and still reads as one, so a manifest
+;; written by either generation of the CLI renders truthfully.
+(defn config-hook-enabled? [state: String] -> Bool
+  (or (identical? state "enabled") (identical? state "on")))
+
+;; Pure: is this skill switched on anywhere in the manifest? A hook's companion
+;; is a skill name, and an absent skill is not an on one.
+(js/export
+ (defn config-skill-on?
+  [manifest: Any
+   name: String] -> Bool
+  (.some manifest
+         (fn [entry: Any] -> Bool
+           (and (identical? (configentry-kind entry) "skill")
+                (identical? (configentry-name entry) name)
+                (identical? (configentry-state entry) "on"))))))
+
+;; Pure: the derived axis. Everything but a hook stores its own activity. A hook
+;; is active when the user permits it AND, if it is bound to a skill, that skill
+;; is on — so one skill flip changes many hook rows without touching their
+;; manifest lines. Needs the whole manifest, not the filtered view: /hooks shows
+;; no skill rows and still has to say which of its hooks are running.
+(js/export
+ (defn config-entry-active?
+  [entry: Any
+   manifest: Any] -> Bool
+  (let [state (configentry-state entry)]
+    (if (not (identical? (configentry-kind entry) "hook"))
+      (identical? state "on")
+      (and (config-hook-enabled? state)
+           (let [skill (text (configentry-detail entry))]
+             (or (identical? skill "")
+                 (config-skill-on? manifest skill))))))))
+
+;; Pure: the state column's text. Both axes for a hook, one for everything else.
+;; A pin says only `disabled` — the derived activity of a hook the user has
+;; pinned off is not a fact anyone needs. A bound hook carries the skill it
+;; follows as provenance, which is the only place that relationship is visible.
+(js/export
+ (defn config-state-text
+  [entry: Any
+   active?: Bool] -> String
+  (let [state (configentry-state entry)
+        skill (text (configentry-detail entry))
+        provenance (if (identical? skill "") "" (str " · " skill))]
+    (if (not (identical? (configentry-kind entry) "hook"))
+      (if (identical? state "on") "on" "off")
+      (cond
+        (not (config-hook-enabled? state)) "disabled"
+        active? (str "enabled · on" provenance)
+        :else (str "enabled · off" provenance))))))
+
+;; Pure: which CLI verb a space on this row means. Both axes flip through the
+;; same two verbs — `off` pins a hook disabled or switches a skill off, `on`
+;; clears the pin or switches the skill on — and the cascade math is the CLI's.
+(js/export
+ (defn config-toggle-verb [state: String] -> String
+  (if (or (identical? state "on") (identical? state "enabled")) "off" "on")))
 
 ;; The switchboard's views are names, not manifest kinds. Two of them span
 ;; several kinds: `globals` is the global knobs plus hooks and skills, and
@@ -924,12 +1020,16 @@
 ;; Reading order of the sections, which is not the manifest's order: the
 ;; manifest is append-ordered, so `item orchestration` lands after the skills
 ;; block and would print a second GLOBALS header.
+;;
+;; Skills come before hooks because that is the direction the relationship runs:
+;; a hook follows the skill it is bound to, so the thing you flip is on screen
+;; above the rows it moves.
 (defn config-kind-rank [kind: String] -> Int
   (cond
     (identical? kind "item") 0
     (identical? kind "dir") 1
-    (identical? kind "hook") 2
-    (identical? kind "skill") 3
+    (identical? kind "skill") 2
+    (identical? kind "hook") 3
     (identical? kind "plugin") 4
     :else 5))
 
@@ -984,6 +1084,10 @@
         total (.-length entries)
         raw (.-configIndex runtime)
         current (if raw raw 0)]
+    ;; The filtered rows are what the panel shows; the whole manifest is what it
+    ;; needs to derive a hook's activity, because a narrowed view drops the very
+    ;; skill rows that decide it.
+    (set! (.-configAllEntries runtime) all-entries)
     (set! (.-configEntries runtime) entries)
     (set! (.-configIndex runtime)
           (Math/max 0 (Math/min current (- total 1))))
@@ -1045,8 +1149,13 @@
             index (Math/max 0 (Math/min (if raw raw 0)
                                         (- (.-length entries) 1)))
             entry (aget entries index)
-            verb (if (identical? (configentry-state entry) "on") "off" "on")]
+            verb (config-toggle-verb (configentry-state entry))]
         (js/await (run-command [AGENTS-BIN verb (configentry-name entry)]))
+        ;; Reload the whole manifest, never patch the row that was flipped. One
+        ;; skill flip changes the derived activity of every hook bound to it,
+        ;; and the CLI may pin or unpin rows this panel never touched; a local
+        ;; patch would leave the rest of the panel asserting a state that is no
+        ;; longer true.
         (js/await (load-config-entries! runtime))
         (.render runtime)))))
 
@@ -1078,7 +1187,8 @@
       :else
       (throw (Error. "sound requires on, off, status, or pack peon|peasant")))))
 
-(defn handle-local-command!
+(js/export
+ (defn handle-local-command!
   [runtime: Any
    ui: Any
    input: String] -> Bool
@@ -1133,7 +1243,31 @@
           (identical? name "agentsmd")
           (do (open-config-panel! runtime "agentsmd") true)
 
-          :else false)))))
+          ;; The view switches live here rather than in either submit path,
+          ;; because both submit paths run this first: one branch and /list
+          ;; means the same thing typed from either view.
+          (identical? name "agents")
+          (do (show-frame! runtime ui "agents") true)
+
+          (identical? name "threads")
+          (do (if (identical? (.toLowerCase (.trim rest)) "popout")
+                (popout! runtime (text (.-activeView runtime)))
+                (show-frame! runtime ui "threads"))
+              true)
+
+          (thread-view-command? name)
+          (do (show-thread-view! runtime ui name) true)
+
+          ;; `:q`. One view is always showing, so there is no frame to close:
+          ;; from Threads it means "back to Agents", and from Agents — the last
+          ;; thing on screen — it means quit. /exit still quits from anywhere.
+          (identical? name "q")
+          (do (if (quit-command-exits? (.-frame runtime))
+                (destroy! runtime)
+                (show-frame! runtime ui "agents"))
+              true)
+
+          :else false))))))
 
 (defn quiesce! [runtime: Any] -> Any
   (when (not (.-disposed runtime))
@@ -1232,17 +1366,20 @@
     (or (identical? view-id "board") (identical? view-id "kanban")) "board"
     :else "list"))
 
-(defn recognized-work-view? [view-id: String] -> Bool
-  (or (identical? view-id "list")
-      (identical? view-id "graph")
-      (identical? view-id "board")
-      (identical? view-id "dag")
-      (identical? view-id "kanban")))
+;; Pure: is this slash command one of the threads frame's view switches? The
+;; command *is* the view — there is no verb to remember and no argument to get
+;; wrong, and `dag`/`kanban` are not commands at all.
+(js/export
+ (defn thread-view-command? [name: String] -> Bool
+  (or (identical? name "list")
+      (identical? name "board")
+      (identical? name "graph"))))
 
-(defn view-list [state: BridgeSnapshot] -> (Vec WorkView)
+(js/export
+ (defn view-list [state: BridgeSnapshot] -> (Vec WorkView)
   [(->WorkView "list" "List" (bridgesnapshot-list state))
    (->WorkView "board" "Board" (bridgesnapshot-board state))
-   (->WorkView "graph" "Graph" (bridgesnapshot-list state))])
+   (->WorkView "graph" "Graph" (bridgesnapshot-list state))]))
 
 (defn selected-view
   [state: BridgeSnapshot
@@ -1417,82 +1554,22 @@
         rows (if stdout (.-rows stdout) nil)]
     (Math/max 1 (if (identical? (js/typeof rows) "number") rows 40))))
 
-(defn stacked-workspace? [state: BridgeSnapshot] -> Bool
-  (identical? (bridgesnapshot-layout state) "horizontal"))
-
-(defn pane-visible?
+;; One view is on screen at a time, so showing a view is one boolean per
+;; container and no arithmetic at all: no ratio, no divider, no minimum.
+(js/export
+ (defn apply-frame-visibility!
   [runtime: Any
-   pane: String] -> Bool
-  (not (identical? (text (.-closedPane runtime)) pane)))
+   ui: Any] -> Any
+  (let [threads? (threads-frame? (.-frame runtime))]
+    (set! (.-visible (.-agentsPane ui)) (not threads?))
+    (set! (.-visible (.-workPane ui)) threads?))))
 
-(defn workspace-primary-cells
-  [runtime: Any
-   ui: Any
-   state: BridgeSnapshot] -> Int
-  (let [stacked? (stacked-workspace? state)
-        measured (if stacked? (.-height (.-workspace ui)) (.-width (.-workspace ui)))
-        fallback (if stacked? (terminal-rows) (terminal-columns))
-        outer (if (and (identical? (js/typeof measured) "number")
-                       (Number/isFinite measured)
-                       (> measured 0))
-                measured fallback)]
-    (Math/max 2 (- (Math/floor outer) 2))))
+;; Every view is full width now, so they all measure the same.
+(defn available-frame-width [] -> Int
+  (Math/max 24 (- (terminal-columns) 6)))
 
-(defn minimum-pane-cells
-  [state: BridgeSnapshot
-   total: Int] -> Int
-  (Math/max 1
-            (Math/min (if (stacked-workspace? state) 5 20)
-                      (Math/floor (/ total 2)))))
-
-(defn clamp-pane-ratio!
-  [runtime: Any
-   ui: Any
-   state: BridgeSnapshot] -> Any
-  (let [total (workspace-primary-cells runtime ui state)
-        minimum (minimum-pane-cells state total)
-        raw (Number (or (.-paneRatio runtime) 50))
-        ratio (if (Number/isFinite raw) raw 50)
-        desired (Math/round (* total (/ ratio 100)))
-        agents-cells (Math/max minimum (Math/min (- total minimum) desired))
-        clamped (* 100 (/ agents-cells total))]
-    (set! (.-paneRatio runtime) clamped)
-    clamped))
-
-(defn apply-workspace-geometry!
-  [runtime: Any
-   ui: Any
-   state: BridgeSnapshot] -> Any
-  (let [stacked? (stacked-workspace? state)
-        both? (identical? (text (.-closedPane runtime)) "")
-        ratio (if both? (clamp-pane-ratio! runtime ui state) 50)
-        agents-primary (if both? (str ratio "%") "100%")
-        work-primary (if both? (str (- 100 ratio) "%") "100%")]
-    (set! (.-visible (.-agentsPane ui)) (pane-visible? runtime "agents"))
-    (set! (.-visible (.-workPane ui)) (pane-visible? runtime "work"))
-    (set! (.-flexDirection (.-workspace ui)) (if stacked? "column" "row"))
-    (if stacked?
-      (do (set! (.-width (.-agentsPane ui)) "100%")
-          (set! (.-width (.-workPane ui)) "100%")
-          (set! (.-height (.-agentsPane ui)) agents-primary)
-          (set! (.-height (.-workPane ui)) work-primary)
-          (set! (.-border (.-agentsPane ui)) (if both? ["bottom"] false)))
-      (do (set! (.-width (.-agentsPane ui)) agents-primary)
-          (set! (.-width (.-workPane ui)) work-primary)
-          (set! (.-height (.-agentsPane ui)) "100%")
-          (set! (.-height (.-workPane ui)) "100%")
-          (set! (.-border (.-agentsPane ui)) (if both? ["right"] false))))))
-
-(defn available-agent-width [runtime: Any] -> Int
-  (let [columns (terminal-columns)
-        state (snapshot (.-model runtime))
-        horizontal? (stacked-workspace? state)
-        work-closed? (identical? (text (.-closedPane runtime)) "work")
-        ratio (/ (or (.-paneRatio runtime) 50) 100)]
-    (Math/max 24
-              (if (or horizontal? work-closed?)
-                (- columns 6)
-                (- (Math/floor (* (- columns 5) ratio)) 3)))))
+(defn available-agent-width [_runtime: Any] -> Int
+  (available-frame-width))
 
 (defn user-block-text
   [runtime: Any
@@ -1876,21 +1953,45 @@
 
 ;; One row's label: the name, plus whatever the manifest carries after the
 ;; state (a `dir` row's directory). Clipped to the panel so a long path cannot
-;; wrap and desync the rendered height from detail-body-lines.
+;; wrap and desync the rendered height from detail-body-lines. A hook's fourth
+;; field is its companion skill, which the state column already carries as
+;; provenance — printing it twice on one row says nothing new.
 (defn config-row-text
   [entry: Any
    width: Int] -> String
-  (let [detail (text (configentry-detail entry))
+  (let [detail (if (identical? (configentry-kind entry) "hook")
+                 ""
+                 (text (configentry-detail entry)))
         name (configentry-name entry)]
     (compact-text (if (identical? detail "")
                     name
                     (str name "  " detail))
                   width)))
 
+;; The state column's width. Non-hook rows keep the three cells `on`/`off` have
+;; always had; a hook spends more because it prints two axes and, when it is
+;; bound, the skill it follows. Both are minimums — a long companion name pushes
+;; its own row's label right rather than clipping the state.
+(def CONFIG-STATE-WIDTH: Int 3)
+(def CONFIG-HOOK-STATE-WIDTH: Int 12)
+
+(defn config-state-width [kind: String] -> Int
+  (if (identical? kind "hook") CONFIG-HOOK-STATE-WIDTH CONFIG-STATE-WIDTH))
+
+;; A hook's state is a phrase, not a word, so it needs more air before the name
+;; than `on`/`off` ever did. Every other kind keeps the geometry it has.
+(defn config-state-gap [kind: String] -> String
+  (if (identical? kind "hook") "  " " "))
+
 (js/export
  (defn render-config-panel [runtime: Any] -> Any
   (let [entries (.-configEntries runtime)
         total (if entries (.-length entries) 0)
+        ;; Derivation reads the whole manifest. A caller that has only the
+        ;; filtered rows (every sectioned view carries its own skills) gets the
+        ;; same answer from them.
+        stored-manifest (.-configAllEntries runtime)
+        manifest (if stored-manifest stored-manifest entries)
         config-filter (text-or (text (.-configFilter runtime)) "all")
         sections? (config-view-sections? config-filter)]
     (if (identical? total 0)
@@ -1903,13 +2004,26 @@
             stop (Math/min total (+ start window))
             width (Math/max 12 (- (terminal-columns) 12))
             parts [(brightYellow (config-panel-title config-filter))
-                   (brightBlack "  ↑/↓ move · space on/off · enter edit · esc close\n")]]
+                   (brightBlack "  ↑/↓ move · space toggle · enter edit · esc close\n")]]
         (.forEach (.slice entries start stop)
                   (fn [entry: Any offset: Int] -> Any
                     (let [i (+ start offset)
                           cursor? (identical? i index)
-                          on? (identical? (configentry-state entry) "on")
                           kind (configentry-kind entry)
+                          active? (config-entry-active? entry manifest)
+                          ;; A user pin is neither on nor off — it is the reason
+                          ;; a skill flip will not move this row — so it gets a
+                          ;; tone of its own rather than sharing off's dim.
+                          pinned? (and (identical? kind "hook")
+                                       (not (config-hook-enabled?
+                                             (configentry-state entry))))
+                          state-text (config-state-text entry active?)
+                          state-column (str (.padEnd state-text
+                                                     (config-state-width kind)
+                                                     " ")
+                                            (config-state-gap kind))
+                          label-width (Math/max 12
+                                                (- width (.-length state-column)))
                           prior (if (identical? i start)
                                   "" (configentry-kind (aget entries (- i 1))))
                           tail (if (identical? (+ i 1) stop) "" "\n")]
@@ -1917,10 +2031,13 @@
                         (.push parts (brightYellow
                                       (str (config-section-title kind) "\n"))))
                       (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
-                      (.push parts (if on? (brightGreen "on  ") (brightBlack "off ")))
+                      (.push parts ((cond pinned? brightYellow
+                                          active? brightGreen
+                                          :else brightBlack)
+                                    state-column))
                       (.push parts
                              ((if cursor? brightWhite brightBlack)
-                              (str (config-row-text entry width) tail))))))
+                              (str (config-row-text entry label-width) tail))))))
         (StyledText. parts))))))
 
 ;; ---------------------------------------------------------------------------
@@ -2113,30 +2230,18 @@
 (defn render-status
   [runtime: Any
    state: BridgeSnapshot] -> Any
-  (let [count-text (text (.-windowCount runtime))
-        workspace-notice (text (.-workspaceNotice runtime))
+  (let [workspace-notice (text (.-workspaceNotice runtime))
         notice (if (identical? workspace-notice "")
                  (visible-notice (bridgesnapshot-notice state)) workspace-notice)]
     (cond
-      (.-windowChord runtime)
-      (StyledText.
-       [(brightGreen "Ctrl-w")
-        (brightYellow (if (identical? count-text "") "" (str " · count " count-text)))
-        (brightBlack "  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")])
-
       (.-showHelp runtime)
       (StyledText.
        [(brightYellow "Northbridge keys\n")
-        (brightWhite "Tab") (brightBlack " switch pane · ")
-        (brightWhite "←/→") (brightBlack " switch work view · ")
-        (brightWhite "Ctrl-w h/j/k/l") (brightBlack " neighbor · ")
-        (brightWhite "w") (brightBlack " cycle · ")
-        (brightWhite "v/s") (brightBlack " side-by-side/stacked · ")
-        (brightWhite "c") (brightBlack " close · ")
-        (brightWhite "=") (brightBlack " equalize · ")
-        (brightWhite "[count] >/<") (brightBlack " resize\n")
+        (brightWhite "Tab") (brightBlack " swap Agents/Threads · ")
+        (brightWhite "←/→") (brightBlack " switch thread view\n")
         (brightWhite "Esc") (brightBlack " interrupt active turn · ")
         (brightWhite "/help") (brightBlack " commands · ")
+        (brightWhite "/q") (brightBlack " back, then quit · ")
         (brightWhite "/close|/esc|/exit") (brightBlack " close\n")
         (brightWhite "/glyph <one>|reset") (brightBlack " prompt · ")
         (brightWhite "/emoji <query>") (brightBlack " picker\n")
@@ -2146,32 +2251,56 @@
       :else
       (StyledText. [(brightBlack notice)]))))
 
-(defn render-pane-header
-  [title: String
-   _focused?: Bool] -> Any
-  (StyledText. [(brightGreen title)]))
+;; ---------------------------------------------------------------------------
+;; The view bar. One row, two views: `Agents | Threads`, and when Threads is
+;; showing it extends with that view's own tabs — `Agents | Threads > List
+;; Board Graph`. The active thing is green, everything else is faded, and every
+;; label is clickable. The CLI verb is `threads`; the view that shows them says
+;; the same word.
+;; ---------------------------------------------------------------------------
 
-(defn render-work-tabs!
-  [state: BridgeSnapshot
-   view-id: String
-   _focused?: Bool] -> Any
+(def AGENTS-TAB-LABEL: String "Agents")
+(def THREADS-TAB-LABEL: String "Threads")
+(def FRAME-TAB-SEPARATOR: String " | ")
+(def SUBVIEW-TAB-SEPARATOR: String " > ")
+
+(def THREADS-TAB-START: Int
+  (+ (.-length AGENTS-TAB-LABEL) (.-length FRAME-TAB-SEPARATOR)))
+
+(def SUBVIEW-TAB-ORIGIN: Int
+  (+ THREADS-TAB-START
+     (.-length THREADS-TAB-LABEL)
+     (.-length SUBVIEW-TAB-SEPARATOR)))
+
+(def SUBVIEW-TAB-GAP: Int 2)
+
+(js/export
+ (defn render-view-tabs
+  [frame: Any
+   state: BridgeSnapshot
+   view-id: String] -> Any
   (let [chunks []
+        threads? (threads-frame? frame)
         views (view-list state)]
-    (push-chunk! chunks (brightGreen "Work  "))
-    (.forEach
-     views
-     (fn
-       [view: WorkView
-        index: Int] -> Any
-       (let [selected? (identical? (workview-id view) view-id)
-             title (workview-title view)]
-         (push-chunk! chunks
-                      ((if selected? brightCyan brightBlack)
-                       (str (if selected? "[" " ") title (if selected? "]" " "))))
-         (when (< index (- (.-length views) 1))
-           (push-chunk! chunks (white "  "))))))
-    (push-chunk! chunks (brightBlack "  ← switch →"))
-    (StyledText. chunks)))
+    (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
+    (push-chunk! chunks (brightBlack FRAME-TAB-SEPARATOR))
+    (push-chunk! chunks ((if threads? brightGreen brightBlack) THREADS-TAB-LABEL))
+    (when threads?
+      (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
+      (.forEach
+       views
+       (fn
+         [view: WorkView
+          index: Int] -> Any
+         (let [selected? (identical? (workview-id view) view-id)
+               title (workview-title view)]
+           (push-chunk! chunks
+                        ((if selected? brightGreen brightBlack)
+                         (str (if selected? "[" " ") title (if selected? "]" " "))))
+           (when (< index (- (.-length views) 1))
+             (push-chunk! chunks (white "  "))))))
+      (push-chunk! chunks (brightBlack "  ← switch →")))
+    (StyledText. chunks))))
 
 (defn compact-text
   [value: Any
@@ -2203,15 +2332,9 @@
                 label)))
 
 (defn available-work-width
-  [runtime: Any
-   state: BridgeSnapshot] -> Int
-  (let [columns (terminal-columns)
-        agents-closed? (identical? (text (.-closedPane runtime)) "agents")
-        ratio (/ (or (.-paneRatio runtime) 50) 100)]
-    (Math/max 24
-              (if (or (stacked-workspace? state) agents-closed?)
-                (- columns 6)
-                (- (Math/floor (* (- columns 5) (- 1 ratio))) 3)))))
+  [_runtime: Any
+   _state: BridgeSnapshot] -> Int
+  (available-frame-width))
 
 (defn render-list-view!
   [runtime: Any
@@ -2364,7 +2487,7 @@
   (set! (.-workIndex runtime) index)
   (set! (.-model runtime)
         (select-thread (.-model runtime) (workitem-id item)))
-  (focus-pane-surface! runtime ui "work")
+  (show-frame! runtime ui "threads")
   (.scrollChildIntoView (.-workScroll ui) (board-card-id (workitem-id item))))
 
 (defn prefill-outcome!
@@ -2372,7 +2495,7 @@
    ui: Any
    thread-id: String] -> Any
   (set! (.-value (.-composerInput ui)) (str "/outcome @" thread-id " "))
-  (focus-pane! runtime ui "work")
+  (show-frame! runtime ui "threads")
   (set-board-notice! runtime
                      (str "Finish the outcome, then press Enter; Done is derived from north tell @"
                           thread-id " outcome <result>.")))
@@ -2597,10 +2720,20 @@
         :else
         (render-list-view! runtime items selected width)))))
 
+;; Pure: the grey hint in the composer. It always ends by naming the command set
+;; the focused frame answers to — the same slash means different things in the
+;; two frames, so which one has focus is never something you should have to
+;; remember.
+(js/export
+ (defn composer-hint
+  [pane: String
+   label: String] -> String
+  (if (identical? pane "agents")
+    (str "Message " label "… [Agent commands]")
+    "/list, /board, /graph, /capture, /filter, /assign [Thread commands]")))
+
 (defn minibuffer-placeholder [runtime: Any] -> String
-  (if (identical? (text (.-pane runtime)) "agents")
-    (str "Message " (main-agent-label) "…")
-    "/view list|board|graph, /capture, /filter, /assign"))
+  (composer-hint (text (.-frame runtime)) (main-agent-label)))
 
 ;; Pure: rows the slash palette may draw at once. `docked` is whatever the
 ;; detail panel is already spending, so an open switchboard shrinks the palette
@@ -2629,9 +2762,9 @@
 (defn render-minibuffer!
   [runtime: Any
    ui: Any] -> (Vec SlashCommand)
-  (let [pane (text (.-pane runtime))
+  (let [frame (text (.-frame runtime))
         input (.-composerInput ui)
-        options (palette-options pane (text (.-value input)))
+        options (palette-options frame (text (.-value input)))
         total (.-length options)
         index (Math/max 0 (Math/min (.-paletteIndex runtime) (Math/max 0 (- total 1))))
         docked (if (detail-open? runtime) (detail-height runtime) 0)
@@ -2667,15 +2800,12 @@
         board? (identical? (workview-id current) "board")]
     (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
-    (apply-workspace-geometry! runtime ui state)
-    (set! (.-content (.-agentsHeader ui))
-          (render-pane-header "Agents" (identical? (.-pane runtime) "agents")))
+    (apply-frame-visibility! runtime ui)
+    (set! (.-content (.-viewTabsText ui))
+          (render-view-tabs (.-frame runtime) state (workview-id current)))
     (set! (.-content (.-agentsText ui))
           (roster-text state (.-agentIndex runtime)))
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
-    (set! (.-content (.-tabsText ui))
-          (render-work-tabs! state (workview-id current)
-                             (identical? (.-pane runtime) "work")))
     (set! (.-visible (.-workText ui)) (not board?))
     (set! (.-visible (.-boardRoot ui)) board?)
     (if board?
@@ -2685,8 +2815,9 @@
             (work-content! runtime state current (.-workIndex runtime))))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-content (.-agentStatusText ui)) (render-status runtime state))
+    ;; One status line, inside whichever view is showing.
     (set! (.-visible (.-agentStatusText ui))
-          (identical? (text (.-closedPane runtime)) "work"))
+          (not (threads-frame? (.-frame runtime))))
     (render-prompt! runtime (.-composerPrompt ui))
     (set! (.-content (.-composerContextText ui)) (render-session-context runtime))
     (let [segments (agent-segments agents)
@@ -3097,6 +3228,17 @@
           nil))
       nil)))
 
+;; Capture takes nothing from the frame it was typed in: a title, the `north`
+;; CLI, and a refresh of the threads the agents frame may not even be showing.
+;; Both frames call this, which is why /capture is in both command sets.
+(defn capture-thread!
+  [runtime: Any
+   title: String] -> (Promise Any)
+  (when (identical? title "") (throw (Error. "capture requires a title")))
+  (let [output (js/await (run-command [NORTH-BIN "capture" title]))]
+    (publish-line! runtime (.trim (text output))))
+  (js/await (refresh! runtime)))
+
 (defn submit-agent!
   [runtime: Any
    ui: Any
@@ -3113,6 +3255,7 @@
       (cond
       (and slash? (exit-command? name)) (destroy! runtime)
       (and slash? (identical? name "launch")) (js/await (launch-agent! runtime rest "worker"))
+      (and slash? (identical? name "capture")) (js/await (capture-thread! runtime rest))
       (and slash? (identical? name "refresh")) (js/await (refresh! runtime))
       (and slash? (identical? name "popout"))
       (popout! runtime (text-or rest (text (.-activeView runtime))))
@@ -3159,32 +3302,10 @@
       (identical? name "filter")
       (do (set! (.-model runtime) (set-filter (.-model runtime) rest)) (.render runtime))
 
-      (identical? name "view")
-      (do
-        (when (not (recognized-work-view? rest))
-          (throw (Error. "view requires list, board, or graph")))
-        (set! (.-model runtime)
-              (focus-view (.-model runtime) (canonical-work-view rest)))
-        (set! (.-workIndex runtime) 0)
-        (.scrollTo (.-workScroll runtime) 0)
-        (.render runtime))
-
-      (identical? name "split")
-      (do (set! (.-model runtime)
-                (set-layout (.-model runtime)
-                                  (if (or (identical? rest "h") (identical? rest "horizontal"))
-                                    "horizontal" "vertical")))
-          (.render runtime))
-
       (identical? name "refresh") (js/await (refresh! runtime))
       (identical? name "popout") (popout! runtime (if (identical? rest "") (.-activeView runtime) rest))
 
-      (identical? name "capture")
-      (do
-        (when (identical? rest "") (throw (Error. "capture requires a title")))
-        (let [output (js/await (run-command [NORTH-BIN "capture" rest]))]
-          (publish-line! runtime (.trim (text output))))
-        (js/await (refresh! runtime)))
+      (identical? name "capture") (js/await (capture-thread! runtime rest))
 
       (identical? name "assign")
       (let [item (selected-work runtime selection)
@@ -3195,8 +3316,8 @@
                           (aget words 1)
                           (text (aget words 0)))
             thread-id (if item (workitem-id item) "")]
-        (when (identical? thread-id "") (throw (Error. "select work before assigning")))
-        (when (identical? prior "") (throw (Error. "unassigned work requires: /assign <prior-driver> <next-driver>")))
+        (when (identical? thread-id "") (throw (Error. "select a thread before assigning")))
+        (when (identical? prior "") (throw (Error. "an unassigned thread requires: /assign <prior-driver> <next-driver>")))
         (when (identical? next-driver "") (throw (Error. "assign requires a new driver")))
         (publish-line! runtime "driver reassignment is a retract-then-tell operation")
         (js/await (run-command [NORTH-BIN "retract" thread-id "driver" prior]))
@@ -3217,10 +3338,10 @@
         (js/await (refresh! runtime)))
 
       (identical? name "help")
-      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|board|graph, /split h|v, /refresh, /popout, /exit")
+      (publish-line! runtime "thread commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /list, /board, /graph, /agents, /refresh, /popout, /q, /exit")
 
       :else
-      (throw (Error. "unknown work command; use /help")))))))
+      (throw (Error. "unknown thread command; use /help")))))))
 
 (defn report-promise!
   [runtime: Any
@@ -3229,35 +3350,35 @@
           (fn [error: Any] -> Any
             (publish-line! runtime (str "error: " (error-message error))))))
 
-(defn select-pane!
+(defn select-frame!
   [runtime: Any
-   pane: String] -> Any
-  (set! (.-pane runtime) pane)
+   frame: String] -> Any
+  (set! (.-frame runtime) frame)
   (set! (.-paletteIndex runtime) 0)
   (set! (.-workspaceNotice runtime) "")
   (clear-strip-focus! runtime))
 
-(defn pane-box
-  [ui: Any
-   pane: String] -> Any
-  (if (identical? pane "agents") (.-agentsPane ui) (.-workPane ui)))
-
-(defn focus-pane!
+;; Swapping which view is on screen. The composer is shared by both and keeps
+;; the cursor throughout — there is no pane to focus, only a view to show.
+(defn show-frame!
   [runtime: Any
    ui: Any
-   pane: String] -> Any
-  (select-pane! runtime pane)
+   frame: String] -> Any
+  (select-frame! runtime frame)
   (.focus (.-composerInput ui))
   (.render runtime))
 
-(defn focus-pane-surface!
+;; Naming a thread view names the Threads view too: typed from Agents, /board
+;; is "show me the board", not "silently rearrange a screen I am not looking
+;; at".
+(defn show-thread-view!
   [runtime: Any
    ui: Any
-   pane: String] -> Any
-  (when (pane-visible? runtime pane)
-    (select-pane! runtime pane)
-    (.focus (pane-box ui pane))
-    (.render runtime)))
+   view-id: String] -> Any
+  (set! (.-model runtime) (focus-view (.-model runtime) (canonical-work-view view-id)))
+  (set! (.-workIndex runtime) 0)
+  (.scrollTo (.-workScroll runtime) 0)
+  (show-frame! runtime ui "threads"))
 
 (defn strip-segments [runtime: Any] -> (Vec AgentSegment)
   (agent-segments (bridgesnapshot-agents (snapshot (.-model runtime)))))
@@ -3331,322 +3452,16 @@
 (defn active-palette-options
   [runtime: Any
    ui: Any] -> (Vec SlashCommand)
-  (let [pane (text (.-pane runtime))
+  (let [frame (text (.-frame runtime))
         input (active-input runtime ui)]
-    (palette-options pane (text (.-value input)))))
+    (palette-options frame (text (.-value input)))))
 
-(defn pane-for-direction
-  [runtime: Any
-   state: BridgeSnapshot
-   direction: String] -> String
-  (let [pane (text (.-pane runtime))
-        layout (bridgesnapshot-layout state)]
-    (cond
-      (identical? direction "w")
-      (let [next-pane (if (identical? pane "agents") "work" "agents")]
-        (if (pane-visible? runtime next-pane) next-pane pane))
-
-      (and (identical? layout "vertical")
-           (identical? direction "h")
-           (identical? pane "work")
-           (pane-visible? runtime "agents")) "agents"
-
-      (and (identical? layout "vertical")
-           (identical? direction "l")
-           (identical? pane "agents")
-           (pane-visible? runtime "work")) "work"
-
-      (and (identical? layout "horizontal")
-           (identical? direction "k")
-           (identical? pane "work")
-           (pane-visible? runtime "agents")) "agents"
-
-      (and (identical? layout "horizontal")
-           (identical? direction "j")
-           (identical? pane "agents")
-           (pane-visible? runtime "work")) "work"
-
-      :else pane)))
-
-(defn restore-workspace!
-  [runtime: Any
-   ui: Any
-   layout: String] -> Any
-  (set! (.-closedPane runtime) "")
-  (set! (.-model runtime) (set-layout (.-model runtime) layout))
-  (focus-pane-surface! runtime ui (text (.-pane runtime))))
-
-(defn close-focused-pane!
-  [runtime: Any
-   ui: Any] -> Any
-  (if (not (identical? (text (.-closedPane runtime)) ""))
-    (do (set! (.-workspaceNotice runtime) "cannot close the last pane")
-        (.render runtime))
-    (let [pane (text (.-pane runtime))
-          survivor (if (identical? pane "agents") "work" "agents")]
-      (set! (.-closedPane runtime) pane)
-      (focus-pane-surface! runtime ui survivor))))
-
-(defn equalize-panes! [runtime: Any] -> Any
-  (set! (.-workspaceNotice runtime) "")
-  (set! (.-paneRatio runtime) 50)
-  (.render runtime))
-
-(defn resize-focused-pane!
-  [runtime: Any
-   ui: Any
-   amount: Int] -> Any
-  (when (identical? (text (.-closedPane runtime)) "")
-    (let [state (snapshot (.-model runtime))
-          total (workspace-primary-cells runtime ui state)
-          minimum (minimum-pane-cells state total)
-          ratio (clamp-pane-ratio! runtime ui state)
-          measured (if (stacked-workspace? state)
-                     (.-height (.-agentsPane ui)) (.-width (.-agentsPane ui)))
-          current (if (and (identical? (js/typeof measured) "number")
-                           (Number/isFinite measured)
-                           (> measured 0))
-                    (Math/round measured)
-                    (Math/round (* total (/ ratio 100))))
-          signed (if (identical? (text (.-pane runtime)) "agents") amount (- amount))
-          next (Math/max minimum (Math/min (- total minimum) (+ current signed)))]
-      (set! (.-workspaceNotice runtime) "")
-      (set! (.-paneRatio runtime) (* 100 (/ next total)))
-      (.render runtime))))
-
-;; ---------------------------------------------------------------------------
-;; Dragging the split. The divider is the agents pane's trailing border cell —
-;; its right edge when the panes sit side by side, its bottom edge when they
-;; stack. Grab it, move, and the same clamp the keyboard path uses decides how
-;; far the split may travel.
-;; ---------------------------------------------------------------------------
-
-;; Pure: which cell of the split a pointer is asking for, clamped so neither
-;; pane is squeezed below its minimum.
-(defn pointer-pane-cells
-  [pointer: Int
-   origin: Int
-   total: Int
-   minimum: Int] -> Int
-  (Math/max minimum (Math/min (- total minimum) (+ (- pointer origin) 1))))
-
-;; Pure: close enough to grab. One cell of slack on either side of the divider
-;; so the split does not demand pixel-perfect aim.
-(defn divider-grab?
-  [pointer: Int
-   origin: Int
-   cells: Int] -> Bool
-  (let [divider (+ origin (- cells 1))]
-    (and (>= pointer (- divider 1)) (<= pointer (+ divider 1)))))
-
-(defn measured-cells [value: Any] -> Int
-  (if (and (identical? (js/typeof value) "number")
-           (Number/isFinite value)
-           (> value 0))
-    (Math/round value)
-    0))
-
-(defn pane-pointer
-  [event: Any
-   stacked?: Bool] -> Int
-  (Math/round (if stacked? (.-y event) (.-x event))))
-
-(defn pane-origin
-  [ui: Any
-   stacked?: Bool] -> Int
-  (Math/round (if stacked? (.-y (.-agentsPane ui)) (.-x (.-agentsPane ui)))))
-
-(defn pane-divider-grabbed?
-  [runtime: Any
-   ui: Any
-   event: Any] -> Bool
-  (if (not (identical? (text (.-closedPane runtime)) ""))
-    false
-    (let [stacked? (stacked-workspace? (snapshot (.-model runtime)))
-          cells (measured-cells (if stacked?
-                                  (.-height (.-agentsPane ui))
-                                  (.-width (.-agentsPane ui))))]
-      (and (> cells 0)
-           (divider-grab? (pane-pointer event stacked?)
-                          (pane-origin ui stacked?)
-                          cells)))))
-
-(defn drag-pane-divider!
-  [runtime: Any
-   ui: Any
-   event: Any] -> Any
-  (when (identical? (text (.-closedPane runtime)) "")
-    (let [state (snapshot (.-model runtime))
-          stacked? (stacked-workspace? state)
-          total (workspace-primary-cells runtime ui state)
-          minimum (minimum-pane-cells state total)
-          cells (pointer-pane-cells (pane-pointer event stacked?)
-                                    (pane-origin ui stacked?)
-                                    total minimum)]
-      (set! (.-workspaceNotice runtime) "")
-      (set! (.-paneRatio runtime) (* 100 (/ cells total)))
-      (.render runtime))))
-
-(defn start-pane-drag!
-  [runtime: Any
-   ui: Any
-   event: Any] -> Bool
-  (if (not (pane-divider-grabbed? runtime ui event))
-    (do (set! (.-paneDragging runtime) false) false)
-    (do
-      (set! (.-paneDragging runtime) true)
-      (.preventDefault event)
-      (.stopPropagation event)
-      ;; A plain click on the divider is a one-step drag: the split lands where
-      ;; the pointer already is.
-      (drag-pane-divider! runtime ui event)
-      true)))
-
-(defn continue-pane-drag!
-  [runtime: Any
-   ui: Any
-   event: Any] -> Any
-  (when (.-paneDragging runtime)
-    (.preventDefault event)
-    (.stopPropagation event)
-    (drag-pane-divider! runtime ui event)))
-
-(defn end-pane-drag! [runtime: Any] -> Any
-  (set! (.-paneDragging runtime) false))
-
-(defn install-pane-divider!
-  [runtime: Any
-   ui: Any
-   pane: Any] -> Any
-  (set! (.-onMouseDrag pane)
-        (fn [event: Any] -> Any (continue-pane-drag! runtime ui event)))
-  (set! (.-onMouseDragEnd pane)
-        (fn [_event: Any] -> Any (end-pane-drag! runtime)))
-  (set! (.-onMouseUp pane)
-        (fn [_event: Any] -> Any (end-pane-drag! runtime))))
-
-(defn workspace-count [context: Any] -> Int
-  (let [payload (.-payload context)
-        raw (Number (if payload (.-count payload) 1))]
-    (if (and (Number/isFinite raw) (> raw 0)) (Math/floor raw) 1)))
-
-(defn workspace-action!
-  [runtime: Any
-   ui: Any
-   action: String
-   count: Int] -> Any
-  (let [state (snapshot (.-model runtime))]
-    (cond
-      (or (identical? action "h")
-          (identical? action "j")
-          (identical? action "k")
-          (identical? action "l")
-          (identical? action "w"))
-      (focus-pane-surface! runtime ui (pane-for-direction runtime state action))
-
-      (identical? action "v") (restore-workspace! runtime ui "vertical")
-      (identical? action "s") (restore-workspace! runtime ui "horizontal")
-      (identical? action "c") (close-focused-pane! runtime ui)
-      (identical? action "=") (equalize-panes! runtime)
-      (identical? action ">") (resize-focused-pane! runtime ui count)
-      (identical? action "<") (resize-focused-pane! runtime ui (- count))
-      :else nil)))
-
-(defn workspace-handler!
-  [runtime: Any
-   ui: Any
-   action: String] -> Any
-  (fn [context: Any] -> Any
-    (workspace-action! runtime ui action (workspace-count context))))
-
-(defn uncounted-workspace-bindings!
-  [runtime: Any
-   ui: Any] -> Any
-  [{:key "ctrl+w h" :cmd (workspace-handler! runtime ui "h")}
-   {:key "ctrl+w j" :cmd (workspace-handler! runtime ui "j")}
-   {:key "ctrl+w k" :cmd (workspace-handler! runtime ui "k")}
-   {:key "ctrl+w l" :cmd (workspace-handler! runtime ui "l")}
-   {:key "ctrl+w w" :cmd (workspace-handler! runtime ui "w")}
-   {:key "ctrl+w v" :cmd (workspace-handler! runtime ui "v")}
-   {:key "ctrl+w s" :cmd (workspace-handler! runtime ui "s")}
-   {:key "ctrl+w c" :cmd (workspace-handler! runtime ui "c")}
-   {:key "ctrl+w =" :cmd (workspace-handler! runtime ui "=")}
-   {:key "ctrl+w >" :cmd (workspace-handler! runtime ui ">")}
-   {:key "ctrl+w shift+." :cmd (workspace-handler! runtime ui ">")}
-   {:key "ctrl+w shift+>" :cmd (workspace-handler! runtime ui ">")}
-   {:key "ctrl+w <" :cmd (workspace-handler! runtime ui "<")}
-   {:key "ctrl+w shift+," :cmd (workspace-handler! runtime ui "<")}
-   {:key "ctrl+w shift+<" :cmd (workspace-handler! runtime ui "<")}])
-
-(defn add-counted-resize-bindings!
-  [bindings: Any
-   runtime: Any
-   ui: Any
-   action: String
-   suffix: String] -> Any
-  (.push bindings
-         {:key (str "{count}ctrl+w" suffix) :cmd (workspace-handler! runtime ui action)})
-  (.push bindings
-         {:key (str "ctrl+w{count}" suffix) :cmd (workspace-handler! runtime ui action)}))
-
-(defn counted-workspace-bindings!
-  [runtime: Any
-   ui: Any] -> Any
-  (let [bindings []]
-    (.forEach [">" "shift+." "shift+>"]
-              (fn [suffix: String] -> Any
-                (add-counted-resize-bindings! bindings runtime ui ">" suffix)))
-    (.forEach ["<" "shift+," "shift+<"]
-              (fn [suffix: String] -> Any
-                (add-counted-resize-bindings! bindings runtime ui "<" suffix)))
-    bindings))
-
-(defn count-key-match [key: Any] -> Any
-  (let [name (text (.-name key))]
-    (when (and (identical? (.-length name) 1)
-               (.includes "0123456789" name)
-               (not (.-ctrl key))
-               (not (.-shift key))
-               (not (or (.-meta key) (.-option key)))
-               (not (.-super key))
-               (not (.-hyper key)))
-      {:value name :display name})))
-
-(defn finalize-count [values: (Vec String)] -> Int
-  (Number (.join values "")))
-
-(defn pending-count-text [sequence: Any] -> String
-  (.join
-   (.map
-    (.filter sequence
-             (fn [part: Any] -> Bool
-               (identical? (text (.-patternName part)) "count")))
-    (fn [part: Any] -> String (text (.-display part))))
-   ""))
-
-(defn install-workspace-keymap!
-  [runtime: Any
-   ui: Any] -> Any
-  (let [keymap (createDefaultOpenTuiKeymap (.-renderer runtime))
-        counted (counted-workspace-bindings! runtime ui)]
+;; The composer's editing keys. Nothing else registers a layer any more: with
+;; one view on screen there are no window chords to arbitrate.
+(defn install-composer-keymap! [runtime: Any] -> Any
+  (let [keymap (createDefaultOpenTuiKeymap (.-renderer runtime))]
     (registerEmacsBindings keymap)
     (registerEscapeClearsPendingSequence keymap)
-    (.registerSequencePattern keymap
-                              {:name "count" :display "[count]" :payloadKey "count"
-                               :min 1 :max 9 :match count-key-match :finalize finalize-count})
-    (.registerLayer keymap
-                    {:priority 50 :bindings (uncounted-workspace-bindings! runtime ui)})
-    (.registerLayer keymap
-                    {:target (.-agentsPane ui) :targetMode "focus" :priority 60
-                     :bindings counted})
-    (.registerLayer keymap
-                    {:target (.-workPane ui) :targetMode "focus" :priority 60
-                     :bindings counted})
-    (.on keymap "pendingSequence"
-         (fn [sequence: Any] -> Any
-           (set! (.-windowChord runtime) (> (.-length sequence) 0))
-           (set! (.-windowCount runtime) (pending-count-text sequence))
-           (.render runtime)))
     (set! (.-keymap runtime) keymap)))
 
 (defn complete-palette!
@@ -3680,7 +3495,7 @@
          (let [input (.trim (text (.-value (.-composerInput ui))))]
            (when (not (identical? input ""))
              (set! (.-value (.-composerInput ui)) "")
-             (if (identical? (text (.-pane runtime)) "agents")
+             (if (not (threads-frame? (.-frame runtime)))
                (let [state (snapshot (.-model runtime))
                      agents (bridgesnapshot-agents state)
                      selected (if (> (.-length agents) 0)
@@ -3691,19 +3506,14 @@
                                               (->WorkSelection (.-activeView runtime)
                                                                (.-workIndex runtime))))))))))
 
-;; Cells render-work-tabs! spends before the first tab ("Work  ") and between
-;; two tabs. The tab row is derived from view-list, so reordering the views
-;; moves the hit boxes with them — there are no hand-counted column ranges left
-;; to drift out of step with what is drawn.
-(def WORK-TAB-ORIGIN: Int 6)
-
-(def WORK-TAB-GAP: Int 2)
-
-;; Pure: which view owns a column on the tab line, "" for the gaps.
-(defn work-tab-id-at
+;; Pure: which thread view owns a column past the sub-view origin, "" for the
+;; gaps. The row is derived from view-list and the origin from the labels, so
+;; reordering the views or renaming a label moves the hit boxes with them —
+;; there are no hand-counted column ranges left to drift out of step.
+(defn subview-tab-id-at
   [views: (Vec WorkView)
    column: Int] -> String
-  (let [cursor {:x WORK-TAB-ORIGIN :id ""}]
+  (let [cursor {:x SUBVIEW-TAB-ORIGIN :id ""}]
     (.forEach views
               (fn [view: WorkView] -> Any
                 (let [start (.-x cursor)
@@ -3711,25 +3521,44 @@
                       width (+ (.-length (workview-title view)) 2)]
                   (when (and (>= column start) (< column (+ start width)))
                     (set! (.-id cursor) (workview-id view)))
-                  (set! (.-x cursor) (+ start width WORK-TAB-GAP)))))
+                  (set! (.-x cursor) (+ start width SUBVIEW-TAB-GAP)))))
     (text (.-id cursor))))
 
-(defn work-tab-at
-  [tabs: Any
+;; Pure: what a column on the view bar means — "agents", "threads", a thread
+;; view id, or "" for the parts that are not a label. The sub-view tabs are only
+;; there, and only clickable, while Threads is showing.
+(js/export
+ (defn view-tab-id-at
+  [frame: Any
+   views: (Vec WorkView)
+   column: Int] -> String
+  (cond
+    (and (>= column 0) (< column (.-length AGENTS-TAB-LABEL))) "agents"
+    (and (>= column THREADS-TAB-START)
+         (< column (+ THREADS-TAB-START (.-length THREADS-TAB-LABEL)))) "threads"
+    (and (threads-frame? frame) (>= column SUBVIEW-TAB-ORIGIN))
+    (subview-tab-id-at views column)
+    :else "")))
+
+(defn view-tab-at
+  [runtime: Any
+   tabs: Any
    event: Any
    views: (Vec WorkView)] -> String
-  (work-tab-id-at views (Math/floor (- (.-x event) (.-x tabs)))))
+  (view-tab-id-at (.-frame runtime)
+                  views
+                  (Math/floor (- (.-x event) (.-x tabs)))))
 
 (defn complete-clicked-palette!
   [runtime: Any
    ui: Any
-   pane: String
+   frame: String
    palette-renderable: Any
    event: Any] -> Any
   (when (identical? (.-button event) 0)
-    (select-pane! runtime pane)
+    (select-frame! runtime frame)
     (let [input (.-composerInput ui)
-          options (palette-options pane (text (.-value input)))
+          options (palette-options frame (text (.-value input)))
           row (Math/floor (- (.-y event) (.-y palette-renderable)))
           ;; The palette scrolls, so screen row N is option start+N. Rows past
           ;; the option rows are the overflow line, which is not clickable.
@@ -3804,27 +3633,11 @@
                   (set! (.-workIndex runtime) index)
                   (set! (.-model runtime)
                         (select-thread (.-model runtime) (workitem-id item)))))
-              (focus-pane-surface! runtime ui "work"))))))))
+              (.render runtime))))))))
 
 (defn install-mouse!
   [runtime: Any
    ui: Any] -> Any
-  ;; Both panes carry the divider handlers: the grab starts on the agents
-  ;; pane's trailing border, but the first drag sample can already have crossed
-  ;; into the work pane, and whichever renderable that sample hits is the one
-  ;; the runtime captures for the rest of the gesture.
-  (set! (.-onMouseDown (.-agentsPane ui))
-        (fn [event: Any] -> Any
-          (when (identical? (.-button event) 0)
-            (when (not (start-pane-drag! runtime ui event))
-              (focus-pane-surface! runtime ui "agents")))))
-  (set! (.-onMouseDown (.-workPane ui))
-        (fn [event: Any] -> Any
-          (when (identical? (.-button event) 0)
-            (when (not (start-pane-drag! runtime ui event))
-              (focus-pane-surface! runtime ui "work")))))
-  (install-pane-divider! runtime ui (.-agentsPane ui))
-  (install-pane-divider! runtime ui (.-workPane ui))
   (set! (.-onMouseDown (.-composer ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
@@ -3845,24 +3658,24 @@
               (focus-strip! runtime ui)))))
   (set! (.-onMouseDown (.-composerPalette ui))
         (fn [event: Any] -> Any
-          (complete-clicked-palette! runtime ui (text (.-pane runtime))
+          (complete-clicked-palette! runtime ui (text (.-frame runtime))
                                      (.-composerPalette ui) event)))
   (set! (.-onMouseDown (.-workText ui))
         (fn [event: Any] -> Any
           (handle-list-click! runtime ui event)))
-  (set! (.-onMouseDown (.-tabsText ui))
+  (set! (.-onMouseDown (.-viewTabsText ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
-            (let [view-id (work-tab-at (.-tabsText ui) event
-                                       (view-list (snapshot (.-model runtime))))]
-              (when (not (identical? view-id ""))
+            (let [tab (view-tab-at runtime (.-viewTabsText ui) event
+                                   (view-list (snapshot (.-model runtime))))]
+              (when (not (identical? tab ""))
                 (.preventDefault event)
                 (.stopPropagation event)
-                (set! (.-model runtime)
-                      (focus-view (.-model runtime) (canonical-work-view view-id)))
-                (set! (.-workIndex runtime) 0)
-                (.scrollTo (.-workScroll ui) 0)
-                (focus-pane-surface! runtime ui "work")))))))
+                (if (identical? tab "agents")
+                  (show-frame! runtime ui "agents")
+                  (if (identical? tab "threads")
+                    (show-frame! runtime ui "threads")
+                    (show-thread-view! runtime ui tab)))))))))
 
 (defn ctrl-down-key?
   [name: String
@@ -3913,7 +3726,7 @@
                  palette (active-palette-options runtime ui)
                  palette-open (> (.-length palette) 0)
                  plain-view-arrow
-                 (and (identical? (text (.-pane runtime)) "work")
+                 (and (threads-frame? (.-frame runtime))
                       (identical? (.trim (text (.-value (.-composerInput ui)))) "")
                       (not (.-ctrl key))
                       (not meta)
@@ -4035,8 +3848,8 @@
              (or (identical? name "tab") (identical? name "f2"))
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (focus-pane! runtime ui
-                              (if (identical? (.-pane runtime) "agents") "work" "agents")))
+                 (show-frame! runtime ui
+                              (if (threads-frame? (.-frame runtime)) "agents" "threads")))
 
              (identical? name "f1")
              (do (.preventDefault key)
@@ -4060,21 +3873,9 @@
                    next-id (text (.-id (aget views next-index)))]
                (.preventDefault key)
                (.stopPropagation key)
-               (set! (.-model runtime)
-                     (focus-view (.-model runtime) next-id))
-               (set! (.-workIndex runtime) 0)
-               (.scrollTo (.-workScroll ui) 0)
-               (.render runtime))
-
-             (or (identical? name "f4") (and meta (identical? name "s")))
-             (let [state (snapshot (.-model runtime))]
-               (.preventDefault key)
-               (.stopPropagation key)
-               (set! (.-model runtime)
-                     (set-layout (.-model runtime)
-                                 (if (identical? (bridgesnapshot-layout state) "horizontal")
-                                   "vertical" "horizontal")))
-               (.render runtime))
+               ;; Same rule as /list: naming a thread view brings it on screen
+               ;; rather than rearranging something you are not looking at.
+               (show-thread-view! runtime ui next-id))
 
              (or (identical? name "f5") (and (.-ctrl key) (identical? name "r")))
              (do (.preventDefault key)
@@ -4091,7 +3892,7 @@
                    delta (if (identical? name "k") -1 1)]
                (.preventDefault key)
                (.stopPropagation key)
-               (if (identical? (.-pane runtime) "agents")
+               (if (not (threads-frame? (.-frame runtime)))
                  (let [agents (bridgesnapshot-agents state)
                        max-index (Math/max 0 (- (.-length agents) 1))
                        next-index (Math/max 0 (Math/min max-index (+ (.-agentIndex runtime) delta)))
@@ -4137,7 +3938,7 @@
         runtime {:model (make-model view)
                  :renderer renderer
                  :disposed false
-                 :pane "agents"
+                 :frame BOOT-FRAME
                  :activeView view
                  :agentIndex 0
                  :workIndex 0
@@ -4178,12 +3979,7 @@
                  :soundSequence 0
                  :lastSoundPath ""
                  :lastSoundAt 0
-                 :windowChord false
-                 :windowCount ""
                  :workspaceNotice ""
-                 :closedPane ""
-                 :paneRatio 50
-                 :paneDragging false
                  :keymap nil
                  :sessionModel (text-or (.-NORTH_BRIDGE_MODEL (.-env process))
                                         (text (.-AGENT_MODEL (.-env process))))
@@ -4201,21 +3997,20 @@
                               :gap 0 :paddingTop 1 :paddingBottom 0
                               :paddingLeft 1 :paddingRight 1
                               :onSizeChange (fn [] -> Any (.render runtime))})
+        ;; One view at a time, so the workspace holds two full-width
+        ;; containers and shows exactly one of them.
         workspace (BoxRenderable. renderer {:flexDirection "row" :width "100%"
                                              :flexGrow 1 :gap 0})
-        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%"
-                                               :border ["right"] :borderColor "#64748b"
-                                               :focusable true})
-        work-pane (BoxRenderable. renderer {:flexDirection "column" :width "50%"
-                                             :focusable true})
-        agents-header (TextRenderable. renderer {:height 1 :flexShrink 0 :wrapMode "none"})
+        view-tabs-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
+                                                    :wrapMode "none" :truncate true})
+        agents-pane (BoxRenderable. renderer {:flexDirection "column" :width "100%"})
+        work-pane (BoxRenderable. renderer {:flexDirection "column" :width "100%"})
         agents-text (TextRenderable. renderer {:height 4 :flexShrink 0 :wrapMode "word"})
         transcript-scroll (ScrollBoxRenderable. renderer {:flexGrow 1 :scrollY true
                                                            :stickyScroll true :stickyStart "bottom"
                                                            :viewportCulling true
                                                            :verticalScrollbarOptions {:visible false}})
         transcript-text-view (TextRenderable. renderer {:width "100%" :flexShrink 0 :wrapMode "word"})
-        tabs-text-view (TextRenderable. renderer {:height 1 :flexShrink 0 :wrapMode "none"})
         work-scroll (ScrollBoxRenderable. renderer {:flexGrow 1 :scrollY true :viewportCulling true
                                                      :verticalScrollbarOptions {:visible false}})
         work-text-view (TextRenderable. renderer {:width "100%" :flexShrink 0
@@ -4253,10 +4048,11 @@
                                           :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
                                           :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
                                           :placeholderColor "#6b7280"
-                                          :placeholder (str "Message " (main-agent-label) "…")})
-        ui {:root root :workspace workspace :agentsPane agents-pane :workPane work-pane
-            :agentsHeader agents-header :agentsText agents-text :transcriptText transcript-text-view
-            :tabsText tabs-text-view :workScroll work-scroll
+                                          :placeholder (composer-hint "agents" (main-agent-label))})
+        ui {:root root :agentsPane agents-pane :workPane work-pane
+            :viewTabsText view-tabs-text
+            :agentsText agents-text :transcriptText transcript-text-view
+            :workScroll work-scroll
             :workText work-text-view :boardRoot board-root
             :statusText status-text :agentStatusText agent-status-text
             :composerPalette composer-palette :composer composer
@@ -4264,12 +4060,10 @@
             :composerPrompt composer-prompt :composerInput composer-input
             :agentStripText agent-strip-text
             :detailPanel detail-panel :detailText detail-text}]
-    (.add agents-pane agents-header)
     (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
     (.add agents-pane transcript-scroll)
     (.add agents-pane agent-status-text)
-    (.add work-pane tabs-text-view)
     (.add work-scroll work-text-view)
     (.add work-scroll board-root)
     (.add work-pane work-scroll)
@@ -4278,6 +4072,7 @@
     (.add composer composer-input)
     (.add workspace agents-pane)
     (.add workspace work-pane)
+    (.add root view-tabs-text)
     (.add root workspace)
     (.add root composer-palette)
     (.add root composer)
@@ -4297,7 +4092,7 @@
     (set! (.-render runtime) (fn [] -> Any (render-ui! runtime ui)))
     (install-input! runtime ui)
     (install-mouse! runtime ui)
-    (install-workspace-keymap! runtime ui)
+    (install-composer-keymap! runtime)
     (install-process-cleanup! runtime)
     (install-global-exit! runtime)
     (install-keys! runtime ui)

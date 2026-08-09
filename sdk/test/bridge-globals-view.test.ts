@@ -21,8 +21,9 @@ Object.defineProperty(process.stdout, "columns", { value: COLUMNS, configurable:
 
 // The layout reserves these before the docked panel gets a row: the frame
 // chrome and the workspace floor. A panel taller than the difference eats the
-// workspace's minimum.
-const CHROME_ROWS = 4;
+// workspace's minimum. Chrome is five rows since the view bar moved to the top
+// of the frame: padding, view bar, composer, context line, agent strip.
+const CHROME_ROWS = 5;
 const MIN_WORKSPACE_ROWS = 4;
 const PANEL_BUDGET = ROWS - CHROME_ROWS - MIN_WORKSPACE_ROWS;
 
@@ -39,14 +40,14 @@ const MANIFEST: Row[] = [
   row("item", "agents-md", "on"),
   row("item", "code-md"),
   row("item", "statusline"),
-  row("hook", "firn-guard", "on"),
-  row("hook", "worktree-guard"),
+  row("hook", "firn-guard", "enabled", "firn"),
+  row("hook", "worktree-guard", "enabled"),
   row("skill", "webdev"),
   row("skill", "firn", "on"),
   row("item", "orchestration", "on"),
   row("plugin", "typescript-lsp@claude-plugins-official", "on"),
-  row("dir", "north", "on", "/home/tom/code/north"),
-  row("dir", "nixos-config", "off", "/home/tom/code/nixos-config"),
+  row("dir", "north", "on", "/tmp/switchboard-fixture/north"),
+  row("dir", "nixos-config", "off", "/tmp/switchboard-fixture/nixos-config"),
 ];
 
 const kinds = (rows: Row[]) => rows.map((r) => r.kind);
@@ -80,8 +81,8 @@ test("sectioned views group by kind so each section prints one header", () => {
   expect(kinds(all)).toEqual([
     "item", "item", "item", "item",
     "dir", "dir",
-    "hook", "hook",
     "skill", "skill",
+    "hook", "hook",
     "plugin",
   ]);
   // Stable within a kind: orchestration keeps its manifest position relative to
@@ -92,7 +93,7 @@ test("sectioned views group by kind so each section prints one header", () => {
 
   const globals = configViewRows(MANIFEST.slice(), "globals") as Row[];
   expect(kinds(globals)).toEqual([
-    "item", "item", "item", "item", "hook", "hook", "skill", "skill",
+    "item", "item", "item", "item", "skill", "skill", "hook", "hook",
   ]);
 
   const agentsmd = configViewRows(MANIFEST.slice(), "agentsmd") as Row[];
@@ -139,7 +140,7 @@ test("a manifest with a fifth kind still fits the docked panel", () => {
   // is load-bearing rather than slack.
   const long: Row[] = [];
   for (let i = 0; i < 5; i += 1) long.push(row("item", `item-${i}`));
-  for (let i = 0; i < 5; i += 1) long.push(row("dir", `dir-${i}`, "on", `/home/tom/code/d${i}`));
+  for (let i = 0; i < 5; i += 1) long.push(row("dir", `dir-${i}`, "on", `/tmp/switchboard-fixture/d${i}`));
   for (let i = 0; i < 5; i += 1) long.push(row("hook", `hook-${i}`));
   for (let i = 0; i < 5; i += 1) long.push(row("skill", `skill-${i}`));
   for (let i = 0; i < 20; i += 1) long.push(row("plugin", `plugin-${i}`));
@@ -197,8 +198,8 @@ test("/agentsmd answers which context files exist and which are on", async () =>
   expect(frame).toContain("DIRECTORY CONTEXT");
   expect(frame).toContain("agents-md");
   // Slug plus state plus the directory the CLI hands over, on one row.
-  expect(frame).toContain("north  /home/tom/code/north");
-  expect(frame).toContain("nixos-config  /home/tom/code/nixos-config");
+  expect(frame).toContain("north  /tmp/switchboard-fixture/north");
+  expect(frame).toContain("nixos-config  /tmp/switchboard-fixture/nixos-config");
   expect(frame).toContain("on ");
   expect(frame).toContain("off ");
   // Other singletons are switches, not context files.
