@@ -114,7 +114,7 @@
    :summary "inject a message into a running agent"
    :card {:section :agents :form "north msg <id> \"<msg>\""
           :text "nudge it mid-flight"}}
-  {:verb "retask" :form "north retask <id> \"<goal>\"" :topic :agents
+  {:verb "goal" :form "north goal <id> \"<goal>\"" :topic :agents
    :summary "redirect a running agent's goal"}
   {:verb "trace" :form "north trace <id>" :topic :agents
    :summary "diagnose one agent's lifecycle; flags the first failing stage"}

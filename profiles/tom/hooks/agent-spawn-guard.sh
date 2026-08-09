@@ -610,7 +610,7 @@ def is_direct_spawn(command, args, cwd):
         if config_mutation:
             return config_mutation
 
-    if name == "north" and args[:1] and args[0] in ("spawn", "delegate", "msg", "retask"):
+    if name == "north" and args[:1] and args[0] in ("spawn", "delegate", "msg", "goal"):
         # Bare verbs print usage; a composed --dry-run does not launch a lane.
         dry_run_safe = args[0] in ("spawn", "delegate", "msg") and safe_dry_run(args[1:])
         if len(args) > 1 and not dry_run_safe:
@@ -628,7 +628,7 @@ def is_direct_spawn(command, args, cwd):
         if (normalized.endswith("/north/cli/agents-cli.clj")
                 or normalized.endswith("/cli/agents-cli.clj")
                 or normalized == "cli/agents-cli.clj"):
-            if entry_args[:1] and entry_args[0] in ("spawn", "delegate", "msg", "retask"):
+            if entry_args[:1] and entry_args[0] in ("spawn", "delegate", "msg", "goal"):
                 dry_run_safe = entry_args[0] in ("spawn", "delegate", "msg") and safe_dry_run(entry_args[1:])
                 if len(entry_args) > 1 and not dry_run_safe:
                     return "agents-cli.clj " + entry_args[0]

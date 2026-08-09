@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; agents-cli.clj — north's agent verbs: spawn · delegate · agents · watch · tell · retask.
+;; agents-cli.clj — north's agent verbs: spawn · delegate · agents · watch · tell · goal.
 ;; Agents are a NORTH concern (spawns run on the north substrate, register presence,
 ;; write facts); this file is their CLI home. bin/north routes the verbs here.
 ;; Ported from the convoy cockpit 2026-07-09 when the ownership rule moved the
@@ -2139,7 +2139,7 @@
                 (let [status (:exit r)]
                   (if (and (integer? status) (pos? status)) status 2))))))))))
 
-;; retask: typed managed-identity update. The private publisher replaces the
+;; goal: typed managed-identity update. The private publisher replaces the
 ;; multi-cardinality goal/cache values, reads them back, and recommits the
 ;; manifest; generic fact writes would leave the lane corrupt.
 (def max-safe-fence-epoch 9007199254740991)
@@ -2164,7 +2164,7 @@
         (str HOME "/.local/state/north/agents"))))
   ([bare directory]
    (when-not (valid-control-id? bare)
-     (throw (ex-info "retask requires a safe agent id"
+     (throw (ex-info "north goal requires a safe agent id"
                      {:type :invalid-saved-presence-fence :agent bare})))
    (let [directory-file (.getCanonicalFile (io/file directory))
         file (io/file directory-file (str bare ".presence-fence.json"))
@@ -2173,7 +2173,7 @@
                               [java.nio.file.LinkOption/NOFOLLOW_LINKS])]
     (when (or (java.nio.file.Files/isSymbolicLink path)
               (not (java.nio.file.Files/isRegularFile path no-follow)))
-      (throw (ex-info "retask requires a regular saved presence fence"
+      (throw (ex-info "north goal requires a regular saved presence fence"
                       {:type :invalid-saved-presence-fence
                        :path (.getPath file)})))
     (let [permissions
@@ -2219,10 +2219,10 @@
                            :agent bare})))
         (json/generate-string expected))))))
 
-(defn cmd-retask [[id goal & _]]
-  (north.topology-authority/require-coordination! "retask")
+(defn cmd-goal [[id goal & _]]
+  (north.topology-authority/require-coordination! "goal")
   (if (or (nil? id) (nil? goal))
-    (println (red "usage:") "north retask <agent-id> \"<new-goal>\"")
+    (println (red "usage:") "north goal <agent-id> \"<new-goal>\"")
     (let [subj (str "agent:" (str/replace-first id #"^@?(agent:)?" ""))
           bare (subs subj (count "agent:"))
           facts (assoc (or (agent-facts-one bare) {}) "goal" goal)
@@ -2230,13 +2230,13 @@
           update (json/generate-string {"goal" goal "display_name" dn})
           presence-fence (saved-presence-fence-json! bare)
           result (run ["bb" (str NORTH "/cli/agent-fact-internal.clj")
-                       PORT "retask" subj update "" "" "" "" ""
+                       PORT "goal" subj update "" "" "" "" ""
                        presence-fence]
                       :timeout 10000)]
       (if (:ok result)
-        (do (println (grn "retasked") (bold bare))
+        (do (println (grn "goal set") (bold bare))
             (println "  " dn))
-        (do (println (red "retask failed"))
+        (do (println (red "goal update failed"))
             (println (str/trim (str (:out result) (:err result)))))))))
 
 ;; ---- structured scope-overrun canary ---------------------------------------
@@ -2376,10 +2376,10 @@
         "watch"   (cmd-watch args)
         "msg"   (let [status (cmd-tell-agent args)]
                     (when (pos? status) (System/exit status)))
-        "retask"  (cmd-retask args)
+        "goal"  (cmd-goal args)
         "escalate" (let [status (cmd-escalate args)]
                      (when (pos? status) (System/exit status)))
-        (do (println "usage: north {agents|templates|spawn|delegate|watch|msg|retask|escalate} ...")
+        (do (println "usage: north {agents|templates|spawn|delegate|watch|msg|goal|escalate} ...")
             (System/exit 1)))
       (catch clojure.lang.ExceptionInfo error
         (if (or (north.topology-authority/denial? error)

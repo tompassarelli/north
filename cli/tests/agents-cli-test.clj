@@ -717,7 +717,7 @@
 
 (let [directory (.toFile
                  (java.nio.file.Files/createTempDirectory
-                  "north-retask-fence-"
+                  "north-goal-fence-"
                   (make-array java.nio.file.attribute.FileAttribute 0)))
       bare "lane-fence"
       fence-file (io/file directory (str bare ".presence-fence.json"))
@@ -729,13 +729,13 @@
   (try
     (spit fence-file valid)
     (java.nio.file.Files/setPosixFilePermissions (.toPath fence-file) owner-only)
-    (check "retask consumes the exact canonical saved presence fence"
+    (check "goal consumes the exact canonical saved presence fence"
            (= (str/trim valid)
               (saved-presence-fence-json! bare (.getPath directory))))
     (java.nio.file.Files/setPosixFilePermissions
      (.toPath fence-file)
      #{java.nio.file.attribute.PosixFilePermission/OWNER_READ})
-    (check "retask refuses a saved presence fence whose mode is not 0600"
+    (check "goal refuses a saved presence fence whose mode is not 0600"
            (try
              (saved-presence-fence-json! bare (.getPath directory))
              false
@@ -743,7 +743,7 @@
     (java.nio.file.Files/setPosixFilePermissions (.toPath fence-file) owner-only)
     (spit fence-file
           "{\"resource\":\"session:other\",\"holder\":\"lane-fence\",\"epoch\":7}\n")
-    (check "retask refuses a presence fence bound to another session"
+    (check "goal refuses a presence fence bound to another session"
            (try
              (saved-presence-fence-json! bare (.getPath directory))
              false
@@ -753,13 +753,13 @@
     (let [captured (atom nil)]
       (with-redefs [north.topology-authority/require-coordination! (fn [_] true)
                     agent-facts-one (fn [_] {"kind" "lane"})
-                    render-display-name (fn [_ _] "Retasked lane")
+                    render-display-name (fn [_ _] "Goal-updated lane")
                     saved-presence-fence-json! (fn [_] (str/trim valid))
                     run (fn [argv & _]
                           (reset! captured argv)
                           {:ok true :out "" :err ""})]
-        (cmd-retask [bare "new goal"])
-        (check "retask passes five empty optional slots then the exact fence"
+        (cmd-goal [bare "new goal"])
+        (check "goal passes five empty optional slots then the exact fence"
                (= ["" "" "" "" "" (str/trim valid)]
                   (subvec (vec @captured) 6 12)))))
     (finally

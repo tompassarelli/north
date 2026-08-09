@@ -41,7 +41,7 @@
     "live_input_epoch" "model" "effort"})
 (def projection-predicates #{"display_handle" "display_name"})
 (def route-predicates (into route-authority-predicates projection-predicates))
-(def retask-overlay-predicates #{"goal" "display_name"})
+(def goal-overlay-predicates #{"goal" "display_name"})
 (def route-generation-predicates (disj route-predicates "display_name"))
 (def identity-predicates north.agent-provenance/identity-predicates)
 (def publish-predicates (into identity-predicates projection-predicates))
@@ -56,7 +56,7 @@
 ;; pair still fails closed instead of being silently corrected. The SDK derives
 ;; the lease from the timeout it declares (identity.ts internalWriteLeaseTtlMs),
 ;; because the terminal path's timeout scales with the publication budget. The
-;; defaults below serve only env-less callers (north retask, the lane janitor's
+;; defaults below serve only env-less callers (north goal, the lane janitor's
 ;; reaped-terminal writer), which use the 10s writer budget.
 (def writer-timeout-bound-ms
   (parse-long (or (System/getenv "NORTH_IDENTITY_WRITER_TIMEOUT_MS") "10000")))
@@ -569,34 +569,34 @@
   (= (apply dissoc actual ignored)
      (apply dissoc expected ignored)))
 
-(defn retask-drift?
+(defn goal-drift?
   [actual expected]
   (not= (get actual "goal") (get expected "goal")))
 
 (defn effective-route-desired
-  "Rebase caller-owned route axes onto the graph's current retask overlay. Goal
+  "Rebase caller-owned route axes onto the graph's current goal overlay. Goal
   is authoritative and independently mutable. display_name is a cross-derived
   cache: update it from the caller only when goal did not move; otherwise keep
-  the retask writer's cache instead of restoring stale text."
+  the goal writer's cache instead of restoring stale text."
   [actual expected desired]
-  (let [retasked? (retask-drift? actual expected)]
+  (let [goal-drifted? (goal-drift? actual expected)]
     (cond-> (assoc desired "goal" (get actual "goal"))
-      retasked? (assoc "display_name" (get actual "display_name")))))
+      goal-drifted? (assoc "display_name" (get actual "display_name")))))
 
 (defn route-mutation-predicates
   [actual expected]
   (cond-> route-generation-predicates
-    (not (retask-drift? actual expected)) (conj "display_name")))
+    (not (goal-drift? actual expected)) (conj "display_name")))
 
 (declare values-compatible-with-transition?)
 
 (defn route-prefix-compatible?
   "Recognize only a killed route prefix. Route publication never mutates the
-  retask-owned goal and preserves display_name when goal has advanced, so that
+  goal-verb-owned goal and preserves display_name when goal has advanced, so that
   overlay remains recoverable even when the SDK carried a stale full identity."
   [snapshot expected desired]
   (let [actual (singleton-facts snapshot publish-predicates)
-        retasked? (retask-drift? actual expected)
+        goal-drifted? (goal-drift? actual expected)
         mutation-predicates (route-mutation-predicates actual expected)
         stable-predicates (apply disj publish-predicates mutation-predicates)
         stable-expected (effective-route-desired actual expected expected)]
@@ -604,7 +604,7 @@
      (empty? (get snapshot marker-predicate #{}))
      (empty? (exact-projection
               snapshot (conj terminal-predicates terminal-marker-predicate)))
-     ;; Every non-route predicate remains exact. For a retasked generation this
+     ;; Every non-route predicate remains exact. For a goal-drifted generation this
      ;; intentionally accepts its one nonblank goal/cache value, not the stale
      ;; caller copy; the route writer never withdrew either value.
      (every?
@@ -615,7 +615,7 @@
             (= #{expected-value} values)
             (empty? values))))
       stable-predicates)
-     (or (not retasked?)
+     (or (not goal-drifted?)
          (and (not (str/blank? (get actual "goal")))
               (not (str/blank? (get actual "display_name")))))
      (values-compatible-with-transition?
@@ -757,11 +757,11 @@
         (if (= "route" operation)
           (and current
                (identity-matches-except?
-                current desired retask-overlay-predicates))
+                current desired goal-overlay-predicates))
           (exact-committed-identity? before desired))]
     (cond
       ;; Lost acknowledgement after the marker committed: acknowledge without
-      ;; withdrawing it or touching a feed-visible generation. A later retask is
+      ;; withdrawing it or touching a feed-visible generation. A later goal update is
       ;; a legitimate successor overlay, not evidence that the route failed.
       desired-committed?
       (committed-result operation-id "exact_replay")
@@ -781,17 +781,17 @@
         (replace-identity-projection! port subject desired)
         (committed-result operation-id))
 
-      ;; Retask owns goal/display_name independently. Rebase route axes onto a
+      ;; The goal verb owns goal/display_name independently. Rebase route axes onto a
       ;; valid committed overlay rather than restoring the SDK's stale copy.
       (and (= "route" operation)
            current
            (identity-matches-except?
-            current expected retask-overlay-predicates))
+            current expected goal-overlay-predicates))
       (do
         (replace-route-projection! port subject before expected desired)
         (committed-result operation-id
-                          (when (retask-drift? current expected)
-                            "rebased_retask_overlay")))
+                          (when (goal-drift? current expected)
+                            "rebased_goal_overlay")))
 
       ;; Fresh initial publication.
       (and (= "publish" operation)
@@ -801,7 +801,7 @@
         (committed-result operation-id))
 
       ;; A route rewrite touches only its owned projection. Non-route identity,
-      ;; including a concurrent retask overlay, stays durable across every
+      ;; including a concurrent goal overlay, stays durable across every
       ;; killed prefix and supplies the exact rebase inputs on retry.
       (and (= "route" operation)
            (route-prefix-compatible? before expected desired))
@@ -911,9 +911,9 @@
           (validate-publish! identity)
           (commit-marker! port subject identity))))))
 
-(defn retask! [port subject facts]
+(defn goal! [port subject facts]
   (when-not (= #{"goal" "display_name"} (set (keys facts)))
-    (fail! "retask requires exactly goal and display_name" {:predicates (keys facts)}))
+    (fail! "north goal requires exactly goal and display_name" {:predicates (keys facts)}))
   (let [before (facts-of port subject)
         current (singleton-facts before publish-predicates)
         marker (first (get before marker-predicate))]
@@ -921,7 +921,7 @@
     (validate-publish! current)
     (when-not (= marker (sha256 (canonical (into (sorted-map)
                                                    (select-keys current identity-predicates)))))
-      (fail! "cannot retask an uncommitted or corrupted managed identity" {}))
+      (fail! "cannot set the goal of an uncommitted or corrupted managed identity" {}))
     (with-managed-rollback!
       port subject before
       (fn []
@@ -1124,7 +1124,7 @@
         (if (= "route" operation)
           (and current
                (identity-matches-except?
-                current desired retask-overlay-predicates)
+                current desired goal-overlay-predicates)
                (exact-native-identity? occurrences current))
           (exact-native-identity? occurrences desired))]
     (cond
@@ -1145,9 +1145,9 @@
       (and (= "route" operation)
            current
            (identity-matches-except?
-            current expected retask-overlay-predicates))
+            current expected goal-overlay-predicates))
       {:desired (effective-route-desired current expected desired)
-       :reason (when (retask-drift? current expected) "rebased_retask_overlay")}
+       :reason (when (goal-drift? current expected) "rebased_goal_overlay")}
 
       (and (= "publish" operation)
            (nil? expected) (empty? (managed-projection before)))
@@ -1329,14 +1329,14 @@
             (try (native-rpc! 'lease-release! client fence)
                  (catch Throwable _ nil))))))))
 
-(defn validate-retask! [facts]
+(defn validate-goal! [facts]
   (when-not (= #{"goal" "display_name"} (set (keys facts)))
-    (fail! "retask requires exactly goal and display_name"
+    (fail! "north goal requires exactly goal and display_name"
            {:predicates (set (keys facts))})))
 
-(defn native-retask!
+(defn native-goal!
   [client subject operation-id facts holder presence-fence]
-  (validate-retask! facts)
+  (validate-goal! facts)
   (let [deadline (+ (System/nanoTime) (* writer-timeout-bound-ms 1000000))
         acquire (native-acquire-lease! client subject holder)]
     (if-let [result (:result acquire)]
@@ -1424,7 +1424,7 @@
       (not (and current
                 (or (nil? expected)
                     (identity-matches-except?
-                     current expected retask-overlay-predicates))))
+                     current expected goal-overlay-predicates))))
       {:result (unresolved-result "indeterminate" operation-id
                                   "identity_generation_changed")}
 
@@ -1650,9 +1650,9 @@
           (entity (get delta "actor"))
           subject)
         presence-fence
-        (when (contains? #{"retask" "terminal" "attest"} operation)
+        (when (contains? #{"goal" "terminal" "attest"} operation)
           (presence-fence! presence-fence-raw presence-subject))]
-    (when-not (contains? #{"publish" "route" "retask" "terminal" "attest"}
+    (when-not (contains? #{"publish" "route" "goal" "terminal" "attest"}
                          operation)
       (fail! "unsupported managed agent fact operation"
              {:operation operation}))
@@ -1669,8 +1669,8 @@
              (native-publish-identity!
               client subject operation operation-id delta desired expected holder)
 
-             "retask"
-             (native-retask!
+             "goal"
+             (native-goal!
               client subject operation-id delta holder presence-fence)
 
              "terminal"

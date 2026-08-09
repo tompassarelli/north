@@ -337,16 +337,16 @@
              (= (north.agent-provenance/manifest-sha256 stored)
                 (get stored "identity_manifest_sha256"))))
 
-    (let [retask {"goal" "new durable goal"
+    (let [goal {"goal" "new durable goal"
                   "display_name" "anthropic:claude-c · opus · high · orchestration:bespoke:migration-forensics · new durable goal"}
-          retask-result (run-writer port "retask" subject (json/generate-string retask))
+          goal-result (run-writer port "goal" subject (json/generate-string goal))
           raw-stored (entity-facts port subject)
           stored (scalar-facts raw-stored)]
-      (check "typed retask is acknowledged" (zero? (:exit retask-result)))
-      (check "typed retask leaves exactly one goal and one display cache"
+      (check "typed goal is acknowledged" (zero? (:exit goal-result)))
+      (check "typed goal leaves exactly one goal and one display cache"
              (and (= #{"new durable goal"} (get raw-stored "goal"))
-                  (= #{(get retask "display_name")} (get raw-stored "display_name"))))
-      (check "typed retask recommits a startup-valid identity"
+                  (= #{(get goal "display_name")} (get raw-stored "display_name"))))
+      (check "typed goal recommits a startup-valid identity"
              (and (north.agent-provenance/managed-valid? stored)
                   (= (north.agent-provenance/manifest-sha256 stored)
                      (get stored "identity_manifest_sha256")))))
@@ -436,10 +436,10 @@
                         "display_handle" "openai-held-sol-high-integrator"
                         "display_name" "openai:codex-held · sol · high · orchestration:integrator"}
               :verify #(= #{"gpt-5.6-sol"} (get % "model"))}
-             {:operation "retask"
-              :payload {"goal" "held retask committed"
-                        "display_name" "held retask committed"}
-              :verify #(= #{"held retask committed"} (get % "goal"))}
+             {:operation "goal"
+              :payload {"goal" "held goal committed"
+                        "display_name" "held goal committed"}
+              :verify #(= #{"held goal committed"} (get % "goal"))}
              {:operation "terminal"
               :payload {"outcome" "ran" "process_outcome" "ran"
                         "delivery_outcome" "unverified"
@@ -496,7 +496,7 @@
           started (System/nanoTime)
           rejected
           (run-writer
-           port "retask" held-subject
+           port "goal" held-subject
            (json/generate-string
             {"goal" "must not land" "display_name" "must not land"})
            {"NORTH_IDENTITY_WRITER_TIMEOUT_MS" "1200"
@@ -585,7 +585,7 @@
                   (= (first markers)
                      (north.agent-provenance/manifest-sha256 stored)))))
 
-    (let [race-subject "@agent:identity-route-retask-race"
+    (let [race-subject "@agent:identity-route-goal-race"
           seeded
           (run-writer port "publish" race-subject
                       (json/generate-string preset))
@@ -604,18 +604,18 @@
                  (run-writer port "route" race-subject
                              (json/generate-string route))
                  (run-writer
-                  port "retask" race-subject
+                  port "goal" race-subject
                   (json/generate-string
-                   {"goal" (str "racing retask " index)
-                    "display_name" (str "racing retask " index)})))))
+                   {"goal" (str "racing goal " index)
+                    "display_name" (str "racing goal " index)})))))
            (range 16))
           results (mapv deref operations)
           raw-stored (entity-facts port race-subject)
           stored (scalar-facts raw-stored)
           markers (get raw-stored "identity_manifest_sha256" #{})]
-      (check "at least one concurrent route or retask wins"
+      (check "at least one concurrent route or goal wins"
              (some #(zero? (:exit %)) results))
-      (check "route/retask share the subject-local identity marker seam"
+      (check "route/goal share the subject-local identity marker seam"
              (and (zero? (:exit seeded))
                   (= 1 (count markers))
                   (north.agent-provenance/managed-valid? stored)
@@ -737,44 +737,44 @@
                   (= "conflicting_generation" (get-in result [:result :reason]))
                   (= before (entity-facts port subject)))))
 
-    (let [subject "@agent:managed-retask-before-route"
-          retasked (assoc preset
-                          "goal" "new retasked goal"
-                          "display_name" "retasked display cache")
+    (let [subject "@agent:managed-goal-before-route"
+          goal-updated (assoc preset
+                          "goal" "new goal-updated goal"
+                          "display_name" "goal-updated display cache")
           route-delta
-          {"provider" "openai" "provider_target" "codex-retasked"
+          {"provider" "openai" "provider_target" "codex-goal-updated"
            "live_input" "streaming" "live_input_state" "armed"
            "live_input_epoch" "00000000-0000-4000-8000-000000000131"
            "model" "gpt-5.6-sol" "effort" "xhigh"
-           "display_handle" "openai-retasked-sol-xhigh-integrator"
-           "display_name" "stale pre-retask route display"}
+           "display_handle" "openai-goal-updated-sol-xhigh-integrator"
+           "display_name" "stale pre-goal route display"}
           stale-desired (merge preset route-delta)
-          effective (merge retasked
+          effective (merge goal-updated
                            (select-keys route-delta
                                         test-route-generation-predicates))
           _seed (seed-identity! port subject preset)
-          retask-result
-          (run-writer port "retask" subject
+          goal-result
+          (run-writer port "goal" subject
                       (json/generate-string
-                       (select-keys retasked ["goal" "display_name"])))
+                       (select-keys goal-updated ["goal" "display_name"])))
           route-result
           (run-managed-writer
            port "route" subject (json/generate-string route-delta)
            "managed-agent-writer:00000000-0000-4000-8000-000000000131"
            (str (java.util.UUID/randomUUID)) stale-desired preset)
           stored (scalar-facts (entity-facts port subject))]
-      (check "retask before route rebases route axes without restoring stale goal/cache"
-             (and (zero? (:exit retask-result))
+      (check "goal before route rebases route axes without restoring stale goal/cache"
+             (and (zero? (:exit goal-result))
                   (= "committed" (get-in route-result [:result :status]))
-                  (= "rebased_retask_overlay" (get-in route-result [:result :reason]))
+                  (= "rebased_goal_overlay" (get-in route-result [:result :reason]))
                   (= effective (select-keys stored (keys effective)))
                   (= (north.agent-provenance/manifest-sha256 stored)
                      (get stored "identity_manifest_sha256")))))
 
-    (let [subject "@agent:managed-retask-before-freeze"
-          retasked (assoc preset
-                          "goal" "retasked before freeze"
-                          "display_name" "retasked freeze display")
+    (let [subject "@agent:managed-goal-before-freeze"
+          goal-updated (assoc preset
+                          "goal" "goal-updated before freeze"
+                          "display_name" "goal-updated freeze display")
           freeze-delta
           (assoc (select-keys preset
                              ["provider" "provider_target" "live_input"
@@ -784,54 +784,54 @@
                  "display_name" "stale freeze display")
           stale-desired (merge preset freeze-delta)
           _seed (seed-identity! port subject preset)
-          _retask (run-writer port "retask" subject
+          _goal (run-writer port "goal" subject
                               (json/generate-string
-                               (select-keys retasked ["goal" "display_name"])))
+                               (select-keys goal-updated ["goal" "display_name"])))
           freeze-result
           (run-managed-writer
            port "route" subject (json/generate-string freeze-delta)
            "managed-agent-writer:00000000-0000-4000-8000-000000000132"
            (str (java.util.UUID/randomUUID)) stale-desired preset)
           stored (scalar-facts (entity-facts port subject))]
-      (check "mandatory freeze after retask commits frozen while preserving the retask overlay"
+      (check "mandatory freeze after goal commits frozen while preserving the goal overlay"
              (and (= "committed" (get-in freeze-result [:result :status]))
                   (= "frozen" (get stored "live_input_state"))
-                  (= (get retasked "goal") (get stored "goal"))
-                  (= (get retasked "display_name") (get stored "display_name"))
+                  (= (get goal-updated "goal") (get stored "goal"))
+                  (= (get goal-updated "display_name") (get stored "display_name"))
                   (north.agent-provenance/managed-valid? stored))))
 
-    (let [subject "@agent:managed-retask-before-terminal"
+    (let [subject "@agent:managed-goal-before-terminal"
           terminal
           {"outcome" "died" "process_outcome" "died"
            "delivery_outcome" "blocked"
            "delivery_reason" "provider_process_died"}
           _seed (seed-identity! port subject preset)
-          _retask (run-writer port "retask" subject
+          _goal (run-writer port "goal" subject
                               (json/generate-string
-                               {"goal" "retasked before terminal"
-                                "display_name" "retasked terminal display"}))
+                               {"goal" "goal-updated before terminal"
+                                "display_name" "goal-updated terminal display"}))
           terminal-result
           (run-managed-writer
            port "terminal" subject (json/generate-string terminal)
            "managed-agent-writer:00000000-0000-4000-8000-000000000133"
            (str (java.util.UUID/randomUUID)) nil preset)
           stored (scalar-facts (entity-facts port subject))]
-      (check "terminal accepts a valid retask successor without weakening route generation checks"
+      (check "terminal accepts a valid goal successor without weakening route generation checks"
              (and (= "committed" (get-in terminal-result [:result :status]))
-                  (= "retasked before terminal" (get stored "goal"))
+                  (= "goal-updated before terminal" (get stored "goal"))
                   (= (north.terminal-projection/terminal-manifest-sha256 terminal)
                      (get stored "terminal_manifest_sha256")))))
 
 
-    (let [subject "@agent:managed-retask-during-recovery"
+    (let [subject "@agent:managed-goal-during-recovery"
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000134"
           route-delta
-          {"provider" "openai" "provider_target" "codex-retask-race"
+          {"provider" "openai" "provider_target" "codex-goal-race"
            "live_input" "streaming" "live_input_state" "armed"
            "live_input_epoch" "00000000-0000-4000-8000-000000000134"
            "model" "gpt-5.6-sol" "effort" "xhigh"
-           "display_handle" "openai-retask-race-sol-xhigh-integrator"
-           "display_name" "pre-retask race display"}
+           "display_handle" "openai-goal-race-sol-xhigh-integrator"
+           "display_name" "pre-goal race display"}
           desired (merge preset route-delta)
           terminal
           {"outcome" "died" "process_outcome" "died"
@@ -840,58 +840,58 @@
           resource (identity-write-resource subject)
           _seed (seed-identity! port subject desired)
           old-lease (north.coord/acquire-lease! port resource holder 60000)
-          waiting-retask
+          waiting-goal
           (future
-            (run-writer port "retask" subject
+            (run-writer port "goal" subject
                         (json/generate-string
-                         {"goal" "retasked during recovery"
-                          "display_name" "retasked recovery display"})))
+                         {"goal" "goal-updated during recovery"
+                          "display_name" "goal-updated recovery display"})))
           _wait (Thread/sleep 100)
           recovery-result
           (run-managed-writer
            port "route" subject (json/generate-string route-delta)
            holder (str (java.util.UUID/randomUUID)) desired preset)
-          retask-result (deref waiting-retask 10000 {:exit -1})
+          goal-result (deref waiting-goal 10000 {:exit -1})
           terminal-result
           (run-managed-writer
            port "terminal" subject (json/generate-string terminal)
            holder (str (java.util.UUID/randomUUID)) nil desired)
           stale-release (release-lease! port old-lease)
           stored (scalar-facts (entity-facts port subject))]
-      (check "same-holder lost-ack recovery fences first, then a waiting retask and terminal both commit"
+      (check "same-holder lost-ack recovery fences first, then a waiting goal and terminal both commit"
              (and (:ok old-lease)
                   (= "committed" (get-in recovery-result [:result :status]))
                   (= "exact_replay" (get-in recovery-result [:result :reason]))
-                  (zero? (:exit retask-result))
+                  (zero? (:exit goal-result))
                   (= "committed" (get-in terminal-result [:result :status]))
                   (false? (:released? stale-release))
-                  (= "retasked during recovery" (get stored "goal"))
+                  (= "goal-updated during recovery" (get stored "goal"))
                   (= (north.terminal-projection/terminal-manifest-sha256 terminal)
                      (get stored "terminal_manifest_sha256")))))
 
-    (let [retasked
+    (let [goal-updated
           (assoc preset
-                 "goal" "retask survives every route prefix"
-                 "display_name" "durable retask overlay")
+                 "goal" "goal survives every route prefix"
+                 "display_name" "durable goal overlay")
           route-delta
-          {"provider" "openai" "provider_target" "codex-retask-prefix"
+          {"provider" "openai" "provider_target" "codex-goal-prefix"
            "live_input" "streaming" "live_input_state" "frozen"
            "live_input_epoch" "00000000-0000-4000-8000-000000000135"
            "model" "gpt-5.6-sol" "effort" "xhigh"
-           "display_handle" "openai-retask-prefix-sol-xhigh-integrator"
+           "display_handle" "openai-goal-prefix-sol-xhigh-integrator"
            "display_name" "stale caller cache"}
           stale-desired (merge preset route-delta)
-          effective (merge retasked
+          effective (merge goal-updated
                            (select-keys route-delta
                                         test-route-generation-predicates))
-          old-marker (north.agent-provenance/manifest-sha256 retasked)
+          old-marker (north.agent-provenance/manifest-sha256 goal-updated)
           new-marker (north.agent-provenance/manifest-sha256 effective)
           transition
           (vec
            (concat
             [[:retract "identity_manifest_sha256" old-marker]]
             (for [predicate (sort test-route-generation-predicates)]
-              [:retract predicate (get retasked predicate)])
+              [:retract predicate (get goal-updated predicate)])
             (for [predicate (sort test-route-generation-predicates)]
               [:put predicate (get effective predicate)])
             [[:put "identity_manifest_sha256" new-marker]]))
@@ -899,8 +899,8 @@
           results
           (mapv
            (fn [prefix]
-             (let [subject (str "@agent:managed-retask-prefix-" prefix)]
-               (seed-identity! port subject retasked)
+             (let [subject (str "@agent:managed-goal-prefix-" prefix)]
+               (seed-identity! port subject goal-updated)
                (apply-prefix! port subject transition prefix)
                (let [result
                      (run-managed-writer
@@ -914,7 +914,7 @@
                               (= new-marker
                                  (get stored "identity_manifest_sha256")))})))
            (range (inc (count transition))))]
-      (check "every killed route prefix preserves and recovers a committed retask overlay"
+      (check "every killed route prefix preserves and recovers a committed goal overlay"
              (every?
               #(and (zero? (get-in % [:result :exit]))
                     (= "committed" (get-in % [:result :result :status]))
