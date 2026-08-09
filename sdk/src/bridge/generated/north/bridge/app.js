@@ -209,7 +209,7 @@ const STRIP_SEPARATOR = " · ";
 
 const STRIP_INDENT = 2;
 
-const CHROME_ROWS = 5;
+const CHROME_ROWS = 4;
 
 const MIN_WORKSPACE_ROWS = 4;
 
@@ -2527,7 +2527,7 @@ async function open_app_bang(view_id) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
   const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, paneDragging: false, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
-  const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
+  const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b", focusable: true});
   const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", focusable: true});
@@ -2548,7 +2548,7 @@ async function open_app_bang(view_id) {
   const detail_panel = new BoxRenderable(renderer, {visible: false, width: "100%", height: 5, flexDirection: "column", flexShrink: 0, border: true, borderColor: "#64748b", paddingLeft: 1, paddingRight: 1});
   const detail_text = new TextRenderable(renderer, {width: "100%", flexGrow: 1, wrapMode: "none"});
   const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", main_agent_label(), "…"))});
+  const composer_input = new InputRenderable(renderer, {flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", main_agent_label(), "…"))});
   const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input, agentStripText: agent_strip_text, detailPanel: detail_panel, detailText: detail_text};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);

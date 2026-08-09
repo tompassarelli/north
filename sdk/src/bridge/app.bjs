@@ -157,9 +157,10 @@
 
 (def STRIP-INDENT: Int 2)
 
-;; Rows a frame owes to everything that is not a scrolling list: the root
-;; padding, the composer line, its context line, and the agent strip.
-(def CHROME-ROWS: Int 5)
+;; Rows a frame owes to everything that is not a scrolling list: the root's
+;; single top padding row, the composer line, its context line, and the agent
+;; strip. The root owes no bottom padding — the stack sits on the last row.
+(def CHROME-ROWS: Int 4)
 
 ;; The workspace never collapses entirely, however long a list gets.
 (def MIN-WORKSPACE-ROWS: Int 4)
@@ -4059,8 +4060,12 @@
                  :renderConversation (fn [] -> Any nil)
                  :render (fn [] -> Any nil)}
         root (BoxRenderable. renderer
+                             ;; Symmetric side margins, one row of headroom on
+                             ;; top, and nothing below: the bottom stack is
+                             ;; anchored flush to the terminal's last row.
                              {:flexDirection "column" :width "100%" :height "100%"
-                              :gap 0 :padding 1
+                              :gap 0 :paddingTop 1 :paddingBottom 0
+                              :paddingLeft 1 :paddingRight 1
                               :onSizeChange (fn [] -> Any (.render runtime))})
         workspace (BoxRenderable. renderer {:flexDirection "row" :width "100%"
                                              :flexGrow 1 :gap 0})
@@ -4104,7 +4109,13 @@
         composer-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
                                                    :content (StyledText. [(brightCyan "❯ ")])})
         composer-input (InputRenderable. renderer
-                                         {:width "100%" :flexGrow 1
+                                         ;; No explicit width: a `100%` here
+                                         ;; resolves against the composer's
+                                         ;; content box and then sits *after*
+                                         ;; the prompt, spilling the input's
+                                         ;; fill past the right margin. Grow
+                                         ;; from zero into what's left instead.
+                                         {:flexGrow 1 :flexShrink 1 :flexBasis 0 :minWidth 0
                                           :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
                                           :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
                                           :placeholderColor "#6b7280"
