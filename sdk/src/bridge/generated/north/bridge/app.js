@@ -368,10 +368,6 @@ function exit_command_p(name) {
   return ((name === "exit") || (name === "close") || (name === "esc"));
 }
 
-function message_command_p(name) {
-  return ((name === "msg") || (name === "steer"));
-}
-
 function emoji_options(query) {
   const needle = query.trim().toLowerCase();
   return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
@@ -1875,7 +1871,7 @@ if ((slash_p && (name === "interrupt"))) {
   set_working_bang(runtime, false, "");
   return append_interrupted_bang(runtime);
 } else {
-  const message = ((slash_p && message_command_p(name)) ? rest : trimmed);
+  const message = ((slash_p && (name === "msg")) ? rest : trimmed);
   if ((message === "")) {
     (() => { throw new Error("/msg requires input"); })();
   }
