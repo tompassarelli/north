@@ -798,15 +798,21 @@ def north_call(d):
 subagent = ""
 if tool in ("Agent", "Task"):
     subagent = ti.get("subagent_type") or ti.get("subagentType") or ""
-is_orchestration = subagent.lower().startswith("orchestration:")
-role_key = subagent.split(":", 1)[1].strip().lower() if is_orchestration else ""
+# Templates now load as agent files under their plain role names (Claude Code
+# rejects ":" in an agent file's name), so a squad pick arrives bare. The legacy
+# plugin-namespaced type stays recognized for older transcripts. Either way an
+# unknown name finds no generated contract and falls through to the generic
+# recipe — routing_for is the only authority on whether this was a squad pick.
+subagent_key = subagent.strip().lower()
+role_key = (subagent_key.split(":", 1)[1].strip()
+            if subagent_key.startswith("orchestration:") else subagent_key)
 routing = routing_for(role_key) if role_key else None
 
 if routing:
     recipe = (
         "Native " + tool + " (" + subagent + ") is ephemeral — no claim trail, "
         "no steering, no observability. Re-issue the SAME work on north; dials are "
-        "read from canonical orchestration:" + role_key + " metadata — just paste your prompt in:\n"
+        "read from the canonical " + role_key + " template metadata — just paste your prompt in:\n"
         "  " + north_call(routing) + "\n"
         "Fan-out? fire one mcp__north__spawn per lane in the same turn. "
         "Observe: north watch/agents/board. Deliberate provider-native pin: "

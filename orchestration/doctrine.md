@@ -62,45 +62,49 @@ not overrideable. An unchanged template carries
 neither a fake override nor a reason.
 <!-- /orchestration:full-only -->
 
-SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models)
+SHAPES → TEMPLATES (semantic tier; provider adapters resolve concrete models).
+Each arrow names the template id, and that plain name is also the agent type
+you invoke — `reviewer`, not `orchestration:reviewer`. The namespaced form is
+composition provenance in telemetry and a retired plugin-distribution artifact;
+it is not an invocable type.
 - direct — decompose, staff, and reconcile genuinely independent pieces when
   doing so materially shortens delivery;
-  never execute the worker pieces → orchestration:director (frontier; orchestrator)
+  never execute the worker pieces → director (frontier; orchestrator)
 - execute — bounded, mechanical: apply a patch, rename, obvious tests
-  → orchestration:executor (economy)
+  → executor (economy)
 - implement — one feature/fix inside known patterns, well-trodden code
-  → orchestration:implementer (standard)
+  → implementer (standard)
 - integrate — cross-file change, ambiguous debugging, refactor with behavior
-  at stake → orchestration:integrator (senior)
+  at stake → integrator (senior)
 - design — choose the shape: APIs, data models, decomposition, naming that
-  commits the system → orchestration:designer (frontier)
+  commits the system → designer (frontier)
 - scout — locate, map, gather sources; breadth, cheap, fan-out
-  → orchestration:scout (economy)
+  → scout (economy)
 - analyze — deep-dive: how does this work, why does it break, does this
-  design hold against real behavior; depth, read-only → orchestration:analyst
+  design hold against real behavior; depth, read-only → analyst
   (senior). Fan out when independently traceable mechanisms benefit from
   separate evidence trails and later synthesis; keep tightly coupled traces
   together regardless of subsystem count.
 - review — evaluate one supplied artifact or change across multiple criteria;
   return evidence-backed prioritized findings plus accept, changes-required,
-  or cannot-assess → orchestration:reviewer (senior)
+  or cannot-assess → reviewer (senior)
 - verify — only when the user's current request explicitly asks for assurance,
   test one specific claim; affirmative evidence
   confirms, counterevidence refutes, missing/ambiguous coverage cannot
-  determine → orchestration:verifier (senior default; justified overrides may move
+  determine → verifier (senior default; justified overrides may move
   task grade, tier, and deliberation up or down, while the task's quality floor
   remains binding)
 - judge — rank two or more supplied alternatives against a stated rubric
-  → orchestration:judge (frontier)
+  → judge (frontier)
 - research-science — novel hypothesis formation, experiment design, and work
-  whose result or method is not already known → orchestration:scientist
+  whose result or method is not already known → scientist
   (frontier; grade defaults staff — research is a function, not a grade). It
   may invoke existing non-mutating tools and probes only; authoring any new
   script, fixture, apparatus, or code, even ephemeral scratch, is handed to an
   authoring role. This is not ordinary source gathering.
 - scope ladder (composite work at rising coordination breadth) — one
-  workstream → orchestration:team-lead (senior); several workstreams →
-  orchestration:program (frontier); the whole board → orchestration:portfolio
+  workstream → team-lead (senior); several workstreams →
+  program (frontier); the whole board → portfolio
   (frontier). director is the un-laddered generic composite orchestrator at
   team-lead altitude.
 
@@ -139,7 +143,7 @@ LAWS
    reports the observation and residual uncertainty, then stops. For an
    emergent aggregate, the coordinator reconciles child results and may run one
    existing integrated check against the assembled outcome. It does not invent
-   new checks or rerun every child suite. `orchestration:verifier` is available
+   new checks or rerun every child suite. `verifier` is available
    only when the user's current request explicitly asks for assurance;
    uncertainty never self-authorizes a verifier, canary, benchmark, soak, or
    new verification apparatus.
@@ -194,7 +198,7 @@ ORCHESTRATION — topology is conceptually independent of function, grade,
 domain requirements, tier, deliberation, and posture; templates enforce their
 fixed pairings. Topology grants a jurisdiction, not a global tree position.
 Every admitted child is one of:
-- ORCHESTRATOR — normally the orchestration:director function, a fork whose contract
+- ORCHESTRATOR — normally the director function, a fork whose contract
   is DECOMPOSE AND FAN OUT. It does NOT
   execute subtasks itself; its only tools of substance are read/analyze,
   spawn, message, consume and reconcile child results, run at most one existing
@@ -279,9 +283,11 @@ ADAPTER EXAMPLE (native spawn surface; invocation syntax in this fenced block
 is not portable doctrine) — a squad member is an eight-field Orchestration request: role,
 taskGrade, domainRequirements, topology, tier, reasoning, posture, and
 composition. It is not a tool. Invoke it through whatever spawn surface your
-harness gives you:
-- native Agent tool available → subagent_type: 'orchestration:<role>'
-- Workflow → agent(prompt, {agentType: 'orchestration:<role>'})
+harness gives you. The templates are installed as agent definition files, so the
+agent type is the template's plain name; the old namespaced `orchestration:<role>`
+type existed only while they shipped inside a plugin and no longer resolves:
+- native Agent tool available → subagent_type: '<role>'
+- Workflow → agent(prompt, {agentType: '<role>'})
 - a custom dispatch (SDK / MCP / a substrate that denies the native Agent
   tool) → spawn on that surface passing the role's pinned semantic tier (the
   SHAPES→TEMPLATES list above gives every pin), provider=`auto` unless overridden,
@@ -296,19 +302,19 @@ harness gives you:
 WORKFLOWS: these laws govern STAFFING every stage of any workflow. Use the
 active adapter's fenced invocation example for its concrete syntax, and pin
 the semantic route per stage:
-- discovery/finder stages → orchestration:scout (economy), fan out wide
-- deep-analysis/root-cause stages → orchestration:analyst (senior); fan out when
+- discovery/finder stages → scout (economy), fan out wide
+- deep-analysis/root-cause stages → analyst (senior); fan out when
   independently traceable mechanisms benefit from separate evidence trails
   and later synthesis, not because a subsystem count was crossed
-- build/transform stages → orchestration:implementer (standard); foundational
+- build/transform stages → implementer (standard); foundational
   implementation-only work stays on its minimum-sufficient route, while
   invariant decision ownership raises tier/reasoning without changing the
-  function; use orchestration:integrator only for integrate-shaped work
-- artifact-review stages → orchestration:reviewer per supplied artifact/change
-- verification explicitly requested by the user → orchestration:verifier for
+  function; use integrator only for integrate-shaped work
+- artifact-review stages → reviewer per supplied artifact/change
+- verification explicitly requested by the user → verifier for
   the named claim; justify task-grade/tier/reasoning overrides up or down while
   preserving the task's quality floor
-- rank two or more supplied alternatives → orchestration:judge (frontier)
+- rank two or more supplied alternatives → judge (frontier)
 Never let a stage inherit the session's model/effort implicitly (in a
 top-tier session that silently runs every worker at top tier).
 
