@@ -4,12 +4,14 @@
            {:path "docs/operating-manual.md" :revision "content"}
            {:path "sdk/src/dispatch.ts" :revision "content"}
            {:path "sdk/src/spawn.ts" :revision "content"}
-           {:path "sdk/src/harness.ts" :revision "content"}]
+           {:path "sdk/src/harness.ts" :revision "content"}
+           {:path "cli/dashboard-render.clj" :revision "content"}]
  :refresh-policy :weekly
  :source-digests {"docs/architecture.md" "11da8a4fa547885c009f5e546dbd9081d255cbedbcdb36449df5dce66043dde2"
                   "cli/surface.edn" "0f7f780bfb3aee50be930b62b45112a72626c04450feaf1f6bb7f2871aa47dd7"
                   "docs/operating-manual.md" "d29e70aa162b204259f8f09cf57b03e63772806fce9276fc9f99be0133d4870e"
                   "sdk/src/dispatch.ts" "a752c56812f35d6beeb656bf7b7b9db5aa10ce6f01990922b0a2808dd874eefb"
                   "sdk/src/spawn.ts" "9aff9185982da751dd9f611d959bdd025686b26216a7886a45ab92db04d87557"
-                  "sdk/src/harness.ts" "c24f07da953f9456b582c3338707262c20f0f227f9d439be8d00b67a3e2bebb0"}
+                  "sdk/src/harness.ts" "c24f07da953f9456b582c3338707262c20f0f227f9d439be8d00b67a3e2bebb0"
+                  "cli/dashboard-render.clj" "908b056cee1f9dcb4d22ee57e727e71f7a2104ba9fe636756e0c027db4a944b6"}
  :verified-at "2026-08-10"}
