@@ -455,13 +455,6 @@
       (identical? name "close")
       (identical? name "esc")))
 
-;; /msg is the name on screen. /steer is the name it used to have, kept as a
-;; silent alias so muscle memory still lands — accepted here, never offered in
-;; the palette. The northd op is still "steer"; only the surface renamed.
-(defn message-command? [name: String] -> Bool
-  (or (identical? name "msg")
-      (identical? name "steer")))
-
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
 (defn emoji-options [query: String] -> (Vec SlashCommand)
@@ -2967,7 +2960,7 @@
             (js/await (run-command [NORTH-BIN "bridge" "interrupt" target]))
             (set-working! runtime false "")
             (append-interrupted! runtime))
-          (let [message (if (and slash? (message-command? name)) rest trimmed)]
+          (let [message (if (and slash? (identical? name "msg")) rest trimmed)]
             (when (identical? message "") (throw (Error. "/msg requires input")))
             (upsert-conversation!
              runtime
