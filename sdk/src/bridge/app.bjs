@@ -2694,6 +2694,13 @@
 ;; working ⇒ Starting …", which never expired — the session could be ready, the
 ;; header could say so, and this line still claimed a boot in progress. An empty
 ;; string means show nothing.
+;;
+;; The ready state says nothing HERE any more: "Main is ready." was a line that
+;; told you the one thing the roster header and the strip were already telling
+;; you, on the screen with the most room to say something useful. A ready and
+;; empty transcript renders the session banner instead (see
+;; transcript-banner?), and this fold keeps the two states a banner cannot
+;; stand in for — a boot in progress and a session that is gone.
 (js/export
  (defn transcript-placeholder
   [label: String
@@ -2708,7 +2715,136 @@
       (or (identical? value "offline")
           (identical? value "failed")
           (identical? value "error")) (str label " is offline.")
-      :else (str label " is ready.")))))
+      :else ""))))
+
+;; Pure: whether the banner is what this transcript should be showing. The same
+;; three facts the placeholder folds, asking after the one state it no longer
+;; answers for — and the disappearance rule is unchanged, because it is the
+;; same rule: any transcript content at all, or a turn in flight, and the empty
+;; screen is not empty any more.
+(js/export
+ (defn transcript-banner?
+  [status: String
+   item-count: Int
+   working?: Bool] -> Bool
+  (let [value (.toLowerCase (.trim status))]
+    (and (identical? item-count 0)
+         (not working?)
+         (not (identical? value ""))
+         (not (identical? value "starting"))
+         (not (identical? value "offline"))
+         (not (identical? value "failed"))
+         (not (identical? value "error"))))))
+
+;; The banner's own facts, each labelled, in one column. The label width is
+;; fixed so the values line up as a column of answers rather than a paragraph.
+(def BANNER-LABEL-WIDTH: Int 13)
+
+;; Below this the box is more cost than frame: the borders take four columns
+;; and a clipped path or model tells you less than the plain line does. The
+;; banner degrades to its own lines rather than wrapping, because a wrapped box
+;; is a broken box.
+(def BANNER-MIN-COLUMNS: Int 55)
+
+;; The bridge has no `/model` command, so the banner does not invent one. What
+;; actually changes the model is the environment the app is launched with, and
+;; that is what the hint names. If a command is ever added, this is the string
+;; that changes.
+(def BANNER-MODEL-HINT: String "NORTH_BRIDGE_MODEL to change")
+
+;; Pure: the identity to print. The handshake identity is a full commit hash;
+;; what a human needs off the screen is the short rev they would type at git.
+(js/export
+ (defn banner-revision [identity: Any] -> String
+  (let [value (.trim (text identity))]
+    (if (identical? value "") "unknown" (.slice value 0 8)))))
+
+;; Pure: `bypassPermissions` is the mode where nothing is asked, and calling it
+;; by its wire name buries that. The operator's word for it is the one that
+;; carries the warning.
+(js/export
+ (defn banner-permissions [mode: Any] -> String
+  (let [value (.trim (text mode))]
+    (cond
+      (identical? value "") "pending"
+      (identical? value "bypassPermissions") "YOLO mode"
+      :else value))))
+
+(defn banner-field
+  [label: String
+   value: String] -> String
+  (str (.padEnd (str label ":") BANNER-LABEL-WIDTH " ") value))
+
+;; Pure: session facts -> the banner's content lines, before any box is drawn
+;; around them. A fact the session has not reported yet says `pending`, which is
+;; the word the rest of the frame already uses for the same gap.
+(js/export
+ (defn session-banner-lines
+  [identity: Any
+   model: Any
+   effort: Any
+   directory: Any
+   permissions: Any] -> Any
+  (let [named (text-or (text model) "pending")
+        graded (text effort)
+        model-text (if (identical? graded "") named (str named " " graded))]
+    [(str ">_ North Bridge (" (banner-revision identity) ")")
+     ""
+     (banner-field "model" (str model-text "   " BANNER-MODEL-HINT))
+     (banner-field "directory" (text-or (text directory) "pending"))
+     (banner-field "permissions" (banner-permissions permissions))])))
+
+;; Pure: a line cut to fit, tail-first, so the end of a long path or model name
+;; is what survives — the part that distinguishes it from its neighbours.
+(defn banner-clip
+  [line: String
+   width: Int] -> String
+  (let [limit (Math/max 1 width)]
+    (if (> (grapheme-count line) limit)
+      (str (.slice line 0 (Math/max 0 (- limit 1))) "…")
+      line)))
+
+;; Pure: the widest line, which is what the box is drawn around — sized to the
+;; content rather than to the terminal, so the banner is a card and not a rule.
+(defn widest-line [lines: Any] -> Int
+  (let [widest {:n 0}]
+    (.forEach lines
+              (fn [line: String] -> Any
+                (when (> (grapheme-count line) (.-n widest))
+                  (set! (.-n widest) (grapheme-count line)))))
+    (.-n widest)))
+
+;; Pure: content lines -> the lines actually drawn. Wide enough and they get the
+;; box, clipped to what fits so a long path cannot push a border off the edge
+;; and wrap the frame open. Narrow and they get themselves: a box that does not
+;; fit is not a smaller box, it is a broken one.
+(js/export
+ (defn banner-box
+  [lines: Any
+   width: Int] -> Any
+  (let [inner (Math/max 1 (- width 4))
+        clipped (.map lines
+                      (fn [line: String] -> String (banner-clip line inner)))]
+    (if (< width BANNER-MIN-COLUMNS)
+      clipped
+      (let [span (Math/min inner (widest-line clipped))
+            rule (.repeat "─" (+ span 2))]
+        (.concat [(str "╭" rule "╮")]
+                 (.map clipped
+                       (fn [line: String] -> String
+                         (str "│ " (.padEnd line span " ") " │")))
+                 [(str "╰" rule "╯")]))))))
+
+(js/export
+ (defn session-banner
+  [identity: Any
+   model: Any
+   effort: Any
+   directory: Any
+   permissions: Any
+   width: Int] -> Any
+  (banner-box (session-banner-lines identity model effort directory permissions)
+              width)))
 
 (js/export
  (defn render-conversation! [runtime: Any] -> Any
@@ -2770,12 +2906,29 @@
         (push-working-wave! chunks runtime)
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc or ctrl-c to cancel)\n  ")))
         (push-chunk! chunks (brightBlack (session-context-text runtime)))))
-    (let [placeholder (transcript-placeholder (main-agent-label)
-                                              (supervisor-status runtime)
-                                              (.-length items)
-                                              (if (.-working runtime) true false))]
+    (let [status (supervisor-status runtime)
+          working? (if (.-working runtime) true false)
+          placeholder (transcript-placeholder (main-agent-label) status
+                                              (.-length items) working?)]
       (when (not (identical? placeholder ""))
-        (push-chunk! chunks (brightBlack placeholder))))
+        (push-chunk! chunks (brightBlack placeholder)))
+      ;; The ready-and-empty screen: the one moment there is room to say what
+      ;; session this is, and the one moment nothing else needs the space.
+      (when (transcript-banner? status (.-length items) working?)
+        (.forEach (session-banner (.-sourceIdentity runtime)
+                                  (.-sessionModel runtime)
+                                  (.-sessionEffort runtime)
+                                  (short-directory (.-sessionCwd runtime))
+                                  (.-sessionPermissions runtime)
+                                  (available-frame-width))
+                  (fn
+                    [line: String
+                     index: Int] -> Any
+                    (push-chunk! chunks
+                                 ((if (.includes line "North Bridge")
+                                    brightWhite brightBlack)
+                                  (str (if (identical? index 0) "" "\n")
+                                       line)))))))
     (StyledText. chunks))))
 
 (defn visible-notice [notice: Any] -> String
@@ -4095,10 +4248,13 @@
   (when source
     (let [model (text-or (.-model source) (text (.-modelName source)))
           effort (text-or (.-reasoningEffort source) (text (.-effort source)))
-          cwd (text-or (.-cwd source) (text (.-workingDirectory source)))]
+          cwd (text-or (.-cwd source) (text (.-workingDirectory source)))
+          permissions (text (.-permissionMode source))]
       (when (not (identical? model "")) (set! (.-sessionModel runtime) model))
       (when (not (identical? effort "")) (set! (.-sessionEffort runtime) effort))
-      (when (not (identical? cwd "")) (set! (.-sessionCwd runtime) cwd)))))
+      (when (not (identical? cwd "")) (set! (.-sessionCwd runtime) cwd))
+      (when (not (identical? permissions ""))
+        (set! (.-sessionPermissions runtime) permissions)))))
 
 (defn handle-codex-event!
   [runtime: Any
@@ -5418,7 +5574,9 @@
 
              :else nil))))))
 
-(defn open-app! [view-id: String] -> (Promise Any)
+(defn open-app!
+  [view-id: String
+   source-identity: String] -> (Promise Any)
   (let [view (canonical-work-view view-id)
         renderer (js/await (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true}))
         runtime {:model (make-model view)
@@ -5474,6 +5632,10 @@
                                          (text (.-AGENT_EFFORT (.-env process))))
                  :sessionCwd (text (.cwd process))
                  :sessionBranch ""
+                 ;; Reported by the session, not guessed here: until it says,
+                 ;; the banner says `pending` rather than a mode nobody set.
+                 :sessionPermissions ""
+                 :sourceIdentity source-identity
                  :renderConversation (fn [] -> Any nil)
                  :render (fn [] -> Any nil)}
         root (BoxRenderable. renderer
@@ -5591,4 +5753,5 @@
 
 (js/export
  (defn run-northbridge-app! [options: Any] -> (Promise Any)
-   (open-app! (text-or (.-viewId options) "list"))))
+   (open-app! (text-or (.-viewId options) "list")
+              (text (.-sourceIdentity options)))))

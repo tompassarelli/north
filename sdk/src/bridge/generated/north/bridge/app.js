@@ -1507,7 +1507,68 @@ function supervisor_status(runtime) {
 
 export function transcript_placeholder(label, status, item_count, working_p) {
   const value = status.trim().toLowerCase();
-  return (((item_count > 0)) ? "" : (working_p) ? "" : (((value === "") || (value === "starting"))) ? ("".concat("Starting ", label, "…")) : (((value === "offline") || (value === "failed") || (value === "error"))) ? ("".concat(label, " is offline.")) : ("".concat(label, " is ready.")));
+  return (((item_count > 0)) ? "" : (working_p) ? "" : (((value === "") || (value === "starting"))) ? ("".concat("Starting ", label, "…")) : (((value === "offline") || (value === "failed") || (value === "error"))) ? ("".concat(label, " is offline.")) : "");
+}
+
+export function transcript_banner_p(status, item_count, working_p) {
+  const value = status.trim().toLowerCase();
+  return ((item_count === 0) && (!working_p) && (!(value === "")) && (!(value === "starting")) && (!(value === "offline")) && (!(value === "failed")) && (!(value === "error")));
+}
+
+const BANNER_LABEL_WIDTH = 13;
+
+const BANNER_MIN_COLUMNS = 55;
+
+const BANNER_MODEL_HINT = "NORTH_BRIDGE_MODEL to change";
+
+export function banner_revision(identity) {
+  const value = text(identity).trim();
+  return ((value === "") ? "unknown" : value.slice(0, 8));
+}
+
+export function banner_permissions(mode) {
+  const value = text(mode).trim();
+  return (((value === "")) ? "pending" : ((value === "bypassPermissions")) ? "YOLO mode" : value);
+}
+
+function banner_field(label, value) {
+  return ("".concat(("".concat(label, ":")).padEnd(BANNER_LABEL_WIDTH, " "), value));
+}
+
+export function session_banner_lines(identity, model, effort, directory, permissions) {
+  const named = text_or(text(model), "pending");
+  const graded = text(effort);
+  const model_text = ((graded === "") ? named : ("".concat(named, " ", graded)));
+  return [("".concat(">_ North Bridge (", banner_revision(identity), ")")), "", banner_field("model", ("".concat(model_text, "   ", BANNER_MODEL_HINT))), banner_field("directory", text_or(text(directory), "pending")), banner_field("permissions", banner_permissions(permissions))];
+}
+
+function banner_clip(line, width) {
+  const limit = Math.max(1, width);
+  return ((grapheme_count(line) > limit) ? ("".concat(line.slice(0, Math.max(0, (limit - 1))), "…")) : line);
+}
+
+function widest_line(lines) {
+  const widest = {n: 0};
+  lines.forEach((line) => { if ((grapheme_count(line) > widest.n)) {
+  return (widest.n = grapheme_count(line));
+} });
+  return widest.n;
+}
+
+export function banner_box(lines, width) {
+  const inner = Math.max(1, (width - 4));
+  const clipped = lines.map((line) => banner_clip(line, inner));
+  if ((width < BANNER_MIN_COLUMNS)) {
+    return clipped;
+  } else {
+    const span = Math.min(inner, widest_line(clipped));
+    const rule = "─".repeat((span + 2));
+    return [("".concat("╭", rule, "╮"))].concat(clipped.map((line) => ("".concat("│ ", line.padEnd(span, " "), " │"))), [("".concat("╰", rule, "╯"))]);
+  }
+}
+
+export function session_banner(identity, model, effort, directory, permissions, width) {
+  return banner_box(session_banner_lines(identity, model, effort, directory, permissions), width);
 }
 
 export function render_conversation_bang(runtime) {
@@ -1539,9 +1600,14 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
     push_chunk_bang(chunks, brightBlack(("".concat(" (", elapsed, "s · esc or ctrl-c to cancel)\n  "))));
     push_chunk_bang(chunks, brightBlack(session_context_text(runtime)));
   }
-  const placeholder = transcript_placeholder(main_agent_label(), supervisor_status(runtime), items.length, (runtime.working ? true : false));
+  const status = supervisor_status(runtime);
+  const working_p = (runtime.working ? true : false);
+  const placeholder = transcript_placeholder(main_agent_label(), status, items.length, working_p);
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
+  }
+  if (transcript_banner_p(status, items.length, working_p)) {
+    session_banner(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width()).forEach((line, index) => push_chunk_bang(chunks, ((line.includes("North Bridge") ? brightWhite : brightBlack))(("".concat(((index === 0) ? "" : "\n"), line)))));
   }
   return new StyledText(chunks);
 }
@@ -2272,6 +2338,7 @@ function adopt_session_metadata_bang(runtime, source) {
     const model = text_or(source.model, text(source.modelName));
     const effort = text_or(source.reasoningEffort, text(source.effort));
     const cwd = text_or(source.cwd, text(source.workingDirectory));
+    const permissions = text(source.permissionMode);
     if ((!(model === ""))) {
       (runtime.sessionModel = model);
     }
@@ -2279,7 +2346,10 @@ function adopt_session_metadata_bang(runtime, source) {
       (runtime.sessionEffort = effort);
     }
     if ((!(cwd === ""))) {
-      return (runtime.sessionCwd = cwd);
+      (runtime.sessionCwd = cwd);
+    }
+    if ((!(permissions === ""))) {
+      return (runtime.sessionPermissions = permissions);
     }
   }
 }
@@ -2949,10 +3019,10 @@ if ((runtime.working && (!(target === "")))) {
 } });
 }
 
-async function open_app_bang(view_id) {
+async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const view_tabs_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
@@ -3016,5 +3086,5 @@ async function open_app_bang(view_id) {
 }
 
 export function run_northbridge_app_bang(options) {
-  return open_app_bang(text_or(options.viewId, "list"));
+  return open_app_bang(text_or(options.viewId, "list"), text(options.sourceIdentity));
 }
