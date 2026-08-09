@@ -46,7 +46,15 @@ function runtimeAt(frame: string, viewId = "list") {
   };
   return runtime;
 }
-const ui = { composerInput: { focused: 0, focus() { this.focused += 1; } } };
+// The panel takes the keyboard while it is open, so the stub has to be able to
+// lose the cursor as well as take it.
+const ui = {
+  composerInput: {
+    focused: 0, blurred: 0,
+    focus() { this.focused += 1; },
+    blur() { this.blurred += 1; },
+  },
+};
 
 test("Northbridge opens on Agents", () => {
   expect(bootFrame()).toBe("agents");
@@ -148,33 +156,37 @@ test("the composer hint says what to type and nothing about which frame", () => 
   }
 });
 
-// The ladder, as a matrix. The physical key climbs rungs one to four and stops
+// The ladder, as a matrix. The physical key climbs rungs one to five and stops
 // there: a key you hit reflexively must never be the key that ends the session.
 test("the escape ladder is innermost-first, and the key stops short of quitting", () => {
   const rung = (
-    palette: boolean, panel: boolean, strip: boolean, threads: boolean,
-    working: boolean, fromKey: boolean,
-  ) => escapeRung(palette, panel, strip, threads, working, fromKey);
+    palette: boolean, filtering: boolean, panel: boolean, strip: boolean,
+    threads: boolean, working: boolean, fromKey: boolean,
+  ) => escapeRung(palette, filtering, panel, strip, threads, working, fromKey);
 
   for (const fromKey of [true, false]) {
     // Rung 1 outranks everything below it, including all of it at once.
-    expect(rung(true, true, true, true, true, fromKey)).toBe("close-palette");
-    // Rung 2.
-    expect(rung(false, true, true, true, true, fromKey)).toBe("close-detail");
+    expect(rung(true, true, true, true, true, true, fromKey)).toBe("close-palette");
+    // Rung 2: a live filter is inside the panel that carries it, so the query
+    // goes back before the panel does — clearing a search must not cost you the
+    // switchboard you were searching.
+    expect(rung(false, true, true, true, true, true, fromKey)).toBe("clear-filter");
     // Rung 3.
-    expect(rung(false, false, true, true, true, fromKey)).toBe("focus-composer");
+    expect(rung(false, false, true, true, true, true, fromKey)).toBe("close-detail");
     // Rung 4.
-    expect(rung(false, false, false, true, true, fromKey)).toBe("show-agents");
+    expect(rung(false, false, false, true, true, true, fromKey)).toBe("focus-composer");
+    // Rung 5.
+    expect(rung(false, false, false, false, true, true, fromKey)).toBe("show-agents");
   }
 
-  // Rung 5 is the command's alone: from the empty root the verb quits.
-  expect(rung(false, false, false, false, false, false)).toBe("quit");
-  expect(rung(false, false, false, false, true, false)).toBe("quit");
+  // Rung 6 is the command's alone: from the empty root the verb quits.
+  expect(rung(false, false, false, false, false, false, false)).toBe("quit");
+  expect(rung(false, false, false, false, false, true, false)).toBe("quit");
 
   // The key never reaches it. At the root it spends itself on the turn in
   // flight, or on nothing at all.
-  expect(rung(false, false, false, false, true, true)).toBe("cancel-turn");
-  expect(rung(false, false, false, false, false, true)).toBe("");
+  expect(rung(false, false, false, false, false, true, true)).toBe("cancel-turn");
+  expect(rung(false, false, false, false, false, false, true)).toBe("");
 });
 
 // Help used to print itself into the transcript with no way to dismiss it.
@@ -184,6 +196,9 @@ test("/help opens the docked panel and escape closes it", async () => {
   const runtime = runtimeAt("agents");
   expect(handleLocalCommand(runtime, ui, "/help")).toBe(true);
   expect(runtime.detailView).toBe("help");
+  // An open panel holds the keyboard: the composer keeps its content and loses
+  // the cursor, exactly as it does when the agent strip takes focus.
+  expect(runtime.panelFocused).toBe(true);
 
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 110, height: 20,
@@ -203,9 +218,11 @@ test("/help opens the docked panel and escape closes it", async () => {
   expect(frame).toContain("/q /close /esc /exit");
   expect(frame).not.toContain("back, then quit");
 
-  // Rung two: the panel it opened is the first thing escape takes back.
+  // Rung two: the panel it opened is the first thing escape takes back, and the
+  // keyboard goes back to the composer with it.
   expect(handleLocalCommand(runtime, ui, "/esc")).toBe(true);
   expect(runtime.detailView).toBe("");
+  expect(runtime.panelFocused).toBe(false);
 
   // Toggling it off from the command is the same switch.
   expect(handleLocalCommand(runtime, ui, "/help")).toBe(true);

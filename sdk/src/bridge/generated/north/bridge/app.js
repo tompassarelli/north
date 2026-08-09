@@ -382,8 +382,8 @@ export function threads_frame_p(frame) {
   return (text(frame) === "threads");
 }
 
-export function escape_rung(palette_open_p, detail_open_p, strip_focused_p, threads_p, working_p, from_key_p) {
-  return ((palette_open_p) ? "close-palette" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : ((from_key_p && working_p)) ? "cancel-turn" : (from_key_p) ? "" : "quit");
+export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p, from_key_p) {
+  return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : ((from_key_p && working_p)) ? "cancel-turn" : (from_key_p) ? "" : "quit");
 }
 
 function emoji_options(query) {
@@ -725,12 +725,24 @@ function config_mem_name(name) {
   return ((cut < 0) ? name : name.slice((cut + 1)));
 }
 
+export function config_kind_word(kind) {
+  return (((kind === "ins")) ? "file" : ((kind === "memroot")) ? "memories" : ((kind === "mem")) ? "memory" : kind);
+}
+
+export function config_provenance_name(kind, name) {
+  return ((kind === "") ? name : ("".concat(config_kind_word(kind), ": ", name)));
+}
+
 export function config_row_label(kind, name) {
-  return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "memories" : ((kind === "mem")) ? config_mem_name(name) : name);
+  return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "MEMORIES" : ((kind === "mem")) ? config_mem_name(name) : name);
 }
 
 export function config_cli_name(__kind, name) {
   return name;
+}
+
+export function config_reference_text(kind, name) {
+  return ("".concat("@", config_kind_word(kind), ":", config_cli_name(kind, name), " "));
 }
 
 function config_find_entry(manifest, name) {
@@ -785,11 +797,11 @@ export function config_gate_modules(entry, manifest, memberships) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const gate = config_subtree_gate(manifest, kind, name);
-  const scope = ((gate && (!config_entry_active_p(gate, manifest, memberships))) ? [config_row_label(configentry_kind(gate), configentry_name(gate))] : []);
+  const scope = ((gate && (!config_entry_active_p(gate, manifest, memberships))) ? [config_provenance_name(configentry_kind(gate), configentry_name(gate))] : []);
   const owners = config_owner_modules(memberships, name);
   const open_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
 return (row ? config_entry_active_p(row, manifest, memberships) : false); }));
-  return scope.concat((open_p ? [] : owners));
+  return scope.concat((open_p ? [] : owners.map((owner) => config_provenance_name("module", owner))));
 }
 
 export function config_state_text(entry, manifest, memberships, active_p) {
@@ -799,7 +811,8 @@ export function config_state_text(entry, manifest, memberships, active_p) {
   const gates = config_gate_modules(entry, manifest, memberships);
   const gate_note = ((gates.length === 0) ? "" : ("".concat(" (", gates.join(", "), " off)")));
   const companion = (hook_p ? text(configentry_detail(entry)) : "");
-  const provenance = ((companion === "") ? "" : ("".concat(" · ", companion)));
+  const followed = config_find_companion(manifest, companion);
+  const provenance = ((companion === "") ? "" : ("".concat(" · ", config_provenance_name((followed ? configentry_kind(followed) : ""), companion))));
   return (((hook_p && (!own_p))) ? "disabled" : ((!own_p)) ? "off" : (hook_p) ? ("".concat("enabled · ", (active_p ? "on" : "off"), provenance, gate_note)) : (active_p) ? "on" : ("".concat("on · off", gate_note)));
 }
 
@@ -813,55 +826,112 @@ function config_global_row_p(kind, name) {
   return ((kind === "dir") && (name === GLOBAL_DIR_NAME));
 }
 
-function config_global_scope_row_p(kind, name) {
-  return (((kind === "dir") || config_subtree_kind_p(kind)) && (config_row_slug(kind, name) === GLOBAL_DIR_NAME));
+export function config_row_scope(kind, name) {
+  return (((kind === "dir")) ? name : (config_subtree_kind_p(kind)) ? config_row_slug(kind, name) : GLOBAL_DIR_NAME);
 }
 
 export function config_view_includes_p(view, kind, name) {
-  return (((view === "all")) ? true : ((view === "globals")) ? (config_global_scope_row_p(kind, name) || (kind === "hook") || (kind === "skill") || (kind === "module") || (kind === "other")) : ((view === "agentsmd")) ? ((kind === "dir") || config_subtree_kind_p(kind)) : (kind === view));
+  return (((view === "all")) ? true : ((kind === "dir")) ? ((view === "globals") ? (name === GLOBAL_DIR_NAME) : true) : ((view === "globals")) ? ((config_row_scope(kind, name) === GLOBAL_DIR_NAME) && (!(kind === "plugin"))) : ((view === "agentsmd")) ? config_subtree_kind_p(kind) : (kind === view));
 }
 
-function config_view_sections_p(view) {
-  return ((view === "all") || (view === "globals") || (view === "agentsmd"));
+function config_view_prunes_p(view) {
+  return (!((view === "all") || (view === "globals") || (view === "agentsmd")));
 }
 
-export function config_section_kind(kind) {
-  return (config_subtree_kind_p(kind) ? "dir" : kind);
+export function config_view_folds_p(view) {
+  return (view === "all");
 }
 
-function config_kind_rank(kind) {
-  const section = config_section_kind(kind);
-  return (((section === "dir")) ? 0 : ((section === "module")) ? 1 : ((section === "skill")) ? 2 : ((section === "hook")) ? 3 : ((section === "plugin")) ? 4 : ((section === "other")) ? 5 : 6);
+function config_hook_companion(entry) {
+  return ((configentry_kind(entry) === "hook") ? text(configentry_detail(entry)) : "");
 }
 
-function config_row_rank(entry) {
+export function config_skill_hooks(rows, name) {
+  return rows.filter((entry) => ((configentry_kind(entry) === "hook") && (config_hook_companion(entry) === name)));
+}
+
+export function config_row_role(entry, rows) {
+  const kind = configentry_kind(entry);
+  const name = configentry_name(entry);
+  return (((kind === "module")) ? "moduleset" : ((kind === "skill")) ? ((config_skill_hooks(rows, name).length > 0) ? "module" : "skill") : ((kind === "hook")) ? (() => { const companion = config_hook_companion(entry); return (((!(companion === "")) && rows.some((row) => ((configentry_kind(row) === "skill") && (configentry_name(row) === companion)))) ? "boundhook" : "hook"); })() : kind);
+}
+
+function config_section_rank(role) {
+  return (((role === "moduleset")) ? 0 : ((role === "module")) ? 1 : ((role === "boundhook")) ? 2 : ((role === "skill")) ? 3 : ((role === "hook")) ? 4 : ((role === "plugin")) ? 5 : ((role === "other")) ? 6 : ((role === "ins")) ? 7 : ((role === "memroot")) ? 8 : ((role === "mem")) ? 9 : 10);
+}
+
+function config_node_rank(entry) {
   return (config_global_row_p(configentry_kind(entry), configentry_name(entry)) ? 0 : 1);
 }
 
-function config_child_rank(kind) {
-  return (((kind === "ins")) ? 0 : ((kind === "memroot")) ? 1 : 2);
-}
-
-function config_nest_subtrees(entries) {
-  const dir_p = (entry) => (configentry_kind(entry) === "dir");
-  const sub_p = (entry) => config_subtree_kind_p(configentry_kind(entry));
-  const dirs = entries.filter(dir_p);
-  const subs = entries.filter(sub_p);
-  const others = entries.filter((entry) => ((!dir_p(entry)) && (!sub_p(entry))));
-  const nested = [];
-  dirs.forEach((parent) => { nested.push(parent);
-const slug = configentry_name(parent);
-const kids = subs.filter((child) => (config_row_slug(configentry_kind(child), configentry_name(child)) === slug));
-kids.sort((a, b) => (config_child_rank(configentry_kind(a)) - config_child_rank(configentry_kind(b))));
-return kids.forEach((child) => nested.push(child)); });
-  const orphans = subs.filter((child) => (!nested.includes(child)));
-  return nested.concat(orphans, others);
+function config_tree_rows(entries) {
+  const dirs = entries.filter((entry) => (configentry_kind(entry) === "dir"));
+  const kids = entries.filter((entry) => (!(configentry_kind(entry) === "dir")));
+  const ordered = dirs.slice().sort((a, b) => (config_node_rank(a) - config_node_rank(b)));
+  const tree = [];
+  ordered.forEach((node) => { tree.push(node);
+const slug = configentry_name(node);
+const owned = kids.filter((child) => (config_row_scope(configentry_kind(child), configentry_name(child)) === slug));
+const sorted = owned.sort((a, b) => (config_section_rank(config_row_role(a, entries)) - config_section_rank(config_row_role(b, entries))));
+return sorted.forEach((child) => { if ((!(config_row_role(child, entries) === "boundhook"))) {
+  tree.push(child);
+  if ((config_row_role(child, entries) === "module")) {
+    return config_skill_hooks(sorted, configentry_name(child)).forEach((hook) => tree.push(hook));
+  }
+} }); });
+  return tree.concat(kids.filter((child) => (!tree.includes(child))));
 }
 
 export function config_view_rows(entries, view) {
   const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
-  return ((!config_view_sections_p(view)) ? kept : config_nest_subtrees(kept.sort((a, b) => { const by_kind = (config_kind_rank(configentry_kind(a)) - config_kind_rank(configentry_kind(b)));
-return ((!(by_kind === 0)) ? by_kind : (config_row_rank(a) - config_row_rank(b))); })));
+  const held = kept.filter((entry) => (((!config_view_prunes_p(view)) || (!(configentry_kind(entry) === "dir"))) ? true : kept.some((child) => ((!(configentry_kind(child) === "dir")) && (config_row_scope(configentry_kind(child), configentry_name(child)) === configentry_name(entry))))));
+  return config_tree_rows(held);
+}
+
+export function config_node_expanded_p(expanded, slug) {
+  return (expanded ? expanded.includes(slug) : false);
+}
+
+export function config_fold_rows(entries, expanded) {
+  const nodes = entries.filter((entry) => (configentry_kind(entry) === "dir")).map((entry) => configentry_name(entry));
+  return entries.filter((entry) => { const kind = configentry_kind(entry);
+const scope = config_row_scope(kind, configentry_name(entry));
+return ((kind === "dir") || (!nodes.includes(scope)) || config_node_expanded_p(expanded, scope)); });
+}
+
+export function config_row_search_text(entry) {
+  const kind = configentry_kind(entry);
+  const name = configentry_name(entry);
+  return ("".concat(config_row_label(kind, name), " ", name, " ", text(configentry_detail(entry)))).toLowerCase();
+}
+
+export function config_row_matches_p(entry, query) {
+  const needle = query.trim().toLowerCase();
+  return ((needle === "") || config_row_search_text(entry).includes(needle));
+}
+
+function config_matched_slugs(entries, query, kind) {
+  return entries.filter((entry) => ((configentry_kind(entry) === kind) && config_row_matches_p(entry, query))).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
+}
+
+export function config_query_rows(entries, query) {
+  if ((query.trim() === "")) {
+    return entries;
+  } else {
+    const open_nodes = config_matched_slugs(entries, query, "dir");
+    const open_mems = config_matched_slugs(entries, query, "memroot");
+    const held = entries.filter((entry) => config_row_matches_p(entry, query)).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
+    const held_mems = entries.filter((entry) => ((configentry_kind(entry) === "mem") && config_row_matches_p(entry, query))).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
+    const held_skills = entries.filter((entry) => ((configentry_kind(entry) === "hook") && config_row_matches_p(entry, query))).map((entry) => config_hook_companion(entry));
+    const open_skills = entries.filter((entry) => ((configentry_kind(entry) === "skill") && config_row_matches_p(entry, query))).map((entry) => configentry_name(entry));
+    return entries.filter((entry) => { const kind = configentry_kind(entry);
+const scope = config_row_scope(kind, configentry_name(entry));
+return (config_row_matches_p(entry, query) || open_nodes.includes(scope) || ((kind === "mem") && open_mems.includes(scope)) || ((kind === "dir") && held.includes(scope)) || ((kind === "memroot") && held_mems.includes(scope)) || ((kind === "skill") && held_skills.includes(configentry_name(entry))) || ((kind === "hook") && open_skills.includes(config_hook_companion(entry)))); });
+  }
+}
+
+export function config_row_context_only_p(entry, query) {
+  return ((!(query.trim() === "")) && (!config_row_matches_p(entry, query)));
 }
 
 function config_manifest_path() {
@@ -913,6 +983,61 @@ async function ensure_config_manifest_bang() {
   } })();
 }
 
+function panel_filtering_p(runtime) {
+  return (runtime.panelFiltering ? true : false);
+}
+
+function panel_query(runtime) {
+  return (panel_filtering_p(runtime) ? text(runtime.panelQuery) : "");
+}
+
+function panel_expanded(runtime) {
+  const stored = runtime.expandedDirs;
+  return (stored ? stored : []);
+}
+
+export function config_panel_rows(runtime) {
+  const stored = runtime.configEntries;
+  const entries = (stored ? stored : []);
+  const query = panel_query(runtime);
+  const view = text_or(text(runtime.configFilter), "all");
+  return ((!(query.trim() === "")) ? config_query_rows(entries, query) : (config_view_folds_p(view) ? config_fold_rows(entries, panel_expanded(runtime)) : entries));
+}
+
+export function config_row_node(entry) {
+  return config_row_scope(configentry_kind(entry), configentry_name(entry));
+}
+
+export function clamp_panel_cursor_bang(runtime) {
+  const total = config_panel_rows(runtime).length;
+  const raw = runtime.configIndex;
+  const current = (raw ? raw : 0);
+  return (runtime.configIndex = ((total > 0) ? Math.max(0, Math.min(current, (total - 1))) : 0));
+}
+
+export function set_panel_query_bang(runtime, query) {
+  (runtime.panelFiltering = true);
+  (runtime.panelQuery = query);
+  return clamp_panel_cursor_bang(runtime);
+}
+
+export function clear_panel_filter_bang(runtime) {
+  (runtime.panelFiltering = false);
+  (runtime.panelQuery = "");
+  return clamp_panel_cursor_bang(runtime);
+}
+
+export function set_node_expanded_bang(runtime, slug, open_p) {
+  const current = panel_expanded(runtime);
+  const without = current.filter((held) => (!(held === slug)));
+  (runtime.expandedDirs = (open_p ? without.concat([slug]) : without));
+  return clamp_panel_cursor_bang(runtime);
+}
+
+export function fold_key_action(dir_row_p, expanded_p, open_key_p) {
+  return (((open_key_p && dir_row_p)) ? (expanded_p ? "" : "expand") : (open_key_p) ? "" : (dir_row_p) ? (expanded_p ? "collapse" : "") : "climb");
+}
+
 async function load_config_entries_bang(runtime) {
   await ensure_config_manifest_bang();
   const content = await run_command(["cat", config_manifest_path()]);
@@ -922,25 +1047,39 @@ async function load_config_entries_bang(runtime) {
   const all_entries = lines.map((line) => { const parts = line.trim().split(" ").filter((part) => (!(part === "")));
 return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2]), parts.slice(3).join(" ")); });
   const entries = config_view_rows(all_entries, config_filter);
-  const total = entries.length;
-  const raw = runtime.configIndex;
-  const current = (raw ? raw : 0);
   (runtime.configAllEntries = all_entries);
   (runtime.configMemberships = memberships);
   (runtime.configEntries = entries);
-  (runtime.configIndex = Math.max(0, Math.min(current, (total - 1))));
+  clamp_panel_cursor_bang(runtime);
   (runtime.configLoaded = true);
   return runtime.render();
 }
 
-function open_config_panel_bang(runtime, config_filter) {
+function focus_panel_bang(runtime, ui) {
+  (runtime.panelFocused = true);
+  return ui.composerInput.blur();
+}
+
+function focus_composer_bang(runtime, ui) {
+  (runtime.panelFocused = false);
+  return ui.composerInput.focus();
+}
+
+function panel_focused_p(runtime) {
+  return (detail_open_p(runtime) && (!(runtime.panelFocused === false)));
+}
+
+function open_config_panel_bang(runtime, ui, config_filter) {
   const already = (detail_showing_p(runtime, "config") && (text(runtime.configFilter) === config_filter));
   if (already) {
     close_detail_bang(runtime);
+    focus_composer_bang(runtime, ui);
   } else {
+    focus_panel_bang(runtime, ui);
     (runtime.configFilter = config_filter);
     (runtime.configIndex = 0);
     (runtime.configLoaded = false);
+    clear_panel_filter_bang(runtime);
     open_detail_bang(runtime, "config");
     report_promise_bang(runtime, load_config_entries_bang(runtime));
   }
@@ -948,8 +1087,8 @@ function open_config_panel_bang(runtime, config_filter) {
 }
 
 async function edit_config_entry_bang(runtime) {
-  const entries = runtime.configEntries;
-  if ((entries && (entries.length > 0))) {
+  const entries = config_panel_rows(runtime);
+  if ((entries.length > 0)) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
     const entry = entries[index];
@@ -971,8 +1110,8 @@ async function edit_config_entry_bang(runtime) {
 }
 
 async function toggle_config_entry_bang(runtime) {
-  const entries = runtime.configEntries;
-  if ((entries && (entries.length > 0))) {
+  const entries = config_panel_rows(runtime);
+  if ((entries.length > 0)) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
     const entry = entries[index];
@@ -1029,13 +1168,13 @@ runtime.render();
 return true; })() : ((name === "sound")) ? (() => { handle_sound_command_bang(runtime, rest);
 return true; })() : ((name === "mute")) ? (() => { (runtime.soundEnabled = false);
 publish_line_bang(runtime, sound_status(runtime));
-return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, "all");
-return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, "hook");
-return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, "skill");
-return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, "plugin");
-return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, "module");
-return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, "globals");
-return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, "agentsmd");
+return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, ui, "all");
+return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
+return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
+return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, ui, "plugin");
+return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, ui, "module");
+return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, ui, "globals");
+return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, ui, "agentsmd");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
 return true; })() : ((name === "agents")) ? (() => { show_frame_bang(runtime, ui, "agents");
 return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
@@ -1044,7 +1183,7 @@ return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCa
   show_frame_bang(runtime, ui, "threads");
 }
 return true; })() : (thread_view_command_p(name)) ? (() => { show_thread_view_bang(runtime, ui, name);
-return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime);
+return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime, ui);
 return true; })() : (escape_command_p(name)) ? (() => { escape_step_bang(runtime, ui, false);
 return true; })() : false);
   }
@@ -1412,39 +1551,79 @@ function visible_notice(notice) {
   return (((value === "view dag")) ? "view graph" : ((value === "view kanban")) ? "view board" : value);
 }
 
-function config_section_title(kind) {
-  return (((kind === "dir")) ? "DIRECTORY INSTRUCTIONS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
+const CONFIG_TREE_TITLE = "DIRECTORY";
+
+export function config_section_title(role) {
+  return (((role === "dir")) ? CONFIG_TREE_TITLE : ((role === "moduleset")) ? "MODULE SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
+}
+
+export function config_header_roles(role) {
+  return (((role === "moduleset")) ? ["dir", "moduleset"] : ((role === "module")) ? ["dir", "skill", "module"] : ((role === "boundhook")) ? ["dir", "skill", "module"] : ((role === "skill")) ? ["dir", "skill"] : ((role === "hook")) ? ["dir", "hook"] : ((role === "plugin")) ? ["dir", "plugin"] : ((role === "other")) ? ["dir", "other"] : ["dir"]);
+}
+
+export function config_header_keys(entry, rows) {
+  const role = config_row_role(entry, rows);
+  const scope = config_row_scope(configentry_kind(entry), configentry_name(entry));
+  return config_header_roles(role).map((heading) => ((heading === "dir") ? "dir" : ("".concat(scope, " ", heading))));
+}
+
+export function config_header_shared(prior, current) {
+  const count = {n: 0};
+  current.forEach((heading, index) => { if (((count.n === index) && (index < prior.length) && (prior[index] === heading))) {
+  return (count.n = (index + 1));
+} });
+  return count.n;
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "directory instructions" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "directory context" : "context switchboard");
 }
 
-function config_empty_note(loaded_p) {
-  return (loaded_p ? " nothing to configure here" : " loading…");
+export function config_empty_note(loaded_p, filtering_p) {
+  return (((!loaded_p)) ? " loading…" : (filtering_p) ? " nothing matches" : " nothing to configure here");
+}
+
+export function config_query_field(filtering_p, query) {
+  return (filtering_p ? ("".concat("  /", query)) : "");
+}
+
+export function config_panel_legend(filtering_p) {
+  return (filtering_p ? "  ↑/↓ move · space toggle · enter edit · esc clears filter" : "  ↑/↓ move · space toggle · enter edit · / filter · esc close");
+}
+
+function dimmest(value) {
+  return dim(brightBlack(value));
 }
 
 function config_member_count_text(count) {
   return ("".concat(count, ((count === 1) ? " member" : " members")));
 }
 
-function config_row_text(entry, memberships, width) {
+function config_fold_glyph(dir_row_p, expanded_p) {
+  return ((!dir_row_p) ? "" : (expanded_p ? "▾ " : "▸ "));
+}
+
+function config_row_text(entry, memberships, expanded_p, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const members = config_module_members(memberships, name);
   const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
-  const label = config_row_label(kind, name);
+  const label = ("".concat(config_fold_glyph((kind === "dir"), expanded_p), config_row_label(kind, name)));
   return compact_text(((detail === "") ? label : ("".concat(label, "  ", detail))), width);
 }
 
-const CONFIG_INDENT_WIDTH = 4;
+const CONFIG_INDENT_WIDTH = 2;
 
-export function config_row_depth(kind) {
-  return (((kind === "ins")) ? 1 : ((kind === "memroot")) ? 1 : ((kind === "mem")) ? 2 : 0);
+export function config_row_depth(role) {
+  return (((role === "dir")) ? 0 : ((role === "ins")) ? 1 : ((role === "memroot")) ? 1 : ((role === "module")) ? 3 : ((role === "boundhook")) ? 4 : 2);
 }
 
-function config_row_indent(kind) {
-  return " ".repeat((CONFIG_INDENT_WIDTH * config_row_depth(kind)));
+function config_row_indent(role) {
+  return " ".repeat((CONFIG_INDENT_WIDTH * config_row_depth(role)));
+}
+
+function config_header_indent(index) {
+  return " ".repeat((CONFIG_INDENT_WIDTH * (index + 1)));
 }
 
 const CONFIG_STATE_WIDTH = 3;
@@ -1460,40 +1639,49 @@ function config_state_gap(kind, state_text) {
 }
 
 export function render_config_panel(runtime) {
-  const entries = runtime.configEntries;
-  const total = (entries ? entries.length : 0);
+  const entries = config_panel_rows(runtime);
+  const total = entries.length;
+  const stored_entries = runtime.configEntries;
   const stored_manifest = runtime.configAllEntries;
-  const manifest = (stored_manifest ? stored_manifest : entries);
+  const manifest = (stored_manifest ? stored_manifest : (stored_entries ? stored_entries : entries));
   const stored_memberships = runtime.configMemberships;
   const memberships = (stored_memberships ? stored_memberships : []);
+  const basis = (stored_entries ? stored_entries : entries);
+  const expanded = panel_expanded(runtime);
   const config_filter = text_or(text(runtime.configFilter), "all");
-  const sections_p = config_view_sections_p(config_filter);
+  const filtering_p = panel_filtering_p(runtime);
+  const focused_p = panel_focused_p(runtime);
+  const query = panel_query(runtime);
   if ((total === 0)) {
-    return new StyledText([brightYellow(config_panel_title(config_filter)), brightBlack(config_empty_note((runtime.configLoaded ? true : false)))]);
+    return new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(config_empty_note((runtime.configLoaded ? true : false), filtering_p))]);
   } else {
     const index = clamped_index(runtime.configIndex, total);
     const window = config_visible_count(total, config_filter);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
     const width = Math.max(12, (terminal_columns() - 12));
-    const parts = [brightYellow(config_panel_title(config_filter)), brightBlack("  ↑/↓ move · space toggle · enter edit · esc close\n")];
+    const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(("".concat(config_panel_legend(filtering_p), "\n")))];
     entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry, manifest, memberships);
 const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
+const context_p = config_row_context_only_p(entry, query);
+const role = config_row_role(entry, basis);
+const open_p = ((kind === "dir") && ((!(query.trim() === "")) || (!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry))));
 const state_text = config_state_text(entry, manifest, memberships, active_p);
-const state_column = ("".concat(config_row_indent(kind), state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
+const state_column = ("".concat(config_row_indent(role), state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
 const label_width = Math.max(12, (width - state_column.length));
-const section = config_section_kind(kind);
-const prior = ((i === start) ? "" : config_section_kind(configentry_kind(entries[(i - 1)])));
+const headings = config_header_keys(entry, basis);
+const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
+const shared = config_header_shared(prior, headings);
 const tail = (((i + 1) === stop) ? "" : "\n");
-if ((sections_p && (!(section === prior)))) {
-  parts.push(brightYellow(("".concat(config_section_title(section), "\n"))));
-}
-parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
-parts.push((((pinned_p) ? brightYellow : (active_p) ? brightGreen : brightBlack))(state_column));
-return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(config_row_text(entry, memberships, label_width), tail)))); });
+config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
+  return parts.push(brightYellow(("".concat(((heading === "dir") ? "" : config_header_indent(at)), config_section_title(heading), "\n"))));
+} });
+parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
+parts.push((((pinned_p) ? dimmest : (active_p) ? brightGreen : brightBlack))(state_column));
+return parts.push((((pinned_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack))(("".concat(config_row_text(entry, memberships, open_p, label_width), tail)))); });
     return new StyledText(parts);
   }
 }
@@ -1511,14 +1699,17 @@ function open_detail_bang(runtime, view) {
 }
 
 function close_detail_bang(runtime) {
+  clear_panel_filter_bang(runtime);
   return (runtime.detailView = "");
 }
 
-function toggle_help_bang(runtime) {
+function toggle_help_bang(runtime, ui) {
   if (detail_showing_p(runtime, "help")) {
     close_detail_bang(runtime);
+    focus_composer_bang(runtime, ui);
   } else {
     open_detail_bang(runtime, "help");
+    focus_panel_bang(runtime, ui);
   }
   return runtime.render();
 }
@@ -1530,14 +1721,14 @@ function detail_agents(runtime) {
 
 const DETAIL_CHROME_ROWS = 3;
 
-const CONFIG_SECTION_ROWS = 6;
+const CONFIG_SECTION_ROWS = 7;
 
 function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
 }
 
 export function config_section_rows(view) {
-  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 5 : ((view === "agentsmd")) ? 1 : 0);
+  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 6 : ((view === "agentsmd")) ? 1 : 2);
 }
 
 export function config_visible_count(total, view) {
@@ -1548,16 +1739,21 @@ function clamped_index(raw, total) {
   return Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
 }
 
-function config_header_lines(entries, sections_p, start, stop) {
-  return ((!sections_p) ? 0 : entries.slice(start, stop).filter((entry, offset) => { const i = (start + offset);
-return ((i === start) || (!(config_section_kind(configentry_kind(entry)) === config_section_kind(configentry_kind(entries[(i - 1)]))))); }).length);
+function config_header_lines(entries, basis, start, stop) {
+  const count = {n: 0};
+  entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+const headings = config_header_keys(entry, basis);
+const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
+return (count.n = (count.n + (headings.length - config_header_shared(prior, headings)))); });
+  return count.n;
 }
 
 export function config_detail_lines(runtime) {
-  const entries = runtime.configEntries;
-  const total = (entries ? entries.length : 0);
+  const entries = config_panel_rows(runtime);
+  const total = entries.length;
+  const stored_entries = runtime.configEntries;
+  const basis = (stored_entries ? stored_entries : entries);
   const view = text_or(text(runtime.configFilter), "all");
-  const sections_p = config_view_sections_p(view);
   if ((total === 0)) {
     return 1;
   } else {
@@ -1565,12 +1761,12 @@ export function config_detail_lines(runtime) {
     const window = config_visible_count(total, view);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    return (1 + (stop - start) + config_header_lines(entries, sections_p, start, stop));
+    return (1 + (stop - start) + config_header_lines(entries, basis, start, stop));
   }
 }
 
 function detail_body_lines(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; return (1 + Math.max(1, Math.min(total, detail_visible_count(total, 0)))); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows()) : 0);
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; return (1 + Math.max(1, Math.min(total, detail_visible_count(total, 0)))); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
 }
 
 export function detail_height(runtime) {
@@ -1621,24 +1817,36 @@ const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads"), HelpRow("←/→", "sw
 
 const HELP_KEY_WIDTH = 22;
 
-function help_visible_rows() {
-  const total = HELP_ROWS.length;
+export function help_query_rows(query) {
+  const needle = query.trim().toLowerCase();
+  return ((needle === "") ? HELP_ROWS : HELP_ROWS.filter((row) => ("".concat(helprow_keys(row), " ", helprow_meaning(row))).toLowerCase().includes(needle)));
+}
+
+function help_visible_rows(query) {
+  const total = help_query_rows(query).length;
   return Math.max(1, Math.min(total, detail_visible_count(total, 0)));
 }
 
-function render_help_panel() {
-  const chunks = [brightYellow("Northbridge keys"), brightBlack(" · esc closes\n")];
-  const rows = HELP_ROWS.slice(0, help_visible_rows());
-  rows.forEach((row, index) => { push_chunk_bang(chunks, brightWhite(helprow_keys(row).padEnd(HELP_KEY_WIDTH, " ")));
+function render_help_panel(runtime) {
+  const filtering_p = panel_filtering_p(runtime);
+  const query = panel_query(runtime);
+  const matched = help_query_rows(query);
+  const chunks = [brightYellow("Northbridge keys"), brightCyan(config_query_field(filtering_p, query)), brightBlack((filtering_p ? " · esc clears filter\n" : " · / filter · esc closes\n"))];
+  const rows = matched.slice(0, help_visible_rows(query));
+  if ((rows.length === 0)) {
+    push_chunk_bang(chunks, brightBlack(" nothing matches"));
+  } else {
+    rows.forEach((row, index) => { push_chunk_bang(chunks, brightWhite(helprow_keys(row).padEnd(HELP_KEY_WIDTH, " ")));
 push_chunk_bang(chunks, brightBlack(helprow_meaning(row)));
 if ((index < (rows.length - 1))) {
   return push_chunk_bang(chunks, brightBlack("\n"));
 } });
+  }
   return new StyledText(chunks);
 }
 
 export function render_detail_panel_bang(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel() : new StyledText([brightBlack("")]));
+  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel(runtime) : new StyledText([brightBlack("")]));
 }
 
 function segment_chunk(segment, highlighted_p) {
@@ -2553,10 +2761,13 @@ function install_mouse_bang(runtime, ui) {
 
 function escape_step_bang(runtime, ui, from_key_p) {
   const palette = active_palette_options(runtime, ui);
-  const action = escape_rung((palette.length > 0), detail_open_p(runtime), (runtime.stripFocused ? true : false), threads_frame_p(runtime.frame), (runtime.working ? true : false), from_key_p);
+  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (runtime.stripFocused ? true : false), threads_frame_p(runtime.frame), (runtime.working ? true : false), from_key_p);
   return (((action === "close-palette")) ? (() => { (active_input(runtime, ui).value = "");
 render_minibuffer_bang(runtime, ui);
+return true; })() : ((action === "clear-filter")) ? (() => { clear_panel_filter_bang(runtime);
+runtime.render();
 return true; })() : ((action === "close-detail")) ? (() => { close_detail_bang(runtime);
+focus_composer_bang(runtime, ui);
 runtime.render();
 return true; })() : ((action === "focus-composer")) ? (() => { leave_strip_bang(runtime, ui);
 runtime.render();
@@ -2568,8 +2779,43 @@ return true; })() : ((action === "quit")) ? (() => { destroy_bang(runtime);
 return true; })() : false);
 }
 
+function panel_filterable_p(runtime) {
+  return (detail_showing_p(runtime, "config") || detail_showing_p(runtime, "help"));
+}
+
+export function filter_character(name, sequence, ctrl_p, meta_p) {
+  return ((ctrl_p || meta_p || (name === "space") || (!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32)) ? "" : sequence);
+}
+
+export function filter_key_action(filtering_p, query, name, character) {
+  return ((((!filtering_p) && (character === "/"))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
+}
+
 function ctrl_down_key_p(name, key) {
   return (key.ctrl && (name === "j"));
+}
+
+function bare_letter_p(name, key, letter) {
+  return ((name === letter) && (!key.ctrl) && (!(key.meta || key.option)));
+}
+
+function fold_key_p(runtime, name, key) {
+  return ((name === "left") || (name === "right") || ((!panel_filtering_p(runtime)) && (bare_letter_p(name, key, "h") || bare_letter_p(name, key, "l"))));
+}
+
+function fold_step_bang(runtime, open_key_p) {
+  const rows = config_panel_rows(runtime);
+  const total = rows.length;
+  if ((total > 0)) {
+    const index = clamped_index(runtime.configIndex, total);
+    const entry = rows[index];
+    const dir_p = (configentry_kind(entry) === "dir");
+    const node = config_row_node(entry);
+    const action = fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p);
+    return (((action === "expand")) ? set_node_expanded_bang(runtime, node, true) : ((action === "collapse")) ? set_node_expanded_bang(runtime, node, false) : ((action === "climb")) ? (() => { const at = rows.findIndex((row) => ((configentry_kind(row) === "dir") && (configentry_name(row) === node))); if ((at >= 0)) {
+  return (runtime.configIndex = at);
+} })() : null);
+  }
 }
 
 function ctrl_up_key_p(name, key) {
@@ -2592,23 +2838,48 @@ function install_keys_bang(runtime, ui) {
   const palette_open = (palette.length > 0);
   const plain_view_arrow = (threads_frame_p(runtime.frame) && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
   return ((((name === "escape") || (name === "esc"))) ? (escape_step_bang(runtime, ui, true) ? (() => { key.preventDefault();
-return key.stopPropagation(); })() : null) : ((detail_showing_p(runtime, "config") && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name)))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+return key.stopPropagation(); })() : null) : ((detail_open_p(runtime) && (!panel_focused_p(runtime)) && (!palette_open) && ctrl_down_key_p(name, key))) ? (() => { key.preventDefault();
+key.stopPropagation();
+focus_panel_bang(runtime, ui);
+return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || fold_key_p(runtime, name, key)))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if ((up_p || down_p)) {
-  const entries = runtime.configEntries;
-  const total = (entries ? entries.length : 0);
+  const total = config_panel_rows(runtime).length;
   if ((total > 0)) {
     const raw = runtime.configIndex;
     const current = (raw ? raw : 0);
     const delta = (up_p ? -1 : 1);
     (runtime.configIndex = ((current + delta + total) % total));
   }
+} else if (fold_key_p(runtime, name, key)) {
+  fold_step_bang(runtime, ((name === "right") || bare_key_p(name, key, "l")));
 } else if ((name === "space")) {
   report_promise_bang(runtime, toggle_config_entry_bang(runtime));
 } else {
   report_promise_bang(runtime, edit_config_entry_bang(runtime));
 }
-return runtime.render(); })() : ((runtime.stripFocused && strip_key_p(name, key))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || ctrl_up_key_p(name, key) || bare_key_p(name, key, "k")); const down_p = ((name === "down") || ctrl_down_key_p(name, key) || bare_key_p(name, key, "j")); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
+return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!panel_filtering_p(runtime)) && (!palette_open) && (filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)) === "@"))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
+key.stopPropagation();
+if ((total > 0)) {
+  const entry = rows[clamped_index(runtime.configIndex, total)];
+  const input = active_input(runtime, ui);
+  (input.value = ("".concat(text(input.value), config_reference_text(configentry_kind(entry), configentry_name(entry)))));
+  focus_composer_bang(runtime, ui);
+  render_minibuffer_bang(runtime, ui);
+}
+return runtime.render(); })() : ((panel_filterable_p(runtime) && panel_focused_p(runtime) && (!palette_open) && (!(filter_key_action(panel_filtering_p(runtime), panel_query(runtime), name, filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false))) === "")))) ? (() => { const character = filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)); const query = panel_query(runtime); const action = filter_key_action(panel_filtering_p(runtime), query, name, character); key.preventDefault();
+key.stopPropagation();
+if ((action === "open")) {
+  set_panel_query_bang(runtime, "");
+} else if ((action === "type")) {
+  set_panel_query_bang(runtime, ("".concat(query, character)));
+} else if ((action === "erase")) {
+  set_panel_query_bang(runtime, query.slice(0, (query.length - 1)));
+} else {
+  clear_panel_filter_bang(runtime);
+}
+return runtime.render(); })() : ((panel_focused_p(runtime) && (!palette_open) && (!(filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)) === "")))) ? (() => { key.preventDefault();
+return key.stopPropagation(); })() : ((runtime.stripFocused && strip_key_p(name, key))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || ctrl_up_key_p(name, key) || bare_key_p(name, key, "k")); const down_p = ((name === "down") || ctrl_down_key_p(name, key) || bare_key_p(name, key, "j")); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
 key.stopPropagation();
 if (submit_key_p(name)) {
   toggle_segment_detail_bang(runtime);
@@ -2645,7 +2916,7 @@ return focus_strip_bang(runtime, ui); })() : (((name === "tab") || (name === "f2
 key.stopPropagation();
 return show_frame_bang(runtime, ui, (threads_frame_p(runtime.frame) ? "agents" : "threads")); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
-return toggle_help_bang(runtime); })() : (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1); const next_index = ((index + delta + views.length) % views.length); const next_id = text(views[next_index].id); key.preventDefault();
+return toggle_help_bang(runtime, ui); })() : (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1); const next_index = ((index + delta + views.length) % views.length); const next_id = text(views[next_index].id); key.preventDefault();
 key.stopPropagation();
 return show_thread_view_bang(runtime, ui, next_id); })() : (((name === "f5") || (key.ctrl && (name === "r")))) ? (() => { key.preventDefault();
 key.stopPropagation();

@@ -43,23 +43,33 @@ const MANIFEST: Row[] = [
 ];
 
 const kinds = (rows: Row[]) => rows.map((r) => r.kind);
+const names = (rows: Row[]) => rows.map((r) => r.name);
 
-test("modules read before the skills, and skills before the hooks they move", () => {
-  // The relationship runs container -> unit -> hook, so the row you flip sits
-  // above the rows it changes. This is the user's stated order.
+test("a skill reads with the hooks it declared, and the loose ones read after", () => {
+  // The relationship runs set -> skill -> hook, so the row you flip sits above
+  // the rows it changes — and a hook that follows a skill is drawn INSIDE it
+  // rather than in a block of its own. Only the hooks nobody claimed need a
+  // heading of their own.
   expect(kinds(configViewRows(MANIFEST.slice(), "all") as Row[])).toEqual([
-    "dir", "dir",
+    "dir",
     "module",
-    "skill", "skill",
-    "hook", "hook", "hook", "hook", "hook", "hook",
+    "skill", "hook",
+    "skill", "hook",
+    "hook", "hook", "hook", "hook",
     "plugin",
     "other",
+    "dir",
+  ]);
+  const all = configViewRows(MANIFEST.slice(), "all") as Row[];
+  expect(names(all).slice(2, 6)).toEqual([
+    "firn", "firn-guard", "webdev", "webdev-guard",
   ]);
   expect(kinds(configViewRows(MANIFEST.slice(), "globals") as Row[])).toEqual([
     "dir",
     "module",
-    "skill", "skill",
-    "hook", "hook", "hook", "hook", "hook", "hook",
+    "skill", "hook",
+    "skill", "hook",
+    "hook", "hook", "hook", "hook",
     "other",
   ]);
 });
@@ -125,12 +135,13 @@ test("the state column says both axes, and where an off came from", () => {
     return configStateText(entry, MANIFEST, [], configEntryActive(entry, MANIFEST, []));
   };
   expect(at("worktree-guard")).toBe("enabled · on");
-  expect(at("firn-guard")).toBe("enabled · on · firn");
-  // Provenance is the companion's name whatever kind it is.
-  expect(at("profile-guard")).toBe("enabled · on · global");
-  expect(at("routing-guard")).toBe("enabled · on · orchestration");
+  expect(at("firn-guard")).toBe("enabled · on · skill: firn");
+  // Provenance is the companion's kind AND name, so the unit a hook follows
+  // cannot be misread as another hook.
+  expect(at("profile-guard")).toBe("enabled · on · dir: global");
+  expect(at("routing-guard")).toBe("enabled · on · module: orchestration");
   // Permitted but inactive, and the row names the reason.
-  expect(at("webdev-guard")).toBe("enabled · off · webdev");
+  expect(at("webdev-guard")).toBe("enabled · off · skill: webdev");
   // A pin is not an off: no derived activity is reported for it at all.
   expect(at("tripwire-guard")).toBe("disabled");
 
@@ -149,7 +160,7 @@ test("space flips the axis the row stores, through the same two verbs", () => {
   expect(configToggleVerb("off")).toBe("on");
 });
 
-function configRuntime(entries: Row[], view: string) {
+function configRuntime(entries: Row[], view: string, expanded: string[] = []) {
   return {
     detailView: "config",
     // What the panel shows.
@@ -161,10 +172,12 @@ function configRuntime(entries: Row[], view: string) {
     configFilter: view,
     configIndex: 0,
     configLoaded: true,
+    expandedDirs: expanded,
   };
 }
 
-async function frameOf(view: string, entries: Row[] = MANIFEST) {
+async function frameOf(view: string, entries: Row[] = MANIFEST,
+                       expanded: string[] = []) {
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 110, height: 26,
   });
@@ -172,17 +185,17 @@ async function frameOf(view: string, entries: Row[] = MANIFEST) {
   const body = new TextRenderable(renderer, { id: "detail-text" });
   panel.add(body);
   renderer.root.add(panel);
-  body.content = renderConfigPanel(configRuntime(entries, view));
+  body.content = renderConfigPanel(configRuntime(entries, view, expanded));
   await renderOnce();
   const frame = captureCharFrame();
   renderer.destroy();
   return frame;
 }
 
-test("the switchboard reads DIRECTORY INSTRUCTIONS, MODULES, SKILLS, HOOKS, PLUGINS, OTHER", async () => {
-  const frame = await frameOf("all");
+test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGINS, OTHER", async () => {
+  const frame = await frameOf("all", MANIFEST, ["global"]);
   const order = [
-    "DIRECTORY INSTRUCTIONS", "MODULES", "SKILLS", "HOOKS", "PLUGINS", "OTHER",
+    "DIRECTORY", "MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -190,10 +203,11 @@ test("the switchboard reads DIRECTORY INSTRUCTIONS, MODULES, SKILLS, HOOKS, PLUG
     return at;
   });
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
-  // The global profile heads the directory section, above the per-directory
-  // rows it is read underneath.
-  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("DIRECTORY INSTRUCTIONS"));
+  // The root node heads the tree, above the per-directory nodes read on top of
+  // it, and its stack is inside it rather than beside it.
+  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("DIRECTORY"));
   expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
+  expect(frame.indexOf("MODULE SETS")).toBeLessThan(frame.indexOf("north  /tmp"));
 });
 
 test("each of the hook states renders as itself, whatever kind it follows", async () => {
@@ -201,14 +215,14 @@ test("each of the hook states renders as itself, whatever kind it follows", asyn
   // Active, unbound: permitted and running.
   expect(frame).toContain("enabled · on  worktree-guard");
   // Active and bound: the unit it follows is on screen above it.
-  expect(frame).toContain("enabled · on · firn  firn-guard");
+  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
   // A hook following the global profile, and one following a module, render
   // and derive exactly like one following a skill.
-  expect(frame).toContain("enabled · on · global  profile-guard");
-  expect(frame).toContain("enabled · on · orchestration  routing-guard");
+  expect(frame).toContain("enabled · on · dir: global  profile-guard");
+  expect(frame).toContain("enabled · on · module: orchestration  routing-guard");
   // Permitted but inactive, with the reason on the row — the whole point of
   // the companion field.
-  expect(frame).toContain("enabled · off · webdev  webdev-guard");
+  expect(frame).toContain("enabled · off · skill: webdev  webdev-guard");
   // A user pin, which no flip will move. Distinct from an off.
   expect(frame).toContain("disabled      tripwire-guard");
   expect(frame).not.toContain("off  tripwire-guard");
@@ -219,15 +233,18 @@ test("a narrowed /hooks view still knows which of its hooks are running", async 
   // derived from the manifest the panel kept.
   const frame = await frameOf("hook");
   expect(frame).toContain("hooks");
+  // No skill row is admitted, so no hook is claimed by one: they all read under
+  // the node's HOOKS heading, which is the truth about what is on screen.
   expect(frame).not.toContain("SKILLS");
-  expect(frame).toContain("enabled · off · webdev  webdev-guard");
-  expect(frame).toContain("enabled · on · firn  firn-guard");
-  expect(frame).toContain("enabled · on · global  profile-guard");
+  expect(frame).toContain("HOOKS");
+  expect(frame).toContain("enabled · off · skill: webdev  webdev-guard");
+  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
+  expect(frame).toContain("enabled · on · dir: global  profile-guard");
 });
 
 test("one unit flip re-renders every hook bound to it, with no hook line changed", async () => {
   const before = await frameOf("globals");
-  expect(before).toContain("enabled · on · global  profile-guard");
+  expect(before).toContain("enabled · on · dir: global  profile-guard");
 
   // The manifest the CLI writes back after `agents off global`: the dir line
   // moved, the hook lines are byte-identical. This is why a toggle reloads
@@ -240,10 +257,10 @@ test("one unit flip re-renders every hook bound to it, with no hook line changed
     MANIFEST.filter((r) => r.kind === "hook"));
 
   const frame = await frameOf("globals", after);
-  expect(frame).toContain("enabled · off · global  profile-guard");
-  expect(frame).not.toContain("enabled · on · global  profile-guard");
+  expect(frame).toContain("enabled · off · dir: global  profile-guard");
+  expect(frame).not.toContain("enabled · on · dir: global  profile-guard");
   // Hooks following other units are untouched by this one's cascade.
-  expect(frame).toContain("enabled · on · firn  firn-guard");
+  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
   // The pin is immune to the cascade; the unbound hook never followed anything.
   expect(frame).toContain("disabled      tripwire-guard");
   expect(frame).toContain("enabled · on  worktree-guard");

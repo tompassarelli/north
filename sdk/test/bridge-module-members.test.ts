@@ -93,9 +93,9 @@ test("union: one module on is enough, and every module off is the reason", () =>
   // is actually holding it — both bundles, because either would release it.
   const bothOff = withState(devOff, "tooling", "off");
   expect(active("repo-safety", bothOff)).toBe(false);
-  expect(stateOf("repo-safety", bothOff)).toBe("on · off (dev-core, tooling off)");
+  expect(stateOf("repo-safety", bothOff)).toBe("on · off (module: dev-core, module: tooling off)");
   expect(configGateModules(bothOff[3]!, bothOff, ROSTERS))
-    .toEqual(["dev-core", "tooling"]);
+    .toEqual(["module: dev-core", "module: tooling"]);
 
   // A member whose own switch is off needs no bundle to explain it.
   const ownOff = withState(bothOff, "repo-safety", "off");
@@ -111,9 +111,9 @@ test("the gate is the module's activity, not its switch — modules hold modules
   // not composing; nor is anything dev-core holds, one link further down.
   const outerOff = withState(MANIFEST, "everything", "off");
   expect(active("dev-core", outerOff)).toBe(false);
-  expect(stateOf("dev-core", outerOff)).toBe("on · off (everything off)");
+  expect(stateOf("dev-core", outerOff)).toBe("on · off (module: everything off)");
   expect(active("firn", outerOff)).toBe(false);
-  expect(stateOf("firn", outerOff)).toBe("on · off (dev-core off)");
+  expect(stateOf("firn", outerOff)).toBe("on · off (module: dev-core off)");
   // repo-safety survives it: dev-core is closed, but tooling still holds it.
   expect(active("repo-safety", outerOff)).toBe(true);
 });
@@ -121,13 +121,13 @@ test("the gate is the module's activity, not its switch — modules hold modules
 test("a hook follows its companion's activity, gate and all", () => {
   // firn-guard follows firn, which is on and composing.
   expect(active("firn-guard")).toBe(true);
-  expect(stateOf("firn-guard")).toBe("enabled · on · firn");
+  expect(stateOf("firn-guard")).toBe("enabled · on · skill: firn");
 
   // Close the bundle over firn. Nothing on firn-guard's line changed and it is
   // no longer running: the companion is not composing, so neither is it.
   const devOff = withState(MANIFEST, "dev-core", "off");
   expect(active("firn-guard", devOff)).toBe(false);
-  expect(stateOf("firn-guard", devOff)).toBe("enabled · off · firn");
+  expect(stateOf("firn-guard", devOff)).toBe("enabled · off · skill: firn");
 
   // A hook can be a member itself; then the bundle gates the hook directly and
   // the row names it rather than the companion.
@@ -135,7 +135,7 @@ test("a hook follows its companion's activity, gate and all", () => {
   const rows = [...MANIFEST, row("module", "tooling-hooks", "off")];
   expect(configUnitActive(rows, hookRoster, "solo-guard")).toBe(false);
   expect(stateOf("solo-guard", rows, hookRoster))
-    .toBe("enabled · off (tooling-hooks off)");
+    .toBe("enabled · off (module: tooling-hooks off)");
   // A pin still outranks every derivation: no bundle can un-pin a hook.
   const pinned = withState(rows, "solo-guard", "disabled");
   expect(stateOf("solo-guard", pinned, hookRoster)).toBe("disabled");
@@ -156,7 +156,7 @@ test("a cycle derives inactive instead of looping", () => {
   expect(configUnitActive(rows, rosters, "ouroboros-a")).toBe(false);
   expect(configUnitActive(rows, rosters, "ouroboros-b")).toBe(false);
   expect(configUnitActive(rows, rosters, "caught")).toBe(false);
-  expect(stateOf("caught", rows, rosters)).toBe("on · off (ouroboros-b off)");
+  expect(stateOf("caught", rows, rosters)).toBe("on · off (module: ouroboros-b off)");
 });
 
 test("a roster file is read as data, and a broken one is not fatal", () => {
@@ -253,7 +253,7 @@ test("union on screen: a shared member survives one bundle going off", async () 
   // belongs to tooling alone and does not.
   const frame = await frameOf("globals", withState(MANIFEST, "tooling", "off"));
   expect(lineWith(frame, "repo-safety")).toBe("on  repo-safety");
-  expect(lineWith(frame, "webdev")).toBe("on · off (tooling off)  webdev");
+  expect(lineWith(frame, "webdev")).toBe("on · off (module: tooling off)  webdev");
 });
 
 test("flipping a module re-renders its members' activity, with no member line changed", async () => {
@@ -261,7 +261,7 @@ test("flipping a module re-renders its members' activity, with no member line ch
   expect(before).toContain("on  firn");
   expect(before).toContain("on  repo-safety");
   expect(before).toContain("on  webdev");
-  expect(before).toContain("enabled · on · firn  firn-guard");
+  expect(before).toContain("enabled · on · skill: firn  firn-guard");
 
   // The manifest the CLI writes back after `agents off dev-core`: one module
   // row moved and every member row is byte-identical — membership never lived
@@ -273,9 +273,9 @@ test("flipping a module re-renders its members' activity, with no member line ch
 
   const frame = await frameOf("globals", after);
   // The member's activity column moved, and says which bundle did it.
-  expect(lineWith(frame, "  firn\u0020")).toBe("on · off (dev-core off)  firn");
+  expect(lineWith(frame, "  firn\u0020")).toBe("on · off (module: dev-core off)  firn");
   // And the hook following that member went with it, one link further out.
-  expect(frame).toContain("enabled · off · firn  firn-guard");
+  expect(frame).toContain("enabled · off · skill: firn  firn-guard");
   // repo-safety is in dev-core too, and tooling still holds it: union, on
   // screen, in the same flip that darkened firn.
   expect(lineWith(frame, "repo-safety")).toBe("on  repo-safety");
@@ -286,9 +286,9 @@ test("flipping a module re-renders its members' activity, with no member line ch
 
 test("the chain renders end to end: outer bundle off darkens two links", async () => {
   const frame = await frameOf("globals", withState(MANIFEST, "everything", "off"));
-  expect(frame).toContain("on · off (everything off)  dev-core");
-  expect(frame).toContain("on · off (dev-core off)  firn");
-  expect(frame).toContain("enabled · off · firn  firn-guard");
+  expect(frame).toContain("on · off (module: everything off)  dev-core");
+  expect(frame).toContain("on · off (module: dev-core off)  firn");
+  expect(frame).toContain("enabled · off · skill: firn  firn-guard");
   // The outer bundle itself is off on its own account and says only that.
   expect(frame).toContain("off everything");
 });
