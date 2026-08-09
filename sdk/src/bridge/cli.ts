@@ -25,7 +25,7 @@ function usage(): never {
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
-    + " | north bridge steer <execution-id> <text> | north bridge interrupt <execution-id>"
+    + " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>"
     + "\nlaunch role defaults to implementer",
   );
   process.exit(2);
@@ -300,7 +300,7 @@ async function main(args: string[]): Promise<number> {
       if (!Number.isSafeInteger(cursor)) usage();
     }
     request = { op: "attach", executionId, cursor };
-  } else if (args[0] === "steer") {
+  } else if (args[0] === "msg") {
     const executionId = args[1];
     const input = args.slice(2).join(" ").trim();
     if (!executionId || !input) usage();

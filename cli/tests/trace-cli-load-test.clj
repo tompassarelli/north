@@ -55,7 +55,7 @@
        "cli/trace-cli.clj"
        "north.lifecycle-projection/folded-agent-point-facts"}
       forbidden-query-ids
-      [":find \"identity_fact\"" ":find \"steer_fact\""
+      [":find \"identity_fact\"" ":find \"msg_fact\""
        ":find \"live_route_fact\"" ":find \"trace_identity\""]
       subject-all-predicate-shape
       #":args\s*\[[^\n]*\{:var\s+\"p\"\}\s*\{:var\s+\"r\"\}\]"

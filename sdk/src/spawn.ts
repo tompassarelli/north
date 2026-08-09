@@ -531,7 +531,7 @@ async function runSpawn(
     retryOfAgent: retryContext?.retryOfAgent,
   };
   const initialLiveInput = providerLiveInput(routing.provider);
-  const ch = inputChannel(opts.prompt); // streaming input keeps the managed live-steering route open
+  const ch = inputChannel(opts.prompt); // streaming input keeps the managed live-messaging route open
   termination.attachInput(() => { try { ch.end(); } catch { /* already closed */ } });
   const liveInputRoute = new ManagedLiveInputRoute(
     agentId,
@@ -765,7 +765,7 @@ async function runSpawn(
   const resumeMessage = pendingResume;
   pendingResume = undefined;
   // Turn 1 (and every non-resumed provider) reads the managed streaming channel
-  // so live steering and background-task continuations keep working unchanged.
+  // so live messaging and background-task continuations keep working unchanged.
   // A resumed continuation turn reads a fresh single-message channel carrying
   // the continuation and asks the adapter to resume the observed session.
   const turnChannel = resumeMessage === undefined ? ch : inputChannel(resumeMessage);

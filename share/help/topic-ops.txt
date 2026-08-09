@@ -1,12 +1,12 @@
 north help ops — daemons, health, deployment
 
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
-  north bridge <prompt>|dashboard|pending|accept|attach|steer|interrupt <execution-id>
+  north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>
                                                 dashboard, launch, attach, or control a journaled local Codex session
                                                 dashboard — render the Bridge operator cockpit (north dashboard remains an alias)
                                                 pending [--consume <id>] — list or consume durable terminal lane completions
                                                 accept — run the two-session reconnect/control/journal acceptance demo
-                                                steer <id> <text> — queue input for the next turn on the same provider thread
+                                                msg <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
   north health                                  coordination rollup: lanes ran/died, stale concerns, zombies

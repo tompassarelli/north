@@ -17,7 +17,7 @@
 
 (def protected-ports #{7977 48942})
 (def roster-control "oracle-roster")
-(def steer-control "oracle-steer")
+(def msg-control "oracle-msg")
 (def inbox-recipient "oracle-inbox")
 (def baseline-run "@run:oracle-roster-baseline")
 (def baseline-message "@msg:oracle-inbox-baseline")
@@ -164,7 +164,7 @@
   (vec
    (concat
     (map (fn [[predicate value]]
-           [(str "@agent:" steer-control) predicate value])
+           [(str "@agent:" msg-control) predicate value])
          (sort-by key (identity-facts)))
     [[baseline-run "agent" roster-control]
      [baseline-run "at" "2026-07-25T00:00:00Z"]
@@ -348,34 +348,34 @@
         (catch Throwable error
           (result :roster :malformed process (.getMessage error)))))))
 
-(defn steer-read [port log trial]
+(defn msg-read [port log trial]
   (let [process
         (run-bounded
          ["bb" "-cp" read-classpath
           (str north-root "/cli/msg-cli.clj") (str port) "send"
-          "oracle-harness" steer-control "steer" (str "oracle trial " trial)]
+          "oracle-harness" msg-control "msg" (str "oracle trial " trial)]
          port log)
         message (str/lower-case (str (:out process) "\n" (:err process)))]
     (cond
       (:timeout process)
-      (result :steer :unavailable process "subprocess deadline exceeded")
+      (result :msg :unavailable process "subprocess deadline exceeded")
 
       (and (zero? (:exit process))
            (str/includes? message "queued for live injection"))
-      (result :steer :healthy process "live lane admitted")
+      (result :msg :healthy process "live lane admitted")
 
       (or (str/includes? message "lifecycle is unavailable")
           (str/includes? message "liveness is unavailable")
           (str/includes? message "timeout")
           (str/includes? message "connection"))
-      (result :steer :unavailable process (str/trim message))
+      (result :msg :unavailable process (str/trim message))
 
       (or (str/includes? message "not one exact committed managed lane")
           (str/includes? message "target is offline"))
-      (result :steer :false-empty process (str/trim message))
+      (result :msg :false-empty process (str/trim message))
 
       :else
-      (result :steer :malformed process (str/trim message)))))
+      (result :msg :malformed process (str/trim message)))))
 
 (defn inbox-read [port log expected]
   (let [process
@@ -521,7 +521,7 @@
                       {:corpus corpus :writers writers :trial trial})))
     (let [reads
           [(future (roster-read port log (:roster expected)))
-           (future (steer-read port log trial))
+           (future (msg-read port log trial))
            (future (inbox-read port log (:inbox expected)))
            (future (concern-read port log (:concerns expected)))]
           outcomes (mapv deref reads)
@@ -599,7 +599,7 @@
         reproduced?
         (boolean (some #(contains? degraded (:classification %)) @results))
         writes-healthy? (every? :healthy @write-checks)]
-    (doseq [surface [:roster :steer :inbox :concerns]
+    (doseq [surface [:roster :msg :inbox :concerns]
             :let [surface-results (filter #(= surface (:surface %)) @results)
                   counts (frequencies (map :classification surface-results))]]
       (println

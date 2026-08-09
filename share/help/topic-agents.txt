@@ -19,7 +19,7 @@ north help agents — delegate work, drive and observe agents
                                     in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
   north templates                   Orchestration's reusable stock templates and routing defaults
   north watch <id>                  tail an agent's transcript
-  north steer <id> "<msg>"          inject a message into a running agent
+  north msg <id> "<msg>"            inject a message into a running agent
   north retask <id> "<goal>"        redirect a running agent's goal
   north trace <id>                  diagnose one agent's lifecycle; flags the first failing stage
   north wip [--check]               live managed lanes vs floor (--check: exit 3 on shortfall)

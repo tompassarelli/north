@@ -18,7 +18,7 @@ north — coordinate work, agents, and time
     north lanes                   postmortem lane liveness from durable receipts
     north templates               stock templates and routing defaults
     north watch <id>              tail one agent's transcript
-    north steer <id> "<msg>"      nudge it mid-flight
+    north msg <id> "<msg>"        nudge it mid-flight
 
   SYSTEM
     north config                  posture: dispatch surface, guards, routing

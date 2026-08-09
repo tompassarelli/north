@@ -1058,7 +1058,7 @@ class CodexQuery implements AgentQuery {
           throw new ProviderRetrySafeError("openai_exact_model_resolution_missing");
         const north = this.options.mcpServers.north;
         // The launch prompt is the first North frame; later frames (an
-        // orchestrator's post-settlement reduction directive, a live steer) are
+        // orchestrator's post-settlement reduction directive, a live message) are
         // consumed as additional turns on the SAME provider thread. A string
         // prompt or a channel that closes after one frame stays single-turn.
         frames = promptFrames(this.prompt);

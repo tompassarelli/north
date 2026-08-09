@@ -357,20 +357,20 @@
       (throw
        (ex-info
         "terminal drain does not match the current frozen route generation"
-        {:type :terminal-steer-drain-route-mismatch
+        {:type :terminal-msg-drain-route-mismatch
          :recipient recipient
          :epoch epoch})))
     facts))
 
-(defn steer-route-status-from-facts
+(defn msg-route-status-from-facts
   [port message to subject facts resolution]
-  (let [steer-shaped-subject?
-        (= "steer" (some-> subject str str/trim str/lower-case))
-        canonical-steer-subject? (= "steer" subject)
+  (let [msg-shaped-subject?
+        (= "msg" (some-> subject str str/trim str/lower-case))
+        canonical-msg-subject? (= "msg" subject)
         expected
         (north.coord/resolved
          port message target-identity-manifest-predicate)
-        managed-steer? (some? expected)
+        managed-msg? (some? expected)
         observed
         (when (map? facts)
           (north.terminal-projection/singleton-value
@@ -384,11 +384,11 @@
         live-input-epoch
         (when (map? facts)
           (north.terminal-projection/singleton-value facts "live_input_epoch"))]
-    (if-not (or steer-shaped-subject? managed-steer?)
+    (if-not (or msg-shaped-subject? managed-msg?)
       {:valid? true}
       (cond
-        (and managed-steer? (not canonical-steer-subject?))
-        {:valid? false :reason "steer_type_invalid"
+        (and managed-msg? (not canonical-msg-subject?))
+        {:valid? false :reason "msg_type_invalid"
          :expected-manifest
          (when (and (string? expected)
                     (re-matches #"^[0-9a-f]{64}$" expected))
@@ -400,7 +400,7 @@
 
         (not (and (string? expected)
                   (re-matches #"^[0-9a-f]{64}$" expected)))
-        {:valid? false :reason "steer_manifest_missing"}
+        {:valid? false :reason "msg_manifest_missing"}
 
         ;; A supported route mutation withdraws the full identity marker before
         ;; changing any route axis and recommits it last. Point-reading that
@@ -413,7 +413,7 @@
             (not (contains? #{"pending" "armed" "frozen"}
                             live-input-state))
             (not (safe-route-epoch? live-input-epoch)))
-        {:valid? false :reason "steer_route_invalid"
+        {:valid? false :reason "msg_route_invalid"
          :expected-manifest expected
          :observed-manifest
          (when (and (string? observed)
@@ -421,33 +421,33 @@
            observed)}
 
         (not= expected observed)
-        {:valid? false :reason "steer_route_stale"
+        {:valid? false :reason "msg_route_stale"
          :expected-manifest expected :observed-manifest observed}
 
         (= :resolved (:status resolution))
-        {:valid? false :reason "steer_route_not_armed"
+        {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
         (= :indeterminate (:status resolution))
-        {:valid? false :reason "steer_route_not_armed"
+        {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
         (or (not= "streaming" live-input)
             (not= "armed" live-input-state))
-        {:valid? false :reason "steer_route_not_armed"
+        {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
         :else
         {:valid? true
          :expected-manifest expected :observed-manifest observed}))))
 
-(defn steer-route-status [port message to subject]
+(defn msg-route-status [port message to subject]
   (let [facts (route-guard-facts port to)]
-    (steer-route-status-from-facts
+    (msg-route-status-from-facts
      port message to subject facts (route-resolution port to facts))))
 
-(defn current-steer-route? [port message to subject]
-  (:valid? (steer-route-status port message to subject)))
+(defn current-msg-route? [port message to subject]
+  (:valid? (msg-route-status port message to subject)))
 
 (defn message-problem [id from subject body]
   (or
@@ -472,7 +472,7 @@
    (deliver-message!
     port recipient message control-queue claim-ttl-ms ack-timeout-ms
     (fn [candidate to subject]
-      (steer-route-status port candidate to subject))))
+      (msg-route-status port candidate to subject))))
   ([port recipient message control-queue claim-ttl-ms ack-timeout-ms
     route-status]
    (when-let [claim
@@ -483,7 +483,7 @@
            subject (north.coord/resolved port message "subject")
            body (north.coord/resolved port message "body")
            problem (message-problem message from subject body)
-           steer-status (route-status message to subject)]
+           msg-status (route-status message to subject)]
        (cond
          (not (currently-deliverable? port recipient message to))
          (do
@@ -497,11 +497,11 @@
            (emit-error! problem (when (safe-control-id? message) message))
            :rejected)
 
-         (not (:valid? steer-status))
+         (not (:valid? msg-status))
          (do
            (north.message-audience/reject-delivery!
-            port message recipient claim steer-status)
-           (emit-error! (:reason steer-status)
+            port message recipient claim msg-status)
+           (emit-error! (:reason msg-status)
                         (when (safe-control-id? message) message))
            :rejected)
 
@@ -556,10 +556,10 @@
             :idle))
         :idle))))
 
-(defn settle-terminal-steers!
+(defn settle-terminal-msgs!
   "After the managed route is durably frozen, terminally reject every
-   producer-admitted steer that remains undelivered. The final `to` producer CAS
-   orders every accepted steer before the freeze commit, so an empty query is a
+   producer-admitted msg that remains undelivered. The final `to` producer CAS
+   orders every accepted msg before the freeze commit, so an empty query is a
    teardown barrier. A foreign delivery claim can outlive its consumer without
    emitting a commit; retry through one full claim TTL, bounded and backoff-led."
   [port recipient direct-addresses control-queue
@@ -569,11 +569,11 @@
       (let [frozen-facts (require-frozen-route-epoch! port recipient epoch)
             messages
             (:messages
-             (north.message-audience/pending-steer-page
+             (north.message-audience/pending-msg-page
               port recipient direct-addresses))
             frozen-route-status
             (fn [message to subject]
-              (steer-route-status-from-facts
+              (msg-route-status-from-facts
                port message to subject frozen-facts
                {:status :unresolved :reason :frozen-route-validated}))]
         (if (empty? messages)
@@ -604,8 +604,8 @@
                        :acked
                        (throw
                         (ex-info
-                         "frozen terminal drain acknowledged a steer"
-                         {:type :terminal-steer-drain-contradiction
+                         "frozen terminal drain acknowledged a msg"
+                         {:type :terminal-msg-drain-contradiction
                           :message message}))
 
                        ;; nil foreign claim, nack/restart, or address change:
@@ -624,8 +624,8 @@
                 (when (>= (- now since) idle-bound-ms)
                   (throw
                    (ex-info
-                    "terminal steer drain made no progress through one claim bound"
-                    {:type :terminal-steer-drain-timeout
+                    "terminal msg drain made no progress through one claim bound"
+                    {:type :terminal-msg-drain-timeout
                      :recipient recipient
                      :epoch epoch})))
                 (Thread/sleep backoff-ms)
@@ -663,7 +663,7 @@
           (= :drain (:kind item))
           (let [epoch (:epoch item)]
             (reset! addrs (current-direct-addresses port recipient))
-            (settle-terminal-steers!
+            (settle-terminal-msgs!
              port recipient @addrs control-queue
              claim-ttl-ms ack-timeout-ms epoch)
             (emit-drained! recipient epoch)

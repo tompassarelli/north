@@ -2848,7 +2848,7 @@
 
 ;; What the control session is *called* on screen. The role it plays inside the
 ;; runtime is still "supervisor" — that identifier reaches northd, the journal,
-;; and steer routing, and is deliberately not what this returns.
+;; and msg routing, and is deliberately not what this returns.
 (defn main-agent-label [] -> String
   (let [value (.trim (text (.-NORTH_BRIDGE_PROVIDER (.-env process))))]
     (cond
@@ -2967,8 +2967,8 @@
              (conversation-item (next-item-id! runtime "user") "user" "" message "done"))
             (set-working! runtime true "Codex is working")
             (if (.has (.-bridgeExecutions runtime) target)
-              (js/await (run-command [NORTH-BIN "bridge" "steer" target message]))
-              (js/await (run-command [NORTH-BIN "steer" target message])))
+              (js/await (run-command [NORTH-BIN "bridge" "msg" target message]))
+              (js/await (run-command [NORTH-BIN "msg" target message])))
             (.render runtime))))))))
 
 (defn submit-work!

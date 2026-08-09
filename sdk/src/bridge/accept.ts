@@ -183,56 +183,56 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     emit("INFO provider=mock-provider (deterministic fixture; live Codex admission is probed separately)");
     await northd.listen();
     hostOpen = true;
-    const steeredLaunch = await client(socketPath, {
+    const messagedLaunch = await client(socketPath, {
       op: "launch", prompt: "alpha initial", cwd: root,
     });
     const interruptedLaunch = await client(socketPath, {
       op: "launch", prompt: "beta initial", cwd: root,
     });
     await waitFor(
-      () => steeredLaunch.messages.some((message) => message.record?.kind === "provider.assistant")
+      () => messagedLaunch.messages.some((message) => message.record?.kind === "provider.assistant")
         && interruptedLaunch.messages.some((message) => message.record?.kind === "provider.assistant"),
       "both provider executions",
     );
-    const steeredId = executionId(steeredLaunch);
+    const messagedId = executionId(messagedLaunch);
     const interruptedId = executionId(interruptedLaunch);
-    if (steeredId === interruptedId || sessions.size !== 2)
+    if (messagedId === interruptedId || sessions.size !== 2)
       throw new Error("two launches did not produce independent provider sessions");
     pass("launch-two-provider-executions", "2 independent sessions are active");
 
-    steeredLaunch.socket.destroy();
+    messagedLaunch.socket.destroy();
     interruptedLaunch.socket.destroy();
-    await Promise.all([steeredLaunch.closed, interruptedLaunch.closed]);
+    await Promise.all([messagedLaunch.closed, interruptedLaunch.closed]);
     pass("kill-ui-client", "both launch clients disconnected while provider sessions stayed active");
 
-    const steeredAttach = await client(socketPath, { op: "attach", executionId: steeredId, cursor: 0 });
+    const messagedAttach = await client(socketPath, { op: "attach", executionId: messagedId, cursor: 0 });
     const interruptedAttach = await client(socketPath, {
       op: "attach", executionId: interruptedId, cursor: 0,
     });
     await waitFor(
-      () => steeredAttach.messages.some((message) => message.type === "barrier")
+      () => messagedAttach.messages.some((message) => message.type === "barrier")
         && interruptedAttach.messages.some((message) => message.type === "barrier"),
       "both reattach barriers",
     );
     pass("reattach-to-both", "both journals replayed through attachment barriers and resumed live tails");
 
-    const steeredSession = sessions.get(steeredId)!;
+    const messagedSession = sessions.get(messagedId)!;
     const interruptedSession = sessions.get(interruptedId)!;
-    const steer = await client(socketPath, {
-      op: "submitInput", executionId: steeredId, input: "alpha follow-up",
+    const msg = await client(socketPath, {
+      op: "submitInput", executionId: messagedId, input: "alpha follow-up",
     });
-    await steer.closed;
-    if (steer.messages.at(-1)?.delivery !== "queued-next-turn"
-        || steeredSession.effects.includes("submit:alpha follow-up"))
-      throw new Error("steer was not held at the active-turn boundary");
-    steeredSession.settle("alpha initial complete");
+    await msg.closed;
+    if (msg.messages.at(-1)?.delivery !== "queued-next-turn"
+        || messagedSession.effects.includes("submit:alpha follow-up"))
+      throw new Error("msg was not held at the active-turn boundary");
+    messagedSession.settle("alpha initial complete");
     await waitFor(
-      () => steeredSession.effects.includes("submit:alpha follow-up"),
+      () => messagedSession.effects.includes("submit:alpha follow-up"),
       "queued follow-up delivery",
     );
-    steeredSession.emit({ kind: "assistant", data: { text: "alpha follow-up running" } });
-    steeredSession.settle("alpha follow-up complete");
-    pass("steer-one-queued-next-turn", "follow-up stayed queued until the first turn terminal event");
+    messagedSession.emit({ kind: "assistant", data: { text: "alpha follow-up running" } });
+    messagedSession.settle("alpha follow-up complete");
+    pass("msg-one-queued-next-turn", "follow-up stayed queued until the first turn terminal event");
 
     const interrupt = await client(socketPath, { op: "interruptTurn", executionId: interruptedId });
     await interrupt.closed;
@@ -243,18 +243,18 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     pass("interrupt-the-other", "active turn interrupted without terminating its provider session");
 
     await waitFor(
-      () => steeredAttach.messages.filter((message) => message.record?.kind === "session.idle").length === 2
+      () => messagedAttach.messages.filter((message) => message.record?.kind === "session.idle").length === 2
         && interruptedAttach.messages.some((message) => message.record?.kind === "session.idle"),
       "turn terminal boundaries",
     );
-    const steeredTerminate = await client(socketPath, {
-      op: "terminateSession", executionId: steeredId,
+    const messagedTerminate = await client(socketPath, {
+      op: "terminateSession", executionId: messagedId,
     });
     const interruptedTerminate = await client(socketPath, {
       op: "terminateSession", executionId: interruptedId,
     });
-    await Promise.all([steeredTerminate.closed, interruptedTerminate.closed]);
-    await Promise.all([steeredAttach.closed, interruptedAttach.closed]);
+    await Promise.all([messagedTerminate.closed, interruptedTerminate.closed]);
+    await Promise.all([messagedAttach.closed, interruptedAttach.closed]);
 
     await northd.close();
     hostOpen = false;
@@ -263,27 +263,27 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     if (!await portIsDead(deadPort)) throw new Error(`coordinator probe unexpectedly connected to ${deadPort}`);
     pass("coordinator-down-for-replay-explain", `NORTH_PORT=${deadPort} refused connections`);
 
-    const steeredRecords = scanJournalFile(
-      join(journalRoot, steeredId, "events.log"), steeredId,
+    const messagedRecords = scanJournalFile(
+      join(journalRoot, messagedId, "events.log"), messagedId,
     ).records;
     const interruptedRecords = scanJournalFile(
       join(journalRoot, interruptedId, "events.log"), interruptedId,
     ).records;
-    const steeredState = state(steeredRecords);
+    const messagedState = state(messagedRecords);
     const interruptedState = state(interruptedRecords);
     emit("STATE DIFF (journal only)");
-    emit(`  steered: turns=${steeredState.turns} queued=${steeredState.queuedInputs} interrupts=${steeredState.interrupts} status=${steeredState.status}`);
+    emit(`  messaged: turns=${messagedState.turns} queued=${messagedState.queuedInputs} interrupts=${messagedState.interrupts} status=${messagedState.status}`);
     emit(`  interrupted: turns=${interruptedState.turns} queued=${interruptedState.queuedInputs} interrupts=${interruptedState.interrupts} status=${interruptedState.status}`);
-    if (steeredState.turns !== 2 || steeredState.queuedInputs !== 1 || steeredState.interrupts !== 0
+    if (messagedState.turns !== 2 || messagedState.queuedInputs !== 1 || messagedState.interrupts !== 0
         || interruptedState.turns !== 1 || interruptedState.queuedInputs !== 0
         || interruptedState.interrupts !== 1)
       throw new Error("journal-derived session states did not preserve the expected difference");
-    pass("render-state-diff", "steered and interrupted histories remain distinguishable");
+    pass("render-state-diff", "messaged and interrupted histories remain distinguishable");
 
     emit("JOURNAL EXPLANATIONS (northd closed; coordinator unreachable)");
-    emit(`  steered: ${explain(steeredRecords)}`);
+    emit(`  messaged: ${explain(messagedRecords)}`);
     emit(`  interrupted: ${explain(interruptedRecords)}`);
-    if (!explain(steeredRecords).includes("queued \"alpha follow-up\"")
+    if (!explain(messagedRecords).includes("queued \"alpha follow-up\"")
         || !explain(interruptedRecords).includes("interrupted active turn"))
       throw new Error("journal-only explanation omitted a control history");
     pass("explain-both-from-journal-alone", "both prompts, controls, results, and termination were reconstructed");

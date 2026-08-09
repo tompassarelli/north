@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
-;; Fail-closed live-steer admission across the raw fact producer and public CLI.
-;; A rejected steer must be a pure read: no partial @msg facts may reach its SpaceId.
+;; Fail-closed live-message admission across the raw fact producer and public CLI.
+;; A rejected message must be a pure read: no partial @msg facts may reach its SpaceId.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
          '[cheshire.core :as json]
@@ -82,7 +82,7 @@
 (defn publish! [port id provider live-input]
   (let [facts {"kind" "lane"
                "role" "integrator"
-               "goal" "live steer admission probe"
+               "goal" "live msg admission probe"
                "provider" provider
                "provider_target" (str provider "-test")
                "live_input" live-input
@@ -114,11 +114,11 @@
 (defn graph-message-ids [port]
   (->> (north.coord/query-rows
         port
-        {:find "live_steer_message_subject"
+        {:find "live_msg_message_subject"
          :rules
          (mapv
           (fn [predicate]
-            {:head {:rel "live_steer_message_subject"
+            {:head {:rel "live_msg_message_subject"
                     :args [{:var "subject"}]}
              :body [{:rel "triple"
                      :args [{:var "subject"} predicate {:var "value"}]}]})
@@ -163,7 +163,7 @@
 
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
-                    "north-live-steer" (make-array java.nio.file.attribute.FileAttribute 0)))
+                    "north-live-msg" (make-array java.nio.file.attribute.FileAttribute 0)))
       log (io/file tmp "facts.framlog")
       server (do
                (database/create-triple-log!
@@ -222,19 +222,19 @@
 
     (let [before (graph-message-ids port)
           raw (run-cli msg-cli port (str port) "send" "director"
-                       "openai-unsupported" "steer" "must not land")
+                       "openai-unsupported" "msg" "must not land")
           after-raw (graph-message-ids port)
-          public (run-cli agents-cli port "steer"
+          public (run-cli agents-cli port "msg"
                           "openai-unsupported" "must still not land")
           after-public (graph-message-ids port)]
-      (check "raw OpenAI steer rejects with a stable nonzero status and stderr"
+      (check "raw OpenAI msg rejects with a stable nonzero status and stderr"
              (and (= 2 (:exit raw))
                   (str/blank? (:out raw))
                   (str/includes? (:err raw)
                                  "target adapter does not support live input (provider openai)")))
       (check "raw OpenAI rejection creates zero message facts"
              (= before after-raw))
-      (check "public north steer propagates the exact rejection status and diagnostic"
+      (check "public north msg propagates the exact rejection status and diagnostic"
              (and (= 2 (:exit public))
                   (str/includes? (:out public) "msg-cli.clj")
                   (str/includes? (:err public)
@@ -244,14 +244,14 @@
 
     (let [before (graph-message-ids port)
           offline (run-cli msg-cli port (str port) "send" "director"
-                           "anthropic-offline" "steer" "must not land")]
+                           "anthropic-offline" "msg" "must not land")]
       (check "stream-capable but offline lane rejects before publication"
              (and (= 2 (:exit offline))
                   (str/includes? (:err offline) "target is offline")
                   (= before (graph-message-ids port)))))
 
     (let [sent (run-cli msg-cli port (str port) "send" "director"
-                        "anthropic-streaming" "steer" "continue with proof")
+                        "anthropic-streaming" "msg" "continue with proof")
           message (second (re-find #"queued for live injection (@msg:[^ ]+)"
                                    (:out sent)))
           ids (graph-message-ids port)
@@ -262,25 +262,25 @@
              (and (zero? (:exit sent))
                   (str/includes? (:out sent) "queued for live injection @msg:")
                   (= 1 (count ids))))
-      (check "accepted steer carries the exact committed route manifest"
+      (check "accepted msg carries the exact committed route manifest"
              (= admitted-marker
                 (fact-one port message target-identity-manifest-predicate)))
-      (check "accepted steer route is valid before the freeze"
+      (check "accepted msg route is valid before the freeze"
              (with-test-coordinator
-               (current-steer-route?
-                port message "anthropic-streaming" "steer")))
+               (current-msg-route?
+                port message "anthropic-streaming" "msg")))
       (route! port "anthropic-streaming" "frozen"
               "00000000-0000-4000-8000-000000000004")
-      (check "freeze after producer admission invalidates the queued steer"
+      (check "freeze after producer admission invalidates the queued msg"
              (with-test-coordinator
-               (not (current-steer-route?
-                     port message "anthropic-streaming" "steer"))))
+               (not (current-msg-route?
+                     port message "anthropic-streaming" "msg"))))
       (route! port "anthropic-streaming" "armed"
               "00000000-0000-4000-8000-000000000005")
-      (check "re-arm with a new route epoch cannot resurrect stale steer mail"
+      (check "re-arm with a new route epoch cannot resurrect stale msg mail"
              (with-test-coordinator
-               (not (current-steer-route?
-                     port message "anthropic-streaming" "steer"))))
+               (not (current-msg-route?
+                     port message "anthropic-streaming" "msg"))))
       (let [settlement
             (with-test-coordinator
               (deliver-message!
@@ -296,12 +296,12 @@
                     (= #{"anthropic-streaming"}
                        (fact-values port message "delivery_rejected_by"))))
         (check "stale epoch rejection is inspectable and tied to both manifests"
-               (and (= "steer_route_stale" (get evidence "reason"))
+               (and (= "msg_route_stale" (get evidence "reason"))
                     (= admitted-marker (get evidence "expectedManifest"))
                     (= (fact-one port "@agent:anthropic-streaming"
                                  "identity_manifest_sha256")
                        (get evidence "observedManifest"))))
-        (check "terminally rejected stale steer is absent from pending replay"
+        (check "terminally rejected stale msg is absent from pending replay"
                (with-test-coordinator
                  (not (contains?
                        (set
@@ -318,7 +318,7 @@
         ;; commit wakes the feed only after the old route generation is gone.
         (doseq [[predicate value]
                 [["from" "director"]
-                 ["subject" "steer"]
+                 ["subject" "msg"]
                  ["body" "must remain stale"]
                  ["sent_at" "2026-07-19T00:00:00Z"]
                  [target-identity-manifest-predicate marker]]]
@@ -326,11 +326,11 @@
         (route! port "anthropic-streaming" "frozen"
                 "00000000-0000-4000-8000-000000000006")
         (put-fact! port manual "to" "anthropic-streaming")
-        (check "check→freeze→to race leaves a durable but non-deliverable steer"
+        (check "check→freeze→to race leaves a durable but non-deliverable msg"
                (and (= "anthropic-streaming" (fact-one port manual "to"))
                     (with-test-coordinator
-                      (not (current-steer-route?
-                            port manual "anthropic-streaming" "steer")))))
+                      (not (current-msg-route?
+                            port manual "anthropic-streaming" "msg")))))
         (check "check→freeze→to race settles as an honest rejection"
                (= :rejected
                   (with-test-coordinator
@@ -355,7 +355,7 @@
                           port message recipient)]
                 (north.message-audience/reject-delivery!
                  port message recipient claim
-                 {:reason "steer_route_stale"
+                 {:reason "msg_route_stale"
                   :expected-manifest expected
                   :observed-manifest observed})))
             evidence (first (fact-values port message "delivery_rejection"))]
@@ -428,13 +428,13 @@
               poison-ids)))
 
     (let [before (graph-message-ids port)
-          broadcast-steer
-          (run-cli msg-cli port (str port) "send" "director" "*" "steer"
-                   "broadcast steer must not land")]
-      (check "steer never admits the ordinary broadcast address"
-             (and (= 2 (:exit broadcast-steer))
-                  (str/includes? (:err broadcast-steer)
-                                 "steer target is malformed")
+          broadcast-msg
+          (run-cli msg-cli port (str port) "send" "director" "*" "msg"
+                   "broadcast msg must not land")]
+      (check "msg never admits the ordinary broadcast address"
+             (and (= 2 (:exit broadcast-msg))
+                  (str/includes? (:err broadcast-msg)
+                                 "msg target is malformed")
                   (= before (graph-message-ids port)))))
     (finally
       (try (proc/destroy-tree server) (catch Exception _ nil))
@@ -447,6 +447,6 @@
       passed (count (filter second results))]
   (doseq [[label ok?] results]
     (println (format "  [%s] %s" (if ok? "PASS" "FAIL") label)))
-  (println (format "\nlive steer admission: %d / %d PASS"
+  (println (format "\nlive msg admission: %d / %d PASS"
                    passed (count results)))
   (System/exit (if (= passed (count results)) 0 1)))

@@ -110,9 +110,9 @@
    :summary "tail an agent's transcript"
    :card {:section :agents :form "north watch <id>"
           :text "tail one agent's transcript"}}
-  {:verb "steer" :form "north steer <id> \"<msg>\"" :topic :agents
+  {:verb "msg" :form "north msg <id> \"<msg>\"" :topic :agents
    :summary "inject a message into a running agent"
-   :card {:section :agents :form "north steer <id> \"<msg>\""
+   :card {:section :agents :form "north msg <id> \"<msg>\""
           :text "nudge it mid-flight"}}
   {:verb "retask" :form "north retask <id> \"<goal>\"" :topic :agents
    :summary "redirect a running agent's goal"}
@@ -199,12 +199,12 @@
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
-  {:verb "bridge" :form "north bridge <prompt>|dashboard|pending|accept|attach|steer|interrupt <execution-id>" :topic :ops
+  {:verb "bridge" :form "north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>" :topic :ops
    :summary "dashboard, launch, attach, or control a journaled local Codex session"
    :details ["dashboard — render the Bridge operator cockpit (north dashboard remains an alias)"
              "pending [--consume <id>] — list or consume durable terminal lane completions"
              "accept — run the two-session reconnect/control/journal acceptance demo"
-             "steer <id> <text> — queue input for the next turn on the same provider thread"
+             "msg <id> <text> — queue input for the next turn on the same provider thread"
              "interrupt <id> — interrupt the active turn without terminating its session"]}
   {:verb "doctor" :form "north doctor" :topic :ops
    :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
