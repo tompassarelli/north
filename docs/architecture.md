@@ -9,11 +9,11 @@ change X."
 **Engine** → [Fram](https://github.com/Autonymy/fram), selected by the installed
 wrapper through the sealed FRAMRPC environment.
 Fram is a slot-addressable, typed-triple substrate: the triple store, the
-Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it and
-does not fork it — it links Fram's library API, so Fram's exact source revision
-is pinned by the `fram` node in [`flake.lock`](../flake.lock). The Nix package,
-CI, and the Docker image all consume that one lock record; there is no second
-revision file to update or let drift.
+Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it,
+fork it, or package it: [`flake.nix`](../flake.nix) deliberately does not select
+a second engine, and both the checkout launcher and the installed package source
+the host-published `framrpc.env` for the engine's identity. That one sealed
+environment is the single place the engine revision is decided.
 
 **Coordination domain** → [`src/north/*.bclj`](../src/north). The vocabulary
 and derivations that turn a domain-neutral triple store into a work ledger:
@@ -23,8 +23,9 @@ and derivations that turn a domain-neutral triple store into a work ledger:
 | `projections.bclj` | the derived lifecycle — ready, blocked, terminal, driver liveness |
 | `staleness.bclj` | needs-review and the staleness classifiers |
 | `validate.bclj` | North's work rules on top of the engine's integrity rules |
-| `gatepolicy.bclj` | gate policy evaluation |
+| `worker_policy.bclj` | coordination-worker policy — idle/backoff bounds, admission, selection |
 | `audit.bclj` | audit projections |
+| `main.bclj` | the life-verb entry point `bin/north` slots into |
 
 These are authored in [Beagle](https://github.com/Autonymy/beagle) and compiled
 to Clojure under [`out/`](../out), which is committed — see
@@ -34,8 +35,11 @@ to Clojure under [`out/`](../out), which is committed — see
 sets capture provenance, and dispatches: life and coordination verbs
 (`ready`/`threads`/`capture`/`agents`/`spawn`/`delegate`/`watch`/
 `trace`/`config`) route to `north.main` or a [`cli/`](../cli) handler; engine
-verbs (`import`/`show`/`validate`/`tell`) pass through to Fram. Any verb the
-registry does not claim passes through to the engine.
+verbs (`import`/`show`/`tell`) pass through to Fram. Any verb the registry does
+not claim passes through to the engine. `validate` is the exception that proves
+the split: it is **North-handled**, running the full check — the engine's
+generic integrity rules plus North's work rules in `north.validate` — because
+those work rules moved out of the kernel.
 
 The human surface is a registry, not prose: [`cli/surface.edn`](../cli/surface.edn)
 declares every verb, alias, topic, and help-card entry, and
@@ -53,6 +57,14 @@ provider adapters. Each managed lane receives a fresh full-UUID identity, a run
 reservation written before the provider is invoked, a run ledger, and a
 truthful terminal (`delivery=reported|unverified|blocked`).
 
+**Bridge** → [`sdk/src/bridge/`](../sdk/src/bridge): the durable local execution
+host. `northd.ts` is the daemon, `journal.ts` its append-and-replay log,
+`protocol.ts` the wire between them, and `app.bjs` the terminal UI. It owns
+`north bridge` and fronts `north dashboard` — the dashboard verb runs through
+the bridge CLI, which re-execs [`cli/dashboard-cli.clj`](../cli/dashboard-cli.clj).
+The bridge does not read or write the coordinator, so replay survives a Fram
+outage.
+
 **MCP** → [`bin/north-mcp`](../bin/north-mcp), the AI-facing edge. Every tool
 maps to a tested CLI operation through the Fram server write path, so in-harness
 agents dispatch through `mcp__north__dispatch` / `spawn` rather than the shell
@@ -63,11 +75,18 @@ state and are **not** part of this repository.
 
 ## The write path
 
-Every write serializes through one current Fram server, which rule-checks it
-before it lands. The configured server listens locally on `127.0.0.1:7977`
-(`NORTH_PORT`); canonical FRAMRPC requests carry the selected SpaceId, and
-`north:cli/runtime-attestation.clj` binds the live
-listener to its exact Fram source, artifact, database, and service owner.
+Every **coordination-graph** write serializes through one current Fram server,
+which rule-checks it before it lands. The configured server listens locally on
+`127.0.0.1:7977` (`NORTH_PORT`); canonical FRAMRPC requests carry the selected
+SpaceId, and `north:cli/runtime-attestation.clj` binds the live listener to its
+exact Fram source, artifact, database, and service owner.
+
+Two writes are deliberately carved out of that path. Telemetry subjects
+(`run:`/`session:`/`mine:`/`guard_denial:`) route to the telemetry partition on
+its own port and space when `NORTH_TELEMETRY_PARTITION=1`
+([`bin/north`](../bin/north)); and the Bridge journal is a local
+append-and-replay log that keeps working while Fram is down. Neither is a
+coordination fact, and neither is exempt from rule-checking once it becomes one.
 
 ## Routing: who versus where
 
@@ -90,5 +109,6 @@ routine surface.
 
 ## Hosting
 
-The same architecture runs on a laptop or on a server you own. The supported
-operating layouts are documented in [hosting.md](hosting.md).
+The same architecture runs on a laptop or on a server you own: the runtime is
+the Fram server plus North's coordination workers, and nothing above assumes a
+particular host. There is no separate hosting guide yet.

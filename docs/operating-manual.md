@@ -585,7 +585,7 @@ north ready       # curated: top 15 work threads by leverage (--all = every read
 north blocked     # waiting on a depends_on target
 north next        # the recommended next pull
 north agenda      # calendar projection: buckets by do_on (overdue/today/next N)
-north board       # curated: active drivers + top-15 ready + counts (--all = full kanban; alias: plate)
+north threads     # curated: active drivers + top-15 ready + counts (--all = full kanban; aliases: board, plate)
 north leverage    # high-leverage threads (most unblocks downstream)
 north schema      # vocabulary census: subjects/facts by entity kind + predicate metadata
 north show <id>   # one thread's facts + body; resolves id/slug/substring
@@ -602,16 +602,17 @@ It also lists **promotable** drafts — uncommitted threads that grew real
 structure (deps/estimate/driver/relations) and are ready to `commit`.
 
 `agenda` is the "calendar" — a query over `do_on`, not a separate substrate, the
-same way a "project" is just a thread with children. `board` (alias: `plate`) is
-the replacement for the old per-state lists: it buckets threads by *derived*
-condition.
+same way a "project" is just a thread with children. `threads` (kanban-metaphor
+aliases: `board`, `plate`) is the replacement for the old per-state lists: it
+buckets threads by *derived* condition.
 
-`board` and `ready` **default to signal, not the full dump.** Bare `board` shows
-the active drivers (who's on what, rendered by `display_name`), the top ~15 ready
-threads by leverage, and a counts line (open/active/ready/blocked + open-concern
-count); it scopes to `kind thread`, so the ~200 concerns and telemetry subjects
-that also carry a `title` no longer drown the work graph. Bare `ready` is the top
-15 by leverage. `--all` on either restores the complete unscoped dump unchanged.
+`threads` and `ready` **default to signal, not the full dump.** Bare `threads`
+shows the active drivers (who's on what, rendered by `display_name`), the top ~15
+ready threads by leverage, and a counts line (open/active/ready/blocked +
+open-concern count); it scopes to `kind thread`, so the ~200 concerns and
+telemetry subjects that also carry a `title` no longer drown the work graph. Bare
+`ready` is the top 15 by leverage. `--all` on either restores the complete
+unscoped dump unchanged.
 
 **Writes:**
 
@@ -628,7 +629,7 @@ north export <out-dir>                       # operator migration/recovery: proj
 
 ```sh
 north doctor      # aggregate diagnostics; not a lifecycle or assurance command
-north watch       # event stream (change triggers; promotion prompts)
+north watch <id>  # tail one agent's transcript
 north listen <agent-id>   # arm the real-time interrupt listener, as a background
                          # task; dormant until a peer pings you (alias: bin/north-arm)
 ```
@@ -647,14 +648,15 @@ receive the immediate child's identity from the harness environment.
 ```sh
 north             # THE CARD: one screen of every significant incantation, grouped
                   # "type this → do this" (north help is the same screen)
-north dashboard   # the cockpit: live agents, concerns by repo, board counts,
-                  # daemon health, condensed `north health`, profile rung per layer
+north dashboard   # the cockpit, four panes: FLEET (live lanes + work state),
+                  # HEALTH (daemons), QUEUE (board), ACCOUNTS (provider windows)
 north doctor      # aggregate observed diagnostics; does not establish assurance
 north worktrees   # every repo's wt-* trees: drift, dirt, age, owning lane/concern
                   # (--json; § "Worktree lifecycle")
 north account status      # provider-owned subscription login, per isolated target
 north account list        # named account targets and their isolated CLI homes
 north account usage       # per-account subscription windows, resets, fixed failures
+north account availability # cached headroom verdicts per account ([--model M] [--json])
 north providers           # auth/headroom + approximate balanced routing shares
 north providers --json    # stable machine status; automation uses this, not prose
 north config dispatch     # native | managed | auto dispatch-surface selection
@@ -673,6 +675,14 @@ and resolves the semantic tier through that provider's catalog. Generated agent
 markdown and `~/code/north/main/orchestration/docs/adapters/north.md` remain provider-adapter
 artifacts, never North's metadata source.
 
+`north bridge` is the other operator face: a durable local execution host with a
+terminal app (`north bridge app`) carrying its own slash commands — `/config`
+toggles a context switchboard over hooks, skills, and `AGENTS.md`, and
+`/help` and `/config` keep working while the coordinator is offline. It also
+serves `north bridge dashboard|pending|attach|msg|interrupt` and is what `north
+dashboard` execs through. This manual does not yet document the app; see
+[architecture.md](architecture.md) for where it lives.
+
 `north templates` is the human view of Orchestration's stock library. It deliberately
 says **template** while the versioned machine contract retains `presets`,
 `composition.kind="preset"`, and `nearestPreset`. Templates are reusable
@@ -681,12 +691,13 @@ or author a complete bespoke composition. Empirical promotion remains paused
 until North has an independently enforceable verifier boundary. Recorded run
 metadata is evidence for later analysis, not a live causal verdict.
 
-The dispatch surface has exactly three values. `native` pins the
-provider-native surface, `north` pins the North-managed surface, and `auto` lets
-the system choose a surface for each dispatch. The **learning regime** is a
-separate operational axis governing `auto`: `frozen` consistently uses the
-deterministic best-known admitted route, prompt, authoring surface, and history
-strategy while retaining full measurement; `learning` permits bounded
+The dispatch surface has exactly three values (`cli/dispatch-mode.clj`).
+`native` pins the provider-native surface, `managed` pins the North-managed
+surface (and denies provider-native agent calls), and `auto` lets the system
+choose a surface for each dispatch. `managed` is the default. The **learning
+regime** is a separate operational axis governing `auto`: `frozen` consistently
+uses the deterministic best-known admitted route, prompt, authoring surface, and
+history strategy while retaining full measurement; `learning` permits bounded
 experimental assignment during ordinary dispatch and changes at most
 one explicitly eligible axis per episode. Assignment is committed before
 provider selection or execution. Discovery observations never become
@@ -696,7 +707,7 @@ accepted-contract evidence. Unknown evidence remains unknown. See
 [`docs/learning-regime.md`](learning-regime.md) for the policy and receipt
 contracts.
 
-`north account add|login|status|list|usage` manages provider-owned subscription login
+`north account add|login|status|list|usage|availability` manages provider-owned subscription login
 inside isolated homes under `~/.local/state/north/accounts`. `--target <id>` is
 an exact account pin with no fallback. `--provider <name>` permits only sibling
 accounts of that provider; the default auto route may use any eligible target.
