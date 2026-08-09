@@ -182,7 +182,7 @@ async function frameOf(view: string, entries: Row[] = MANIFEST) {
 test("the switchboard reads DIRECTORY CONTEXT, SKILLS, HOOKS, MODULES, PLUGINS, OTHER", async () => {
   const frame = await frameOf("all");
   const order = [
-    "FILETREE-SCOPED INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "DIRECTORY INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -192,7 +192,7 @@ test("the switchboard reads DIRECTORY CONTEXT, SKILLS, HOOKS, MODULES, PLUGINS, 
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
   // The global profile heads the directory section, above the per-directory
   // rows it is read underneath.
-  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("FILETREE-SCOPED INSTRUCTIONS"));
+  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("DIRECTORY INSTRUCTIONS"));
   expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
 });
 
