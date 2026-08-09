@@ -132,13 +132,14 @@ export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
     const [
       { harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }, { anthropicProvider },
-      { selectProviderForExecution },
+      { selectProviderForExecution }, { markCoordinationOptional },
     ] = await Promise.all([
       import("../harness"),
       import("../orchestration-staffing"),
       import("../providers/openai"),
       import("../providers/anthropic"),
       import("../provider-routing"),
+      import("../execution-admission"),
     ]);
     const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
     // Without a routed target the adapter falls back to ambient credentials, which
@@ -162,7 +163,9 @@ export const bridgeProvider: BridgeProviderExecution = {
     });
     // Bridge sessions are interactive chat: provider + auth are the only
     // structural dependencies; the coordinator is telemetry when reachable.
-    (options as Record<string, unknown>).coordinationOptional = true;
+    // Marked out-of-band — a property write here would invalidate the harness
+    // authority seal, which covers the exact option key set.
+    markCoordinationOptional(options);
     await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
 
     const input = new InputChannel();

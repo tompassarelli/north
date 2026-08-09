@@ -460,9 +460,25 @@ export async function admitExecution(
   try {
     await requireCoordinator(options?.mcpServers?.north?.env);
   } catch (error) {
-    if (!options?.coordinationOptional) throw error;
+    if (!isCoordinationOptional(options)) throw error;
     console.warn("north: coordinator unreachable — session proceeds unrecorded");
   }
+}
+
+// The harness authority seal covers the exact option key set, so writing a
+// coordinationOptional property onto sealed options invalidates the seal
+// (anthropic_harness_authority_seal_missing, 2026-08-09). Sealed callers mark
+// the object here instead; the property remains honored for unsealed options.
+const coordinationOptionalSessions = new WeakSet<object>();
+
+export function markCoordinationOptional(options: object): void {
+  coordinationOptionalSessions.add(options);
+}
+
+function isCoordinationOptional(options: any): boolean {
+  if (!options || typeof options !== "object") return false;
+  return coordinationOptionalSessions.has(options as object)
+    || options.coordinationOptional === true;
 }
 
 export function admitPinnedProvider(
