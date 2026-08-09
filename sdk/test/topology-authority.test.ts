@@ -252,7 +252,7 @@ test("raw MCP spawn and dispatch reject worker callers before preflight, claim, 
   expect(existsSync(bbMarker)).toBe(false);
 });
 
-test("MCP generic tell cannot emulate a peer retask under worker topology", () => {
+test("MCP generic tell cannot emulate a peer goal update under worker topology", () => {
   const north = resolve(import.meta.dir, "../..");
   const request = JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "tools/call",

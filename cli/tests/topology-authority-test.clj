@@ -76,8 +76,8 @@
          (denied-before-side-effect? "delegate" #(cmd-delegate ["probe" "--dry-run"])))
   (check "raw CLI msg denies a worker before sending a message"
          (denied-before-side-effect? "msg" #(cmd-tell-agent ["lane-probe" "message"])))
-  (check "raw CLI retask denies a worker before either fact write"
-         (denied-before-side-effect? "retask" #(cmd-retask ["lane-probe" "new goal"]))))
+  (check "raw CLI goal denies a worker before either fact write"
+         (denied-before-side-effect? "goal" #(cmd-goal ["lane-probe" "new goal"]))))
 
 ;; Exercise the real CLI exception boundary without risking any mutation: these
 ;; operations all have dry-run modes, and the authority error must win before

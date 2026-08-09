@@ -3,7 +3,7 @@
 ;; Agent ids are meaningless + immutable; everything MEANINGFUL about an agent is
 ;; FACTS on subject @agent:<id> (kind/role/model/vendor/effort/repo/goal/
 ;; spawned_at). display_name is a STORED projection of those facts, recomputed at
-;; every write site (spawn / session-register / retask) and read verbatim by every
+;; every write site (spawn / session-register / goal) and read verbatim by every
 ;; listing (presence-cli, web presence.ex) — the render lives HERE, once.
 ;;
 ;; Pure functions, no coordinator dependency: load-file'd by presence-cli.clj as a

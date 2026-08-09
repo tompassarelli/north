@@ -20,7 +20,7 @@ north help agents — delegate work, drive and observe agents
   north templates                   Orchestration's reusable stock templates and routing defaults
   north watch <id>                  tail an agent's transcript
   north msg <id> "<msg>"            inject a message into a running agent
-  north retask <id> "<goal>"        redirect a running agent's goal
+  north goal <id> "<goal>"          redirect a running agent's goal
   north trace <id>                  diagnose one agent's lifecycle; flags the first failing stage
   north wip [--check]               live managed lanes vs floor (--check: exit 3 on shortfall)
   north escalate needs-replan …     checkpoint scope overrun; route it up the live parent chain
