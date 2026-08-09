@@ -21,9 +21,10 @@ Object.defineProperty(process.stdout, "columns", { value: COLUMNS, configurable:
 
 // The layout reserves these before the docked panel gets a row: the frame
 // chrome and the workspace floor. A panel taller than the difference eats the
-// workspace's minimum. Chrome is five rows since the view bar moved to the top
-// of the frame: padding, view bar, composer, context line, agent strip.
-const CHROME_ROWS = 5;
+// workspace's minimum. Chrome is four rows since the view bar moved down under
+// the composer and absorbed the session context line: padding, composer, view
+// bar, agent strip.
+const CHROME_ROWS = 4;
 const MIN_WORKSPACE_ROWS = 4;
 const PANEL_BUDGET = ROWS - CHROME_ROWS - MIN_WORKSPACE_ROWS;
 
@@ -86,9 +87,9 @@ test("sectioned views group by kind so each section prints one header", () => {
   const all = configViewRows(MANIFEST.slice(), "all") as Row[];
   expect(kinds(all)).toEqual([
     "dir", "dir", "dir", "dir",
+    "module",
     "skill", "skill",
     "hook", "hook",
-    "module",
     "plugin",
     "other",
   ]);
@@ -98,7 +99,7 @@ test("sectioned views group by kind so each section prints one header", () => {
 
   const globals = configViewRows(MANIFEST.slice(), "globals") as Row[];
   expect(kinds(globals)).toEqual([
-    "dir", "skill", "skill", "hook", "hook", "module", "other",
+    "dir", "module", "skill", "skill", "hook", "hook", "other",
   ]);
   expect(names(globals)[0]).toBe("global");
 
@@ -239,7 +240,7 @@ test("/agentsmd is the directory section entire, root scope first", async () => 
 test("/config carries all six sections in reading order", async () => {
   const frame = await frameOf("all");
   const order = [
-    "DIRECTORY INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "DIRECTORY INSTRUCTIONS", "MODULES", "SKILLS", "HOOKS", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);

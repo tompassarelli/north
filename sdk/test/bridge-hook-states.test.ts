@@ -44,22 +44,22 @@ const MANIFEST: Row[] = [
 
 const kinds = (rows: Row[]) => rows.map((r) => r.kind);
 
-test("skills read before the hooks they move", () => {
-  // The relationship runs unit -> hook, so the row you flip sits above the
-  // rows it changes. This is the user's stated order.
+test("modules read before the skills, and skills before the hooks they move", () => {
+  // The relationship runs container -> unit -> hook, so the row you flip sits
+  // above the rows it changes. This is the user's stated order.
   expect(kinds(configViewRows(MANIFEST.slice(), "all") as Row[])).toEqual([
     "dir", "dir",
+    "module",
     "skill", "skill",
     "hook", "hook", "hook", "hook", "hook", "hook",
-    "module",
     "plugin",
     "other",
   ]);
   expect(kinds(configViewRows(MANIFEST.slice(), "globals") as Row[])).toEqual([
     "dir",
+    "module",
     "skill", "skill",
     "hook", "hook", "hook", "hook", "hook", "hook",
-    "module",
     "other",
   ]);
 });
@@ -179,10 +179,10 @@ async function frameOf(view: string, entries: Row[] = MANIFEST) {
   return frame;
 }
 
-test("the switchboard reads DIRECTORY CONTEXT, SKILLS, HOOKS, MODULES, PLUGINS, OTHER", async () => {
+test("the switchboard reads DIRECTORY INSTRUCTIONS, MODULES, SKILLS, HOOKS, PLUGINS, OTHER", async () => {
   const frame = await frameOf("all");
   const order = [
-    "DIRECTORY INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "DIRECTORY INSTRUCTIONS", "MODULES", "SKILLS", "HOOKS", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);

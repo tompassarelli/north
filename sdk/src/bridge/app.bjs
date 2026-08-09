@@ -158,10 +158,11 @@
 (def STRIP-INDENT: Int 2)
 
 ;; Rows a frame owes to everything that is not a scrolling list: the root's
-;; single top padding row, the view bar, the composer line, its context line,
-;; and the agent strip. The root owes no bottom padding — the stack sits on the
-;; last row.
-(def CHROME-ROWS: Int 5)
+;; single top padding row, the composer line, the view bar under it, and the
+;; agent strip. The session identity rides the view bar's tail now instead of
+;; owning a line, so the bottom cluster is one row shorter than it was. The
+;; root owes no bottom padding — the stack sits on the last row.
+(def CHROME-ROWS: Int 4)
 
 ;; The workspace never collapses entirely, however long a list gets.
 (def MIN-WORKSPACE-ROWS: Int 4)
@@ -263,7 +264,6 @@
 
 (def AGENT-COMMANDS: (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
-   (->SlashCommand "/msg" "message the selected agent" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
    ;; Capturing a thread is not the Threads view's privilege: it shells the same
    ;; `north capture` from wherever you are and needs nothing from the view.
@@ -283,7 +283,7 @@
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
-   (->SlashCommand "/q" "back to Agents, or quit from Agents" false "" false)
+   (->SlashCommand "/q" "back to Agents from the Threads view" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -313,7 +313,7 @@
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
-   (->SlashCommand "/q" "back to Agents, or quit from Agents" false "" false)
+   (->SlashCommand "/q" "back to Agents from the Threads view" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show thread commands" false "" false)])
 
@@ -485,8 +485,11 @@
       (->ParsedCommand (.toLowerCase (.slice normalized 0 split-at))
                        (.trim (.slice normalized (+ split-at 1)))))))
 
-(defn exit-command? [name: String] -> Bool
-  (or (identical? name "exit")
+;; One escape verb, four spellings, no difference between them. Whichever you
+;; type, it climbs exactly one rung out of wherever you are.
+(defn escape-command? [name: String] -> Bool
+  (or (identical? name "q")
+      (identical? name "exit")
       (identical? name "close")
       (identical? name "esc")))
 
@@ -500,11 +503,31 @@
  (defn threads-frame? [frame: Any] -> Bool
   (identical? (text frame) "threads")))
 
-;; Pure: vim's `:q` with nothing to close. Threads goes back to Agents; Agents
-;; is the last thing on screen, so from there it quits.
+;; Pure: the escape ladder. One rung per invocation, innermost first, so
+;; nothing is ever closed that you could not see was open. Quit lives on the
+;; last rung and nowhere else: from the empty root, with no surface left to
+;; leave, escaping means leaving Northbridge — always reachable by repeating
+;; the same verb, never reachable by accident.
+;;
+;; The physical escape key climbs rungs one to four and stops. A key you hit
+;; reflexively to dismiss something must not be the key that ends the session,
+;; so at the root it spends itself on the turn in flight, or on nothing.
 (js/export
- (defn quit-command-exits? [frame: Any] -> Bool
-  (not (threads-frame? frame))))
+ (defn escape-rung
+  [palette-open?: Bool
+   detail-open?: Bool
+   strip-focused?: Bool
+   threads?: Bool
+   working?: Bool
+   from-key?: Bool] -> String
+  (cond
+    palette-open? "close-palette"
+    detail-open? "close-detail"
+    strip-focused? "focus-composer"
+    threads? "show-agents"
+    (and from-key? working?) "cancel-turn"
+    from-key? ""
+    :else "quit")))
 
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
@@ -1156,15 +1179,16 @@
 ;; manifest is append-ordered, so a module registered after the skills block
 ;; would print a second MODULES header.
 ;;
-;; Skills come before hooks because that is the direction the relationship runs:
-;; a hook follows the unit it is bound to, so the thing you flip is on screen
-;; above the rows it moves. Modules follow hooks for the same reason.
+;; Modules come first after the directory instructions because they are the
+;; coarsest thing you can flip — a module carries skills and hooks with it, so
+;; it reads above the units it moves. Skills then hooks for the same reason: a
+;; hook follows the unit it is bound to.
 (defn config-kind-rank [kind: String] -> Int
   (cond
     (identical? kind "dir") 0
-    (identical? kind "skill") 1
-    (identical? kind "hook") 2
-    (identical? kind "module") 3
+    (identical? kind "module") 1
+    (identical? kind "skill") 2
+    (identical? kind "hook") 3
     (identical? kind "plugin") 4
     (identical? kind "other") 5
     :else 6))
@@ -1484,14 +1508,15 @@
           (thread-view-command? name)
           (do (show-thread-view! runtime ui name) true)
 
-          ;; `:q`. One view is always showing, so there is no frame to close:
-          ;; from Threads it means "back to Agents", and from Agents — the last
-          ;; thing on screen — it means quit. /exit still quits from anywhere.
-          (identical? name "q")
-          (do (if (quit-command-exits? (.-frame runtime))
-                (destroy! runtime)
-                (show-frame! runtime ui "agents"))
-              true)
+          ;; One /help, both views, and it lands in the docked panel where the
+          ;; escape ladder can close it.
+          (identical? name "help")
+          (do (toggle-help! runtime) true)
+
+          ;; `:q` and its three synonyms: one rung of the escape ladder each,
+          ;; typed instead of pressed. Only the root rung quits.
+          (escape-command? name)
+          (do (escape-step! runtime ui false) true)
 
           :else false))))))
 
@@ -1824,17 +1849,6 @@
        (text-or (short-directory (.-sessionCwd runtime)) "directory pending") " · "
        (text-or (.-sessionBranch runtime) "branch pending")))
 
-(defn render-session-context [runtime: Any] -> Any
-  (StyledText.
-   [(brightBlack "  ")
-    (brightYellow
-     (str (text-or (.-sessionModel runtime) "model pending") " "
-          (text-or (.-sessionEffort runtime) "effort pending")))
-    (brightBlack " · ")
-    (brightGreen (text-or (short-directory (.-sessionCwd runtime)) "directory pending"))
-    (brightBlack " · ")
-    (dim (text-or (.-sessionBranch runtime) "branch pending"))]))
-
 (defn command-parts [title: String] -> CommandParts
   (let [space (.indexOf title " ")]
     (if (< space 0)
@@ -2137,7 +2151,7 @@
     (when (.-working runtime)
       (let [elapsed (Math/floor (/ (- (Date/now) (.-workingSince runtime)) 1000))]
         (push-working-wave! chunks runtime)
-        (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc to interrupt)\n  ")))
+        (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc or ctrl-c to cancel)\n  ")))
         (push-chunk! chunks (brightBlack (session-context-text runtime)))))
     (let [placeholder (transcript-placeholder (main-agent-label)
                                               (supervisor-status runtime)
@@ -2324,6 +2338,13 @@
 (defn close-detail! [runtime: Any] -> Any
   (set! (.-detailView runtime) ""))
 
+;; /help and F1 are the same switch, and the panel is where it lands.
+(defn toggle-help! [runtime: Any] -> Any
+  (if (detail-showing? runtime "help")
+    (close-detail! runtime)
+    (open-detail! runtime "help"))
+  (.render runtime))
+
 (defn detail-agents [runtime: Any] -> (Vec Agent)
   (let [state (snapshot (.-model runtime))]
     (segment-agents (bridgesnapshot-agents state)
@@ -2410,6 +2431,7 @@
     (detail-showing? runtime "agents")
     (let [total (.-length (detail-agents runtime))]
       (+ 1 (Math/max 1 (Math/min total (detail-visible-count total 0)))))
+    (detail-showing? runtime "help") (+ 1 (help-visible-rows))
     :else 0))
 
 (js/export
@@ -2456,11 +2478,56 @@
                               (str (agent-detail-row agent width) tail))))))
         (StyledText. parts)))))
 
-(defn render-detail-panel! [runtime: Any] -> Any
+;; ---------------------------------------------------------------------------
+;; Help is a tenant of the docked panel, not a block printed into the
+;; transcript: something you opened is something you can see how to close, and
+;; the escape ladder closes it on the same rung as every other panel.
+;; ---------------------------------------------------------------------------
+
+(defrecord HelpRow
+  [keys: String
+   meaning: String])
+
+(def HELP-ROWS: (Vec HelpRow)
+  [(->HelpRow "Tab" "swap Agents/Threads")
+   (->HelpRow "←/→" "switch thread view")
+   (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
+   (->HelpRow "Esc / Ctrl-C" "cancel the turn; the message comes back")
+   (->HelpRow "/q /close /esc /exit" "escape — innermost first; at root, quits")
+   (->HelpRow "/help" "this panel")
+   (->HelpRow "/glyph <one>|reset" "prompt glyph")
+   (->HelpRow "/emoji <query>" "picker")
+   (->HelpRow "/sound on|off|pack" "voice lines")
+   (->HelpRow "/mute" "quiet")])
+
+(def HELP-KEY-WIDTH: Int 22)
+
+(defn help-visible-rows [] -> Int
+  (let [total (.-length HELP-ROWS)]
+    (Math/max 1 (Math/min total (detail-visible-count total 0)))))
+
+(defn render-help-panel [] -> Any
+  (let [chunks [(brightYellow "Northbridge keys")
+                (brightBlack " · esc closes\n")]
+        rows (.slice HELP-ROWS 0 (help-visible-rows))]
+    (.forEach
+     rows
+     (fn
+       [row: HelpRow
+        index: Int] -> Any
+       (push-chunk! chunks (brightWhite (.padEnd (helprow-keys row) HELP-KEY-WIDTH " ")))
+       (push-chunk! chunks (brightBlack (helprow-meaning row)))
+       (when (< index (- (.-length rows) 1))
+         (push-chunk! chunks (brightBlack "\n")))))
+    (StyledText. chunks)))
+
+(js/export
+ (defn render-detail-panel! [runtime: Any] -> Any
   (cond
     (detail-showing? runtime "config") (render-config-panel runtime)
     (detail-showing? runtime "agents") (render-agent-detail runtime)
-    :else (StyledText. [(brightBlack "")])))
+    (detail-showing? runtime "help") (render-help-panel)
+    :else (StyledText. [(brightBlack "")]))))
 
 (defn segment-chunk
   [segment: AgentSegment
@@ -2498,30 +2565,18 @@
   (let [workspace-notice (text (.-workspaceNotice runtime))
         notice (if (identical? workspace-notice "")
                  (visible-notice (bridgesnapshot-notice state)) workspace-notice)]
-    (cond
-      (.-showHelp runtime)
-      (StyledText.
-       [(brightYellow "Northbridge keys\n")
-        (brightWhite "Tab") (brightBlack " swap Agents/Threads · ")
-        (brightWhite "←/→") (brightBlack " switch thread view\n")
-        (brightWhite "Esc") (brightBlack " interrupt active turn · ")
-        (brightWhite "/help") (brightBlack " commands · ")
-        (brightWhite "/q") (brightBlack " back, then quit · ")
-        (brightWhite "/close|/esc|/exit") (brightBlack " close\n")
-        (brightWhite "/glyph <one>|reset") (brightBlack " prompt · ")
-        (brightWhite "/emoji <query>") (brightBlack " picker\n")
-        (brightWhite "/sound on|off|pack") (brightBlack " voice lines · ")
-        (brightWhite "/mute") (brightBlack " quiet")])
-
-      :else
-      (StyledText. [(brightBlack notice)]))))
+    (StyledText. [(brightBlack notice)])))
 
 ;; ---------------------------------------------------------------------------
-;; The view bar. One row, two views: `Agents | Threads`, and when Threads is
-;; showing it extends with that view's own tabs — `Agents | Threads > List
-;; Board Graph`. The active thing is green, everything else is faded, and every
-;; label is clickable. The CLI verb is `threads`; the view that shows them says
-;; the same word.
+;; The view bar. One row directly under the composer, two views: `Agents |
+;; Threads`, and a tail past `> ` that belongs to whichever view is showing.
+;; Threads spends it on that view's own tabs — `Agents | Threads > List Board
+;; Graph`. Agents has no sub-views, so it spends it on the session identity —
+;; `Agents | Threads > claude-fable-5 xhigh · ~ · main`. That identity used to
+;; own a line of its own under the composer; it is chrome about the session, so
+;; it lives with the rest of the chrome. The active thing is green, everything
+;; else is faded, and every label is clickable. The CLI verb is `threads`; the
+;; view that shows them says the same word.
 ;; ---------------------------------------------------------------------------
 
 (def AGENTS-TAB-LABEL: String "Agents")
@@ -2539,32 +2594,51 @@
 
 (def SUBVIEW-TAB-GAP: Int 2)
 
+;; The Agents tail: who you are talking to and from where. Chunks, not a
+;; StyledText, so the bar can splice them in after its own labels.
+(defn push-session-identity!
+  [chunks: Any
+   session: Any] -> Any
+  (push-chunk! chunks
+               (brightYellow
+                (str (text-or (.-sessionModel session) "model pending") " "
+                     (text-or (.-sessionEffort session) "effort pending"))))
+  (push-chunk! chunks (brightBlack " · "))
+  (push-chunk! chunks
+               (brightGreen (text-or (short-directory (.-sessionCwd session))
+                                     "directory pending")))
+  (push-chunk! chunks (brightBlack " · "))
+  (push-chunk! chunks (dim (text-or (.-sessionBranch session) "branch pending"))))
+
 (js/export
  (defn render-view-tabs
   [frame: Any
    state: BridgeSnapshot
-   view-id: String] -> Any
+   view-id: String
+   session: Any] -> Any
   (let [chunks []
         threads? (threads-frame? frame)
         views (view-list state)]
     (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
     (push-chunk! chunks (brightBlack FRAME-TAB-SEPARATOR))
     (push-chunk! chunks ((if threads? brightGreen brightBlack) THREADS-TAB-LABEL))
-    (when threads?
-      (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
-      (.forEach
-       views
-       (fn
-         [view: WorkView
-          index: Int] -> Any
-         (let [selected? (identical? (workview-id view) view-id)
-               title (workview-title view)]
-           (push-chunk! chunks
-                        ((if selected? brightGreen brightBlack)
-                         (str (if selected? "[" " ") title (if selected? "]" " "))))
-           (when (< index (- (.-length views) 1))
-             (push-chunk! chunks (white "  "))))))
-      (push-chunk! chunks (brightBlack "  ← switch →")))
+    (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
+    (if threads?
+      (do
+        (.forEach
+         views
+         (fn
+           [view: WorkView
+            index: Int] -> Any
+           (let [selected? (identical? (workview-id view) view-id)
+                 title (workview-title view)]
+             (push-chunk! chunks
+                          ((if selected? brightGreen brightBlack)
+                           (str (if selected? "[" " ") title (if selected? "]" " "))))
+             (when (< index (- (.-length views) 1))
+               (push-chunk! chunks (white "  "))))))
+        (push-chunk! chunks (brightBlack "  ← switch →")))
+      (push-session-identity! chunks session))
     (StyledText. chunks))))
 
 (defn compact-text
@@ -2985,17 +3059,16 @@
         :else
         (render-list-view! runtime items selected width)))))
 
-;; Pure: the grey hint in the composer. It always ends by naming the command set
-;; the focused frame answers to — the same slash means different things in the
-;; two frames, so which one has focus is never something you should have to
-;; remember.
+;; Pure: the grey hint in the composer. It used to name the command set the
+;; focused frame answers to; the view bar sits directly under the composer and
+;; already says which frame is active, so the suffix was explaining twice.
 (js/export
  (defn composer-hint
   [pane: String
    label: String] -> String
   (if (identical? pane "agents")
-    (str "Message " label "… [Agent commands]")
-    "/list, /board, /graph, /capture, /filter, /assign [Thread commands]")))
+    (str "Message " label "…")
+    "/list, /board, /graph, /capture, /filter, /assign")))
 
 (defn minibuffer-placeholder [runtime: Any] -> String
   (composer-hint (text (.-frame runtime)) (main-agent-label)))
@@ -3067,7 +3140,7 @@
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
     (apply-frame-visibility! runtime ui)
     (set! (.-content (.-viewTabsText ui))
-          (render-view-tabs (.-frame runtime) state (workview-id current)))
+          (render-view-tabs (.-frame runtime) state (workview-id current) runtime))
     (set! (.-content (.-agentsText ui))
           (roster-text state (.-agentIndex runtime)))
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
@@ -3084,7 +3157,6 @@
     (set! (.-visible (.-agentStatusText ui))
           (not (threads-frame? (.-frame runtime))))
     (render-prompt! runtime (.-composerPrompt ui))
-    (set! (.-content (.-composerContextText ui)) (render-session-context runtime))
     (let [segments (agent-segments agents)
           strip-max (Math/max 0 (- (.-length segments) 1))]
       (set! (.-stripIndex runtime)
@@ -3504,6 +3576,35 @@
     (publish-line! runtime (.trim (text output))))
   (js/await (refresh! runtime)))
 
+;; A cancelled turn gives the message back. The text that started it is
+;; remembered at submit time and returned to the composer here, cursor at the
+;; end (the input's value setter puts it there), so the thought survives the
+;; cancel and can be edited and sent again.
+(js/export
+ (defn restore-submitted-text!
+  [runtime: Any
+   ui: Any] -> Any
+  (let [pending (text (.-lastSubmitted runtime))
+        input (.-composerInput ui)]
+    (when (and (not (identical? pending "")) input)
+      (set! (.-lastSubmitted runtime) "")
+      (set! (.-value input) pending)
+      (.focus input)))))
+
+;; The one way a turn ends early, whether it was /interrupt, escape or ctrl-c
+;; that asked. Everything downstream of "stop" belongs here so the three
+;; entrances cannot drift apart.
+(defn cancel-turn!
+  [runtime: Any
+   ui: Any
+   target: String] -> (Promise Any)
+  (when (not (.has (.-bridgeExecutions runtime) target))
+    (throw (Error. "interrupt is available for Bridge-launched executions")))
+  (js/await (run-command [NORTH-BIN "bridge" "interrupt" target]))
+  (set-working! runtime false "")
+  (append-interrupted! runtime)
+  (restore-submitted-text! runtime ui))
+
 (defn submit-agent!
   [runtime: Any
    ui: Any
@@ -3518,30 +3619,27 @@
     (if (handle-local-command! runtime ui input)
       nil
       (cond
-      (and slash? (exit-command? name)) (destroy! runtime)
       (and slash? (identical? name "launch")) (js/await (launch-agent! runtime rest "worker"))
       (and slash? (identical? name "capture")) (js/await (capture-thread! runtime rest))
       (and slash? (identical? name "refresh")) (js/await (refresh! runtime))
       (and slash? (identical? name "popout"))
       (popout! runtime (text-or rest (text (.-activeView runtime))))
-      (and slash? (identical? name "help"))
-      (do (set! (.-showHelp runtime) (not (.-showHelp runtime))) (.render runtime))
       :else
       (do
         (when (identical? target "")
           (throw (Error. "select an agent before messaging or interrupting")))
         (if (and slash? (identical? name "interrupt"))
-          (do
-            (when (not (.has (.-bridgeExecutions runtime) target))
-              (throw (Error. "interrupt is available for Bridge-launched executions")))
-            (js/await (run-command [NORTH-BIN "bridge" "interrupt" target]))
-            (set-working! runtime false "")
-            (append-interrupted! runtime))
-          (let [message (if (and slash? (identical? name "msg")) rest trimmed)]
-            (when (identical? message "") (throw (Error. "/msg requires input")))
+          (js/await (cancel-turn! runtime ui target))
+          ;; Plain text is the message. There is no command spelling of it:
+          ;; typing into the composer already messages the selected agent, so
+          ;; a /msg verb would only be ceremony in front of the same path.
+          (let [message trimmed]
+            (when (identical? message "") (throw (Error. "nothing to send")))
             (upsert-conversation!
              runtime
              (conversation-item (next-item-id! runtime "user") "user" "" message "done"))
+            ;; What a cancel would hand back: the message this turn started with.
+            (set! (.-lastSubmitted runtime) message)
             (set-working! runtime true "Codex is working")
             (if (.has (.-bridgeExecutions runtime) target)
               (js/await (run-command [NORTH-BIN "bridge" "msg" target message]))
@@ -3563,7 +3661,6 @@
       (if (handle-local-command! runtime ui input)
       nil
       (cond
-      (exit-command? name) (destroy! runtime)
       (identical? name "filter")
       (do (set! (.-model runtime) (set-filter (.-model runtime) rest)) (.render runtime))
 
@@ -3602,8 +3699,6 @@
         (set! (.-workspaceNotice runtime) (str "Recorded outcome for @" thread-id "."))
         (js/await (refresh! runtime)))
 
-      (identical? name "help")
-      (publish-line! runtime "thread commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /list, /board, /graph, /agents, /refresh, /popout, /q, /exit")
 
       :else
       (throw (Error. "unknown thread command; use /help")))))))
@@ -3729,24 +3824,73 @@
     (registerEscapeClearsPendingSequence keymap)
     (set! (.-keymap runtime) keymap)))
 
+;; The text completion writes for an entry: its completion when it carries one,
+;; its own name otherwise, plus the space an argument is going to need. One
+;; definition, so "did completion already run?" is answerable by comparison.
+(defn palette-completion-text [candidate: SlashCommand] -> String
+  (let [completion (slashcommand-completion candidate)]
+    (if (identical? completion "")
+      (str (slashcommand-name candidate)
+           (if (slashcommand-arguments candidate) " " ""))
+      completion)))
+
+(defn palette-candidate
+  [runtime: Any
+   commands: (Vec SlashCommand)] -> SlashCommand
+  (aget commands
+        (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length commands) 1)))))
+
 (defn complete-palette!
   [runtime: Any
    ui: Any
    commands: (Vec SlashCommand)] -> Any
   (when (> (.-length commands) 0)
-    (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length commands) 1)))
-          candidate (aget commands index)
-          completion (slashcommand-completion candidate)
-          suffix (if (and (identical? completion "")
-                          (slashcommand-arguments candidate)) " " "")
+    (let [candidate (palette-candidate runtime commands)
           input (active-input runtime ui)]
-      (set! (.-value input)
-            (str (if (identical? completion "")
-                   (slashcommand-name candidate) completion)
-                 suffix))
+      (set! (.-value input) (palette-completion-text candidate))
       (set! (.-paletteIndex runtime) 0)
       (.focus input)
       (render-minibuffer! runtime ui))))
+
+;; The one way a line leaves the composer, whether the user typed it and hit
+;; enter or the palette fired a command on their behalf. The composer is
+;; cleared first so the frame never shows a line that is already in flight.
+(defn submit-input!
+  [runtime: Any
+   ui: Any
+   input: String] -> Any
+  (when (not (identical? input ""))
+    (set! (.-value (.-composerInput ui)) "")
+    (set! (.-paletteIndex runtime) 0)
+    (if (not (threads-frame? (.-frame runtime)))
+      (let [state (snapshot (.-model runtime))
+            agents (bridgesnapshot-agents state)
+            selected (if (> (.-length agents) 0)
+                       (agent-id (aget agents (.-agentIndex runtime))) "")]
+        (report-promise! runtime (submit-agent! runtime ui input selected)))
+      (report-promise! runtime
+                       (submit-work! runtime ui input
+                                     (->WorkSelection (.-activeView runtime)
+                                                      (.-workIndex runtime)))))))
+
+;; Pure: what enter means while the palette is open, given the highlighted
+;; entry. A command that takes no arguments has nothing left to say, so enter
+;; runs it — one keystroke, not two. A command that takes arguments completes
+;; into the composer instead, because firing it bare would only earn an error;
+;; the same goes for the emoji and glyph pickers, whose entries are text to
+;; insert rather than commands. Once the composer already holds exactly what
+;; completion would write, enter has nothing left to complete and fires.
+(js/export
+ (defn palette-enter-action
+  [matches: Int
+   takes-arguments?: Bool
+   insert-only?: Bool
+   completed?: Bool] -> String
+  (cond
+    (< matches 1) ""
+    completed? "fire"
+    (or insert-only? takes-arguments?) "complete"
+    :else "fire")))
 
 (defn install-input!
   [runtime: Any
@@ -3757,19 +3901,7 @@
          (render-minibuffer! runtime ui)))
   (.on (.-composerInput ui) (.-ENTER InputRenderableEvents)
        (fn [] -> Any
-         (let [input (.trim (text (.-value (.-composerInput ui))))]
-           (when (not (identical? input ""))
-             (set! (.-value (.-composerInput ui)) "")
-             (if (not (threads-frame? (.-frame runtime)))
-               (let [state (snapshot (.-model runtime))
-                     agents (bridgesnapshot-agents state)
-                     selected (if (> (.-length agents) 0)
-                                (agent-id (aget agents (.-agentIndex runtime))) "")]
-                 (report-promise! runtime (submit-agent! runtime ui input selected)))
-               (report-promise! runtime
-                                (submit-work! runtime ui input
-                                              (->WorkSelection (.-activeView runtime)
-                                                               (.-workIndex runtime))))))))))
+         (submit-input! runtime ui (.trim (text (.-value (.-composerInput ui))))))))
 
 ;; Pure: which thread view owns a column past the sub-view origin, "" for the
 ;; gaps. The row is derived from view-list and the origin from the labels, so
@@ -3942,6 +4074,47 @@
                     (show-frame! runtime ui "threads")
                     (show-thread-view! runtime ui tab)))))))))
 
+;; Climb one rung, whoever asked. The key and the four spellings of the command
+;; share this, so "what does escape do here" has exactly one answer. Returns
+;; whether anything was claimed, which is what tells the key handler to swallow
+;; the keystroke and the command handler that it was a command.
+(defn escape-step!
+  [runtime: Any
+   ui: Any
+   from-key?: Bool] -> Bool
+  (let [palette (active-palette-options runtime ui)
+        action (escape-rung (> (.-length palette) 0)
+                            (detail-open? runtime)
+                            (if (.-stripFocused runtime) true false)
+                            (threads-frame? (.-frame runtime))
+                            (if (.-working runtime) true false)
+                            from-key?)]
+    (cond
+      (identical? action "close-palette")
+      (do (set! (.-value (active-input runtime ui)) "")
+          (render-minibuffer! runtime ui)
+          true)
+
+      (identical? action "close-detail")
+      (do (close-detail! runtime) (.render runtime) true)
+
+      (identical? action "focus-composer")
+      (do (leave-strip! runtime ui) (.render runtime) true)
+
+      (identical? action "show-agents")
+      (do (show-frame! runtime ui "agents") true)
+
+      (identical? action "cancel-turn")
+      (let [target (text (.-supervisorId runtime))]
+        (when (not (identical? target ""))
+          (report-promise! runtime (cancel-turn! runtime ui target)))
+        true)
+
+      (identical? action "quit")
+      (do (destroy! runtime) true)
+
+      :else false)))
+
 (defn ctrl-down-key?
   [name: String
    key: Any] -> Bool
@@ -3969,8 +4142,6 @@
       (identical? name "right")
       (identical? name "up")
       (identical? name "down")
-      (identical? name "escape")
-      (identical? name "esc")
       (submit-key? name)
       (ctrl-down-key? name key)
       (ctrl-up-key? name key)
@@ -3997,23 +4168,26 @@
                       (not meta)
                       (or (identical? name "left") (identical? name "right")))]
              (cond
+             ;; Escape is the ladder and nothing else: one rung per press, and
+             ;; whatever rung it lands on, no other branch below gets a say.
+             (or (identical? name "escape") (identical? name "esc"))
+             (when (escape-step! runtime ui true)
+               (.preventDefault key)
+               (.stopPropagation key))
+
              ;; The docked switchboard owns the arrows only while the composer
              ;; is quiet. Typing "/" with the panel open opens the palette, and
-             ;; the palette is what the arrows, enter and escape then drive.
+             ;; the palette is what the arrows and enter then drive.
              (and (detail-showing? runtime "config")
                   (not palette-open)
                   (or (identical? name "up") (identical? name "down")
                       (ctrl-up-key? name key) (ctrl-down-key? name key)
-                      (identical? name "space") (submit-key? name)
-                      (identical? name "escape") (identical? name "esc")))
+                      (identical? name "space") (submit-key? name)))
              (let [up? (or (identical? name "up") (ctrl-up-key? name key))
                    down? (or (identical? name "down") (ctrl-down-key? name key))]
                (.preventDefault key)
                (.stopPropagation key)
                (cond
-                 (or (identical? name "escape") (identical? name "esc"))
-                 (close-detail! runtime)
-
                  (or up? down?)
                  (let [entries (.-configEntries runtime)
                        total (if entries (.-length entries) 0)]
@@ -4044,9 +4218,6 @@
                (.preventDefault key)
                (.stopPropagation key)
                (cond
-                 (or (identical? name "escape") (identical? name "esc"))
-                 (if expanded? (close-detail! runtime) (leave-strip! runtime ui))
-
                  (submit-key? name) (toggle-segment-detail! runtime)
                  left? (move-strip-segment! runtime -1)
                  right? (move-strip-segment! runtime 1)
@@ -4076,25 +4247,25 @@
                  (.focus (active-input runtime ui))
                  (render-minibuffer! runtime ui))
 
-             (and palette-open (or (identical? name "tab") (submit-key? name)))
-             (let [index (Math/max 0 (Math/min (.-paletteIndex runtime) (- (.-length palette) 1)))
-                   candidate (aget palette index)
-                   current (.trim (text (.-value (active-input runtime ui))))
-                   completion (slashcommand-completion candidate)
-                   candidate-value (if (identical? completion "")
-                                     (slashcommand-name candidate) completion)
-                   exact (identical? current candidate-value)]
-               (when (or (identical? name "tab")
-                         (not exact))
-                 (.preventDefault key)
-                 (.stopPropagation key)
-                 (complete-palette! runtime ui palette)))
-
-             (and palette-open (or (identical? name "escape") (identical? name "esc")))
+             ;; Tab always completes; that is all tab has ever meant here.
+             (and palette-open (identical? name "tab"))
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (set! (.-value (active-input runtime ui)) "")
-                 (render-minibuffer! runtime ui))
+                 (complete-palette! runtime ui palette))
+
+             (and palette-open (submit-key? name))
+             (let [candidate (palette-candidate runtime palette)
+                   completed (palette-completion-text candidate)
+                   current (text (.-value (active-input runtime ui)))
+                   action (palette-enter-action (.-length palette)
+                                                (slashcommand-arguments candidate)
+                                                (slashcommand-emoji candidate)
+                                                (identical? current completed))]
+               (.preventDefault key)
+               (.stopPropagation key)
+               (if (identical? action "fire")
+                 (submit-input! runtime ui (.trim completed))
+                 (complete-palette! runtime ui palette)))
 
              ;; Down leaves the composer only when the composer has nothing to
              ;; move through: no palette open and an empty line. Ctrl-J is the
@@ -4119,8 +4290,7 @@
              (identical? name "f1")
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (set! (.-showHelp runtime) (not (.-showHelp runtime)))
-                 (.render runtime))
+                 (toggle-help! runtime))
 
              (or (identical? name "f3")
                  plain-view-arrow
@@ -4187,13 +4357,15 @@
                               "step")))
                (.render runtime))
 
-             (or (identical? name "escape") (identical? name "esc"))
+             ;; Ctrl-C means one thing and only one thing here: stop the turn in
+             ;; flight. With nothing running it does nothing at all — it is
+             ;; never a way out of Northbridge, /q is.
+             (and (.-ctrl key) (identical? name "c"))
              (let [target (text (.-supervisorId runtime))]
+               (.preventDefault key)
+               (.stopPropagation key)
                (when (and (.-working runtime) (not (identical? target "")))
-                 (.preventDefault key)
-                 (.stopPropagation key)
-                 (report-promise! runtime
-                                  (submit-agent! runtime ui "/interrupt" target))))
+                 (report-promise! runtime (cancel-turn! runtime ui target))))
 
              :else nil))))))
 
@@ -4217,12 +4389,13 @@
                  :conversation []
                  :itemSequence 0
                  :lastAssistantText ""
+                 ;; The text a cancel hands back to the composer.
+                 :lastSubmitted ""
                  :working false
                  :workingLabel ""
                  :workingSince 0
                  :spinnerIndex 0
                  :spinnerTimer nil
-                 :showHelp false
                  :stripFocused false
                  :stripIndex 0
                  :detailView ""
@@ -4291,8 +4464,6 @@
         composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 1
                                             :paddingLeft 1 :paddingRight 1
                                             :flexShrink 0 :backgroundColor "#25272d"})
-        composer-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
-                                                          :wrapMode "none" :truncate true})
         agent-strip-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
                                                      :wrapMode "none" :truncate true})
         detail-panel (BoxRenderable. renderer {:visible false :width "100%" :height 5
@@ -4321,7 +4492,6 @@
             :workText work-text-view :boardRoot board-root
             :statusText status-text :agentStatusText agent-status-text
             :composerPalette composer-palette :composer composer
-            :composerContextText composer-context-text
             :composerPrompt composer-prompt :composerInput composer-input
             :agentStripText agent-strip-text
             :detailPanel detail-panel :detailText detail-text}]
@@ -4337,11 +4507,13 @@
     (.add composer composer-input)
     (.add workspace agents-pane)
     (.add workspace work-pane)
-    (.add root view-tabs-text)
+    ;; Everything above is content; everything below the workspace is the
+    ;; bottom cluster, in reading order: composer, the view bar it switches,
+    ;; the agent strip, then the docked panel growing upward off the last row.
     (.add root workspace)
     (.add root composer-palette)
     (.add root composer)
-    (.add root composer-context-text)
+    (.add root view-tabs-text)
     (.add root agent-strip-text)
     (.add detail-panel detail-text)
     (.add root detail-panel)
