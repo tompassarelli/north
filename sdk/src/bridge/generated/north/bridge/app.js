@@ -233,9 +233,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/msg", "message the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents, or quit from Agents", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/msg", "message the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents, or quit from Agents", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents, or quit from Agents", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents, or quit from Agents", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -690,19 +690,19 @@ function config_hook_enabled_p(state) {
   return ((state === "enabled") || (state === "on"));
 }
 
-export function config_skill_on_p(manifest, name) {
-  return manifest.some((entry) => ((configentry_kind(entry) === "skill") && (configentry_name(entry) === name) && (configentry_state(entry) === "on")));
+export function config_companion_on_p(manifest, name) {
+  return manifest.some((entry) => ((!(configentry_kind(entry) === "hook")) && (configentry_name(entry) === name) && (configentry_state(entry) === "on")));
 }
 
 export function config_entry_active_p(entry, manifest) {
   const state = configentry_state(entry);
-  return ((!(configentry_kind(entry) === "hook")) ? (state === "on") : (config_hook_enabled_p(state) && (() => { const skill = text(configentry_detail(entry)); return ((skill === "") || config_skill_on_p(manifest, skill)); })()));
+  return ((!(configentry_kind(entry) === "hook")) ? (state === "on") : (config_hook_enabled_p(state) && (() => { const companion = text(configentry_detail(entry)); return ((companion === "") || config_companion_on_p(manifest, companion)); })()));
 }
 
 export function config_state_text(entry, active_p) {
   const state = configentry_state(entry);
-  const skill = text(configentry_detail(entry));
-  const provenance = ((skill === "") ? "" : ("".concat(" · ", skill)));
+  const companion = text(configentry_detail(entry));
+  const provenance = ((companion === "") ? "" : ("".concat(" · ", companion)));
   return ((!(configentry_kind(entry) === "hook")) ? ((state === "on") ? "on" : "off") : (((!config_hook_enabled_p(state))) ? "disabled" : (active_p) ? ("".concat("enabled · on", provenance)) : ("".concat("enabled · off", provenance))));
 }
 
@@ -710,8 +710,14 @@ export function config_toggle_verb(state) {
   return (((state === "on") || (state === "enabled")) ? "off" : "on");
 }
 
+const GLOBAL_DIR_NAME = "global";
+
+function config_global_row_p(kind, name) {
+  return ((kind === "dir") && (name === GLOBAL_DIR_NAME));
+}
+
 export function config_view_includes_p(view, kind, name) {
-  return (((view === "all")) ? true : ((view === "globals")) ? ((kind === "item") || (kind === "hook") || (kind === "skill")) : ((view === "agentsmd")) ? ((kind === "dir") || ((kind === "item") && (name === "agents-md"))) : (kind === view));
+  return (((view === "all")) ? true : ((view === "globals")) ? (config_global_row_p(kind, name) || (kind === "hook") || (kind === "skill") || (kind === "module") || (kind === "other")) : ((view === "agentsmd")) ? (kind === "dir") : (kind === view));
 }
 
 function config_view_sections_p(view) {
@@ -719,12 +725,17 @@ function config_view_sections_p(view) {
 }
 
 function config_kind_rank(kind) {
-  return (((kind === "item")) ? 0 : ((kind === "dir")) ? 1 : ((kind === "skill")) ? 2 : ((kind === "hook")) ? 3 : ((kind === "plugin")) ? 4 : 5);
+  return (((kind === "dir")) ? 0 : ((kind === "skill")) ? 1 : ((kind === "hook")) ? 2 : ((kind === "module")) ? 3 : ((kind === "plugin")) ? 4 : ((kind === "other")) ? 5 : 6);
+}
+
+function config_row_rank(entry) {
+  return (config_global_row_p(configentry_kind(entry), configentry_name(entry)) ? 0 : 1);
 }
 
 export function config_view_rows(entries, view) {
   const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
-  return ((!config_view_sections_p(view)) ? kept : kept.sort((a, b) => (config_kind_rank(configentry_kind(a)) - config_kind_rank(configentry_kind(b)))));
+  return ((!config_view_sections_p(view)) ? kept : kept.sort((a, b) => { const by_kind = (config_kind_rank(configentry_kind(a)) - config_kind_rank(configentry_kind(b)));
+return ((!(by_kind === 0)) ? by_kind : (config_row_rank(a) - config_row_rank(b))); }));
 }
 
 function config_manifest_path() {
@@ -848,6 +859,7 @@ return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runt
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, "skill");
 return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, "plugin");
+return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, "module");
 return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, "globals");
 return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, "agentsmd");
 return true; })() : ((name === "agents")) ? (() => { show_frame_bang(runtime, ui, "agents");
@@ -1233,11 +1245,11 @@ function visible_notice(notice) {
 }
 
 function config_section_title(kind) {
-  return (((kind === "item")) ? "GLOBALS" : ((kind === "dir")) ? "DIRECTORY CONTEXT" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "plugin")) ? "PLUGINS" : kind);
+  return (((kind === "dir")) ? "DIRECTORY CONTEXT" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "agents.md & directory context" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "agents.md & directory context" : "context switchboard");
 }
 
 function config_empty_note(loaded_p) {
@@ -1321,14 +1333,14 @@ function detail_agents(runtime) {
 
 const DETAIL_CHROME_ROWS = 3;
 
-const CONFIG_SECTION_ROWS = 5;
+const CONFIG_SECTION_ROWS = 6;
 
 function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
 }
 
 export function config_section_rows(view) {
-  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 3 : ((view === "agentsmd")) ? 2 : 0);
+  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 5 : ((view === "agentsmd")) ? 1 : 0);
 }
 
 export function config_visible_count(total, view) {
