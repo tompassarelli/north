@@ -999,6 +999,62 @@
                        (identical? (modulemembership-module membership) name)))]
     (if found (modulemembership-members found) nil))))
 
+;; The kinds that are rows inside a directory's subtree rather than sections of
+;; their own: the directory's instruction file (`ins`), the gate over its
+;; memories (`memroot`), and one memory (`mem`). A `dir` row is the subtree's
+;; own gate and heads it.
+(defn config-subtree-kind? [kind: String] -> Bool
+  (or (identical? kind "ins")
+      (identical? kind "memroot")
+      (identical? kind "mem")))
+
+;; Pure: which directory a row belongs to. Every subtree row is named for its
+;; directory's slug; a `mem` row qualifies that with the memory's own name, so
+;; two directories may both carry `memories/architecture` without colliding.
+(defn config-row-slug
+  [kind: String
+   name: String] -> String
+  (if (identical? kind "mem")
+    (let [cut (.indexOf name "/")]
+      (if (< cut 0) name (.slice name 0 cut)))
+    name))
+
+;; Pure: the memory's own name, which is what the row prints — the slug in front
+;; of it is the directory it is already nested under.
+(defn config-mem-name [name: String] -> String
+  (let [cut (.indexOf name "/")]
+    (if (< cut 0) name (.slice name (+ cut 1)))))
+
+;; Pure: what a row calls itself on screen. A subtree row is named for its
+;; directory in the manifest and for what it IS in the panel — the instruction
+;; file says `AGENTS.md`, the memories gate says `memories`, a memory says its
+;; own name — because the directory is already the row it is nested under and
+;; printing the slug again on every child would say nothing new.
+(js/export
+ (defn config-row-label
+  [kind: String
+   name: String] -> String
+  (cond
+    (identical? kind "ins") "AGENTS.md"
+    (identical? kind "memroot") "memories"
+    (identical? kind "mem") (config-mem-name name)
+    :else name)))
+
+;; Pure: the argument the CLI verbs take for this row — `agents on|off <target>`
+;; and `agents path <target>`. The manifest name IS the address: a memory's name
+;; already carries its slug, and a directory's instruction file answers to the
+;; slug because `agents path <slug>` resolves to exactly that file. One function
+;; so the whole panel addresses the CLI in one place.
+;;
+;; SEAM: `dir <slug>` and `ins <slug>` share an address, so a toggle on either
+;; sends the same argv. The CLI owns the disambiguation; if it grows a qualified
+;; spelling for the instruction file, this is the only function that changes.
+(js/export
+ (defn config-cli-name
+  [_kind: String
+   name: String] -> String
+  name))
+
 ;; Pure: the row a name refers to. Members may be any kind, so this spans all of
 ;; them; a companion may not be a hook (see config-entry-active?), so that
 ;; lookup skips them.
@@ -1009,6 +1065,20 @@
          (fn [entry: Any] -> Bool
            (identical? (configentry-name entry) name))))
 
+;; Pure: the row of exactly this kind. A name is only unique within a kind now
+;; that a directory's slug names its `dir` gate, its `ins` file and its
+;; `memroot` alike, so every lookup that knows which kind it wants has to say
+;; so or it will answer with whichever row the manifest happened to append
+;; first.
+(defn config-find-kind
+  [manifest: Any
+   kind: String
+   name: String] -> Any
+  (.find manifest
+         (fn [entry: Any] -> Bool
+           (and (identical? (configentry-kind entry) kind)
+                (identical? (configentry-name entry) name)))))
+
 (defn config-find-companion
   [manifest: Any
    name: String] -> Any
@@ -1016,6 +1086,35 @@
          (fn [entry: Any] -> Bool
            (and (not (identical? (configentry-kind entry) "hook"))
                 (identical? (configentry-name entry) name)))))
+
+;; Pure: the row whose activity gates this one's subtree, or nil for a row that
+;; is nobody's child. The instruction file and the memories group hang off their
+;; directory's `dir` row; a memory hangs off its directory's `memroot`, which
+;; hangs off the same `dir` row in turn — so one press on the directory closes
+;; the whole subtree, two links down, without any row but the gate's changing.
+;;
+;; A memory whose manifest carries no `memroot` falls back to the `dir` gate
+;; directly: the dir-gate half of a memory's activity is not optional, and
+;; skipping a missing middle row keeps the answer right instead of deriving a
+;; permanent off. A subtree row whose directory is not in the manifest at all is
+;; ungated rather than dead — absence here means the CLI never registered the
+;; scope, and the honest thing to show is the row's own switch. (Derivation
+;; always reads the whole manifest, never the filtered view, so absence is
+;; really absence and not a narrowed view.)
+(defn config-subtree-gate
+  [manifest: Any
+   kind: String
+   name: String] -> Any
+  (let [slug (config-row-slug kind name)]
+    (cond
+      (or (identical? kind "ins") (identical? kind "memroot"))
+      (config-find-kind manifest "dir" slug)
+
+      (identical? kind "mem")
+      (let [root (config-find-kind manifest "memroot" slug)]
+        (if root root (config-find-kind manifest "dir" slug)))
+
+      :else nil)))
 
 ;; Pure: the whole activity formula, walked along one path so a cycle can be
 ;; seen. A unit is active when
@@ -1025,20 +1124,23 @@
 ;;   AND (for a hook, the unit it follows is active — the full chain, not that
 ;;        unit's own switch, because a companion inside a switched-off bundle
 ;;        is not composing either)
+;;   AND (for a row inside a directory's subtree, the gate over that subtree is
+;;        active — the same full chain, for the same reason)
 ;;
-;; `trail` is the names already on this path. Modules may hold modules, so the
-;; walk can revisit; a name that reappears is a cycle, and a cycle derives
-;; inactive rather than looping — nothing in it can be shown to be composing.
+;; `trail` is the rows already on this path, keyed by kind AND name: a
+;; directory's slug names three rows now, and keying on the name alone would
+;; read `ins code` gating on `dir code` as a cycle.
 (defn config-active-along?
   [entry: Any
    manifest: Any
    memberships: Any
    trail: Any] -> Bool
-  (let [name (configentry-name entry)]
-    (if (.includes trail name)
+  (let [kind (configentry-kind entry)
+        name (configentry-name entry)
+        key (str kind " " name)]
+    (if (.includes trail key)
       false
-      (let [walked (.concat trail [name])
-            kind (configentry-kind entry)
+      (let [walked (.concat trail [key])
             hook? (identical? kind "hook")
             state (configentry-state entry)
             own? (if hook?
@@ -1048,7 +1150,8 @@
             gated? (or (identical? (.-length owners) 0)
                        (.some owners
                               (fn [owner: String] -> Bool
-                                (let [row (config-find-entry manifest owner)]
+                                (let [row (config-find-kind manifest "module"
+                                                            owner)]
                                   (if row
                                     (config-active-along? row manifest
                                                           memberships walked)
@@ -1060,8 +1163,12 @@
                           (if row
                             (config-active-along? row manifest memberships
                                                   walked)
-                            false)))]
-        (and own? gated? followed?)))))
+                            false)))
+            gate (config-subtree-gate manifest kind name)
+            scoped? (if gate
+                      (config-active-along? gate manifest memberships walked)
+                      true)]
+        (and own? gated? followed? scoped?)))))
 
 ;; Pure: the derived axis. Needs the whole manifest, not the filtered view —
 ;; /hooks shows no companion rows at all and still has to say which of its hooks
@@ -1085,21 +1192,38 @@
   (let [entry (config-find-entry manifest name)]
     (if entry (config-entry-active? entry manifest memberships) false))))
 
-;; Pure: the modules that are the reason this row is not composing — every
-;; module holding it, when none of them is active. Empty when the unit is in no
-;; module or one of its modules is on, because then the bundle is not what is
-;; standing in the way and naming it would be noise.
+;; Pure: the rows that are the reason this row is not composing — the gate over
+;; its subtree when that gate is closed, plus every module holding it when none
+;; of them is active. Empty when nothing above it is in the way, because then
+;; naming anything would be noise.
+;;
+;; One hop, never the whole chain: a memory names `memories`, and the memories
+;; row names the directory that closed it. That is the same reading a gated
+;; skill already gets — it names the bundle directly over it, and that bundle's
+;; own row names whatever is over IT — so a subtree reads top-down as a ladder
+;; rather than repeating the root on every rung.
 (js/export
  (defn config-gate-modules
   [entry: Any
    manifest: Any
    memberships: Any] -> Any
-  (let [owners (config-owner-modules memberships (configentry-name entry))
+  (let [kind (configentry-kind entry)
+        name (configentry-name entry)
+        gate (config-subtree-gate manifest kind name)
+        scope (if (and gate
+                       (not (config-entry-active? gate manifest memberships)))
+                [(config-row-label (configentry-kind gate)
+                                   (configentry-name gate))]
+                [])
+        owners (config-owner-modules memberships name)
         open? (or (identical? (.-length owners) 0)
                   (.some owners
                          (fn [owner: String] -> Bool
-                           (config-unit-active? manifest memberships owner))))]
-    (if open? [] owners))))
+                           (let [row (config-find-kind manifest "module" owner)]
+                             (if row
+                               (config-entry-active? row manifest memberships)
+                               false)))))]
+    (.concat scope (if open? [] owners)))))
 
 ;; Pure: the state column's text. Both axes whenever they can disagree, one when
 ;; they cannot, and the reason for every off the row's own switch does not
@@ -1148,12 +1272,21 @@
    name: String] -> Bool
   (and (identical? kind "dir") (identical? name GLOBAL-DIR-NAME)))
 
+;; The root scope is a subtree like any other: the profile's own instruction
+;; file and memories hang off `dir global` exactly as a project's hang off its
+;; own row, so a view that carries the profile carries what is under it.
+(defn config-global-scope-row?
+  [kind: String
+   name: String] -> Bool
+  (and (or (identical? kind "dir") (config-subtree-kind? kind))
+       (identical? (config-row-slug kind name) GLOBAL-DIR-NAME)))
+
 ;; The switchboard's views are names, not manifest kinds. Two of them are
 ;; questions instead: `globals` is everything scoped globally — the global
-;; profile row plus skills, hooks, modules and the loose switches — and drops
-;; both per-directory rows and third-party plugins; `agentsmd` is the directory
-;; section entire, global profile first, so one view answers "what instruction
-;; files exist, which are on".
+;; profile's subtree plus skills, hooks, modules and the loose switches — and
+;; drops both per-directory rows and third-party plugins; `agentsmd` is the
+;; directory section entire, subtrees and all, global profile first, so one view
+;; answers "what context exists, and what is active".
 (js/export
  (defn config-view-includes?
   [view: String
@@ -1162,12 +1295,13 @@
   (cond
     (identical? view "all") true
     (identical? view "globals")
-    (or (config-global-row? kind name)
+    (or (config-global-scope-row? kind name)
         (identical? kind "hook")
         (identical? kind "skill")
         (identical? kind "module")
         (identical? kind "other"))
-    (identical? view "agentsmd") (identical? kind "dir")
+    (identical? view "agentsmd")
+    (or (identical? kind "dir") (config-subtree-kind? kind))
     :else (identical? kind view))))
 
 (defn config-view-sections? [view: String] -> Bool
@@ -1183,15 +1317,24 @@
 ;; coarsest thing you can flip — a module carries skills and hooks with it, so
 ;; it reads above the units it moves. Skills then hooks for the same reason: a
 ;; hook follows the unit it is bound to.
+;; Pure: the section a kind prints under. The subtree kinds have no section of
+;; their own — they are rows inside DIRECTORY INSTRUCTIONS, nested under the
+;; directory that gates them — so the header budget still counts six sections
+;; however deep a directory gets.
+(js/export
+ (defn config-section-kind [kind: String] -> String
+  (if (config-subtree-kind? kind) "dir" kind)))
+
 (defn config-kind-rank [kind: String] -> Int
-  (cond
-    (identical? kind "dir") 0
-    (identical? kind "module") 1
-    (identical? kind "skill") 2
-    (identical? kind "hook") 3
-    (identical? kind "plugin") 4
-    (identical? kind "other") 5
-    :else 6))
+  (let [section (config-section-kind kind)]
+    (cond
+      (identical? section "dir") 0
+      (identical? section "module") 1
+      (identical? section "skill") 2
+      (identical? section "hook") 3
+      (identical? section "plugin") 4
+      (identical? section "other") 5
+      :else 6)))
 
 ;; Order inside a section, which only the directory section has an opinion
 ;; about: the global profile is the file every directory row is read on top of,
@@ -1201,8 +1344,64 @@
     0
     1))
 
+;; Reading order inside one directory's subtree: the instruction file, then the
+;; memories gate, then the memories it holds — coarsest first, the same shape as
+;; the sections themselves.
+(defn config-child-rank [kind: String] -> Int
+  (cond
+    (identical? kind "ins") 0
+    (identical? kind "memroot") 1
+    :else 2))
+
+;; Pure: the directory section, flat rows in, nested rows out. Every subtree row
+;; follows the `dir` row it belongs to instead of sitting in a block of its own
+;; kind, because a directory's instruction file and its memories are facts about
+;; THAT directory and read as one thing with it.
+;;
+;; A subtree row whose directory this view does not carry keeps its place at the
+;; end of the section rather than disappearing: a row the panel cannot nest is
+;; still a switch that exists, and a switchboard that silently drops rows is the
+;; one failure the whole surface exists to prevent.
+(defn config-nest-subtrees [entries: Any] -> Any
+  (let [dir? (fn [entry: Any] -> Bool
+               (identical? (configentry-kind entry) "dir"))
+        sub? (fn [entry: Any] -> Bool
+               (config-subtree-kind? (configentry-kind entry)))
+        dirs (.filter entries dir?)
+        subs (.filter entries sub?)
+        others (.filter entries
+                        (fn [entry: Any] -> Bool
+                          (and (not (dir? entry)) (not (sub? entry)))))
+        nested []]
+    (.forEach dirs
+              (fn [parent: Any] -> Any
+                (.push nested parent)
+                (let [slug (configentry-name parent)
+                      kids (.filter subs
+                                    (fn [child: Any] -> Bool
+                                      (identical?
+                                       (config-row-slug
+                                        (configentry-kind child)
+                                        (configentry-name child))
+                                       slug)))]
+                  ;; Stable, so memories keep the order the CLI wrote them in.
+                  (.sort kids
+                         (fn
+                           [a: Any
+                            b: Any] -> Int
+                           (- (config-child-rank (configentry-kind a))
+                              (config-child-rank (configentry-kind b)))))
+                  (.forEach kids
+                            (fn [child: Any] -> Any
+                              (.push nested child))))))
+    (let [orphans (.filter subs
+                           (fn [child: Any] -> Bool
+                             (not (.includes nested child))))]
+      (.concat nested orphans others))))
+
 ;; Pure: manifest rows -> the rows this view shows, grouped so a sectioned view
-;; prints exactly one header per kind (which is what the height budget counts).
+;; prints exactly one header per section (which is what the height budget
+;; counts) and every directory carries its own subtree behind it.
 (js/export
  (defn config-view-rows
   [entries: Any
@@ -1214,17 +1413,18 @@
                                                (configentry-name entry))))]
     (if (not (config-view-sections? view))
       kept
-      ;; Array sort is stable, so rows keep their manifest order within a kind
-      ;; wherever the comparator has nothing to say.
-      (.sort kept
-             (fn
-               [a: Any
-                b: Any] -> Int
-               (let [by-kind (- (config-kind-rank (configentry-kind a))
-                                (config-kind-rank (configentry-kind b)))]
-                 (if (not (identical? by-kind 0))
-                   by-kind
-                   (- (config-row-rank a) (config-row-rank b))))))))))
+      ;; Array sort is stable, so rows keep their manifest order within a
+      ;; section wherever the comparator has nothing to say.
+      (config-nest-subtrees
+       (.sort kept
+              (fn
+                [a: Any
+                 b: Any] -> Int
+                (let [by-kind (- (config-kind-rank (configentry-kind a))
+                                 (config-kind-rank (configentry-kind b)))]
+                  (if (not (identical? by-kind 0))
+                    by-kind
+                    (- (config-row-rank a) (config-row-rank b)))))))))))
 
 (defn config-manifest-path [] -> String
   (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
@@ -1352,9 +1552,13 @@
             index (Math/max 0 (Math/min (if raw raw 0)
                                         (- (.-length entries) 1)))
             entry (aget entries index)
+            ;; A memory's address carries its directory (`code/architecture`);
+            ;; the instruction file's is the directory alone, because that is
+            ;; already what `agents path` resolves to that file.
             raw-path (js/await (run-command
                                 [AGENTS-BIN "path"
-                                 (configentry-name entry)]))
+                                 (config-cli-name (configentry-kind entry)
+                                                  (configentry-name entry))]))
             path (.trim raw-path)
             editor (text-or (text (.-EDITOR (.-env process))) "vi")
             ghostty (.which Bun "ghostty")
@@ -1382,12 +1586,15 @@
                                         (- (.-length entries) 1)))
             entry (aget entries index)
             verb (config-toggle-verb (configentry-state entry))]
-        (js/await (run-command [AGENTS-BIN verb (configentry-name entry)]))
+        (js/await (run-command [AGENTS-BIN verb
+                                (config-cli-name (configentry-kind entry)
+                                                 (configentry-name entry))]))
         ;; Reload the whole manifest, never patch the row that was flipped. One
         ;; skill flip changes the derived activity of every hook bound to it,
-        ;; and the CLI may pin or unpin rows this panel never touched; a local
-        ;; patch would leave the rest of the panel asserting a state that is no
-        ;; longer true.
+        ;; a directory flip changes every row in its subtree two links down, and
+        ;; the CLI may pin or unpin rows this panel never touched; a local patch
+        ;; would leave the rest of the panel asserting a state that is no longer
+        ;; true.
         (js/await (load-config-entries! runtime))
         (.render runtime)))))
 
@@ -2200,15 +2407,16 @@
 (defn config-member-count-text [count: Int] -> String
   (str count (if (identical? count 1) " member" " members")))
 
-;; One row's label: the name, plus whatever the row has to add after the state.
-;; A `dir` row adds its directory. A `module` row adds the size of its roster,
-;; which is the one fact about a bundle that is nowhere else on screen — and
-;; only when modules.d actually carries a file for it, so "no roster yet" and
+;; One row's label: what the row calls itself, plus whatever it has to add after
+;; the state. A `dir` row adds its directory. A `module` row adds the size of its
+;; roster, which is the one fact about a bundle that is nowhere else on screen —
+;; and only when modules.d actually carries a file for it, so "no roster yet" and
 ;; "a roster with nobody in it" stay different answers. Clipped to the panel so
 ;; a long path cannot wrap and desync the rendered height from
 ;; detail-body-lines. A hook's fourth field is the unit it follows, which the
 ;; state column already carries as provenance — printing it twice on one row
-;; says nothing new.
+;; says nothing new; a subtree row's directory is the row it is nested under and
+;; is not printed twice either.
 (defn config-row-text
   [entry: Any
    memberships: Any
@@ -2218,15 +2426,35 @@
         members (config-module-members memberships name)
         detail (cond
                  (identical? kind "hook") ""
+                 (config-subtree-kind? kind) ""
                  (identical? kind "module")
                  (if (nil? members)
                    ""
                    (config-member-count-text (.-length members)))
-                 :else (text (configentry-detail entry)))]
+                 :else (text (configentry-detail entry)))
+        label (config-row-label kind name)]
     (compact-text (if (identical? detail "")
-                    name
-                    (str name "  " detail))
+                    label
+                    (str label "  " detail))
                   width)))
+
+;; How far a row sits from the section's left edge. Depth reads as depth: the
+;; directory at the section's margin, its instruction file and memories group one
+;; step in, the memories themselves one step further. The cursor gutter stays
+;; where it is on every row, so the marker is always in the same column no matter
+;; how deep the row it is on.
+(def CONFIG-INDENT-WIDTH: Int 4)
+
+(js/export
+ (defn config-row-depth [kind: String] -> Int
+  (cond
+    (identical? kind "ins") 1
+    (identical? kind "memroot") 1
+    (identical? kind "mem") 2
+    :else 0)))
+
+(defn config-row-indent [kind: String] -> String
+  (.repeat " " (* CONFIG-INDENT-WIDTH (config-row-depth kind))))
 
 ;; The state column's width. Non-hook rows keep the three cells `on`/`off` have
 ;; always had; a hook spends more because it prints two axes and, when it is
@@ -2291,18 +2519,23 @@
                                              (configentry-state entry))))
                           state-text (config-state-text entry manifest
                                                         memberships active?)
-                          state-column (str (.padEnd state-text
+                          state-column (str (config-row-indent kind)
+                                            (.padEnd state-text
                                                      (config-state-width kind)
                                                      " ")
                                             (config-state-gap kind state-text))
                           label-width (Math/max 12
                                                 (- width (.-length state-column)))
+                          section (config-section-kind kind)
                           prior (if (identical? i start)
-                                  "" (configentry-kind (aget entries (- i 1))))
+                                  ""
+                                  (config-section-kind
+                                   (configentry-kind (aget entries (- i 1)))))
                           tail (if (identical? (+ i 1) stop) "" "\n")]
-                      (when (and sections? (not (identical? kind prior)))
+                      (when (and sections? (not (identical? section prior)))
                         (.push parts (brightYellow
-                                      (str (config-section-title kind) "\n"))))
+                                      (str (config-section-title section)
+                                           "\n"))))
                       (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
                       (.push parts ((cond pinned? brightYellow
                                           active? brightGreen
@@ -2354,13 +2587,15 @@
 ;; title line that carries the key legend.
 (def DETAIL-CHROME-ROWS: Int 3)
 
-;; Section headers ("DIRECTORY CONTEXT", "SKILLS", "HOOKS", …) are content the
-;; config panel inserts between rows; leave room for one per kind so a full
-;; switchboard still fits. Six kinds now: dir, skill, hook, module, plugin,
+;; Section headers ("DIRECTORY INSTRUCTIONS", "SKILLS", "HOOKS", …) are content
+;; the config panel inserts between rows; leave room for one per section so a
+;; full switchboard still fits. Six sections: dir, skill, hook, module, plugin,
 ;; other — `item` dissolved into the dir/module/other trio, so the budget is one
-;; row taller than the five it replaced. Rows are grouped by kind before
-;; rendering, so this is a ceiling and not an estimate — an ungrouped manifest
-;; can repeat a kind and overflow it.
+;; row taller than the five it replaced. A directory's instruction file and
+;; memories are ROWS inside the directory section, not sections of their own, so
+;; a deeper manifest costs list rows and never a header. Rows are grouped by
+;; section before rendering, so this is a ceiling and not an estimate — an
+;; ungrouped manifest can repeat a section and overflow it.
 (def CONFIG-SECTION-ROWS: Int 6)
 
 (defn detail-visible-count
@@ -2408,8 +2643,10 @@
                  offset: Int] -> Bool
                 (let [i (+ start offset)]
                   (or (identical? i start)
-                      (not (identical? (configentry-kind entry)
-                                       (configentry-kind (aget entries (- i 1))))))))))))
+                      (not (identical?
+                            (config-section-kind (configentry-kind entry))
+                            (config-section-kind
+                             (configentry-kind (aget entries (- i 1)))))))))))))
 
 (js/export
  (defn config-detail-lines [runtime: Any] -> Int
