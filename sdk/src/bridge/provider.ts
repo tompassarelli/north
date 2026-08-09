@@ -180,6 +180,12 @@ export const bridgeProvider: BridgeProviderExecution = {
         model: options.model,
         effort: options.effort,
         cwd: options.cwd ?? context.cwd,
+        // What the session may do without asking. Derived by the harness from
+        // the capabilities it was sealed with, so it is the session's real
+        // permission and not a preference — which is exactly why the banner
+        // states it rather than leaving the operator to infer it from whether
+        // an edit went through.
+        permissionMode: options.permissionMode,
         target: decision.target,
       },
     });

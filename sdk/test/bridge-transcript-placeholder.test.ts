@@ -2,12 +2,24 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, ScrollBoxRenderable, TextRenderable } from "@opentui/core";
 import {
+  banner_box as bannerBox,
+  banner_permissions as bannerPermissions,
+  banner_revision as bannerRevision,
   render_conversation_bang as renderConversation,
+  session_banner as sessionBanner,
+  session_banner_lines as sessionBannerLines,
+  transcript_banner_p as transcriptBanner,
   transcript_placeholder as transcriptPlaceholder,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
   Agent, make_model as makeModel, upsert_agent as upsertAgent,
 } from "../src/bridge/generated/north/bridge/model.js";
+
+// The banner is sized against the frame, which is read off the terminal. Pin it
+// so the box below is arithmetic rather than a property of whoever's tty ran
+// the suite.
+Object.defineProperty(process.stdout, "columns", { value: 120, configurable: true });
+Object.defineProperty(process.stdout, "rows", { value: 40, configurable: true });
 
 // The placeholder is a pure fold of (label, session status, transcript size,
 // working flag). The bug it replaces: "empty and not working" alone, which kept
@@ -17,9 +29,11 @@ test("transcript placeholder follows session state, not just emptiness", () => {
   expect(transcriptPlaceholder("Main", "", 0, false)).toBe("Starting Main…");
   expect(transcriptPlaceholder("Main", "starting", 0, false)).toBe("Starting Main…");
 
-  // The state the roster header and strip already show: ready/running.
-  expect(transcriptPlaceholder("Main", "ready", 0, false)).toBe("Main is ready.");
-  expect(transcriptPlaceholder("Main", "running", 0, false)).toBe("Main is ready.");
+  // Ready says nothing here any more. "Main is ready." spent the emptiest
+  // screen in the frame repeating what the roster header and the strip were
+  // already saying; the banner is what that screen is for now.
+  expect(transcriptPlaceholder("Main", "ready", 0, false)).toBe("");
+  expect(transcriptPlaceholder("Main", "running", 0, false)).toBe("");
 
   // Working draws its own wave; the placeholder stays out of the way.
   expect(transcriptPlaceholder("Main", "starting", 0, true)).toBe("");
@@ -34,6 +48,97 @@ test("transcript placeholder follows session state, not just emptiness", () => {
   expect(transcriptPlaceholder("Codex Main", "failed", 0, false)).toBe("Codex Main is offline.");
 });
 
+test("the banner belongs to exactly one state: ready, empty, and idle", () => {
+  expect(transcriptBanner("ready", 0, false)).toBe(true);
+  expect(transcriptBanner("running", 0, false)).toBe(true);
+  // The states that have something of their own to say keep saying it.
+  expect(transcriptBanner("", 0, false)).toBe(false);
+  expect(transcriptBanner("starting", 0, false)).toBe(false);
+  expect(transcriptBanner("offline", 0, false)).toBe(false);
+  expect(transcriptBanner("failed", 0, false)).toBe(false);
+  expect(transcriptBanner("error", 0, false)).toBe(false);
+  // The disappearance rule is the placeholder's, unchanged: a turn in flight or
+  // one line of transcript and the empty screen is not empty any more.
+  expect(transcriptBanner("ready", 0, true)).toBe(false);
+  expect(transcriptBanner("ready", 1, false)).toBe(false);
+});
+
+test("the banner states the session's facts, and says pending for the ones it lacks", () => {
+  const lines = sessionBannerLines(
+    "1f3c2de78461ee37cbba2f49cfefa28d1d0a87fb", "claude-fable-5", "xhigh",
+    "~/code", "acceptEdits") as string[];
+  expect(lines).toEqual([
+    ">_ North Bridge (1f3c2de7)",
+    "",
+    "model:       claude-fable-5 xhigh   NORTH_BRIDGE_MODEL to change",
+    "directory:   ~/code",
+    "permissions: acceptEdits",
+  ]);
+
+  // The identity is the staleness handshake's, shortened to what a human would
+  // type at git.
+  expect(bannerRevision("1f3c2de78461ee37cbba2f49cfefa28d1d0a87fb")).toBe("1f3c2de7");
+  expect(bannerRevision("")).toBe("unknown");
+  expect(bannerRevision(undefined)).toBe("unknown");
+
+  // The mode where nothing is asked is called what the operator calls it; every
+  // other mode is reported by its own name rather than a euphemism.
+  expect(bannerPermissions("bypassPermissions")).toBe("YOLO mode");
+  expect(bannerPermissions("acceptEdits")).toBe("acceptEdits");
+  expect(bannerPermissions("default")).toBe("default");
+  expect(bannerPermissions("")).toBe("pending");
+
+  // Facts the session has not reported yet, in the word the rest of the frame
+  // already uses for the same gap.
+  const bare = sessionBannerLines("", "", "", "", "") as string[];
+  expect(bare[0]).toBe(">_ North Bridge (unknown)");
+  expect(bare[2]).toBe("model:       pending   NORTH_BRIDGE_MODEL to change");
+  expect(bare[3]).toBe("directory:   pending");
+  expect(bare[4]).toBe("permissions: pending");
+
+  // There is no /model command in the bridge, so the hint names the thing that
+  // actually changes the model rather than inventing one.
+  expect(lines[2]).toContain("NORTH_BRIDGE_MODEL");
+  expect(lines.join("\n")).not.toContain("/model");
+});
+
+test("the box is drawn to the content, and gives way rather than wrapping", () => {
+  const boxed = bannerBox(["abc", "de"], 60) as string[];
+  expect(boxed).toEqual([
+    "╭─────╮",
+    "│ abc │",
+    "│ de  │",
+    "╰─────╯",
+  ]);
+
+  // Wide enough to hold the widest line and its borders: the box is a card
+  // sized to what it says, not a rule across the frame.
+  const wide = sessionBanner("1f3c2de7", "claude-fable-5", "xhigh", "~/code",
+                             "acceptEdits", 110) as string[];
+  expect(wide).toHaveLength(7);
+  expect(wide[0]!.startsWith("╭")).toBe(true);
+  expect(wide[6]!.endsWith("╯")).toBe(true);
+  const widths = new Set(wide.map((l) => [...l].length));
+  expect(widths.size).toBe(1);
+  expect([...widths][0]).toBeLessThanOrEqual(110);
+
+  // Narrow: the borders cost four columns and a clipped path says less than the
+  // plain line does, so the banner degrades to its own lines. A box that does
+  // not fit is not a smaller box, it is a broken one.
+  const narrow = sessionBanner("1f3c2de7", "claude-fable-5", "xhigh", "~/code",
+                               "acceptEdits", 54) as string[];
+  expect(narrow).toHaveLength(5);
+  expect(narrow.some((l) => l.includes("╭") || l.includes("│"))).toBe(false);
+  expect(narrow[0]).toBe(">_ North Bridge (1f3c2de7)");
+  // And nothing it prints can wrap the frame open.
+  for (const line of narrow) expect([...line].length).toBeLessThanOrEqual(54 - 4);
+
+  // A single line longer than the whole frame is cut, not wrapped, box or no.
+  const long = bannerBox([`~/code/${"deep/".repeat(40)}end`], 60) as string[];
+  for (const line of long) expect([...line].length).toBeLessThanOrEqual(60);
+  expect(long[1]).toContain("…");
+});
+
 function runtimeWith(status: string) {
   return {
     conversation: [] as unknown[],
@@ -41,6 +146,11 @@ function runtimeWith(status: string) {
     workingSince: Date.now(),
     spinnerIndex: 0,
     supervisorId: "exec-supervisor",
+    sourceIdentity: "1f3c2de78461ee37cbba2f49cfefa28d1d0a87fb",
+    sessionModel: "claude-fable-5",
+    sessionEffort: "xhigh",
+    sessionCwd: "/tmp/switchboard-fixture/code",
+    sessionPermissions: "acceptEdits",
     model: upsertAgent(
       makeModel("list"),
       Agent("exec-supervisor", "Main", status, "Northbridge control session"),
@@ -48,9 +158,9 @@ function runtimeWith(status: string) {
   };
 }
 
-test("agents-pane transcript stops saying Starting once the session is ready", async () => {
+test("agents-pane transcript stops saying Starting, and shows the session instead", async () => {
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
-    width: 60, height: 8,
+    width: 90, height: 12,
   });
 
   const pane = new BoxRenderable(renderer, { id: "agents-pane", flexGrow: 1 });
@@ -60,19 +170,30 @@ test("agents-pane transcript stops saying Starting once the session is ready", a
   pane.add(scroll);
   renderer.root.add(pane);
 
-  // Boot: the session row exists but has not reported ready yet.
+  // Boot: the session row exists but has not reported ready yet. No banner —
+  // there is nothing to state about a session that has not started.
   transcript.content = renderConversation(runtimeWith("starting"));
   await renderOnce();
-  expect(captureCharFrame()).toContain("Starting Main");
+  const booting = captureCharFrame();
+  expect(booting).toContain("Starting Main");
+  expect(booting).not.toContain("North Bridge");
 
   // The exact transition the screenshot never showed: session.idle -> ready.
   transcript.content = renderConversation(runtimeWith("ready"));
   await renderOnce();
   const ready = captureCharFrame();
   expect(ready).not.toContain("Starting Main");
-  expect(ready).toContain("Main is ready.");
+  // The line the banner replaces, gone.
+  expect(ready).not.toContain("Main is ready.");
+  expect(ready).toContain("╭");
+  expect(ready).toContain(">_ North Bridge (1f3c2de7)");
+  expect(ready).toContain("model:       claude-fable-5 xhigh");
+  expect(ready).toContain("NORTH_BRIDGE_MODEL to change");
+  expect(ready).toContain("directory:   /tmp/switchboard-fixture/code");
+  expect(ready).toContain("permissions: acceptEdits");
+  expect(ready).toContain("╰");
 
-  // First transcript item: the placeholder leaves entirely.
+  // First transcript item: the banner leaves with the placeholder it replaced.
   const withItem = runtimeWith("ready");
   withItem.conversation = [{
     id: "item-1", kind: "assistant", title: "", body: "hello", status: "done", data: null,
@@ -81,8 +202,16 @@ test("agents-pane transcript stops saying Starting once the session is ready", a
   await renderOnce();
   const answered = captureCharFrame();
   expect(answered).not.toContain("Starting Main");
-  expect(answered).not.toContain("Main is ready.");
+  expect(answered).not.toContain("North Bridge");
+  expect(answered).not.toContain("╭");
   expect(answered).toContain("hello");
+
+  // A session that is gone says so, and states nothing about itself.
+  transcript.content = renderConversation(runtimeWith("offline"));
+  await renderOnce();
+  const offline = captureCharFrame();
+  expect(offline).toContain("Main is offline.");
+  expect(offline).not.toContain("North Bridge");
 
   renderer.destroy();
 });

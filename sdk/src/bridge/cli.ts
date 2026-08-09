@@ -85,9 +85,14 @@ async function runApp(args: string[]): Promise<number> {
   process.env.NORTH_BIN ??= resolve(import.meta.dir, "../../../bin/north");
   const appModule = new URL("./generated/north/bridge/app.js", import.meta.url).href;
   const { run_northbridge_app_bang } = await import(appModule) as {
-    run_northbridge_app_bang(options: { viewId?: string }): Promise<unknown>;
+    run_northbridge_app_bang(
+      options: { viewId?: string; sourceIdentity?: string },
+    ): Promise<unknown>;
   };
-  await run_northbridge_app_bang({ viewId });
+  // The checkout the app is running from, which is the same identity the
+  // staleness handshake is fought over. The banner prints its short form, so
+  // "which North Bridge am I looking at" is answerable from the screen.
+  await run_northbridge_app_bang({ viewId, sourceIdentity: bridgeSourceIdentity() });
   return 0;
 }
 
