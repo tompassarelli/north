@@ -150,9 +150,15 @@ export class Northd {
     return disk !== undefined && disk !== this.loadedIdentity;
   }
 
-  private liveExecutions(): number {
+  /**
+   * `except` is the runtime asking the question. A refused launch counts itself
+   * as live, so reporting the sessions that actually hold retirement open means
+   * excluding the asker.
+   */
+  private liveExecutions(except?: ExecutionRuntime): number {
     let live = 0;
     for (const runtime of this.runtimes.values()) {
+      if (runtime === except) continue;
       if (!runtime.terminal && (runtime.session !== undefined || runtime.activeTurn)) live += 1;
     }
     return live;
@@ -330,6 +336,9 @@ export class Northd {
         message: "bridge_daemon_source_stale",
         loaded: this.loadedIdentity,
         disk: this.sourceIdentity(),
+        // The sessions still holding this daemon open — what a client needs to
+        // say something more useful than the code.
+        live: this.liveExecutions(runtime),
       });
       return;
     }

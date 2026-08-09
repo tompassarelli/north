@@ -128,8 +128,10 @@ test("live executions pin a stale daemon and new launches fail explicitly", asyn
   await refused.closed;
   const failed = refused.messages.find((message) =>
     message.type === "event" && message.record.kind === "execution.failed");
+  // `live` counts the sessions actually pinning the daemon, never the refused
+  // launch itself, so a client can name why the daemon has not retired yet.
   expect(failed.record.data).toEqual({
-    message: "bridge_daemon_source_stale", loaded: "rev-a", disk: "rev-b",
+    message: "bridge_daemon_source_stale", loaded: "rev-a", disk: "rev-b", live: 1,
   });
   expect(openCount()).toBe(1);
 
