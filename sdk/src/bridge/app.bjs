@@ -272,6 +272,7 @@
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
@@ -292,6 +293,7 @@
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show work commands" false "" false)])
@@ -319,6 +321,16 @@
     (JSON/stringify value nil 2)
     (catch Error _ (String value))))
 
+;; The daemon refuses launches once the checkout moves under it, and it retires
+;; itself the moment its last session drains. Say that, in one calm line, rather
+;; than printing the wire code at someone.
+(defn stale-daemon-summary [live: Int] -> String
+  (if (> live 0)
+    (str "control daemon is stale (" live " live session"
+         (if (identical? live 1) "" "s")
+         ") — it retires once they drain; restart Northbridge after that")
+    "control daemon is stale — restart Northbridge to replace it"))
+
 (defn failure-summary [data: Any] -> String
   (let [message (text (.-message data))
         causes (.-causes data)
@@ -328,6 +340,9 @@
       (or (.includes message "north_coordinator_preflight")
           (.includes cause "ECONNREFUSED 127.0.0.1:7977"))
       "coordinator offline — supervision unavailable; /config and /help still work"
+
+      (identical? message "bridge_daemon_source_stale")
+      (stale-daemon-summary (Number (or (.-live data) 0)))
 
       (identical? message "") (safe-json data)
       (identical? cause "") message
@@ -908,7 +923,13 @@
         current (if raw raw 0)]
     (set! (.-configEntries runtime) entries)
     (set! (.-configIndex runtime)
-          (Math/max 0 (Math/min current (- total 1))))))
+          (Math/max 0 (Math/min current (- total 1))))
+    (set! (.-configLoaded runtime) true)
+    ;; The switchboard reads the manifest, never the control daemon, so it owns
+    ;; the render that shows its own result. Waiting for someone else's render
+    ;; left the panel stuck on "loading…" whenever nothing else was ticking —
+    ;; exactly the case when the daemon handshake has already failed.
+    (.render runtime)))
 
 (defn open-config-panel!
   [runtime: Any
@@ -920,6 +941,7 @@
       (do
         (set! (.-configFilter runtime) config-filter)
         (set! (.-configIndex runtime) 0)
+        (set! (.-configLoaded runtime) false)
         (open-detail! runtime "config")
         (report-promise! runtime (load-config-entries! runtime))))
     (.render runtime)))
@@ -1038,6 +1060,9 @@
 
           (identical? name "skills")
           (do (open-config-panel! runtime "skill") true)
+
+          (identical? name "plugins")
+          (do (open-config-panel! runtime "plugin") true)
 
           (identical? name "agentsmd")
           (do (open-config-panel! runtime "item") true)
@@ -1729,14 +1754,21 @@
     (identical? kind "item") "AGENTS.MD & GLOBALS"
     (identical? kind "hook") "HOOKS"
     (identical? kind "skill") "SKILLS"
+    (identical? kind "plugin") "PLUGINS"
     :else kind))
 
 (defn config-panel-title [config-filter: String] -> String
   (cond
     (identical? config-filter "hook") "hooks"
     (identical? config-filter "skill") "skills"
+    (identical? config-filter "plugin") "plugins"
     (identical? config-filter "item") "agents.md & globals"
     :else "context switchboard"))
+
+;; An empty result is not a pending one. Saying "loading…" forever is how the
+;; panel lied about a manifest that simply has no rows of this kind.
+(defn config-empty-note [loaded?: Bool] -> String
+  (if loaded? " nothing to configure here" " loading…"))
 
 (defn render-config-panel [runtime: Any] -> Any
   (let [entries (.-configEntries runtime)
@@ -1745,7 +1777,8 @@
         sections? (identical? config-filter "all")]
     (if (identical? total 0)
       (StyledText. [(brightYellow (config-panel-title config-filter))
-                    (brightBlack " loading…")])
+                    (brightBlack (config-empty-note
+                                  (if (.-configLoaded runtime) true false)))])
       (let [index (clamped-index (.-configIndex runtime) total)
             window (config-visible-count total sections?)
             start (window-start index total window)
@@ -1803,9 +1836,10 @@
 ;; title line that carries the key legend.
 (def DETAIL-CHROME-ROWS: Int 3)
 
-;; Section headers ("HOOKS", "SKILLS", …) are content the config panel inserts
-;; between rows; leave room for one per kind so a full switchboard still fits.
-(def CONFIG-SECTION-ROWS: Int 3)
+;; Section headers ("HOOKS", "SKILLS", "PLUGINS", …) are content the config
+;; panel inserts between rows; leave room for one per kind so a full
+;; switchboard still fits.
+(def CONFIG-SECTION-ROWS: Int 4)
 
 (defn detail-visible-count
   [total: Int

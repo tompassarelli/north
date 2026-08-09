@@ -233,9 +233,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/msg", "message the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/msg", "message the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Board, or Graph view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
+const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Board, or Graph view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -263,11 +263,15 @@ function safe_json(value) {
   } })();
 }
 
+function stale_daemon_summary(live) {
+  return ((live > 0) ? ("".concat("control daemon is stale (", live, " live session", ((live === 1) ? "" : "s"), ") — it retires once they drain; restart Northbridge after that")) : "control daemon is stale — restart Northbridge to replace it");
+}
+
 function failure_summary(data) {
   const message = text(data.message);
   const causes = data.causes;
   const cause = ((causes && (causes.length > 0)) ? text(causes[0]) : "");
-  return (((message.includes("north_coordinator_preflight") || cause.includes("ECONNREFUSED 127.0.0.1:7977"))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
+  return (((message.includes("north_coordinator_preflight") || cause.includes("ECONNREFUSED 127.0.0.1:7977"))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number((data.live || 0))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
 }
 
 function clean_text(value) {
@@ -690,7 +694,9 @@ return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2])); });
   const raw = runtime.configIndex;
   const current = (raw ? raw : 0);
   (runtime.configEntries = entries);
-  return (runtime.configIndex = Math.max(0, Math.min(current, (total - 1))));
+  (runtime.configIndex = Math.max(0, Math.min(current, (total - 1))));
+  (runtime.configLoaded = true);
+  return runtime.render();
 }
 
 function open_config_panel_bang(runtime, config_filter) {
@@ -700,6 +706,7 @@ function open_config_panel_bang(runtime, config_filter) {
   } else {
     (runtime.configFilter = config_filter);
     (runtime.configIndex = 0);
+    (runtime.configLoaded = false);
     open_detail_bang(runtime, "config");
     report_promise_bang(runtime, load_config_entries_bang(runtime));
   }
@@ -782,6 +789,7 @@ publish_line_bang(runtime, sound_status(runtime));
 return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, "all");
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, "skill");
+return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, "plugin");
 return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, "item");
 return true; })() : false);
   }
@@ -1192,11 +1200,15 @@ function visible_notice(notice) {
 }
 
 function config_section_title(kind) {
-  return (((kind === "item")) ? "AGENTS.MD & GLOBALS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : kind);
+  return (((kind === "item")) ? "AGENTS.MD & GLOBALS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "plugin")) ? "PLUGINS" : kind);
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "item")) ? "agents.md & globals" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "item")) ? "agents.md & globals" : "context switchboard");
+}
+
+function config_empty_note(loaded_p) {
+  return (loaded_p ? " nothing to configure here" : " loading…");
 }
 
 function render_config_panel(runtime) {
@@ -1205,7 +1217,7 @@ function render_config_panel(runtime) {
   const config_filter = text_or(text(runtime.configFilter), "all");
   const sections_p = (config_filter === "all");
   if ((total === 0)) {
-    return new StyledText([brightYellow(config_panel_title(config_filter)), brightBlack(" loading…")]);
+    return new StyledText([brightYellow(config_panel_title(config_filter)), brightBlack(config_empty_note((runtime.configLoaded ? true : false)))]);
   } else {
     const index = clamped_index(runtime.configIndex, total);
     const window = config_visible_count(total, sections_p);
@@ -1251,7 +1263,7 @@ function detail_agents(runtime) {
 
 const DETAIL_CHROME_ROWS = 3;
 
-const CONFIG_SECTION_ROWS = 3;
+const CONFIG_SECTION_ROWS = 4;
 
 function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
