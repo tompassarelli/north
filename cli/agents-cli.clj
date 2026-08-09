@@ -33,10 +33,10 @@
 (def POLICY-BUN (or (System/getenv "NORTH_POLICY_BUN") "bun"))
 (def PROVIDER-CAPABILITY-ADMISSION-SCHEMA
   "north:provider-capability-admission:v1")
-;; A steer subprocess performs the same coordinator admission and atomic
+;; A message subprocess performs the same coordinator admission and atomic
 ;; publication as the raw producer.  Give it the coordinator read window: a
 ;; four-second wrapper deadline can kill a valid commit while writers contend.
-(def steer-admission-timeout-ms 30000)
+(def msg-admission-timeout-ms 30000)
 
 (load-file (str NORTH "/cli/spawn-process.clj"))
 (load-file (str NORTH "/cli/coord.clj"))
@@ -2105,7 +2105,7 @@
         (p/exec "tail" "-n" "40" "-F" (:path target))))))
 
 (defn cmd-tell-agent [args]
-  (north.topology-authority/require-coordination! "steer")
+  (north.topology-authority/require-coordination! "msg")
   (let [rest0 (vec (remove #{"--dry-run"} args))
         dry? (some #{"--dry-run"} args)
         from-idx (.indexOf rest0 "--from")
@@ -2118,15 +2118,15 @@
     (if (or (nil? id) (nil? msg))
       (do
         (binding [*out* *err*]
-          (println (red "usage:") "north steer <agent-id> \"<msg>\" [--from <me>]"))
+          (println (red "usage:") "north msg <agent-id> \"<msg>\" [--from <me>]"))
         2)
-      (let [argv ["bb" (str NORTH "/cli/msg-cli.clj") PORT "send" from id "steer" msg]]
+      (let [argv ["bb" (str NORTH "/cli/msg-cli.clj") PORT "send" from id "msg" msg]]
         (echo-cmd (str/join " " argv))
         (if dry?
           (do
             (println (ylw "[dry-run]") "not sent; target capability and liveness were not checked.")
             0)
-          (let [r (run argv :timeout steer-admission-timeout-ms)]
+          (let [r (run argv :timeout msg-admission-timeout-ms)]
             (if (:ok r)
               (do
                 (println (grn (or (known (:out r)) "queued for live injection")))
@@ -2135,7 +2135,7 @@
                 (binding [*out* *err*]
                   (println (red (or (known (:err r))
                                     (known (:out r))
-                                    "steer admission unavailable"))))
+                                    "msg admission unavailable"))))
                 (let [status (:exit r)]
                   (if (and (integer? status) (pos? status)) status 2))))))))))
 
@@ -2374,12 +2374,12 @@
         "fork"    (do (println "renamed: north delegate") (System/exit 1))
         "req"     (do (println "renamed: north delegate") (System/exit 1))
         "watch"   (cmd-watch args)
-        "steer"   (let [status (cmd-tell-agent args)]
+        "msg"   (let [status (cmd-tell-agent args)]
                     (when (pos? status) (System/exit status)))
         "retask"  (cmd-retask args)
         "escalate" (let [status (cmd-escalate args)]
                      (when (pos? status) (System/exit status)))
-        (do (println "usage: north {agents|templates|spawn|delegate|watch|steer|retask|escalate} ...")
+        (do (println "usage: north {agents|templates|spawn|delegate|watch|msg|retask|escalate} ...")
             (System/exit 1)))
       (catch clojure.lang.ExceptionInfo error
         (if (or (north.topology-authority/denial? error)

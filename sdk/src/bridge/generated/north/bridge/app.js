@@ -1878,9 +1878,9 @@ if ((slash_p && (name === "interrupt"))) {
   upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "user"), "user", "", message, "done"));
   set_working_bang(runtime, true, "Codex is working");
   if (runtime.bridgeExecutions.has(target)) {
-    await run_command([NORTH_BIN, "bridge", "steer", target, message]);
+    await run_command([NORTH_BIN, "bridge", "msg", target, message]);
   } else {
-    await run_command([NORTH_BIN, "steer", target, message]);
+    await run_command([NORTH_BIN, "msg", target, message]);
   }
   return runtime.render();
 } })()));

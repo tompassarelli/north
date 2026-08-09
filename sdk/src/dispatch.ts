@@ -509,7 +509,7 @@ async function runDispatch(
     const resumeMessage = pendingResume;
     pendingResume = undefined;
     // Turn 1 (and non-resumed providers) read the managed streaming channel so
-    // live steering and background-task continuations stay unchanged; a resumed
+    // live messaging and background-task continuations stay unchanged; a resumed
     // continuation turn reads a fresh single-message channel and resumes the
     // observed session instead of racing the prior turn's closing stream
     // (thread 019f8ec5).

@@ -45,7 +45,7 @@ AGENTS — delegate work, drive and observe agents
                                     in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
   north templates                   Orchestration's reusable stock templates and routing defaults
   north watch <id>                  tail an agent's transcript
-  north steer <id> "<msg>"          inject a message into a running agent
+  north msg <id> "<msg>"            inject a message into a running agent
   north retask <id> "<goal>"        redirect a running agent's goal
   north trace <id>                  diagnose one agent's lifecycle; flags the first failing stage
   north wip [--check]               live managed lanes vs floor (--check: exit 3 on shortfall)
@@ -94,12 +94,12 @@ STORE — the fact corpus and its schema
 
 OPS — daemons, health, deployment
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
-  north bridge <prompt>|dashboard|pending|accept|attach|steer|interrupt <execution-id>
+  north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>
                                                 dashboard, launch, attach, or control a journaled local Codex session
                                                 dashboard — render the Bridge operator cockpit (north dashboard remains an alias)
                                                 pending [--consume <id>] — list or consume durable terminal lane completions
                                                 accept — run the two-session reconnect/control/journal acceptance demo
-                                                steer <id> <text> — queue input for the next turn on the same provider thread
+                                                msg <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
   north health                                  coordination rollup: lanes ran/died, stale concerns, zombies

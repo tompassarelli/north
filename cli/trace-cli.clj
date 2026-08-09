@@ -330,7 +330,7 @@
       (= :indeterminate (:resolution-status terminal-state))
       (red (str "lifecycle evidence is inconsistent ("
                 (name (:resolution-reason terminal-state))
-                "); this lane is neither active nor finished. Repair the lane/run projection before steering or cleanup."))
+                "); this lane is neither active nor finished. Repair the lane/run projection before messaging or cleanup."))
       (= terminal-kind :died)
       (str (red (str "F1 — API-death mid-lane; " summary "."))
            " agent_death recorded. Remedy: re-dispatch the thread (idempotent); for chronic deaths re-dispatch at the next tier per the D2 execution-axis move; read the partial result first.")
@@ -474,8 +474,8 @@
                        (if (seq concerns) (str (count concerns) " concern(s)") "no concern"))]
           (println (stage 4 mark "4 WORK" detail
                           (if active-concern (str "concern ls " (or (:repo active-concern) "")) (str "north watch " id)))))
-        ;; 5 STEER
-        (println (stage 5 :na "5 STEER"
+        ;; 5 MSG
+        (println (stage 5 :na "5 MSG"
                         (if (pos? inbox) (str inbox " message(s) addressed to it") (dim "none sent"))
                         (str "bb " NORTH "/cli/msg-cli.clj " PORT " inbox " id)))
         ;; 6 COMPLETION / DEATH

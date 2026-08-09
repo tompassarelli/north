@@ -287,9 +287,9 @@
     (assert-fact! port subject "identity_manifest_sha256" marker)
     (swap! route-fixtures assoc id base)))
 
-(defn pending-steers [port recipient]
+(defn pending-msgs [port recipient]
   (:messages
-   (north.message-audience/pending-steer-page
+   (north.message-audience/pending-msg-page
     port recipient #{recipient})))
 
 (let [port (free-port)
@@ -562,8 +562,8 @@
 
     ;; Terminal teardown is a generation-specific graph barrier, not an
     ;; in-process promise. More than one bounded page of producer-admitted
-    ;; steers is accepted under one armed manifest, the route freezes, and the
-    ;; real feed protocol rejects every steer before emitting `drained`. The
+    ;; messages is accepted under one armed manifest, the route freezes, and the
+    ;; real feed protocol rejects every message before emitting `drained`. The
     ;; final message is held by a foreign claim until it expires; no subsequent
     ;; producer commit exists to wake it.
     (let [recipient "drain-recipient"
@@ -588,7 +588,7 @@
         (doseq [message messages]
           (doseq [[predicate value]
                   [["from" "director"]
-                   ["subject" (if (= message poison) " Steer " "steer")]
+                   ["subject" (if (= message poison) " Msg " "msg")]
                    ["body" (str "terminal drain payload " message)]
                    ["sent_at" "2026-07-19T00:00:00Z"]
                    ["target_identity_manifest_sha256" manifest]
@@ -601,7 +601,7 @@
               (north.coord/acquire-lease!
                port (delivery-resource foreign recipient)
                "fixture-terminal-dead-consumer" 5000)]
-          (check "terminal fixture holds the final steer with a foreign claim"
+          (check "terminal fixture holds the final msg with a foreign claim"
                  (and (:ok claim) (some? (:epoch claim)))))
         (let [feed
               (start-feed!
@@ -633,25 +633,25 @@
                    (and (= "drained" (get receipt "type"))
                         (= recipient (get receipt "recipient"))
                         (= frozen-epoch (get receipt "epoch")))))
-          (check "every accepted steer is terminally rejected without false ack"
+          (check "every accepted msg is terminally rejected without false ack"
                  (every?
                   (fn [message]
                     (and (= #{recipient}
                             (values-of port message "delivery_rejected_by"))
                          (empty? (values-of port message "acked_by"))))
                   messages))
-          (check "foreign-claim steer settles after expiry without a producer wake"
+          (check "foreign-claim msg settles after expiry without a producer wake"
                  (= #{recipient}
                     (values-of port foreign "delivery_rejected_by")))
           (let [evidence
                 (map json/parse-string
                      (values-of port poison "delivery_rejection"))]
-            (check "noncanonical managed steer subject is poison, not acknowledged"
-                   (and (some #(= "steer_type_invalid" (get % "reason"))
+            (check "noncanonical managed msg subject is poison, not acknowledged"
+                   (and (some #(= "msg_type_invalid" (get % "reason"))
                               evidence)
                         (empty? (values-of port poison "acked_by")))))
-          (check "generation receipt leaves zero producer-admitted steers pending"
-                 (empty? (pending-steers port recipient)))
+          (check "generation receipt leaves zero producer-admitted msgs pending"
+                 (empty? (pending-msgs port recipient)))
           (stop-feed! feed))
 
         ;; A well-formed but non-current epoch cannot mint a receipt even while
@@ -667,7 +667,7 @@
                   #(not (.isAlive ^Process (:process wrong)))))
           (check "wrong-epoch failure is explicit"
                  (some #(str/includes?
-                         % "terminal-steer-drain-route-mismatch")
+                         % "terminal-msg-drain-route-mismatch")
                        @(:errors wrong)))
           (stop-feed! wrong))
 
@@ -685,12 +685,12 @@
                   #(not (.isAlive ^Process (:process stale)))))
           (check "stale post-rearm drain reports route mismatch"
                  (some #(str/includes?
-                         % "terminal-steer-drain-route-mismatch")
+                         % "terminal-msg-drain-route-mismatch")
                        @(:errors stale)))
           (stop-feed! stale))))
 
     ;; One restart scenario exercises all three terminal barriers explicitly:
-    ;; (1) freeze failure -> late steer remains admissible -> fresh settlement;
+    ;; (1) freeze failure -> late message remains admissible -> fresh settlement;
     ;; (2) drain failure -> pending remains and retry cannot inherit success;
     ;; (3) already-frozen + no original feed -> a fresh settlement-only
     ;; process must either prove the exact epoch and settle, or fail closed.
@@ -713,17 +713,17 @@
                          (frames-until-eof! premature 1000)))
         (check "failed freeze attempt reports the generation mismatch"
                (some #(str/includes?
-                       % "terminal-steer-drain-route-mismatch")
+                       % "terminal-msg-drain-route-mismatch")
                      @(:errors premature)))
         (stop-feed! premature))
       (let [message
-            (send-message! port "director" recipient "steer"
+            (send-message! port "director" recipient "msg"
                            "accepted after the failed freeze attempt")
             manifest
             (first (values-of port (str "@agent:" recipient)
                               "identity_manifest_sha256"))]
         (assert-fact! port message "target_identity_manifest_sha256" manifest)
-        (check "an armed route admits a late steer after freeze failure"
+        (check "an armed route admits a late msg after freeze failure"
                (string? message))
         (publish-route! port recipient "route" "frozen" frozen-epoch)
         (let [failed
@@ -732,10 +732,10 @@
           (start! failed recipient)
           (send-control! failed
                          (array-map "type" "drain" "epoch" wrong-epoch))
-          (check "failed drain process cannot false-succeed or consume pending steer"
+          (check "failed drain process cannot false-succeed or consume pending msg"
                (and (await-predicate
                        #(not (.isAlive ^Process (:process failed))))
-                      (contains? (set (pending-steers port recipient)) message)))
+                      (contains? (set (pending-msgs port recipient)) message)))
           (check "drain failure emits no buffered terminal receipt"
                  (not-any? #(= "drained" (get % "type"))
                            (frames-until-eof! failed 1000)))
@@ -763,11 +763,11 @@
                    (and (= "drained" (get receipt "type"))
                         (= recipient (get receipt "recipient"))
                         (= frozen-epoch (get receipt "epoch"))))
-            (check "retry settles the late steer without a false acknowledgement"
+            (check "retry settles the late msg without a false acknowledgement"
                    (and (= #{recipient}
                            (values-of port message "delivery_rejected_by"))
                         (empty? (values-of port message "acked_by"))
-                        (empty? (pending-steers port recipient)))))
+                        (empty? (pending-msgs port recipient)))))
           (stop-feed! retry))))
 
     ;; Broadcast replay uses the same durable feed, but its authority comes from

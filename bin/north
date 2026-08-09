@@ -451,7 +451,7 @@ case "${1:-}" in
   lanes)
     # Durable local lifecycle receipts remain readable during coordinator faults.
     exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
-  agents|templates|spawn|delegate|request|fork|req|watch|steer|retask|escalate)
+  agents|templates|spawn|delegate|request|fork|req|watch|msg|retask|escalate)
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec "$BB" "$NORTH/cli/agents-cli.clj" "$@" ;;

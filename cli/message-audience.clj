@@ -18,14 +18,14 @@
 (def delivery-claim-ttl-ms 30000)
 (def rejection-predicate "delivery_rejection")
 (def rejected-by-predicate "delivery_rejected_by")
-(def steer-manifest-predicate "target_identity_manifest_sha256")
+(def msg-manifest-predicate "target_identity_manifest_sha256")
 (def rejection-reasons
   #{"invalid_message_id" "missing_sender" "invalid_sender" "sender_too_large"
     "missing_subject" "invalid_subject" "subject_too_large"
     "missing_body" "invalid_body" "body_too_large"
-    "message_frame_too_large" "steer_manifest_missing"
-    "steer_type_invalid" "steer_route_invalid" "steer_route_stale"
-    "steer_route_not_armed"})
+    "message_frame_too_large" "msg_manifest_missing"
+    "msg_type_invalid" "msg_route_invalid" "msg_route_stale"
+    "msg_route_not_armed"})
 (def max-rejection-recipient-bytes 512)
 (def max-direct-addresses 256)
 (def max-direct-address-bytes 512)
@@ -326,8 +326,8 @@
                {:rel "message_rejected"
                 :args [{:var "e"}] :neg true}]}]]}))
 
-(defn pending-steer-query
-  "The pending relation restricted to messages admitted by the managed steer
+(defn pending-msg-query
+  "The pending relation restricted to messages admitted by the managed msg
    producer. The immutable route-manifest fact is the producer's durable type
    marker; filtering on it avoids terminal teardown being blocked by ordinary
    inbox mail."
@@ -337,7 +337,7 @@
    [:strata 1 0 :body]
    conj
    {:rel "triple"
-    :args [{:var "e"} steer-manifest-predicate {:var "manifest"}]}))
+    :args [{:var "e"} msg-manifest-predicate {:var "manifest"}]}))
 
 (defn pending-message-page
   "Read one bounded deterministic pending page. AFTER is a Fram cursor for
@@ -365,22 +365,22 @@
        ;; hook/live-feed consumers without inventing a client-derived cursor.
        (assoc response :rows rows :messages (mapv first rows))))))
 
-(defn pending-steer-page
-  "Read one bounded deterministic page of unsettled managed steer messages."
+(defn pending-msg-page
+  "Read one bounded deterministic page of unsettled managed msg messages."
   ([port recipient direct-addresses]
-   (pending-steer-page
+   (pending-msg-page
     port recipient direct-addresses pending-page-limit nil))
   ([port recipient direct-addresses limit after]
    (let [response
          (coord/query-page
-          port (pending-steer-query recipient direct-addresses) limit after)]
+          port (pending-msg-query recipient direct-addresses) limit after)]
      (when-not (and (<= (count (:rows response)) limit)
                     (every? #(and (vector? %)
                                   (= 1 (count %))
                                   (string? (first %)))
                             (:rows response)))
-       (throw (ex-info "pending steer page has malformed rows"
-                       {:type :malformed-pending-steer-page})))
+       (throw (ex-info "pending msg page has malformed rows"
+                       {:type :malformed-pending-msg-page})))
      (let [rows (->> (:rows response)
                      (filter #(canonical-message-id? (first %)))
                      vec)]

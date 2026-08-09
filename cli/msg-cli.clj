@@ -23,9 +23,9 @@
 (def one     north.coord/resolved)
 (def many    north.coord/many)
 
-(def steer-control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+(def msg-control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 (def target-identity-manifest-predicate "target_identity_manifest_sha256")
-(def max-steer-run-candidates 128)
+(def max-msg-run-candidates 128)
 (defn reject-message! [message]
   (binding [*out* *err*] (println (str "REJECTED: message " message)))
   (System/exit 2))
@@ -55,8 +55,8 @@
                 (str "; live same repo/role session: " alternative))
               "; pass --dead-drop only for deliberate delivery to an absent identity")))
       (:recipient route))))
-(defn reject-steer! [message]
-  (binding [*out* *err*] (println (str "REJECTED: steer " message)))
+(defn reject-msg! [message]
+  (binding [*out* *err*] (println (str "REJECTED: msg " message)))
   (System/exit 2))
 
 ;; A read that could not be completed (coordinator error map, malformed envelope,
@@ -64,42 +64,42 @@
 ;; genuine negative (offline/terminal/unsupported, exit 2) with its own exit code
 ;; so a transient projection failure never gets recorded as "target not live" and
 ;; a caller may retry rather than treat the lane as gone.
-(defn reject-steer-unavailable! [message]
+(defn reject-msg-unavailable! [message]
   (binding [*out* *err*]
-    (println (str "REJECTED: steer read-unavailable: " message)))
+    (println (str "REJECTED: msg read-unavailable: " message)))
   (System/exit 3))
 
-(defn steer-agent-facts [port control]
+(defn msg-agent-facts [port control]
   (try
     (north.lifecycle-projection/folded-agent-point-facts
      (fn [subject predicate] (many port subject predicate))
      (str "@agent:" control))
     (catch Exception _
-      (reject-steer-unavailable! "target identity projection is unreadable"))))
+      (reject-msg-unavailable! "target identity projection is unreadable"))))
 
-(defn steer-run-entries [port control]
+(defn msg-run-entries [port control]
   (try
     (let [response
           (north.coord/query-page
            port
-           {:find "steer_run_candidate"
+           {:find "msg_run_candidate"
             :rules
-            [{:head {:rel "steer_run_candidate"
+            [{:head {:rel "msg_run_candidate"
                      :args [{:var "e"}]}
               :body [{:rel "triple"
                       :args [{:var "e"} "agent" control]}]}]}
-           max-steer-run-candidates nil)
+           max-msg-run-candidates nil)
           rows (:rows response)]
       (when-not
        (and (map? response) (vector? rows)
             (true? (:done? response))
             (nil? (:cursor response))
             (integer? (:served-version response))
-            (<= (count rows) max-steer-run-candidates)
+            (<= (count rows) max-msg-run-candidates)
             (every? #(and (vector? %) (= 1 (count %))
                           (every? string? %))
                     rows))
-        (reject-steer-unavailable! "target lifecycle projection is unreadable"))
+        (reject-msg-unavailable! "target lifecycle projection is unreadable"))
       (->> rows
            (map first)
            (filter north.terminal-projection/valid-run-entity?)
@@ -115,38 +115,38 @@
                                (when (seq values) [predicate values]))))
                      north.terminal-projection/run-resolution-predicates)}))))
     (catch Exception _
-      (reject-steer-unavailable! "target lifecycle projection is unreadable"))))
+      (reject-msg-unavailable! "target lifecycle projection is unreadable"))))
 
-(defn require-live-steer! [port control]
+(defn require-live-msg! [port control]
   (when-not (and (string? control)
-                 (re-matches steer-control-pattern control))
-    (reject-steer! "target is malformed"))
-  (let [facts (steer-agent-facts port control)
+                 (re-matches msg-control-pattern control))
+    (reject-msg! "target is malformed"))
+  (let [facts (msg-agent-facts port control)
         resolution
         (north.terminal-projection/lane-resolution
-         control facts (steer-run-entries port control))
+         control facts (msg-run-entries port control))
         provider (get facts "provider")
         live-input (get facts "live_input")
         live-input-state (get facts "live_input_state")]
     (when-not (north.agent-provenance/managed-valid? facts)
-      (reject-steer! "target is not one exact committed managed lane"))
+      (reject-msg! "target is not one exact committed managed lane"))
     (when (= :resolved (:status resolution))
-      (reject-steer! "target is terminal"))
+      (reject-msg! "target is terminal"))
     (when (= :indeterminate (:status resolution))
-      (reject-steer! "target lifecycle is inconsistent"))
+      (reject-msg! "target lifecycle is inconsistent"))
     (let [online?
           (try (north.coord/session-online? port control)
                (catch Exception _ ::unavailable))]
       (when (= ::unavailable online?)
-        (reject-steer-unavailable! "target liveness projection is unreadable"))
+        (reject-msg-unavailable! "target liveness projection is unreadable"))
       (when-not online?
-        (reject-steer! "target is offline")))
+        (reject-msg! "target is offline")))
     (when-not (= "streaming" live-input)
-      (reject-steer!
+      (reject-msg!
        (str "target adapter does not support live input"
             (when (string? provider) (str " (provider " provider ")")))))
     (when-not (= "armed" live-input-state)
-      (reject-steer!
+      (reject-msg!
        (str "target live input is not armed"
             (when (string? live-input-state)
               (str " (state " live-input-state ")")))))
@@ -257,36 +257,36 @@
 (defn publish-message!
   "Publish one complete human-message envelope. EXTRA-FRONT-FACTS are committed
    in the same atomic batch as the ordinary envelope and therefore precede the
-   final `to` delivery trigger. Existing send/steer/broadcast behavior remains
+   final `to` delivery trigger. Existing send/msg/broadcast behavior remains
    on this one publication seam."
   [port dead-drop? from requested-to subj body extra-front-facts]
   (validate-message-input! from requested-to subj body)
   (let [to (admitted-message-recipient! port requested-to dead-drop?)
-        steer? (= "steer" (some-> subj str str/trim str/lower-case))
-        steer-admission (when steer?
-                          (north.topology-authority/require-coordination! "steer")
-                          (require-live-steer! port to))
+        msg? (= "msg" (some-> subj str str/trim str/lower-case))
+        msg-admission (when msg?
+                          (north.topology-authority/require-coordination! "msg")
+                          (require-live-msg! port to))
         e (str "@msg:" (fresh-id from))
         ;; Canonicalize the managed control type. Ordinary subjects retain their
-        ;; original spelling; every producer-admitted steer is exactly "steer".
+        ;; original spelling; every producer-admitted control message is exactly "msg".
         ;; All message fields are write-once on a fresh @msg. `to` lands LAST
         ;; (the listener trigger); the atomic publication guarantees completeness.
         front-facts
         (into [["from" from]
-               ["subject" (if steer? "steer" (or subj ""))]
+               ["subject" (if msg? "msg" (or subj ""))]
                ["body" (or body "")]
                ["sent_at" (str (java.time.Instant/now))]]
               extra-front-facts)
         complete-front-facts
         (cond-> front-facts
-          steer-admission
+          msg-admission
           (conj [target-identity-manifest-predicate
-                 (:identity-manifest steer-admission)]))]
-    ;; `north steer` labels its control message exactly `steer`. Ordinary
+                 (:identity-manifest msg-admission)]))]
+    ;; `north msg` labels its control message exactly `msg`. Ordinary
     ;; worker -> coordinator completion/death mail remains legal; peer control
     ;; does not become legal merely because the producer bypassed agents-cli.
-    (when steer-admission
-      ;; Steer's `to` lands through its own CAS below because route validation
+    (when msg-admission
+      ;; Message's `to` lands through its own CAS below because route validation
       ;; must observe the exact version used by the publication.
       ;; Publish the complete front atomically first.
       (publish-facts! port e complete-front-facts))
@@ -295,32 +295,32 @@
     (let [broadcast-audience
           (when (= north.message-audience/broadcast-address to)
             (north.message-audience/snapshot-broadcast! port e from))]
-      (if steer-admission
-        ;; This is the steer acceptance linearization point. Every
+      (if msg-admission
+        ;; This is the message acceptance linearization point. Every
         ;; load-bearing route read follows the global BASE capture, then Fram
         ;; compares BASE + lands `to` in one serialized writer turn. A freeze
         ;; between validation and this assert conflicts, retries the whole
         ;; route read, and cannot leave an accepted post-freeze message.
-        (let [admitted-manifest (:identity-manifest steer-admission)
+        (let [admitted-manifest (:identity-manifest msg-admission)
               result
               (north.coord/assert-after-read!
                port e "to" to
                (fn []
-                 (let [current (require-live-steer! port to)
+                 (let [current (require-live-msg! port to)
                        stored (one port e target-identity-manifest-predicate)]
                    (when-not (and (= admitted-manifest stored)
                                   (= admitted-manifest
                                      (:identity-manifest current)))
-                     (reject-steer!
+                     (reject-msg!
                       "target route changed during message admission"))
                    true)))]
           (when (:reject result)
-            (reject-steer!
+            (reject-msg!
              "target route changed during message admission")))
         ;; Ordinary mail: every front fact plus `to` publishes as ONE
         ;; all-or-none unit.
         (publish-facts! port e (conj complete-front-facts ["to" to])))
-      (println (str (if steer? "queued for live injection " "sent ") e " -> " to
+      (println (str (if msg? "queued for live injection " "sent ") e " -> " to
                     (when broadcast-audience
                       (str " (" (count broadcast-audience)
                            " snapshotted recipients; sender excluded)"))))

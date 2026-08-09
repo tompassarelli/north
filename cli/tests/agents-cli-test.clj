@@ -576,14 +576,14 @@
               (not (str/includes? (str (:out unknown) (:err unknown))
                                   "presence-cli.clj")))))
 
-(let [steer (proc/shell {:out :string :err :string :continue true
+(let [msg (proc/shell {:out :string :err :string :continue true
                          :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
-                        (str root "/bin/north") "steer"
+                        (str root "/bin/north") "msg"
                         "probe-agent" "probe-message" "--dry-run")]
-  (check "steer remains parseable and keeps the internal control key"
-         (and (zero? (:exit steer))
-              (str/includes? (:out steer) "send north-cli probe-agent steer probe-message")
-              (str/includes? (:out steer)
+  (check "msg remains parseable and keeps the internal control key"
+         (and (zero? (:exit msg))
+              (str/includes? (:out msg) "send north-cli probe-agent msg probe-message")
+              (str/includes? (:out msg)
                              "[dry-run] not sent; target capability and liveness were not checked."))))
 
 (let [observed-timeout (atom nil)
@@ -600,8 +600,8 @@
                       (reset! observed-timeout timeout)
                       {:ok true :exit 0 :out "queued for live injection @msg:slow"})]
         (with-out-str (cmd-tell-agent ["live-lane" "commit after contention"])))]
-  (check "steer wrapper keeps a successful live admission through concurrent writes"
-         (and (= steer-admission-timeout-ms @observed-timeout)
+  (check "msg wrapper keeps a successful live admission through concurrent writes"
+         (and (= msg-admission-timeout-ms @observed-timeout)
               (= 30000 @observed-timeout)
               (= 32 @committed-writes)
               (str/includes? output "queued for live injection @msg:slow"))))

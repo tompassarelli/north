@@ -154,11 +154,11 @@ test("launch role defaults to implementer and an explicit director reaches the p
 
 test("queued input becomes a second turn on the same provider session", async () => {
   const f = await fixture();
-  const steer = await client(f.socketPath, {
+  const msg = await client(f.socketPath, {
     op: "submitInput", executionId: f.executionId, input: "second",
   });
-  await steer.closed;
-  expect(steer.messages.at(-1)).toMatchObject({
+  await msg.closed;
+  expect(msg.messages.at(-1)).toMatchObject({
     type: "controlled", delivery: "queued-next-turn",
   });
   expect(f.session.effects).not.toContain("submit:second");
@@ -254,10 +254,10 @@ test("each control command is committed to the journal before its provider effec
     "idle boundary",
   );
 
-  const steer = await client(f.socketPath, {
+  const msg = await client(f.socketPath, {
     op: "submitInput", executionId: f.executionId, input: "next",
   });
-  await steer.closed;
+  await msg.closed;
   f.session.settle("next done");
   await waitFor(
     () => f.launched.messages.filter((message) => message.record?.kind === "session.idle").length === 2,

@@ -74,8 +74,8 @@
           "spawn" #(cmd-spawn ["director" "probe" "--topology" "orchestrator" "--dry-run"])))
   (check "raw CLI delegate denies a worker before composing or spawning"
          (denied-before-side-effect? "delegate" #(cmd-delegate ["probe" "--dry-run"])))
-  (check "raw CLI steer denies a worker before sending a message"
-         (denied-before-side-effect? "steer" #(cmd-tell-agent ["lane-probe" "message"])))
+  (check "raw CLI msg denies a worker before sending a message"
+         (denied-before-side-effect? "msg" #(cmd-tell-agent ["lane-probe" "message"])))
   (check "raw CLI retask denies a worker before either fact write"
          (denied-before-side-effect? "retask" #(cmd-retask ["lane-probe" "new goal"]))))
 
@@ -84,7 +84,7 @@
 ;; even their diagnostic command is rendered.
 (doseq [[operation args] [["spawn" ["director" "probe" "--topology" "orchestrator" "--dry-run"]]
                           ["delegate" ["probe" "--dry-run"]]
-                          ["steer" ["lane-probe" "message" "--dry-run"]]]]
+                          ["msg" ["lane-probe" "message" "--dry-run"]]]]
   (let [result (apply proc/shell
                       {:out :string :err :string :continue true
                        :extra-env {"AGENT_TOPOLOGY" "worker" "NO_COLOR" "1"
@@ -107,10 +107,10 @@
           ["bb" (str root "/cli/msg-cli.clj") "59999" "send-cmd"
            "worker-probe" "director-probe" "spawn" "{:role verifier :prompt probe}"]
           "send-cmd requires orchestrator topology"]
-         ["raw steer producer"
+         ["raw msg producer"
           ["bb" (str root "/cli/msg-cli.clj") "59999" "send"
-           "worker-probe" "peer-probe" "steer" "change direction"]
-          "steer requires orchestrator topology"]]]
+           "worker-probe" "peer-probe" "msg" "change direction"]
+          "msg requires orchestrator topology"]]]
   (let [result (apply proc/shell
                       {:out :string :err :string :continue true
                        :extra-env {"AGENT_TOPOLOGY" "worker" "NO_COLOR" "1"}}

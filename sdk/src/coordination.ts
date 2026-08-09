@@ -3,7 +3,7 @@
 // One long-lived North feed process arms the coordinator subscription before it
 // replays pending mail. Each machine-framed message is claimed by the feed, then
 // acknowledged only after this host admits it into the active input channel.
-// Process/feed crashes therefore replay instead of silently losing a steer.
+// Process/feed crashes therefore replay instead of silently losing a message.
 import { spawn as procSpawn, type ChildProcess } from "node:child_process";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { resolve } from "node:path";
@@ -91,7 +91,7 @@ export interface FeedSubscription {
   readonly ready: Promise<void>;
   /**
    * Freeze-side barrier. Resolves only after the still-bound feed has observed
-   * the frozen route and terminally settled every producer-admitted steer that
+   * the frozen route and terminally settled every producer-admitted message that
    * was ordered before it.
    */
   readonly drain: (frozenRouteEpoch: string) => Promise<void>;
@@ -808,7 +808,7 @@ function subscribeFeedMode(
       if (drainRequested) {
         // The route is already frozen. Cancel any frame that crossed the pipe
         // just before the freeze; the feed's terminal scan will reject managed
-        // steers durably instead of admitting them into a dead provider input.
+        // messages durably instead of admitting them into a dead provider input.
         if (!writeControl(child, controlFrame("nack", frame.id)))
           throw new Error("North live-feed drain rejection failed");
         return;
@@ -1017,7 +1017,7 @@ export function subscribeFeed(
 
 /**
  * Arm a feed that never admits ordinary mail and exists only to settle
- * manifest-marked steers against an already-frozen managed route.
+ * manifest-marked messages against an already-frozen managed route.
  */
 export function subscribeSettlementFeed(
   self: string,

@@ -85,7 +85,7 @@ function readinessProof(subscription: FeedSubscription): Promise<void> {
  * The graph route is the public authority boundary. A feed becomes usable only
  * after its coordinator subscription is ready and the matching `armed`
  * generation commits. Freezing commits before unbinding, and every publication
- * mints a new UUIDv4 epoch so a steer admitted against an older route can never
+ * mints a new UUIDv4 epoch so a message admitted against an older route can never
  * become valid again after a freeze/re-arm cycle.
  */
 export class ManagedLiveInputRoute {
@@ -306,7 +306,7 @@ export class ManagedLiveInputRoute {
       throw error;
     }
     // Keep the old feed bound after the frozen publication until it proves all
-    // pre-freeze producer-admitted steers are durably settled.
+    // pre-freeze producer-admitted messages are durably settled.
     await this.drainAndUnbind();
     await afterFreeze();
   }
