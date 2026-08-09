@@ -707,30 +707,68 @@ export function config_module_members(memberships, name) {
   return (found ? modulemembership_members(found) : null);
 }
 
+function config_subtree_kind_p(kind) {
+  return ((kind === "ins") || (kind === "memroot") || (kind === "mem"));
+}
+
+function config_row_slug(kind, name) {
+  if ((kind === "mem")) {
+    const cut = name.indexOf("/");
+    return ((cut < 0) ? name : name.slice(0, cut));
+  } else {
+    return name;
+  }
+}
+
+function config_mem_name(name) {
+  const cut = name.indexOf("/");
+  return ((cut < 0) ? name : name.slice((cut + 1)));
+}
+
+export function config_row_label(kind, name) {
+  return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "memories" : ((kind === "mem")) ? config_mem_name(name) : name);
+}
+
+export function config_cli_name(__kind, name) {
+  return name;
+}
+
 function config_find_entry(manifest, name) {
   return manifest.find((entry) => (configentry_name(entry) === name));
+}
+
+function config_find_kind(manifest, kind, name) {
+  return manifest.find((entry) => ((configentry_kind(entry) === kind) && (configentry_name(entry) === name)));
 }
 
 function config_find_companion(manifest, name) {
   return manifest.find((entry) => ((!(configentry_kind(entry) === "hook")) && (configentry_name(entry) === name)));
 }
 
+function config_subtree_gate(manifest, kind, name) {
+  const slug = config_row_slug(kind, name);
+  return ((((kind === "ins") || (kind === "memroot"))) ? config_find_kind(manifest, "dir", slug) : ((kind === "mem")) ? (() => { const root = config_find_kind(manifest, "memroot", slug); return (root ? root : config_find_kind(manifest, "dir", slug)); })() : null);
+}
+
 function config_active_along_p(entry, manifest, memberships, trail) {
+  const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  if (trail.includes(name)) {
+  const key = ("".concat(kind, " ", name));
+  if (trail.includes(key)) {
     return false;
   } else {
-    const walked = trail.concat([name]);
-    const kind = configentry_kind(entry);
+    const walked = trail.concat([key]);
     const hook_p = (kind === "hook");
     const state = configentry_state(entry);
     const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
     const owners = config_owner_modules(memberships, name);
-    const gated_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_entry(manifest, owner);
+    const gated_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
 return (row ? config_active_along_p(row, manifest, memberships, walked) : false); }));
     const companion = (hook_p ? text(configentry_detail(entry)) : "");
     const followed_p = ((companion === "") ? true : (() => { const row = config_find_companion(manifest, companion); return (row ? config_active_along_p(row, manifest, memberships, walked) : false); })());
-    return (own_p && gated_p && followed_p);
+    const gate = config_subtree_gate(manifest, kind, name);
+    const scoped_p = (gate ? config_active_along_p(gate, manifest, memberships, walked) : true);
+    return (own_p && gated_p && followed_p && scoped_p);
   }
 }
 
@@ -744,9 +782,14 @@ export function config_unit_active_p(manifest, memberships, name) {
 }
 
 export function config_gate_modules(entry, manifest, memberships) {
-  const owners = config_owner_modules(memberships, configentry_name(entry));
-  const open_p = ((owners.length === 0) || owners.some((owner) => config_unit_active_p(manifest, memberships, owner)));
-  return (open_p ? [] : owners);
+  const kind = configentry_kind(entry);
+  const name = configentry_name(entry);
+  const gate = config_subtree_gate(manifest, kind, name);
+  const scope = ((gate && (!config_entry_active_p(gate, manifest, memberships))) ? [config_row_label(configentry_kind(gate), configentry_name(gate))] : []);
+  const owners = config_owner_modules(memberships, name);
+  const open_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
+return (row ? config_entry_active_p(row, manifest, memberships) : false); }));
+  return scope.concat((open_p ? [] : owners));
 }
 
 export function config_state_text(entry, manifest, memberships, active_p) {
@@ -770,26 +813,55 @@ function config_global_row_p(kind, name) {
   return ((kind === "dir") && (name === GLOBAL_DIR_NAME));
 }
 
+function config_global_scope_row_p(kind, name) {
+  return (((kind === "dir") || config_subtree_kind_p(kind)) && (config_row_slug(kind, name) === GLOBAL_DIR_NAME));
+}
+
 export function config_view_includes_p(view, kind, name) {
-  return (((view === "all")) ? true : ((view === "globals")) ? (config_global_row_p(kind, name) || (kind === "hook") || (kind === "skill") || (kind === "module") || (kind === "other")) : ((view === "agentsmd")) ? (kind === "dir") : (kind === view));
+  return (((view === "all")) ? true : ((view === "globals")) ? (config_global_scope_row_p(kind, name) || (kind === "hook") || (kind === "skill") || (kind === "module") || (kind === "other")) : ((view === "agentsmd")) ? ((kind === "dir") || config_subtree_kind_p(kind)) : (kind === view));
 }
 
 function config_view_sections_p(view) {
   return ((view === "all") || (view === "globals") || (view === "agentsmd"));
 }
 
+export function config_section_kind(kind) {
+  return (config_subtree_kind_p(kind) ? "dir" : kind);
+}
+
 function config_kind_rank(kind) {
-  return (((kind === "dir")) ? 0 : ((kind === "module")) ? 1 : ((kind === "skill")) ? 2 : ((kind === "hook")) ? 3 : ((kind === "plugin")) ? 4 : ((kind === "other")) ? 5 : 6);
+  const section = config_section_kind(kind);
+  return (((section === "dir")) ? 0 : ((section === "module")) ? 1 : ((section === "skill")) ? 2 : ((section === "hook")) ? 3 : ((section === "plugin")) ? 4 : ((section === "other")) ? 5 : 6);
 }
 
 function config_row_rank(entry) {
   return (config_global_row_p(configentry_kind(entry), configentry_name(entry)) ? 0 : 1);
 }
 
+function config_child_rank(kind) {
+  return (((kind === "ins")) ? 0 : ((kind === "memroot")) ? 1 : 2);
+}
+
+function config_nest_subtrees(entries) {
+  const dir_p = (entry) => (configentry_kind(entry) === "dir");
+  const sub_p = (entry) => config_subtree_kind_p(configentry_kind(entry));
+  const dirs = entries.filter(dir_p);
+  const subs = entries.filter(sub_p);
+  const others = entries.filter((entry) => ((!dir_p(entry)) && (!sub_p(entry))));
+  const nested = [];
+  dirs.forEach((parent) => { nested.push(parent);
+const slug = configentry_name(parent);
+const kids = subs.filter((child) => (config_row_slug(configentry_kind(child), configentry_name(child)) === slug));
+kids.sort((a, b) => (config_child_rank(configentry_kind(a)) - config_child_rank(configentry_kind(b))));
+return kids.forEach((child) => nested.push(child)); });
+  const orphans = subs.filter((child) => (!nested.includes(child)));
+  return nested.concat(orphans, others);
+}
+
 export function config_view_rows(entries, view) {
   const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
-  return ((!config_view_sections_p(view)) ? kept : kept.sort((a, b) => { const by_kind = (config_kind_rank(configentry_kind(a)) - config_kind_rank(configentry_kind(b)));
-return ((!(by_kind === 0)) ? by_kind : (config_row_rank(a) - config_row_rank(b))); }));
+  return ((!config_view_sections_p(view)) ? kept : config_nest_subtrees(kept.sort((a, b) => { const by_kind = (config_kind_rank(configentry_kind(a)) - config_kind_rank(configentry_kind(b)));
+return ((!(by_kind === 0)) ? by_kind : (config_row_rank(a) - config_row_rank(b))); })));
 }
 
 function config_manifest_path() {
@@ -881,7 +953,7 @@ async function edit_config_entry_bang(runtime) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
     const entry = entries[index];
-    const raw_path = await run_command([AGENTS_BIN, "path", configentry_name(entry)]);
+    const raw_path = await run_command([AGENTS_BIN, "path", config_cli_name(configentry_kind(entry), configentry_name(entry))]);
     const path = raw_path.trim();
     const editor = text_or(text(process.env.EDITOR), "vi");
     const ghostty = Bun.which("ghostty");
@@ -905,7 +977,7 @@ async function toggle_config_entry_bang(runtime) {
     const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
     const entry = entries[index];
     const verb = config_toggle_verb(configentry_state(entry));
-    await run_command([AGENTS_BIN, verb, configentry_name(entry)]);
+    await run_command([AGENTS_BIN, verb, config_cli_name(configentry_kind(entry), configentry_name(entry))]);
     await load_config_entries_bang(runtime);
     return runtime.render();
   }
@@ -1360,8 +1432,19 @@ function config_row_text(entry, memberships, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const members = config_module_members(memberships, name);
-  const detail = (((kind === "hook")) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
-  return compact_text(((detail === "") ? name : ("".concat(name, "  ", detail))), width);
+  const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
+  const label = config_row_label(kind, name);
+  return compact_text(((detail === "") ? label : ("".concat(label, "  ", detail))), width);
+}
+
+const CONFIG_INDENT_WIDTH = 4;
+
+export function config_row_depth(kind) {
+  return (((kind === "ins")) ? 1 : ((kind === "memroot")) ? 1 : ((kind === "mem")) ? 2 : 0);
+}
+
+function config_row_indent(kind) {
+  return " ".repeat((CONFIG_INDENT_WIDTH * config_row_depth(kind)));
 }
 
 const CONFIG_STATE_WIDTH = 3;
@@ -1400,12 +1483,13 @@ const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry, manifest, memberships);
 const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
 const state_text = config_state_text(entry, manifest, memberships, active_p);
-const state_column = ("".concat(state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
+const state_column = ("".concat(config_row_indent(kind), state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
 const label_width = Math.max(12, (width - state_column.length));
-const prior = ((i === start) ? "" : configentry_kind(entries[(i - 1)]));
+const section = config_section_kind(kind);
+const prior = ((i === start) ? "" : config_section_kind(configentry_kind(entries[(i - 1)])));
 const tail = (((i + 1) === stop) ? "" : "\n");
-if ((sections_p && (!(kind === prior)))) {
-  parts.push(brightYellow(("".concat(config_section_title(kind), "\n"))));
+if ((sections_p && (!(section === prior)))) {
+  parts.push(brightYellow(("".concat(config_section_title(section), "\n"))));
 }
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
 parts.push((((pinned_p) ? brightYellow : (active_p) ? brightGreen : brightBlack))(state_column));
@@ -1466,7 +1550,7 @@ function clamped_index(raw, total) {
 
 function config_header_lines(entries, sections_p, start, stop) {
   return ((!sections_p) ? 0 : entries.slice(start, stop).filter((entry, offset) => { const i = (start + offset);
-return ((i === start) || (!(configentry_kind(entry) === configentry_kind(entries[(i - 1)])))); }).length);
+return ((i === start) || (!(config_section_kind(configentry_kind(entry)) === config_section_kind(configentry_kind(entries[(i - 1)]))))); }).length);
 }
 
 export function config_detail_lines(runtime) {
