@@ -330,7 +330,7 @@ Provider imports remain confined to `~/code/north/main/sdk/src/providers`. Anthr
 uses the Claude Agent SDK; managed OpenAI lanes use one authenticated Codex
 app-server process and unmanaged compatibility calls use the Codex CLI. Both
 receive the target-specific environment and shared North supervision. Live
-mid-run steering remains capability-checked. Provider, target, model, and
+mid-run messaging remains capability-checked. Provider, target, model, and
 reasoning are immutable once side effects begin; a higher route is a new,
 explicitly dispatched lane rather than a hidden in-flight mutation.
 
@@ -357,7 +357,7 @@ desired semantic tier or exact model.
 ## Coordination authority boundary
 
 Topology authority is enforced on every supported North control surface: the
-TypeScript SDK, `north spawn`/`dispatch`/`delegate`/`steer`/`retask`, MCP,
+TypeScript SDK, `north spawn`/`dispatch`/`delegate`/`msg`/`goal`, MCP,
 peer-command publication, listener reaction, map fan-out, and presence control.
 A managed `worker` cannot create or command another agent, and a requested child
 topology cannot elevate its caller. A managed `orchestrator` may recursively
