@@ -21,13 +21,11 @@ substrate.
   format, derived lifecycle, the CLI surface, agent lifecycle, concurrent-write
   safety. **Start here.**
 - [docs/architecture.md](docs/architecture.md) — what lives where: engine,
-  coordination domain, CLI, agent SDK, MCP edge, your data.
-- [docs/hosting.md](docs/hosting.md) — laptop and server-owned operating
-  layouts.
+  coordination domain, CLI, agent SDK, bridge, MCP edge, your data.
 - [docs/provider-architecture.md](docs/provider-architecture.md) — routing,
   provider accounts, subscription-entitlement billing.
-- [docs/fact-native-redesign.md](docs/fact-native-redesign.md) and
-  [docs/PROPOSAL.md](docs/PROPOSAL.md) — the design record.
+- [docs/fact-native-redesign.md](docs/fact-native-redesign.md) — the design
+  record.
 - [docs/building-and-testing.md](docs/building-and-testing.md) — rebuilding
   from source and running the suites.
 - [docs/docctl.md](docs/docctl.md) — Markdown dependency manifests and the
@@ -36,13 +34,13 @@ substrate.
 ## Quickstart
 
 ```console
-$ nix run github:tompassarelli/north
+$ north
 north — coordinate work, agents, and time
 
   NOW
-    north dashboard               agents, concerns, board, health — one screen
-    north ready                   what you could start now, ranked by leverage
-    north inbox                   notifications waiting on you
+    north dashboard               fleet, health, board, accounts — one screen
+    north ready                   what you could start now; queue order, leverage fallback
+    north inbox                   messages waiting on you
     north agenda                  dated and overdue work
 
   WORK
@@ -54,10 +52,19 @@ north — coordinate work, agents, and time
   AGENTS
     north delegate "<task>"       hand work to a new lane
     north agents                  who's live now
+    north lanes                   postmortem lane liveness from durable receipts
+    north templates               stock templates and routing defaults
     north watch <id>              tail one agent's transcript
     north msg <id> "<msg>"        nudge it mid-flight
 
-  [SYSTEM and MORE groups elided]
+  SYSTEM
+    north config                  posture: dispatch surface, guards, routing
+    north doctor                  is everything healthy: daemons, skew, hooks
+
+  MORE
+    north help <topic>            work · agents · comms · routing · store · ops
+    north help --all              the complete reference
+    north <verb> --help           most verbs print their own usage
 ```
 
 That card is one screen because work and agents are one graph — `north ready`
@@ -68,10 +75,14 @@ the registry, the rendered pages, and `bin/north`'s dispatch disagree.
 `north help <topic>` opens one of six topic pages; `north help --all` prints
 the whole surface.
 
-Without Nix, the ledger needs [babashka](https://babashka.org) and a Fram
-checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
-[Bun](https://bun.sh). See
+The ledger needs [babashka](https://babashka.org) and a Fram checkout on
+`FRAM_HOME`; the agent SDK and MCP edge also need [Bun](https://bun.sh). See
 [docs/building-and-testing.md](docs/building-and-testing.md).
+
+The flake is not yet portable: the packaged entrypoint sources a hard-coded
+`framrpc.env` path under one machine's state directory
+([`flake.nix`](flake.nix)), so `nix run github:tompassarelli/north` will not
+work off that host until the engine identity is parameterized.
 
 ## Why?
 
@@ -95,9 +106,12 @@ checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
   ([`cli/concern-cli.clj`](cli/concern-cli.clj),
   [`cli/lease-cli.clj`](cli/lease-cli.clj),
   [`cli/msg-cli.clj`](cli/msg-cli.clj)).
-- **One serialized write path.** Every write goes through the current Fram
-  server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and rule-checks
-  each publication through canonical FRAMRPC.
+- **One serialized write path.** Every coordination-graph write goes through the
+  current Fram server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and
+  rule-checks each publication through canonical FRAMRPC. The two carve-outs are
+  deliberate and not coordination facts: the telemetry partition and the Bridge
+  journal's local replay log
+  ([docs/architecture.md](docs/architecture.md#the-write-path)).
 - **Agent duration is run telemetry.** Every managed lane records `kind=run`
   with its agent, thread, observed duration, outcome, and estimate comparison
   ([`sdk/src/telemetry.ts`](sdk/src/telemetry.ts)).

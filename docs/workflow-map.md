@@ -9,8 +9,12 @@ doubling as the pipeline-debug spec.*
 > coordination-v2 lane V1 landed (see the §3 status note), and `north trace`
 > shipped (`north:cli/trace-cli.clj`) implementing the §2/§4 playbook. The
 > invariant-spine checklist (§2) and failure modes F1–F7 (§3–4) remain the
-> operative debug spec; re-verify §1's line-level citations against source
-> before relying on them.
+> operative debug spec.
+>
+> **Re-verified against source 2026-08-10.** `dispatch.ts` now writes identity
+> facts, SDK lanes renew their leases, and reaping is shipped — §1/§2 were
+> corrected accordingly and the `sdk/src` files this document actually describes
+> were added to its docctl sidecar so the next such drift is detectable.
 
 > **Naming.** The stack as a whole has no settled name yet; a naming pass is
 > pending. Today the parts carry their own names and this doc uses them as
@@ -43,7 +47,7 @@ what could not be verified from source.
 | **posture** | how a lane works (`explore` / `deliver` / `evaluate` / `preserve`); `evaluate` orders evidence quality, decision correctness, coverage, speed, then polish; derived from thread facts by `dispatch`, or passed on `spawn` |
 | **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"preset"` on the compatibility wire; never a mandatory worker identity |
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
-| **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility (`novice` through `research-grade`), not a model identity |
+| **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`orchestration/docs/task-grades.md`); not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
 | **coordination workers** | independently supervised processes for rebuild coordination, durable reconciliation, projection, and bounded scheduled maintenance |
 
@@ -72,18 +76,21 @@ Two spawn *lineages* underlie all six. Knowing which lineage a pattern rides
 tells you which facts to expect:
 
 - **SDK-lane lineage** — `sdk/src/spawn.ts` (ad-hoc prompt) or
-  `sdk/src/dispatch.ts` (thread-driven). Both call `harnessOptions()` which
-  calls `registerPresence()` (`harness.ts:261`). **Only `spawn.ts` also calls
-  `writeAgentFacts()`** (`spawn.ts:35`) — `dispatch.ts` does not import it, so
-  a dispatched lane registers presence but writes **no** `@agent:<id>` identity
-  facts. This asymmetry is load-bearing for §3.
+  `sdk/src/dispatch.ts` (thread-driven). Both call `harnessOptions()`, which
+  calls `registerPresence()` (`harness.ts:398`, wired at `harness.ts:2068`).
+  **Both also call `writeAgentFacts()`** — `spawn.ts` (import ~91, call ~549)
+  and `dispatch.ts` (import ~39, call ~364) — so a dispatched lane registers
+  presence *and* writes `@agent:<id>` identity facts. This symmetry is new:
+  through 2026-07 `dispatch.ts` did not import `writeAgentFacts`, and §3's
+  identity/legibility framing was written against that older asymmetry.
 - **Session lineage** — a Claude Code session. The `bin/north-on-spawn`
   SessionStart/SubagentSessionStart hook registers presence and writes three
   identity facts (`kind=session`, `repo`, `display_name`), then injects the
   concern protocol via `additionalContext`.
 
 `mcp__north__spawn` and `mcp__north__dispatch` are the MCP tool faces of the SDK
-lineage (registered in `harness.ts`'s `NATIVE_TOOLS`). The CLI faces are
+lineage (the tool surface is assembled in `harness.ts`; the old `NATIVE_TOOLS`
+symbol is gone). The CLI faces are
 `north spawn` / `north delegate` (in `cli/agents-cli.clj`), which resolve orchestration
 dials and then `bun run sdk/src/spawn.ts`.
 
@@ -96,20 +103,22 @@ flowchart TD
     E["E — dispatch @thread"] --> DI["dispatch.ts"]
     F["F — /fork"] --> X["UNMANAGED — invisible to north"]
     SP --> IDF["identity facts on @agent:id — FULL set ✓"]
-    DI --> NOID["identity facts ✗ (writeAgentFacts not imported)"]
+    DI --> DIDF["identity facts on @agent:id — FULL set ✓ (writeAgentFacts)"]
     SES --> PART["identity facts — partial (kind=session, repo, display_name)"]
     IDF --> P["presence lease on :7977 (30-min TTL)"]
-    NOID --> P
+    DIDF --> P
     PART --> P
 ```
 
 > **`command_peer` — the decentralized initiator.** Any of patterns B–E can be
 > *started by a peer instead of a human*, with no human relay. `command_peer`
-> (`harness.ts:55`, tool `mcp__north-peer__command_peer`) shells to
-> `msg-cli send-cmd`, which asserts a command as facts on `@cmd:<id>` (op ∈
-> {spawn, dispatch, tell, acquire}); the target's command consumer triggers on the
-> `target` routing key and runs the op. So "peer commands a spawn" is just
-> pattern D/E with a fact-feed trigger in front of INTAKE.
+> (`harness.ts:170` `sendPeerCommand`, tool `mcp__north-peer__command_peer`)
+> shells to `msg-cli send-cmd`, which asserts a command as facts on `@cmd:<id>`;
+> the target's command consumer triggers on the `target` routing key and runs
+> the op. The `PeerOperation` type still spans {spawn, dispatch, tell, acquire}
+> (`harness.ts:129`), but `spawn` and `dispatch` currently **throw** — they are
+> gated until atomic command claim and child reconciliation land, so only `tell`
+> and `acquire` reach a target today.
 
 ---
 
@@ -296,9 +305,9 @@ Notes: this is the surface orchestration's doctrine actually routes to under
 `dispatch=managed`. Template resolution consumes Orchestration's canonical provider-neutral
 contract in `north:orchestration/docs/routing.md`; this workflow map does not redefine
 the axes or infer one from another. `north templates` renders the stock catalog
-and its resolved routing defaults. Source gathering uses the `scout` template;
-novel hypothesis/experiment work uses `research-scientist` at frontier tier and
-research-grade. Optional
+and its resolved routing defaults. Source gathering uses the `scout` template
+(junior grade, economy tier); novel hypothesis/experiment work uses the
+`scientist` template (staff grade, frontier tier — `catalog.json`). Optional
 **escalate-not-kill**: with `AGENT_ESCALATE=1` a struggling lane climbs the
 `LADDER` in-flight (`spawn.ts:88-106`) instead of dying at a turn cap.
 
@@ -308,7 +317,7 @@ research-grade. Optional
 
 **Trigger:** `mcp__north__dispatch <thread>` (or `bun run dispatch.ts <id>`).
 Work already lives as a thread; posture is *derived from its facts*.
-**Lineage:** SDK-lane via `dispatch.ts` — **no identity facts written.**
+**Lineage:** SDK-lane via `dispatch.ts` — full identity facts, same as `spawn.ts`.
 
 ```mermaid
 sequenceDiagram
@@ -321,7 +330,7 @@ sequenceDiagram
     T-->>DI: facts (empty → throw "not found")
     DI->>DI: derivePosture(facts, hasChildren) —<br/>hasOutcome → "already done" ·<br/>else atomic|planned|unplanned → tool set (EXEC|SURVEY|PLAN)
     DI->>DI: ID MINT — AGENT_ID ?? sdk-{T-slice}
-    Note over DI,T: ✗ NO writeAgentFacts — no @agent:{id} identity facts
+    DI->>T: IDENTITY FACTS on @agent:{id} — writeAgentFacts (dispatch.ts ~364)
     DI->>T: PRESENCE (harnessOptions) — register lease
     DI->>T: subscribeFeed(agentId) → north-listen --once loop
     DI->>L: WORK — streaming query with buildPrompt(@T, posture)
@@ -338,9 +347,10 @@ Notes: dispatch is the only pattern that reads a **posture from the graph**
 rather than taking it as a parameter. Its death path is richer — it writes an
 `agent_death` fact on **both** the driven thread `@T` *and* `@swarm`
 (`death.ts:deathCommands`), because the thread is the durable home of that
-work. The **missing identity facts** mean a dispatched lane shows on the roster
-by bare id only (no `display_name`) — a real legibility gap the
-coordination-v2 identity work (§3) is meant to close.
+work. Identity is **no longer** the differentiator: `dispatch.ts` calls
+`writeAgentFacts` (~line 364), so a dispatched lane carries `display_name` and
+the rest of the `@agent:<id>` set on the roster. The roster-legibility gap the
+coordination-v2 identity work (§3) targeted is closed for E.
 
 ---
 
@@ -391,25 +401,25 @@ flowchart LR
     subgraph spine ["INVARIANT SPINE — must appear in every managed pattern A–E"]
         M[ID MINT] --> P[PRESENCE] --> W[WORK] --> C[COMPLETION or DEATH]
     end
-    IDF["IDENTITY FACTS — full: B/C/D · partial: A · none: E, F"] -.-> M
-    REN["LEASE RENEWAL — A only (PostToolUse);<br/>SDK lanes register once, never renew"] -.-> P
+    IDF["IDENTITY FACTS — full: B/C/D/E · partial: A · none: F"] -.-> M
+    REN["LEASE RENEWAL — A (PostToolUse) and SDK lanes<br/>(renewHarnessPresence, ≥60s throttle); F never"] -.-> P
     PO["POSTURE FROM GRAPH — E only; B/C/D take it as a dial"] -.-> W
     PING["COORDINATOR PING — B always; C/D with --notify; A never"] -.-> C
     DT["agent_death on the driven thread — E only"] -.-> C
-    R["REAPING — shipped 2026-07-09 (see §3 status note)"] -.-> C
+    R["REAPING — shipped: lifecycle + stale-concern janitors (see §3 status note)"] -.-> C
 ```
 
 The same content as a table with two labelled columns:
 
 | **INVARIANT SPINE** (must appear in every *managed* pattern A–E) | **CONDITIONAL** (pattern-specific) |
 |---|---|
-| **ID MINT** — an id exists on `:7977` | **IDENTITY FACTS full set** — only `spawn.ts` (B/C/D) + partial for sessions (A). `dispatch.ts` (E) writes none; `/fork` (F) writes none |
-| **PRESENCE** — a lease registered on `:7977` | **LEASE RENEWAL** — only session lineage (A) renews via PostToolUse; SDK lanes register once, never renew (grep `harness.ts`: `register` only, no `renew`) |
+| **ID MINT** — an id exists on `:7977` | **IDENTITY FACTS full set** — `spawn.ts` (B/C/D) and `dispatch.ts` (E) both call `writeAgentFacts`; partial for sessions (A); `/fork` (F) writes none |
+| **PRESENCE** — a lease registered on `:7977` | **LEASE RENEWAL** — session lineage (A) renews via PostToolUse; SDK lanes renew on tool activity through `renewHarnessPresence` (`harness.ts:1695`, called from `spawn.ts:797`, `dispatch.ts:563`, `providers/openai.ts`), same ≥60s throttle. Only `/fork` (F) never renews |
 | **WORK** — a streaming query runs (or, for A, the session) | **POSTURE FROM GRAPH** — only E derives posture from thread facts; B/C/D take it as a dial |
 | **COMPLETION or DEATH** — the run resolves (`recordRun` outcome, or session end) | **COORDINATOR PING** — only when `AGENT_COORDINATOR` is set (B always; C/D with `--notify`; E if env set). Sessions (A) never ping |
 | — | **`agent_death` on the driven thread** — only E (dispatch knows `@T`); B/C/D write it on `@swarm` only |
 | — | **ESCALATE-NOT-KILL** — only with `AGENT_ESCALATE=1` (spawn.ts) |
-| — | **REAPING** — specced (coordination-v2), not yet shipped; see §3 |
+| — | **REAPING** — shipped: the lane-lifecycle and stale-concern janitors run in `cli/coordination-maintenance-task-host.clj`; see §3 |
 
 > `/fork` (F) is deliberately **outside** the invariant spine: it satisfies
 > *none* of it. That is precisely why it is a failure source, not a pattern you
@@ -426,14 +436,16 @@ pipeline-debug checklist and the spec skeleton for a future `north trace
    `north agents` → the id appears in the live list.
    (Or `bb north:cli/presence-cli.clj 7977 presence` for the raw table.)
 
-2. **Identity facts written** *(full for B/C/D; `kind=session`+repo for A;
-   ABSENT for E — that absence is expected, not a bug).*
+2. **Identity facts written** *(full for B/C/D and E; `kind=session`+repo for
+   A; absent only for `/fork` (F), which is outside the spine).*
    `north show @agent:<id>` → expect `kind`, `role`, `model`, `effort`, `goal`,
    `display_name`, `spawned_at`.
 
 3. **Presence lease held, ONLINE.**
    `north agents` → `ONLINE yes`, `EXPIRES <n>s` (not `lapsed`).
-   Dashboard view: `north dashboard` → the agents pane shows `● <display_name> ttl <n>s`.
+   Dashboard view: `north dashboard` → the **FLEET** pane lists the lane with
+   its agent state (`running`/`quiet` = live) and work state
+   (`cli/dashboard-render.clj`).
 
 4. **Work is advancing.**
    `north watch <id>` → transcript tail moves.
@@ -556,8 +568,10 @@ below are its rule set.
   it enters the invariant spine.
 
 ### F5 — stale concerns misrouting
-- **Presents:** `north dashboard` concerns pane counts a repo's concerns high, but the
-  owners are not in the live-agents pane.
+- **Presents:** `north:bin/concern ls <repo>` counts a repo's `building`
+  concerns high, but the owners are not in `north dashboard`'s FLEET pane.
+  (The dashboard has no concerns pane — its panes are FLEET · HEALTH · QUEUE ·
+  ACCOUNTS; concern state is read through `concern ls`.)
 - **Confirm:** `north:bin/concern ls <repo>` shows `building` concerns
   whose owner id is `lapsed`/absent in `north agents`.
 - **Remedy (today):** manually `concern status <id> done`/abandon the orphan.
@@ -595,10 +609,10 @@ below are its rule set.
 |-----------|------|---------------------|
 | verb routing | `north:bin/north` | life/engine/agent verb split; `:7977` canonical; fail-closed `tell` resolve |
 | SDK ad-hoc spawn | `north:sdk/src/spawn.ts` | id mint, `writeAgentFacts`, error boundary, escalate-not-kill, completion ping |
-| thread dispatch | `north:sdk/src/dispatch.ts` | posture-from-facts, **no identity facts**, `subscribeFeed`, dual `agent_death` |
+| thread dispatch | `north:sdk/src/dispatch.ts` | posture-from-facts, `writeAgentFacts` (~364), `subscribeFeed`, dual `agent_death` |
 | real-time msg | `north:sdk/src/coordination.ts` | streaming-input channel, host-side `north-listen` re-arm |
 | death signal | `north:sdk/src/death.ts` | `agent_death` fact (@swarm/thread) + coordinator ping; synchronous, swallowed |
-| harness/presence | `north:sdk/src/harness.ts` | `registerPresence` (:7977), NATIVE_TOOLS, `command_peer` server |
+| harness/presence | `north:sdk/src/harness.ts` | `registerPresence` / `renewHarnessPresence` (:7977), the MCP tool surface, `command_peer` server |
 | identity facts | `north:sdk/src/identity.ts` | `@agent:<id>` predicate set + `display_name` render |
 | session hook | `north:bin/north-on-spawn` | session id de-alias, presence, `kind=session` facts, concern-protocol inject |
 | agent CLI | `north:cli/agents-cli.clj` | `spawn`/`req`/`agents`/`watch`/`msg`/`goal`, dial-table parse |
