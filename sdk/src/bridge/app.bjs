@@ -1680,7 +1680,39 @@
           (brightBlack letter)
           (brightWhite letter)))))))
 
-(defn render-conversation! [runtime: Any] -> Any
+;; The status the roster header and the agent strip already read: the control
+;; session's own row in the model, not a guess made from an empty transcript.
+(defn supervisor-status [runtime: Any] -> String
+  (let [id (text (.-supervisorId runtime))
+        agents (bridgesnapshot-agents (snapshot (.-model runtime)))
+        matches (.filter agents
+                         (fn [agent: Agent] -> Bool
+                           (and (not (identical? id ""))
+                                (identical? (agent-id agent) id))))]
+    (if (identical? (.-length matches) 0) "" (agent-status (aget matches 0)))))
+
+;; Pure: what the empty transcript should say. The old rule was "empty and not
+;; working ⇒ Starting …", which never expired — the session could be ready, the
+;; header could say so, and this line still claimed a boot in progress. An empty
+;; string means show nothing.
+(js/export
+ (defn transcript-placeholder
+  [label: String
+   status: String
+   item-count: Int
+   working?: Bool] -> String
+  (let [value (.toLowerCase (.trim status))]
+    (cond
+      (> item-count 0) ""
+      working? ""
+      (or (identical? value "") (identical? value "starting")) (str "Starting " label "…")
+      (or (identical? value "offline")
+          (identical? value "failed")
+          (identical? value "error")) (str label " is offline.")
+      :else (str label " is ready.")))))
+
+(js/export
+ (defn render-conversation! [runtime: Any] -> Any
   (let [chunks []
         items (.-conversation runtime)]
     (.forEach
@@ -1739,9 +1771,13 @@
         (push-working-wave! chunks runtime)
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc to interrupt)\n  ")))
         (push-chunk! chunks (brightBlack (session-context-text runtime)))))
-    (when (and (identical? (.-length items) 0) (not (.-working runtime)))
-      (push-chunk! chunks (brightBlack (str "Starting " (main-agent-label) "…"))))
-    (StyledText. chunks)))
+    (let [placeholder (transcript-placeholder (main-agent-label)
+                                              (supervisor-status runtime)
+                                              (.-length items)
+                                              (if (.-working runtime) true false))]
+      (when (not (identical? placeholder ""))
+        (push-chunk! chunks (brightBlack placeholder))))
+    (StyledText. chunks))))
 
 (defn visible-notice [notice: Any] -> String
   (let [value (text notice)]

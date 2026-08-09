@@ -21,6 +21,9 @@ projection.
 - Preserve unrelated dirty work.
 - Run `cd ~/code/north/main/sdk && bun run check && bun run test` for SDK changes. The package
   script owns the hermetic preloads and test isolation; do not bypass it.
+- The bridge TUI is headless-testable: `createTestRenderer` from
+  `@opentui/core/testing` renders the real widget tree and captures frames, so
+  TUI changes get assertions rather than a screenshot.
 - A provider fallback is permitted only before side effects are observable.
 
 Claude Code-specific compatibility remains documented in `CLAUDE.md`; this file
