@@ -15,6 +15,12 @@ if [ "${1:-}" = "zero" ]; then
   exec "$NORTH/bin/north-zero" "${@:2}"
 fi
 
+# Self-located checkout root, same idiom as north-runtime/north-succession.
+# Consumers prefer the live checkout over any composed copy (docs, bridge assets).
+_north_home_dir="${0%/*}"
+[ "$_north_home_dir" = "$0" ] && _north_home_dir="."
+export NORTH_HOME="${NORTH_HOME:-$(cd "$_north_home_dir/.." && pwd)}"
+
 export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
 # North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
