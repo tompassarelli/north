@@ -508,6 +508,45 @@ test("account usage groups cached per-account windows with source and reset meta
   expect(visible).toContain(`evidence: ${observedAt} · cached`);
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
+test("account usage degrades to a calm one-liner when every Codex account's collector is offline", () => {
+  const { home, run, runWithEnv } = fixture();
+  expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
+  expect(run("add", "codex-proton", "openai").status).toBe(0);
+  expect(run("add", "codex-apple", "openai").status).toBe(0);
+  const observedAt = new Date().toISOString();
+  const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const observations = join(home, ".local/state/north/provider-usage-observations.json");
+  mkdirSync(join(home, ".local/state/north"), { recursive: true });
+  writeFileSync(observations, `${JSON.stringify({ version: 1, observations: [
+    { targetId: "claude-gmail", provider: "anthropic", observedAt,
+      source: "claude-agent-sdk:usage-control-experimental",
+      windows: [{ limitId: "claude:seven_day", usedPercent: 40, resetsAt }] },
+    { targetId: "codex-proton", provider: "openai", observedAt, state: "unknown",
+      source: "codex-app-server:account-rate-limits",
+      collectionFailure: { observedAt, reason: "codex_usage_probe_timed_out" } },
+    { targetId: "codex-apple", provider: "openai", observedAt, state: "unknown",
+      source: "codex-app-server:account-rate-limits",
+      collectionFailure: { observedAt, reason: "codex_usage_transport_failed" } },
+  ] })}\n`);
+
+  const usage = run("usage");
+  expect(usage.status).toBe(1);
+  expect(usage.stdout).toContain("Claude / Anthropic\n  claude-gmail");
+  expect(usage.stdout).toContain("headroom: plenty (observed, cached)");
+  expect(usage.stdout).toContain("Codex / OpenAI\n  codex usage: collectors offline");
+  expect(usage.stdout).not.toContain("codex-proton");
+  expect(usage.stdout).not.toContain("codex-apple");
+  expect(usage.stdout).not.toContain("Codex subscription rate-limit probe timed out");
+  expect(usage.stdout).not.toContain("Codex app-server transport failed");
+
+  const styled = runWithEnv({ FORCE_COLOR: "1" }, "usage");
+  expect(styled.status).toBe(1);
+  const visible = styled.stdout.replace(/\u001b\[[0-9;]*m/g, "");
+  expect(visible).toContain("Codex / OpenAI\n  codex usage: collectors offline");
+  expect(visible).not.toContain("codex-proton");
+  expect(visible).not.toContain("codex-apple");
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
 test("account usage keeps piped and NO_COLOR output byte-identical to the legacy renderer", () => {
   const { home, run, runWithEnv } = fixture();
   expect(run("add", "claude-plain", "anthropic").status).toBe(0);
