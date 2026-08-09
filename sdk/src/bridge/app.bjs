@@ -157,8 +157,30 @@
 
 (def STRIP-INDENT: Int 2)
 
-;; Shared by every tenant of the docked detail area.
-(def DETAIL-WINDOW: Int 12)
+;; Rows a frame owes to everything that is not a scrolling list: the root
+;; padding, the composer line, its context line, and the agent strip.
+(def CHROME-ROWS: Int 5)
+
+;; The workspace never collapses entirely, however long a list gets.
+(def MIN-WORKSPACE-ROWS: Int 4)
+
+;; Pure: how many rows of a list one frame may draw. No list is ever truncated
+;; to a fixed count — the window is only as small as the terminal forces it,
+;; and every entry outside it stays reachable by scrolling.
+(defn fitted-window
+  [total: Int
+   rows: Int
+   reserved: Int] -> Int
+  (Math/max 1 (Math/min total (- rows reserved))))
+
+;; Pure: keep the cursor near the middle of the window and never scroll past
+;; either end. A window that already fits the whole list starts at zero.
+(defn window-start
+  [index: Int
+   total: Int
+   visible: Int] -> Int
+  (Math/max 0 (Math/min (- index (Math/floor (/ visible 2)))
+                        (- total visible))))
 
 (def DEFAULT-PROMPT-GLYPH: String "❯")
 
@@ -259,7 +281,7 @@
    (->SlashCommand "/filter" "filter visible work" true "" false)
    (->SlashCommand "/assign" "reassign the selected work" true "" false)
    (->SlashCommand "/outcome" "record a selected thread outcome" true "" false)
-   (->SlashCommand "/view" "switch List, Graph, or Board view" true "" false)
+   (->SlashCommand "/view" "switch List, Board, or Graph view" true "" false)
    (->SlashCommand "/split" "switch horizontal or vertical layout" true "" false)
    (->SlashCommand "/refresh" "refresh agents and work" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
@@ -433,18 +455,18 @@
       (identical? name "close")
       (identical? name "esc")))
 
+;; Every match, always. What fits on screen is a rendering question, answered
+;; once in render-minibuffer! — never by dropping options on the floor here.
 (defn emoji-options [query: String] -> (Vec SlashCommand)
   (let [needle (.toLowerCase (.trim query))]
-    (.slice
-     (.filter EMOJI-COMMANDS
-              (fn [candidate: SlashCommand] -> Bool
-                (or (identical? needle "")
-                    (.includes
-                     (.toLowerCase
-                      (str (slashcommand-name candidate) " "
-                           (slashcommand-description candidate)))
-                     needle))))
-     0 8)))
+    (.filter EMOJI-COMMANDS
+             (fn [candidate: SlashCommand] -> Bool
+               (or (identical? needle "")
+                   (.includes
+                    (.toLowerCase
+                     (str (slashcommand-name candidate) " "
+                          (slashcommand-description candidate)))
+                    needle))))))
 
 (defn glyph-options [query: String] -> (Vec SlashCommand)
   (let [needle (.toLowerCase (.trim query))]
@@ -471,11 +493,9 @@
       (glyph-options (parsedcommand-rest parsed))
       (>= (.indexOf query " ") 0) []
       :else
-      (.slice
-       (.filter commands
-                (fn [candidate: SlashCommand] -> Bool
-                  (.startsWith (slashcommand-name candidate) query)))
-       0 8))))
+      (.filter commands
+               (fn [candidate: SlashCommand] -> Bool
+                 (.startsWith (slashcommand-name candidate) query))))))
 
 (defn submit-key? [name: String] -> Bool
   (or (identical? name "return")
@@ -1130,8 +1150,8 @@
 
 (defn view-list [state: BridgeSnapshot] -> (Vec WorkView)
   [(->WorkView "list" "List" (bridgesnapshot-list state))
-   (->WorkView "graph" "Graph" (bridgesnapshot-list state))
-   (->WorkView "board" "Board" (bridgesnapshot-board state))])
+   (->WorkView "board" "Board" (bridgesnapshot-board state))
+   (->WorkView "graph" "Graph" (bridgesnapshot-list state))])
 
 (defn selected-view
   [state: BridgeSnapshot
@@ -1273,7 +1293,8 @@
 
 (defn render-command-palette!
   [commands: (Vec SlashCommand)
-   selected: Int] -> Any
+   selected: Int
+   more: Int] -> Any
   (let [chunks []]
     (.forEach
      commands
@@ -1288,6 +1309,11 @@
        (push-chunk! chunks (brightBlack (slashcommand-description candidate)))
        (when (< index (- (.-length commands) 1))
          (push-chunk! chunks (white "\n")))))
+    ;; The list never hides anything silently: when the terminal cannot show
+    ;; every match, the last row says how many are still out there.
+    (when (> more 0)
+      (push-chunk! chunks (white "\n"))
+      (push-chunk! chunks (brightBlack (str "  … " more " more"))))
     (StyledText. chunks)))
 
 (defn terminal-columns [] -> Int
@@ -1688,7 +1714,7 @@
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc to interrupt)\n  ")))
         (push-chunk! chunks (brightBlack (session-context-text runtime)))))
     (when (and (identical? (.-length items) 0) (not (.-working runtime)))
-      (push-chunk! chunks (brightBlack (str "Starting " (supervisor-label) "…"))))
+      (push-chunk! chunks (brightBlack (str "Starting " (main-agent-label) "…"))))
     (StyledText. chunks)))
 
 (defn visible-notice [notice: Any] -> String
@@ -1720,10 +1746,9 @@
     (if (identical? total 0)
       (StyledText. [(brightYellow (config-panel-title config-filter))
                     (brightBlack " loading…")])
-      (let [raw (.-configIndex runtime)
-            index (Math/max 0 (Math/min (if raw raw 0) (- total 1)))
-            window 12
-            start (Math/max 0 (Math/min (- index 5) (- total window)))
+      (let [index (clamped-index (.-configIndex runtime) total)
+            window (config-visible-count total sections?)
+            start (window-start index total window)
             stop (Math/min total (+ start window))
             parts [(brightYellow (config-panel-title config-filter))
                    (brightBlack "  ↑/↓ move · space on/off · enter edit · esc close\n")]]
@@ -1774,10 +1799,24 @@
     (segment-agents (bridgesnapshot-agents state)
                     (text-or (text (.-detailSegment runtime)) "all"))))
 
-(defn detail-window-start
-  [index: Int
-   total: Int] -> Int
-  (Math/max 0 (Math/min (- index 5) (- total DETAIL-WINDOW))))
+;; Rows the docked panel spends before its first list row: its border and the
+;; title line that carries the key legend.
+(def DETAIL-CHROME-ROWS: Int 3)
+
+;; Section headers ("HOOKS", "SKILLS", …) are content the config panel inserts
+;; between rows; leave room for one per kind so a full switchboard still fits.
+(def CONFIG-SECTION-ROWS: Int 3)
+
+(defn detail-visible-count
+  [total: Int
+   extra: Int] -> Int
+  (fitted-window total (terminal-rows)
+                 (+ CHROME-ROWS MIN-WORKSPACE-ROWS DETAIL-CHROME-ROWS extra)))
+
+(defn config-visible-count
+  [total: Int
+   sections?: Bool] -> Int
+  (detail-visible-count total (if sections? CONFIG-SECTION-ROWS 0)))
 
 (defn clamped-index
   [raw: Any
@@ -1810,15 +1849,17 @@
     (if (identical? total 0)
       1
       (let [index (clamped-index (.-configIndex runtime) total)
-            start (detail-window-start index total)
-            stop (Math/min total (+ start DETAIL-WINDOW))]
+            window (config-visible-count total sections?)
+            start (window-start index total window)
+            stop (Math/min total (+ start window))]
         (+ 1 (- stop start) (config-header-lines entries sections? start stop))))))
 
 (defn detail-body-lines [runtime: Any] -> Int
   (cond
     (detail-showing? runtime "config") (config-detail-lines runtime)
     (detail-showing? runtime "agents")
-    (+ 1 (Math/max 1 (Math/min DETAIL-WINDOW (.-length (detail-agents runtime)))))
+    (let [total (.-length (detail-agents runtime))]
+      (+ 1 (Math/max 1 (Math/min total (detail-visible-count total 0)))))
     :else 0))
 
 (defn detail-height [runtime: Any] -> Int
@@ -1847,8 +1888,9 @@
     (if (identical? total 0)
       (StyledText. (.concat parts [(brightBlack "  no agents in this state")]))
       (let [index (clamped-index (.-detailIndex runtime) total)
-            start (detail-window-start index total)
-            stop (Math/min total (+ start DETAIL-WINDOW))
+            window (detail-visible-count total 0)
+            start (window-start index total window)
+            stop (Math/min total (+ start window))
             width (Math/max 12 (- (terminal-columns) 8))]
         (.forEach (.slice agents start stop)
                   (fn
@@ -2388,8 +2430,32 @@
 
 (defn minibuffer-placeholder [runtime: Any] -> String
   (if (identical? (text (.-pane runtime)) "agents")
-    (str "Message " (supervisor-label) "…")
-    "/view list|graph|board, /capture, /filter, /assign"))
+    (str "Message " (main-agent-label) "…")
+    "/view list|board|graph, /capture, /filter, /assign"))
+
+;; Pure: rows the slash palette may draw at once. `docked` is whatever the
+;; detail panel is already spending, so an open switchboard shrinks the palette
+;; instead of overflowing the frame.
+(defn palette-visible-count
+  [total: Int
+   rows: Int
+   docked: Int] -> Int
+  (fitted-window total rows (+ CHROME-ROWS MIN-WORKSPACE-ROWS docked)))
+
+;; Pure: option rows inside the window. When the list overflows, one row of the
+;; window is spent on the "… N more" line instead of an option.
+(defn palette-option-rows
+  [total: Int
+   window: Int] -> Int
+  (if (and (> total window) (> window 1)) (- window 1) window))
+
+;; Pure: what the overflow line reports, 0 when there is nothing to report or
+;; no row to report it on.
+(defn palette-overflow
+  [total: Int
+   window: Int
+   rows: Int] -> Int
+  (if (and (> total rows) (> window rows)) (- total rows) 0))
 
 (defn render-minibuffer!
   [runtime: Any
@@ -2397,16 +2463,24 @@
   (let [pane (text (.-pane runtime))
         input (.-composerInput ui)
         options (palette-options pane (text (.-value input)))
-        palette-max (Math/max 0 (- (.-length options) 1))]
-    (set! (.-paletteIndex runtime)
-          (Math/max 0 (Math/min (.-paletteIndex runtime) palette-max)))
+        total (.-length options)
+        index (Math/max 0 (Math/min (.-paletteIndex runtime) (Math/max 0 (- total 1))))
+        docked (if (detail-open? runtime) (detail-height runtime) 0)
+        window (palette-visible-count total (terminal-rows) docked)
+        rows (palette-option-rows total window)
+        start (window-start index total rows)]
+    (set! (.-paletteIndex runtime) index)
+    (set! (.-paletteStart runtime) start)
+    (set! (.-paletteRows runtime) rows)
     (set! (.-placeholder input) (minibuffer-placeholder runtime))
-    (set! (.-visible (.-composerPalette ui)) (> (.-length options) 0))
-    (set! (.-height (.-composerPalette ui))
-          (Math/max 1 (Math/min 8 (.-length options))))
+    (set! (.-visible (.-composerPalette ui)) (> total 0))
+    (set! (.-height (.-composerPalette ui)) window)
     (set! (.-content (.-composerPalette ui))
-          (if (> (.-length options) 0)
-            (render-command-palette! options (.-paletteIndex runtime)) ""))
+          (if (> total 0)
+            (render-command-palette! (.slice options start (+ start rows))
+                                     (- index start)
+                                     (palette-overflow total window rows))
+            ""))
     options))
 
 (defn render-ui!
@@ -2475,7 +2549,7 @@
         (upsert-agent (.-model runtime)
                       (->Agent execution-id
                                (if (identical? role "supervisor")
-                                 (supervisor-label)
+                                 (main-agent-label)
                                  (str "Codex " (.slice execution-id 0 8)))
                                status
                                (if (identical? role "supervisor")
@@ -2772,12 +2846,15 @@
       (identical? value "openai") "--openai"
       :else "")))
 
-(defn supervisor-label [] -> String
+;; What the control session is *called* on screen. The role it plays inside the
+;; runtime is still "supervisor" — that identifier reaches northd, the journal,
+;; and steer routing, and is deliberately not what this returns.
+(defn main-agent-label [] -> String
   (let [value (.trim (text (.-NORTH_BRIDGE_PROVIDER (.-env process))))]
     (cond
-      (identical? value "anthropic") "Claude supervisor"
-      (identical? value "openai") "Codex supervisor"
-      :else "Supervisor")))
+      (identical? value "anthropic") "Claude Main"
+      (identical? value "openai") "Codex Main"
+      :else "Main")))
 
 (defn launch-agent!
   [runtime: Any
@@ -2789,7 +2866,7 @@
     (upsert-conversation!
      runtime
      (conversation-item (next-item-id! runtime "user") "user" "" (.trim prompt) "done")))
-  (set-working! runtime true (str "Starting " (supervisor-label)))
+  (set-working! runtime true (str "Starting " (main-agent-label)))
   (let [stream-state {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code
@@ -2916,7 +2993,7 @@
       (identical? name "view")
       (do
         (when (not (recognized-work-view? rest))
-          (throw (Error. "view requires list, graph, or board")))
+          (throw (Error. "view requires list, board, or graph")))
         (set! (.-model runtime)
               (focus-view (.-model runtime) (canonical-work-view rest)))
         (set! (.-workIndex runtime) 0)
@@ -2971,7 +3048,7 @@
         (js/await (refresh! runtime)))
 
       (identical? name "help")
-      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|graph|board, /split h|v, /refresh, /popout, /exit")
+      (publish-line! runtime "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|board|graph, /split h|v, /refresh, /popout, /exit")
 
       :else
       (throw (Error. "unknown work command; use /help")))))))
@@ -3168,6 +3245,117 @@
       (set! (.-paneRatio runtime) (* 100 (/ next total)))
       (.render runtime))))
 
+;; ---------------------------------------------------------------------------
+;; Dragging the split. The divider is the agents pane's trailing border cell —
+;; its right edge when the panes sit side by side, its bottom edge when they
+;; stack. Grab it, move, and the same clamp the keyboard path uses decides how
+;; far the split may travel.
+;; ---------------------------------------------------------------------------
+
+;; Pure: which cell of the split a pointer is asking for, clamped so neither
+;; pane is squeezed below its minimum.
+(defn pointer-pane-cells
+  [pointer: Int
+   origin: Int
+   total: Int
+   minimum: Int] -> Int
+  (Math/max minimum (Math/min (- total minimum) (+ (- pointer origin) 1))))
+
+;; Pure: close enough to grab. One cell of slack on either side of the divider
+;; so the split does not demand pixel-perfect aim.
+(defn divider-grab?
+  [pointer: Int
+   origin: Int
+   cells: Int] -> Bool
+  (let [divider (+ origin (- cells 1))]
+    (and (>= pointer (- divider 1)) (<= pointer (+ divider 1)))))
+
+(defn measured-cells [value: Any] -> Int
+  (if (and (identical? (js/typeof value) "number")
+           (Number/isFinite value)
+           (> value 0))
+    (Math/round value)
+    0))
+
+(defn pane-pointer
+  [event: Any
+   stacked?: Bool] -> Int
+  (Math/round (if stacked? (.-y event) (.-x event))))
+
+(defn pane-origin
+  [ui: Any
+   stacked?: Bool] -> Int
+  (Math/round (if stacked? (.-y (.-agentsPane ui)) (.-x (.-agentsPane ui)))))
+
+(defn pane-divider-grabbed?
+  [runtime: Any
+   ui: Any
+   event: Any] -> Bool
+  (if (not (identical? (text (.-closedPane runtime)) ""))
+    false
+    (let [stacked? (stacked-workspace? (snapshot (.-model runtime)))
+          cells (measured-cells (if stacked?
+                                  (.-height (.-agentsPane ui))
+                                  (.-width (.-agentsPane ui))))]
+      (and (> cells 0)
+           (divider-grab? (pane-pointer event stacked?)
+                          (pane-origin ui stacked?)
+                          cells)))))
+
+(defn drag-pane-divider!
+  [runtime: Any
+   ui: Any
+   event: Any] -> Any
+  (when (identical? (text (.-closedPane runtime)) "")
+    (let [state (snapshot (.-model runtime))
+          stacked? (stacked-workspace? state)
+          total (workspace-primary-cells runtime ui state)
+          minimum (minimum-pane-cells state total)
+          cells (pointer-pane-cells (pane-pointer event stacked?)
+                                    (pane-origin ui stacked?)
+                                    total minimum)]
+      (set! (.-workspaceNotice runtime) "")
+      (set! (.-paneRatio runtime) (* 100 (/ cells total)))
+      (.render runtime))))
+
+(defn start-pane-drag!
+  [runtime: Any
+   ui: Any
+   event: Any] -> Bool
+  (if (not (pane-divider-grabbed? runtime ui event))
+    (do (set! (.-paneDragging runtime) false) false)
+    (do
+      (set! (.-paneDragging runtime) true)
+      (.preventDefault event)
+      (.stopPropagation event)
+      ;; A plain click on the divider is a one-step drag: the split lands where
+      ;; the pointer already is.
+      (drag-pane-divider! runtime ui event)
+      true)))
+
+(defn continue-pane-drag!
+  [runtime: Any
+   ui: Any
+   event: Any] -> Any
+  (when (.-paneDragging runtime)
+    (.preventDefault event)
+    (.stopPropagation event)
+    (drag-pane-divider! runtime ui event)))
+
+(defn end-pane-drag! [runtime: Any] -> Any
+  (set! (.-paneDragging runtime) false))
+
+(defn install-pane-divider!
+  [runtime: Any
+   ui: Any
+   pane: Any] -> Any
+  (set! (.-onMouseDrag pane)
+        (fn [event: Any] -> Any (continue-pane-drag! runtime ui event)))
+  (set! (.-onMouseDragEnd pane)
+        (fn [_event: Any] -> Any (end-pane-drag! runtime)))
+  (set! (.-onMouseUp pane)
+        (fn [_event: Any] -> Any (end-pane-drag! runtime))))
+
 (defn workspace-count [context: Any] -> Int
   (let [payload (.-payload context)
         raw (Number (if payload (.-count payload) 1))]
@@ -3334,15 +3522,34 @@
                                               (->WorkSelection (.-activeView runtime)
                                                                (.-workIndex runtime))))))))))
 
+;; Cells render-work-tabs! spends before the first tab ("Work  ") and between
+;; two tabs. The tab row is derived from view-list, so reordering the views
+;; moves the hit boxes with them — there are no hand-counted column ranges left
+;; to drift out of step with what is drawn.
+(def WORK-TAB-ORIGIN: Int 6)
+
+(def WORK-TAB-GAP: Int 2)
+
+;; Pure: which view owns a column on the tab line, "" for the gaps.
+(defn work-tab-id-at
+  [views: (Vec WorkView)
+   column: Int] -> String
+  (let [cursor {:x WORK-TAB-ORIGIN :id ""}]
+    (.forEach views
+              (fn [view: WorkView] -> Any
+                (let [start (.-x cursor)
+                      ;; "[Title]" when selected, " Title " otherwise: same width.
+                      width (+ (.-length (workview-title view)) 2)]
+                  (when (and (>= column start) (< column (+ start width)))
+                    (set! (.-id cursor) (workview-id view)))
+                  (set! (.-x cursor) (+ start width WORK-TAB-GAP)))))
+    (text (.-id cursor))))
+
 (defn work-tab-at
   [tabs: Any
-   event: Any] -> String
-  (let [x (- (.-x event) (.-x tabs))]
-    (cond
-      (and (>= x 6) (< x 12)) "list"
-      (and (>= x 14) (< x 21)) "graph"
-      (and (>= x 23) (< x 30)) "board"
-      :else "")))
+   event: Any
+   views: (Vec WorkView)] -> String
+  (work-tab-id-at views (Math/floor (- (.-x event) (.-x tabs)))))
 
 (defn complete-clicked-palette!
   [runtime: Any
@@ -3354,11 +3561,18 @@
     (select-pane! runtime pane)
     (let [input (.-composerInput ui)
           options (palette-options pane (text (.-value input)))
-          row (Math/floor (- (.-y event) (.-y palette-renderable)))]
-      (when (and (>= row 0) (< row (.-length options)))
+          row (Math/floor (- (.-y event) (.-y palette-renderable)))
+          ;; The palette scrolls, so screen row N is option start+N. Rows past
+          ;; the option rows are the overflow line, which is not clickable.
+          scrolled (.-paletteStart runtime)
+          start (if scrolled scrolled 0)
+          drawn (.-paletteRows runtime)
+          rows (if drawn drawn 0)
+          picked (+ start row)]
+      (when (and (>= row 0) (< row rows) (< picked (.-length options)))
         (.preventDefault event)
         (.stopPropagation event)
-        (set! (.-paletteIndex runtime) row)
+        (set! (.-paletteIndex runtime) picked)
         (complete-palette! runtime ui options)))))
 
 (defn visible-list-indices
@@ -3426,14 +3640,22 @@
 (defn install-mouse!
   [runtime: Any
    ui: Any] -> Any
+  ;; Both panes carry the divider handlers: the grab starts on the agents
+  ;; pane's trailing border, but the first drag sample can already have crossed
+  ;; into the work pane, and whichever renderable that sample hits is the one
+  ;; the runtime captures for the rest of the gesture.
   (set! (.-onMouseDown (.-agentsPane ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
-            (focus-pane-surface! runtime ui "agents"))))
+            (when (not (start-pane-drag! runtime ui event))
+              (focus-pane-surface! runtime ui "agents")))))
   (set! (.-onMouseDown (.-workPane ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
-            (focus-pane-surface! runtime ui "work"))))
+            (when (not (start-pane-drag! runtime ui event))
+              (focus-pane-surface! runtime ui "work")))))
+  (install-pane-divider! runtime ui (.-agentsPane ui))
+  (install-pane-divider! runtime ui (.-workPane ui))
   (set! (.-onMouseDown (.-composer ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
@@ -3462,7 +3684,8 @@
   (set! (.-onMouseDown (.-tabsText ui))
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
-            (let [view-id (work-tab-at (.-tabsText ui) event)]
+            (let [view-id (work-tab-at (.-tabsText ui) event
+                                       (view-list (snapshot (.-model runtime))))]
               (when (not (identical? view-id ""))
                 (.preventDefault event)
                 (.stopPropagation event)
@@ -3527,7 +3750,11 @@
                       (not meta)
                       (or (identical? name "left") (identical? name "right")))]
              (cond
+             ;; The docked switchboard owns the arrows only while the composer
+             ;; is quiet. Typing "/" with the panel open opens the palette, and
+             ;; the palette is what the arrows, enter and escape then drive.
              (and (detail-showing? runtime "config")
+                  (not palette-open)
                   (or (identical? name "up") (identical? name "down")
                       (ctrl-up-key? name key) (ctrl-down-key? name key)
                       (identical? name "space") (submit-key? name)
@@ -3767,6 +3994,8 @@
                  :detailSegment "all"
                  :detailIndex 0
                  :paletteIndex 0
+                 :paletteStart 0
+                 :paletteRows 0
                  :promptGlyph DEFAULT-PROMPT-GLYPH
                  :soundEnabled (sound-enabled-from-env
                                 (text (.-NORTH_BRIDGE_SOUND (.-env process))))
@@ -3785,6 +4014,7 @@
                  :workspaceNotice ""
                  :closedPane ""
                  :paneRatio 50
+                 :paneDragging false
                  :keymap nil
                  :sessionModel (text-or (.-NORTH_BRIDGE_MODEL (.-env process))
                                         (text (.-AGENT_MODEL (.-env process))))
@@ -3823,8 +4053,10 @@
         agent-status-text (TextRenderable. renderer {:visible false :flexShrink 0 :wrapMode "word"})
         composer-palette (TextRenderable. renderer {:visible false :height 1 :width "100%" :flexShrink 0
                                                      :wrapMode "none" :truncate true :bg "#25272d"})
-        composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 3
-                                            :paddingTop 1 :paddingLeft 1 :paddingRight 1
+        ;; One line high: the InputRenderable is always a single row, so the
+        ;; box owes it exactly one and no vertical padding. The fill stays.
+        composer (BoxRenderable. renderer {:flexDirection "row" :width "100%" :height 1
+                                            :paddingLeft 1 :paddingRight 1
                                             :flexShrink 0 :backgroundColor "#25272d"})
         composer-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
                                                           :wrapMode "none" :truncate true})
@@ -3842,7 +4074,7 @@
                                           :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
                                           :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
                                           :placeholderColor "#6b7280"
-                                          :placeholder (str "Message " (supervisor-label) "…")})
+                                          :placeholder (str "Message " (main-agent-label) "…")})
         ui {:root root :workspace workspace :agentsPane agents-pane :workPane work-pane
             :agentsHeader agents-header :agentsText agents-text :transcriptText transcript-text-view
             :tabsText tabs-text-view :workScroll work-scroll
