@@ -111,6 +111,15 @@
    deletions: Int
    files: (Vec FileChangeDetails)])
 
+(defrecord StripBucket
+  [id: String
+   glyph: String])
+
+(defrecord AgentSegment
+  [id: String
+   label: String
+   count: Int])
+
 (def NORTH-BIN: String
   (let [configured (text (.-NORTH_BIN (.-env process)))]
     (if (identical? configured "") "north" configured)))
@@ -135,6 +144,21 @@
    (->ListSection "draft" "Draft")
    (->ListSection "terminal" "Done")
    (->ListSection "other" "Todo")])
+
+;; The agent strip reads left to right: the roster total, then one segment per
+;; state bucket that currently has members. Buckets that are empty stay off the
+;; strip; the total always answers "how many agents exist at all".
+(def STRIP-BUCKETS: (Vec StripBucket)
+  [(->StripBucket "running" "")
+   (->StripBucket "blocked" "! ")
+   (->StripBucket "failed" "✕ ")])
+
+(def STRIP-SEPARATOR: String " · ")
+
+(def STRIP-INDENT: Int 2)
+
+;; Shared by every tenant of the docked detail area.
+(def DETAIL-WINDOW: Int 12)
 
 (def DEFAULT-PROMPT-GLYPH: String "❯")
 
@@ -869,14 +893,14 @@
 (defn open-config-panel!
   [runtime: Any
    config-filter: String] -> Any
-  (let [already (and (.-showConfig runtime)
+  (let [already (and (detail-showing? runtime "config")
                      (identical? (text (.-configFilter runtime)) config-filter))]
     (if already
-      (set! (.-showConfig runtime) false)
+      (close-detail! runtime)
       (do
         (set! (.-configFilter runtime) config-filter)
         (set! (.-configIndex runtime) 0)
-        (set! (.-showConfig runtime) true)
+        (open-detail! runtime "config")
         (report-promise! runtime (load-config-entries! runtime))))
     (.render runtime)))
 
@@ -1138,6 +1162,109 @@
                     (if (identical? (agent-task agent) "") ""
                       (str " — " (agent-task agent))))))
        "\n"))))
+
+(defn agent-display-name [agent: Agent] -> String
+  (let [name (agent-name agent)]
+    (if (identical? name "") (agent-id agent) name)))
+
+;; Pure: every agent state this app can observe folded onto the strip's
+;; vocabulary. Bridge-local executions report starting/working/ready/offline;
+;; the agents CLI reports working/stalled/offline/inconsistent(...) and
+;; finished(process:…, delivery:…). Anything unrecognized stays "other" so it
+;; is counted in the total without inventing a state.
+(defn agent-bucket [status: String] -> String
+  (let [value (.toLowerCase (.trim status))]
+    (cond
+      (identical? value "") "other"
+
+      (.startsWith value "finished(")
+      (if (or (.includes value "process:failed")
+              (.includes value "process:error"))
+        "failed" "other")
+
+      (.startsWith value "inconsistent") "blocked"
+
+      (or (identical? value "stalled")
+          (identical? value "blocked")
+          (identical? value "waiting")
+          (identical? value "paused")
+          (identical? value "queued")) "blocked"
+
+      (or (identical? value "failed")
+          (identical? value "error")
+          (identical? value "crashed")) "failed"
+
+      (or (identical? value "working")
+          (identical? value "running")
+          (identical? value "starting")
+          (identical? value "ready")
+          (identical? value "active")
+          (identical? value "online")) "running"
+
+      :else "other")))
+
+(defn agents-in-bucket
+  [agents: (Vec Agent)
+   bucket: String] -> (Vec Agent)
+  (.filter agents
+           (fn [agent: Agent] -> Bool
+             (identical? (agent-bucket (agent-status agent)) bucket))))
+
+(defn segment-agents
+  [agents: (Vec Agent)
+   segment-id: String] -> (Vec Agent)
+  (if (identical? segment-id "all")
+    agents
+    (agents-in-bucket agents segment-id)))
+
+(defn agent-total-label [total: Int] -> String
+  (str total (if (identical? total 1) " agent" " agents")))
+
+(defn agent-segments [agents: (Vec Agent)] -> (Vec AgentSegment)
+  (let [total (.-length agents)
+        segments [(->AgentSegment "all" (agent-total-label total) total)]]
+    (.forEach
+     STRIP-BUCKETS
+     (fn [bucket: StripBucket] -> Any
+       (let [id (stripbucket-id bucket)
+             members (agents-in-bucket agents id)
+             count (.-length members)]
+         (when (> count 0)
+           (.push segments
+                  (->AgentSegment id
+                                  (str (stripbucket-glyph bucket) count " " id)
+                                  count))))))
+    segments))
+
+;; Pure: the column each segment starts at, so a click lands on the same
+;; segment the eye reads. Focus never changes a label's width.
+(defn segment-columns [segments: (Vec AgentSegment)] -> (Vec Int)
+  (let [starts []]
+    (.forEach
+     segments
+     (fn
+       [_segment: AgentSegment
+        index: Int] -> Any
+       (.push starts
+              (if (identical? index 0)
+                STRIP-INDENT
+                (+ (aget starts (- index 1))
+                   (.-length (agentsegment-label (aget segments (- index 1))))
+                   (.-length STRIP-SEPARATOR))))))
+    starts))
+
+(defn segment-at-column
+  [segments: (Vec AgentSegment)
+   column: Int] -> Int
+  (let [starts (segment-columns segments)]
+    (.findIndex starts
+                (fn
+                  [start: Int
+                   index: Int] -> Bool
+                  (and (>= column start)
+                       (< column
+                          (+ start
+                             (.-length (agentsegment-label (aget segments index))))))))))
 
 (defn push-chunk!
   [chunks: Any
@@ -1619,6 +1746,159 @@
                               (str (configentry-name entry) tail))))))
         (StyledText. parts)))))
 
+;; ---------------------------------------------------------------------------
+;; Docked detail area. One surface, one render path, one piece of state saying
+;; which tenant is showing: "" (collapsed), "config" (the context switchboard),
+;; "agents" (the roster behind a strip segment). New tenants add a branch to
+;; render-detail-panel! and detail-body-lines and nothing else.
+;; ---------------------------------------------------------------------------
+
+(defn detail-open? [runtime: Any] -> Bool
+  (not (identical? (text (.-detailView runtime)) "")))
+
+(defn detail-showing?
+  [runtime: Any
+   view: String] -> Bool
+  (identical? (text (.-detailView runtime)) view))
+
+(defn open-detail!
+  [runtime: Any
+   view: String] -> Any
+  (set! (.-detailView runtime) view))
+
+(defn close-detail! [runtime: Any] -> Any
+  (set! (.-detailView runtime) ""))
+
+(defn detail-agents [runtime: Any] -> (Vec Agent)
+  (let [state (snapshot (.-model runtime))]
+    (segment-agents (bridgesnapshot-agents state)
+                    (text-or (text (.-detailSegment runtime)) "all"))))
+
+(defn detail-window-start
+  [index: Int
+   total: Int] -> Int
+  (Math/max 0 (Math/min (- index 5) (- total DETAIL-WINDOW))))
+
+(defn clamped-index
+  [raw: Any
+   total: Int] -> Int
+  (Math/max 0 (Math/min (if raw raw 0) (- total 1))))
+
+;; Pure: how many section headers render-config-panel inserts inside a window,
+;; so the docked panel is exactly as tall as its content.
+(defn config-header-lines
+  [entries: Any
+   sections?: Bool
+   start: Int
+   stop: Int] -> Int
+  (if (not sections?)
+    0
+    (.-length
+     (.filter (.slice entries start stop)
+              (fn
+                [entry: Any
+                 offset: Int] -> Bool
+                (let [i (+ start offset)]
+                  (or (identical? i start)
+                      (not (identical? (configentry-kind entry)
+                                       (configentry-kind (aget entries (- i 1))))))))))))
+
+(defn config-detail-lines [runtime: Any] -> Int
+  (let [entries (.-configEntries runtime)
+        total (if entries (.-length entries) 0)
+        sections? (identical? (text-or (text (.-configFilter runtime)) "all") "all")]
+    (if (identical? total 0)
+      1
+      (let [index (clamped-index (.-configIndex runtime) total)
+            start (detail-window-start index total)
+            stop (Math/min total (+ start DETAIL-WINDOW))]
+        (+ 1 (- stop start) (config-header-lines entries sections? start stop))))))
+
+(defn detail-body-lines [runtime: Any] -> Int
+  (cond
+    (detail-showing? runtime "config") (config-detail-lines runtime)
+    (detail-showing? runtime "agents")
+    (+ 1 (Math/max 1 (Math/min DETAIL-WINDOW (.-length (detail-agents runtime)))))
+    :else 0))
+
+(defn detail-height [runtime: Any] -> Int
+  (+ 2 (detail-body-lines runtime)))
+
+(defn agent-detail-title [segment-id: String] -> String
+  (if (identical? segment-id "all") "agents" (str "agents · " segment-id)))
+
+(defn agent-detail-row
+  [agent: Agent
+   width: Int] -> String
+  (let [status (agent-status agent)
+        task (agent-task agent)]
+    (compact-text
+     (str (agent-display-name agent)
+          (if (identical? status "") "" (str " (" status ")"))
+          (if (identical? task "") "" (str " — " task)))
+     width)))
+
+(defn render-agent-detail [runtime: Any] -> Any
+  (let [agents (detail-agents runtime)
+        total (.-length agents)
+        title (agent-detail-title (text-or (text (.-detailSegment runtime)) "all"))
+        parts [(brightYellow title)
+               (brightBlack "  ↑/↓ move · ←/→ segment · enter or esc close\n")]]
+    (if (identical? total 0)
+      (StyledText. (.concat parts [(brightBlack "  no agents in this state")]))
+      (let [index (clamped-index (.-detailIndex runtime) total)
+            start (detail-window-start index total)
+            stop (Math/min total (+ start DETAIL-WINDOW))
+            width (Math/max 12 (- (terminal-columns) 8))]
+        (.forEach (.slice agents start stop)
+                  (fn
+                    [agent: Agent
+                     offset: Int] -> Any
+                    (let [i (+ start offset)
+                          cursor? (identical? i index)
+                          tail (if (identical? (+ i 1) stop) "" "\n")]
+                      (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
+                      (.push parts
+                             ((if cursor? brightWhite brightBlack)
+                              (str (agent-detail-row agent width) tail))))))
+        (StyledText. parts)))))
+
+(defn render-detail-panel! [runtime: Any] -> Any
+  (cond
+    (detail-showing? runtime "config") (render-config-panel runtime)
+    (detail-showing? runtime "agents") (render-agent-detail runtime)
+    :else (StyledText. [(brightBlack "")])))
+
+(defn segment-chunk
+  [segment: AgentSegment
+   highlighted?: Bool] -> Any
+  (let [label (agentsegment-label segment)
+        id (agentsegment-id segment)]
+    (cond
+      highlighted? (brightCyan label)
+      (identical? id "failed") (brightRed label)
+      (identical? id "blocked") (brightYellow label)
+      (identical? id "running") (brightGreen label)
+      :else (brightWhite label))))
+
+(defn render-agent-strip
+  [state: BridgeSnapshot
+   focused?: Bool
+   selected: Int] -> Any
+  (let [segments (agent-segments (bridgesnapshot-agents state))
+        chunks [(if focused? (brightCyan "› ") (brightBlack "  "))]]
+    (.forEach
+     segments
+     (fn
+       [segment: AgentSegment
+        index: Int] -> Any
+       (when (> index 0) (.push chunks (brightBlack STRIP-SEPARATOR)))
+       (.push chunks (segment-chunk segment
+                                    (and focused? (identical? index selected))))))
+    (when focused?
+      (.push chunks (brightBlack "   h/l segment · enter open · esc input")))
+    (StyledText. chunks)))
+
 (defn render-status
   [runtime: Any
    state: BridgeSnapshot] -> Any
@@ -1632,9 +1912,6 @@
        [(brightGreen "Ctrl-w")
         (brightYellow (if (identical? count-text "") "" (str " · count " count-text)))
         (brightBlack "  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")])
-
-      (.-showConfig runtime)
-      (render-config-panel runtime)
 
       (.-showHelp runtime)
       (StyledText.
@@ -2169,6 +2446,18 @@
           (identical? (text (.-closedPane runtime)) "work"))
     (render-prompt! runtime (.-composerPrompt ui))
     (set! (.-content (.-composerContextText ui)) (render-session-context runtime))
+    (let [segments (agent-segments agents)
+          strip-max (Math/max 0 (- (.-length segments) 1))]
+      (set! (.-stripIndex runtime)
+            (Math/max 0 (Math/min (.-stripIndex runtime) strip-max)))
+      (set! (.-content (.-agentStripText ui))
+            (render-agent-strip state (.-stripFocused runtime)
+                                (.-stripIndex runtime))))
+    (let [open? (detail-open? runtime)]
+      (set! (.-visible (.-detailPanel ui)) open?)
+      (when open?
+        (set! (.-height (.-detailPanel ui)) (detail-height runtime))
+        (set! (.-content (.-detailText ui)) (render-detail-panel! runtime))))
     (render-minibuffer! runtime ui)
       (set! (.-activeView runtime) (workview-id current))
       views)))
@@ -2699,7 +2988,8 @@
    pane: String] -> Any
   (set! (.-pane runtime) pane)
   (set! (.-paletteIndex runtime) 0)
-  (set! (.-workspaceNotice runtime) ""))
+  (set! (.-workspaceNotice runtime) "")
+  (clear-strip-focus! runtime))
 
 (defn pane-box
   [ui: Any
@@ -2722,6 +3012,70 @@
     (select-pane! runtime pane)
     (.focus (pane-box ui pane))
     (.render runtime)))
+
+(defn strip-segments [runtime: Any] -> (Vec AgentSegment)
+  (agent-segments (bridgesnapshot-agents (snapshot (.-model runtime)))))
+
+(defn focus-strip!
+  [runtime: Any
+   ui: Any] -> Any
+  ;; The composer keeps its content; it only loses the cursor, so nothing the
+  ;; operator types can be swallowed by the strip's h/l/j/k bindings.
+  (set! (.-stripFocused runtime) true)
+  (.blur (.-composerInput ui))
+  (.render runtime))
+
+(defn leave-strip!
+  [runtime: Any
+   ui: Any] -> Any
+  (set! (.-stripFocused runtime) false)
+  (when (detail-showing? runtime "agents") (close-detail! runtime))
+  (.focus (.-composerInput ui))
+  (.render runtime))
+
+(defn clear-strip-focus! [runtime: Any] -> Any
+  (when (.-stripFocused runtime)
+    (set! (.-stripFocused runtime) false)
+    (when (detail-showing? runtime "agents") (close-detail! runtime))))
+
+(defn show-segment-detail!
+  [runtime: Any
+   index: Int] -> Any
+  (let [segments (strip-segments runtime)]
+    (when (> (.-length segments) 0)
+      (let [selected (clamped-index index (.-length segments))]
+        (set! (.-stripIndex runtime) selected)
+        (set! (.-detailSegment runtime)
+              (agentsegment-id (aget segments selected)))
+        (set! (.-detailIndex runtime) 0)
+        (open-detail! runtime "agents")))))
+
+(defn toggle-segment-detail! [runtime: Any] -> Any
+  (if (detail-showing? runtime "agents")
+    (close-detail! runtime)
+    (show-segment-detail! runtime (.-stripIndex runtime))))
+
+(defn move-strip-segment!
+  [runtime: Any
+   delta: Int] -> Any
+  (let [segments (strip-segments runtime)
+        total (.-length segments)]
+    (when (> total 0)
+      (let [next-index (mod (+ (.-stripIndex runtime) delta total) total)]
+        (set! (.-stripIndex runtime) next-index)
+        (set! (.-detailIndex runtime) 0)
+        (when (detail-showing? runtime "agents")
+          (set! (.-detailSegment runtime)
+                (agentsegment-id (aget segments next-index))))))))
+
+(defn move-detail-cursor!
+  [runtime: Any
+   delta: Int] -> Any
+  (let [total (.-length (detail-agents runtime))]
+    (when (> total 0)
+      (set! (.-detailIndex runtime)
+            (mod (+ (clamped-index (.-detailIndex runtime) total) delta total)
+                 total)))))
 
 (defn active-input
   [_runtime: Any
@@ -3084,7 +3438,20 @@
         (fn [event: Any] -> Any
           (when (identical? (.-button event) 0)
             (.stopPropagation event)
-            (.focus (.-composerInput ui)))))
+            (clear-strip-focus! runtime)
+            (.focus (.-composerInput ui))
+            (.render runtime))))
+  (set! (.-onMouseDown (.-agentStripText ui))
+        (fn [event: Any] -> Any
+          (when (identical? (.-button event) 0)
+            (.preventDefault event)
+            (.stopPropagation event)
+            (let [segments (strip-segments runtime)
+                  column (Math/floor (- (.-x event)
+                                        (.-screenX (.-agentStripText ui))))
+                  index (segment-at-column segments column)]
+              (when (>= index 0) (show-segment-detail! runtime index))
+              (focus-strip! runtime ui)))))
   (set! (.-onMouseDown (.-composerPalette ui))
         (fn [event: Any] -> Any
           (complete-clicked-palette! runtime ui (text (.-pane runtime))
@@ -3105,6 +3472,43 @@
                 (.scrollTo (.-workScroll ui) 0)
                 (focus-pane-surface! runtime ui "work")))))))
 
+(defn ctrl-down-key?
+  [name: String
+   key: Any] -> Bool
+  (and (.-ctrl key) (identical? name "j")))
+
+(defn ctrl-up-key?
+  [name: String
+   key: Any] -> Bool
+  (and (.-ctrl key) (identical? name "k")))
+
+(defn bare-key?
+  [name: String
+   key: Any
+   letter: String] -> Bool
+  (and (identical? name letter)
+       (not (.-ctrl key))
+       (not (or (.-meta key) (.-option key)))))
+
+;; Keys the strip claims once it holds focus. Everything else falls through to
+;; the branches below, so nothing the strip does not name is stolen.
+(defn strip-key?
+  [name: String
+   key: Any] -> Bool
+  (or (identical? name "left")
+      (identical? name "right")
+      (identical? name "up")
+      (identical? name "down")
+      (identical? name "escape")
+      (identical? name "esc")
+      (submit-key? name)
+      (ctrl-down-key? name key)
+      (ctrl-up-key? name key)
+      (bare-key? name key "h")
+      (bare-key? name key "l")
+      (bare-key? name key "j")
+      (bare-key? name key "k")))
+
 (defn install-keys!
   [runtime: Any
    ui: Any] -> Any
@@ -3123,32 +3527,63 @@
                       (not meta)
                       (or (identical? name "left") (identical? name "right")))]
              (cond
-             (and (.-showConfig runtime)
+             (and (detail-showing? runtime "config")
                   (or (identical? name "up") (identical? name "down")
+                      (ctrl-up-key? name key) (ctrl-down-key? name key)
                       (identical? name "space") (submit-key? name)
                       (identical? name "escape") (identical? name "esc")))
-             (do (.preventDefault key)
-                 (.stopPropagation key)
-                 (cond
-                   (or (identical? name "escape") (identical? name "esc"))
-                   (set! (.-showConfig runtime) false)
+             (let [up? (or (identical? name "up") (ctrl-up-key? name key))
+                   down? (or (identical? name "down") (ctrl-down-key? name key))]
+               (.preventDefault key)
+               (.stopPropagation key)
+               (cond
+                 (or (identical? name "escape") (identical? name "esc"))
+                 (close-detail! runtime)
 
-                   (or (identical? name "up") (identical? name "down"))
-                   (let [entries (.-configEntries runtime)
-                         total (if entries (.-length entries) 0)]
-                     (when (> total 0)
-                       (let [raw (.-configIndex runtime)
-                             current (if raw raw 0)
-                             delta (if (identical? name "up") -1 1)]
-                         (set! (.-configIndex runtime)
-                               (mod (+ current delta total) total)))))
+                 (or up? down?)
+                 (let [entries (.-configEntries runtime)
+                       total (if entries (.-length entries) 0)]
+                   (when (> total 0)
+                     (let [raw (.-configIndex runtime)
+                           current (if raw raw 0)
+                           delta (if up? -1 1)]
+                       (set! (.-configIndex runtime)
+                             (mod (+ current delta total) total)))))
 
-                   (identical? name "space")
-                   (report-promise! runtime (toggle-config-entry! runtime))
+                 (identical? name "space")
+                 (report-promise! runtime (toggle-config-entry! runtime))
 
-                   :else
-                   (report-promise! runtime (edit-config-entry! runtime)))
-                 (.render runtime))
+                 :else
+                 (report-promise! runtime (edit-config-entry! runtime)))
+               (.render runtime))
+
+             (and (.-stripFocused runtime) (strip-key? name key))
+             (let [expanded? (detail-showing? runtime "agents")
+                   up? (or (identical? name "up")
+                           (ctrl-up-key? name key)
+                           (bare-key? name key "k"))
+                   down? (or (identical? name "down")
+                             (ctrl-down-key? name key)
+                             (bare-key? name key "j"))
+                   left? (or (identical? name "left") (bare-key? name key "h"))
+                   right? (or (identical? name "right") (bare-key? name key "l"))]
+               (.preventDefault key)
+               (.stopPropagation key)
+               (cond
+                 (or (identical? name "escape") (identical? name "esc"))
+                 (if expanded? (close-detail! runtime) (leave-strip! runtime ui))
+
+                 (submit-key? name) (toggle-segment-detail! runtime)
+                 left? (move-strip-segment! runtime -1)
+                 right? (move-strip-segment! runtime 1)
+                 up? (if expanded?
+                       (move-detail-cursor! runtime -1)
+                       (leave-strip! runtime ui))
+                 down? (if expanded?
+                         (move-detail-cursor! runtime 1)
+                         (toggle-segment-detail! runtime))
+                 :else nil)
+               (.render runtime))
 
              (and palette-open
                   (or (identical? name "up")
@@ -3186,6 +3621,20 @@
                  (.stopPropagation key)
                  (set! (.-value (active-input runtime ui)) "")
                  (render-minibuffer! runtime ui))
+
+             ;; Down leaves the composer only when the composer has nothing to
+             ;; move through: no palette open and an empty line. Ctrl-J is the
+             ;; unconditional way in, so the strip is never unreachable.
+             (and (not (.-stripFocused runtime))
+                  (not palette-open)
+                  (or (ctrl-down-key? name key)
+                      (and (identical? name "down")
+                           (not (.-ctrl key))
+                           (not meta)
+                           (identical? (.trim (text (.-value (.-composerInput ui)))) ""))))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (focus-strip! runtime ui))
 
              (or (identical? name "tab") (identical? name "f2"))
              (do (.preventDefault key)
@@ -3312,6 +3761,11 @@
                  :spinnerIndex 0
                  :spinnerTimer nil
                  :showHelp false
+                 :stripFocused false
+                 :stripIndex 0
+                 :detailView ""
+                 :detailSegment "all"
+                 :detailIndex 0
                  :paletteIndex 0
                  :promptGlyph DEFAULT-PROMPT-GLYPH
                  :soundEnabled (sound-enabled-from-env
@@ -3374,6 +3828,13 @@
                                             :flexShrink 0 :backgroundColor "#25272d"})
         composer-context-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
                                                           :wrapMode "none" :truncate true})
+        agent-strip-text (TextRenderable. renderer {:height 1 :width "100%" :flexShrink 0
+                                                     :wrapMode "none" :truncate true})
+        detail-panel (BoxRenderable. renderer {:visible false :width "100%" :height 5
+                                               :flexDirection "column" :flexShrink 0
+                                               :border true :borderColor "#64748b"
+                                               :paddingLeft 1 :paddingRight 1})
+        detail-text (TextRenderable. renderer {:width "100%" :flexGrow 1 :wrapMode "none"})
         composer-prompt (TextRenderable. renderer {:width 2 :height 1 :flexShrink 0 :wrapMode "none"
                                                    :content (StyledText. [(brightCyan "❯ ")])})
         composer-input (InputRenderable. renderer
@@ -3389,7 +3850,9 @@
             :statusText status-text :agentStatusText agent-status-text
             :composerPalette composer-palette :composer composer
             :composerContextText composer-context-text
-            :composerPrompt composer-prompt :composerInput composer-input}]
+            :composerPrompt composer-prompt :composerInput composer-input
+            :agentStripText agent-strip-text
+            :detailPanel detail-panel :detailText detail-text}]
     (.add agents-pane agents-header)
     (.add agents-pane agents-text)
     (.add transcript-scroll transcript-text-view)
@@ -3408,6 +3871,9 @@
     (.add root composer-palette)
     (.add root composer)
     (.add root composer-context-text)
+    (.add root agent-strip-text)
+    (.add detail-panel detail-text)
+    (.add root detail-panel)
     (.add (.-root renderer) root)
     (set! (.-visible (.-verticalScrollBar transcript-scroll)) false)
     (set! (.-visible (.-horizontalScrollBar transcript-scroll)) false)
