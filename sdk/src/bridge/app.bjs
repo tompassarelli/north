@@ -934,64 +934,175 @@
    ;; has three fields, which is every row with no fourth thing to say.
    detail: String])
 
-;; A hook's stored axis is permission, not activity. `on` is the pre-two-axis
-;; spelling of the same permission and still reads as one, so a manifest
-;; written by either generation of the CLI renders truthfully. Kept while an
-;; installed `agents` older than the unit taxonomy can still be the one writing
-;; the file; it costs one `or` and lying about a hook costs more.
+;; A hook's stored axis is permission, not activity. The pre-two-axis spelling
+;; `on` is gone: the CLI normalises every hook row to enabled/disabled when it
+;; touches the manifest, and the migration has landed, so a row spelled `on`
+;; can no longer reach this panel. Reading one as permission would now be a
+;; guess about a shape that does not occur.
 (defn config-hook-enabled? [state: String] -> Bool
-  (or (identical? state "enabled") (identical? state "on")))
+  (identical? state "enabled"))
 
-;; Pure: is the unit a hook follows switched on anywhere in the manifest? A
-;; companion names a *unit*, not specifically a skill: `firn` is a skill,
-;; `global` is a dir row, `orchestration` is a module. Every kind but `hook`
-;; stores its own activity in the state column, so the lookup spans all of them
-;; and excludes only hooks, whose activity is itself derived. A companion the
-;; manifest does not carry is not an on one.
+;; Membership is not in the manifest. A module's roster lives beside it in
+;; modules.d/<module>.json, so joining a bundle never rewrites the member's own
+;; row — the member keeps its own switch and gains a gate. One record per file
+;; that exists; a module with no file has no roster at all, which is a different
+;; fact from a module whose roster is empty (that one shows `0 members`).
+(defrecord ModuleMembership
+  [module: String
+   members: Any])
+
+;; Pure: the modules whose roster names this unit. Union semantics live here —
+;; a unit shared by two bundles has two owners and needs only one of them on.
+(defn config-owner-modules
+  [memberships: Any
+   name: String] -> Any
+  (.map (.filter memberships
+                 (fn [membership: Any] -> Bool
+                   (.includes (modulemembership-members membership) name)))
+        (fn [membership: Any] -> String
+          (modulemembership-module membership))))
+
+;; Pure: this module's roster, or nil when modules.d carries no file for it.
+;; Absence and emptiness are different answers and the row says so.
 (js/export
- (defn config-companion-on?
+ (defn config-module-members
+  [memberships: Any
+   name: String] -> Any
+  (let [found (.find memberships
+                     (fn [membership: Any] -> Bool
+                       (identical? (modulemembership-module membership) name)))]
+    (if found (modulemembership-members found) nil))))
+
+;; Pure: the row a name refers to. Members may be any kind, so this spans all of
+;; them; a companion may not be a hook (see config-entry-active?), so that
+;; lookup skips them.
+(defn config-find-entry
   [manifest: Any
-   name: String] -> Bool
-  (.some manifest
+   name: String] -> Any
+  (.find manifest
+         (fn [entry: Any] -> Bool
+           (identical? (configentry-name entry) name))))
+
+(defn config-find-companion
+  [manifest: Any
+   name: String] -> Any
+  (.find manifest
          (fn [entry: Any] -> Bool
            (and (not (identical? (configentry-kind entry) "hook"))
-                (identical? (configentry-name entry) name)
-                (identical? (configentry-state entry) "on"))))))
+                (identical? (configentry-name entry) name)))))
 
-;; Pure: the derived axis. Everything but a hook stores its own activity. A hook
-;; is active when the user permits it AND, if it is bound to a companion, that
-;; companion is on — so one flip changes many hook rows without touching their
-;; manifest lines. Needs the whole manifest, not the filtered view: /hooks shows
-;; no companion rows at all and still has to say which of its hooks are running.
+;; Pure: the whole activity formula, walked along one path so a cycle can be
+;; seen. A unit is active when
+;;
+;;   its own switch is on
+;;   AND (it belongs to no module OR at least one module holding it is active)
+;;   AND (for a hook, the unit it follows is active — the full chain, not that
+;;        unit's own switch, because a companion inside a switched-off bundle
+;;        is not composing either)
+;;
+;; `trail` is the names already on this path. Modules may hold modules, so the
+;; walk can revisit; a name that reappears is a cycle, and a cycle derives
+;; inactive rather than looping — nothing in it can be shown to be composing.
+(defn config-active-along?
+  [entry: Any
+   manifest: Any
+   memberships: Any
+   trail: Any] -> Bool
+  (let [name (configentry-name entry)]
+    (if (.includes trail name)
+      false
+      (let [walked (.concat trail [name])
+            kind (configentry-kind entry)
+            hook? (identical? kind "hook")
+            state (configentry-state entry)
+            own? (if hook?
+                   (config-hook-enabled? state)
+                   (identical? state "on"))
+            owners (config-owner-modules memberships name)
+            gated? (or (identical? (.-length owners) 0)
+                       (.some owners
+                              (fn [owner: String] -> Bool
+                                (let [row (config-find-entry manifest owner)]
+                                  (if row
+                                    (config-active-along? row manifest
+                                                          memberships walked)
+                                    false)))))
+            companion (if hook? (text (configentry-detail entry)) "")
+            followed? (if (identical? companion "")
+                        true
+                        (let [row (config-find-companion manifest companion)]
+                          (if row
+                            (config-active-along? row manifest memberships
+                                                  walked)
+                            false)))]
+        (and own? gated? followed?)))))
+
+;; Pure: the derived axis. Needs the whole manifest, not the filtered view —
+;; /hooks shows no companion rows at all and still has to say which of its hooks
+;; are running — and the memberships beside it, because a unit's own row never
+;; mentions the bundle that gates it.
 (js/export
  (defn config-entry-active?
   [entry: Any
-   manifest: Any] -> Bool
-  (let [state (configentry-state entry)]
-    (if (not (identical? (configentry-kind entry) "hook"))
-      (identical? state "on")
-      (and (config-hook-enabled? state)
-           (let [companion (text (configentry-detail entry))]
-             (or (identical? companion "")
-                 (config-companion-on? manifest companion))))))))
+   manifest: Any
+   memberships: Any] -> Bool
+  (config-active-along? entry manifest memberships [])))
 
-;; Pure: the state column's text. Both axes for a hook, one for everything else.
-;; A pin says only `disabled` — the derived activity of a hook the user has
-;; pinned off is not a fact anyone needs. A bound hook carries the unit it
-;; follows as provenance, which is the only place that relationship is visible.
+;; Pure: the same question asked by name, for callers holding a companion or a
+;; roster entry rather than a row. A name the manifest does not carry is not an
+;; active unit.
+(js/export
+ (defn config-unit-active?
+  [manifest: Any
+   memberships: Any
+   name: String] -> Bool
+  (let [entry (config-find-entry manifest name)]
+    (if entry (config-entry-active? entry manifest memberships) false))))
+
+;; Pure: the modules that are the reason this row is not composing — every
+;; module holding it, when none of them is active. Empty when the unit is in no
+;; module or one of its modules is on, because then the bundle is not what is
+;; standing in the way and naming it would be noise.
+(js/export
+ (defn config-gate-modules
+  [entry: Any
+   manifest: Any
+   memberships: Any] -> Any
+  (let [owners (config-owner-modules memberships (configentry-name entry))
+        open? (or (identical? (.-length owners) 0)
+                  (.some owners
+                         (fn [owner: String] -> Bool
+                           (config-unit-active? manifest memberships owner))))]
+    (if open? [] owners))))
+
+;; Pure: the state column's text. Both axes whenever they can disagree, one when
+;; they cannot, and the reason for every off the row's own switch does not
+;; explain. A pin says only `disabled` — the derived activity of a hook the user
+;; has pinned off is not a fact anyone needs. A bound hook carries the unit it
+;; follows; a gated unit of any kind carries the bundle that is holding it back,
+;; because `on` on a row that is not composing is otherwise a lie the panel
+;; tells silently.
 (js/export
  (defn config-state-text
   [entry: Any
+   manifest: Any
+   memberships: Any
    active?: Bool] -> String
   (let [state (configentry-state entry)
-        companion (text (configentry-detail entry))
+        hook? (identical? (configentry-kind entry) "hook")
+        own? (if hook? (config-hook-enabled? state) (identical? state "on"))
+        gates (config-gate-modules entry manifest memberships)
+        gate-note (if (identical? (.-length gates) 0)
+                    ""
+                    (str " (" (.join gates ", ") " off)"))
+        companion (if hook? (text (configentry-detail entry)) "")
         provenance (if (identical? companion "") "" (str " · " companion))]
-    (if (not (identical? (configentry-kind entry) "hook"))
-      (if (identical? state "on") "on" "off")
-      (cond
-        (not (config-hook-enabled? state)) "disabled"
-        active? (str "enabled · on" provenance)
-        :else (str "enabled · off" provenance))))))
+    (cond
+      (and hook? (not own?)) "disabled"
+      (not own?) "off"
+      hook? (str "enabled · " (if active? "on" "off") provenance gate-note)
+      active? "on"
+      :else (str "on · off" gate-note)))))
 
 ;; Pure: which CLI verb a space on this row means. Both axes flip through the
 ;; same two verbs — `off` pins a hook disabled or switches a unit off, `on`
@@ -1091,6 +1202,63 @@
 (defn config-manifest-path [] -> String
   (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
 
+;; Where the rosters live. A static path the panel reads directly, on exactly
+;; the trust it already extends to the manifest: both are files the CLI writes
+;; and nobody else does. Injectable through the runtime so a test can point the
+;; reader at a fixture directory instead of the machine's real one.
+(defn config-modules-dir [runtime: Any] -> String
+  (text-or (text (.-configModulesDir runtime))
+           (str (text (.-HOME (.-env process)))
+                "/code/nixos-config/main/dotfiles/agents/modules.d")))
+
+;; Pure: one modules.d file -> one roster. A file that is unreadable JSON, or
+;; carries no `members` array, is a module with an empty roster and never an
+;; exception: a broken roster must not take the switchboard down with it.
+(js/export
+ (defn config-membership-of-json
+  [module: String
+   content: String] -> Any
+  (try
+    (let [parsed (JSON/parse content)
+          members (if (and parsed (Array/isArray (.-members parsed)))
+                    (.-members parsed)
+                    [])]
+      (->ModuleMembership module
+                          (.map members (fn [member: Any] -> String
+                                          (text member)))))
+    (catch Error _ (->ModuleMembership module [])))))
+
+;; The roster directory need not exist — no module has ever been given members,
+;; or this machine has no nixos-config checkout — and that is not an error. No
+;; directory means no memberships, which means every unit gates on its own
+;; switch exactly as it did before bundles existed.
+(defn list-module-files! [directory: String] -> (Promise Any)
+  (try
+    (let [listing (js/await (run-command ["ls" directory]))]
+      (.filter (.split (.trim listing) "\n")
+               (fn [name: String] -> Bool (.endsWith name ".json"))))
+    (catch Error _ [])))
+
+(defn read-module-file! [path: String] -> (Promise String)
+  (try
+    (js/await (run-command ["cat" path]))
+    (catch Error _ "")))
+
+(js/export
+ (defn load-config-memberships!
+  [directory: String] -> (Promise Any)
+  (let [files (js/await (list-module-files! directory))
+        contents (js/await
+                  (Promise/all
+                   (.map files (fn [file: String] -> Any
+                                 (read-module-file! (str directory "/" file))))))]
+    (.map files
+          (fn [file: String
+               index: Int] -> Any
+            (config-membership-of-json
+             (.slice file 0 (- (.-length file) 5))
+             (text (aget contents index))))))))
+
 (defn ensure-config-manifest! [] -> (Promise Any)
   ;; `agents status` creates the manifest; only pay for it when absent.
   (try
@@ -1101,6 +1269,8 @@
 (defn load-config-entries! [runtime: Any] -> (Promise Any)
   (js/await (ensure-config-manifest!))
   (let [content (js/await (run-command ["cat" (config-manifest-path)]))
+        memberships (js/await (load-config-memberships!
+                               (config-modules-dir runtime)))
         config-filter (text-or (text (.-configFilter runtime)) "all")
         lines (.filter (.split content "\n")
                        (fn [line: String] -> Bool
@@ -1118,10 +1288,11 @@
         total (.-length entries)
         raw (.-configIndex runtime)
         current (if raw raw 0)]
-    ;; The filtered rows are what the panel shows; the whole manifest is what it
-    ;; needs to derive a hook's activity, because a narrowed view drops the very
-    ;; skill rows that decide it.
+    ;; The filtered rows are what the panel shows; the whole manifest plus the
+    ;; rosters are what it needs to derive activity, because a narrowed view
+    ;; drops the very rows that decide it and no row mentions its bundle.
     (set! (.-configAllEntries runtime) all-entries)
+    (set! (.-configMemberships runtime) memberships)
     (set! (.-configEntries runtime) entries)
     (set! (.-configIndex runtime)
           (Math/max 0 (Math/min current (- total 1))))
@@ -1965,9 +2136,13 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
+;; `dir` rows are instruction files that scope to a filetree — everything at or
+;; under one directory reads them — and `global` is that same shape with the
+;; root as its scope, which is why it heads the section rather than sitting in
+;; one of its own.
 (defn config-section-title [kind: String] -> String
   (cond
-    (identical? kind "dir") "DIRECTORY CONTEXT"
+    (identical? kind "dir") "FILETREE-SCOPED INSTRUCTIONS"
     (identical? kind "hook") "HOOKS"
     (identical? kind "skill") "SKILLS"
     (identical? kind "module") "MODULES"
@@ -1982,7 +2157,7 @@
     (identical? config-filter "plugin") "plugins"
     (identical? config-filter "module") "modules"
     (identical? config-filter "globals") "globals"
-    (identical? config-filter "agentsmd") "agents.md & directory context"
+    (identical? config-filter "agentsmd") "filetree-scoped instructions"
     :else "context switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
@@ -1990,18 +2165,32 @@
 (defn config-empty-note [loaded?: Bool] -> String
   (if loaded? " nothing to configure here" " loading…"))
 
-;; One row's label: the name, plus whatever the manifest carries after the
-;; state (a `dir` row's directory). Clipped to the panel so a long path cannot
-;; wrap and desync the rendered height from detail-body-lines. A hook's fourth
-;; field is the unit it follows, which the state column already carries as
-;; provenance — printing it twice on one row says nothing new.
+(defn config-member-count-text [count: Int] -> String
+  (str count (if (identical? count 1) " member" " members")))
+
+;; One row's label: the name, plus whatever the row has to add after the state.
+;; A `dir` row adds its directory. A `module` row adds the size of its roster,
+;; which is the one fact about a bundle that is nowhere else on screen — and
+;; only when modules.d actually carries a file for it, so "no roster yet" and
+;; "a roster with nobody in it" stay different answers. Clipped to the panel so
+;; a long path cannot wrap and desync the rendered height from
+;; detail-body-lines. A hook's fourth field is the unit it follows, which the
+;; state column already carries as provenance — printing it twice on one row
+;; says nothing new.
 (defn config-row-text
   [entry: Any
+   memberships: Any
    width: Int] -> String
-  (let [detail (if (identical? (configentry-kind entry) "hook")
-                 ""
-                 (text (configentry-detail entry)))
-        name (configentry-name entry)]
+  (let [kind (configentry-kind entry)
+        name (configentry-name entry)
+        members (config-module-members memberships name)
+        detail (cond
+                 (identical? kind "hook") ""
+                 (identical? kind "module")
+                 (if (nil? members)
+                   ""
+                   (config-member-count-text (.-length members)))
+                 :else (text (configentry-detail entry)))]
     (compact-text (if (identical? detail "")
                     name
                     (str name "  " detail))
@@ -2017,10 +2206,17 @@
 (defn config-state-width [kind: String] -> Int
   (if (identical? kind "hook") CONFIG-HOOK-STATE-WIDTH CONFIG-STATE-WIDTH))
 
-;; A hook's state is a phrase, not a word, so it needs more air before the name
-;; than `on`/`off` ever did. Every other kind keeps the geometry it has.
-(defn config-state-gap [kind: String] -> String
-  (if (identical? kind "hook") "  " " "))
+;; A state that is a phrase rather than a word needs more air before the name
+;; than `on`/`off` ever did: every hook row, and any row a module is gating,
+;; which now can be any kind. A row whose state still fits the three cells keeps
+;; the geometry it has.
+(defn config-state-gap
+  [kind: String
+   state-text: String] -> String
+  (if (or (identical? kind "hook")
+          (> (.-length state-text) CONFIG-STATE-WIDTH))
+    "  "
+    " "))
 
 (js/export
  (defn render-config-panel [runtime: Any] -> Any
@@ -2031,6 +2227,10 @@
         ;; same answer from them.
         stored-manifest (.-configAllEntries runtime)
         manifest (if stored-manifest stored-manifest entries)
+        ;; No rosters is a fact, not a missing input: before any module has
+        ;; members every unit gates on its own switch alone.
+        stored-memberships (.-configMemberships runtime)
+        memberships (if stored-memberships stored-memberships [])
         config-filter (text-or (text (.-configFilter runtime)) "all")
         sections? (config-view-sections? config-filter)]
     (if (identical? total 0)
@@ -2049,18 +2249,20 @@
                     (let [i (+ start offset)
                           cursor? (identical? i index)
                           kind (configentry-kind entry)
-                          active? (config-entry-active? entry manifest)
+                          active? (config-entry-active? entry manifest
+                                                        memberships)
                           ;; A user pin is neither on nor off — it is the reason
                           ;; a skill flip will not move this row — so it gets a
                           ;; tone of its own rather than sharing off's dim.
                           pinned? (and (identical? kind "hook")
                                        (not (config-hook-enabled?
                                              (configentry-state entry))))
-                          state-text (config-state-text entry active?)
+                          state-text (config-state-text entry manifest
+                                                        memberships active?)
                           state-column (str (.padEnd state-text
                                                      (config-state-width kind)
                                                      " ")
-                                            (config-state-gap kind))
+                                            (config-state-gap kind state-text))
                           label-width (Math/max 12
                                                 (- width (.-length state-column)))
                           prior (if (identical? i start)
@@ -2076,7 +2278,9 @@
                                     state-column))
                       (.push parts
                              ((if cursor? brightWhite brightBlack)
-                              (str (config-row-text entry label-width) tail))))))
+                              (str (config-row-text entry memberships
+                                                    label-width)
+                                   tail))))))
         (StyledText. parts))))))
 
 ;; ---------------------------------------------------------------------------

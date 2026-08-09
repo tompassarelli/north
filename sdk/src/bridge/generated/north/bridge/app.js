@@ -687,23 +687,77 @@ function configentry_state(r) { return r.state; }
 function configentry_detail(r) { return r.detail; }
 
 function config_hook_enabled_p(state) {
-  return ((state === "enabled") || (state === "on"));
+  return (state === "enabled");
 }
 
-export function config_companion_on_p(manifest, name) {
-  return manifest.some((entry) => ((!(configentry_kind(entry) === "hook")) && (configentry_name(entry) === name) && (configentry_state(entry) === "on")));
+function ModuleMembership(module, members) {
+  return Object.freeze({_tag: "ModuleMembership", module, members});
 }
 
-export function config_entry_active_p(entry, manifest) {
+function modulemembership_module(r) { return r.module; }
+
+function modulemembership_members(r) { return r.members; }
+
+function config_owner_modules(memberships, name) {
+  return memberships.filter((membership) => modulemembership_members(membership).includes(name)).map((membership) => modulemembership_module(membership));
+}
+
+export function config_module_members(memberships, name) {
+  const found = memberships.find((membership) => (modulemembership_module(membership) === name));
+  return (found ? modulemembership_members(found) : null);
+}
+
+function config_find_entry(manifest, name) {
+  return manifest.find((entry) => (configentry_name(entry) === name));
+}
+
+function config_find_companion(manifest, name) {
+  return manifest.find((entry) => ((!(configentry_kind(entry) === "hook")) && (configentry_name(entry) === name)));
+}
+
+function config_active_along_p(entry, manifest, memberships, trail) {
+  const name = configentry_name(entry);
+  if (trail.includes(name)) {
+    return false;
+  } else {
+    const walked = trail.concat([name]);
+    const kind = configentry_kind(entry);
+    const hook_p = (kind === "hook");
+    const state = configentry_state(entry);
+    const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
+    const owners = config_owner_modules(memberships, name);
+    const gated_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_entry(manifest, owner);
+return (row ? config_active_along_p(row, manifest, memberships, walked) : false); }));
+    const companion = (hook_p ? text(configentry_detail(entry)) : "");
+    const followed_p = ((companion === "") ? true : (() => { const row = config_find_companion(manifest, companion); return (row ? config_active_along_p(row, manifest, memberships, walked) : false); })());
+    return (own_p && gated_p && followed_p);
+  }
+}
+
+export function config_entry_active_p(entry, manifest, memberships) {
+  return config_active_along_p(entry, manifest, memberships, []);
+}
+
+export function config_unit_active_p(manifest, memberships, name) {
+  const entry = config_find_entry(manifest, name);
+  return (entry ? config_entry_active_p(entry, manifest, memberships) : false);
+}
+
+export function config_gate_modules(entry, manifest, memberships) {
+  const owners = config_owner_modules(memberships, configentry_name(entry));
+  const open_p = ((owners.length === 0) || owners.some((owner) => config_unit_active_p(manifest, memberships, owner)));
+  return (open_p ? [] : owners);
+}
+
+export function config_state_text(entry, manifest, memberships, active_p) {
   const state = configentry_state(entry);
-  return ((!(configentry_kind(entry) === "hook")) ? (state === "on") : (config_hook_enabled_p(state) && (() => { const companion = text(configentry_detail(entry)); return ((companion === "") || config_companion_on_p(manifest, companion)); })()));
-}
-
-export function config_state_text(entry, active_p) {
-  const state = configentry_state(entry);
-  const companion = text(configentry_detail(entry));
+  const hook_p = (configentry_kind(entry) === "hook");
+  const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
+  const gates = config_gate_modules(entry, manifest, memberships);
+  const gate_note = ((gates.length === 0) ? "" : ("".concat(" (", gates.join(", "), " off)")));
+  const companion = (hook_p ? text(configentry_detail(entry)) : "");
   const provenance = ((companion === "") ? "" : ("".concat(" · ", companion)));
-  return ((!(configentry_kind(entry) === "hook")) ? ((state === "on") ? "on" : "off") : (((!config_hook_enabled_p(state))) ? "disabled" : (active_p) ? ("".concat("enabled · on", provenance)) : ("".concat("enabled · off", provenance))));
+  return (((hook_p && (!own_p))) ? "disabled" : ((!own_p)) ? "off" : (hook_p) ? ("".concat("enabled · ", (active_p ? "on" : "off"), provenance, gate_note)) : (active_p) ? "on" : ("".concat("on · off", gate_note)));
 }
 
 export function config_toggle_verb(state) {
@@ -742,6 +796,43 @@ function config_manifest_path() {
   return ("".concat(text(process.env.HOME), "/.config/agents/manifest.conf"));
 }
 
+function config_modules_dir(runtime) {
+  return text_or(text(runtime.configModulesDir), ("".concat(text(process.env.HOME), "/code/nixos-config/main/dotfiles/agents/modules.d")));
+}
+
+export function config_membership_of_json(module, content) {
+  return (() => { try {
+    const parsed = JSON.parse(content);
+  const members = ((parsed && Array.isArray(parsed.members)) ? parsed.members : []);
+  return ModuleMembership(module, members.map((member) => text(member)));
+  } catch (__) {
+    return ModuleMembership(module, []);
+  } })();
+}
+
+async function list_module_files_bang(directory) {
+  return (async () => { try {
+    const listing = await run_command(["ls", directory]);
+  return listing.trim().split("\n").filter((name) => name.endsWith(".json"));
+  } catch (__) {
+    return [];
+  } })();
+}
+
+async function read_module_file_bang(path) {
+  return (async () => { try {
+    return await run_command(["cat", path]);
+  } catch (__) {
+    return "";
+  } })();
+}
+
+export async function load_config_memberships_bang(directory) {
+  const files = await list_module_files_bang(directory);
+  const contents = await Promise.all(files.map((file) => read_module_file_bang(("".concat(directory, "/", file)))));
+  return files.map((file, index) => config_membership_of_json(file.slice(0, (file.length - 5)), text(contents[index])));
+}
+
 async function ensure_config_manifest_bang() {
   return (async () => { try {
     return await run_command(["test", "-f", config_manifest_path()]);
@@ -753,6 +844,7 @@ async function ensure_config_manifest_bang() {
 async function load_config_entries_bang(runtime) {
   await ensure_config_manifest_bang();
   const content = await run_command(["cat", config_manifest_path()]);
+  const memberships = await load_config_memberships_bang(config_modules_dir(runtime));
   const config_filter = text_or(text(runtime.configFilter), "all");
   const lines = content.split("\n").filter((line) => (!(line.trim() === "")));
   const all_entries = lines.map((line) => { const parts = line.trim().split(" ").filter((part) => (!(part === "")));
@@ -762,6 +854,7 @@ return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2]), parts.slice(3
   const raw = runtime.configIndex;
   const current = (raw ? raw : 0);
   (runtime.configAllEntries = all_entries);
+  (runtime.configMemberships = memberships);
   (runtime.configEntries = entries);
   (runtime.configIndex = Math.max(0, Math.min(current, (total - 1))));
   (runtime.configLoaded = true);
@@ -1245,20 +1338,26 @@ function visible_notice(notice) {
 }
 
 function config_section_title(kind) {
-  return (((kind === "dir")) ? "DIRECTORY CONTEXT" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
+  return (((kind === "dir")) ? "FILETREE-SCOPED INSTRUCTIONS" : ((kind === "hook")) ? "HOOKS" : ((kind === "skill")) ? "SKILLS" : ((kind === "module")) ? "MODULES" : ((kind === "plugin")) ? "PLUGINS" : ((kind === "other")) ? "OTHER" : kind);
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "agents.md & directory context" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "filetree-scoped instructions" : "context switchboard");
 }
 
 function config_empty_note(loaded_p) {
   return (loaded_p ? " nothing to configure here" : " loading…");
 }
 
-function config_row_text(entry, width) {
-  const detail = ((configentry_kind(entry) === "hook") ? "" : text(configentry_detail(entry)));
+function config_member_count_text(count) {
+  return ("".concat(count, ((count === 1) ? " member" : " members")));
+}
+
+function config_row_text(entry, memberships, width) {
+  const kind = configentry_kind(entry);
   const name = configentry_name(entry);
+  const members = config_module_members(memberships, name);
+  const detail = (((kind === "hook")) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
   return compact_text(((detail === "") ? name : ("".concat(name, "  ", detail))), width);
 }
 
@@ -1270,8 +1369,8 @@ function config_state_width(kind) {
   return ((kind === "hook") ? CONFIG_HOOK_STATE_WIDTH : CONFIG_STATE_WIDTH);
 }
 
-function config_state_gap(kind) {
-  return ((kind === "hook") ? "  " : " ");
+function config_state_gap(kind, state_text) {
+  return (((kind === "hook") || (state_text.length > CONFIG_STATE_WIDTH)) ? "  " : " ");
 }
 
 export function render_config_panel(runtime) {
@@ -1279,6 +1378,8 @@ export function render_config_panel(runtime) {
   const total = (entries ? entries.length : 0);
   const stored_manifest = runtime.configAllEntries;
   const manifest = (stored_manifest ? stored_manifest : entries);
+  const stored_memberships = runtime.configMemberships;
+  const memberships = (stored_memberships ? stored_memberships : []);
   const config_filter = text_or(text(runtime.configFilter), "all");
   const sections_p = config_view_sections_p(config_filter);
   if ((total === 0)) {
@@ -1293,10 +1394,10 @@ export function render_config_panel(runtime) {
     entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
-const active_p = config_entry_active_p(entry, manifest);
+const active_p = config_entry_active_p(entry, manifest, memberships);
 const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
-const state_text = config_state_text(entry, active_p);
-const state_column = ("".concat(state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind)));
+const state_text = config_state_text(entry, manifest, memberships, active_p);
+const state_column = ("".concat(state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
 const label_width = Math.max(12, (width - state_column.length));
 const prior = ((i === start) ? "" : configentry_kind(entries[(i - 1)]));
 const tail = (((i + 1) === stop) ? "" : "\n");
@@ -1305,7 +1406,7 @@ if ((sections_p && (!(kind === prior)))) {
 }
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
 parts.push((((pinned_p) ? brightYellow : (active_p) ? brightGreen : brightBlack))(state_column));
-return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(config_row_text(entry, label_width), tail)))); });
+return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(config_row_text(entry, memberships, label_width), tail)))); });
     return new StyledText(parts);
   }
 }
