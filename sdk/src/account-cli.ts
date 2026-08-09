@@ -106,6 +106,30 @@ function printAccountList(
   }
 }
 
+// Reasons that mean "the codex probe's dependency could not be reached at
+// all" (process missing, transport refused/died, or the probe never got a
+// response inside its deadline) rather than a meaningful provider-side
+// diagnostic (auth, schema). When every configured Codex account hits one of
+// these in the same refresh, the user is in a blackout, not looking at N
+// independent incidents — render one calm line instead of N noisy blocks.
+const CODEX_COLLECTORS_OFFLINE_REASONS = new Set<AccountUsageReport["reason"]>([
+  "codex_usage_command_unavailable",
+  "codex_usage_transport_failed",
+  "codex_usage_probe_timed_out",
+]);
+
+function codexCollectorsOffline(
+  group: typeof ACCOUNT_GROUPS[number],
+  grouped: ProviderAccount[],
+  reports: AccountUsageReport[],
+): boolean {
+  if (group.provider !== "openai" || !grouped.length) return false;
+  return grouped.every((account) => {
+    const reason = reports.find(({ accountId }) => accountId === account.id)?.reason;
+    return reason !== undefined && CODEX_COLLECTORS_OFFLINE_REASONS.has(reason);
+  });
+}
+
 function usageReasonLabel(reason: AccountUsageReport["reason"]): string {
   switch (reason) {
     case "anthropic_usage_capability_unavailable": return "Claude SDK usage control is unavailable";
@@ -174,6 +198,10 @@ function printPlainUsageReports(
     if (!firstGroup) console.log();
     firstGroup = false;
     console.log(group.label);
+    if (codexCollectorsOffline(group, grouped, reports)) {
+      console.log("  codex usage: collectors offline");
+      continue;
+    }
     for (const account of grouped) {
       const report = reports.find(({ accountId }) => accountId === account.id)!;
       console.log(`  ${account.id}`);
@@ -237,6 +265,10 @@ function printStyledUsageReports(
     if (!firstGroup) console.log();
     firstGroup = false;
     console.log(style.section(group.label));
+    if (codexCollectorsOffline(group, grouped, reports)) {
+      console.log(style.warn("  codex usage: collectors offline"));
+      continue;
+    }
     for (const [accountIndex, account] of grouped.entries()) {
       if (accountIndex) console.log();
       const report = reports.find(({ accountId }) => accountId === account.id)!;
