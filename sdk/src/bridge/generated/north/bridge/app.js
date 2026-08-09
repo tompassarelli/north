@@ -209,7 +209,17 @@ const STRIP_SEPARATOR = " · ";
 
 const STRIP_INDENT = 2;
 
-const DETAIL_WINDOW = 12;
+const CHROME_ROWS = 5;
+
+const MIN_WORKSPACE_ROWS = 4;
+
+function fitted_window(total, rows, reserved) {
+  return Math.max(1, Math.min(total, (rows - reserved)));
+}
+
+function window_start(index, total, visible) {
+  return Math.max(0, Math.min((index - Math.floor((visible / 2))), (total - visible)));
+}
 
 const DEFAULT_PROMPT_GLYPH = "❯";
 
@@ -225,7 +235,7 @@ const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯"
 
 const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/steer", "steer the selected agent", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Graph, or Board view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
+const WORK_COMMANDS = [SlashCommand("/capture", "capture a new work thread", true, "", false), SlashCommand("/filter", "filter visible work", true, "", false), SlashCommand("/assign", "reassign the selected work", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/view", "switch List, Board, or Graph view", true, "", false), SlashCommand("/split", "switch horizontal or vertical layout", true, "", false), SlashCommand("/refresh", "refresh agents and work", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and globals", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show work commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -360,7 +370,7 @@ function exit_command_p(name) {
 
 function emoji_options(query) {
   const needle = query.trim().toLowerCase();
-  return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle))).slice(0, 8);
+  return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
 }
 
 function glyph_options(query) {
@@ -373,7 +383,7 @@ function palette_options(pane, input) {
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
   const commands = ((pane === "agents") ? AGENT_COMMANDS : WORK_COMMANDS);
-  return (((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)).slice(0, 8));
+  return (((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
 }
 
 function submit_key_p(name) {
@@ -861,7 +871,7 @@ function recognized_work_view_p(view_id) {
 }
 
 function view_list(state) {
-  return [WorkView("list", "List", bridgesnapshot_list(state)), WorkView("graph", "Graph", bridgesnapshot_list(state)), WorkView("board", "Board", bridgesnapshot_board(state))];
+  return [WorkView("list", "List", bridgesnapshot_list(state)), WorkView("board", "Board", bridgesnapshot_board(state)), WorkView("graph", "Graph", bridgesnapshot_list(state))];
 }
 
 function selected_view(state, view_id) {
@@ -925,7 +935,7 @@ function push_chunk_bang(chunks, chunk) {
   return chunks.push(chunk);
 }
 
-function render_command_palette_bang(commands, selected) {
+function render_command_palette_bang(commands, selected, more) {
   const chunks = [];
   commands.forEach((candidate, index) => { push_chunk_bang(chunks, ((index === selected) ? brightCyan("› ") : brightBlack("  ")));
 push_chunk_bang(chunks, (((index === selected) ? brightGreen : brightWhite))(slashcommand_name(candidate).padEnd(13, " ")));
@@ -933,6 +943,10 @@ push_chunk_bang(chunks, brightBlack(slashcommand_description(candidate)));
 if ((index < (commands.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
 } });
+  if ((more > 0)) {
+    push_chunk_bang(chunks, white("\n"));
+    push_chunk_bang(chunks, brightBlack(("".concat("  … ", more, " more"))));
+  }
   return new StyledText(chunks);
 }
 
@@ -1167,7 +1181,7 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
     push_chunk_bang(chunks, brightBlack(session_context_text(runtime)));
   }
   if (((items.length === 0) && (!runtime.working))) {
-    push_chunk_bang(chunks, brightBlack(("".concat("Starting ", supervisor_label(), "…"))));
+    push_chunk_bang(chunks, brightBlack(("".concat("Starting ", main_agent_label(), "…"))));
   }
   return new StyledText(chunks);
 }
@@ -1193,10 +1207,9 @@ function render_config_panel(runtime) {
   if ((total === 0)) {
     return new StyledText([brightYellow(config_panel_title(config_filter)), brightBlack(" loading…")]);
   } else {
-    const raw = runtime.configIndex;
-    const index = Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
-    const window = 12;
-    const start = Math.max(0, Math.min((index - 5), (total - window)));
+    const index = clamped_index(runtime.configIndex, total);
+    const window = config_visible_count(total, sections_p);
+    const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
     const parts = [brightYellow(config_panel_title(config_filter)), brightBlack("  ↑/↓ move · space on/off · enter edit · esc close\n")];
     entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
@@ -1236,8 +1249,16 @@ function detail_agents(runtime) {
   return segment_agents(bridgesnapshot_agents(state), text_or(text(runtime.detailSegment), "all"));
 }
 
-function detail_window_start(index, total) {
-  return Math.max(0, Math.min((index - 5), (total - DETAIL_WINDOW)));
+const DETAIL_CHROME_ROWS = 3;
+
+const CONFIG_SECTION_ROWS = 3;
+
+function detail_visible_count(total, extra) {
+  return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
+}
+
+function config_visible_count(total, sections_p) {
+  return detail_visible_count(total, (sections_p ? CONFIG_SECTION_ROWS : 0));
 }
 
 function clamped_index(raw, total) {
@@ -1257,14 +1278,15 @@ function config_detail_lines(runtime) {
     return 1;
   } else {
     const index = clamped_index(runtime.configIndex, total);
-    const start = detail_window_start(index, total);
-    const stop = Math.min(total, (start + DETAIL_WINDOW));
+    const window = config_visible_count(total, sections_p);
+    const start = window_start(index, total, window);
+    const stop = Math.min(total, (start + window));
     return (1 + (stop - start) + config_header_lines(entries, sections_p, start, stop));
   }
 }
 
 function detail_body_lines(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (1 + Math.max(1, Math.min(DETAIL_WINDOW, detail_agents(runtime).length))) : 0);
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; return (1 + Math.max(1, Math.min(total, detail_visible_count(total, 0)))); })() : 0);
 }
 
 function detail_height(runtime) {
@@ -1290,8 +1312,9 @@ function render_agent_detail(runtime) {
     return new StyledText(parts.concat([brightBlack("  no agents in this state")]));
   } else {
     const index = clamped_index(runtime.detailIndex, total);
-    const start = detail_window_start(index, total);
-    const stop = Math.min(total, (start + DETAIL_WINDOW));
+    const window = detail_visible_count(total, 0);
+    const start = window_start(index, total, window);
+    const stop = Math.min(total, (start + window));
     const width = Math.max(12, (terminal_columns() - 8));
     agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
@@ -1575,19 +1598,38 @@ function work_content_bang(runtime, state, view, selected) {
 }
 
 function minibuffer_placeholder(runtime) {
-  return ((text(runtime.pane) === "agents") ? ("".concat("Message ", supervisor_label(), "…")) : "/view list|graph|board, /capture, /filter, /assign");
+  return ((text(runtime.pane) === "agents") ? ("".concat("Message ", main_agent_label(), "…")) : "/view list|board|graph, /capture, /filter, /assign");
+}
+
+function palette_visible_count(total, rows, docked) {
+  return fitted_window(total, rows, (CHROME_ROWS + MIN_WORKSPACE_ROWS + docked));
+}
+
+function palette_option_rows(total, window) {
+  return (((total > window) && (window > 1)) ? (window - 1) : window);
+}
+
+function palette_overflow(total, window, rows) {
+  return (((total > rows) && (window > rows)) ? (total - rows) : 0);
 }
 
 function render_minibuffer_bang(runtime, ui) {
   const pane = text(runtime.pane);
   const input = ui.composerInput;
   const options = palette_options(pane, text(input.value));
-  const palette_max = Math.max(0, (options.length - 1));
-  (runtime.paletteIndex = Math.max(0, Math.min(runtime.paletteIndex, palette_max)));
+  const total = options.length;
+  const index = Math.max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
+  const docked = (detail_open_p(runtime) ? detail_height(runtime) : 0);
+  const window = palette_visible_count(total, terminal_rows(), docked);
+  const rows = palette_option_rows(total, window);
+  const start = window_start(index, total, rows);
+  (runtime.paletteIndex = index);
+  (runtime.paletteStart = start);
+  (runtime.paletteRows = rows);
   (input.placeholder = minibuffer_placeholder(runtime));
-  (ui.composerPalette.visible = (options.length > 0));
-  (ui.composerPalette.height = Math.max(1, Math.min(8, options.length)));
-  (ui.composerPalette.content = ((options.length > 0) ? render_command_palette_bang(options, runtime.paletteIndex) : ""));
+  (ui.composerPalette.visible = (total > 0));
+  (ui.composerPalette.height = window);
+  (ui.composerPalette.content = ((total > 0) ? render_command_palette_bang(options.slice(start, (start + rows)), (index - start), palette_overflow(total, window, rows)) : ""));
   return options;
 }
 
@@ -1643,7 +1685,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
     (runtime.supervisorId = execution_id);
     (runtime.agentIndex = 0);
   }
-  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? supervisor_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
+  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? main_agent_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
   return runtime.render();
 }
 
@@ -1760,9 +1802,9 @@ function supervisor_provider_flag() {
   return (((value === "anthropic")) ? "--claude" : ((value === "openai")) ? "--openai" : "");
 }
 
-function supervisor_label() {
+function main_agent_label() {
   const value = text(process.env.NORTH_BRIDGE_PROVIDER).trim();
-  return (((value === "anthropic")) ? "Claude supervisor" : ((value === "openai")) ? "Codex supervisor" : "Supervisor");
+  return (((value === "anthropic")) ? "Claude Main" : ((value === "openai")) ? "Codex Main" : "Main");
 }
 
 async function launch_agent_bang(runtime, prompt, role) {
@@ -1772,7 +1814,7 @@ async function launch_agent_bang(runtime, prompt, role) {
   if ((!(role === "supervisor"))) {
     upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "user"), "user", "", prompt.trim(), "done"));
   }
-  set_working_bang(runtime, true, ("".concat("Starting ", supervisor_label())));
+  set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label())));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
   const exit_code = await stream_command((() => { const flag = supervisor_provider_flag(); const base = [NORTH_BIN, "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")]; return ((flag === "") ? [...base, prompt] : [...[...base, flag], prompt]); })(), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
   if ((!(exit_code === 0))) {
@@ -1852,7 +1894,7 @@ async function submit_work_bang(runtime, ui, input, selection) {
   const rest = parsedcommand_rest(parsed);
   return ((!slash_p) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : ((exit_command_p(name)) ? destroy_bang(runtime) : ((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
 return runtime.render(); })() : ((name === "view")) ? (() => { if ((!recognized_work_view_p(rest))) {
-  (() => { throw new Error("view requires list, graph, or board"); })();
+  (() => { throw new Error("view requires list, board, or graph"); })();
 }
 (runtime.model = focus_view(runtime.model, canonical_work_view(rest)));
 (runtime.workIndex = 0);
@@ -1884,7 +1926,7 @@ if ((result === "")) {
 }
 await run_command([NORTH_BIN, "tell", thread_id, "outcome", result]);
 (runtime.workspaceNotice = ("".concat("Recorded outcome for @", thread_id, ".")));
-return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|graph|board, /split h|v, /refresh, /popout, /exit") : (() => { throw new Error("unknown work command; use /help"); })())));
+return await refresh_bang(runtime); })() : ((name === "help")) ? publish_line_bang(runtime, "work commands: /capture <title>, /filter <text>, /assign <driver>, /outcome <id> <result>, /view list|board|graph, /split h|v, /refresh, /popout, /exit") : (() => { throw new Error("unknown work command; use /help"); })())));
 }
 
 function report_promise_bang(runtime, promise) {
@@ -2035,6 +2077,81 @@ function resize_focused_pane_bang(runtime, ui, amount) {
   }
 }
 
+function pointer_pane_cells(pointer, origin, total, minimum) {
+  return Math.max(minimum, Math.min((total - minimum), ((pointer - origin) + 1)));
+}
+
+function divider_grab_p(pointer, origin, cells) {
+  const divider = (origin + (cells - 1));
+  return ((pointer >= (divider - 1)) && (pointer <= (divider + 1)));
+}
+
+function measured_cells(value) {
+  return (((typeof value === "number") && Number.isFinite(value) && (value > 0)) ? Math.round(value) : 0);
+}
+
+function pane_pointer(event, stacked_p) {
+  return Math.round((stacked_p ? event.y : event.x));
+}
+
+function pane_origin(ui, stacked_p) {
+  return Math.round((stacked_p ? ui.agentsPane.y : ui.agentsPane.x));
+}
+
+function pane_divider_grabbed_p(runtime, ui, event) {
+  if ((!(text(runtime.closedPane) === ""))) {
+    return false;
+  } else {
+    const stacked_p = stacked_workspace_p(snapshot(runtime.model));
+    const cells = measured_cells((stacked_p ? ui.agentsPane.height : ui.agentsPane.width));
+    return ((cells > 0) && divider_grab_p(pane_pointer(event, stacked_p), pane_origin(ui, stacked_p), cells));
+  }
+}
+
+function drag_pane_divider_bang(runtime, ui, event) {
+  if ((text(runtime.closedPane) === "")) {
+    const state = snapshot(runtime.model);
+    const stacked_p = stacked_workspace_p(state);
+    const total = workspace_primary_cells(runtime, ui, state);
+    const minimum = minimum_pane_cells(state, total);
+    const cells = pointer_pane_cells(pane_pointer(event, stacked_p), pane_origin(ui, stacked_p), total, minimum);
+    (runtime.workspaceNotice = "");
+    (runtime.paneRatio = (100 * (cells / total)));
+    return runtime.render();
+  }
+}
+
+function start_pane_drag_bang(runtime, ui, event) {
+  if ((!pane_divider_grabbed_p(runtime, ui, event))) {
+    (runtime.paneDragging = false);
+    return false;
+  } else {
+    (runtime.paneDragging = true);
+    event.preventDefault();
+    event.stopPropagation();
+    drag_pane_divider_bang(runtime, ui, event);
+    return true;
+  }
+}
+
+function continue_pane_drag_bang(runtime, ui, event) {
+  if (runtime.paneDragging) {
+    event.preventDefault();
+    event.stopPropagation();
+    return drag_pane_divider_bang(runtime, ui, event);
+  }
+}
+
+function end_pane_drag_bang(runtime) {
+  return (runtime.paneDragging = false);
+}
+
+function install_pane_divider_bang(runtime, ui, pane) {
+  (pane.onMouseDrag = (event) => continue_pane_drag_bang(runtime, ui, event));
+  (pane.onMouseDragEnd = (__event) => end_pane_drag_bang(runtime));
+  return (pane.onMouseUp = (__event) => end_pane_drag_bang(runtime));
+}
+
 function workspace_count(context) {
   const payload = context.payload;
   const raw = Number((payload ? payload.count : 1));
@@ -2127,9 +2244,23 @@ if ((!(input === ""))) {
 } });
 }
 
-function work_tab_at(tabs, event) {
-  const x = (event.x - tabs.x);
-  return ((((x >= 6) && (x < 12))) ? "list" : (((x >= 14) && (x < 21))) ? "graph" : (((x >= 23) && (x < 30))) ? "board" : "");
+const WORK_TAB_ORIGIN = 6;
+
+const WORK_TAB_GAP = 2;
+
+function work_tab_id_at(views, column) {
+  const cursor = {x: WORK_TAB_ORIGIN, id: ""};
+  views.forEach((view) => { const start = cursor.x;
+const width = (workview_title(view).length + 2);
+if (((column >= start) && (column < (start + width)))) {
+  (cursor.id = workview_id(view));
+}
+return (cursor.x = (start + width + WORK_TAB_GAP)); });
+  return text(cursor.id);
+}
+
+function work_tab_at(tabs, event, views) {
+  return work_tab_id_at(views, Math.floor((event.x - tabs.x)));
 }
 
 function complete_clicked_palette_bang(runtime, ui, pane, palette_renderable, event) {
@@ -2138,10 +2269,15 @@ function complete_clicked_palette_bang(runtime, ui, pane, palette_renderable, ev
     const input = ui.composerInput;
     const options = palette_options(pane, text(input.value));
     const row = Math.floor((event.y - palette_renderable.y));
-    if (((row >= 0) && (row < options.length))) {
+    const scrolled = runtime.paletteStart;
+    const start = (scrolled ? scrolled : 0);
+    const drawn = runtime.paletteRows;
+    const rows = (drawn ? drawn : 0);
+    const picked = (start + row);
+    if (((row >= 0) && (row < rows) && (picked < options.length))) {
       event.preventDefault();
       event.stopPropagation();
-      (runtime.paletteIndex = row);
+      (runtime.paletteIndex = picked);
       return complete_palette_bang(runtime, ui, options);
     }
   }
@@ -2205,11 +2341,17 @@ function handle_list_click_bang(runtime, ui, event) {
 
 function install_mouse_bang(runtime, ui) {
   (ui.agentsPane.onMouseDown = (event) => { if ((event.button === 0)) {
-  return focus_pane_surface_bang(runtime, ui, "agents");
+  if ((!start_pane_drag_bang(runtime, ui, event))) {
+    return focus_pane_surface_bang(runtime, ui, "agents");
+  }
 } });
   (ui.workPane.onMouseDown = (event) => { if ((event.button === 0)) {
-  return focus_pane_surface_bang(runtime, ui, "work");
+  if ((!start_pane_drag_bang(runtime, ui, event))) {
+    return focus_pane_surface_bang(runtime, ui, "work");
+  }
 } });
+  install_pane_divider_bang(runtime, ui, ui.agentsPane);
+  install_pane_divider_bang(runtime, ui, ui.workPane);
   (ui.composer.onMouseDown = (event) => { if ((event.button === 0)) {
   event.stopPropagation();
   clear_strip_focus_bang(runtime);
@@ -2230,7 +2372,7 @@ function install_mouse_bang(runtime, ui) {
   (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.pane), ui.composerPalette, event));
   (ui.workText.onMouseDown = (event) => handle_list_click_bang(runtime, ui, event));
   return (ui.tabsText.onMouseDown = (event) => { if ((event.button === 0)) {
-  const view_id = work_tab_at(ui.tabsText, event);
+  const view_id = work_tab_at(ui.tabsText, event, view_list(snapshot(runtime.model)));
   if ((!(view_id === ""))) {
     event.preventDefault();
     event.stopPropagation();
@@ -2265,7 +2407,7 @@ function install_keys_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
   const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  return (((detail_showing_p(runtime, "config") && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || (name === "escape") || (name === "esc")))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+  return (((detail_showing_p(runtime, "config") && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || (name === "escape") || (name === "esc")))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if (((name === "escape") || (name === "esc"))) {
   close_detail_bang(runtime);
@@ -2372,7 +2514,7 @@ return runtime.render(); })() : (((name === "escape") || (name === "esc"))) ? ((
 async function open_app_bang(view_id) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, paneDragging: false, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b", focusable: true});
@@ -2388,13 +2530,13 @@ async function open_app_bang(view_id) {
   const status_text = new TextRenderable(renderer, {flexShrink: 0, wrapMode: "word"});
   const agent_status_text = new TextRenderable(renderer, {visible: false, flexShrink: 0, wrapMode: "word"});
   const composer_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
-  const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
+  const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
   const composer_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
   const agent_strip_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
   const detail_panel = new BoxRenderable(renderer, {visible: false, width: "100%", height: 5, flexDirection: "column", flexShrink: 0, border: true, borderColor: "#64748b", paddingLeft: 1, paddingRight: 1});
   const detail_text = new TextRenderable(renderer, {width: "100%", flexGrow: 1, wrapMode: "none"});
   const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", supervisor_label(), "…"))});
+  const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", main_agent_label(), "…"))});
   const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input, agentStripText: agent_strip_text, detailPanel: detail_panel, detailText: detail_text};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);
