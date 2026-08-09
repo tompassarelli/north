@@ -65,12 +65,15 @@ class IdleSession implements BridgeProviderSession {
   }
 }
 
-async function fixture(identity: () => string | undefined) {
+async function fixture(
+  identity: () => string | undefined,
+  open?: () => Promise<BridgeProviderSession>,
+) {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-staleness-"));
   const socketPath = join(root, "northd.sock");
   let opens = 0;
   const provider: BridgeProviderExecution = {
-    async open() { opens += 1; return new IdleSession(); },
+    async open() { opens += 1; return open ? open() : new IdleSession(); },
   };
   let retired = 0;
   const northd = new Northd({
@@ -150,6 +153,61 @@ test("every connection opens with an identity hello", async () => {
   expect(hello.liveExecutions).toBe(0);
   expect(hello.pid).toBe(process.pid);
   session.socket.destroy();
+});
+
+async function liveExecutions(socketPath: string): Promise<number> {
+  const probe = await client(socketPath, { op: "attach", executionId: "missing", cursor: 0 });
+  await waitFor(() => probe.messages.length > 0, "hello");
+  const hello = probe.messages[0];
+  probe.socket.destroy();
+  await probe.closed;
+  expect(hello.type).toBe("hello");
+  return hello.liveExecutions;
+}
+
+// Tonight's real failures — anthropic_harness_authority_seal_missing,
+// bwrap_executable_unavailable — all land here: the provider refuses before
+// there is anything to drive. An execution that never started must not be one
+// of the sessions the daemon is waiting on.
+test("a session whose provider refuses at admit stops holding the daemon open", async () => {
+  let disk = "rev-a";
+  const { socketPath, retireCount } = await fixture(() => disk, async () => {
+    throw new Error("bwrap_executable_unavailable");
+  });
+  const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
+  await waitFor(
+    () => launched.messages.some((message) =>
+      message.type === "event" && message.record.kind === "execution.failed"),
+    "provider refusal",
+  );
+  expect(await liveExecutions(socketPath)).toBe(0);
+
+  // And with nothing live, the checkout moving under the daemon retires it —
+  // the idle-stale path a phantom session used to hold shut forever.
+  disk = "rev-b";
+  await waitFor(() => retireCount() === 1, "retirement after a refused session");
+  await waitFor(() => !existsSync(socketPath), "socket teardown");
+});
+
+// The failure the daemon cannot even write down: the provider's error is larger
+// than a journal record, so the terminal record fails too. Liveness follows the
+// provider, never the journal, or an execution nobody can finish pins the
+// daemon against replacement.
+test("a failure the journal cannot record still releases the daemon", async () => {
+  let disk = "rev-a";
+  const { socketPath, retireCount } = await fixture(() => disk, async () => {
+    throw new Error("x".repeat(9 * 1024 * 1024));
+  });
+  const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
+  await waitFor(
+    () => launched.messages.some((message) => message.type === "error"),
+    "unjournalable failure reported to the client",
+  );
+  expect(await liveExecutions(socketPath)).toBe(0);
+  launched.socket.destroy();
+
+  disk = "rev-b";
+  await waitFor(() => retireCount() === 1, "retirement after an unjournalable failure");
 });
 
 test("retire op retires an idle daemon on demand", async () => {
