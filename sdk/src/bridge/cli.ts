@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
-import { connect, type Socket } from "node:net";
+import { Socket } from "node:net";
 import { resolve } from "node:path";
 import {
   bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole,
@@ -23,6 +23,7 @@ function usage(): never {
     "usage: north bridge [app|tui] [--claude|--openai] [--view-id ID]  (opens the app)"
     + " | north bridge [--role director|implementer] [--claude|--openai] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
+    + " | north bridge restart  (retire the control daemon now)"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>"
@@ -140,13 +141,17 @@ function runDashboard(args: string[]): Promise<number> {
 
 function openSocket(path: string): Promise<Socket> {
   return new Promise((resolveSocket, reject) => {
-    const socket = connect(path);
+    // Listeners first, then connect: a missing or dead socket path can fail
+    // during the connect call itself, and an error emitted before anything is
+    // listening is an uncaught error rather than this promise's rejection.
+    const socket = new Socket();
     const onError = (error: Error) => { socket.destroy(); reject(error); };
     socket.once("error", onError);
     socket.once("connect", () => {
       socket.off("error", onError);
       resolveSocket(socket);
     });
+    socket.connect(path);
   });
 }
 
@@ -169,7 +174,7 @@ async function connectedSocket(path: string): Promise<Socket> {
   throw new Error(`northd did not open ${path}`, { cause: lastError });
 }
 
-function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | null> {
+export function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | null> {
   return new Promise((resolveHello) => {
     let buffer = "";
     const finish = (value: BridgeHello | null) => {
@@ -192,23 +197,29 @@ function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | nul
   });
 }
 
+export interface BridgeConnection {
+  socket: Socket;
+  hello: BridgeHello | null;
+}
+
 /**
  * The staleness contract, client side: never talk to a daemon whose source
  * identity differs from the checkout — retire it when idle, replace it when
  * it predates the handshake, and only tolerate it while live sessions drain.
  */
-async function verifiedSocket(path: string): Promise<Socket> {
+export async function verifiedSocket(path: string): Promise<BridgeConnection> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const socket = await connectedSocket(path);
     const hello = await readHello(socket, 750);
     const disk = bridgeSourceIdentity();
     const fresh = hello !== null
       && (hello.identity === undefined || disk === undefined || hello.identity === disk);
-    if (fresh) return socket;
+    if (fresh) return { socket, hello };
     if (hello !== null && hello.liveExecutions > 0) {
       console.error(`north bridge: northd is stale with ${hello.liveExecutions} live session(s);`
-        + " new launches will be refused until it drains");
-      return socket;
+        + " run 'north bridge restart' to replace it now, or new launches are refused"
+        + " until it drains");
+      return { socket, hello };
     }
     if (hello !== null) {
       socket.write(`${JSON.stringify({ op: "retire" })}\n`);
@@ -222,6 +233,47 @@ async function verifiedSocket(path: string): Promise<Socket> {
     await Bun.sleep(50);
   }
   throw new Error("northd did not present a fresh identity after replacement");
+}
+
+async function daemonListening(path: string): Promise<boolean> {
+  try {
+    const socket = await openSocket(path);
+    socket.destroy();
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * The deliberate force path. Staleness normally resolves itself — a stale idle
+ * daemon retires at the handshake — but a session the operator has given up on
+ * still counts as live, and no amount of waiting drains it. `restart` drains
+ * nothing: it tells the daemon to go now and waits for the socket to close, so
+ * the next connect spawns a daemon built from the checkout on disk.
+ */
+export async function runBridgeRestart(path: string): Promise<number> {
+  let socket: Socket;
+  try { socket = await openSocket(path); }
+  catch {
+    console.log("no control daemon is listening; the next north bridge command starts one");
+    return 0;
+  }
+  const hello = await readHello(socket, 750);
+  const named = hello ? ` (pid ${hello.pid}, ${hello.liveExecutions} live session(s))` : "";
+  const closed = new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
+  socket.write(`${JSON.stringify({ op: "retire" })}\n`);
+  await closed;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (!await daemonListening(path)) {
+      // A daemon that predates the retire op answers nothing and leaves its
+      // socket behind; the file is dead either way once nothing accepts on it.
+      try { unlinkSync(path); } catch { /* already reaped */ }
+      console.log(`control daemon retired${named}; the next north bridge command starts a fresh one`);
+      return 0;
+    }
+    await Bun.sleep(20);
+  }
+  console.error(`north bridge: the control daemon${named} is still listening at ${path}`);
+  return 1;
 }
 
 function renderRecord(record: JournalRecord): string {
@@ -283,6 +335,10 @@ async function main(args: string[]): Promise<number> {
     return runApp(args);
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "pending") return runPending(args.slice(1));
+  if (args[0] === "restart") {
+    if (args.length !== 1) usage();
+    return runBridgeRestart(bridgeSocketPath());
+  }
   if (args[0] === "accept") {
     if (args.length !== 1) usage();
     const { runBridgeAcceptance } = await import("./accept");
@@ -321,7 +377,7 @@ async function main(args: string[]): Promise<number> {
       ...(launch.provider ? { provider: launch.provider } : {}),
     };
   }
-  const socket = await verifiedSocket(bridgeSocketPath());
+  const { socket } = await verifiedSocket(bridgeSocketPath());
   return runClient(socket, request);
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
-import { connect, createServer, type Server, type Socket } from "node:net";
+import { createServer, Socket, type Server } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { ExecutionJournal, type JournalRecord, type JournalScan } from "./journal";
 import {
@@ -57,6 +57,15 @@ interface ExecutionRuntime {
   turnDisposition: TurnDisposition;
   terminating: boolean;
   terminal: boolean;
+  /**
+   * The one fact retirement turns on: this daemon owns a provider drive that
+   * has not settled. Derived liveness — a session handle, an active turn, a
+   * missing terminal record — all outlive the provider in some path, and every
+   * one of those paths pinned a corpse daemon against replacement. This is set
+   * exactly once when the drive is dispatched and cleared exactly once when it
+   * settles, success or failure.
+   */
+  live: boolean;
 }
 
 function wire(socket: Socket, message: BridgeMessage): void {
@@ -80,13 +89,17 @@ function failureData(error: unknown): Record<string, unknown> {
 
 function liveSocket(path: string): Promise<boolean> {
   return new Promise((resolve, reject) => {
-    const socket = connect(path);
+    // Listeners first, then connect: probing an abandoned socket can fail
+    // during the connect call itself, and the answer to "is anyone there" must
+    // arrive as this promise, never as an uncaught error event.
+    const socket = new Socket();
     socket.once("connect", () => { socket.destroy(); resolve(true); });
     socket.once("error", (error: NodeJS.ErrnoException) => {
       socket.destroy();
       if (error.code === "ECONNREFUSED" || error.code === "ENOENT") resolve(false);
       else reject(error);
     });
+    socket.connect(path);
   });
 }
 
@@ -159,7 +172,7 @@ export class Northd {
     let live = 0;
     for (const runtime of this.runtimes.values()) {
       if (runtime === except) continue;
-      if (!runtime.terminal && (runtime.session !== undefined || runtime.activeTurn)) live += 1;
+      if (runtime.live) live += 1;
     }
     return live;
   }
@@ -176,6 +189,7 @@ export class Northd {
     const terminations: Promise<void>[] = [];
     for (const runtime of this.runtimes.values()) {
       runtime.terminating = true;
+      runtime.live = false;
       runtime.abort.abort();
       if (runtime.session) terminations.push(runtime.session.terminateSession());
     }
@@ -205,6 +219,9 @@ export class Northd {
       turnDisposition: "completed",
       terminating: false,
       terminal,
+      // Replayed from the journal: this daemon drives nothing for it, whatever
+      // the log's last record says.
+      live: false,
     };
     this.runtimes.set(executionId, runtime);
     return runtime;
@@ -238,6 +255,7 @@ export class Northd {
     if (runtime.terminal) return;
     this.append(runtime, kind, data);
     runtime.terminal = true;
+    runtime.live = false;
     runtime.activeTurn = false;
     runtime.turnDisposition = "completed";
     for (const subscriber of runtime.subscribers) subscriber.end();
@@ -308,6 +326,13 @@ export class Northd {
     } catch (error) {
       if (!runtime.terminating)
         this.finish(runtime, "execution.failed", failureData(error));
+    } finally {
+      // The provider query has terminated — completed, failed, refused before
+      // it ever opened, or torn down under a terminating runtime. Every one of
+      // those is an execution that no longer holds this daemon open, including
+      // the paths above that deliberately write no terminal record.
+      runtime.live = false;
+      runtime.activeTurn = false;
     }
   }
 
@@ -323,12 +348,23 @@ export class Northd {
       turnDisposition: "completed",
       terminating: false,
       terminal: false,
+      live: true,
     };
     this.runtimes.set(executionId, runtime);
-    this.append(runtime, "execution.accepted", {
-      prompt: request.prompt, cwd: request.cwd, role: request.role,
-      ...(request.provider ? { provider: request.provider } : {}),
-    });
+    try {
+      this.append(runtime, "execution.accepted", {
+        prompt: request.prompt, cwd: request.cwd, role: request.role,
+        ...(request.provider ? { provider: request.provider } : {}),
+      });
+    } catch (error) {
+      // A launch that cannot even record its acceptance drives nothing. It was
+      // already in the runtime map when the journal refused, and leaving it
+      // there counted a session that never existed against retirement.
+      runtime.live = false;
+      runtime.activeTurn = false;
+      runtime.terminal = true;
+      throw error;
+    }
     wire(socket, { type: "launched", executionId });
     this.attach(socket, runtime, 0);
     if (this.stale()) {
@@ -346,7 +382,12 @@ export class Northd {
       runtime, request.prompt, request.cwd, request.role, request.provider,
     );
     this.drives.add(drive);
-    void drive.finally(() => this.drives.delete(drive));
+    void drive
+      // The drive writes its own terminal record; reaching here means that
+      // write itself failed, so the client's socket is the last place left to
+      // say so. Dropping it silently left an unhandled rejection behind.
+      .catch((error) => wire(socket, { type: "error", message: errorMessage(error) }))
+      .finally(() => this.drives.delete(drive));
   }
 
   private async control(
@@ -436,6 +477,9 @@ export class Northd {
         type: "controlled", executionId: "northd", control: "retire", delivery: "accepted",
       });
       socket.end();
+      // `north bridge restart` is allowed to race the watchdog and itself; the
+      // acknowledgement is owed either way, the teardown runs once.
+      if (this.retiring) return;
       this.retiring = true;
       this.onRetire();
       return;

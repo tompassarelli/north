@@ -270,6 +270,7 @@
    (->SlashCommand "/capture" "capture a new thread" true "" false)
    (->SlashCommand "/threads" "show Threads (or `popout`)" true "" false)
    (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
+   (->SlashCommand "/restart" "retire the control daemon now" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
@@ -299,6 +300,7 @@
    (->SlashCommand "/graph" "threads as a graph" false "" false)
    (->SlashCommand "/agents" "back to Agents" false "" false)
    (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
+   (->SlashCommand "/restart" "retire the control daemon now" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
@@ -340,13 +342,14 @@
 
 ;; The daemon refuses launches once the checkout moves under it, and it retires
 ;; itself the moment its last session drains. Say that, in one calm line, rather
-;; than printing the wire code at someone.
+;; than printing the wire code at someone — and name the way out, because a
+;; session nobody is waiting on never drains on its own.
 (defn stale-daemon-summary [live: Int] -> String
   (if (> live 0)
     (str "control daemon is stale (" live " live session"
          (if (identical? live 1) "" "s")
-         ") — it retires once they drain; restart Northbridge after that")
-    "control daemon is stale — restart Northbridge to replace it"))
+         ") — /restart to replace it now, or it retires when they drain")
+    "control daemon is stale — /restart to replace it now"))
 
 (defn failure-summary [data: Any] -> String
   (let [message (text (.-message data))
@@ -1392,6 +1395,18 @@
       :else
       (throw (Error. "sound requires on, off, status, or pack peon|peasant")))))
 
+;; The deliberate replacement, in both command sets because the daemon is
+;; underneath both views. A stale daemon retires itself once its sessions drain,
+;; and a session nobody is waiting on never drains — so this drains nothing: it
+;; tells the daemon to go now, and the next command starts one built from the
+;; checkout on disk.
+(defn restart-daemon! [runtime: Any] -> (Promise Any)
+  (try
+    (let [output (js/await (run-command [NORTH-BIN "bridge" "restart"]))]
+      (publish-line! runtime (.trim (text output))))
+    (catch Error error
+      (append-error! runtime (error-message error)))))
+
 (js/export
  (defn handle-local-command!
   [runtime: Any
@@ -1450,6 +1465,9 @@
 
           (identical? name "agentsmd")
           (do (open-config-panel! runtime "agentsmd") true)
+
+          (identical? name "restart")
+          (do (restart-daemon! runtime) true)
 
           ;; The view switches live here rather than in either submit path,
           ;; because both submit paths run this first: one branch and /list
