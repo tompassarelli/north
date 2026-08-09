@@ -175,6 +175,24 @@ function filechangesummary_deletions(r) { return r.deletions; }
 
 function filechangesummary_files(r) { return r.files; }
 
+function StripBucket(id, glyph) {
+  return Object.freeze({_tag: "StripBucket", id, glyph});
+}
+
+function stripbucket_id(r) { return r.id; }
+
+function stripbucket_glyph(r) { return r.glyph; }
+
+function AgentSegment(id, label, count) {
+  return Object.freeze({_tag: "AgentSegment", id, label, count});
+}
+
+function agentsegment_id(r) { return r.id; }
+
+function agentsegment_label(r) { return r.label; }
+
+function agentsegment_count(r) { return r.count; }
+
 const NORTH_BIN = (() => { const configured = text(process.env.NORTH_BIN); return ((configured === "") ? "north" : configured); })();
 
 const AGENTS_BIN = (() => { const configured = text(process.env.AGENTS_BIN); return ((configured === "") ? "agents" : configured); })();
@@ -184,6 +202,14 @@ const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only R
 const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
 
 const LIST_SECTIONS = [ListSection("active", "In Progress"), ListSection("ready", "Next Up"), ListSection("blocked", "Blocked"), ListSection("dormant", "Backlog"), ListSection("draft", "Draft"), ListSection("terminal", "Done"), ListSection("other", "Todo")];
+
+const STRIP_BUCKETS = [StripBucket("running", ""), StripBucket("blocked", "! "), StripBucket("failed", "✕ ")];
+
+const STRIP_SEPARATOR = " · ";
+
+const STRIP_INDENT = 2;
+
+const DETAIL_WINDOW = 12;
 
 const DEFAULT_PROMPT_GLYPH = "❯";
 
@@ -658,13 +684,13 @@ return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2])); });
 }
 
 function open_config_panel_bang(runtime, config_filter) {
-  const already = (runtime.showConfig && (text(runtime.configFilter) === config_filter));
+  const already = (detail_showing_p(runtime, "config") && (text(runtime.configFilter) === config_filter));
   if (already) {
-    (runtime.showConfig = false);
+    close_detail_bang(runtime);
   } else {
     (runtime.configFilter = config_filter);
     (runtime.configIndex = 0);
-    (runtime.showConfig = true);
+    open_detail_bang(runtime, "config");
     report_promise_bang(runtime, load_config_entries_bang(runtime));
   }
   return runtime.render();
@@ -848,6 +874,51 @@ function selected_view(state, view_id) {
 function roster_text(state, selected) {
   const agents = bridgesnapshot_agents(state);
   return ((agents.length === 0) ? "No agents attached" : agents.map((agent, index) => ("".concat(((index === selected) ? "› " : "  "), (() => { const name = agent_name(agent); return ((name === "") ? agent_id(agent) : name); })(), ((agent_status(agent) === "") ? "" : ("".concat(" (", agent_status(agent), ")"))), ((agent_task(agent) === "") ? "" : ("".concat(" — ", agent_task(agent))))))).join("\n"));
+}
+
+function agent_display_name(agent) {
+  const name = agent_name(agent);
+  return ((name === "") ? agent_id(agent) : name);
+}
+
+function agent_bucket(status) {
+  const value = status.trim().toLowerCase();
+  return (((value === "")) ? "other" : (value.startsWith("finished(")) ? ((value.includes("process:failed") || value.includes("process:error")) ? "failed" : "other") : (value.startsWith("inconsistent")) ? "blocked" : (((value === "stalled") || (value === "blocked") || (value === "waiting") || (value === "paused") || (value === "queued"))) ? "blocked" : (((value === "failed") || (value === "error") || (value === "crashed"))) ? "failed" : (((value === "working") || (value === "running") || (value === "starting") || (value === "ready") || (value === "active") || (value === "online"))) ? "running" : "other");
+}
+
+function agents_in_bucket(agents, bucket) {
+  return agents.filter((agent) => (agent_bucket(agent_status(agent)) === bucket));
+}
+
+function segment_agents(agents, segment_id) {
+  return ((segment_id === "all") ? agents : agents_in_bucket(agents, segment_id));
+}
+
+function agent_total_label(total) {
+  return ("".concat(total, ((total === 1) ? " agent" : " agents")));
+}
+
+function agent_segments(agents) {
+  const total = agents.length;
+  const segments = [AgentSegment("all", agent_total_label(total), total)];
+  STRIP_BUCKETS.forEach((bucket) => { const id = stripbucket_id(bucket);
+const members = agents_in_bucket(agents, id);
+const count = members.length;
+if ((count > 0)) {
+  return segments.push(AgentSegment(id, ("".concat(stripbucket_glyph(bucket), count, " ", id)), count));
+} });
+  return segments;
+}
+
+function segment_columns(segments) {
+  const starts = [];
+  segments.forEach((__segment, index) => starts.push(((index === 0) ? STRIP_INDENT : (starts[(index - 1)] + agentsegment_label(segments[(index - 1)]).length + STRIP_SEPARATOR.length))));
+  return starts;
+}
+
+function segment_at_column(segments, column) {
+  const starts = segment_columns(segments);
+  return starts.findIndex((start, index) => ((column >= start) && (column < (start + agentsegment_label(segments[index]).length))));
 }
 
 function push_chunk_bang(chunks, chunk) {
@@ -1144,11 +1215,121 @@ return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(configentr
   }
 }
 
+function detail_open_p(runtime) {
+  return (!(text(runtime.detailView) === ""));
+}
+
+function detail_showing_p(runtime, view) {
+  return (text(runtime.detailView) === view);
+}
+
+function open_detail_bang(runtime, view) {
+  return (runtime.detailView = view);
+}
+
+function close_detail_bang(runtime) {
+  return (runtime.detailView = "");
+}
+
+function detail_agents(runtime) {
+  const state = snapshot(runtime.model);
+  return segment_agents(bridgesnapshot_agents(state), text_or(text(runtime.detailSegment), "all"));
+}
+
+function detail_window_start(index, total) {
+  return Math.max(0, Math.min((index - 5), (total - DETAIL_WINDOW)));
+}
+
+function clamped_index(raw, total) {
+  return Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
+}
+
+function config_header_lines(entries, sections_p, start, stop) {
+  return ((!sections_p) ? 0 : entries.slice(start, stop).filter((entry, offset) => { const i = (start + offset);
+return ((i === start) || (!(configentry_kind(entry) === configentry_kind(entries[(i - 1)])))); }).length);
+}
+
+function config_detail_lines(runtime) {
+  const entries = runtime.configEntries;
+  const total = (entries ? entries.length : 0);
+  const sections_p = (text_or(text(runtime.configFilter), "all") === "all");
+  if ((total === 0)) {
+    return 1;
+  } else {
+    const index = clamped_index(runtime.configIndex, total);
+    const start = detail_window_start(index, total);
+    const stop = Math.min(total, (start + DETAIL_WINDOW));
+    return (1 + (stop - start) + config_header_lines(entries, sections_p, start, stop));
+  }
+}
+
+function detail_body_lines(runtime) {
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (1 + Math.max(1, Math.min(DETAIL_WINDOW, detail_agents(runtime).length))) : 0);
+}
+
+function detail_height(runtime) {
+  return (2 + detail_body_lines(runtime));
+}
+
+function agent_detail_title(segment_id) {
+  return ((segment_id === "all") ? "agents" : ("".concat("agents · ", segment_id)));
+}
+
+function agent_detail_row(agent, width) {
+  const status = agent_status(agent);
+  const task = agent_task(agent);
+  return compact_text(("".concat(agent_display_name(agent), ((status === "") ? "" : ("".concat(" (", status, ")"))), ((task === "") ? "" : ("".concat(" — ", task))))), width);
+}
+
+function render_agent_detail(runtime) {
+  const agents = detail_agents(runtime);
+  const total = agents.length;
+  const title = agent_detail_title(text_or(text(runtime.detailSegment), "all"));
+  const parts = [brightYellow(title), brightBlack("  ↑/↓ move · ←/→ segment · enter or esc close\n")];
+  if ((total === 0)) {
+    return new StyledText(parts.concat([brightBlack("  no agents in this state")]));
+  } else {
+    const index = clamped_index(runtime.detailIndex, total);
+    const start = detail_window_start(index, total);
+    const stop = Math.min(total, (start + DETAIL_WINDOW));
+    const width = Math.max(12, (terminal_columns() - 8));
+    agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
+const cursor_p = (i === index);
+const tail = (((i + 1) === stop) ? "" : "\n");
+parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
+return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row(agent, width), tail)))); });
+    return new StyledText(parts);
+  }
+}
+
+function render_detail_panel_bang(runtime) {
+  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : new StyledText([brightBlack("")]));
+}
+
+function segment_chunk(segment, highlighted_p) {
+  const label = agentsegment_label(segment);
+  const id = agentsegment_id(segment);
+  return ((highlighted_p) ? brightCyan(label) : ((id === "failed")) ? brightRed(label) : ((id === "blocked")) ? brightYellow(label) : ((id === "running")) ? brightGreen(label) : brightWhite(label));
+}
+
+function render_agent_strip(state, focused_p, selected) {
+  const segments = agent_segments(bridgesnapshot_agents(state));
+  const chunks = [(focused_p ? brightCyan("› ") : brightBlack("  "))];
+  segments.forEach((segment, index) => { if ((index > 0)) {
+  chunks.push(brightBlack(STRIP_SEPARATOR));
+}
+return chunks.push(segment_chunk(segment, (focused_p && (index === selected)))); });
+  if (focused_p) {
+    chunks.push(brightBlack("   h/l segment · enter open · esc input"));
+  }
+  return new StyledText(chunks);
+}
+
 function render_status(runtime, state) {
   const count_text = text(runtime.windowCount);
   const workspace_notice = text(runtime.workspaceNotice);
   const notice = ((workspace_notice === "") ? visible_notice(bridgesnapshot_notice(state)) : workspace_notice);
-  return ((runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showConfig) ? render_config_panel(runtime) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("←/→"), brightBlack(" switch work view · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(notice)]));
+  return ((runtime.windowChord) ? new StyledText([brightGreen("Ctrl-w"), brightYellow(((count_text === "") ? "" : ("".concat(" · count ", count_text)))), brightBlack("  h/j/k/l neighbor · w cycle · v side-by-side · s stacked · c close · = equalize · >/< resize · Esc cancel")]) : (runtime.showHelp) ? new StyledText([brightYellow("Northbridge keys\n"), brightWhite("Tab"), brightBlack(" switch pane · "), brightWhite("←/→"), brightBlack(" switch work view · "), brightWhite("Ctrl-w h/j/k/l"), brightBlack(" neighbor · "), brightWhite("w"), brightBlack(" cycle · "), brightWhite("v/s"), brightBlack(" side-by-side/stacked · "), brightWhite("c"), brightBlack(" close · "), brightWhite("="), brightBlack(" equalize · "), brightWhite("[count] >/<"), brightBlack(" resize\n"), brightWhite("Esc"), brightBlack(" interrupt active turn · "), brightWhite("/help"), brightBlack(" commands · "), brightWhite("/close|/esc|/exit"), brightBlack(" close\n"), brightWhite("/glyph <one>|reset"), brightBlack(" prompt · "), brightWhite("/emoji <query>"), brightBlack(" picker\n"), brightWhite("/sound on|off|pack"), brightBlack(" voice lines · "), brightWhite("/mute"), brightBlack(" quiet")]) : new StyledText([brightBlack(notice)]));
 }
 
 function render_pane_header(title, __focused_p) {
@@ -1440,6 +1621,16 @@ function render_ui_bang(runtime, ui) {
     (ui.agentStatusText.visible = (text(runtime.closedPane) === "work"));
     render_prompt_bang(runtime, ui.composerPrompt);
     (ui.composerContextText.content = render_session_context(runtime));
+    const segments = agent_segments(agents);
+    const strip_max = Math.max(0, (segments.length - 1));
+    (runtime.stripIndex = Math.max(0, Math.min(runtime.stripIndex, strip_max)));
+    (ui.agentStripText.content = render_agent_strip(state, runtime.stripFocused, runtime.stripIndex));
+    const open_p = detail_open_p(runtime);
+    (ui.detailPanel.visible = open_p);
+    if (open_p) {
+      (ui.detailPanel.height = detail_height(runtime));
+      (ui.detailText.content = render_detail_panel_bang(runtime));
+    }
     render_minibuffer_bang(runtime, ui);
     (runtime.activeView = workview_id(current));
     return views;
@@ -1703,7 +1894,8 @@ function report_promise_bang(runtime, promise) {
 function select_pane_bang(runtime, pane) {
   (runtime.pane = pane);
   (runtime.paletteIndex = 0);
-  return (runtime.workspaceNotice = "");
+  (runtime.workspaceNotice = "");
+  return clear_strip_focus_bang(runtime);
 }
 
 function pane_box(ui, pane) {
@@ -1721,6 +1913,69 @@ function focus_pane_surface_bang(runtime, ui, pane) {
     select_pane_bang(runtime, pane);
     pane_box(ui, pane).focus();
     return runtime.render();
+  }
+}
+
+function strip_segments(runtime) {
+  return agent_segments(bridgesnapshot_agents(snapshot(runtime.model)));
+}
+
+function focus_strip_bang(runtime, ui) {
+  (runtime.stripFocused = true);
+  ui.composerInput.blur();
+  return runtime.render();
+}
+
+function leave_strip_bang(runtime, ui) {
+  (runtime.stripFocused = false);
+  if (detail_showing_p(runtime, "agents")) {
+    close_detail_bang(runtime);
+  }
+  ui.composerInput.focus();
+  return runtime.render();
+}
+
+function clear_strip_focus_bang(runtime) {
+  if (runtime.stripFocused) {
+    (runtime.stripFocused = false);
+    if (detail_showing_p(runtime, "agents")) {
+      return close_detail_bang(runtime);
+    }
+  }
+}
+
+function show_segment_detail_bang(runtime, index) {
+  const segments = strip_segments(runtime);
+  if ((segments.length > 0)) {
+    const selected = clamped_index(index, segments.length);
+    (runtime.stripIndex = selected);
+    (runtime.detailSegment = agentsegment_id(segments[selected]));
+    (runtime.detailIndex = 0);
+    return open_detail_bang(runtime, "agents");
+  }
+}
+
+function toggle_segment_detail_bang(runtime) {
+  return (detail_showing_p(runtime, "agents") ? close_detail_bang(runtime) : show_segment_detail_bang(runtime, runtime.stripIndex));
+}
+
+function move_strip_segment_bang(runtime, delta) {
+  const segments = strip_segments(runtime);
+  const total = segments.length;
+  if ((total > 0)) {
+    const next_index = ((runtime.stripIndex + delta + total) % total);
+    (runtime.stripIndex = next_index);
+    (runtime.detailIndex = 0);
+    if (detail_showing_p(runtime, "agents")) {
+      return (runtime.detailSegment = agentsegment_id(segments[next_index]));
+    }
+  }
+}
+
+function move_detail_cursor_bang(runtime, delta) {
+  const total = detail_agents(runtime).length;
+  if ((total > 0)) {
+    return (runtime.detailIndex = ((clamped_index(runtime.detailIndex, total) + delta + total) % total));
   }
 }
 
@@ -1957,7 +2212,20 @@ function install_mouse_bang(runtime, ui) {
 } });
   (ui.composer.onMouseDown = (event) => { if ((event.button === 0)) {
   event.stopPropagation();
-  return ui.composerInput.focus();
+  clear_strip_focus_bang(runtime);
+  ui.composerInput.focus();
+  return runtime.render();
+} });
+  (ui.agentStripText.onMouseDown = (event) => { if ((event.button === 0)) {
+  event.preventDefault();
+  event.stopPropagation();
+  const segments = strip_segments(runtime);
+  const column = Math.floor((event.x - ui.agentStripText.screenX));
+  const index = segment_at_column(segments, column);
+  if ((index >= 0)) {
+    show_segment_detail_bang(runtime, index);
+  }
+  return focus_strip_bang(runtime, ui);
 } });
   (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.pane), ui.composerPalette, event));
   (ui.workText.onMouseDown = (event) => handle_list_click_bang(runtime, ui, event));
@@ -1974,6 +2242,22 @@ function install_mouse_bang(runtime, ui) {
 } });
 }
 
+function ctrl_down_key_p(name, key) {
+  return (key.ctrl && (name === "j"));
+}
+
+function ctrl_up_key_p(name, key) {
+  return (key.ctrl && (name === "k"));
+}
+
+function bare_key_p(name, key, letter) {
+  return ((name === letter) && (!key.ctrl) && (!(key.meta || key.option)));
+}
+
+function strip_key_p(name, key) {
+  return ((name === "left") || (name === "right") || (name === "up") || (name === "down") || (name === "escape") || (name === "esc") || submit_key_p(name) || ctrl_down_key_p(name, key) || ctrl_up_key_p(name, key) || bare_key_p(name, key, "h") || bare_key_p(name, key, "l") || bare_key_p(name, key, "j") || bare_key_p(name, key, "k"));
+}
+
 function install_keys_bang(runtime, ui) {
   return runtime.renderer.keyInput.on("keypress", (key) => { if (((!key.defaultPrevented) && (!key.propagationStopped))) {
   const name = text(key.name).toLowerCase();
@@ -1981,23 +2265,52 @@ function install_keys_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
   const plain_view_arrow = ((text(runtime.pane) === "work") && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  return (((runtime.showConfig && ((name === "up") || (name === "down") || (name === "space") || submit_key_p(name) || (name === "escape") || (name === "esc")))) ? (() => { key.preventDefault();
+  return (((detail_showing_p(runtime, "config") && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || (name === "escape") || (name === "esc")))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if (((name === "escape") || (name === "esc"))) {
-  (runtime.showConfig = false);
-} else if (((name === "up") || (name === "down"))) {
+  close_detail_bang(runtime);
+} else if ((up_p || down_p)) {
   const entries = runtime.configEntries;
   const total = (entries ? entries.length : 0);
   if ((total > 0)) {
     const raw = runtime.configIndex;
     const current = (raw ? raw : 0);
-    const delta = ((name === "up") ? -1 : 1);
+    const delta = (up_p ? -1 : 1);
     (runtime.configIndex = ((current + delta + total) % total));
   }
 } else if ((name === "space")) {
   report_promise_bang(runtime, toggle_config_entry_bang(runtime));
 } else {
   report_promise_bang(runtime, edit_config_entry_bang(runtime));
+}
+return runtime.render(); })() : ((runtime.stripFocused && strip_key_p(name, key))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || ctrl_up_key_p(name, key) || bare_key_p(name, key, "k")); const down_p = ((name === "down") || ctrl_down_key_p(name, key) || bare_key_p(name, key, "j")); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
+key.stopPropagation();
+if (((name === "escape") || (name === "esc"))) {
+  if (expanded_p) {
+    close_detail_bang(runtime);
+  } else {
+    leave_strip_bang(runtime, ui);
+  }
+} else if (submit_key_p(name)) {
+  toggle_segment_detail_bang(runtime);
+} else if (left_p) {
+  move_strip_segment_bang(runtime, -1);
+} else if (right_p) {
+  move_strip_segment_bang(runtime, 1);
+} else if (up_p) {
+  if (expanded_p) {
+    move_detail_cursor_bang(runtime, -1);
+  } else {
+    leave_strip_bang(runtime, ui);
+  }
+} else if (down_p) {
+  if (expanded_p) {
+    move_detail_cursor_bang(runtime, 1);
+  } else {
+    toggle_segment_detail_bang(runtime);
+  }
+} else {
+  null;
 }
 return runtime.render(); })() : ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) ? (() => { key.preventDefault();
 key.stopPropagation();
@@ -2010,7 +2323,9 @@ return render_minibuffer_bang(runtime, ui); })() : ((palette_open && ((name === 
 } })() : ((palette_open && ((name === "escape") || (name === "esc")))) ? (() => { key.preventDefault();
 key.stopPropagation();
 (active_input(runtime, ui).value = "");
-return render_minibuffer_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
+return render_minibuffer_bang(runtime, ui); })() : (((!runtime.stripFocused) && (!palette_open) && (ctrl_down_key_p(name, key) || ((name === "down") && (!key.ctrl) && (!meta) && (text(ui.composerInput.value).trim() === ""))))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return focus_strip_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return focus_pane_bang(runtime, ui, ((runtime.pane === "agents") ? "work" : "agents")); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
@@ -2057,7 +2372,7 @@ return runtime.render(); })() : (((name === "escape") || (name === "esc"))) ? ((
 async function open_app_bang(view_id) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, pane: "agents", activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, showHelp: false, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, windowChord: false, windowCount: "", workspaceNotice: "", closedPane: "", paneRatio: 50, keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, padding: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "50%", border: ["right"], borderColor: "#64748b", focusable: true});
@@ -2075,9 +2390,12 @@ async function open_app_bang(view_id) {
   const composer_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
   const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 3, paddingTop: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
   const composer_context_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
+  const agent_strip_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
+  const detail_panel = new BoxRenderable(renderer, {visible: false, width: "100%", height: 5, flexDirection: "column", flexShrink: 0, border: true, borderColor: "#64748b", paddingLeft: 1, paddingRight: 1});
+  const detail_text = new TextRenderable(renderer, {width: "100%", flexGrow: 1, wrapMode: "none"});
   const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
   const composer_input = new InputRenderable(renderer, {width: "100%", flexGrow: 1, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: ("".concat("Message ", supervisor_label(), "…"))});
-  const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input};
+  const ui = {root: root, workspace: workspace, agentsPane: agents_pane, workPane: work_pane, agentsHeader: agents_header, agentsText: agents_text, transcriptText: transcript_text_view, tabsText: tabs_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerContextText: composer_context_text, composerPrompt: composer_prompt, composerInput: composer_input, agentStripText: agent_strip_text, detailPanel: detail_panel, detailText: detail_text};
   agents_pane.add(agents_header);
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
@@ -2096,6 +2414,9 @@ async function open_app_bang(view_id) {
   root.add(composer_palette);
   root.add(composer);
   root.add(composer_context_text);
+  root.add(agent_strip_text);
+  detail_panel.add(detail_text);
+  root.add(detail_panel);
   renderer.root.add(root);
   (transcript_scroll.verticalScrollBar.visible = false);
   (transcript_scroll.horizontalScrollBar.visible = false);
