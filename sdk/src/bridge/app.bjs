@@ -274,7 +274,8 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
+   (->SlashCommand "/globals" "switchboard: global knobs, hooks, skills" false "" false)
+   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -295,7 +296,8 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and globals" false "" false)
+   (->SlashCommand "/globals" "switchboard: global knobs, hooks, skills" false "" false)
+   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
    (->SlashCommand "/exit" "close Northbridge" false "" false)
    (->SlashCommand "/help" "show work commands" false "" false)])
 
@@ -888,7 +890,69 @@
 (defrecord ConfigEntry
   [kind: String
    name: String
-   state: String])
+   state: String
+   ;; Whatever the manifest carries past the state column — for `dir` rows the
+   ;; triggering directory. Empty when the line has three fields, which is
+   ;; every kind that has no fourth thing to say.
+   detail: String])
+
+;; The switchboard's views are names, not manifest kinds. Two of them span
+;; several kinds: `globals` is the global knobs plus hooks and skills, and
+;; `agentsmd` is the one global AGENTS.md row plus every directory-triggered
+;; context file, so one view answers "what context files exist, which are on".
+(js/export
+ (defn config-view-includes?
+  [view: String
+   kind: String
+   name: String] -> Bool
+  (cond
+    (identical? view "all") true
+    (identical? view "globals")
+    (or (identical? kind "item")
+        (identical? kind "hook")
+        (identical? kind "skill"))
+    (identical? view "agentsmd")
+    (or (identical? kind "dir")
+        (and (identical? kind "item") (identical? name "agents-md")))
+    :else (identical? kind view))))
+
+(defn config-view-sections? [view: String] -> Bool
+  (or (identical? view "all")
+      (identical? view "globals")
+      (identical? view "agentsmd")))
+
+;; Reading order of the sections, which is not the manifest's order: the
+;; manifest is append-ordered, so `item orchestration` lands after the skills
+;; block and would print a second GLOBALS header.
+(defn config-kind-rank [kind: String] -> Int
+  (cond
+    (identical? kind "item") 0
+    (identical? kind "dir") 1
+    (identical? kind "hook") 2
+    (identical? kind "skill") 3
+    (identical? kind "plugin") 4
+    :else 5))
+
+;; Pure: manifest rows -> the rows this view shows, grouped so a sectioned view
+;; prints exactly one header per kind (which is what the height budget counts).
+(js/export
+ (defn config-view-rows
+  [entries: Any
+   view: String] -> Any
+  (let [kept (.filter entries
+                      (fn [entry: Any] -> Bool
+                        (config-view-includes? view
+                                               (configentry-kind entry)
+                                               (configentry-name entry))))]
+    (if (not (config-view-sections? view))
+      kept
+      ;; Array sort is stable, so rows keep their manifest order within a kind.
+      (.sort kept
+             (fn
+               [a: Any
+                b: Any] -> Int
+               (- (config-kind-rank (configentry-kind a))
+                  (config-kind-rank (configentry-kind b)))))))))
 
 (defn config-manifest-path [] -> String
   (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
@@ -909,16 +973,14 @@
                          (not (identical? (.trim line) ""))))
         all-entries (.map lines
                           (fn [line: String] -> Any
-                            (let [parts (.split (.trim line) " ")]
+                            (let [parts (.filter (.split (.trim line) " ")
+                                                 (fn [part: String] -> Bool
+                                                   (not (identical? part ""))))]
                               (->ConfigEntry (text (aget parts 0))
                                              (text (aget parts 1))
-                                             (text (aget parts 2))))))
-        entries (if (identical? config-filter "all")
-                  all-entries
-                  (.filter all-entries
-                           (fn [entry: Any] -> Bool
-                             (identical? (configentry-kind entry)
-                                         config-filter))))
+                                             (text (aget parts 2))
+                                             (.join (.slice parts 3) " ")))))
+        entries (config-view-rows all-entries config-filter)
         total (.-length entries)
         raw (.-configIndex runtime)
         current (if raw raw 0)]
@@ -1065,8 +1127,11 @@
           (identical? name "plugins")
           (do (open-config-panel! runtime "plugin") true)
 
+          (identical? name "globals")
+          (do (open-config-panel! runtime "globals") true)
+
           (identical? name "agentsmd")
-          (do (open-config-panel! runtime "item") true)
+          (do (open-config-panel! runtime "agentsmd") true)
 
           :else false)))))
 
@@ -1788,7 +1853,8 @@
 
 (defn config-section-title [kind: String] -> String
   (cond
-    (identical? kind "item") "AGENTS.MD & GLOBALS"
+    (identical? kind "item") "GLOBALS"
+    (identical? kind "dir") "DIRECTORY CONTEXT"
     (identical? kind "hook") "HOOKS"
     (identical? kind "skill") "SKILLS"
     (identical? kind "plugin") "PLUGINS"
@@ -1799,7 +1865,8 @@
     (identical? config-filter "hook") "hooks"
     (identical? config-filter "skill") "skills"
     (identical? config-filter "plugin") "plugins"
-    (identical? config-filter "item") "agents.md & globals"
+    (identical? config-filter "globals") "globals"
+    (identical? config-filter "agentsmd") "agents.md & directory context"
     :else "context switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
@@ -1807,19 +1874,34 @@
 (defn config-empty-note [loaded?: Bool] -> String
   (if loaded? " nothing to configure here" " loading…"))
 
-(defn render-config-panel [runtime: Any] -> Any
+;; One row's label: the name, plus whatever the manifest carries after the
+;; state (a `dir` row's directory). Clipped to the panel so a long path cannot
+;; wrap and desync the rendered height from detail-body-lines.
+(defn config-row-text
+  [entry: Any
+   width: Int] -> String
+  (let [detail (text (configentry-detail entry))
+        name (configentry-name entry)]
+    (compact-text (if (identical? detail "")
+                    name
+                    (str name "  " detail))
+                  width)))
+
+(js/export
+ (defn render-config-panel [runtime: Any] -> Any
   (let [entries (.-configEntries runtime)
         total (if entries (.-length entries) 0)
         config-filter (text-or (text (.-configFilter runtime)) "all")
-        sections? (identical? config-filter "all")]
+        sections? (config-view-sections? config-filter)]
     (if (identical? total 0)
       (StyledText. [(brightYellow (config-panel-title config-filter))
                     (brightBlack (config-empty-note
                                   (if (.-configLoaded runtime) true false)))])
       (let [index (clamped-index (.-configIndex runtime) total)
-            window (config-visible-count total sections?)
+            window (config-visible-count total config-filter)
             start (window-start index total window)
             stop (Math/min total (+ start window))
+            width (Math/max 12 (- (terminal-columns) 12))
             parts [(brightYellow (config-panel-title config-filter))
                    (brightBlack "  ↑/↓ move · space on/off · enter edit · esc close\n")]]
         (.forEach (.slice entries start stop)
@@ -1838,8 +1920,8 @@
                       (.push parts (if on? (brightGreen "on  ") (brightBlack "off ")))
                       (.push parts
                              ((if cursor? brightWhite brightBlack)
-                              (str (configentry-name entry) tail))))))
-        (StyledText. parts)))))
+                              (str (config-row-text entry width) tail))))))
+        (StyledText. parts))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Docked detail area. One surface, one render path, one piece of state saying
@@ -1873,10 +1955,12 @@
 ;; title line that carries the key legend.
 (def DETAIL-CHROME-ROWS: Int 3)
 
-;; Section headers ("HOOKS", "SKILLS", "PLUGINS", …) are content the config
-;; panel inserts between rows; leave room for one per kind so a full
-;; switchboard still fits.
-(def CONFIG-SECTION-ROWS: Int 4)
+;; Section headers ("GLOBALS", "DIRECTORY CONTEXT", "HOOKS", …) are content the
+;; config panel inserts between rows; leave room for one per kind so a full
+;; switchboard still fits. Five kinds now: item, dir, hook, skill, plugin.
+;; Rows are grouped by kind before rendering, so this is a ceiling and not an
+;; estimate — an ungrouped manifest can repeat a kind and overflow it.
+(def CONFIG-SECTION-ROWS: Int 5)
 
 (defn detail-visible-count
   [total: Int
@@ -1884,10 +1968,21 @@
   (fitted-window total (terminal-rows)
                  (+ CHROME-ROWS MIN-WORKSPACE-ROWS DETAIL-CHROME-ROWS extra)))
 
-(defn config-visible-count
+;; A narrowed view pays only for the sections it can actually show, so /globals
+;; and /agentsmd keep the rows the full switchboard has to give up.
+(js/export
+ (defn config-section-rows [view: String] -> Int
+  (cond
+    (identical? view "all") CONFIG-SECTION-ROWS
+    (identical? view "globals") 3
+    (identical? view "agentsmd") 2
+    :else 0)))
+
+(js/export
+ (defn config-visible-count
   [total: Int
-   sections?: Bool] -> Int
-  (detail-visible-count total (if sections? CONFIG-SECTION-ROWS 0)))
+   view: String] -> Int
+  (detail-visible-count total (config-section-rows view))))
 
 (defn clamped-index
   [raw: Any
@@ -1913,17 +2008,19 @@
                       (not (identical? (configentry-kind entry)
                                        (configentry-kind (aget entries (- i 1))))))))))))
 
-(defn config-detail-lines [runtime: Any] -> Int
+(js/export
+ (defn config-detail-lines [runtime: Any] -> Int
   (let [entries (.-configEntries runtime)
         total (if entries (.-length entries) 0)
-        sections? (identical? (text-or (text (.-configFilter runtime)) "all") "all")]
+        view (text-or (text (.-configFilter runtime)) "all")
+        sections? (config-view-sections? view)]
     (if (identical? total 0)
       1
       (let [index (clamped-index (.-configIndex runtime) total)
-            window (config-visible-count total sections?)
+            window (config-visible-count total view)
             start (window-start index total window)
             stop (Math/min total (+ start window))]
-        (+ 1 (- stop start) (config-header-lines entries sections? start stop))))))
+        (+ 1 (- stop start) (config-header-lines entries sections? start stop)))))))
 
 (defn detail-body-lines [runtime: Any] -> Int
   (cond
@@ -1933,8 +2030,9 @@
       (+ 1 (Math/max 1 (Math/min total (detail-visible-count total 0)))))
     :else 0))
 
-(defn detail-height [runtime: Any] -> Int
-  (+ 2 (detail-body-lines runtime)))
+(js/export
+ (defn detail-height [runtime: Any] -> Int
+  (+ 2 (detail-body-lines runtime))))
 
 (defn agent-detail-title [segment-id: String] -> String
   (if (identical? segment-id "all") "agents" (str "agents · " segment-id)))
