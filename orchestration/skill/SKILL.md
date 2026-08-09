@@ -1,6 +1,8 @@
 ---
 name: orchestration
 description: Routing doctrine for delegated agent work — choose the function/role, task grade, domain requirements, topology, semantic tier, deliberation, and posture before spawning anything. Use when delegating or dispatching a subagent, fanning out parallel work, staffing a workflow stage, deciding whether to delegate at all or do the work yourself, choosing between agent templates or authoring a bespoke composition, or reviewing an existing dispatch plan.
+hooks: [agent-spawn-guard]
+agents: ../agents
 ---
 
 # Orchestration — read the doctrine before you dispatch
