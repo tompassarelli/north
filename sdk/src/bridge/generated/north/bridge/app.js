@@ -1159,7 +1159,19 @@ function push_working_wave_bang(chunks, runtime) {
   return letters.forEach((letter, index) => push_chunk_bang(chunks, ((index === cursor) ? brightBlack(letter) : brightWhite(letter))));
 }
 
-function render_conversation_bang(runtime) {
+function supervisor_status(runtime) {
+  const id = text(runtime.supervisorId);
+  const agents = bridgesnapshot_agents(snapshot(runtime.model));
+  const matches = agents.filter((agent) => ((!(id === "")) && (agent_id(agent) === id)));
+  return ((matches.length === 0) ? "" : agent_status(matches[0]));
+}
+
+export function transcript_placeholder(label, status, item_count, working_p) {
+  const value = status.trim().toLowerCase();
+  return (((item_count > 0)) ? "" : (working_p) ? "" : (((value === "") || (value === "starting"))) ? ("".concat("Starting ", label, "…")) : (((value === "offline") || (value === "failed") || (value === "error"))) ? ("".concat(label, " is offline.")) : ("".concat(label, " is ready.")));
+}
+
+export function render_conversation_bang(runtime) {
   const chunks = [];
   const items = runtime.conversation;
   items.forEach((item) => { const kind = conversationitem_kind(item);
@@ -1188,8 +1200,9 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
     push_chunk_bang(chunks, brightBlack(("".concat(" (", elapsed, "s · esc to interrupt)\n  "))));
     push_chunk_bang(chunks, brightBlack(session_context_text(runtime)));
   }
-  if (((items.length === 0) && (!runtime.working))) {
-    push_chunk_bang(chunks, brightBlack(("".concat("Starting ", main_agent_label(), "…"))));
+  const placeholder = transcript_placeholder(main_agent_label(), supervisor_status(runtime), items.length, (runtime.working ? true : false));
+  if ((!(placeholder === ""))) {
+    push_chunk_bang(chunks, brightBlack(placeholder));
   }
   return new StyledText(chunks);
 }
