@@ -46,17 +46,21 @@ Install it and your sessions gain:
 
    | Agent | Semantic route | Shape it plays |
    |---|---|---|
-   | `orchestration:executor` | economy / low | bounded mechanical changes |
-   | `orchestration:implementer` | standard / medium | one feature/fix inside known patterns |
-   | `orchestration:integrator` | senior / high | cross-seam work, ambiguous debugging, behavior-at-stake refactors |
-   | `orchestration:designer` | frontier / xhigh | choosing shapes: APIs, data models, decomposition (decision-only, read-only tools) |
-   | `orchestration:director` | frontier / xhigh | decompose, independently staff, consume evidence, and reconcile multi-agent work |
-   | `orchestration:scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
-   | `orchestration:analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
-   | `orchestration:reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
-   | `orchestration:verifier` | senior / high | explicit-user-requested adversarial verification of one claim |
-   | `orchestration:judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
-   | `orchestration:scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+   | `executor` | economy / low | bounded mechanical changes |
+   | `implementer` | standard / medium | one feature/fix inside known patterns |
+   | `integrator` | senior / high | cross-seam work, ambiguous debugging, behavior-at-stake refactors |
+   | `designer` | frontier / xhigh | choosing shapes: APIs, data models, decomposition (decision-only, read-only tools) |
+   | `director` | frontier / xhigh | decompose, independently staff, consume evidence, and reconcile multi-agent work |
+   | `scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
+   | `analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
+   | `reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
+   | `verifier` | senior / high | explicit-user-requested adversarial verification of one claim |
+   | `judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
+   | `scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+
+   The agent type is the plain template name. `orchestration:<role>` was the
+   type only while the templates shipped inside the Claude Code plugin; it
+   survives as composition provenance in telemetry, not as an invocable type.
 
    Exact versioned model pins are generated from the dated provider catalogs;
    see [`docs/provider-matrix.md`](docs/provider-matrix.md). Every exact catalog
@@ -108,16 +112,38 @@ Full rationale: [`docs/method.md`](docs/method.md).
 
 ## Install
 
-### Claude Code plugin
+### Claude Code — skill plus agent files
+
+Link the two surfaces into your Claude configuration, from a checkout of this
+repository:
 
 ```
-/plugin marketplace add tompassarelli/orchestration
-/plugin install orchestration@orchestration
+ln -s "$PWD/skill"          ~/.claude/skills/orchestration
+ln -s "$PWD/agents"/*.md    ~/.claude/agents/
 ```
 
-Start a new session — you'll see `ORCHESTRATION ACTIVE` in the session context.
-Then delegate normally: the session routes by shape, or spawn a template
-worker directly via the Agent tool (`subagent_type: "orchestration:implementer"`).
+The `orchestration` skill is the on-demand entry point: the model loads it when
+a turn involves delegating, and it directs the session to read `doctrine.md` in
+full before the dispatch decision. The linked agent files register the template
+library, so spawn a template worker directly via the Agent tool
+(`subagent_type: "implementer"` — the plain template name; Claude Code rejects a
+`:` in an agent file's `name`, and it is reserved for plugin namespacing).
+
+Symlinks, not copies: a copy is a frozen cache that silently goes stale, which
+is exactly the failure that retired the plugin distribution below.
+
+#### Deprecated: the Claude Code plugin distribution
+
+`.claude-plugin/` and `scripts/inject-doctrine.sh` are retained for history and
+for anyone still running the marketplace install
+(`/plugin marketplace add tompassarelli/orchestration`). It is no longer the
+supported path: the plugin installs an unversioned *copy* of the doctrine and
+agents into the plugin cache, and it injected the doctrine digest into every
+session whether or not the session ever delegated. The skill replaces that
+SessionStart injection with an on-demand load of the one canonical file, and the
+agent symlinks replace the copied templates. Under the plugin the templates were
+namespaced `orchestration:<role>`; installed as agent files they are the plain
+role names.
 
 ### North multi-provider harness
 

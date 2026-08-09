@@ -2,9 +2,10 @@ SPAWN SURFACES (adapter: north) — a squad member is the eight-field
 Orchestration request (role, taskGrade, domainRequirements, topology, tier, reasoning,
 posture, composition), delivered on the North substrate. Provider, account,
 and an optional exact-model pin are North execution-envelope controls. Native Agent/Task/Workflow are DENIED
-here (dispatch=managed) — the harness still advertises orchestration:* + native agent
-types, IGNORE that and go STRAIGHT to north; never let the advertised list bait a
-native call (that is the recurring misfire).
+here (dispatch=managed) — the harness still advertises the orchestration templates
+under their plain role names (`reviewer`, `integrator`, ...) alongside other native
+agent types, IGNORE that and go STRAIGHT to north; never let the advertised list bait
+a native call (that is the recurring misfire).
 - contract-v2 job → mcp__north__spawn {prompt, provider, model, tier, role, posture,
   taskGrade, domainRequirements, topology, reasoning, composition}
 - fan-out → one mcp__north__spawn per lane in the SAME turn; observe at web :8088
