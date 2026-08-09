@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
-  config_companion_on_p as configCompanionOn,
+  config_unit_active_p as configUnitActive,
   config_entry_active_p as configEntryActive,
   config_state_text as configStateText,
   config_toggle_verb as configToggleVerb,
@@ -68,54 +68,61 @@ test("a hook's activity is derived from permission and its companion unit", () =
   const bound = (name: string) => MANIFEST.find((r) => r.name === name)!;
 
   // Permitted and following a skill that is on.
-  expect(configEntryActive(bound("firn-guard"), MANIFEST)).toBe(true);
+  expect(configEntryActive(bound("firn-guard"), MANIFEST, [])).toBe(true);
   // Permitted, but the skill it follows is off. Nothing on its own line says so.
-  expect(configEntryActive(bound("webdev-guard"), MANIFEST)).toBe(false);
+  expect(configEntryActive(bound("webdev-guard"), MANIFEST, [])).toBe(false);
   // A companion is a unit, not a skill: a dir row and a module decide their
   // followers' activity exactly the way a skill row does.
-  expect(configEntryActive(bound("profile-guard"), MANIFEST)).toBe(true);
-  expect(configEntryActive(bound("routing-guard"), MANIFEST)).toBe(true);
+  expect(configEntryActive(bound("profile-guard"), MANIFEST, [])).toBe(true);
+  expect(configEntryActive(bound("routing-guard"), MANIFEST, [])).toBe(true);
   const profileOff = MANIFEST.map((r) =>
     r.kind === "dir" && r.name === "global" ? { ...r, state: "off" } : r);
-  expect(configEntryActive(bound("profile-guard"), profileOff)).toBe(false);
+  expect(configEntryActive(bound("profile-guard"), profileOff, [])).toBe(false);
   const moduleOff = MANIFEST.map((r) =>
     r.kind === "module" ? { ...r, state: "off" } : r);
-  expect(configEntryActive(bound("routing-guard"), moduleOff)).toBe(false);
+  expect(configEntryActive(bound("routing-guard"), moduleOff, [])).toBe(false);
   // Unbound and permitted is active by definition.
-  expect(configEntryActive(bound("worktree-guard"), MANIFEST)).toBe(true);
+  expect(configEntryActive(bound("worktree-guard"), MANIFEST, [])).toBe(true);
   // The user pin wins over everything, bound or not.
-  expect(configEntryActive(bound("tripwire-guard"), MANIFEST)).toBe(false);
-  expect(configEntryActive(row("hook", "pinned", "disabled", "firn"), MANIFEST)).toBe(false);
+  expect(configEntryActive(bound("tripwire-guard"), MANIFEST, [])).toBe(false);
+  expect(configEntryActive(row("hook", "pinned", "disabled", "firn"), MANIFEST, [])).toBe(false);
 
-  // A companion the manifest does not carry is not an on unit.
-  expect(configEntryActive(row("hook", "ghost", "enabled", "nosuch"), MANIFEST)).toBe(false);
-  expect(configCompanionOn(MANIFEST, "firn")).toBe(true);
-  expect(configCompanionOn(MANIFEST, "global")).toBe(true);
-  expect(configCompanionOn(MANIFEST, "orchestration")).toBe(true);
-  expect(configCompanionOn(MANIFEST, "webdev")).toBe(false);
-  expect(configCompanionOn(MANIFEST, "statusline-script")).toBe(false);
-  expect(configCompanionOn(MANIFEST, "nosuch")).toBe(false);
-  // The lookup spans every kind but hooks, whose activity is itself derived
-  // and never stored — a hook can never be another hook's answer.
-  expect(configCompanionOn(MANIFEST, "worktree-guard")).toBe(false);
+  // A companion the manifest does not carry is not an active unit.
+  expect(configEntryActive(row("hook", "ghost", "enabled", "nosuch"), MANIFEST, [])).toBe(false);
+  expect(configUnitActive(MANIFEST, [], "firn")).toBe(true);
+  expect(configUnitActive(MANIFEST, [], "global")).toBe(true);
+  expect(configUnitActive(MANIFEST, [], "orchestration")).toBe(true);
+  expect(configUnitActive(MANIFEST, [], "webdev")).toBe(false);
+  expect(configUnitActive(MANIFEST, [], "statusline-script")).toBe(false);
+  expect(configUnitActive(MANIFEST, [], "nosuch")).toBe(false);
+  // The companion lookup spans every kind but hooks, whose activity is itself
+  // derived — a hook can never be another hook's answer, even though asking
+  // after that hook by name has a perfectly good answer.
+  expect(configUnitActive(MANIFEST, [], "worktree-guard")).toBe(true);
+  expect(configEntryActive(row("hook", "follower", "enabled", "worktree-guard"),
+                           MANIFEST, [])).toBe(false);
 
   // Every other kind stores its own activity.
-  expect(configEntryActive(row("skill", "firn", "on"), MANIFEST)).toBe(true);
-  expect(configEntryActive(row("other", "statusline-script", "off"), MANIFEST)).toBe(false);
-  expect(configEntryActive(row("module", "orchestration", "on"), MANIFEST)).toBe(true);
-  expect(configEntryActive(row("dir", "north", "on", "/tmp/x"), MANIFEST)).toBe(true);
+  expect(configEntryActive(row("skill", "firn", "on"), MANIFEST, [])).toBe(true);
+  expect(configEntryActive(row("other", "statusline-script", "off"), MANIFEST, [])).toBe(false);
+  expect(configEntryActive(row("module", "orchestration", "on"), MANIFEST, [])).toBe(true);
+  expect(configEntryActive(row("dir", "north", "on", "/tmp/x"), MANIFEST, [])).toBe(true);
 
-  // `on` is the pre-two-axis spelling of the same permission, so a manifest
-  // written by an older CLI still renders truthfully instead of reading as a
-  // pin.
-  expect(configEntryActive(row("hook", "legacy", "on"), MANIFEST)).toBe(true);
-  expect(configEntryActive(row("hook", "legacy", "on", "webdev"), MANIFEST)).toBe(false);
+  // `on` was the pre-two-axis spelling of a hook's permission and the panel
+  // used to read it as one. The CLI normalises every hook row it touches and
+  // the migration has landed, so the shape cannot occur; a row still spelled
+  // that way is not permission, and the panel no longer guesses that it is.
+  expect(configEntryActive(row("hook", "legacy", "on"), MANIFEST, [])).toBe(false);
+  expect(configStateText(row("hook", "legacy", "on"), MANIFEST, [], false)).toBe("disabled");
+  // The two spellings that do occur are untouched by the removal.
+  expect(configEntryActive(row("hook", "live", "enabled"), MANIFEST, [])).toBe(true);
+  expect(configEntryActive(row("hook", "pinned", "disabled"), MANIFEST, [])).toBe(false);
 });
 
 test("the state column says both axes, and where an off came from", () => {
   const at = (name: string) => {
     const entry = MANIFEST.find((r) => r.name === name)!;
-    return configStateText(entry, configEntryActive(entry, MANIFEST));
+    return configStateText(entry, MANIFEST, [], configEntryActive(entry, MANIFEST, []));
   };
   expect(at("worktree-guard")).toBe("enabled · on");
   expect(at("firn-guard")).toBe("enabled · on · firn");
@@ -128,8 +135,8 @@ test("the state column says both axes, and where an off came from", () => {
   expect(at("tripwire-guard")).toBe("disabled");
 
   // Nothing else grows a second axis.
-  expect(configStateText(row("skill", "firn", "on"), true)).toBe("on");
-  expect(configStateText(row("other", "statusline-script", "off"), false)).toBe("off");
+  expect(configStateText(row("skill", "firn", "on"), MANIFEST, [], true)).toBe("on");
+  expect(configStateText(row("other", "statusline-script", "off"), MANIFEST, [], false)).toBe("off");
 });
 
 test("space flips the axis the row stores, through the same two verbs", () => {
@@ -150,6 +157,7 @@ function configRuntime(entries: Row[], view: string) {
     // What it derives activity from. A narrowed view drops the rows that
     // decide it, so the whole manifest is kept alongside.
     configAllEntries: entries.slice(),
+    configMemberships: [],
     configFilter: view,
     configIndex: 0,
     configLoaded: true,
@@ -174,7 +182,7 @@ async function frameOf(view: string, entries: Row[] = MANIFEST) {
 test("the switchboard reads DIRECTORY CONTEXT, SKILLS, HOOKS, MODULES, PLUGINS, OTHER", async () => {
   const frame = await frameOf("all");
   const order = [
-    "DIRECTORY CONTEXT", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "FILETREE-SCOPED INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -184,7 +192,7 @@ test("the switchboard reads DIRECTORY CONTEXT, SKILLS, HOOKS, MODULES, PLUGINS, 
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
   // The global profile heads the directory section, above the per-directory
   // rows it is read underneath.
-  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("DIRECTORY CONTEXT"));
+  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("FILETREE-SCOPED INSTRUCTIONS"));
   expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
 });
 

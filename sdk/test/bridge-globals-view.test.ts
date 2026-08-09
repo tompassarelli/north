@@ -142,6 +142,7 @@ function configRuntime(entries: Row[], view: string) {
     detailView: "config",
     configEntries: configViewRows(entries.slice(), view),
     configAllEntries: entries.slice(),
+    configMemberships: [],
     configFilter: view,
     configIndex: 0,
     configLoaded: true,
@@ -197,7 +198,7 @@ test("/globals is the global scope: the profile, skills, hooks, modules, other",
   const frame = await frameOf("globals");
   expect(frame).toContain("globals");
   // The global profile is a directory row, so its section header comes with it.
-  expect(frame).toContain("DIRECTORY CONTEXT");
+  expect(frame).toContain("FILETREE-SCOPED INSTRUCTIONS");
   expect(frame).toContain("global  ~");
   expect(frame).toContain("SKILLS");
   expect(frame).toContain("HOOKS");
@@ -212,11 +213,15 @@ test("/globals is the global scope: the profile, skills, hooks, modules, other",
   expect(frame).not.toContain("/tmp/switchboard-fixture/north");
 });
 
-test("/agentsmd is the directory section entire, profile first", async () => {
+test("/agentsmd is the filetree section entire, root scope first", async () => {
   const frame = await frameOf("agentsmd");
-  expect(frame).toContain("agents.md & directory context");
-  expect(frame).toContain("DIRECTORY CONTEXT");
-  // The root-scoped instruction file reads above the directories layered on it.
+  expect(frame).toContain("filetree-scoped instructions");
+  expect(frame).toContain("FILETREE-SCOPED INSTRUCTIONS");
+  // These rows are instruction files scoped to a subtree; the header says that
+  // rather than naming the manifest token behind them.
+  expect(frame).not.toContain("DIRECTORY CONTEXT");
+  expect(frame).not.toContain("agents.md & directory context");
+  // The root scope reads above the narrower scopes layered on it.
   expect(frame.indexOf("global  ~")).toBeGreaterThanOrEqual(0);
   expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
   // Slug plus state plus the directory the CLI hands over, on one row.
@@ -234,7 +239,7 @@ test("/agentsmd is the directory section entire, profile first", async () => {
 test("/config carries all six sections in reading order", async () => {
   const frame = await frameOf("all");
   const order = [
-    "DIRECTORY CONTEXT", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
+    "FILETREE-SCOPED INSTRUCTIONS", "SKILLS", "HOOKS", "MODULES", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -243,8 +248,9 @@ test("/config carries all six sections in reading order", async () => {
   });
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
   expect(frame).toContain("context switchboard");
-  // The header the taxonomy retired, and the kind that carried it.
+  // The headers the taxonomy and the rename retired.
   expect(frame).not.toContain("GLOBALS");
+  expect(frame).not.toContain("DIRECTORY CONTEXT");
 });
 
 test("/modules narrows to the orchestration modules and says so", async () => {
