@@ -12,7 +12,7 @@ doc when its trigger fires, not preemptively.
 reads `north show <id>`, never a SESSION-DUMP file. SDK dispatch derives
 agent posture from thread facts.
 Thread operations + concurrent write safety: → `~/.agents/docs/north.md`
-Spawn/steer/observe/concurrency: → `~/.agents/docs/agent-protocol.md`
+Spawn/msg/observe/concurrency: → `~/.agents/docs/agent-protocol.md`
 Agent conduct is owned by this profile and its triggered profile documents;
 repository `AGENTS.md` files may add local constraints. Public `north:docs/`
 files explain the product but are never agent-policy authorities.

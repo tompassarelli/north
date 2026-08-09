@@ -65,7 +65,7 @@ the same lifecycle spine:
 
 ```mermaid
 flowchart LR
-    I[INTAKE] --> M[ID MINT] --> IDF[IDENTITY FACTS] --> P[PRESENCE] --> W[WORK] --> S[STEER / RETASK] --> C[COMPLETION / DEATH] --> R[REAPING]
+    I[INTAKE] --> M[ID MINT] --> IDF[IDENTITY FACTS] --> P[PRESENCE] --> W[WORK] --> S[MSG / GOAL] --> C[COMPLETION / DEATH] --> R[REAPING]
 ```
 
 Two spawn *lineages* underlie all six. Knowing which lineage a pattern rides
@@ -133,7 +133,7 @@ sequenceDiagram
     loop every tool call (PostToolUse hook)
         S->>T: renew lease
     end
-    H->>S: STEER — in-band chat, or north listen bg task = real-time ping
+    H->>S: MSG — in-band chat, or north listen bg task = real-time ping
     Note over S,T: COMPLETION — session ends, lease stops renewing.<br/>No explicit death ping. REAPING — lease lapses at TTL, roster ages it out.
 ```
 
@@ -186,7 +186,7 @@ sequenceDiagram
     else composite work
         SP->>SP: WORK — director staffs worker lanes and owns reduction;<br/>director never executes a worker subtask
     end
-    T-->>SP: STEER — peer ping (subscribeFeed) injected as user turn, no re-arm
+    T-->>SP: MSG — peer ping (subscribeFeed) injected as user turn, no re-arm
     alt clean finish
         SP->>T: COMPLETION — recordRun outcome=ran
         SP->>CO: "AGENT COMPLETE" ping (outcome=ran)
@@ -242,7 +242,7 @@ sequenceDiagram
     SP->>T: IDENTITY FACTS on @agent:{id}
     SP->>T: PRESENCE — register lease
     CS-->>SH: "spawned {id}" + "north watch {id}"
-    Note over SP,T: WORK / STEER / COMPLETION / DEATH / REAPING — same tail as pattern B
+    Note over SP,T: WORK / MSG / COMPLETION / DEATH / REAPING — same tail as pattern B
 ```
 
 Notes: same classification, context, allocation, completion/death, and reaping
@@ -287,7 +287,7 @@ sequenceDiagram
     SP->>T: PRESENCE — register lease
     CS-->>CA: id + north watch
     SP->>SP: WORK — escalate-not-kill ladder in-flight (AGENT_ESCALATE=1)
-    T-->>SP: STEER — subscribeFeed injects pings
+    T-->>SP: MSG — subscribeFeed injects pings
     SP->>T: COMPLETION / DEATH → coordinator
     Note over T: REAPING — TTL lapse
 ```
@@ -325,7 +325,7 @@ sequenceDiagram
     DI->>T: PRESENCE (harnessOptions) — register lease
     DI->>T: subscribeFeed(agentId) → north-listen --once loop
     DI->>L: WORK — streaming query with buildPrompt(@T, posture)
-    T-->>DI: STEER — peer ping injected as user turn<br/>(RETASK: north retask rewrites the goal fact — survives ctx loss)
+    T-->>DI: MSG — peer ping injected as user turn<br/>(GOAL: north goal rewrites the goal fact — survives ctx loss)
     alt clean finish
         DI->>T: COMPLETION — recordRun outcome=ran
     else death
@@ -353,7 +353,7 @@ coordination-v2 identity work (§3) is meant to close.
 ```mermaid
 flowchart TD
     H["/fork (harness-native) — INTAKE carries parent context"] --> W["WORK — edits files, runs git: REAL work, invisible"]
-    W --> N["on north :7977 — NOTHING:<br/>ID MINT ✗ · IDENTITY FACTS ✗ · PRESENCE ✗ (never on roster)<br/>STEER ✗ (no feed subscribe) · DEATH ✗ (no ping, no fact) · REAPING ✗"]
+    W --> N["on north :7977 — NOTHING:<br/>ID MINT ✗ · IDENTITY FACTS ✗ · PRESENCE ✗ (never on roster)<br/>MSG ✗ (no feed subscribe) · DEATH ✗ (no ping, no fact) · REAPING ✗"]
     N --> Z["⇒ zombie fork — failure F4"]
 ```
 
@@ -440,11 +440,11 @@ pipeline-debug checklist and the spec skeleton for a future `north trace
    Footprint: `north:bin/concern ls <repo>` → the lane's concern is
    declared and `building`.
 
-5. **Steer/retask lands** *(only if you sent one)*.
+5. **Msg/goal lands** *(only if you sent one)*.
    Sent a ping: `bb north:cli/msg-cli.clj 7977 inbox <id>` → the message
    is listed (and, once seen, `thread <msg-id>` shows `acked_by`).
-   Retasked: `north show @agent:<id>` → `goal` and `display_name` reflect the new
-   task (`north retask` rewrites the fact — survives context loss).
+   Goal set: `north show @agent:<id>` → `goal` and `display_name` reflect the new
+   task (`north goal` rewrites the fact — survives context loss).
 
 6. **Completion or death signal fired.**
    Clean finish: `bb north:cli/msg-cli.clj 7977 inbox <coordinator>` →
@@ -596,12 +596,12 @@ below are its rule set.
 | verb routing | `north:bin/north` | life/engine/agent verb split; `:7977` canonical; fail-closed `tell` resolve |
 | SDK ad-hoc spawn | `north:sdk/src/spawn.ts` | id mint, `writeAgentFacts`, error boundary, escalate-not-kill, completion ping |
 | thread dispatch | `north:sdk/src/dispatch.ts` | posture-from-facts, **no identity facts**, `subscribeFeed`, dual `agent_death` |
-| real-time steer | `north:sdk/src/coordination.ts` | streaming-input channel, host-side `north-listen` re-arm |
+| real-time msg | `north:sdk/src/coordination.ts` | streaming-input channel, host-side `north-listen` re-arm |
 | death signal | `north:sdk/src/death.ts` | `agent_death` fact (@swarm/thread) + coordinator ping; synchronous, swallowed |
 | harness/presence | `north:sdk/src/harness.ts` | `registerPresence` (:7977), NATIVE_TOOLS, `command_peer` server |
 | identity facts | `north:sdk/src/identity.ts` | `@agent:<id>` predicate set + `display_name` render |
 | session hook | `north:bin/north-on-spawn` | session id de-alias, presence, `kind=session` facts, concern-protocol inject |
-| agent CLI | `north:cli/agents-cli.clj` | `spawn`/`req`/`agents`/`watch`/`steer`/`retask`, dial-table parse |
+| agent CLI | `north:cli/agents-cli.clj` | `spawn`/`req`/`agents`/`watch`/`msg`/`goal`, dial-table parse |
 | presence/lease | `north:cli/presence-cli.clj` | 30-min TTL, `presence` projection, `slackers`, `pin` |
 | mail/commands | `north:cli/msg-cli.clj` | `send`/`inbox`/`ack`/`send-cmd` (@cmd facts), derived inbox |
 | listener | `north:cli/north-listen.clj` | dormant-until-pinged pub/sub; role-addressing |

@@ -667,7 +667,7 @@ north templates           # Orchestration's reusable stock templates and routing
 **division of labor** the fold preserves: **Orchestration answers WHO does the work**
 (role, composition, semantic tier, reasoning, and posture); **North answers WHERE
 it runs and HOW you see and drive it** (account target, subscription pressure,
-dashboard, spawn, watch, steer, profile). Orchestration is account-blind. `north spawn`
+dashboard, spawn, watch, msg, profile). Orchestration is account-blind. `north spawn`
 reads `~/code/north/main/orchestration/staffing/catalog.json`, then North selects an eligible target
 and resolves the semantic tier through that provider's catalog. Generated agent
 markdown and `~/code/north/main/orchestration/docs/adapters/north.md` remain provider-adapter
@@ -800,7 +800,7 @@ are never mutated in place.
 
 **Ownership rule** (2026-07-09): a cockpit verb earns its place ONLY when it
 COMPOSES multiple tools (`dashboard`, `doctor`, `profile`, `spawn` = orchestration dials
-× north SDK) or fixes a hostile invocation (`watch`, `steer`, `retask` over raw
+× north SDK) or fixes a hostile invocation (`watch`, `msg`, `goal` over raw
 `msg-cli`/`tail`). If ONE tool already owns the concern, the cockpit TEACHES that
 tool's command — it never re-badges it. `north board` is typed as `north board`,
 not wrapped. Every composed call PRINTS the primitive it runs (the `»` line):

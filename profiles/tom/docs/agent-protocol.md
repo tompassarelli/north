@@ -22,7 +22,7 @@ Quick lookups → bash/grep/read inline. Real work → the protocol below.
   (`overlap <id>` marks likely-to-land work per line; alias: `shape`).
 - **Reach a live agent**: it arms `north:bin/north listen <id>` (alias: `north-arm`); ping with
   `north-comms send <from> <role-alias> "<subject>" "<msg>"` — a message is
-  the steer. Alias-first delivery resolves the current live recipient and fails
+  the message. Alias-first delivery resolves the current live recipient and fails
   loudly when none is reachable. Observe via `north watch`, `north agents`, or
   `north board`; the CLI/MCP surface is authoritative.
 - **Concurrency is the engine's job** — fram owns write-serialization + OCC + the `lease`

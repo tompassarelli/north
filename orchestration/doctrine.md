@@ -197,7 +197,7 @@ Every admitted child is one of:
 - ORCHESTRATOR — normally the orchestration:director function, a fork whose contract
   is DECOMPOSE AND FAN OUT. It does NOT
   execute subtasks itself; its only tools of substance are read/analyze,
-  spawn, steer, consume and reconcile child results, run at most one existing
+  spawn, message, consume and reconcile child results, run at most one existing
   integrated check on the aggregate, and integrate the result. It never absorbs
   a worker's implementation or local-check burden. Genuinely independent work
   that materially shortens delivery may fan out in parallel. A child whose LOCAL dependency shape still

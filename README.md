@@ -55,7 +55,7 @@ north — coordinate work, agents, and time
     north delegate "<task>"       hand work to a new lane
     north agents                  who's live now
     north watch <id>              tail one agent's transcript
-    north steer <id> "<msg>"      nudge it mid-flight
+    north msg <id> "<msg>"        nudge it mid-flight
 
   [SYSTEM and MORE groups elided]
 ```
@@ -91,7 +91,7 @@ checkout on `FRAM_HOME`; the agent SDK and MCP edge also need
   the thread carried at dispatch ([`cli/bars-cli.clj`](cli/bars-cli.clj)).
 - **Concurrent agents coordinate without locking.** *Concerns* declare a
   footprint and coexist, *leases* claim exclusive jurisdiction, and *mail* plus
-  `north watch`/`steer`/`retask` drive live lanes
+  `north watch`/`msg`/`goal` drive live lanes
   ([`cli/concern-cli.clj`](cli/concern-cli.clj),
   [`cli/lease-cli.clj`](cli/lease-cli.clj),
   [`cli/msg-cli.clj`](cli/msg-cli.clj)).
