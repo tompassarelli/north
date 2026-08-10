@@ -10,6 +10,69 @@ import {
   TerminalPublicationBudget,
 } from "../src/terminal-notification";
 import { framBabashkaArguments } from "../src/fram-engine";
+import {
+  WireEventWriter,
+  wireEventId,
+  wireMessageId,
+  wireModelCallId,
+  wireRunId,
+  type WireCompletionEvidence,
+  type WireRunSnapshot,
+} from "../src/wire";
+
+function modelTerminalSnapshot(
+  label: string,
+  status: "succeeded" | "failed" | "cancelled",
+  evidence?: WireCompletionEvidence,
+): WireRunSnapshot {
+  const writer = new WireEventWriter({
+    runId: wireRunId(`run:terminal-${label}`),
+    eventId: (sequence) => wireEventId(`event:terminal-${label}-${sequence}`),
+    now: () => "2026-08-10T00:00:00.000Z",
+  });
+  const modelCallId = wireModelCallId(`model-call:terminal-${label}`);
+  const messageId = wireMessageId(`message:terminal-${label}`);
+  writer.append({ kind: "run.started", lifecycle: "running" });
+  writer.append({
+    kind: "model-call.started",
+    modelCallId,
+    model: { provider: "openai", tier: "standard" },
+    attempt: 1,
+  });
+  writer.append({
+    kind: "message.recorded",
+    messageId,
+    modelCallId,
+    stage: "started",
+    role: "assistant",
+  });
+  writer.append({
+    kind: "message.recorded",
+    messageId,
+    modelCallId,
+    stage: "delta",
+    role: "assistant",
+    content: "PROVIDER_PROSE_CANARY partial answer",
+  });
+  writer.append({
+    kind: "message.recorded",
+    messageId,
+    modelCallId,
+    stage: "completed",
+    role: "assistant",
+  });
+  writer.append({
+    kind: "model-call.completed",
+    modelCallId,
+    status,
+    origin: "provider",
+    usage: writer.snapshot()!.usage,
+		usageCoverage: "exact",
+    ...(status === "succeeded" ? {} : { errorCode: "provider_error" }),
+    ...(evidence === undefined ? {} : { evidence }),
+  });
+  return writer.snapshot()!;
+}
 
 test("success completes while a preflight refusal reports an honest blocked terminal", () => {
   for (const [processOutcome, subject] of [
@@ -116,43 +179,42 @@ test("one configurable wall-clock budget is split across both publications and t
 // managed Codex lanes settled provider_error/blocked/turns=0 on 2026-07-26 with
 // the provider's own account of the failure sitting in the terminal frame the
 // message loop dropped. These pin the render that keeps it.
-test("a provider_error terminal renders its payload, never the model's prose", () => {
-  const detail = describeProviderErrorTerminal({
-    type: "result",
-    subtype: "error_during_execution",
-    is_error: true,
-    result: "PROVIDER_PROSE_CANARY partial answer",
-    _north_harvest: {
-      threadId: "th_abc",
-      completedTurns: 0,
-      mcp: { totalCalls: 3 },
-      nativeCommands: { totalCommands: 1 },
-      failure: "openai_provider_execution_failed <- cause: Codex completed turn"
-        + " reported a provider-side turn error <- cause: provider turn error:"
-        + " {\"message\":\"stream disconnected before completion\"}",
+test("a failed model terminal renders typed evidence, never assistant prose", () => {
+  const detail = describeProviderErrorTerminal(modelTerminalSnapshot("failure", "failed", {
+    providerJoin: {
+      version: "north-provider-join:v1",
+      sessionKey: "a".repeat(64),
+      turnKeys: ["b".repeat(64)],
+      sessionPersistence: "ephemeral",
+      coverage: "exact",
     },
-  });
-  expect(detail).toContain("subtype=error_during_execution");
-  expect(detail).toContain("is_error=true");
+    turns: { unit: "provider-turn", count: 1, toolItems: 4, comparable: false },
+    failure: {
+      landed: { completedTurns: 0, toolItems: 4, mcpCalls: 3, nativeCommands: 1 },
+      detail: "provider turn error: stream disconnected before completion",
+    },
+  }));
+  expect(detail).toContain("status=failed");
+  expect(detail).toContain("code=provider_error");
   expect(detail).toContain("stream disconnected before completion");
-  expect(detail).toContain("landed=[0 completed turn(s), 3 MCP call(s), 1 native command(s)]");
-  expect(detail).toContain("provider_thread=th_abc");
-  // The result text is model prose: recorded elsewhere, never a machine reason.
+  expect(detail).toContain(
+    "landed=[0 completed turn(s), 4 tool item(s), 3 MCP call(s), 1 native command(s)]",
+  );
+  expect(detail).toContain(`provider_session=${"a".repeat(64)}`);
   expect(detail).not.toContain("PROVIDER_PROSE_CANARY");
   expect(detail.length).toBeLessThanOrEqual(PROVIDER_ERROR_DETAIL_MAX_LEN);
 });
 
 test("provider_error detail is bounded, single-line, and honest when there is nothing to say", () => {
-  const huge = describeProviderErrorTerminal({
-    subtype: "error",
-    is_error: true,
-    errors: Array.from({ length: 9 }, (_, index) => ({ message: `e${index} `.repeat(200) })),
-  });
+  const huge = describeProviderErrorTerminal(modelTerminalSnapshot("huge", "failed", {
+    failure: { detail: "large failure ".repeat(80).trim() },
+  }));
   expect(huge.length).toBeLessThanOrEqual(PROVIDER_ERROR_DETAIL_MAX_LEN);
   expect(huge).not.toContain("\n");
-  expect(huge).toContain("+5 more");
 
-  expect(describeProviderErrorTerminal(undefined)).toBe(NO_PROVIDER_TERMINAL_DETAIL);
-  expect(describeProviderErrorTerminal({ type: "result", subtype: "success" }))
+  const noTerminal = new WireEventWriter({ runId: wireRunId("run:terminal-none") });
+  noTerminal.append({ kind: "run.started", lifecycle: "running" });
+  expect(describeProviderErrorTerminal(noTerminal.snapshot()!)).toBe(NO_PROVIDER_TERMINAL_DETAIL);
+  expect(describeProviderErrorTerminal(modelTerminalSnapshot("success", "succeeded")))
     .toBe(EMPTY_PROVIDER_ERROR_DETAIL);
 });

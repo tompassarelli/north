@@ -1,207 +1,260 @@
 import type { DeliveryAssessment, DeliveryProof } from "./delivery-verification";
+import type {
+	WireAbortEvidence,
+	WireOuterAbortActivityKind,
+	WireProviderAbortActivityKind,
+	WireTerminalLifecycle,
+	WireTerminationReason,
+} from "./wire/events";
+import type { WireModelCallSnapshot, WireRunSnapshot } from "./wire/reducer";
+import type { WatchdogAbortEvidence } from "./watchdog";
 
 export type DeliveryOutcome = "unverified" | "reported" | "verified" | "blocked";
 
 export interface ExecutionTerminal {
-  /** Did the adapter/process reach a terminal state, and which one? */
-  processOutcome: string;
-  /** Was the requested delivery established independently of model prose? */
-  deliveryOutcome: DeliveryOutcome;
-  /** Stable machine reason; never copied from provider prose. */
-  deliveryReason: string;
-  /** Self-contained fact snapshot; required for reported. `verified` is legacy/reserved. */
-  deliveryProof?: DeliveryProof;
+	processOutcome: string;
+	deliveryOutcome: DeliveryOutcome;
+	deliveryReason: string;
+	deliveryProof?: DeliveryProof;
 }
 
-/**
- * A provider "success" terminal whose result text is empty (0b) is a DEGENERATE
- * completion, not a delivery. Opus-high extended-thinking turns that exhaust the
- * output-token ceiling truncate before committing any final text (the final
- * assistant block is an unanswered tool_use or a terminal thinking block), yet
- * the SDK still yields subtype=success/result="". Recording that as process=ran
- * makes a zero-deliverable lane read as a clean completion (thread 019f8300).
- * This distinct outcome makes the empty terminal LOUD and non-clean.
- */
 export const EMPTY_RESULT_OUTCOME = "ran_empty";
-
-/**
- * The provider-process-level death class: the SDK subprocess itself died
- * (OOM SIGKILL / parent SIGTERM / idle Transport-closed / openai_provider_execution_failed),
- * classified below as processOutcome "provider_process_died". Bounded auto-retry
- * (spawn.ts, thread 019f8f81) gates eligibility against this exact constant rather
- * than a repeated string literal, so the retry gate and this classification can
- * never drift apart. Distinct from blocked_preflight/watchdog_aborted/resource_envelope_*,
- * which are NOT provider-process deaths and are never retried by that policy.
- */
 export const PROVIDER_PROCESS_DEATH_OUTCOME = "died";
-
-/** True when a provider success terminal carried no committed deliverable text. */
-export function isEmptyResultTerminal(outcome: string, result: string): boolean {
-  return outcome === "ran" && result.trim() === "";
-}
-
-/** Ceiling for the rendered provider_error detail: a lane-log line and a fact value. */
 export const PROVIDER_ERROR_DETAIL_MAX_LEN = 1200;
-
-/** What a provider_error terminal means when the stream never produced one at all. */
 export const NO_PROVIDER_TERMINAL_DETAIL =
-  "provider stream closed without a terminal result message";
-
-/** No error payload accompanied the error terminal — itself the diagnosis. */
+	"provider stream closed without a model-call terminal";
 export const EMPTY_PROVIDER_ERROR_DETAIL =
-  "provider error terminal carried no error payload";
-
+	"model-call terminal carried no diagnostic evidence";
 export const DEADLINE_EXCEEDED_DETAIL_MAX_LEN = 4_096;
 
-/**
- * Render the app-server's structured North-owned interrupt evidence. The
- * presence of this envelope, not provider prose or exit status from teardown,
- * is the authority for `process=deadline_exceeded`.
- */
-export function describeDeadlineExceededTerminal(message: unknown): string | undefined {
-  if (!message || typeof message !== "object") return undefined;
-  const evidence = (message as Record<string, unknown>)._north_interrupt;
-  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return undefined;
-  const value = evidence as Record<string, unknown>;
-  const eventEntries = value.eventCounts && typeof value.eventCounts === "object"
-      && !Array.isArray(value.eventCounts)
-    ? Object.entries(value.eventCounts as Record<string, unknown>)
-    : [];
-  if ((value.reason !== "turn_deadline" && value.reason !== "post_tool_silence")
-      || !Number.isSafeInteger(value.deadlineMs) || (value.deadlineMs as number) <= 0
-      || !Number.isSafeInteger(value.inactivityThresholdMs)
-      || (value.inactivityThresholdMs as number) <= 0
-      || !Number.isSafeInteger(value.lastActivityAgeMs)
-      || (value.lastActivityAgeMs as number) < 0
-      || !Number.isSafeInteger(value.eventCount) || (value.eventCount as number) < 0
-      || eventEntries.length > 64
-      || eventEntries.some(([kind, count]) => !/^[a-z][a-z0-9._/-]{0,127}$/.test(kind)
-        || !Number.isSafeInteger(count) || (count as number) < 0)
-      || eventEntries.reduce((total, [, count]) => total + Number(count), 0) !== value.eventCount
-      || !Array.isArray(value.stderrTail)
-      || !(value.stderrTail as unknown[]).every((line) => typeof line === "string")) return undefined;
-  const normalized = {
-    reason: value.reason,
-    deadlineMs: value.deadlineMs,
-    inactivityThresholdMs: value.inactivityThresholdMs,
-    lastActivityAgeMs: value.lastActivityAgeMs,
-    eventCount: value.eventCount,
-    eventCounts: Object.fromEntries(eventEntries),
-    stderrTail: (value.stderrTail as string[]).slice(-8).map((line) => oneLine(line, 256)),
-  };
-  const rendered = JSON.stringify(normalized);
-  return rendered.length <= DEADLINE_EXCEEDED_DETAIL_MAX_LEN ? rendered : undefined;
+export interface WireTerminalDecision {
+	lifecycle: WireTerminalLifecycle;
+	reason: WireTerminationReason;
+	abort?: WireAbortEvidence;
 }
 
-function oneLine(value: unknown, maxLen: number): string {
-  const raw = typeof value === "string"
-    ? value
-    : (() => { try { return JSON.stringify(value) ?? String(value); } catch { return String(value); } })();
-  return String(raw).replace(/\s+/g, " ").trim().slice(0, maxLen);
+function outerAbortActivityKind(kind: string): WireOuterAbortActivityKind {
+	if (kind.startsWith("wire.message.")) return "message";
+	if (kind.startsWith("wire.model-call.")) return "model";
+	if (kind.startsWith("wire.tool.")) return "tool";
+	if (kind === "wire.artifact.published") return "artifact";
+	if (kind === "wire.run.compacted") return "compaction";
+	return "activity";
+}
+
+function providerAbortActivityKind(kind: string): WireProviderAbortActivityKind {
+	if (kind.includes(".mcp.") || kind.includes(".command.")) return "tool";
+	if (kind.endsWith(".progress") || kind.endsWith(".diff") || kind.endsWith(".plan")
+		|| kind.endsWith(".patch")) return "progress";
+	if (kind.includes(".turn.")) return "turn";
+	if (kind.includes(".item.")) return "item";
+	if (kind.endsWith(".frame.accepted")) return "frame";
+	return "activity";
+}
+
+/** Map North's process outcome onto one bounded, provider-neutral outer wire terminal. */
+export function wireTerminalDecision(
+	outcome: string,
+	_detail: string | undefined,
+	watchdogAbort: WatchdogAbortEvidence | undefined,
+): WireTerminalDecision {
+	const reason = (code: WireTerminationReason["code"]): WireTerminationReason => ({
+		code,
+		...(code === "completed" ? {} : { detail: code }),
+	});
+	if (outcome === "ran") return { lifecycle: "completed", reason: reason("completed") };
+	if (outcome === "watchdog_aborted") {
+		if (watchdogAbort === undefined) {
+			throw new Error("watchdog_aborted requires authenticated inactivity evidence");
+		}
+		return {
+			lifecycle: "cancelled",
+			reason: reason("aborted"),
+			abort: {
+				requestedAt: new Date().toISOString(),
+				source: "watchdog",
+				reason: watchdogAbort.reason,
+				watchdog: {
+					silenceMs: watchdogAbort.silenceMs,
+					...(watchdogAbort.lastOuter === undefined ? {} : {
+						lastOuter: {
+							origin: "outer" as const,
+							kind: outerAbortActivityKind(watchdogAbort.lastOuter.kind),
+							observedAt: watchdogAbort.lastOuter.observedAt,
+						},
+					}),
+					...(watchdogAbort.lastProvider === undefined ? {} : {
+						lastProvider: {
+							origin: "provider" as const,
+							kind: providerAbortActivityKind(watchdogAbort.lastProvider.kind),
+							observedAt: watchdogAbort.lastProvider.observedAt,
+						},
+					}),
+				},
+			},
+		};
+	}
+	if (outcome === "deadline_exceeded" || outcome === "session_hard_cap") {
+		return { lifecycle: "failed", reason: reason("timed_out") };
+	}
+	if (outcome === "provider_error" || outcome === "max_turns" || outcome === "capped") {
+		return { lifecycle: "failed", reason: reason("provider_error") };
+	}
+	if (outcome === "died" || outcome === "stalled") {
+		return { lifecycle: "failed", reason: reason("provider_process_died") };
+	}
+	if (outcome === "resource_envelope_exceeded") {
+		return { lifecycle: "blocked", reason: reason("resource_denied") };
+	}
+	if (outcome.startsWith("blocked_") || outcome.startsWith("orchestrator_")
+			|| outcome === "child_reconciliation_unavailable"
+			|| outcome === "background_tasks_incomplete") {
+		return { lifecycle: "blocked", reason: reason("blocked") };
+	}
+	return { lifecycle: "failed", reason: reason("synthetic_failure") };
+}
+
+function latestModelCallTerminal(snapshot: WireRunSnapshot): WireModelCallSnapshot | undefined {
+	let latest: WireModelCallSnapshot | undefined;
+	for (const modelCall of Object.values(snapshot.modelCalls)) {
+		if (modelCall.status !== "running") latest = modelCall;
+	}
+	return latest;
+}
+
+function assistantOutputFor(
+	snapshot: WireRunSnapshot,
+	modelCall: WireModelCallSnapshot,
+): string | undefined {
+	let output: string | undefined;
+	for (const message of Object.values(snapshot.messages)) {
+		if (message.role !== "assistant" || message.stage !== "completed"
+			|| message.modelCallId !== modelCall.id) continue;
+		output = message.contents
+			.filter((content): content is string => typeof content === "string")
+			.join("");
+	}
+	return output;
+}
+
+/** True when the latest successful model call committed no assistant text. */
+export function isEmptyResultTerminal(snapshot: WireRunSnapshot): boolean {
+	const terminal = latestModelCallTerminal(snapshot);
+	return terminal?.status === "succeeded"
+		&& (assistantOutputFor(snapshot, terminal) ?? "").trim() === "";
+}
+
+function oneLine(value: string, maxLen: number): string {
+	return value.replace(/\s+/g, " ").trim().slice(0, maxLen);
+}
+
+/** Render typed North-owned interrupt evidence from the latest model terminal. */
+export function describeDeadlineExceededTerminal(
+	snapshot: WireRunSnapshot,
+): string | undefined {
+	const evidence = latestModelCallTerminal(snapshot)?.evidence?.interrupt;
+	if (evidence === undefined) return undefined;
+	const rendered = JSON.stringify({
+		reason: evidence.reason,
+		deadlineMs: evidence.deadlineMs,
+		inactivityThresholdMs: evidence.inactivityThresholdMs,
+		lastActivityAgeMs: evidence.lastActivityAgeMs,
+		...(evidence.openItemCount === undefined ? {} : { openItemCount: evidence.openItemCount }),
+		...(evidence.openItem === undefined ? {} : { openItem: evidence.openItem }),
+		eventCount: evidence.eventCount,
+	});
+	return rendered.length <= DEADLINE_EXCEEDED_DETAIL_MAX_LEN ? rendered : undefined;
 }
 
 /**
- * `provider_error` is a CLASSIFICATION, not a diagnosis.
- *
- * On 2026-07-26 three managed Codex lanes settled process=provider_error /
- * delivery=blocked / turns=0 after producing real first-turn text, and NOTHING
- * durable named the provider failure: the adapter had the cause chain in hand,
- * folded its summary into the terminal frame, and the harness read exactly one
- * boolean off that frame (`is_error`) before `break`ing the message loop — which
- * discards both the frame and the adapter's pending throw. The empty managed
- * home is disposed at teardown, so the graph was the only possible witness and
- * it recorded nothing.
- *
- * This renders a terminal frame's own error evidence into one bounded,
- * whitespace-collapsed line for the lane log, the peer ping, and the
- * `provider_error_detail` run fact. It reads ONLY diagnostic fields — never
- * `result` (model prose, recorded separately and never classification input) —
- * so a provider cannot smuggle prose into a machine reason through this seam.
+ * Render bounded provider-neutral failure evidence. Assistant output is never
+ * diagnostic input and therefore cannot alter the machine reason.
  */
 export function describeProviderErrorTerminal(
-  message: unknown,
-  maxLen = PROVIDER_ERROR_DETAIL_MAX_LEN,
+	snapshot: WireRunSnapshot,
+	maxLen = PROVIDER_ERROR_DETAIL_MAX_LEN,
 ): string {
-  if (!message || typeof message !== "object") return NO_PROVIDER_TERMINAL_DETAIL;
-  const msg = message as Record<string, any>;
-  const parts: string[] = [];
-  if (typeof msg.subtype === "string" && msg.subtype !== "success")
-    parts.push(`subtype=${oneLine(msg.subtype, 120)}`);
-  if (msg.is_error === true) parts.push("is_error=true");
-  if (Array.isArray(msg.errors) && msg.errors.length) {
-    const shown = msg.errors.slice(0, 4)
-      .map((entry: unknown) => oneLine((entry as any)?.message ?? entry, 240));
-    const overflow = msg.errors.length > 4 ? ` | +${msg.errors.length - 4} more` : "";
-    parts.push(`errors=[${shown.join(" | ")}${overflow}]`);
-  }
-  // The managed Codex harvest frame is the adapter's own post-mortem: its
-  // `failure` field is the full nested cause chain of the throw the message
-  // loop is about to discard. This is the single most diagnostic field here.
-  const harvest = msg._north_harvest;
-  if (harvest && typeof harvest === "object") {
-    if (harvest.failure) parts.push(`failure=${oneLine(harvest.failure, 800)}`);
-    const landed = [
-      `${Number(harvest.completedTurns ?? 0)} completed turn(s)`,
-      harvest.mcp?.totalCalls !== undefined ? `${harvest.mcp.totalCalls} MCP call(s)` : undefined,
-      harvest.nativeCommands?.totalCommands !== undefined
-        ? `${harvest.nativeCommands.totalCommands} native command(s)` : undefined,
-    ].filter(Boolean).join(", ");
-    parts.push(`landed=[${landed}]`);
-    if (harvest.threadId) parts.push(`provider_thread=${oneLine(harvest.threadId, 128)}`);
-  }
-  if (!parts.length) return EMPTY_PROVIDER_ERROR_DETAIL;
-  return `provider error terminal: ${parts.join(" ")}`.slice(0, maxLen);
+	const terminal = latestModelCallTerminal(snapshot);
+	if (terminal === undefined) return NO_PROVIDER_TERMINAL_DETAIL;
+	const evidence = terminal.evidence;
+	const parts: string[] = [];
+	if (terminal.status !== "succeeded") parts.push(`status=${terminal.status}`);
+	if (terminal.errorCode !== undefined) parts.push(`code=${oneLine(terminal.errorCode, 128)}`);
+	parts.push(`origin=${terminal.origin ?? "unknown"}`);
+	if (evidence?.failure !== undefined) {
+		parts.push(`failure=${oneLine(evidence.failure.detail, 800)}`);
+		const landed = evidence.failure.landed;
+		if (landed !== undefined) {
+			const counts = [
+				landed.completedTurns === undefined ? undefined
+					: `${landed.completedTurns} completed turn(s)`,
+				landed.toolItems === undefined ? undefined : `${landed.toolItems} tool item(s)`,
+				landed.mcpCalls === undefined ? undefined : `${landed.mcpCalls} MCP call(s)`,
+				landed.nativeCommands === undefined ? undefined
+					: `${landed.nativeCommands} native command(s)`,
+			].filter((value): value is string => value !== undefined);
+			if (counts.length > 0) parts.push(`landed=[${counts.join(", ")}]`);
+		}
+	}
+	if (evidence?.turns?.unit === "assistant-turn") {
+		parts.push(`turns=${evidence.turns.count}`);
+	} else if (evidence?.turns?.unit === "provider-turn") {
+		parts.push(`turn_units=${evidence.turns.count}`);
+	}
+	if (evidence?.providerJoin?.sessionKey !== undefined) {
+		parts.push(`provider_session=${evidence.providerJoin.sessionKey}`);
+	}
+	if (parts.length === 1 && terminal.status === "succeeded") {
+		return EMPTY_PROVIDER_ERROR_DETAIL;
+	}
+	return `model-call terminal: ${parts.join(" ")}`.slice(0, maxLen);
 }
 
-const BLOCKED_REASON: Record<string, string> = {
-  blocked_preflight: "execution_preflight_blocked",
-  blocked_spend_guard: "spend_guard_budget_incomplete",
-  ran_empty: "provider_terminal_empty_result",
-  provider_error: "provider_terminal_error",
-  deadline_exceeded: "north_turn_deadline_exceeded_after_inactivity",
-  died: "provider_process_died",
-  stalled: "provider_process_stalled",
-  watchdog_aborted: "north_watchdog_execution_inactivity",
-  session_hard_cap: "north_managed_session_hard_cap",
-  max_turns: "provider_turn_cap",
-  capped: "provider_cap",
-  resource_envelope_exceeded: "resource_envelope_exceeded",
-  provider_escalation_unsupported: "provider_escalation_unsupported",
-  max_tier: "escalation_ladder_exhausted",
-  orchestrator_children_incomplete: "orchestrator_children_live_at_terminal",
-  orchestrator_child_obligation_unmet: "orchestrator_minimum_children_not_dispatched",
-  child_reconciliation_unavailable: "orchestrator_child_reconciliation_unavailable",
-  orchestrator_reduction_incomplete: "orchestrator_child_results_unreconciled",
-  orchestrator_child_set_inconsistent: "orchestrator_child_relation_regressed",
+const BLOCKED_REASON: Readonly<Record<string, string>> = {
+	blocked_preflight: "execution_preflight_blocked",
+	blocked_spend_guard: "spend_guard_budget_incomplete",
+	ran_empty: "provider_terminal_empty_result",
+	provider_error: "provider_terminal_error",
+	deadline_exceeded: "north_turn_deadline_exceeded_after_inactivity",
+	died: "provider_process_died",
+	stalled: "provider_process_stalled",
+	watchdog_aborted: "north_watchdog_execution_inactivity",
+	session_hard_cap: "north_managed_session_hard_cap",
+	max_turns: "provider_turn_cap",
+	capped: "provider_cap",
+	resource_envelope_exceeded: "resource_envelope_exceeded",
+	provider_escalation_unsupported: "provider_escalation_unsupported",
+	max_tier: "escalation_ladder_exhausted",
+	orchestrator_children_incomplete: "orchestrator_children_live_at_terminal",
+	orchestrator_child_obligation_unmet: "orchestrator_minimum_children_not_dispatched",
+	child_reconciliation_unavailable: "orchestrator_child_reconciliation_unavailable",
+	orchestrator_reduction_incomplete: "orchestrator_child_results_unreconciled",
+	orchestrator_child_set_inconsistent: "orchestrator_child_relation_regressed",
 };
 
-/**
- * A successful provider terminal proves only that the process ran. Delivery is
- * intentionally unverified until an external bar/evidence seam proves it.
- */
 export function classifyExecutionTerminal(
-  processOutcome: string,
-  delivery?: DeliveryAssessment,
+	processOutcome: string,
+	delivery?: DeliveryAssessment,
 ): ExecutionTerminal {
-  if (processOutcome === "ran") {
-    if (delivery?.deliveryOutcome === "reported") {
-      return {
-        processOutcome,
-        deliveryOutcome: delivery.deliveryOutcome,
-        deliveryReason: delivery.deliveryReason,
-        deliveryProof: delivery.proof,
-      };
-    }
-    return {
-      processOutcome,
-      deliveryOutcome: delivery?.deliveryOutcome ?? "unverified",
-      deliveryReason: delivery?.deliveryReason
-        ?? "provider_terminal_success_without_external_verification",
-    };
-  }
-  return {
-    processOutcome,
-    deliveryOutcome: "blocked",
-    deliveryReason: BLOCKED_REASON[processOutcome] ?? "execution_did_not_reach_success_terminal",
-  };
+	if (processOutcome === "ran") {
+		if (delivery?.deliveryOutcome === "reported") {
+			return {
+				processOutcome,
+				deliveryOutcome: delivery.deliveryOutcome,
+				deliveryReason: delivery.deliveryReason,
+				deliveryProof: delivery.proof,
+			};
+		}
+		return {
+			processOutcome,
+			deliveryOutcome: delivery?.deliveryOutcome ?? "unverified",
+			deliveryReason: delivery?.deliveryReason
+				?? "provider_terminal_success_without_external_verification",
+		};
+	}
+	return {
+		processOutcome,
+		deliveryOutcome: "blocked",
+		deliveryReason: BLOCKED_REASON[processOutcome] ?? "execution_did_not_reach_success_terminal",
+	};
 }

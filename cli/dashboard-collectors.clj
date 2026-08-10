@@ -7,7 +7,8 @@
             [north.dashboard.state :as state])
   (:import [java.io RandomAccessFile]
            [java.net Socket InetSocketAddress]
-           [java.nio.charset StandardCharsets]))
+           [java.nio.charset StandardCharsets]
+           [java.nio.file Files]))
 
 (def home (System/getenv "HOME"))
 (def state-dir (str home "/.local/state/north"))
@@ -111,6 +112,9 @@
                      (spawn-details log)
                      (select-keys meta [:role :effort :provider :model :thread :startedAt]))))}))
 (def max-journal-record-bytes (* 8 1024 1024))
+(def max-wire-line-bytes (* 2 1024 1024))
+(def max-wire-stream-bytes (* 64 1024 1024))
+(def max-wire-events 16384)
 (defn journal-records [file execution-id]
   (with-open [input (RandomAccessFile. file "r")]
     (loop [records [] expected-seq 1]
@@ -140,10 +144,59 @@
                   (throw (ex-info "bridge journal record has an invalid v1 shape"
                                   {:execution execution-id :sequence expected-seq})))
                 (recur (conj records record) (inc expected-seq))))))))))
+(defn wire-events [file]
+  (if-not (.isFile file)
+    []
+    (let [size (.length file)]
+      (when (> size max-wire-stream-bytes)
+        (throw (ex-info "bridge wire journal exceeds its stream bound" {:bytes size})))
+      (let [text (String. (Files/readAllBytes (.toPath file)) StandardCharsets/UTF_8)
+            parts (str/split text #"\n" -1)
+            ;; A non-LF tail is not committed evidence. The writer fsyncs whole
+            ;; canonical lines, so the dashboard projects only that prefix.
+            lines (butlast parts)]
+        (when (> (count lines) max-wire-events)
+          (throw (ex-info "bridge wire journal exceeds its event bound"
+                          {:events (count lines)})))
+        (loop [events [] expected-sequence 0 run-id nil remaining (seq lines)]
+          (if-let [line (first remaining)]
+            (let [bytes (alength (.getBytes line StandardCharsets/UTF_8))]
+              (when (or (str/blank? line) (> bytes max-wire-line-bytes))
+                (throw (ex-info "bridge wire journal has an invalid line bound"
+                                {:sequence expected-sequence :bytes bytes})))
+              (let [event (json/parse-string line true)
+                    event-run-id (:runId event)]
+                (when-not (and (= "north:wire:v2" (:version event))
+                               (= true (:essential event))
+                               (= expected-sequence (:sequence event))
+                               (string? (:id event))
+                               (string? event-run-id)
+                               (or (nil? run-id) (= run-id event-run-id))
+                               (string? (:at event))
+                               (string? (:kind event)))
+                  (throw (ex-info "bridge wire journal has an invalid event shape"
+                                  {:sequence expected-sequence})))
+                (recur (conj events event) (inc expected-sequence)
+                       (or run-id event-run-id) (next remaining))))
+            events))))))
+(defn wire-content? [value]
+  (cond
+    (string? value) (not (str/blank? value))
+    (map? value) (some wire-content? (vals value))
+    (sequential? value) (some wire-content? value)
+    :else (some? value)))
+(defn wire-delivered? [events]
+  (boolean
+   (some #(or (= "artifact.published" (:kind %))
+              (and (= "message.recorded" (:kind %))
+                   (= "assistant" (:role %))
+                   (wire-content? (:content %))))
+         events)))
 (defn instant-ms [value]
   (try (.toEpochMilli (java.time.Instant/parse value)) (catch Exception _ nil)))
 (defn journal-row [events-file execution-id]
   (let [records (journal-records events-file execution-id)
+        wire (wire-events (io/file (.getParentFile events-file) "wire.jsonl"))
         accepted (first (filter #(contains? #{"execution.accepted" "lane.spawn-start"}
                                              (:kind %)) records))
         latest (last records)]
@@ -153,18 +206,23 @@
             harvest (last (filter #(= "lane.harvest" (:kind %)) records))
             process-outcome (get-in terminal [:data :processOutcome])
             result-bytes (get-in terminal [:data :resultBytes])
-            failed? (or (some #(= "execution.failed" (:kind %)) records)
+            execution-terminal (last (filter #(= "execution.terminated" (:kind %)) records))
+            execution-lifecycle (get-in execution-terminal [:data :lifecycle])
+            model-call (last (filter #(= "model-call.started" (:kind %)) wire))
+            failed? (or (some #(= "execution.failure" (:kind %)) records)
+                        (contains? #{"failed" "blocked"} execution-lifecycle)
                         (and terminal (not= "ran" process-outcome)))
-            completed? (or terminal (some #(= "execution.completed" (:kind %)) records))
-            delivered? (or (some #(= "provider.result" (:kind %)) records)
+            completed? (or terminal execution-terminal)
+            delivered? (or (wire-delivered? wire)
                            (= "delivered" (get-in terminal [:data :deliveryOutcome]))
                            (and (number? result-bytes) (pos? result-bytes))
                            (= "harvested" (get-in harvest [:data :status])))
             started-at (or (instant-ms (:at accepted)) (.lastModified events-file))
-            last-at (or (instant-ms (:at latest)) (.lastModified events-file))
+            last-at (or (some->> (concat records wire)
+                                 (keep #(instant-ms (:at %))) seq (apply max))
+                        (.lastModified events-file))
             provider (or (get-in identity [:data :provider])
-                         (some #(when (= "provider.starting" (:kind %))
-                                  (get-in % [:data :adapter])) records))]
+                         (get-in model-call [:model :provider]))]
         (cond-> {:id execution-id
                  :title (or (get-in accepted [:data :prompt]) execution-id)
                  :status (cond failed? "failed"
@@ -184,8 +242,10 @@
                  :last-output-age (max 0 (- (now) last-at))
                  :source "journal"}
           provider (assoc :provider provider)
-          (get-in identity [:data :role]) (assoc :role (get-in identity [:data :role]))
-          (get-in identity [:data :effort]) (assoc :effort (get-in identity [:data :effort]))
+          (or (get-in identity [:data :role]) (get-in accepted [:data :role]))
+          (assoc :role (or (get-in identity [:data :role]) (get-in accepted [:data :role])))
+          (or (get-in identity [:data :effort]) (:effort model-call))
+          (assoc :effort (or (get-in identity [:data :effort]) (:effort model-call)))
           (get-in identity [:data :model]) (assoc :model (get-in identity [:data :model]))
           (get-in identity [:data :thread]) (assoc :thread (get-in identity [:data :thread])))))))
 (defn journal-lanes []

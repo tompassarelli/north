@@ -8,6 +8,8 @@ import {
   LiveFeedStoppedBeforeReadyError,
   subscribeFeed,
   subscribeSettlementFeed,
+  type InputAdmission,
+  type SubscriptionRuntime,
 } from "../src/coordination";
 import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
 import { join } from "node:path";
@@ -106,7 +108,7 @@ function harness(options: {
       const child = new FakeChild();
       children.push(child);
       return child;
-    }) as any,
+    }) as unknown as NonNullable<SubscriptionRuntime["spawn"]>,
     bbExecutable: trustedBb,
     port: "7977",
     schedule: (callback: () => void, delayMs: number) => {
@@ -147,15 +149,13 @@ function harness(options: {
 }
 
 async function settle() {
-  await new Promise<void>((resolve) => setImmediate(resolve));
+  const settled = Promise.withResolvers<void>();
+  setImmediate(settled.resolve);
+  await settled.promise;
 }
 
 function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-  return { promise, resolve };
+  return Promise.withResolvers<T>();
 }
 
 function emitLine(child: FakeChild, value: object | string) {
@@ -228,14 +228,14 @@ test("input channel cancels queued live turns when it closes before dequeue", as
 
   const values: string[] = [];
   for await (const message of channel.stream())
-    values.push(message.message.content as string);
+    values.push(message.text);
   expect(values).toEqual(["initial"]);
 });
 
 test("input channel proves a live turn only when the provider dequeues it", async () => {
   const channel = inputChannel("initial");
   const stream = channel.stream();
-  expect((await stream.next()).value?.message.content).toBe("initial");
+  expect((await stream.next()).value?.text).toBe("initial");
 
   const live = channel.push("live");
   let consumed = false;
@@ -244,7 +244,7 @@ test("input channel proves a live turn only when the provider dequeues it", asyn
   expect(consumed).toBe(false);
   expect(channel.liveMessagesReceived()).toBe(0);
 
-  expect((await stream.next()).value?.message.content).toBe("live");
+  expect((await stream.next()).value?.text).toBe("live");
   expect(await live.consumed).toBe(true);
   expect(channel.liveMessagesReceived()).toBe(1);
   channel.end();
@@ -432,7 +432,7 @@ test("subscription acks only after the provider dequeues the queued turn", async
   const h = harness();
   const channel = inputChannel("initial");
   const stream = channel.stream();
-  expect((await stream.next()).value?.message.content).toBe("initial");
+  expect((await stream.next()).value?.text).toBe("initial");
   const stop = subscribeFeed(
     "agent-test",
     (summary) => channel.push(summary),
@@ -448,7 +448,7 @@ test("subscription acks only after the provider dequeues the queued turn", async
   expect(channel.liveMessagesReceived()).toBe(0);
   expect(child.stdin.writes).toEqual(['{"type":"start"}\n']);
 
-  expect((await stream.next()).value?.message.content).toBe(
+  expect((await stream.next()).value?.text).toBe(
     "[north real-time ping from peer — update]\ndone",
   );
   await settle();
@@ -572,7 +572,7 @@ test("async admission is serialized and may resolve to a dequeue proof", async (
   await settle();
   expect(admissions).toHaveLength(1);
   expect(channel.pending()).toBe(1);
-  expect((await stream.next()).value?.message.content).toBe(
+  expect((await stream.next()).value?.text).toBe(
     "[north real-time ping from peer — first]\none",
   );
   await settle();
@@ -593,7 +593,7 @@ test("timed-out async admission cancels a dequeue proof that resolves late", asy
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
-  const gate = deferred<ReturnType<typeof channel.push>>();
+  const gate = deferred<InputAdmission>();
   const stop = subscribeFeed("agent-test", () => gate.promise, h.runtime);
   const child = h.children[0]!;
 
@@ -641,7 +641,7 @@ test("crash after dequeue but before graph ack replays without a second provider
   );
 
   first.stdin.writable = false;
-  expect((await stream.next()).value?.message.content).toBe(
+  expect((await stream.next()).value?.text).toBe(
     "[north real-time ping from peer — update]\ndone",
   );
   await settle();

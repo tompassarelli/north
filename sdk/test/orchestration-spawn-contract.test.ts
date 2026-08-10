@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { validateRoutingMetadata } from "../src/routing-metadata";
-import { runFacts } from "../src/telemetry";
 import { applyOrchestrationStaffing, loadOrchestrationStaffing } from "../src/orchestration-staffing";
 
 const north = resolve(import.meta.dir, "../..");
@@ -22,7 +21,7 @@ const contract = JSON.stringify({
   doneWhen: ["every transition is sourced"], report: "timeline, contradictions, and gaps",
 });
 
-test("Orchestration composition survives North validation into complete run telemetry", () => {
+test("Orchestration composition survives North validation", () => {
   const request = composed("integrator", "--taskGrade", "staff", "--domain", "Nix,Beagle",
     "--tier", "frontier", "--deliberation", "xhigh", "--posture", "preserve",
     "--override-reason", "cross-provider foundational contract");
@@ -34,20 +33,6 @@ test("Orchestration composition survives North validation into complete run tele
       overrides: ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"],
       overrideReason: "cross-provider foundational contract" },
   });
-
-  const facts = runFacts({
-    thread: "(ad-hoc)", agent: "lane-contract", tokens: 1, durationMs: 2,
-    posture: "spawn", outcome: "ran", role: request.role,
-    requestedProvider: request.provider, requestedTier: request.tier, requestedEffort: request.reasoning,
-    routingMetadata: metadata,
-  }, "2026-07-16T00:00:00.000Z");
-  for (const fact of [
-    ["requested_role", "integrator"], ["task_grade", "staff"],
-    ["domain_requirement", "Nix"], ["domain_requirement", "Beagle"],
-    ["topology", "worker"], ["routing_tier", "frontier"],
-    ["requested_reasoning", "xhigh"], ["routing_posture", "preserve"],
-    ["composition_kind", "preset"], ["composition_id", "integrator"],
-  ]) expect(facts).toContainEqual(fact);
 });
 
 test("spawn bootstrap derives the Codex turn deadline without replacing caller authority", async () => {
@@ -130,7 +115,7 @@ test("North rejects unlogged bespoke roles and composition identity mismatches",
   }, catalog)).not.toThrow();
 });
 
-test("bespoke Orchestration composition rationale reaches North telemetry", () => {
+test("bespoke Orchestration composition rationale survives North validation", () => {
   const request = composed("migration-forensics", "--rationale",
     "provenance tracing plus schema recovery", "--contract", contract, "--no-promotion-candidate",
     "--task-grade", "senior", "--topology", "worker", "--tier", "senior",
@@ -140,11 +125,11 @@ test("bespoke Orchestration composition rationale reaches North telemetry", () =
     kind: "bespoke", id: "migration-forensics",
     bespokeReason: "provenance tracing plus schema recovery", promotionCandidate: false,
   });
-  const facts = runFacts({ thread: "(ad-hoc)", agent: "lane-bespoke", tokens: 0, durationMs: 0,
-    posture: "spawn", outcome: "ran", routingMetadata: metadata });
-  expect(facts).toContainEqual(["bespoke_reason", "provenance tracing plus schema recovery"]);
-  expect(facts).toContainEqual(["promotion_candidate", "false"]);
-  expect(facts.some(([predicate]) => predicate === "nearest_preset")).toBe(false);
+  expect(metadata.composition).toMatchObject({
+    bespokeReason: "provenance tracing plus schema recovery",
+    promotionCandidate: false,
+  });
+  expect(metadata.composition).not.toHaveProperty("nearestPreset");
 });
 
 test("North MCP advertises the complete composition contract", () => {

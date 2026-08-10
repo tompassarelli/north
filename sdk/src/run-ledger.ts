@@ -1,447 +1,321 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import * as path from "node:path";
+
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
+	framBabashkaArguments,
+	framEngineEnvironment,
+	settleFramCoordinatorChild,
 } from "./fram-engine";
-import type { PromptEconomicsEvidence } from "./harness";
-import type { NormalizedTokenUsage } from "./usage";
-import type { McpActivityObservation } from "./tool-activity";
+import {
+	WIRE_MAX_EVENTS_PER_RUN,
+	WIRE_VERSION,
+	type WireEvent,
+} from "./wire/events";
+import type { WireRunId } from "./wire/ids";
+import { encodeWireJsonlLine } from "./wire/jsonl";
+import { reduceWireEvents, type WireRunSnapshot } from "./wire/reducer";
 
-const REPO = resolve(import.meta.dir, "../..");
-const CONTRACT_PATH = resolve(REPO, "contracts/agent-run-ledger-v1.json");
-const internalWriter = resolve(REPO, "cli/run-event-internal.clj");
+const REPO = path.resolve(import.meta.dir, "../..");
+const CONTRACT_PATH = path.resolve(REPO, "contracts/agent-run-ledger-v2.json");
+const INTERNAL_WRITER = path.resolve(REPO, "cli/run-event-internal.clj");
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$/;
+const WIRE_ID = /^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$/;
+const ENTITY = /^@?[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 
-interface EventSpec { required: string[]; allowed: string[] }
-interface LedgerContract {
-  version: string;
-  coverage: Array<"exact" | "partial" | "unknown">;
-  eventTypes: Record<string, EventSpec>;
-  fieldKinds: Record<string, "digest" | "identifier" | "entity" | "count">;
-  privacy: { maxIdentifierLength: number; forbiddenKeyFragments: string[] };
+interface WireLedgerContract {
+	readonly version: string;
+	readonly wireVersion: typeof WIRE_VERSION;
+	readonly digest: Readonly<{
+		algorithm: "sha256";
+		eventInput: "utf8-canonical-wire-event-json";
+		ledgerInput: "canonical-json-array-of-event-sha256";
+	}>;
+	readonly bounds: Readonly<{
+		maxEventsPerRun: number;
+		maxCanonicalEventBytes: number;
+		maxBatchEvents: number;
+		maxProjectionBatchBytes: number;
+		maxTelemetryProjectionBytes: number;
+	}>;
+	readonly telemetry: Readonly<{
+		estimateRatio: Readonly<{
+			scale: 1_000_000;
+			rounding: "nearest-half-up";
+			trailingFractionZeros: "omit";
+		}>;
+	}>;
+	readonly predicates: readonly string[];
 }
 
 export const AGENT_RUN_LEDGER_CONTRACT = Object.freeze(
-  JSON.parse(readFileSync(CONTRACT_PATH, "utf8")) as LedgerContract,
+	await Bun.file(CONTRACT_PATH).json() as WireLedgerContract,
 );
 export const AGENT_RUN_LEDGER_VERSION = AGENT_RUN_LEDGER_CONTRACT.version;
-export const AGENT_RUN_EVENT_TYPES = Object.freeze(
-  Object.keys(AGENT_RUN_LEDGER_CONTRACT.eventTypes),
-);
 
-export type RunEventType = keyof typeof AGENT_RUN_LEDGER_CONTRACT.eventTypes;
-export type ObservationCoverage = "exact" | "partial" | "unknown";
-export type RunEventPayload = Readonly<Record<string, string | number>>;
+export type WireLedgerErrorCode =
+	| "invalid_identity"
+	| "invalid_event"
+	| "invalid_batch"
+	| "invalid_summary";
 
-export interface RunLedgerIdentity {
-  run: string;
-  thread: string;
-  agent: string;
-  parentRun?: string;
-  parentThread?: string;
-  coordinator?: string;
+export class WireLedgerError extends Error {
+	readonly code: WireLedgerErrorCode;
+
+	constructor(code: WireLedgerErrorCode, message: string, options?: ErrorOptions) {
+		super(message, options);
+		this.name = "WireLedgerError";
+		this.code = code;
+	}
 }
 
-export interface AgentRunEvent extends RunLedgerIdentity {
-  version: string;
-  subject: string;
-  sequence: number;
-  type: string;
-  observedAt: string;
-  source: string;
-  coverage: ObservationCoverage;
-  payload: RunEventPayload;
-  digest: string;
+export interface WireRunLedgerIdentity {
+	readonly thread: string;
+	readonly agent: string;
+	readonly parentThread?: string;
+	readonly coordinator?: string;
 }
 
-export interface AgentRunLedgerSummary {
-  version: string;
-  eventCount: number;
-  firstSequence: number;
-  lastSequence: number;
-  terminalSequence: number;
-  digest: string;
-  coverage: ReadonlyArray<Readonly<{ source: string; coverage: ObservationCoverage }>>;
+export interface WireEventProjection {
+	readonly subject: string;
+	readonly facts: readonly (readonly [string, string])[];
 }
 
-const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]*$/;
-const DIGEST = /^[a-f0-9]{64}$/;
-const ENTITY = /^@?(?:run:[A-Za-z0-9_.:-]+|[A-Za-z0-9][A-Za-z0-9_.:-]*)$/;
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
+export interface WireRunLedgerSummary {
+	readonly version: string;
+	readonly wireVersion: typeof WIRE_VERSION;
+	readonly runId: WireRunId;
+	readonly eventCount: number;
+	readonly firstSequence: 0;
+	readonly lastSequence: number;
+	readonly terminalEventId: string;
+	readonly digest: string;
 }
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+export type WireLedgerPublicationStatus = "recorded" | "unavailable";
+export type WireLedgerBatchWriter = (
+	projections: readonly WireEventProjection[],
+	timeoutMs: number,
+) => Promise<WireLedgerPublicationStatus>;
+
+function ledgerError(
+	code: WireLedgerErrorCode,
+	message: string,
+	cause?: unknown,
+): never {
+	throw new WireLedgerError(code, message, cause === undefined ? undefined : { cause });
 }
 
 function canonicalEntity(value: string, label: string): string {
-  if (!ENTITY.test(value)) throw new Error(`invalid run ledger ${label}`);
-  return value.startsWith("@") ? value : `@${value}`;
+	if (!ENTITY.test(value)) ledgerError("invalid_identity", `invalid wire ledger ${label}`);
+	return value.startsWith("@") ? value : `@${value}`;
 }
 
-function validateIdentity(identity: RunLedgerIdentity): RunLedgerIdentity {
-  const validated: RunLedgerIdentity = {
-    run: canonicalEntity(identity.run, "run"),
-    thread: identity.thread === "(ad-hoc)"
-      ? identity.thread
-      : canonicalEntity(identity.thread, "thread"),
-    agent: identity.agent.replace(/^@agent:/, ""),
-  };
-  if (!IDENTIFIER.test(validated.agent)) throw new Error("invalid run ledger agent");
-  if (!validated.run.startsWith("@run:")) throw new Error("run ledger run must be a @run: entity");
-  if (identity.parentRun) validated.parentRun = canonicalEntity(identity.parentRun, "parentRun");
-  if (identity.parentThread)
-    validated.parentThread = canonicalEntity(identity.parentThread, "parentThread");
-  if (identity.coordinator) {
-    const coordinator = identity.coordinator.replace(/^@agent:/, "");
-    if (!IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
-    validated.coordinator = coordinator;
-  }
-  return validated;
+export function wireRunLedgerIdentity(identity: WireRunLedgerIdentity): WireRunLedgerIdentity {
+	if (!IDENTIFIER.test(identity.agent)) {
+		ledgerError("invalid_identity", "invalid wire ledger agent");
+	}
+	const thread = identity.thread === "(ad-hoc)"
+		? identity.thread
+		: canonicalEntity(identity.thread, "thread");
+	const parentThread = identity.parentThread === undefined
+		? undefined : canonicalEntity(identity.parentThread, "parentThread");
+	const coordinator = identity.coordinator?.replace(/^@agent:/u, "");
+	if (coordinator !== undefined && !IDENTIFIER.test(coordinator)) {
+		ledgerError("invalid_identity", "invalid wire ledger coordinator");
+	}
+	return Object.freeze({
+		thread,
+		agent: identity.agent,
+		...(parentThread === undefined ? {} : { parentThread }),
+		...(coordinator === undefined ? {} : { coordinator }),
+	});
 }
 
-function validatePayload(type: string, payload: RunEventPayload): RunEventPayload {
-  const spec = AGENT_RUN_LEDGER_CONTRACT.eventTypes[type];
-  if (!spec) throw new Error(`unsupported run ledger event type: ${type}`);
-  if (!payload || Array.isArray(payload) || typeof payload !== "object")
-    throw new Error("run ledger event payload must be an object");
-  const keys = Object.keys(payload);
-  for (const key of keys) {
-    const normalized = key.toLowerCase();
-    if (AGENT_RUN_LEDGER_CONTRACT.privacy.forbiddenKeyFragments.some(
-      (fragment) => normalized.includes(fragment),
-    )) throw new Error(`privacy-forbidden run ledger field: ${key}`);
-    if (!spec.allowed.includes(key)) throw new Error(`unexpected ${type} payload field: ${key}`);
-    const value = payload[key];
-    const kind = AGENT_RUN_LEDGER_CONTRACT.fieldKinds[key];
-    if (kind === "count") {
-      if (!Number.isSafeInteger(value) || (value as number) < 0)
-        throw new Error(`invalid run ledger count: ${key}`);
-    } else if (typeof value !== "string") {
-      throw new Error(`invalid run ledger string field: ${key}`);
-    } else if (kind === "digest") {
-      if (!DIGEST.test(value)) throw new Error(`invalid run ledger digest: ${key}`);
-    } else if (kind === "entity") {
-      canonicalEntity(value, key);
-    } else if (!IDENTIFIER.test(value)
-      || value.length > AGENT_RUN_LEDGER_CONTRACT.privacy.maxIdentifierLength) {
-      throw new Error(`invalid run ledger identifier: ${key}`);
-    }
-  }
-  for (const required of spec.required) {
-    if (!Object.hasOwn(payload, required)) throw new Error(`missing ${type} payload field: ${required}`);
-  }
-  return Object.freeze({ ...payload });
+function sha256(value: string): string {
+	return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
 
-function coverageRank(coverage: ObservationCoverage): number {
-  return coverage === "unknown" ? 0 : coverage === "partial" ? 1 : 2;
+function canonicalStringArray(values: readonly string[]): string {
+	return `[${values.map((value) => JSON.stringify(value)).join(",")}]`;
 }
 
-export class AgentRunLedger {
-  readonly identity: RunLedgerIdentity;
-  #events: AgentRunEvent[] = [];
-  #finalized = false;
-
-  constructor(identity: RunLedgerIdentity) {
-    this.identity = Object.freeze(validateIdentity(identity));
-  }
-
-  append(
-    type: string,
-    payload: RunEventPayload,
-    source: string,
-    coverage: ObservationCoverage,
-    observedAt = new Date().toISOString(),
-  ): AgentRunEvent {
-    if (this.#finalized) throw new Error("run ledger is finalized");
-    if (!AGENT_RUN_LEDGER_CONTRACT.coverage.includes(coverage))
-      throw new Error("invalid run ledger coverage");
-    if (!IDENTIFIER.test(source)
-      || source.length > AGENT_RUN_LEDGER_CONTRACT.privacy.maxIdentifierLength)
-      throw new Error("invalid run ledger source");
-    if (Number.isNaN(Date.parse(observedAt)) || !observedAt.endsWith("Z"))
-      throw new Error("invalid run ledger observedAt");
-    const sequence = this.#events.length;
-    const safePayload = validatePayload(type, payload);
-    const unsigned = {
-      version: AGENT_RUN_LEDGER_VERSION,
-      ...this.identity,
-      sequence, type, observedAt, source, coverage, payload: safePayload,
-    };
-    const digest = sha256(canonical(unsigned));
-    const runTail = this.identity.run.replace(/^@?run:/, "");
-    // Sequence is the append slot. Keeping it as the whole event subject makes
-    // competing observations for the same slot collide at the coordinator CAS
-    // instead of creating two digest-suffixed siblings with ambiguous order.
-    const subject = `@run:${runTail}:event:${String(sequence).padStart(8, "0")}`;
-    const event = Object.freeze({ ...unsigned, subject, digest });
-    this.#events.push(event);
-    if (type === "terminal_cleanup") this.#finalized = true;
-    return event;
-  }
-
-  events(): ReadonlyArray<AgentRunEvent> {
-    return Object.freeze([...this.#events]);
-  }
-
-  finalize(): AgentRunLedgerSummary {
-    const terminal = this.#events.at(-1);
-    if (!this.#finalized || terminal?.type !== "terminal_cleanup")
-      throw new Error("run ledger requires terminal_cleanup as its final event");
-    const bySource = new Map<string, ObservationCoverage>();
-    for (const event of this.#events) {
-      const prior = bySource.get(event.source);
-      if (!prior || coverageRank(event.coverage) < coverageRank(prior))
-        bySource.set(event.source, event.coverage);
-    }
-    const coverage = [...bySource]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([source, value]) => Object.freeze({ source, coverage: value }));
-    return Object.freeze({
-      version: AGENT_RUN_LEDGER_VERSION,
-      eventCount: this.#events.length,
-      firstSequence: 0,
-      lastSequence: terminal.sequence,
-      terminalSequence: terminal.sequence,
-      digest: sha256(canonical(this.#events.map((event) => event.digest))),
-      coverage: Object.freeze(coverage),
-    });
-  }
+function canonicalEvent(event: WireEvent): { readonly event: WireEvent; readonly json: string } {
+	try {
+		const line = encodeWireJsonlLine(event, {
+			maxLineBytes: AGENT_RUN_LEDGER_CONTRACT.bounds.maxCanonicalEventBytes,
+		});
+		return { event, json: line.slice(0, -1) };
+	} catch (error) {
+		return ledgerError("invalid_event", "wire ledger event is invalid or oversized", error);
+	}
 }
 
-export function eventFacts(event: AgentRunEvent): Array<[string, string]> {
-  const identity = validateIdentity(event);
-  const payload = validatePayload(event.type, event.payload);
-  if (!Number.isSafeInteger(event.sequence) || event.sequence < 0)
-    throw new Error("invalid run event sequence");
-  if (!AGENT_RUN_LEDGER_CONTRACT.coverage.includes(event.coverage)
-      || !IDENTIFIER.test(event.source)
-      || Number.isNaN(Date.parse(event.observedAt)) || !event.observedAt.endsWith("Z"))
-    throw new Error("invalid run event observation metadata");
-  const unsigned = {
-    version: AGENT_RUN_LEDGER_VERSION,
-    ...identity,
-    sequence: event.sequence,
-    type: event.type,
-    observedAt: event.observedAt,
-    source: event.source,
-    coverage: event.coverage,
-    payload,
-  };
-  const expectedDigest = sha256(canonical(unsigned));
-  const runTail = identity.run.replace(/^@?run:/, "");
-  const expectedSubject = `@run:${runTail}:event:${String(event.sequence).padStart(8, "0")}`;
-  if (event.version !== AGENT_RUN_LEDGER_VERSION
-      || event.digest !== expectedDigest || event.subject !== expectedSubject)
-    throw new Error("run event identity or digest mismatch");
-  const facts: Array<[string, string]> = [
-    ["kind", "run_event"],
-    ["agent_run_ledger_version", AGENT_RUN_LEDGER_VERSION],
-    ["run", identity.run],
-    ["thread", identity.thread],
-    ["agent", identity.agent],
-    ["run_event_sequence", String(event.sequence)],
-    ["run_event_type", event.type],
-    ["run_event_observed_at", event.observedAt],
-    ["run_event_source", event.source],
-    ["run_event_coverage", event.coverage],
-    ["run_event_data", canonical(payload)],
-    ["run_event_sha256", expectedDigest],
-  ];
-  if (identity.parentRun) facts.push(["parent_run", identity.parentRun]);
-  if (identity.parentThread) facts.push(["parent_thread", identity.parentThread]);
-  if (identity.coordinator) facts.push(["run_coordinator", identity.coordinator]);
-  return facts;
+function eventSubject(runId: string, sequence: number): string {
+	const digest = sha256(`north-wire-event-subject:v2\0${runId}\0${sequence}`);
+	return `@run:wire-event-${digest}`;
 }
 
-export type RunEventPublicationStatus = "recorded" | "unavailable";
-
-export function recordRunEvent(
-  event: AgentRunEvent,
-  timeoutMs = 10_000,
-): Promise<RunEventPublicationStatus> {
-  let facts: Array<[string, string]>;
-  try { facts = eventFacts(event); } catch { return Promise.resolve("unavailable"); }
-  return new Promise((resolvePublication) => {
-    try {
-      execFile("bb", framBabashkaArguments([
-        internalWriter,
-        process.env.NORTH_PORT ?? "7977",
-        event.subject,
-        JSON.stringify(facts),
-      ]), {
-        env: framEngineEnvironment(),
-        timeout: framCoordinatorChildTimeout(timeoutMs),
-      }, (error) => {
-        resolvePublication(error ? "unavailable" : "recorded");
-      });
-    } catch { resolvePublication("unavailable"); }
-  });
+export function wireEventFacts(
+	identity: WireRunLedgerIdentity,
+	event: WireEvent,
+): WireEventProjection {
+	const context = wireRunLedgerIdentity(identity);
+	const canonical = canonicalEvent(event);
+	const digest = sha256(canonical.json);
+	const facts: Array<readonly [string, string]> = [
+		["kind", "wire_event"],
+		["wire_ledger_version", AGENT_RUN_LEDGER_VERSION],
+		["wire_version", canonical.event.version],
+		["wire_run_id", canonical.event.runId],
+		["thread", context.thread],
+		["agent", context.agent],
+		["wire_event_id", canonical.event.id],
+		["wire_event_sequence", String(canonical.event.sequence)],
+		["wire_event_at", canonical.event.at],
+		["wire_event_kind", canonical.event.kind],
+		["wire_event_essential", String(canonical.event.essential)],
+		["wire_event_json", canonical.json],
+		["wire_event_sha256", digest],
+	];
+	if (context.parentThread !== undefined) facts.push(["parent_thread", context.parentThread]);
+	if (context.coordinator !== undefined) facts.push(["run_coordinator", context.coordinator]);
+	return Object.freeze({
+		subject: eventSubject(canonical.event.runId, canonical.event.sequence),
+		facts: Object.freeze(facts),
+	});
 }
 
-export function recordRunEvents(
-  events: ReadonlyArray<AgentRunEvent>,
-  timeoutMs = 10_000,
-): Promise<RunEventPublicationStatus> {
-  let batch: Array<Readonly<{
-    subject: string;
-    facts: Array<[string, string]>;
-  }>>;
-  try {
-    if (events.length === 0) return Promise.resolve("unavailable");
-    batch = events.map((event) => Object.freeze({
-      subject: event.subject,
-      facts: eventFacts(event),
-    }));
-  } catch {
-    return Promise.resolve("unavailable");
-  }
-  return new Promise((resolvePublication) => {
-    try {
-      execFile("bb", framBabashkaArguments([
-        internalWriter,
-        process.env.NORTH_PORT ?? "7977",
-        JSON.stringify(batch),
-      ]), {
-        env: framEngineEnvironment(),
-        timeout: framCoordinatorChildTimeout(timeoutMs),
-      }, (error) => {
-        resolvePublication(error ? "unavailable" : "recorded");
-      });
-    } catch {
-      resolvePublication("unavailable");
-    }
-  });
+function validateBatch(events: readonly WireEvent[]): void {
+	if (events.length === 0) ledgerError("invalid_batch", "wire ledger batch must not be empty");
+	if (events.length > AGENT_RUN_LEDGER_CONTRACT.bounds.maxBatchEvents) {
+		ledgerError(
+			"invalid_batch",
+			`wire ledger batch exceeds ${AGENT_RUN_LEDGER_CONTRACT.bounds.maxBatchEvents} events`,
+		);
+	}
+	const first = events[0]!;
+	if (first.sequence !== 0 || first.kind !== "run.started"
+		|| events.at(-1)!.kind !== "run.terminated") {
+		ledgerError("invalid_batch", "wire ledger publication requires one complete terminal run");
+	}
+	for (let index = 0; index < events.length; index += 1) {
+		const event = events[index]!;
+		canonicalEvent(event);
+		if (event.runId !== first.runId || event.sequence !== first.sequence + index) {
+			ledgerError("invalid_batch", "wire ledger batch must be one contiguous run slice");
+		}
+		if (index < events.length - 1 && event.kind === "run.terminated") {
+			ledgerError("invalid_batch", "wire ledger batch cannot continue after run.terminated");
+		}
+	}
+	try {
+		wireLedgerSummary(events);
+	} catch (error) {
+		ledgerError("invalid_batch", "wire ledger publication requires a reducible terminal run", error);
+	}
 }
 
-export interface RunLifecycleObservations {
-  promptEconomics?: PromptEconomicsEvidence;
-  tokenUsage: NormalizedTokenUsage;
-  compactions: number;
-  outcome: string;
-  mcpActivity: McpActivityObservation;
+export function wireLedgerSummary(events: readonly WireEvent[]): WireRunLedgerSummary {
+	if (events.length === 0 || events.length > WIRE_MAX_EVENTS_PER_RUN) {
+		return ledgerError("invalid_summary", "wire ledger summary requires a bounded event sequence");
+	}
+	let snapshot: WireRunSnapshot;
+	try {
+		snapshot = reduceWireEvents(events);
+	} catch (error) {
+		return ledgerError("invalid_summary", "wire ledger summary requires a valid event sequence", error);
+	}
+	const terminal = events.at(-1)!;
+	if (terminal.kind !== "run.terminated"
+		|| !["completed", "failed", "cancelled", "blocked"].includes(snapshot.lifecycle)) {
+		return ledgerError("invalid_summary", "wire ledger summary requires run.terminated last");
+	}
+	const digests = events.map((event) => sha256(canonicalEvent(event).json));
+	return Object.freeze({
+		version: AGENT_RUN_LEDGER_VERSION,
+		wireVersion: WIRE_VERSION,
+		runId: snapshot.runId,
+		eventCount: events.length,
+		firstSequence: 0,
+		lastSequence: terminal.sequence,
+		terminalEventId: terminal.id,
+		digest: sha256(canonicalStringArray(digests)),
+	});
 }
 
-/**
- * Publish the privacy-bounded lifecycle evidence that is available at the
- * terminal seam. A summary is returned only when every append reached the
- * coordinator; callers therefore cannot label a partial ledger complete.
- */
-export async function publishRunLifecycleLedger(
-  identity: RunLedgerIdentity,
-  observations: RunLifecycleObservations,
-  timeoutMs = 10_000,
-  writer: (
-    events: ReadonlyArray<AgentRunEvent>,
-    timeoutMs: number,
-  ) => Promise<RunEventPublicationStatus> = recordRunEvents,
-): Promise<AgentRunLedgerSummary | undefined> {
-  const ledger = new AgentRunLedger(identity);
-  const events: AgentRunEvent[] = [];
-  const economics = observations.promptEconomics;
+async function runWriter(
+	projections: readonly WireEventProjection[],
+	timeoutMs: number,
+	env: NodeJS.ProcessEnv,
+): Promise<WireLedgerPublicationStatus> {
+	const payload = projectionPayload(projections);
+	const child = Bun.spawn([
+		"bb",
+		...framBabashkaArguments([
+			INTERNAL_WRITER,
+			env.NORTH_PORT ?? "7977",
+		], env),
+	], {
+		env: framEngineEnvironment(env),
+		stdin: "pipe",
+		stdout: "ignore",
+		stderr: "ignore",
+	});
+	child.stdin.write(payload);
+	child.stdin.end();
+	const outcome = await settleFramCoordinatorChild(child, timeoutMs);
+	return !outcome.timedOut && outcome.exitCode === 0 ? "recorded" : "unavailable";
+}
 
-  const activity = observations.mcpActivity;
-  const activitySummary: Record<string, string | number> = {};
-  if (activity.totalCalls !== undefined) activitySummary.totalCalls = activity.totalCalls;
-  if (activity.coverage !== "unknown") activitySummary.distinctTools = activity.tools.length;
-  events.push(ledger.append("tool_activity", activitySummary, activity.source, activity.coverage));
-  for (const tool of activity.tools) {
-    events.push(ledger.append("tool_activity", {
-      serverName: tool.server, toolName: tool.tool, callCount: tool.count,
-    }, activity.source, activity.coverage));
-  }
-  if (economics) {
-    const payload: Record<string, string | number> = {
-      compositionVersion: economics.compositionVersion,
-      compositionDigest: economics.compositionDigest,
-      capabilityClass: economics.capabilityClass,
-      capabilityCount: economics.capabilityCount,
-      stablePrefixBytes: economics.stablePrefixBytes,
-      uniqueTailBytes: economics.uniqueTailBytes,
-      totalBytes: economics.totalBytes,
-      byteMeasurementSource: economics.byteMeasurementSource,
-      tokenMeasurementStatus: economics.tokenMeasurementStatus,
-      tokenMeasurementSource: economics.tokenMeasurementSource,
-      contextWindowStatus: economics.contextWindowStatus,
-      contextWindowSource: economics.contextWindowSource,
-      contextBudgetStatus: economics.contextBudgetStatus,
-      contextBudgetSource: economics.contextBudgetSource,
-      compactionPolicy: economics.compactionPolicy,
-      compactionPolicyVersion: economics.compactionPolicyVersion,
-    };
-    for (const key of [
-      "stablePrefixTokens", "uniqueTailTokens", "totalCompositionTokens",
-      "providerContextWindowTokens", "contextWindowEffectiveFrom",
-      "effectiveContextBudgetTokens",
-    ] as const) {
-      const value = economics[key];
-      if (value !== undefined) payload[key] = value;
-    }
-    events.push(ledger.append(
-      "prompt_constructed", payload, "north-harness-composer", "exact",
-    ));
-  }
+function projectionPayload(projections: readonly WireEventProjection[]): string {
+	const payload = JSON.stringify(projections);
+	if (new TextEncoder().encode(payload).byteLength
+		> AGENT_RUN_LEDGER_CONTRACT.bounds.maxProjectionBatchBytes) {
+		ledgerError("invalid_batch", "wire ledger projection batch exceeds its byte bound");
+	}
+	return payload;
+}
 
-  const usage = observations.tokenUsage;
-  const usagePayload: Record<string, string | number> = { terminalCount: usage.terminalCount };
-  for (const [key, value] of [
-    ["inputTokens", usage.inputTokens],
-    ["outputTokens", usage.outputTokens],
-    ["reasoningOutputTokens", usage.reasoningOutputTokens],
-  ] as const) if (value !== undefined) usagePayload[key] = value;
-  if (usage.totalStatus === "exact" && usage.total !== undefined)
-    usagePayload.totalTokens = usage.total;
-  const componentCount = Object.keys(usagePayload).length - 1;
-  events.push(ledger.append(
-    "usage_observed", usagePayload, "provider-terminal",
-    usage.totalStatus === "exact" ? "exact" : componentCount > 0 ? "partial" : "unknown",
-  ));
+export async function recordWireEventProjections(
+	projections: readonly WireEventProjection[],
+	timeoutMs = 10_000,
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<WireLedgerPublicationStatus> {
+	if (projections.length === 0) {
+		ledgerError("invalid_batch", "wire ledger projection batch must not be empty");
+	}
+	try {
+		return await runWriter(projections, timeoutMs, env);
+	} catch {
+		return "unavailable";
+	}
+}
 
-  const cachePayload: Record<string, number> = {};
-  for (const [key, value] of [
-    ["cacheReadTokens", usage.cacheReadTokens],
-    ["cacheCreateTokens", usage.cacheCreateTokens],
-    ["cachedInputTokens", usage.cachedInputTokens],
-  ] as const) if (value !== undefined) cachePayload[key] = value;
-  events.push(ledger.append(
-    "cache_observed", cachePayload, "provider-terminal-cache",
-    Object.keys(cachePayload).length === 3 ? "exact"
-      : Object.keys(cachePayload).length > 0 ? "partial" : "unknown",
-  ));
-  events.push(ledger.append("compaction_observed", {
-    compactionCount: observations.compactions,
-    compactionPolicy: economics?.compactionPolicy ?? "auto-compact-enabled",
-    compactionPolicyVersion: economics?.compactionPolicyVersion
-      ?? "north-native-auto-compact:v1",
-    compactionEvidence: "sdk-compact-boundary",
-  }, "north-sdk-stream", "exact"));
-  events.push(ledger.append("terminal_cleanup", {
-    outcome: observations.outcome,
-    cleanupStatus: "observed",
-  }, "north-managed-terminal", "exact"));
+export async function publishWireEvents(
+	identity: WireRunLedgerIdentity,
+	events: readonly WireEvent[],
+	timeoutMs = 10_000,
+	writer: WireLedgerBatchWriter = recordWireEventProjections,
+): Promise<WireLedgerPublicationStatus> {
+	validateBatch(events);
+	const projections = Object.freeze(events.map((event) => wireEventFacts(identity, event)));
+	projectionPayload(projections);
+	return writer(projections, timeoutMs);
+}
 
-  // One writer process receives the full lifecycle budget. Spawning Babashka
-  // once per event consumes most of the terminal timeout in cold starts and can
-  // leave every production run without event evidence.
-  const complete = await writer(Object.freeze([...events]), timeoutMs) === "recorded";
-  // A caught transport crash has no provider terminal boundary. Its attempted
-  // observations remain useful events, but the @run header must not claim a
-  // complete lifecycle ledger.
-  const terminalBoundaryObserved = !new Set([
-    "died", "stalled", "watchdog_aborted", "session_hard_cap",
-  ]).has(observations.outcome);
-  return complete && terminalBoundaryObserved ? ledger.finalize() : undefined;
+export function isWireRunLedgerSummary(value: unknown): value is WireRunLedgerSummary {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+	const summary = value as Partial<WireRunLedgerSummary>;
+	return summary.version === AGENT_RUN_LEDGER_VERSION
+		&& summary.wireVersion === WIRE_VERSION
+		&& typeof summary.runId === "string"
+		&& WIRE_ID.test(summary.runId)
+		&& Number.isSafeInteger(summary.eventCount) && summary.eventCount! > 0
+		&& summary.firstSequence === 0
+		&& Number.isSafeInteger(summary.lastSequence)
+		&& summary.lastSequence === summary.eventCount! - 1
+		&& typeof summary.terminalEventId === "string"
+		&& WIRE_ID.test(summary.terminalEventId)
+		&& typeof summary.digest === "string"
+		&& SHA256.test(summary.digest);
 }

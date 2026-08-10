@@ -2,9 +2,17 @@ import {
   chmodSync, constants, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+  openWireJsonlWriter, readWireJsonl,
+  type WireJsonlReplay, type WireJsonlWriter,
+} from "../wire/jsonl";
+import type { WireEvent } from "../wire/events";
 
 const LENGTH_BYTES = 4;
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
+const SAFE_EXECUTION_ID = /^[A-Za-z0-9._-]+$/;
+
+export const BRIDGE_WIRE_FILE = "wire.jsonl";
 
 export const LANE_LIFECYCLE_KINDS = {
   spawnStart: "lane.spawn-start",
@@ -108,10 +116,10 @@ function writeAll(fd: number, bytes: Buffer): void {
 
 export class ExecutionJournal {
   readonly path: string;
-  private fd: number;
-  private nextSeq: number;
-  private tornTail?: TornTail;
-  private closed = false;
+  #fd: number;
+  #nextSeq: number;
+  #tornTail?: TornTail;
+  #closed = false;
 
   constructor(readonly root: string, readonly executionId: string) {
     const directory = join(root, executionId);
@@ -119,9 +127,9 @@ export class ExecutionJournal {
     chmodSync(directory, 0o700);
     this.path = join(directory, "events.log");
     const scan = scanJournalFile(this.path, executionId);
-    this.nextSeq = scan.records.length + 1;
-    this.tornTail = scan.tornTail;
-    this.fd = openSync(
+    this.#nextSeq = scan.records.length + 1;
+    this.#tornTail = scan.tornTail;
+    this.#fd = openSync(
       this.path,
       constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND,
       0o600,
@@ -134,12 +142,12 @@ export class ExecutionJournal {
   }
 
   append(kind: string, data: Record<string, unknown> = {}): JournalRecord {
-    if (this.closed) throw new Error("journal is closed");
-    if (this.tornTail) throw new JournalTornTailError(this.tornTail);
+    if (this.#closed) throw new Error("journal is closed");
+    if (this.#tornTail) throw new JournalTornTailError(this.#tornTail);
     const record: JournalRecord = {
       version: 1,
       executionId: this.executionId,
-      seq: this.nextSeq,
+      seq: this.#nextSeq,
       at: new Date().toISOString(),
       kind,
       data,
@@ -150,15 +158,69 @@ export class ExecutionJournal {
     const frame = Buffer.allocUnsafe(LENGTH_BYTES + payload.byteLength);
     frame.writeUInt32BE(payload.byteLength, 0);
     payload.copy(frame, LENGTH_BYTES);
-    writeAll(this.fd, frame);
-    fsyncSync(this.fd);
-    this.nextSeq += 1;
+    writeAll(this.#fd, frame);
+    fsyncSync(this.#fd);
+    this.#nextSeq += 1;
     return record;
   }
 
   close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    closeSync(this.fd);
+    if (this.#closed) return;
+    this.#closed = true;
+    closeSync(this.#fd);
   }
+}
+
+function bridgeWireDirectory(root: string, executionId: string): string {
+  if (!SAFE_EXECUTION_ID.test(executionId)) {
+    throw new Error("bridge wire execution id contains unsupported characters");
+  }
+  return join(root, executionId);
+}
+
+export function bridgeWirePath(root: string, executionId: string): string {
+  return join(bridgeWireDirectory(root, executionId), BRIDGE_WIRE_FILE);
+}
+
+/**
+ * Durable Bridge replay projection of the canonical wire stream. Control and
+ * lane records remain in ExecutionJournal and never consume wire sequence.
+ */
+export class BridgeWireJournal {
+  readonly path: string;
+  #writer: WireJsonlWriter;
+
+  constructor(writer: WireJsonlWriter) {
+    this.path = writer.filePath;
+    this.#writer = writer;
+  }
+
+  static async open(root: string, executionId: string): Promise<BridgeWireJournal> {
+    const directory = bridgeWireDirectory(root, executionId);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    chmodSync(directory, 0o700);
+    return new BridgeWireJournal(await openWireJsonlWriter(
+      bridgeWirePath(root, executionId),
+      { recoverDeadOwnerLock: true },
+    ));
+  }
+
+  replay(): WireJsonlReplay {
+    return this.#writer.replay();
+  }
+
+  async append(event: WireEvent): Promise<WireEvent> {
+    return this.#writer.append(event);
+  }
+
+  async close(): Promise<void> {
+    await this.#writer.close();
+  }
+}
+
+export async function readBridgeWireJournal(
+  root: string,
+  executionId: string,
+): Promise<WireJsonlReplay> {
+  return readWireJsonl(bridgeWirePath(root, executionId));
 }

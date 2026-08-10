@@ -2029,6 +2029,192 @@
                    inherited-notify (into ["--notify" inherited-notify]))))))
 
 (def watch-usage "north watch <agent-id> [--control]")
+(def wire-watch-version "north:wire:v2")
+(def wire-watch-kinds
+  #{"run.started" "run.progress" "message.recorded"
+    "model-call.started" "model-call.completed"
+    "tool.admitted" "tool.progress" "tool.terminal"
+    "artifact.published" "resource.pressure" "run.terminated"})
+(def max-watch-json-line-bytes (* 2 1024 1024))
+;; Unicode terminal cells are at most two columns wide. Capping code points at
+;; half the column budget remains safe without teaching this projection wcwidth.
+(def max-watch-output-columns 180)
+(def max-watch-field-codepoints 40)
+(def max-watch-output-codepoints (quot max-watch-output-columns 2))
+
+(defn watch-safe-text
+  "Collapse terminal controls and whitespace, then bound one display field by
+   Unicode code points. The final line is bounded again after composition."
+  ([value] (watch-safe-text value max-watch-field-codepoints))
+  ([value limit]
+   (let [bound (max 1 limit)
+         source (str (or value ""))
+         sampled (.toArray (.limit (.codePoints source) (inc bound)))
+         truncated? (> (alength sampled) bound)
+         retained (if truncated? (dec bound) bound)
+         bounded (if (> (alength sampled) retained)
+                   (java.util.Arrays/copyOf sampled retained)
+                   sampled)
+         cleaned
+         (int-array
+          (map (fn [codepoint]
+                 (if (or (Character/isISOControl codepoint)
+                         (Character/isWhitespace codepoint)
+                         (= Character/FORMAT (Character/getType codepoint)))
+                   (int \space)
+                   codepoint))
+               bounded))
+         text (str/trim (str/replace (String. cleaned 0 (alength cleaned)) #" +" " "))]
+     (str text (when truncated? "…")))))
+
+(defn- watch-display-path [value]
+  (let [raw (str (or value ""))
+        home (when (and HOME (not (str/blank? HOME)))
+               (try (.getCanonicalPath (io/file HOME)) (catch Exception _ HOME)))
+        home-prefix (when home (str home java.io.File/separator))
+        shortened (cond
+                    (= raw home) "~"
+                    (and home-prefix (str/starts-with? raw home-prefix))
+                    (str "~/" (subs raw (count home-prefix)))
+                    :else raw)]
+    (watch-safe-text shortened max-watch-field-codepoints)))
+
+(defn- watch-json-summary [value]
+  (try
+    (watch-safe-text (json/generate-string value))
+    (catch Exception _ "<unrenderable>")))
+
+(defn- watch-kv [label value]
+  (when (some? value) (str " " label "=" (watch-safe-text value))))
+
+(defn- watch-event-prefix [event]
+  (str "[" (if (and (integer? (:sequence event)) (not (neg? (:sequence event))))
+              (:sequence event)
+              "?")
+       "] "))
+
+(defn- watch-progress-detail [progress]
+  (str (watch-kv "action" (:currentAction progress))
+       (watch-kv "retry" (some-> (:retry progress) :attempt))
+       (watch-kv "fallback" (some-> (:fallback progress) :reason))
+       (watch-kv "compactions" (:compactions progress))))
+
+(defn- render-known-wire-event [event]
+  (let [kind (:kind event)
+        prefix (watch-event-prefix event)
+        rendered
+        (case kind
+          "run.started"
+          (str prefix "▶ run started" (watch-kv "owner" (:owner event)))
+
+          "run.progress"
+          (str prefix "… run " (watch-safe-text (:lifecycle event))
+               (watch-progress-detail (:progress event)))
+
+          "message.recorded"
+          (str prefix "message " (watch-safe-text (:role event))
+               "/" (watch-safe-text (:stage event))
+               (watch-kv "content" (when (contains? event :content)
+                                      (watch-json-summary (:content event)))))
+
+          "model-call.started"
+          (str prefix "model ▶ " (watch-safe-text (get-in event [:model :provider]))
+               (watch-kv "tier" (get-in event [:model :tier]))
+               (watch-kv "effort" (:effort event))
+               (watch-kv "attempt" (:attempt event)))
+
+          "model-call.completed"
+          (str prefix "model " (if (= "succeeded" (:status event)) "✓" "✗")
+               " " (watch-safe-text (:status event))
+               (watch-kv "origin" (:origin event))
+               (watch-kv "input" (get-in event [:usage :lifetime :inputTokens]))
+               (watch-kv "output" (get-in event [:usage :lifetime :outputTokens]))
+               (watch-kv "error" (:errorCode event)))
+
+          "tool.admitted"
+          (str prefix "tool ▶ " (watch-safe-text (:name event))
+               (watch-kv "id" (:toolCallId event)))
+
+          "tool.progress"
+          (str prefix "tool …" (watch-kv "id" (:toolCallId event))
+               (watch-kv "progress" (when (contains? event :progress)
+                                       (watch-json-summary (:progress event)))))
+
+          "tool.terminal"
+          (str prefix "tool " (if (= "succeeded" (:status event)) "✓" "✗")
+               " " (watch-safe-text (:status event))
+               (watch-kv "id" (:toolCallId event))
+               (watch-kv "result" (:resultPreview event))
+               (watch-kv "error" (:errorCode event)))
+
+          "artifact.published"
+          (str prefix "artifact published"
+               (watch-kv "label" (:label event))
+               (watch-kv "bytes" (:bytes event))
+               (watch-kv "media" (:mediaType event)))
+
+          "resource.pressure"
+          (str prefix "resource " (if (:advisory event) "advisory" "pressure")
+               (watch-kv "name" (:resource event))
+               (watch-kv "used" (:used event))
+               (watch-kv "limit" (:limit event)))
+
+          "run.terminated"
+          (str prefix "■ run " (watch-safe-text (:lifecycle event))
+               (watch-kv "reason" (get-in event [:reason :code]))
+               (watch-kv "detail" (get-in event [:reason :detail]))))]
+    (watch-safe-text rendered max-watch-output-codepoints)))
+
+(defn render-watch-wire-line
+  "Project one canonical JSONL envelope for a terminal. TypeScript remains the
+   semantic validator; this display boundary only parses enough shape to render
+   known events and to label malformed or future input visibly."
+  [line]
+  (cond
+    (> (alength (.getBytes (str line) java.nio.charset.StandardCharsets/UTF_8))
+       max-watch-json-line-bytes)
+    "! malformed wire JSONL: line exceeds display bound"
+
+    :else
+    (try
+      (let [event (json/parse-string line true)
+            version (:version event)
+            kind (:kind event)
+            essential (:essential event)]
+        (cond
+          (not (and (map? event) (string? version) (string? kind)))
+          "! malformed wire JSONL: event envelope is not displayable"
+
+          (and (= wire-watch-version version)
+               (contains? wire-watch-kinds kind)
+               (= true essential))
+          (render-known-wire-event event)
+
+          (and (= wire-watch-version version) (contains? wire-watch-kinds kind))
+          "! malformed wire JSONL: known event must be essential"
+
+          (= false essential)
+          (watch-safe-text
+           (str (watch-event-prefix event) "○ opaque nonessential"
+                (watch-kv "kind" kind)
+                (watch-kv "version" version))
+           max-watch-output-codepoints)
+
+          :else
+          (watch-safe-text
+           (str "! unsupported essential wire event"
+                (watch-kv "kind" kind)
+                (watch-kv "version" version))
+           max-watch-output-codepoints)))
+      (catch Exception _
+        "! malformed wire JSONL: invalid JSON"))))
+
+(defn- watch-contained-file [root child-name]
+  (try
+    (let [directory (.getCanonicalFile (io/file root))
+          child (.getCanonicalFile (io/file directory child-name))]
+      (when (= directory (.getParentFile child)) child))
+    (catch Exception _ nil)))
 
 (defn- watch-file-observation [file]
   (let [present? (.isFile file)
@@ -2061,28 +2247,51 @@
        {:error (str "unknown watch option: " option)}
 
        :else
-       (let [stream-file (io/file stream-dir (str "agent-" id ".stream.jsonl"))
-             control-file (io/file control-dir (str id ".log"))]
-         {:id id
-          :mode (if (= option "--control") :control :stream)
-          :stream (watch-file-observation stream-file)
-          :control (watch-file-observation control-file)})))))
+       (let [stream-file (watch-contained-file stream-dir (str "agent-" id ".stream.jsonl"))
+             control-file (watch-contained-file control-dir (str id ".log"))]
+         (if-not (and stream-file control-file)
+           {:error "watch path escapes its configured data root"}
+           {:id id
+            :mode (if (= option "--control") :control :stream)
+            :stream (watch-file-observation stream-file)
+            :control (watch-file-observation control-file)}))))))
 
 (defn- watch-status [label data-kind {:keys [path present? bytes modified-at]}]
-  (str label ": " path " — "
-       (cond
-         (not present?) "not present yet"
-         (zero? bytes) "present but empty"
-         :else (str data-kind " present (" bytes " bytes, modified " modified-at ")"))))
+  (watch-safe-text
+   (str label ": " (watch-display-path path) " — "
+        (cond
+          (not present?) "not present yet"
+          (zero? bytes) "present but empty"
+          :else (str data-kind " present (" bytes " bytes, modified " modified-at ")")))
+   max-watch-output-codepoints))
 
 (defn watch-status-lines [{:keys [mode stream control]}]
   [(str "watch target: " (if (= mode :stream)
-                           "canonical SDK event stream"
+                           "canonical WireEvent stream"
                            "process/control diagnostics (explicit opt-in)"))
-   (watch-status "canonical SDK event stream" "event data" stream)
+   (watch-status "canonical WireEvent stream" "event data" stream)
    (watch-status "process/control diagnostics" "diagnostic data" control)
    (str "liveness guardrail: process/control logs are sparse diagnostics; "
         "their silence is not evidence that a worker stalled or died.")])
+
+(defn- follow-watch-file! [mode path]
+  (let [tail (p/process ["tail" "-n" "40" "-F"
+                         "--sleep-interval=0.2" "--max-unchanged-stats=1"
+                         "--" path]
+                        {:out :stream :err :inherit})]
+    (try
+      (with-open [reader (io/reader (:out tail))]
+        (doseq [line (line-seq reader)]
+          (println (if (= mode :stream)
+                     (render-watch-wire-line line)
+                     (watch-safe-text line max-watch-output-codepoints)))
+          (flush)))
+      (let [result @tail]
+        (when-not (zero? (:exit result))
+          (System/exit (:exit result))))
+      (finally
+        (when (.isAlive ^Process (:proc tail))
+          (p/destroy-tree tail))))))
 
 (defn cmd-watch [args]
   (let [{:keys [error help mode stream control] :as plan} (watch-plan args)]
@@ -2101,8 +2310,10 @@
           (println (ylw "waiting for selected file to appear; absence alone is not a terminal verdict.")))
         (when (= mode :stream)
           (println "explicit diagnostics mode:" (cyn (str "north watch " (:id plan) " --control"))))
-        (echo-cmd "tail -n 40 -F" (:path target))
-        (p/exec "tail" "-n" "40" "-F" (:path target))))))
+        (echo-cmd "tail -n 40 -F --sleep-interval=0.2 --max-unchanged-stats=1 --"
+                  (watch-display-path (:path target))
+                  (if (= mode :stream) "| WireEvent projection" "| sanitized diagnostics"))
+        (follow-watch-file! mode (:path target))))))
 
 (defn cmd-tell-agent [args]
   (north.topology-authority/require-coordination! "msg")

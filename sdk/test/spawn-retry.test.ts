@@ -9,7 +9,11 @@ import { test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, writeFileSync, chmodSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { RoutedQueryArguments } from "../src/providers";
+import type { WireQuery } from "../src/wire";
 import { presetRequest } from "./routing-fixtures";
+import { wireTurnQuery } from "./support/wire-query";
+import { spawn as spawnUnderTest } from "./support/spawn";
 
 let dir: string;
 let log: string;
@@ -58,7 +62,16 @@ beforeAll(() => {
   writeFileSync(fake, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${log}"\nexit 0\n`);
   chmodSync(fake, 0o755);
   const fakeBb = join(dir, "bb");
-  writeFileSync(fakeBb, `#!/usr/bin/env bash\nprintf 'bb %s\\n' "$*" >> "${log}"\nexit 0\n`);
+  writeFileSync(fakeBb, `#!/usr/bin/env bash
+if [[ "$*" == *run-fact-internal.clj* ]]; then
+  payload=""
+  IFS= read -r payload || true
+  printf 'bb %s stdin=%s\n' "$*" "$payload" >> "${log}"
+else
+  printf 'bb %s\n' "$*" >> "${log}"
+fi
+exit 0
+`);
   chmodSync(fakeBb, 0o755);
   const fakeClaude = join(dir, "claude");
   writeFileSync(fakeClaude, `#!/usr/bin/env bash
@@ -141,47 +154,54 @@ afterAll(() => {
 });
 
 function diesOnceThenSucceeds(errorMessage: string, calls: { n: number }) {
-  return () => {
+  return (args: RoutedQueryArguments): WireQuery => {
     calls.n++;
     if (calls.n === 1) {
-      return (async function* () {
-        throw new Error(errorMessage);
-      })();
+      return {
+        async *[Symbol.asyncIterator]() { throw new Error(errorMessage); },
+      };
     }
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "recovered on retry", num_turns: 1 };
-    })();
+    return wireTurnQuery(args, {
+      output: "recovered on retry",
+      provider: "anthropic",
+      turns: 1,
+    });
   };
 }
 
 function alwaysDies(errorMessage: string, calls: { n: number }) {
-  return () => {
+  return (): WireQuery => {
     calls.n++;
-    return (async function* () {
-      throw new Error(errorMessage);
-    })();
+    return {
+      async *[Symbol.asyncIterator]() { throw new Error(errorMessage); },
+    };
   };
 }
 
 function laneStartFailureThenSucceeds(calls: { n: number }) {
-  return () => {
+  return (args: RoutedQueryArguments): WireQuery => {
     calls.n++;
-    return (async function* () {
-      if (calls.n === 1) return; // closed stream: no terminal result
-      yield { type: "result", subtype: "success", result: "recovered on sibling", num_turns: 1 };
-    })();
+    if (calls.n === 1) {
+      return { async *[Symbol.asyncIterator]() {} }; // closed stream: no terminal result
+    }
+    return wireTurnQuery(args, {
+      output: "recovered on sibling",
+      provider: "anthropic",
+      turns: 1,
+    });
   };
 }
 
 function overloadedAtStart(calls: { n: number }) {
-  return () => {
+  return (args: RoutedQueryArguments): WireQuery => {
     calls.n++;
-    return (async function* () {
-      yield {
-        type: "result", subtype: "error", is_error: true, num_turns: 0,
-        errors: [{ message: "529 Overloaded" }], result: "",
-      };
-    })();
+    return wireTurnQuery(args, {
+      provider: "anthropic",
+      status: "failed",
+      turns: 0,
+      errorCode: "provider_overloaded",
+      failureDetail: "provider_overloaded",
+    });
   };
 }
 
@@ -220,8 +240,8 @@ test("worker + read-only capabilities + provider-process death -> exactly one re
   // Bounded-retry log line names the retry-safe classification.
   expect(stderrLines.some((l) => l.includes("retrying once as a fresh run"))).toBe(true);
   // Retry provenance facts landed on the retried @run.
-  expect(logged).toMatch(/tell run:\S+ retry_of_run @run:\S+/);
-  expect(logged).toMatch(/tell run:\S+ retry_attempt 1/);
+  expect(logged).toMatch(/\["retry_of_run","@run:[^"]+"\]/);
+  expect(logged).toContain('["retry_attempt","1"]');
   // Terminal identities are immutable: the retry must NOT reuse the original
   // agent id — it mints a fresh one (identity.ts writeAgentTerminal rejects a
   // second publish against an already terminal-committed @agent: subject).
@@ -231,6 +251,72 @@ test("worker + read-only capabilities + provider-process death -> exactly one re
   // to the original (bare id, no @) and its own terminal reflects recovery.
   expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ retry_of_agent test-retry-eligible/);
   expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ outcome ran/);
+});
+
+test("a retry closes each query attempt without cancelling the shared session hard cap", async () => {
+  let fireHardCap!: () => void | Promise<void>;
+  let queryConstructions = 0;
+  let terminationRegistrations = 0;
+  let terminationReleases = 0;
+  let handoffs = 0;
+  const closeCalls = [0, 0];
+  const cancelledTimers: unknown[] = [];
+
+  const queryFn = (_args: RoutedQueryArguments): WireQuery => {
+    const attempt = queryConstructions++;
+    return {
+      close: async () => { closeCalls[attempt]! += 1; },
+      async *[Symbol.asyncIterator]() {
+        if (attempt === 0) throw new Error("openai_provider_execution_failed");
+        await fireHardCap();
+        throw new Error("provider observed managed session hard cap");
+      },
+    };
+  };
+
+  const result = await spawnUnderTest({
+    prompt: "verify retry lifecycle ownership",
+    agentId: "test-retry-shared-hard-cap",
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    routingMetadata: presetRequest("verifier"),
+    feedSubscriber: () => readySubscription(),
+    registerTermination: () => {
+      terminationRegistrations++;
+      return {
+        signal: () => undefined,
+        publicationSettled: () => {},
+        cleanupSettled: () => {},
+        release: () => { terminationReleases++; },
+      };
+    },
+    sessionHardCapRuntime: {
+      hardCapMs: 60_000,
+      schedule: (callback: () => void | Promise<void>) => {
+        fireHardCap = callback;
+        return "shared-session-deadline";
+      },
+      cancel: (timer: unknown) => { cancelledTimers.push(timer); },
+      writeHandoff: () => {
+        handoffs++;
+        return {
+          path: "/state/session-handoffs/test-retry-shared-hard-cap.json",
+          indexed: true,
+          spooled: false,
+        };
+      },
+      replayHandoffs: () => 0,
+    },
+    queryFn,
+  });
+
+  expect(result).toBe("");
+  expect(queryConstructions).toBe(2);
+  expect(closeCalls).toEqual([1, 1]);
+  expect(terminationRegistrations).toBe(1);
+  expect(terminationReleases).toBe(1);
+  expect(handoffs).toBe(1);
+  expect(cancelledTimers).toEqual(["shared-session-deadline"]);
 });
 
 test("terminal-less lane start retries once on an Anthropic sibling account", async () => {
@@ -249,7 +335,7 @@ test("terminal-less lane start retries once on an Anthropic sibling account", as
   expect(calls.n).toBe(2);
   expect(stderrLines.some((line) => line.includes("sibling target=anthropic-sibling"))).toBe(true);
   const logged = readFileSync(log, "utf8");
-  expect(logged).toMatch(/tell run:\S+ retry_of_run @run:\S+/);
+  expect(logged).toMatch(/\["retry_of_run","@run:[^"]+"\]/);
   expect(logged).toContain("provider_target anthropic-sibling");
 });
 
@@ -332,10 +418,10 @@ test("a retry that also dies records BOTH runs; the original death is never over
   expect(calls.n).toBe(2); // one bounded retry attempted, then stops (never a loop)
   const logged = readFileSync(log, "utf8");
   expect(stderrLines.some((l) => l.includes("retrying once as a fresh run"))).toBe(true);
-  // Two distinct @run subjects each carry their own death — count "kind run" writes.
-  const runKindWrites = (logged.match(/tell run:\S+ kind run/g) ?? []).length;
+  // Two distinct run telemetry projections each carry their own terminal.
+  const runKindWrites = (logged.match(/\["kind","run"\]/g) ?? []).length;
   expect(runKindWrites).toBe(2);
-  expect(logged).toMatch(/tell run:\S+ retry_of_run @run:\S+/);
+  expect(logged).toMatch(/\["retry_of_run","@run:[^"]+"\]/);
   // Original terminal-committed identity keeps its own honest died terminal...
   expect(logged).toContain("tell agent:test-retry-still-dies outcome died");
   // ...and the retry minted a DISTINCT fresh identity (never reusing the

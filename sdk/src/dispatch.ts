@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { getThreadFacts, getChildren, normalizeNorthEntityId } from "./north-client";
+import {
+  getThreadFacts, getChildren, normalizeNorthEntityId, type Fact,
+} from "./north-client";
 import { deriveManagedDispatchPosture, buildPrompt } from "./posture";
 import { StreamWriter } from "./stream-writer";
 import {
@@ -14,21 +16,15 @@ import {
   LiveFeedReapTimeoutError,
   subscribeFeed,
 } from "./coordination";
-import { normalizeUsage } from "./usage";
-import {
-  classifyTurnProvenance, codexTurnActivityFromResult, describeObservedTurns,
-  newRunId, recordRun, runEstimateFromThreadFacts,
-} from "./telemetry";
-import { collectProviderJoinEvidence } from "./providers/provider-join";
-import { publishRunLifecycleLedger } from "./run-ledger";
-import { unknownMcpActivity } from "./tool-activity";
+import { newRunId, recordWireRunTelemetry } from "./telemetry";
+import { runEstimateFromThreadFacts, type RunEstimateSnapshot } from "./run-estimate";
+import { publishWireEvents, wireLedgerSummary } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import {
   describeWatchdogAbortEvidence, withStallWatchdog, stallMs, notifyStall, notifyTurnCap,
   type WatchdogAbortEvidence,
 } from "./watchdog";
-import { outerExecutionActivityKind } from "./providers/outer-activity";
-import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
+import { bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
   assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
   continuationRaceOutcome, decideChildTurnEnd, initialChildContinuationState, notifyEarlyExitChildren,
@@ -42,10 +38,9 @@ import {
 import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
-  selectProviderForExecution, ProviderRetrySafeError,
-  type ProviderAuthoritySurface, type ProviderPreference,
+  selectProviderForExecution, providerRetrySafeTerminalDetail, ProviderRetrySafeError,
+  type ProviderAuthoritySurface, type ProviderPreference, type RoutedQueryArguments,
 } from "./providers";
-import type { AgentQuery } from "./providers/types";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
@@ -66,10 +61,23 @@ import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
 import {
-  classifyExecutionTerminal, describeDeadlineExceededTerminal, describeProviderErrorTerminal,
+  classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
-  isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL,
+  isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, wireTerminalDecision,
 } from "./execution-outcome";
+import {
+  makeExecutionFold,
+  type ExecutionFoldSnapshot,
+} from "./execution-fold";
+import {
+  encodeWireJsonlLine,
+  isIntermediateProviderSessionReplacement,
+  WireEventWriter,
+  wireRunId,
+  type WireEvent,
+  type WireQuery,
+  type WireTurnEvidence,
+} from "./wire";
 import {
   notifyTerminalSettlement, TerminalPublicationBudget, type TerminalNotification,
 } from "./terminal-notification";
@@ -84,7 +92,7 @@ import {
 import { takeDispatchTestRuntime } from "./internal/test-runtime";
 import { ManagedLiveInputRoute } from "./live-input-route";
 import {
-  makeStruggleObserver, resolveStrugglePolicy,
+  resolveStrugglePolicy,
   assertExpectedStrugglePolicy,
   type StrugglePolicy,
 } from "./struggle";
@@ -106,10 +114,20 @@ import {
   type LearningAssignmentPublicationStatus,
 } from "./learning-assignment-writer";
 import { buildRunEnvelope } from "./composition-receipt";
+import { unknownMcpActivity } from "./tool-activity";
+import { unknownNativeCommandActivity } from "./native-command-activity";
+import {
+  wireModelAvailabilityReceipt,
+  type WireRunProvenance,
+} from "./run-provenance";
 
 const PLAN_TOOLS = ["Read", "Grep", "Glob", "Bash"];
 const EXEC_TOOLS = ["Read", "Edit", "Write", "Bash", "Grep", "Glob"];
 const SURVEY_TOOLS = ["Read", "Grep", "Glob"];
+
+function latestTurnEvidence(state: ExecutionFoldSnapshot): WireTurnEvidence | undefined {
+  return state.turnEvidence[state.turnEvidence.length - 1];
+}
 
 interface DispatchResult {
   threadId: string;
@@ -129,7 +147,7 @@ export interface DispatchDependencies {
 interface DispatchRuntime {
   claimDriver?: typeof claimDispatchDriver;
   driverOptions?: DispatchDriverOptions;
-  queryFn?: (args: any) => AgentQuery;
+  queryFn?: (args: RoutedQueryArguments) => WireQuery;
   loadThreadFacts?: typeof getThreadFacts;
   loadChildren?: typeof getChildren;
   deliveryRuntime?: {
@@ -151,12 +169,14 @@ interface DispatchRuntime {
   /** Subprocess to `bin/north`, which resolves babashka off PATH — and a hermetic
    * fixture owns PATH. Production never injects. */
   admitDispatchAuthority?: typeof admitManagedDispatchAuthority;
-  releaseDriver?: (
-    driver: ReturnType<typeof claimDispatchDriver>,
-  ) => boolean | Promise<boolean>;
+  releaseDriver?: (driver: DispatchDriverClaim) => boolean | Promise<boolean>;
   publishLearningAssignment?: (
     runId: string, assignment: LearningAssignment,
   ) => Promise<LearningAssignmentPublicationStatus>;
+}
+
+interface DispatchDriverClaim {
+  release(): boolean;
 }
 
 const DISPATCH_DEPENDENCY_FIELDS = new Set([
@@ -208,16 +228,15 @@ async function runDispatch(
   threadId: string,
   judgmentGrade: JudgmentGradeSnapshot,
   strugglePolicy: StrugglePolicy,
+  runEstimate: RunEstimateSnapshot | undefined,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: RoutingRequest,
   routingEconomics?: AdmittedRoutingEconomics,
-  northSessionId?: string,
   hydratedWorkingDirectory?: string,
   hydratedAgentId?: string,
-  queryFn?: (args: any) => AgentQuery,
-  hydratedFacts?: ReturnType<typeof getThreadFacts>,
-  hydratedChildren?: ReturnType<typeof getChildren>,
-  estimateHours?: string,
+  queryFn?: (args: RoutedQueryArguments) => WireQuery,
+  hydratedFacts?: Fact[],
+  hydratedChildren?: string[],
   loadTerminalFacts: typeof getThreadFacts = getThreadFacts,
   deliveryRuntime?: DispatchRuntime["deliveryRuntime"],
   childSettlementReader: (agentId: string) => ChildSettlement = settleChildren,
@@ -229,7 +248,6 @@ async function runDispatch(
   > = {},
   learningAssignment?: LearningAssignment,
 ): Promise<DispatchResult> {
-  const runStartedAt = process.hrtime.bigint();
   const routingMetadata = hydratedMetadata;
   if (!routingMetadata) throw new Error("managed North dispatch execution requires explicit routingMetadata");
   if (!routingEconomics) throw new Error("managed North dispatch execution requires routing economics admission");
@@ -281,7 +299,12 @@ async function runDispatch(
     throw new Error("managed North dispatch execution requires a learning assignment");
   const assignmentWriter = preflightRuntime.publishLearningAssignment
     ?? (queryFn ? async () => "recorded" as const : publishLearningAssignment);
-  await assignmentWriter(runId, learningAssignment);
+  const publishAssignmentForRun = async (assignmentRunId: string): Promise<void> => {
+    if (await assignmentWriter(assignmentRunId, learningAssignment) !== "recorded") {
+      throw new Error("managed North dispatch requires a durable pre-provider learning assignment");
+    }
+  };
+  await publishAssignmentForRun(runId);
   const runContext = newDeliveryRunContext(runId, threadId, agentId);
   const runtime: DispatchRuntime["deliveryRuntime"] = deliveryRuntime ?? (queryFn ? undefined : {
     reserve: reserveDeliveryRun,
@@ -289,7 +312,6 @@ async function runDispatch(
   });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
-  const stream = new StreamWriter(agentId);
   const requestedTier = routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
   const requestedReasoning = (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined;
   const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
@@ -379,13 +401,68 @@ async function runDispatch(
   console.log(`[dispatch] @${threadId} — ${posture.title}`);
 
   let result = "";
-  let resultMsg: any = null;
-  const terminalMessages: any[] = [];
   let outcome = "ran";
-  // Full nested-cause chain for a blocked_preflight (or other retry-safe) death,
-  // set alongside `outcome` in the catch below and carried onto @run so the
-  // real underlying failure survives past the banner-only stdout log.
-  let preflightCause: string | undefined;
+  const executionFold = makeExecutionFold(strugglePolicy);
+  let wireWriter: WireEventWriter | undefined;
+  let stream: StreamWriter | undefined;
+  let nextObservedSequence = 0;
+  let nextPersistedSequence = 0;
+  let announcedCompactions = 0;
+  const flushWireEvents = async (): Promise<void> => {
+    if (!wireWriter || !stream) return;
+    const events = wireWriter.events();
+    while (nextPersistedSequence < events.length) {
+      const event = events[nextPersistedSequence]!;
+      if (event.sequence !== nextPersistedSequence) {
+        throw new Error("wire writer persistence sequence diverged");
+      }
+      await stream.writeWireEvent(event);
+      nextPersistedSequence += 1;
+    }
+  };
+  const observeWireEvent = async (event: WireEvent) => {
+    if (!wireWriter) throw new Error("wire event observed before run admission");
+    const canonical = wireWriter.events()[nextObservedSequence];
+    let matchesCanonical = canonical === event;
+    if (!matchesCanonical && canonical) {
+      try {
+        matchesCanonical = encodeWireJsonlLine(canonical) === encodeWireJsonlLine(event);
+      } catch { /* An invalid yielded event cannot equal the writer-owned event. */ }
+    }
+    if (!canonical || !matchesCanonical) {
+      throw new Error("provider yielded an event that differs from its shared writer canonical event");
+    }
+    const observation = executionFold.observe(canonical);
+    nextObservedSequence += 1;
+    await flushWireEvents();
+    return observation;
+  };
+  const observeCommittedWireEvents = async (): Promise<void> => {
+    if (!wireWriter) return;
+    const events = wireWriter.events();
+    while (nextObservedSequence < events.length) {
+      executionFold.observe(events[nextObservedSequence]!);
+      nextObservedSequence += 1;
+    }
+    await flushWireEvents();
+  };
+  const startWireRun = async (): Promise<WireEventWriter> => {
+    if (wireWriter) return wireWriter;
+    const opened = await StreamWriter.open(agentId);
+    const writer = new WireEventWriter({ runId: wireRunId(runId) });
+    stream = opened;
+    wireWriter = writer;
+    const started = writer.append({
+      kind: "run.started",
+      lifecycle: "running",
+      owner: agentId,
+    });
+    await observeWireEvent(started);
+    return writer;
+  };
+  // Public wire detail is North-owned and bounded. Recursive provider causes
+  // remain only in local diagnostics below.
+  let preflightDetail: string | undefined;
   // Same discipline for a provider_error terminal: the error payload the frame
   // carried, rendered once and carried onto @run (thread 019f9cec).
   let providerErrorDetail: string | undefined;
@@ -408,10 +485,8 @@ async function runDispatch(
   let liveInputFreezeError: unknown;
   // Background-task refusal (thread 019f4ed2, half a): don't finalize on the first
   // `result` while a harness-tracked background task is live — see bgtasks.ts.
-  const bgTracker = makeBgTracker();
   let bgContinuations = 0;
   const orchestrator = routingMetadata.topology === "orchestrator";
-  const struggle = makeStruggleObserver(strugglePolicy);
   let childContinuation = initialChildContinuationState(
     requiredDirectChildCount(routingMetadata),
   );
@@ -419,33 +494,24 @@ async function runDispatch(
   // continuation was injected at the last turn-end and not yet discharged by a
   // genuine (non-empty) provider result. See the guard in the result loop.
   let pendingContinuation: OrchestratorContinuationKind | undefined;
-  // Anthropic streaming input races session teardown after the model's final
-  // result (thread 019f8ec5): a continuation injected into the live channel then
-  // lands on a closing stream. For a streaming-input provider an orchestrator
-  // continuation instead ends the turn and opens a fresh RESUMED turn once a
-  // session id has been observed. Codex (frame-based) re-opens a turn per frame
-  // already and keeps the injection path untouched. `sessionId` is the last
-  // session id the provider published; `pendingResume` is the continuation
-  // message to carry into the next resumed turn.
+  // Streaming providers own private continuation identity. North asks the
+  // same semantic query for another turn without observing a raw session id.
   const resumeContinuations = orchestrator
     && providerLiveInput(routing.provider) === "streaming";
-  let sessionId: string | undefined;
-  let pendingResume: string | undefined;
-  let injectedCompositionEvidence: HarnessCompositionEvidence | undefined;
+  let initialComposition: HarnessCompositionEvidence | undefined;
   let admittedRoute: {
-    provider: ProviderAuthoritySurface["provider"];
-    evidence: HarnessCompositionEvidence | undefined;
-    authority: ProviderAuthoritySurface;
+    provider: "anthropic" | "openai";
+    evidence?: HarnessCompositionEvidence;
+    authority?: ProviderAuthoritySurface;
   } | undefined;
+  let activeExecutionQuery: WireQuery | undefined;
   let queryCloseError: unknown;
-  let activeExecutionQuery: AgentQuery | undefined;
-
-  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) the generator THROWS exitError
   // here. catch -> outcome "died" + durable agent_death facts on this thread and @swarm;
   // finally -> ALWAYS stop the feed and close the channel. The peer wake is emitted only
   // after the committed terminal and run publication attempts have settled.
+  try {
   try {
     // Reserve only at the last pre-provider seam. Earlier routing/admission
     // failures must not strand undiscoverable reservation-only subjects.
@@ -471,6 +537,7 @@ async function runDispatch(
     } catch (error) {
       const abandonedRunId = runId;
       runId = newRunId(agentId);
+      await publishAssignmentForRun(runId);
       // Loud + diagnosable (thread 019f9063): surface the writer's exact
       // rejection instead of a uniform "unavailable" that hides freshness,
       // thread-identity, and malformed-ack failures alike.
@@ -498,26 +565,18 @@ async function runDispatch(
       systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
       abortController: termination.abortController,
     });
+    initialComposition = harnessCompositionEvidence(agentOptions);
     console.log(
       `[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, `
       + `target: ${routing.target} (${routing.reason})`,
     );
-    injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
     if (queryFn && feedSubscriber !== subscribeFeed)
       await liveInputRoute.activate(activeRoute());
-    turnLoop: while (true) {
-    const resumeMessage = pendingResume;
-    pendingResume = undefined;
-    // Turn 1 (and non-resumed providers) read the managed streaming channel so
-    // live messaging and background-task continuations stay unchanged; a resumed
-    // continuation turn reads a fresh single-message channel and resumes the
-    // observed session instead of racing the prior turn's closing stream
-    // (thread 019f8ec5).
-    const turnChannel = resumeMessage === undefined ? ch : inputChannel(resumeMessage);
+    const writer = await startWireRun();
     const queryArgs = {
-      prompt: turnChannel.stream(),
+      input: ch.stream(),
       options: agentOptions,
-      ...(resumeMessage === undefined ? {} : { resume: sessionId }),
+      writer,
     };
     termination.throwIfTerminated();
     const q = queryFn
@@ -529,16 +588,21 @@ async function runDispatch(
             () => reserveResourceEnvelopeRetry(envelopeAdmission),
           );
         },
-        async (_decision, evidence, authority) => {
-          if (!authority) return;
-          await liveInputRoute.activate({
-            ...activeRoute(),
-            liveInput: authority.liveInput,
-          });
-          admittedRoute = { provider: authority.provider, evidence, authority };
-          console.log(
-            `[dispatch] effective authority: ${formatProviderAuthoritySurface(authority)}`,
-          );
+        async (decision, evidence, authority) => {
+          admittedRoute = {
+            provider: decision.provider,
+            ...(evidence === undefined ? {} : { evidence }),
+            ...(authority === undefined ? {} : { authority }),
+          };
+          if (authority) {
+            await liveInputRoute.activate({
+              ...activeRoute(),
+              liveInput: authority.liveInput,
+            });
+            console.log(
+              `[dispatch] effective authority: ${formatProviderAuthoritySurface(authority)}`,
+            );
+          }
         });
     activeExecutionQuery = q;
     termination.attachQuery(q);
@@ -547,47 +611,55 @@ async function runDispatch(
       q.executionActivity,
       executionActivity,
     );
-    const watched = withStallWatchdog((q as AsyncIterable<any>)[Symbol.asyncIterator](), {
+    turnLoop: while (true) {
+    let privateContinuation: string | undefined;
+    const watched = withStallWatchdog(q[Symbol.asyncIterator](), {
       stallMs: window,
       onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
       onAbort: (evidence) => { watchdogAbort = evidence; },
       activitySources: [executionActivity.source],
     });
-    let openResumeTurn = false;
-    for await (const message of watched) {
-      const msg = message as any;
-      if (typeof msg.session_id === "string") sessionId = msg.session_id;
-      const outerActivity = outerExecutionActivityKind(msg);
-      if (outerActivity) {
-        executionActivity.record("outer", outerActivity);
+    for await (const event of watched) {
+      const observation = await observeWireEvent(event);
+      if (observation.activityKind) {
+        executionActivity.record("outer", observation.activityKind);
         renewHarnessPresence(agentOptions);
       }
       refreshIdentityRoute();
-      stream.writeSDKMessage(msg);
-      if (msg.type === "system" && msg.subtype === "compact_boundary") {
-        compactions++;
-        console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+      if (observation.state.compactions > announcedCompactions) {
+        announcedCompactions = observation.state.compactions;
+        console.error(
+          `[harness] @agent:${agentId} context compaction #${announcedCompactions}`,
+        );
       }
-      if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
+      if (observation.backgroundTask?.kind === "settled") bgContinuations = 0;
 
-      const struggleTrigger = struggle.observe(msg);
+      const struggleTrigger = observation.struggleTrigger;
       if (struggleTrigger) {
         console.error(
           `[struggle] @agent:${agentId} sensor fired: ${struggleTrigger} `
-          + `(turn ${struggle.state.turn}, ${struggle.state.totalErrors} tool error(s)) `
+          + `(model calls ${observation.state.run.usage.lifetime.modelCalls}, `
+          + `${observation.state.struggle.errorCount} tool error(s)) `
           + "— recorded as execution-axis evidence, no in-flight change",
         );
       }
 
-      if (msg.type === "result") {
-        terminalMessages.push(msg);
-        if (typeof msg.result === "string") result = msg.result;
-        resultMsg = msg;
-        const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max")
-          ? msg.subtype
-          : null;
-        if (cap) {
-          outcome = cap === "error_max_turns" ? "max_turns" : "capped";
+      if (event.essential && event.kind === "message.recorded"
+          && event.role === "assistant" && event.stage === "delta"
+          && typeof event.content === "string") {
+        process.stdout.write(event.content);
+      }
+
+      if (event.essential && event.kind === "model-call.completed") {
+        if (isIntermediateProviderSessionReplacement(event)) continue;
+        result = observation.state.lastCompletedAssistantOutput ?? "";
+        const cap = event.errorCode === "provider_max_turns"
+          ? "provider_max_turns"
+          : event.errorCode === "provider_budget_exhausted"
+            || event.errorCode === "provider_structured_output_retries_exhausted"
+            ? event.errorCode : undefined;
+        if (cap !== undefined) {
+          outcome = cap === "provider_max_turns" ? "max_turns" : "capped";
           const partial = result.trim()
             ? `partial: ${result.trim().slice(0, 200)}`
             : "no partial result";
@@ -598,7 +670,7 @@ async function runDispatch(
           );
           break;
         }
-        deadlineExceededDetail = describeDeadlineExceededTerminal(msg);
+        deadlineExceededDetail = observation.state.deadlineExceededDetail;
         if (deadlineExceededDetail) {
           outcome = "deadline_exceeded";
           console.error(
@@ -607,23 +679,15 @@ async function runDispatch(
           terminalSignal = { subject: "DEADLINE EXCEEDED", detail: deadlineExceededDetail };
           break;
         }
-        const providerError = msg.subtype !== "success"
-          || msg.is_error === true
-          || (Array.isArray(msg.errors) && msg.errors.length > 0);
-        if (providerError) {
+        if (event.status !== "succeeded") {
           outcome = "provider_error";
-          // `break` discards this frame AND the adapter throw still pending
-          // behind it, so the payload must be rendered HERE or it is gone
-          // (thread 019f9cec).
-          providerErrorDetail = describeProviderErrorTerminal(msg);
+          providerErrorDetail = observation.state.providerErrorDetail
+            ?? "model-call terminal failed without diagnostic evidence";
           console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
           terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
           break;
         }
-        if (turnChannel.pending() === 0) {
-          // A resumed continuation turn reads its own fresh channel, so gate
-          // turn-end on that turn's channel; for turn 1 turnChannel IS ch, so
-          // non-orchestrator and codex lanes keep byte-identical behavior.
+        if (ch.pending() === 0) {
           // Orchestrator continuation race (thread 019f8ec5): a continuation
           // injected at a prior turn-end asks the provider for ANOTHER genuine
           // turn, but the Anthropic session may already be tearing down after
@@ -643,15 +707,24 @@ async function runDispatch(
           pendingContinuation = undefined; // a genuine result discharges the obligation
           // Refuse to exit while background tasks are live (half a) — inject a
           // continuation + keep looping so the SDK auto-continues to task settlement.
-          if (bgTracker.size() > 0 && bgContinuations < maxBgContinuations()) {
+          if (observation.state.pendingBackgroundTasks.length > 0
+              && bgContinuations < maxBgContinuations()) {
             bgContinuations++;
-            const live = bgTracker.live();
+            const live = observation.state.pendingBackgroundTasks;
             console.error(`[harness] @agent:${agentId} refusing turn-end exit — ${live.length} live background task(s): ${live.join(", ")} (continuation ${bgContinuations}/${maxBgContinuations()})`);
-            turnChannel.push(bgContinuationMessage(live));
+            const continuation = bgContinuationMessage(live);
+            if (resumeContinuations) privateContinuation = continuation;
+            else ch.push(continuation);
             continue; // do NOT finalize; keep the query loop alive
           }
-          if (bgTracker.size() > 0) {
-            console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
+          if (observation.state.pendingBackgroundTasks.length > 0) {
+            console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${observation.state.pendingBackgroundTasks.length} task(s) still live — blocking terminal`);
+            outcome = "background_tasks_incomplete";
+            terminalSignal = {
+              subject: "AGENT BLOCKED",
+              detail: `${observation.state.pendingBackgroundTasks.length} background task(s) remained open`,
+            };
+            break;
           }
           if (orchestrator) {
             const decision = decideChildTurnEnd(
@@ -682,19 +755,18 @@ async function runDispatch(
               // terminal on the next turn (a closing-stream race) blocks
               // explicitly rather than falsely discharging the continuation.
               pendingContinuation = decision.reason;
-              if (resumeContinuations && sessionId !== undefined) {
-                // Streaming provider + an observed session: do NOT push into the
-                // closing stream. End this turn and open a fresh resumed turn
-                // carrying the continuation (thread 019f8ec5 prevention). A resume
-                // that still returns empty is caught by the empty-terminal guard
-                // above / the final child gate — the obligation-specific blocked
-                // outcome, never a ran_empty masquerade.
+              if (resumeContinuations) {
+                if (!q.continueTurn) {
+                  outcome = "provider_error";
+                  providerErrorDetail = "active provider cannot retain a private continuation turn";
+                  terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
+                  break;
+                }
                 console.error(
-                  `[harness] @agent:${agentId} opening a resumed continuation turn on session ${sessionId} instead of injecting into the closing stream`,
+                  `[harness] @agent:${agentId} opening a provider-neutral resumed continuation turn`,
                 );
-                pendingResume = continuation;
-                openResumeTurn = true;
-                break;
+                privateContinuation = continuation;
+                continue;
               }
               ch.push(continuation);
               continue;
@@ -723,36 +795,34 @@ async function runDispatch(
           break; // task done + no pending peer ping -> finish
         }
       }
-
-      if (msg.type === "assistant" && msg.message?.content) {
-        for (const block of msg.message.content) {
-          if (block.type === "text" && block.text?.trim()) {
-            process.stdout.write(block.text);
-          }
-        }
+    }
+    if (privateContinuation !== undefined) {
+      if (!q.continueTurn) {
+        outcome = "provider_error";
+        providerErrorDetail = "active provider cannot retain a private continuation turn";
+        terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
+        break turnLoop;
       }
+      await q.continueTurn(privateContinuation);
+      continue turnLoop;
     }
-    // Turn complete. A resumed continuation ended this turn cleanly (nothing was
-    // injected into its closing stream); close the finished query and loop to
-    // open the resumed turn. Any other terminal is final for this dispatch.
-    if (turnChannel !== ch) { try { turnChannel.end(); } catch { /* fresh resume channel */ } }
-    stopProviderActivity();
-    stopProviderActivity = () => {};
-    if (!openResumeTurn) break turnLoop;
-    try { await q.close?.(); }
-    catch (error) { queryCloseError = error; }
+    break;
     }
-    if (!resultMsg && outcome === "ran" && !watchdogAbort) {
+    await observeCommittedWireEvents();
+    const providerState = executionFold.snapshot();
+    if (providerState?.latestModelCallTerminal?.status !== "succeeded"
+        && outcome === "ran" && !watchdogAbort) {
       // Iterator completion without an explicit provider terminal is not a
       // successful execution, even when the transport itself closed cleanly.
       outcome = "provider_error";
       // A close-time failure is a DEATH below (it overrides this outcome) and is
-      // rendered there; this detail names only the silence itself.
-      providerErrorDetail = NO_PROVIDER_TERMINAL_DETAIL;
+      // rendered there; otherwise retain the latest typed model failure.
+      providerErrorDetail = providerState?.providerErrorDetail ?? NO_PROVIDER_TERMINAL_DETAIL;
       console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
       terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
     }
-    if (!watchdogAbort && isEmptyResultTerminal(outcome, result)) {
+    if (!watchdogAbort && outcome === "ran" && providerState
+        && isEmptyResultTerminal(providerState.run)) {
       // A provider success terminal with empty result (0b) is a DEGENERATE
       // completion, not a delivery (thread 019f8300): opus-high extended-thinking
       // turns that hit the output-token ceiling truncate before committing any
@@ -760,7 +830,7 @@ async function runDispatch(
       // a distinct LOUD terminal so a zero-deliverable lane never masquerades as
       // AGENT COMPLETE.
       outcome = EMPTY_RESULT_OUTCOME;
-      const turns = describeObservedTurns(resultMsg);
+      const turns = latestTurnEvidence(providerState)?.count ?? "unknown turn count";
       terminalSignal = {
         subject: "AGENT EMPTY RESULT",
         detail: `provider success terminal with empty result (0b) after ${turns} — no deliverable text committed (likely output-token ceiling hit mid extended-thinking/tool_use)`,
@@ -791,8 +861,8 @@ async function runDispatch(
       // retry-safe preflight block stays blocked_preflight.
       const carried = (err as { processOutcome?: unknown }).processOutcome;
       outcome = typeof carried === "string" ? carried : "blocked_preflight";
-      preflightCause = causeChain(err);
-      console.error(`[${outcome}] @agent:${agentId} ${preflightCause}`);
+      preflightDetail = providerRetrySafeTerminalDetail(err);
+      console.error(`[${outcome}] @agent:${agentId} ${causeChain(err)}`);
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -802,6 +872,8 @@ async function runDispatch(
     }
   } finally {
     stopProviderActivity();
+    try { await observeCommittedWireEvents(); }
+    catch (error) { queryCloseError ??= error; }
     try {
       await liveInputRoute.freezeAndUnbind();
     } catch (error) {
@@ -813,6 +885,8 @@ async function runDispatch(
     // the provider CLI cannot survive a completed dispatch.
     try { await termination.close(); }
     catch (error) { queryCloseError = error; }
+    try { await observeCommittedWireEvents(); }
+    catch (error) { queryCloseError ??= error; }
   }
 
   const sessionHardCap = termination.hardCapStatus();
@@ -900,6 +974,15 @@ async function runDispatch(
     );
   }
 
+  const executionBeforeCleanup = executionFold.snapshot();
+  if (outcome === "ran" && executionBeforeCleanup?.pendingBackgroundTasks.length) {
+    outcome = "background_tasks_incomplete";
+    terminalSignal = {
+      subject: "AGENT BLOCKED",
+      detail: `${executionBeforeCleanup.pendingBackgroundTasks.length} background task(s) remained open`,
+    };
+  }
+
   // Commit the lane's process/delivery terminal (SYNC, digest marker last)
   // before exit. Mirrors spawn.ts at the same reap-avoidance seam.
   refreshIdentityRoute();
@@ -911,7 +994,6 @@ async function runDispatch(
         deliveryReason: "delivery_reservation_unavailable_at_finalize",
       };
     } else {
-      const reservedRunId = runId;
       // Same seam as spawn.ts: retry the LOAD (a contended coordinator is not a
       // verdict), fail closed immediately on a read that found no valid
       // reservation. Thread 019f9cc1.
@@ -924,15 +1006,14 @@ async function runDispatch(
         ? undefined
         : resolution.state;
       if (!runState?.reservationValid) {
-        runId = newRunId(agentId);
         deliveryReservationReady = false;
         console.error(
-          `[delivery] @${reservedRunId} `
+          `[delivery] @${runId} `
           + (resolution.transientFailure
             ? `reservation unreadable at finalize after ${resolution.attempts} attempt(s) `
               + `(${resolution.transientFailure})`
             : "reservation invalid at finalize")
-          + `; rotating telemetry to @${runId} and leaving delivery unverified`,
+          + "; retaining the wire run identity and leaving delivery unverified",
         );
         delivery = {
           deliveryOutcome: "unverified",
@@ -977,6 +1058,18 @@ async function runDispatch(
     }
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
+  const terminalDetail = terminalSignal.detail ?? deadlineExceededDetail
+    ?? providerErrorDetail ?? preflightDetail ?? outcome;
+  const finalWriter = await startWireRun();
+  const wireTerminal = wireTerminalDecision(outcome, terminalDetail, watchdogAbort);
+  const wireTerminalEvents = finalWriter.terminate(wireTerminal);
+  for (const event of wireTerminalEvents) await observeWireEvent(event);
+  await flushWireEvents();
+  const finalExecution = executionFold.snapshot();
+  if (!finalExecution || finalExecution.run.lifecycle === "running"
+      || finalExecution.run.lifecycle === "waiting") {
+    throw new Error("wire run did not reach its outer terminal");
+  }
   const publicationBudget = new TerminalPublicationBudget();
   // Publish the lane terminal before any diagnostic side channel. A slow
   // auxiliary writer may consume only what remains after authoritative state.
@@ -995,108 +1088,109 @@ async function runDispatch(
     );
   }
 
-  const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
-  const providerJoin = collectProviderJoinEvidence(terminalMessages);
-  const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
+  const wireEvents = finalWriter.events();
+  const finalRoute = activeRoute();
+  const finalAdmittedRoute = admittedRoute?.provider === routing.provider
+    ? admittedRoute : undefined;
+  const promptComposition = finalAdmittedRoute?.evidence
+    ?? (routing.fallbackCount === 0 ? initialComposition : undefined);
   const promptReceipt = promptComposition?.promptReceipt;
   const environmentReceipt = promptComposition?.environmentReceipt;
-  const finalRoute = activeRoute();
+  const finalEffort = finalRoute.effort ?? routingMetadata.reasoning;
   const runEnvelopeReceipt = promptReceipt && environmentReceipt
+      && routingMetadata.tier && finalEffort
     ? buildRunEnvelope({
-      promptReceipt,
-      environmentReceipt,
-      assignmentSha256: learningAssignment.manifestSha256,
-      tier: routingMetadata.tier,
-      effort: finalRoute.effort ?? routingMetadata.reasoning,
-      ...(finalRoute.model ? { model: finalRoute.model } : {}),
-      providerAdapterVersion: "north-managed-adapter:v1",
-      providerRuntimeVersion: `bun-${Bun.version}`,
-    }) : undefined;
+        promptReceipt,
+        environmentReceipt,
+        assignmentSha256: learningAssignment.manifestSha256,
+        tier: routingMetadata.tier,
+        effort: finalEffort,
+        providerAdapterVersion: "north-managed-adapter:v1",
+        providerRuntimeVersion: `bun-${Bun.version}`,
+      })
+    : undefined;
   const mcpActivity = activeExecutionQuery?.mcpActivity?.()
     ?? unknownMcpActivity("provider-activity-unavailable");
-  const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
-  const runLedger = await publishRunLifecycleLedger({
-    run: runId,
+  const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.()
+    ?? unknownNativeCommandActivity("provider-activity-unavailable");
+  const provenance: WireRunProvenance = {
+    posture: postureLabel,
+    role,
+    provider: routing.provider,
+    providerTarget: routing.target,
+    providerReason: routing.selectionReason,
+    ...(routing.modelAvailabilityReceipts?.[routing.target] === undefined
+      ? {} : {
+          modelAvailability: wireModelAvailabilityReceipt(
+            routing.modelAvailabilityReceipts[routing.target],
+          ),
+        }),
+    requestedProvider: routing.requestedProvider,
+    ...(routing.requestedTarget === undefined
+      ? {} : { requestedTarget: routing.requestedTarget }),
+    ...(requestedTier === undefined ? {} : { requestedTier }),
+    ...(requestedReasoning === undefined ? {} : { requestedEffort: requestedReasoning }),
+    routingMetadata,
+    ...(routingEconomics.assessment === undefined
+      ? {} : { routingAssessment: routingEconomics.assessment }),
+    routingAdmissionReceipt: routingEconomics.receipt,
+    ...(routingEconomics.pinEvidence === undefined
+      ? {} : { routingPinEvidence: routingEconomics.pinEvidence }),
+    ...(promptComposition === undefined ? {} : { promptComposition }),
+    learningAssignment,
+    ...(promptReceipt === undefined ? {} : { promptReceipt }),
+    ...(environmentReceipt === undefined ? {} : { environmentReceipt }),
+    ...(runEnvelopeReceipt === undefined ? {} : { runEnvelopeReceipt }),
+    mcpActivity,
+    nativeCommandActivity,
+    executionSource: "north-managed",
+    ...(activeExecutionQuery?.executionTransport === undefined
+      ? {} : { executionTransport: activeExecutionQuery.executionTransport }),
+    ...(finalAdmittedRoute?.authority === undefined
+      ? {} : { effectiveAuthority: finalAdmittedRoute.authority }),
+    allocationMode: routing.allocationMode,
+    entitlementPressure: routing.entitlementPressure,
+    ...(routing.allocationEvidenceByTarget === undefined
+      ? {} : { allocationEvidence: routing.allocationEvidenceByTarget }),
+    fallbackCount: routing.fallbackCount,
+    fallbackPath: routing.fallbackPath,
+    fallbackTargetPath: routing.fallbackTargetPath,
+    fallbackReasons: routing.fallbackReasons,
+    ...(envelopeAdmission === undefined ? {} : {
+      envelopeScopes: envelopeAdmission.scopes.map(({ id }) => id),
+      envelopeRetries: envelopeAdmission.retries,
+      envelopeAdvisories: envelopeAdmission.advisories,
+    }),
+    processOutcome: terminal.processOutcome,
+    deliveryOutcome: terminal.deliveryOutcome,
+    ...(terminal.deliveryReason === undefined ? {} : { deliveryReason: terminal.deliveryReason }),
+    ...(terminal.deliveryProof === undefined ? {} : { deliveryProof: terminal.deliveryProof }),
+    ...(runEstimate === undefined ? {} : { runEstimate }),
+    judgmentGrade,
+    struggleObservation: finalExecution.struggle,
+  };
+  const wireIdentity = {
     thread: threadId,
     agent: agentId,
-    ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
     ...(coordHandle ? { coordinator: coordHandle } : {}),
-  }, {
-    promptEconomics: promptComposition?.promptEconomics,
-    tokenUsage,
-    compactions,
-    outcome,
-    mcpActivity,
-  }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
-  const numTurns = typeof resultMsg?.num_turns === "number"
-    ? resultMsg.num_turns
-    // A retry-safe preflight block proves the provider accepted no turn. This
-    // zero is North-observed; every other missing provider value stays absent.
-    : terminal.processOutcome === "blocked_preflight"
-      || terminal.processOutcome === "blocked_spend_guard" ? 0 : undefined;
-  const codexTurnActivity = codexTurnActivityFromResult(resultMsg);
-  const runPublication = await recordRun({ thread: threadId, agent: agentId, tokenUsage,
-              model: routing.resolvedModel ?? resolved.model, effort: routing.resolvedEffort ?? resolved.effort,
-              role,
-              provider: routing.provider, providerTarget: routing.target, providerReason: routing.selectionReason,
-              modelAvailability: routing.modelAvailabilityReceipts?.[routing.target],
-              requestedProvider: routing.requestedProvider,
-              requestedTarget: targetPreference,
-              requestedTier,
-              requestedModel,
-              requestedEffort: routingMetadata.reasoning ?? process.env.AGENT_EFFORT,
-              allocationMode: routing.allocationMode,
-              entitlementPressure: routing.entitlementPressure,
-              allocationEvidence: routing.allocationEvidenceByTarget,
-              fallbackCount: routing.fallbackCount,
-              fallbackPath: routing.fallbackPath,
-              fallbackTargetPath: routing.fallbackTargetPath,
-              fallbackReasons: routing.fallbackReasons,
-              envelopeScopes: envelopeAdmission?.scopes.map(({ id }) => id),
-              envelopeRetries: envelopeAdmission?.retries,
-              envelopeAdvisories: envelopeAdmission?.advisories,
-              routingMetadata,
-              routingAssessment: routingEconomics.assessment,
-              routingAdmissionReceipt: routingEconomics.receipt,
-              routingPinEvidence: routingEconomics.pinEvidence,
-              executionSource: "north-managed",
-              executionTransport: activeExecutionQuery?.executionTransport
-                ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
-              mcpActivity, nativeCommandActivity,
-              providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
-              providerJoin,
-              northSessionId,
-              threadProvenance: "exact",
-              turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
-              promptComposition,
-              learningAssignment,
-              promptReceipt,
-              environmentReceipt,
-              runEnvelopeReceipt,
-              promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
-              promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
-              capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
-              runLedger,
-              effectiveAuthority: admittedRoute?.authority,
-              compactions,
-              durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
-              estimateHours,
-              providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
-              posture: postureLabel, outcome,
-              processOutcome: terminal.processOutcome,
-              deliveryOutcome: terminal.deliveryOutcome,
-              deliveryReason: terminal.deliveryReason,
-              deliveryProof: terminal.deliveryProof,
-              numTurns,
-              codexTurnActivity,
-              judgmentGrade,
-              struggleObservation: struggle.snapshot(),
-              preflightCause,
-              providerErrorDetail,
-              deadlineExceededDetail,
-              watchdogAbort,
-              }, runId, publicationBudget.publicationTimeout(1));
+  };
+  const wireLedgerStatus = await publishWireEvents(
+    wireIdentity,
+    wireEvents,
+    publicationBudget.publicationTimeout(2),
+  ).catch(() => "unavailable" as const);
+  const runLedger = wireLedgerStatus === "recorded"
+    ? wireLedgerSummary(wireEvents) : undefined;
+  const runPublication = runLedger === undefined
+    ? "unavailable" as const
+    : await recordWireRunTelemetry(
+        wireIdentity,
+        finalExecution.run,
+        { status: "recorded", summary: runLedger },
+        provenance,
+        publicationBudget.publicationTimeout(1),
+      );
   notifyTerminalSettlement(
     agentId,
     coordHandle,
@@ -1111,6 +1205,9 @@ async function runDispatch(
   );
   console.log(`\n[dispatch] @${threadId} process=${outcome} delivery=${terminal.deliveryOutcome}`);
   return { threadId, posture: postureLabel, result };
+  } finally {
+    await stream?.close();
+  }
 }
 
 let bootstrapAuthorityGranted = false;
@@ -1150,7 +1247,7 @@ export async function dispatch(
   // Avoid charging an admission for an unknown or already-completed thread.
   const facts = (injected.loadThreadFacts ?? getThreadFacts)(threadId);
   if (!facts.length) throw new Error(`Thread @${threadId} not found or has no facts`);
-  const estimate = runEstimateFromThreadFacts(facts);
+  const runEstimate = runEstimateFromThreadFacts(facts);
   const judgmentGrade = judgmentGradeFromThreadFacts(facts);
   const children = (injected.loadChildren ?? getChildren)(threadId);
   const preflight = deriveManagedDispatchPosture(
@@ -1213,7 +1310,7 @@ export async function dispatch(
       repo: workingDirectory,
     },
   );
-  let driver: ReturnType<typeof claimDispatchDriver> | undefined;
+  let driver: DispatchDriverClaim | undefined;
   let admission: EnvelopeAdmission | undefined;
   let result!: DispatchResult;
   let failed = false;
@@ -1232,10 +1329,10 @@ export async function dispatch(
     termination.throwIfTerminated();
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     result = await runDispatch(
-      threadId, judgmentGrade, strugglePolicy,
-      admission, routingMetadata, routingEconomics, context.sessionId,
+      threadId, judgmentGrade, strugglePolicy, runEstimate,
+      admission, routingMetadata, routingEconomics,
       workingDirectory, agentId, injected.queryFn,
-      facts, children, estimate?.hours, injected.loadThreadFacts ?? getThreadFacts,
+      facts, children, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,
       injected.childSettlementReader,
       injected.feedSubscriber ?? subscribeFeed,

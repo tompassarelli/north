@@ -11,6 +11,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { presetRequest } from "./routing-fixtures";
 import { LiveFeedReapTimeoutError } from "../src/coordination";
+import type { RoutedQueryArguments } from "../src/providers";
+import { readWireJsonl, type WireEvent, type WireQuery } from "../src/wire";
+import {
+  wireInputIterator,
+  wireManagedCodexRespawnQuery,
+  wireTurnEvents,
+  wireTurnQuery,
+} from "./support/wire-query";
+import { spawn as spawnUnderTest } from "./support/spawn";
+import { dispatch as dispatchUnderTest } from "./support/dispatch";
 
 let dir: string;
 let log: string;
@@ -149,11 +159,16 @@ test("a query that dies mid-stream -> partial return + agent_death notification"
 
   // Fake SDK query: yields one assistant turn (simulating work-in-progress on a long gate),
   // then throws the exact exitError the real ProcessTransport raises on an OOM kill.
-  const dyingQuery: any = () =>
-    (async function* () {
-      yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "starting long gate" }] } };
+  const dyingQuery = (args: RoutedQueryArguments): WireQuery => ({
+    async *[Symbol.asyncIterator](): AsyncGenerator<WireEvent> {
+      yield* wireTurnEvents(args, {
+        output: "starting long gate",
+        provider: "anthropic",
+        terminal: false,
+      });
       throw new Error("Claude Code process terminated by signal 9");
-    })();
+    },
+  });
 
   let result: string | undefined;
   let threw = false;
@@ -202,20 +217,21 @@ test("ad-hoc spawn subscribes its exact lane and injects a child completion ping
       deliver = onMail;
       return readySubscription(() => { stopCalls++; });
     },
-    queryFn: ({ prompt }: any) => ({
-      async *[Symbol.asyncIterator]() {
-        const input = prompt[Symbol.asyncIterator]();
+    queryFn: (args: RoutedQueryArguments): WireQuery => ({
+      async *[Symbol.asyncIterator](): AsyncGenerator<WireEvent> {
+        const input = wireInputIterator(args.input);
         const initial = await input.next();
-        expect(initial.value.message.content).toBe("coordinate one child");
+        if (initial.done) throw new Error("initial wire input was absent");
+        expect(initial.value.text).toBe("coordinate one child");
         deliver?.("child lane settled with outcome ran");
         const ping = await input.next();
-        received = ping.value.message.content;
-        yield {
-          type: "result",
-          subtype: "success",
-          result: "reduced child result",
-          num_turns: 1,
-        };
+        if (ping.done) throw new Error("live wire input ended before child completion");
+        received = ping.value.text;
+        yield* wireTurnEvents(args, {
+          output: "reduced child result",
+          provider: "anthropic",
+          turns: 1,
+        });
       },
     }),
   });
@@ -242,16 +258,101 @@ test("one-shot OpenAI lanes publish turn-framed capability without arming a feed
       subscriptions++;
       return readySubscription();
     },
-    queryFn: () => ({
-      async *[Symbol.asyncIterator]() {
-        yield { type: "result", subtype: "success", result: "done", num_turns: 1 };
-      },
+    queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+      output: "done",
+      provider: "openai",
+      turns: 1,
     }),
   });
   expect(result).toBe("done");
   expect(subscriptions).toBe(0);
   expect(readFileSync(log, "utf8"))
     .toContain("tell agent:test-openai-no-live-feed live_input turn-framed");
+});
+
+test("public spawn consumes a managed Codex respawn settlement before replacement success", async () => {
+  const agentId = "test-spawn-codex-respawn";
+  writeFileSync(log, "");
+
+  const result = await spawnUnderTest({
+    prompt: "recover one managed Codex provider process",
+    agentId,
+    provider: "openai",
+    pinEvidence: pinEvidence("openai"),
+    routingMetadata: presetRequest("integrator"),
+    queryFn: (args: RoutedQueryArguments) =>
+      wireManagedCodexRespawnQuery(args, "spawn recovered answer"),
+  });
+
+  expect(result).toBe("spawn recovered answer");
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain(`tell agent:${agentId} outcome ran`);
+  expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
+  expect(logged).not.toContain(`tell agent:${agentId} outcome provider_error`);
+
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed").map((event) => ({
+    status: event.status,
+    origin: event.origin,
+    errorCode: event.errorCode,
+  }))).toEqual([
+    {
+      status: "failed",
+      origin: "north",
+		errorCode: "provider_session_replaced",
+    },
+    { status: "succeeded", origin: "provider", errorCode: undefined },
+  ]);
+  expect(replay.snapshot?.lifecycle).toBe("completed");
+});
+
+test("public dispatch consumes a managed Codex respawn settlement before replacement success", async () => {
+  const agentId = "test-dispatch-codex-respawn";
+  const previousProvider = process.env.AGENT_PROVIDER;
+  writeFileSync(log, "");
+  process.env.AGENT_PROVIDER = "openai";
+  try {
+    const result = await dispatchUnderTest("thread-test-dispatch-codex-respawn", {
+      agentId,
+      routingMetadata: presetRequest("integrator"),
+      pinEvidence: pinEvidence("openai"),
+      claimDriver: () => ({ release: () => true }),
+      queryFn: (args: RoutedQueryArguments) =>
+        wireManagedCodexRespawnQuery(args, "dispatch recovered answer"),
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Dispatch managed Codex recovery" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+        { predicate: "judgment_grade", value: "s" },
+      ],
+      loadChildren: () => [],
+    });
+
+    expect(result.result).toBe("dispatch recovered answer");
+  } finally {
+    if (previousProvider === undefined) delete process.env.AGENT_PROVIDER;
+    else process.env.AGENT_PROVIDER = previousProvider;
+  }
+
+  const logged = readFileSync(log, "utf8");
+  expect(logged).toContain(`tell agent:${agentId} outcome ran`);
+  expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
+  expect(logged).not.toContain(`tell agent:${agentId} outcome provider_error`);
+
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed").map((event) => ({
+    status: event.status,
+    origin: event.origin,
+    errorCode: event.errorCode,
+  }))).toEqual([
+    {
+      status: "failed",
+      origin: "north",
+		errorCode: "provider_session_replaced",
+    },
+    { status: "succeeded", origin: "provider", errorCode: undefined },
+  ]);
+  expect(replay.snapshot?.lifecycle).toBe("completed");
 });
 
 // Reproduces + fixes: a lane whose provider turn already completed (a real
@@ -276,10 +377,10 @@ test("a terminal live-feed drain failure AFTER a completed provider turn preserv
     pinEvidence: pinEvidence("anthropic"),
     routingMetadata: presetRequest("integrator"),
     feedSubscriber: () => failingDrainSubscription(),
-    queryFn: () => ({
-      async *[Symbol.asyncIterator]() {
-        yield { type: "result", subtype: "success", result: "turn completed", num_turns: 1 };
-      },
+    queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+      output: "turn completed",
+      provider: "anthropic",
+      turns: 1,
     }),
   });
 
@@ -304,10 +405,10 @@ test("a spawn feed reap timeout cannot become a clean terminal on teardown retry
     pinEvidence: pinEvidence("anthropic"),
     routingMetadata: presetRequest("integrator"),
     feedSubscriber: () => reapTimeoutSubscription(counter),
-    queryFn: () => ({
-      async *[Symbol.asyncIterator]() {
-        yield { type: "result", subtype: "success", result: "provider completed", num_turns: 1 };
-      },
+    queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+      output: "provider completed",
+      provider: "anthropic",
+      turns: 1,
     }),
   });
 
@@ -334,10 +435,10 @@ test("a dispatch feed reap timeout cannot become a clean terminal on teardown re
       pinEvidence: pinEvidence("anthropic"),
       claimDriver: (() => ({ release() {} })) as any,
       feedSubscriber: () => reapTimeoutSubscription(counter),
-      queryFn: () => ({
-        async *[Symbol.asyncIterator]() {
-          yield { type: "result", subtype: "success", result: "provider completed", num_turns: 1 };
-        },
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "provider completed",
+        provider: "anthropic",
+        turns: 1,
       }),
       loadThreadFacts: () => [
         { predicate: "title", value: "Dispatch feed reap timeout" },
@@ -423,11 +524,14 @@ test("public spawn mints one full-entropy ID across admission, harness, and iden
       prompt: "exercise generated identity",
       routingMetadata: presetRequest("integrator"),
       feedSubscriber: () => readySubscription(),
-      queryFn: ({ options }: any) => {
-        harnessId = options.mcpServers.north.env.AGENT_ID;
-        return (async function* () {
-          yield { type: "result", subtype: "success", result: "ok", duration_ms: 1, num_turns: 1 };
-        })() as any;
+      queryFn: (args: RoutedQueryArguments) => {
+        harnessId = args.options.mcpServers!.north!.env!.AGENT_ID!;
+        return wireTurnQuery(args, {
+          output: "ok",
+          provider: "anthropic",
+          turns: 1,
+          providerDurationMs: 1,
+        });
       },
     });
     expect(result).toBe("ok");
@@ -564,9 +668,10 @@ test("a thread bound via AGENT_THREAD still reserves a delivery run", async () =
         },
         load: () => ({ reservationValid: true, evidence: [] }),
       },
-      queryFn: () => (async function* () {
-        yield { type: "result", subtype: "success", result: "done" } as any;
-      })(),
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "done",
+        provider: "anthropic",
+      }),
     } as any);
   } finally {
     if (original === undefined) delete process.env.AGENT_THREAD;
@@ -574,6 +679,63 @@ test("a thread bound via AGENT_THREAD still reserves a delivery run", async () =
   }
   expect(reserved?.threadId).toBe("019f93bb-37b2-7bb6-8ee0-7f0b5e976260");
   expect(reserved?.runId.startsWith("run:env-bound-thread-reserves-")).toBe(true);
+});
+
+test("a recursive public spawn persists its admitted parent run on run.started", async () => {
+  const previous = {
+    topology: process.env.AGENT_TOPOLOGY,
+    thread: process.env.NORTH_THREAD_ID,
+    run: process.env.NORTH_RUN_ID,
+    capability: process.env.NORTH_RUN_CAPABILITY,
+  };
+  const parentRunId = "run:recursive-parent";
+  const agentId = "recursive-parent-wire";
+  process.env.AGENT_TOPOLOGY = "orchestrator";
+  process.env.NORTH_THREAD_ID = "recursive-parent-thread";
+  process.env.NORTH_RUN_ID = parentRunId;
+  process.env.NORTH_RUN_CAPABILITY = "recursive-parent-capability";
+  try {
+    const result = await spawnUnderTest({
+      prompt: "retain recursive wire parentage",
+      agentId,
+      thread: "recursive-child-thread",
+      worktree: false,
+      provider: "anthropic",
+      pinEvidence: pinEvidence("anthropic"),
+      routingMetadata: presetRequest("verifier"),
+      loadThreadFacts: () => [
+        { predicate: "part_of", value: "@recursive-parent-thread" },
+        { predicate: "judgment_grade", value: "s" },
+      ],
+      deliveryRuntime: {
+        reserve: () => ({ contractOrigin: "accepted", baselineDoneWhen: [] }),
+        load: () => ({ reservationValid: true, evidence: [] }),
+      },
+      feedSubscriber: () => readySubscription(),
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "recursive child complete",
+        provider: "anthropic",
+      }),
+    });
+    expect(result).toBe("recursive child complete");
+
+    const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+    const started = replay.events[0];
+    expect(started?.kind).toBe("run.started");
+    if (started?.kind !== "run.started") throw new Error("expected recursive run.started");
+    expect(started.parentRunId).toBe(parentRunId);
+    expect(started.parentId).toBe(parentRunId);
+    expect(replay.snapshot?.parentRunId).toBe(parentRunId);
+  } finally {
+    if (previous.topology === undefined) delete process.env.AGENT_TOPOLOGY;
+    else process.env.AGENT_TOPOLOGY = previous.topology;
+    if (previous.thread === undefined) delete process.env.NORTH_THREAD_ID;
+    else process.env.NORTH_THREAD_ID = previous.thread;
+    if (previous.run === undefined) delete process.env.NORTH_RUN_ID;
+    else process.env.NORTH_RUN_ID = previous.run;
+    if (previous.capability === undefined) delete process.env.NORTH_RUN_CAPABILITY;
+    else process.env.NORTH_RUN_CAPABILITY = previous.capability;
+  }
 });
 
 // The counterpart: an unbound run must NOT mint a reservation. "(ad-hoc)" is a
@@ -595,9 +757,10 @@ test("an unbound run reserves nothing rather than reserving against (ad-hoc)", a
         },
         load: () => ({ reservationValid: true, evidence: [] }),
       },
-      queryFn: () => (async function* () {
-        yield { type: "result", subtype: "success", result: "done" } as any;
-      })(),
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "done",
+        provider: "anthropic",
+      }),
     } as any);
   } finally {
     if (original !== undefined) process.env.AGENT_THREAD = original;

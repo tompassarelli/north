@@ -1,57 +1,145 @@
 import { expect, test } from "bun:test";
 import {
-  isOuterExecutionActivity, outerExecutionActivityKind,
+	isOuterExecutionActivity,
+	outerExecutionActivityKind,
 } from "../src/providers/outer-activity";
+import {
+	WireEventWriter,
+	wireArtifactId,
+	wireEventId,
+	wireMessageId,
+	wireModelCallId,
+	wireRunId,
+	wireToolCallId,
+} from "../src/wire";
 
-test("normalized Anthropic/OpenAI execution frames are activity", () => {
-  for (const [message, kind] of [
-    [
-      {
-        type: "assistant",
-        message: { content: [{ type: "text", text: "working" }] },
-      },
-      "outer.assistant.text",
-    ],
-    [
-      {
-        type: "user",
-        message: { content: [{ type: "tool_result", tool_use_id: "tool-1" }] },
-      },
-      "outer.user.tool_result",
-    ],
-    [
-      { type: "result", subtype: "success", result: "done" },
-      "outer.result.success",
-    ],
-    [
-      {
-        type: "tool_progress", tool_use_id: "tool-1", tool_name: "Bash",
-        parent_tool_use_id: null, elapsed_time_seconds: 2,
-      },
-      "outer.tool_progress",
-    ],
-  ] as const) {
-    expect(outerExecutionActivityKind(message)).toBe(kind);
-    expect(isOuterExecutionActivity(message)).toBe(true);
-  }
+function writer(): WireEventWriter {
+	const result = new WireEventWriter({
+		runId: wireRunId("run:outer-activity"),
+		eventId: (sequence) => wireEventId(`event:outer-activity-${sequence}`),
+		now: () => "2026-08-10T00:00:00.000Z",
+	});
+	result.append({ kind: "run.started", lifecycle: "running" });
+	return result;
+}
+
+test("canonical assistant, tool, model, artifact, and compaction events are execution activity", () => {
+	const source = writer();
+	const messageId = wireMessageId("message:outer-activity");
+	const toolCallId = wireToolCallId("tool:outer-activity");
+	const modelCallId = wireModelCallId("model-call:outer-activity");
+	const events = [
+		source.append({
+			kind: "message.recorded",
+			messageId,
+			stage: "started",
+			role: "assistant",
+		}),
+		source.append({
+			kind: "message.recorded",
+			messageId,
+			stage: "delta",
+			role: "assistant",
+			content: "working",
+		}),
+		source.append({
+			kind: "message.recorded",
+			messageId,
+			stage: "completed",
+			role: "assistant",
+		}),
+		source.append({
+			kind: "tool.admitted",
+			toolCallId,
+			name: "Read",
+			schema: { status: "unavailable", reason: "test" },
+		}),
+		source.append({
+			kind: "tool.progress",
+			toolCallId,
+			progress: "reading",
+		}),
+		source.append({
+			kind: "tool.terminal",
+			toolCallId,
+			status: "succeeded",
+			origin: "provider",
+		}),
+		source.append({
+			kind: "model-call.started",
+			modelCallId,
+			model: { provider: "openai", tier: "standard" },
+			attempt: 1,
+		}),
+		source.append({
+			kind: "model-call.completed",
+			modelCallId,
+			status: "succeeded",
+			origin: "provider",
+			usage: source.snapshot()!.usage,
+			usageCoverage: "exact",
+		}),
+		source.append({
+			kind: "artifact.published",
+			artifactId: wireArtifactId("artifact:outer-activity"),
+			mediaType: "text/plain",
+			bytes: 3,
+		}),
+		source.append({
+			kind: "run.progress",
+			lifecycle: "running",
+			progress: { compactions: 1 },
+		}),
+	];
+	expect(events.map(outerExecutionActivityKind)).toEqual([
+		undefined,
+		"wire.message.assistant.delta",
+		"wire.message.assistant.completed",
+		"wire.tool.admitted",
+		"wire.tool.progress",
+		"wire.tool.succeeded",
+		undefined,
+		"wire.model-call.succeeded",
+		"wire.artifact.published",
+		"wire.run.compacted",
+	]);
 });
 
-test("status, lease, retry, auth, startup, hook, and bookkeeping cannot manufacture activity", () => {
-  for (const message of [
-    { type: "system", subtype: "status", status: "busy" },
-    { type: "system", subtype: "init", session_id: "session-1" },
-    { type: "system", subtype: "rate_limit", retry_after_ms: 5_000 },
-    { type: "auth_status", isAuthenticating: true },
-    { type: "system", subtype: "lease_renewed", lease_id: "lease-1" },
-    { type: "system", subtype: "retry", attempt: 2 },
-    { type: "system", subtype: "mcp_server_startup", server: "north" },
-    { type: "system", subtype: "hook_started", hook_id: "hook-1" },
-    { type: "system", subtype: "hook_response", hook_id: "hook-1" },
-    { type: "system", subtype: "task_started", task_id: "background-1" },
-    { type: "system", subtype: "task_notification", task_id: "background-1" },
-    { type: "assistant", error: "provider_error", message: { content: [] } },
-  ]) {
-    expect(outerExecutionActivityKind(message)).toBeUndefined();
-    expect(isOuterExecutionActivity(message)).toBe(false);
-  }
+test("admission/status bookkeeping cannot manufacture execution activity", () => {
+	const source = writer();
+	const userMessageId = wireMessageId("message:outer-user");
+	const events = [
+		source.events()[0],
+		source.append({
+			kind: "run.progress",
+			lifecycle: "waiting",
+			progress: { currentAction: "provider status" },
+		}),
+		source.append({
+			kind: "message.recorded",
+			messageId: userMessageId,
+			stage: "started",
+			role: "user",
+			content: "continue",
+		}),
+		source.append({
+			kind: "message.recorded",
+			messageId: userMessageId,
+			stage: "completed",
+			role: "user",
+		}),
+		source.append({
+			kind: "resource.pressure",
+			scope: "run",
+			resource: "memory",
+			used: 1,
+			reserved: 0,
+			limit: 10,
+			advisory: true,
+		}),
+	];
+	for (const event of events) {
+		expect(outerExecutionActivityKind(event)).toBeUndefined();
+		expect(isOuterExecutionActivity(event)).toBe(false);
+	}
 });

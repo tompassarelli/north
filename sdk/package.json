@@ -8,7 +8,8 @@
     "./ccr": "./src/ccr.ts",
     "./spawn": "./src/spawn.ts",
     "./dispatch": "./src/dispatch.ts",
-    "./providers": "./src/providers/index.ts"
+    "./providers": "./src/providers/index.ts",
+    "./wire": "./src/wire/index.ts"
   },
   "scripts": {
     "dispatch": "bun run src/dispatch.ts",

@@ -22,12 +22,12 @@ test("execution journal appends durable length-prefixed records and replays by s
   const journalRoot = root();
   const journal = new ExecutionJournal(journalRoot, "execution-1");
   const accepted = journal.append("execution.accepted", { prompt: "hello" });
-  const text = journal.append("provider.assistant", { text: "world" });
+  const note = journal.append("control.note", { text: "world" });
   journal.close();
 
   const scan = scanJournalFile(join(journalRoot, "execution-1", "events.log"), "execution-1");
   expect(scan.tornTail).toBeUndefined();
-  expect(scan.records).toEqual([accepted, text]);
+  expect(scan.records).toEqual([accepted, note]);
   expect(scan.records.map((record) => record.seq)).toEqual([1, 2]);
   expect(scan.committedBytes).toBeGreaterThan(8);
 });
@@ -52,7 +52,7 @@ test("execution journal reports a torn body after the committed prefix and never
   });
 
   const reopened = new ExecutionJournal(journalRoot, "execution-torn");
-  expect(() => reopened.append("execution.completed"))
+  expect(() => reopened.append("control.note"))
     .toThrow(JournalTornTailError);
   reopened.close();
   expect(scanJournalFile(path, "execution-torn")).toEqual(scan);

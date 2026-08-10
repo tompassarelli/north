@@ -8,6 +8,7 @@ import {
   framEngineEnvironment,
   framEngineSelection,
   framExecutable,
+  settleFramCoordinatorChild,
 } from "../src/fram-engine";
 
 test("Fram engine selectors honor explicit environment independently", () => {
@@ -58,4 +59,22 @@ test("coordinator children retain at least thirty seconds for fencing stalls", (
   expect(framCoordinatorChildTimeout()).toBe(MIN_FRAM_COORDINATOR_CHILD_TIMEOUT_MS);
   expect(framCoordinatorChildTimeout(15_000)).toBe(MIN_FRAM_COORDINATOR_CHILD_TIMEOUT_MS);
   expect(framCoordinatorChildTimeout(45_000)).toBe(45_000);
+});
+
+test("coordinator child timeout escalates and returns after a bounded reap", async () => {
+  const neverExits = Promise.withResolvers<number>();
+  const signals: string[] = [];
+  const sleeps: number[] = [];
+  const outcome = await settleFramCoordinatorChild({
+    exited: neverExits.promise,
+    kill: (signal) => { signals.push(signal); },
+  }, 45_000, {
+    termGraceMs: 200,
+    killGraceMs: 300,
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+  });
+
+  expect(outcome).toEqual({ timedOut: true });
+  expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+  expect(sleeps).toEqual([45_000, 200, 300]);
 });

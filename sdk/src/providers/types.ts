@@ -1,6 +1,8 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
-import type { Effort } from "../harness";
 import type { ProviderModelAdmissionReceipt } from "../provider-model-observation-store";
+import type {
+  WireQuery, WireQueryContext, WireQueryInput,
+} from "../wire/query";
 
 export type ProviderId = "anthropic" | "openai";
 export type ProviderPreference = ProviderId | "auto";
@@ -172,46 +174,6 @@ export interface ProviderAvailability {
   available: boolean;
   reason: "ready" | "command_missing" | "authentication_missing" | "disabled" | "unknown";
   detail?: string;
-}
-
-export interface ProviderExecutionEvent {
-  method: string;
-  params: unknown;
-  observedAt: string;
-}
-
-// Deliberately query-shaped while North migrates its mature supervision loop to
-// normalized events. Both adapters satisfy this boundary; provider SDK imports do
-// not escape their adapter directory.
-export interface AgentQuery {
-  [Symbol.asyncIterator](): AsyncIterator<any>;
-  /** Exact adapter transport selected for this query; absent until unknowable. */
-  readonly executionTransport?: "anthropic-agent-sdk" | "codex-app-server" | "codex-cli";
-  /**
-   * Read-only provider-native activity source. Production emitters remain
-   * adapter-owned and pulse only after a native frame passes authority/schema
-   * validation; status and lease traffic never reaches this boundary.
-   */
-  readonly executionActivity?: import("../execution-activity").ExecutionActivitySource;
-  /** Validated provider-native lifecycle events for semantic clients such as Northbridge. */
-  subscribeProviderEvents?(
-    listener: (event: ProviderExecutionEvent) => void,
-  ): () => void;
-  /** Interrupt only the active provider turn while retaining its session/thread. */
-  interruptTurn?(): Promise<void>;
-  interrupt?(): Promise<void>;
-  /** Idempotently dispose the provider query and await its owned process boundary. */
-  close?(): Promise<void>;
-  /** Synchronous second-signal/host-exit defense; never a normal cleanup path. */
-  forceClose?(): void;
-  setModel?(model: string): Promise<void> | void;
-  applyFlagSettings?(settings: { effortLevel?: Effort | null }): Promise<void> | void;
-  /** True only when both model and effort can be changed on the active run. */
-  supportsInFlightEscalation?(): boolean;
-  /** Argument-free actual MCP activity observed by the selected adapter. */
-  mcpActivity?(): import("../tool-activity").McpActivityObservation;
-  /** Privacy-bounded native command completion evidence observed by the adapter. */
-  nativeCommandActivity?(): import("../native-command-activity").NativeCommandActivityObservation;
 }
 
 export class ProviderEscalationUnsupportedError extends Error {
@@ -420,6 +382,22 @@ export function isProvedUnsentPreacceptFailure(
     && providerUnsentProofValid(error.unsentProof);
 }
 
+/** Stable public detail for a typed preaccept refusal; provider prose and causes stay local. */
+export function providerRetrySafeTerminalDetail(error: ProviderRetrySafeError): string {
+  const proof = error.unsentProof;
+  if (!providerUnsentProofValid(proof)) {
+    return "provider preaccept failure lacked replay proof";
+  }
+  switch (proof.source) {
+    case "adapter_preflight":
+      return "provider adapter preflight blocked before acceptance with zero-send proof";
+    case "managed_pre_thread_receipt":
+      return "managed provider request blocked before thread acceptance with zero-send proof";
+    case "native_supervisor_unavailable":
+      return "native provider supervisor unavailable before acceptance with zero-send proof";
+  }
+}
+
 /** Preflight helper for code that runs before prompt transport construction. */
 export function providerPreacceptError(
   message: string,
@@ -453,6 +431,14 @@ export interface ProviderFallbackTransition {
   toLiveInput: LiveInputCapability;
 }
 
+export interface AgentProviderQuery {
+  input: WireQueryInput;
+  options: Options;
+  target?: RoutingTarget;
+  /** Shared writer, semantic route, and optional durable artifact boundary. */
+  context: WireQueryContext;
+}
+
 export interface AgentProvider {
   id: ProviderId;
   /** Whether this adapter can consume user turns after its initial prompt. */
@@ -463,14 +449,7 @@ export interface AgentProvider {
     options: Options;
     target?: RoutingTarget;
   }): Promise<void> | void;
-  /**
-   * `resume` carries a prior provider session id so this construction opens a
-   * fresh turn that continues that conversation instead of racing the previous
-   * turn's closing stream (thread 019f8ec5). Only streaming-input adapters that
-   * tear the session down after a terminal honor it; frame-based adapters
-   * (codex) already re-open a turn per input frame and ignore it.
-   */
-  query(args: { prompt: string | AsyncIterable<any>; options: Options; target?: RoutingTarget; resume?: string }): AgentQuery;
+  query(args: AgentProviderQuery): WireQuery;
 }
 
 export interface RoutingDecision {

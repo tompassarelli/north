@@ -1,6 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { WireEvent } from "../wire/events";
+import type { JournalRecord, TornTail } from "./journal";
 
 // HEAD is the identity: main is never dirty by policy, so committed state is
 // live state. Client and daemon both compute this; equality at connect is the
@@ -27,6 +29,15 @@ export interface BridgeHello {
   pinningExecutions?: number;
   pid: number;
 }
+
+export type BridgeServerMessage =
+  | BridgeHello
+  | { type: "launched"; executionId: string }
+  | { type: "controlled"; executionId: string; control: string; delivery: string }
+  | { type: "event"; record: JournalRecord }
+  | { type: "wire"; event: WireEvent }
+  | { type: "barrier"; executionId: string; cursor: number; tornTail?: TornTail }
+  | { type: "error"; message: string };
 
 /** What the replacement gate asks a hello. */
 export function pinningExecutions(hello: BridgeHello): number {

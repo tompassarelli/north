@@ -36,7 +36,7 @@
 ;;
 ;; Facts land on a titleless "@mine:<transcript-stem>" subject (the @run:* pattern —
 ;; queryable via fram, invisible to the work views). Predicate vocabulary is kept SMALL,
-;; reusing kind/session_id/repo/at/error_count/note; the one minted predicate is
+;; reusing kind/north_session_id/repo/at/error_count/note; the one minted predicate is
 ;; `verb_vote` (multi, one fact per attempted name per session — a session votes once).
 ;;
 ;; IDEMPOTENT by construction: subjects are deterministic, objects are deterministic
@@ -78,6 +78,17 @@
 ;; An interrupt arriving within this window of the output it cut off = the human
 ;; bailed before reading (a fast-skip), not a considered correction.
 (def ^:const FAST-SKIP-MS 4000)
+
+(def ^:const MINE-SESSION-KEY-VERSION "north:mine-session:v1")
+
+(defn mine-session-key [session-id stem]
+  (let [source (or session-id stem)
+        digest (.digest
+                (java.security.MessageDigest/getInstance "SHA-256")
+                (.getBytes (str MINE-SESSION-KEY-VERSION "\u0000" source)
+                           java.nio.charset.StandardCharsets/UTF_8))]
+    (str MINE-SESSION-KEY-VERSION ":"
+         (apply str (map #(format "%02x" (bit-and (int %) 0xff)) digest)))))
 ;; Below either floor the advisory refuses to recommend — insufficient-evidence.
 (def ^:const MIN-ADVISORY-RESPONSES 30)
 (def ^:const MIN-ADVISORY-SESSIONS 3)
@@ -332,7 +343,7 @@
      port
      (concat
       (for [[predicate value]
-            (cond-> [["kind" "mine"] ["session_id" (or session-id stem)]]
+            (cond-> [["kind" "mine"] ["north_session_id" (mine-session-key session-id stem)]]
               cwd (conj ["repo" (tilde cwd)])
               last-ts (conj ["at" last-ts])
               (pos? error-count) (conj ["error_count" (str error-count)]))]
@@ -375,7 +386,7 @@
      port
      (concat
       (for [[predicate value]
-            (cond-> [["kind" "mine"] ["session_id" (or session-id stem)]]
+            (cond-> [["kind" "mine"] ["north_session_id" (mine-session-key session-id stem)]]
               cwd (conj ["repo" (tilde cwd)])
               last-ts (conj ["at" last-ts]))]
         {:op :assert :subject te :predicate predicate :value value

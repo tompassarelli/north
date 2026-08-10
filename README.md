@@ -92,8 +92,8 @@ work off that host until the engine identity is parameterized.
   than proof of activity, so liveness enters as a separate classifier input
   ([`src/north/projections.bclj`](src/north/projections.bclj)).
 - **Agents and intentions share one graph.** A spawned lane gets a full-UUID
-  identity, a run reservation written before the provider is invoked, a run
-  ledger, and a truthful terminal (`delivery=reported|unverified|blocked`)
+  identity, a run reservation written before the provider is invoked, an exact
+  WireEvent ledger, and a truthful terminal (`delivery=reported|unverified|blocked`)
   ([`sdk/src/spawn.ts`](sdk/src/spawn.ts),
   [`cli/run-ledger.clj`](cli/run-ledger.clj)).
 - **Done-bars carry evidence.** Dispatch warns when a committed thread has no
@@ -112,9 +112,9 @@ work off that host until the engine identity is parameterized.
   deliberate and not coordination facts: the telemetry partition and the Bridge
   journal's local replay log
   ([docs/architecture.md](docs/architecture.md#the-write-path)).
-- **Agent duration is run telemetry.** Every managed lane records `kind=run`
-  with its agent, thread, observed duration, outcome, and estimate comparison
-  ([`sdk/src/telemetry.ts`](sdk/src/telemetry.ts)).
+- **Run telemetry is event-derived.** Every managed lane records its canonical
+  WireEvent sequence, then projects `kind=run` duration, usage, and outcome from
+  the reduced terminal snapshot ([`sdk/src/telemetry.ts`](sdk/src/telemetry.ts)).
 
 ## Status
 

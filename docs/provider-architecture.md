@@ -304,25 +304,59 @@ tiers; it contains no personal account IDs or subscription state.
 
 ## Token truth
 
-Token totals are provider-authoritative observations, not reconstructed
-estimates. Every run records how many terminal usage records were observed, the
-provider scope of that observation, and whether a total is exact:
+Token totals are replay-derived from Wire usage authority, not reconstructed
+from process output. Every v2 run always records the cumulative lifetime
+components (`lifetime_input_tokens`, `lifetime_output_tokens`,
+`lifetime_cache_read_tokens`, `lifetime_cache_write_tokens`, and
+`lifetime_reasoning_tokens`) plus:
 
 - `usage_terminal_count`
-- `usage_scope`
+- `usage_scope` (`wire_run_cumulative`)
 - `usage_total_status`
 
-The aggregate `tokens` fact exists only when the provider adapter can prove an
-exact total. With no terminal record, repeated terminals, incomplete terminal
-components, or an unknown adapter scope, the total stays unknown rather than
-becoming zero. Exact components such as `input_tokens` or `output_tokens` may
-still be retained when an aggregate is unknown. Cached-input and reasoning-output
-counters are subsets of their provider totals and are never added a second time.
+`usage_terminal_count` counts every provider-origin model-call completion,
+including terminals whose usage contribution is unavailable. The status is one
+of:
 
-Reports preserve that distinction: an all-unknown set displays `unknown`; a mix
-of exact and unknown runs displays the exact known lower bound with incomplete
-coverage; only fully covered sets display an exact total. Historical rows that
-already contain an exact aggregate remain readable.
+- `exact`: every structurally observed model call has a provider-origin terminal
+  with exact per-call usage authority.
+- `partial`: replay has a lower bound from Wire progress or an incomplete
+  terminal contribution, but the all-calls exact proof does not hold.
+- `unknown_incomplete_terminal`: provider terminal evidence exists, but none
+  authoritatively reports usage.
+- `unknown_no_terminal`: no provider terminal or lower-bound usage evidence
+  exists.
+
+The aggregate `tokens` fact exists only for `exact`. Its formula is recomputed
+from the replayed components: Anthropic adds input, output, cache-read, and
+cache-write categories; OpenAI adds input and output only. OpenAI cached-input
+and reasoning-output counters are subsets of those totals and are never added a
+second time. An authoritative exact zero is therefore `tokens=0` with at least
+one provider terminal; an abrupt synthetic zero has no `tokens` fact.
+
+Reports sum exact `tokens` only. Partial rows display a provider-formula lower
+bound with a `>=` marker, while incomplete-terminal and no-terminal rows remain
+distinct unknown states; their always-present zero components never enter an
+exact total. Breakdowns group by provider-neutral `model_tier`. Historical rows
+that already contain an exact `tokens` aggregate remain readable without
+restoring retired component or exact-model aliases.
+
+## Turn-unit truth
+
+Wire completion evidence distinguishes semantic assistant turns from opaque
+provider-defined turn units. Complete homogeneous `assistant-turn` witnesses
+project as `num_turns`. Complete homogeneous `provider-turn` witnesses project
+as `provider_turn_units`; fully witnessed nested tool/item activity projects as
+`provider_tool_items`, with `provider_turn_metric_comparable=false` making the
+non-comparability explicit.
+
+Run-level turn facts are exact-only. Every structurally observed model call must
+have a provider-origin terminal and a compatible turn witness before a count is
+published; a North-synthetic, running, missing, mixed-unit, or overflowing
+witness leaves `turn_provenance=unknown` and omits the count. Reports render
+opaque units with a `pt` suffix and never add them to the assistant-turn total.
+The public predicate vocabulary remains provider-neutral; adapter-specific turn
+names and raw identifiers stay inside provider adapters.
 
 ## Adapter boundary
 

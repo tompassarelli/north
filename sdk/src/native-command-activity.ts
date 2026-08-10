@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ObservationCoverage } from "./run-ledger";
+import type { ObservationCoverage } from "./observation";
 
 export const NATIVE_COMMAND_ACTIVITY_SOURCE = "codex-app-server:item-completed";
 export const NORTH_BINARY_PROBE_SCRIPT =
@@ -87,6 +87,7 @@ export class NativeCommandActivityAccumulator {
   private readonly completions: NativeCommandCompletionEvidence[] = [];
   private terminal = false;
   private identityLoss = false;
+  private retiredSession = false;
   private successful = 0;
   private failed = 0;
   private declined = 0;
@@ -159,6 +160,16 @@ export class NativeCommandActivityAccumulator {
   invalidate(): void { this.identityLoss = true; }
 
   /**
+   * Carry completed evidence across a retired provider session without
+   * pretending its in-flight commands reached a terminal observation.
+   */
+  retireSession(): void {
+    this.open.clear();
+    this.retiredSession = true;
+    this.terminal = false;
+  }
+
+  /**
    * Native commands observed when a turn DIED mid-flight. Coverage is always
    * "partial" (an interrupted turn may have commands still open), and the North
    * binary probe is never reported as passed from a partial observation.
@@ -169,7 +180,7 @@ export class NativeCommandActivityAccumulator {
     return Object.freeze({
       source: NATIVE_COMMAND_ACTIVITY_SOURCE,
       coverage: "partial" as const,
-      totalCommands: this.calls.size,
+      totalCommands: this.calls.size + this.open.size,
       successfulCommands: this.successful,
       failedCommands: this.failed,
       declinedCommands: this.declined,
@@ -196,7 +207,8 @@ export class NativeCommandActivityAccumulator {
       if (!SHA256.test(evidence.commandSha256) || !SHA256.test(evidence.outputSha256))
         throw new Error("invalid native command completion digest");
     }
-    const coverage = this.identityLoss || this.truncated ? "partial" as const : "exact" as const;
+    const coverage = this.identityLoss || this.retiredSession || this.truncated
+      ? "partial" as const : "exact" as const;
     return Object.freeze({
       source: NATIVE_COMMAND_ACTIVITY_SOURCE,
       coverage,

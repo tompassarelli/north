@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata } from "../src/routing-metadata";
-import { newRunId, runFacts } from "../src/telemetry";
+import { newRunId } from "../src/telemetry";
 
 const ENV_KEYS = [
   "AGENT_ROLE", "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS", "AGENT_TOPOLOGY",
@@ -152,35 +152,6 @@ describe("Orchestration routing metadata boundary", () => {
       } as any)).toThrow(diagnostic);
     }
   });
-});
-
-test("run telemetry records requested routing, composition, and outcome together", () => {
-  const facts = runFacts({
-    thread: "(ad-hoc)", agent: "lane-1", tokens: 12, durationMs: 34, posture: "spawn", outcome: "ran",
-    provider: "openai", model: "effective-model", effort: "high",
-    requestedProvider: "auto", requestedTier: "frontier", requestedEffort: "max",
-    allocationMode: "reserved", entitlementPressure: "low", fallbackCount: 1,
-    fallbackPath: ["anthropic", "openai"],
-    envelopeScopes: ["month:2026-07", "project:north"], envelopeRetries: 1,
-    envelopeAdvisories: ["session/default envelope not enforceable: no stable session id"],
-    routingMetadata: { taskGrade: "research-grade", domainRequirements: ["computer-science"], topology: "worker",
-      composition: { kind: "preset", id: "research-scientist", overrides: [] } },
-  }, "2026-07-16T00:00:00.000Z");
-  expect(facts).toContainEqual(["outcome", "ran"]);
-  expect(facts).toContainEqual(["requested_provider", "auto"]);
-  expect(facts).toContainEqual(["requested_tier", "frontier"]);
-  expect(facts).toContainEqual(["allocation_mode", "reserved"]);
-  expect(facts).toContainEqual(["entitlement_pressure", "low"]);
-  expect(facts).toContainEqual(["fallback_count", "1"]);
-  expect(facts).toContainEqual(["fallback_path", "anthropic -> openai"]);
-  expect(facts).toContainEqual(["envelope_scope", "month:2026-07"]);
-  expect(facts).toContainEqual(["envelope_scope", "project:north"]);
-  expect(facts).toContainEqual(["envelope_retries", "1"]);
-  expect(facts).toContainEqual(["envelope_advisory", "session/default envelope not enforceable: no stable session id"]);
-  expect(facts).toContainEqual(["task_grade", "research-grade"]);
-  expect(facts).toContainEqual(["domain_requirement", "computer-science"]);
-  expect(facts).toContainEqual(["topology", "worker"]);
-  expect(facts).toContainEqual(["composition_id", "research-scientist"]);
 });
 
 test("North validates Orchestration's shared cross-harness routing fixtures", () => {

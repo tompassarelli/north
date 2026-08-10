@@ -305,92 +305,90 @@
              [:outcome :source :terminal? :kind :death-notifications]))))
 
 (defn ledger-event-fixture
-  [{:strs [run thread agent parentRun parentThread coordinator sequence type
-           observedAt source coverage payload]}]
-  (let [unsigned (cond-> {"version" north.run-ledger/version
-                          "run" run "thread" thread "agent" agent
-                          "sequence" sequence "type" type
-                          "observedAt" observedAt "source" source
-                          "coverage" coverage "payload" payload}
-                   parentRun (assoc "parentRun" parentRun)
-                   parentThread (assoc "parentThread" parentThread)
-                   coordinator (assoc "coordinator" coordinator))
-        digest (north.run-ledger/sha256 (north.run-ledger/canonical-json unsigned))
-        subject (format "%s:event:%08d" run sequence)
-        facts (cond-> [["kind" "run_event"]
-                       ["agent_run_ledger_version" north.run-ledger/version]
-                       ["run" run] ["thread" thread] ["agent" agent]
-                       ["run_event_sequence" (str sequence)]
-                       ["run_event_type" type]
-                       ["run_event_observed_at" observedAt]
-                       ["run_event_source" source]
-                       ["run_event_coverage" coverage]
-                       ["run_event_data" (north.run-ledger/canonical-json payload)]
-                       ["run_event_sha256" digest]]
-                parentRun (conj ["parent_run" parentRun])
+  [{:strs [run thread agent parentRun parentThread coordinator sequence kind at payload]}]
+  (let [event (merge {"version" north.run-ledger/wire-version
+                      "id" (str "event:trace:" sequence)
+                      "runId" run
+                      "sequence" sequence
+                      "at" at
+                      "kind" kind
+                      "essential" true
+                      "requiredSemantics" ["north.event-order.v1"
+                                           "north.tool-terminal.v1"
+                                           "north.usage-split.v1"]}
+                     payload
+                     (when parentRun {"parentRunId" parentRun}))
+        raw (north.run-ledger/canonical-json event)
+        digest (north.run-ledger/sha256 raw)
+        subject (north.run-ledger/event-subject run sequence)
+        facts (cond-> [["kind" "wire_event"]
+                       ["wire_ledger_version" north.run-ledger/version]
+                       ["wire_version" north.run-ledger/wire-version]
+                       ["wire_run_id" run] ["thread" thread] ["agent" agent]
+                       ["wire_event_id" (get event "id")]
+                       ["wire_event_sequence" (str sequence)]
+                       ["wire_event_at" at]
+                       ["wire_event_kind" kind]
+                       ["wire_event_essential" "true"]
+                       ["wire_event_json" raw]
+                       ["wire_event_sha256" digest]]
                 parentThread (conj ["parent_thread" parentThread])
                 coordinator (conj ["run_coordinator" coordinator]))]
     (north.run-ledger/validate-event-facts! subject facts)))
 
-(let [parent-run "@run:parent-ledger"
-      child-run "@run:child-ledger"
+(let [parent-run "run:parent-ledger"
+      child-run "run:child-ledger"
       thread "@019f89ac-ledger"
       parent-events
       [(ledger-event-fixture
         {"run" parent-run "thread" thread "agent" "parent-agent"
-         "coordinator" "root" "sequence" 0 "type" "admission_received"
-         "observedAt" "2026-07-22T01:00:00Z" "source" "north-harness"
-         "coverage" "exact"
-         "payload" {"receiptDigest" (apply str (repeat 64 "a"))}})
+         "coordinator" "root" "sequence" 0 "kind" "run.started"
+         "at" "2026-07-22T01:00:00.000Z"
+         "payload" {"lifecycle" "running"}})
        (ledger-event-fixture
         {"run" parent-run "thread" thread "agent" "parent-agent"
-         "coordinator" "root" "sequence" 1 "type" "terminal_cleanup"
-         "observedAt" "2026-07-22T01:01:00Z" "source" "north-harness"
-         "coverage" "exact" "payload" {"outcome" "ran" "cleanupStatus" "complete"}})]
-      parent-digest
-      (north.run-ledger/sha256
-       (north.run-ledger/canonical-json (mapv #(get % "digest") parent-events)))
+         "coordinator" "root" "sequence" 1 "kind" "run.terminated"
+         "at" "2026-07-22T01:01:00.000Z"
+         "payload" {"lifecycle" "completed" "reason" {"code" "completed"}}})]
+      parent-digest (north.run-ledger/ledger-digest parent-events)
       parent-header {"kind" "run" "thread" thread "agent" "parent-agent"
-                     "run_coordinator" "root" "run_event_count" "2"
-                     "run_event_terminal_sequence" "1"
-                     "run_event_ledger_sha256" parent-digest}
+                     "run_coordinator" "root" "wire_event_count" "2"
+                     "wire_event_last_sequence" "1"
+                     "wire_ledger_sha256" parent-digest}
       child-events
       [(ledger-event-fixture
         {"run" child-run "thread" "@019f89ac-child" "agent" "child-agent"
          "parentRun" parent-run "parentThread" thread "coordinator" "parent-agent"
-         "sequence" 0 "type" "terminal_cleanup"
-         "observedAt" "2026-07-22T01:00:30Z" "source" "codex-app-server"
-         "coverage" "partial" "payload" {"outcome" "ran" "cleanupStatus" "complete"}})]
+         "sequence" 0 "kind" "run.started" "at" "2026-07-22T01:00:30.000Z"
+         "payload" {"lifecycle" "running"}})
+       (ledger-event-fixture
+        {"run" child-run "thread" "@019f89ac-child" "agent" "child-agent"
+         "parentThread" thread "coordinator" "parent-agent"
+         "sequence" 1 "kind" "run.terminated" "at" "2026-07-22T01:00:31.000Z"
+         "payload" {"lifecycle" "completed" "reason" {"code" "completed"}}})]
       child-header {"kind" "run" "thread" "@019f89ac-child" "agent" "child-agent"
-                    "parent_run" parent-run "parent_thread" thread
-                    "run_coordinator" "parent-agent" "run_event_count" "1"
-                    "run_event_terminal_sequence" "0"
-                    "run_event_ledger_sha256"
-                    (north.run-ledger/sha256
-                     (north.run-ledger/canonical-json (mapv #(get % "digest") child-events)))}
+                    "parent_run" (str "@" parent-run) "parent_thread" thread
+                    "run_coordinator" "parent-agent" "wire_event_count" "2"
+                    "wire_event_last_sequence" "1"
+                    "wire_ledger_sha256" (north.run-ledger/ledger-digest child-events)}
       parent-timeline (forensic-run parent-run parent-header parent-events)
       child-timeline (forensic-run child-run child-header child-events)
       parent-rendered (render-forensic-run parent-timeline)
       child-rendered (render-forensic-run child-timeline)]
   (check "forensic trace validates ordered finalized event/header evidence"
          (and (:valid-order? parent-timeline) (:finalized? parent-timeline)
-              (:header-count-valid? parent-timeline)
-              (:header-digest-valid? parent-timeline)))
+              (= parent-digest (:digest parent-timeline))))
   (check "forensic trace reconstructs exact parent run/thread/coordinator lineage"
-         (and (= parent-run (:parent-run child-timeline))
+         (and (= parent-run (get-in child-events [0 "event" "parentRunId"]))
               (= thread (:parent-thread child-timeline))
               (= "parent-agent" (:coordinator child-timeline))
-              (str/includes? child-rendered (str "parent run: " parent-run))))
-  (check "forensic trace labels every absent observation unknown with source coverage"
-         (and (str/includes? parent-rendered
-                             "provider_routed        unknown (source coverage unavailable)")
-              (str/includes? child-rendered
-                             "usage_observed         unknown (source coverage unavailable)")
-              (= (count north.run-ledger/event-types)
-                 (count (:observations child-timeline)))))
-  (check "forensic trace preserves explicit partial event source coverage"
-         (str/includes? child-rendered
-                        "terminal_cleanup       observed coverage=partial source=codex-app-server")))
+              (str/includes? child-rendered "parent thread: @019f89ac-ledger")))
+  (check "forensic trace renders the exact wire kinds and identities"
+         (and (str/includes? parent-rendered "run.started")
+              (str/includes? parent-rendered "run.terminated")
+              (str/includes? child-rendered "event:trace:1")))
+  (check "forensic trace compares the durable ledger digest to its run header"
+         (str/includes? child-rendered "header digest: consistent")))
 
 (doseq [[label passed?] @checks]
   (println (format "  [%s] %s" (if passed? "PASS" "FAIL") label)))

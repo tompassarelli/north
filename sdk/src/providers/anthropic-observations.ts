@@ -4,15 +4,20 @@ import { isAbsolute, resolve } from "node:path";
 import { listProviderAccounts } from "../accounts";
 import { writeProviderUsageObservations } from "../provider-observation-store";
 import type {
-  AgentQuery,
-  EntitlementPressure,
-  ProviderUsageCategoricalSignal,
-  ProviderUsageObservation,
+	EntitlementPressure,
+	ProviderUsageCategoricalSignal,
+	ProviderUsageObservation,
 } from "./types";
-import { McpActivityAccumulator, parseAnthropicMcpName } from "../tool-activity";
+import {
+	McpActivityAccumulator,
+	parseAnthropicMcpName,
+	type McpActivityObservation,
+} from "../tool-activity";
+import type { WireProviderJoinEvidence } from "../wire";
 import { providerJoinEvidence } from "./provider-join";
 
 type RateLimitInfo = SDKRateLimitEvent["rate_limit_info"];
+const MAX_PROVIDER_TURN_KEYS = 256;
 
 const KNOWN_RATE_LIMIT_TYPES = new Set([
   "five_hour", "seven_day", "seven_day_oauth_apps", "seven_day_opus", "seven_day_sonnet",
@@ -121,71 +126,99 @@ export function anthropicTargetId(env: NodeJS.ProcessEnv = process.env): string 
   }
 }
 
-/**
- * Observe Claude's normal message stream and preserve its query controls.
- * Collection is deliberately fail-open: routing telemetry must never break an
- * otherwise healthy agent turn.
- */
+/** Observe raw Claude frames before wire normalization. Collection is fail-open. */
+export interface AnthropicObservedFrame {
+	frame: unknown;
+	providerJoin?: WireProviderJoinEvidence;
+}
+
+export interface AnthropicObservedStream extends AsyncIterable<AnthropicObservedFrame> {
+	mcpActivity(): McpActivityObservation;
+}
+
+export interface AnthropicObservationOptions {
+	targetId?: () => string;
+	write?: (observation: ProviderUsageObservation) => Promise<unknown>;
+	now?: () => Date;
+	/** Query-owned accumulator retained across provider continuation turns. */
+	mcpAccumulator?: McpActivityAccumulator;
+	/** Adapter-private callback. Raw session identifiers must never cross the WireQuery. */
+	onSessionId?: (sessionId: string) => void;
+}
+
 export function observeAnthropicQuery(
-  source: AgentQuery,
-  options: {
-    targetId?: () => string;
-    write?: (observation: ProviderUsageObservation) => Promise<unknown>;
-    now?: () => Date;
-  } = {},
-): AgentQuery {
+	source: AsyncIterable<unknown>,
+	options: AnthropicObservationOptions = {},
+): AnthropicObservedStream {
   // Provider queries always supply the selected target. The ambient fallback is
   // only a compatibility identity for direct wrappers; unlike statusline
   // ingestion it never guesses among configured isolated accounts.
   const targetId = options.targetId ?? (() => "anthropic");
   const write = options.write ?? writeProviderUsageObservations;
   const now = options.now ?? (() => new Date());
-  const mcp = new McpActivityAccumulator("anthropic-agent-sdk:assistant-tool-use");
+  const mcp = options.mcpAccumulator
+    ?? new McpActivityAccumulator("anthropic-agent-sdk:assistant-tool-use");
+  mcp.reopen();
   const sessionIds = new Set<string>();
   const turnIds = new Set<string>();
-  return {
-    interrupt: source.interrupt?.bind(source),
-    close: source.close?.bind(source),
-    forceClose: source.forceClose?.bind(source),
-    setModel: source.setModel?.bind(source),
-    applyFlagSettings: source.applyFlagSettings?.bind(source),
-    supportsInFlightEscalation: () =>
-      typeof source.setModel === "function" && typeof source.applyFlagSettings === "function" &&
-      (source.supportsInFlightEscalation?.() ?? true),
-    mcpActivity: () => mcp.snapshot(),
-    async *[Symbol.asyncIterator]() {
-      for await (const message of source as AsyncIterable<any>) {
-        if (typeof message?.session_id === "string") sessionIds.add(message.session_id);
-        if (message?.type === "rate_limit_event" && message.rate_limit_info) {
-          try {
-            await write(observationFromAnthropicRateLimit(message as SDKRateLimitEvent, targetId(), now()));
-          } catch {
+	let sessionIdentityLost = false;
+	let turnIdentityLost = false;
+	return {
+		mcpActivity: () => mcp.snapshot(),
+		async *[Symbol.asyncIterator]() {
+			for await (const message of source) {
+				if (!message || typeof message !== "object" || Array.isArray(message)) {
+					yield { frame: message };
+					continue;
+				}
+				const frame = message as Record<string, unknown>;
+				if (typeof frame.session_id === "string") {
+					if (!sessionIds.has(frame.session_id)) {
+						if (sessionIds.size >= 2) sessionIdentityLost = true;
+						else sessionIds.add(frame.session_id);
+					}
+					options.onSessionId?.(frame.session_id);
+				}
+				if (frame.type === "rate_limit_event" && frame.rate_limit_info) {
+					try {
+						await write(observationFromAnthropicRateLimit(frame as SDKRateLimitEvent, targetId(), now()));
+					} catch {
             // A malformed experimental event or unavailable state directory is
             // telemetry loss, not a reason to kill the provider stream.
           }
         }
-        if (message?.type === "assistant" && Array.isArray(message?.message?.content)) {
-          if (typeof message.message.id === "string") turnIds.add(message.message.id);
-          for (const block of message.message.content) {
-            if (block?.type === "tool_use" && typeof block.name === "string"
-                && block.name.startsWith("mcp__"))
-              mcp.observe(block.id, parseAnthropicMcpName(block.name));
-          }
-        }
-        if (message?.type === "result" && message?.subtype === "success") {
-          mcp.complete();
-          if (sessionIds.size === 1) {
-            try {
-              yield {
-                ...message,
-                _north_provider_join: providerJoinEvidence("anthropic", {
-                  sessionId: sessionIds.values().next().value,
-                  turnIds: [...turnIds],
-                  // North does not set the SDK's persistSession:false option;
-                  // the selected account root receives the transcript JSONL.
-                  sessionPersistence: "persisted",
-                }),
-              };
+				const assistant = frame.type === "assistant" && frame.message
+					&& typeof frame.message === "object" && !Array.isArray(frame.message)
+					? frame.message as Record<string, unknown> : undefined;
+				if (assistant && Array.isArray(assistant.content)) {
+					if (typeof assistant.id === "string" && !turnIds.has(assistant.id)) {
+						if (turnIds.size >= MAX_PROVIDER_TURN_KEYS) turnIdentityLost = true;
+						else turnIds.add(assistant.id);
+					}
+					for (const value of assistant.content) {
+						if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+						const block = value as Record<string, unknown>;
+						if (block.type === "tool_use" && typeof block.name === "string"
+								&& block.name.startsWith("mcp__")) {
+							mcp.observe(block.id, parseAnthropicMcpName(block.name));
+						}
+					}
+				}
+				if (frame.type === "result") {
+					mcp.complete();
+					if (!sessionIdentityLost && sessionIds.size === 1) {
+						try {
+							const join = providerJoinEvidence("anthropic", {
+								sessionId: sessionIds.values().next().value,
+								turnIds: [...turnIds],
+								sessionPersistence: "persisted",
+							});
+							yield {
+								frame,
+								providerJoin: turnIdentityLost
+									? Object.freeze({ ...join, coverage: "partial" as const })
+									: join,
+							};
               continue;
             } catch {
               // Malformed experimental provider identity is telemetry loss,
@@ -193,8 +226,8 @@ export function observeAnthropicQuery(
             }
           }
         }
-        yield message;
-      }
-    },
-  };
+				yield { frame };
+			}
+		},
+	};
 }

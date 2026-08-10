@@ -13,7 +13,9 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { ProviderRetrySafeError } from "../src/providers";
+import { ProviderRetrySafeError, type RoutedQueryArguments } from "../src/providers";
+import { ManagedCodexHarvestError } from "../src/providers/codex-app-server";
+import { managedCodexHarvestEvidence } from "../src/providers/openai";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
 import {
   DeliveryEvidenceRetryableError,
@@ -25,6 +27,26 @@ import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
 import { createExecutionActivityEmitter } from "../src/execution-activity";
 import { LANE_LIFECYCLE_KINDS, scanJournalFile } from "../src/bridge/journal";
+import {
+  decodeWireEvent,
+  readWireJsonl,
+  WireEventWriter,
+  wireEventId,
+  wireMessageId,
+  wireModelCallId,
+  wireRunId,
+  wireToolCallId,
+  type WireEvent,
+  type WireQuery,
+  type WireQueryInput,
+} from "../src/wire";
+import {
+  wireTurnEvents,
+  wireTurnQuery,
+  wireTurnSequenceQuery,
+} from "./support/wire-query";
+import { spawn as spawnUnderTest } from "./support/spawn";
+import { dispatch as dispatchUnderTest } from "./support/dispatch";
 
 let dir: string;
 let log: string;
@@ -126,6 +148,10 @@ exit 0
   writeFileSync(fakeBb, `#!/usr/bin/env bash
 printf 'bb %s\\n' "$*" >> "${log}"
 case "$*" in
+  *run-fact-internal.clj*)
+    payload="$(command cat)"
+    printf 'run-fact\\t%s\\t%s\\n' "$*" "$payload" >> "${log}"
+    ;;
   *msg-cli.clj*test-dispatch-notify-failure*) exit 1 ;;
 esac
 exit 0
@@ -211,13 +237,12 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   let interrupts = 0;
   const journalRoot = join(dir, "lane-journal");
 
-  // Fake SDK query: one assistant turn, then a terminal `result` (subtype success) — the
-  // clean-finish shape. spawn finalizes outcome=ran and must stamp it on @agent:<id>.
-  const cleanQuery: any = () => ({
+  const cleanQuery = (args: RoutedQueryArguments): WireQuery => ({
     interrupt: async () => { interrupts++; },
-    async *[Symbol.asyncIterator]() {
-      yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working" }] } };
-      yield { type: "result", subtype: "success", result: "task done", duration_ms: 1, num_turns: 1 };
+    [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+      return wireTurnEvents(args, {
+        output: "task done", turns: 1, providerDurationMs: 1,
+      });
     },
   });
 
@@ -262,6 +287,8 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   expect(runLines.some((line) => line.endsWith(" thread (ad-hoc)"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" judgment_grade_status unavailable"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" judgment_grade_source ad-hoc"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" wire_ledger_status complete"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" model_call_count 1"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" struggle_topology worker"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" struggle_no_progress_turn_threshold 6"))).toBe(true);
 });
@@ -269,15 +296,18 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
 test("a lane that dies mid-stream records outcome=died ON the lane entity (reported, not silent)", async () => {
   const { spawn } = await import("./support/spawn");
 
-  // The SDK subprocess dies mid-turn (real exitError shape). The finally path runs, so this
+  // The provider dies mid-turn. The finally path runs, so this
   // is a REPORTED death: outcome=died on @agent:<id> alongside the agent_death fact. The
   // The lane lifecycle janitor then skips its committed terminal — died-unreported is reserved for
   // a hard-kill (or torn publication) with no committed terminal evidence.
-  const dyingQuery: any = () =>
-    (async function* () {
-      yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "starting" }] } };
-      throw new Error("Claude Code process terminated by signal 9");
-    })();
+  const dyingQuery = (args: RoutedQueryArguments): WireQuery => ({
+    [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+      return (async function*(): AsyncGenerator<WireEvent> {
+        yield* wireTurnEvents(args, { output: "starting", terminal: false });
+        throw new Error("Claude Code process terminated by signal 9");
+      })();
+    },
+  });
 
   await spawn({ prompt: "dies", agentId: "test-done-died", role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: dyingQuery });
 
@@ -304,8 +334,9 @@ test("a synchronous provider-construction failure records run telemetry", async 
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell @swarm agent_death");
   expect(logged).toContain("tell agent:test-sync-construction-failure outcome died");
-  expect(logged).toContain(" thread thread-sync-construction");
-  expect(logged).toContain(" duration_ms ");
+  const projection = await waitForRunFactProjection("test-sync-construction-failure");
+  expect(projection).toContainEqual(["thread", "@thread-sync-construction"]);
+  expect(projection.find(([predicate]) => predicate === "duration_ms")?.[1]).toMatch(/^\d+$/);
 });
 
 test("a Orchestration prompt-composition failure is blocked preflight before query construction", async () => {
@@ -372,163 +403,165 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
     "tell agent:test-prompt-composition-preflight delivery_reason execution_preflight_blocked",
   );
   expect(logged).not.toContain("tell @swarm agent_death");
-  const runLines = await settledRunLines(
-    "test-prompt-composition-preflight",
-    "num_turns 0",
-  );
-  expect(runLines.some((line) => line.endsWith(" turn_provenance pre-provider"))).toBe(true);
-  expect(runLines.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
-  expect(runLines.some((line) =>
-    line.includes(" preflight_cause ")
-    && line.includes("spawn_pre_provider_setup_failed")
-    && line.includes("gpt-5.6-terra.md")
-  )).toBe(true);
+  const runLines = await settledRunLines("test-prompt-composition-preflight");
+  expect(runLines.some((line) => line.endsWith(" process_outcome blocked_preflight"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" model_call_count 0"))).toBe(true);
+  expect(runLines.some((line) => line.endsWith(" wire_termination_code blocked"))).toBe(true);
 });
 
 test("an Anthropic error terminal still records its authoritative usage", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  const queryFn: any = () => (async function* () {
-    yield {
-      type: "result", subtype: "error_during_execution", is_error: true,
-      duration_ms: 1, num_turns: 1,
-      usage: { input_tokens: 11, output_tokens: 3,
-        cache_creation_input_tokens: 2, cache_read_input_tokens: 5 },
-    };
-  })();
+  const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnQuery(args, {
+    provider: "anthropic",
+    status: "failed",
+    errorCode: "provider_execution_failed",
+    failureDetail: "provider_execution_failed",
+    providerDurationMs: 1,
+    turns: 1,
+    usage: {
+      lifetime: {
+        inputTokens: 11,
+        outputTokens: 3,
+        cacheWriteTokens: 2,
+        cacheReadTokens: 5,
+        reasoningTokens: 0,
+        modelCalls: 1,
+      },
+      context: { tokens: 21 },
+    },
+  });
 
   await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
     role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"), queryFn });
-  await waitForLog("tell run:test-terminal-error-");
-  await waitForLog("usage_total_status exact");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-terminal-error-"));
-  expect(lines.some((line) => line.endsWith(" tokens 21"))).toBe(true);
-  expect(lines.some((line) => line.endsWith(" usage_terminal_count 1"))).toBe(true);
+  const lines = await settledRunLines("test-terminal-error", "lifetime_input_tokens 11");
+  expect(lines.some((line) => line.endsWith(" lifetime_input_tokens 11"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" lifetime_output_tokens 3"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" lifetime_cache_write_tokens 2"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" lifetime_cache_read_tokens 5"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" model_call_count 1"))).toBe(true);
 });
 
-test("repeated Anthropic terminals record ambiguity without a selected or summed usage", async () => {
-  const { spawn } = await import("./support/spawn");
-  writeFileSync(log, "");
-  const queryFn: any = () => (async function* () {
-    yield { type: "system", subtype: "task_started", task_id: "bg-1" };
-    yield { type: "result", subtype: "success", result: "first", duration_ms: 1, num_turns: 1,
-      usage: { input_tokens: 10, output_tokens: 2,
-        cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
-    yield { type: "system", subtype: "task_notification", task_id: "bg-1", status: "completed" };
-    yield { type: "result", subtype: "success", result: "second", duration_ms: 2, num_turns: 2,
-      usage: { input_tokens: 20, output_tokens: 4,
-        cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } };
-  })();
-
-  await spawn({ prompt: "two terminal scopes", agentId: "test-repeated-terminals",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
-    pinEvidence: pinEvidence("anthropic"), queryFn });
-  await waitForLog("usage_total_status unknown_repeated_terminal");
-  const lines = readFileSync(log, "utf8").split("\n").filter((line) => line.includes("run:test-repeated-terminals-"));
-  expect(lines.some((line) => line.endsWith(" usage_terminal_count 2"))).toBe(true);
-  expect(lines.some((line) => / (tokens|input_tokens|output_tokens) /.test(line))).toBe(false);
-});
-
-test("a managed Codex provider error lands its cause chain on the run and the lane log", async () => {
-  // thread 019f9cec, end to end: an app-server turn-failure payload -> the
-  // adapter's harvest frame -> the harness message loop -> the DURABLE surfaces.
-  // Three real lanes took this exact path on 2026-07-26 and left nothing behind:
-  // the loop `break`s on the frame, which discards both the frame and the throw
-  // still pending behind it, and the managed home is disposed at teardown.
-  const { spawn } = await import("./support/spawn");
-  const { managedCodexHarvestMessages } = await import("../src/providers/openai");
-  const { ManagedCodexHarvestError } = await import("../src/providers/codex-app-server");
-  writeFileSync(log, "");
-
+test("a managed Codex provider error becomes privacy-bounded completion evidence", () => {
   const providerPayload = "provider turn error: {\"message\":\"stream disconnected\"}";
   const error = new ManagedCodexHarvestError({
     threadId: "th_fixture", turnIds: ["turn_1"], completedTurns: 0,
     text: "partial first-turn text", landedWork: true,
-    mcp: { source: "codex-app-server:item-completed", totalCalls: 2 } as any,
-    nativeCommands: { source: "codex-app-server:item-completed", totalCommands: 1 } as any,
+    mcp: {
+      source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 2,
+      tools: [], operationReceipts: [], operationAggregates: [],
+    },
+    nativeCommands: {
+      source: "codex-app-server:item-completed", coverage: "exact", totalCommands: 1,
+      northBinaryProbe: "not_observed", completions: [],
+    },
     unsupportedNotifications: {},
   }, {
     cause: new Error("Codex completed turn reported a provider-side turn error", {
       cause: new Error(providerPayload),
     }),
   });
-  const frames = managedCodexHarvestMessages(error);
-  expect(frames.length).toBeGreaterThan(0);
-
-  const stderr: string[] = [];
-  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    stderr.push(args.map(String).join(" "));
+  const evidence = managedCodexHarvestEvidence(error);
+  expect(evidence.failure).toEqual({
+    detail: "provider_execution_failed",
+    landed: { completedTurns: 0, mcpCalls: 2, nativeCommands: 1 },
   });
-  try {
-    await spawn({
-      prompt: "managed codex provider error", agentId: "test-codex-provider-error",
-      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "openai",
-      pinEvidence: pinEvidence("openai"),
-      queryFn: (() => (async function* () { for (const frame of frames) yield frame; })()) as any,
-    });
-  } finally { errorSpy.mockRestore(); }
-
-  const lines = await settledRunLines("test-codex-provider-error");
-  expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
-  expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
-  const detail = lines.find((line) => line.includes(" provider_error_detail "));
-  expect(detail).toBeDefined();
-  // The whole point: the provider payload, not merely the classification.
-  expect(detail).toContain("stream disconnected");
-  expect(detail).toContain("Codex completed turn reported a provider-side turn error");
-  expect(detail).toContain("landed=[0 completed turn(s), 2 MCP call(s), 1 native command(s)]");
-  // ...and the same line is in the lane log, where an operator actually looks.
-  expect(stderr.some((line) =>
-    line.includes("[provider_error]") && line.includes("stream disconnected"))).toBe(true);
+  expect(evidence.turns).toEqual({
+    unit: "provider-turn", count: 1, comparable: false,
+  });
+  expect(evidence.providerJoin?.sessionKey).toMatch(/^[a-f0-9]{64}$/);
+  expect(evidence.providerJoin?.turnKeys).toEqual([expect.stringMatching(/^[a-f0-9]{64}$/)]);
+  const encoded = JSON.stringify(evidence);
+  expect(encoded).not.toContain("th_fixture");
+  expect(encoded).not.toContain("turn_1");
+  expect(encoded).not.toContain("stream disconnected");
 });
 
-test("a managed Codex deadline interrupt is deadline_exceeded, never provider_error", async () => {
-  const { spawn } = await import("./support/spawn");
-  const { managedCodexHarvestMessages } = await import("../src/providers/openai");
-  const { ManagedCodexHarvestError } = await import("../src/providers/codex-app-server");
-  writeFileSync(log, "");
-
+test("a managed Codex deadline interrupt retains bounded interruption evidence", () => {
+  const rawThread = "thread_private_canary_019f";
+  const rawTurn = "turn_private_canary_019f";
+  const rawModel = "gpt-private-model-canary";
+  const privatePrompt = "PRIVATE_PROMPT_CANARY_do_not_publish";
+  const jsonRpcCanary = JSON.stringify({
+    jsonrpc: "2.0",
+    method: "turn/start",
+    params: {
+      threadId: rawThread,
+      turnId: rawTurn,
+      model: rawModel,
+      input: [{ type: "text", text: privatePrompt }],
+    },
+  });
   const error = new ManagedCodexHarvestError({
-    threadId: "th_deadline", turnIds: ["turn_deadline"], completedTurns: 0,
-    text: "", landedWork: false,
-    mcp: { source: "codex-app-server:item-completed", totalCalls: 0 } as any,
-    nativeCommands: { source: "codex-app-server:item-completed", totalCommands: 0 } as any,
+    threadId: rawThread, turnIds: [rawTurn], completedTurns: 0,
+    text: privatePrompt, landedWork: true,
+    mcp: {
+      source: "codex-app-server:item-completed", coverage: "exact", totalCalls: 0,
+      tools: [], operationReceipts: [], operationAggregates: [],
+    },
+    nativeCommands: {
+      source: "codex-app-server:item-completed", coverage: "exact", totalCommands: 0,
+      northBinaryProbe: "not_observed", completions: [],
+    },
     unsupportedNotifications: {},
-    stderrTail: ["codex diagnostic tail"],
+    // Provider diagnostics remain available only on the adapter-private error.
+    stderrTail: [jsonRpcCanary],
     interrupt: {
       reason: "turn_deadline", deadlineMs: 1_500_000,
       inactivityThresholdMs: 300_000, lastActivityAgeMs: 300_012,
+      openItemCount: 0, openItem: null,
       eventCount: 57,
       eventCounts: { "provider.codex.item.completed": 57 },
     },
   }, { cause: new Error("openai_codex_turn_interrupted") });
-  const frames = managedCodexHarvestMessages(error);
-  expect(frames).toHaveLength(1);
-
-  const stderr: string[] = [];
-  const errorSpy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
-    stderr.push(args.map(String).join(" "));
+  const evidence = managedCodexHarvestEvidence(error);
+  expect(evidence.failure).toEqual({
+    detail: "north_turn_deadline",
+    landed: { completedTurns: 0, mcpCalls: 0, nativeCommands: 0 },
   });
-  try {
-    await spawn({
-      prompt: "managed codex deadline", agentId: "test-codex-deadline",
-      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "openai",
-      pinEvidence: pinEvidence("openai"),
-      queryFn: (() => (async function* () { for (const frame of frames) yield frame; })()) as any,
-    });
-  } finally { errorSpy.mockRestore(); }
+  expect(evidence.interrupt).toEqual({
+    reason: "north_turn_deadline",
+    deadlineMs: 1_500_000,
+    inactivityThresholdMs: 300_000,
+    lastActivityAgeMs: 300_012,
+    openItemCount: 0,
+    eventCount: 57,
+  });
 
-  const lines = await settledRunLines("test-codex-deadline");
-  expect(lines.some((line) => line.endsWith(" process_outcome deadline_exceeded"))).toBe(true);
-  expect(lines.some((line) => line.includes(" provider_error_detail "))).toBe(false);
-  const detail = lines.find((line) => line.includes(" deadline_exceeded_detail "))!;
-  expect(detail).toContain('"deadlineMs":1500000');
-  expect(detail).toContain('"lastActivityAgeMs":300012');
-  expect(detail).toContain('"eventCount":57');
-  expect(detail).toContain('"stderrTail":["codex diagnostic tail"]');
-  expect(stderr.some((line) => line.includes("[deadline_exceeded]")
-    && line.includes('"eventCount":57'))).toBe(true);
+  const writer = new WireEventWriter({
+    runId: wireRunId("run:managed-codex-privacy-canary"),
+    eventId: (sequence) => wireEventId(`event:managed-codex-privacy-canary:${sequence}`),
+  });
+  const modelCallId = wireModelCallId("model-call:managed-codex-privacy-canary");
+  writer.append({ kind: "run.started", lifecycle: "running" });
+  writer.append({
+    kind: "model-call.started",
+    modelCallId,
+    model: { provider: "openai", capabilityClass: "unknown" },
+    attempt: 1,
+  });
+  writer.append({
+    kind: "model-call.completed",
+    modelCallId,
+    status: "cancelled",
+    origin: "north",
+    usage: writer.snapshot()!.usage,
+    usageCoverage: "unavailable",
+    errorCode: "north_turn_deadline",
+    evidence,
+  });
+  writer.terminate({ lifecycle: "cancelled", reason: { code: "cancelled" } });
+  const publicTerminals = writer.events().filter((event) =>
+    event.kind === "model-call.completed" || event.kind === "run.terminated");
+  expect(publicTerminals.map((event) => event.kind)).toEqual([
+    "model-call.completed", "run.terminated",
+  ]);
+  const encoded = publicTerminals.map((event) => JSON.stringify(event)).join("\n");
+  for (const privateValue of [
+    jsonRpcCanary, rawThread, rawTurn, rawModel, privatePrompt,
+    "provider.codex", "stderrTail", "eventCounts",
+  ]) expect(encoded).not.toContain(privateValue);
 });
 
 test("an empty spawn provider stream is a blocked provider error, never ran", async () => {
@@ -548,9 +581,15 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
   const lines = await settledRunLines("test-empty-spawn");
   expect(lines.some((line) => line.endsWith(" process_outcome provider_error"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
-  expect(lines.some((line) =>
-    line.includes(" provider_error_detail provider stream closed without a terminal result message")
-  )).toBe(true);
+  const replay = await readWireJsonl(join(dir, "agent-test-empty-spawn.stream.jsonl"));
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated",
+    lifecycle: "failed",
+    reason: {
+      code: "provider_error",
+      detail: "provider_error",
+    },
+  });
   const publicationOrder = readFileSync(log, "utf8");
   expect(publicationOrder.indexOf("QUERY_CLOSED spawn")).toBeLessThan(
     publicationOrder.indexOf("tell agent:test-empty-spawn outcome provider_error"),
@@ -616,27 +655,77 @@ test("dispatch snapshots estimate_hours onto its exact terminal run before compa
   writeFileSync(log, "");
   const agentId = "test-dispatch-run-estimate";
 
-  await dispatch("test-dispatch-run-estimate-thread", {
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  const priorProvider = process.env.AGENT_PROVIDER;
+  try {
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    process.env.AGENT_PROVIDER = "anthropic";
+    await dispatch("test-dispatch-run-estimate-thread", {
     agentId,
     routingMetadata: presetRequest("integrator"),
+    pinEvidence: pinEvidence("anthropic"),
     claimDriver: (() => ({ release() {} })) as any,
-    queryFn: () => (async function* () {
-      yield { type: "result", subtype: "success", result: "done", duration_ms: 1, num_turns: 1 };
-    })(),
+    queryFn: (args: RoutedQueryArguments): WireQuery => ({
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        return (async function*(): AsyncGenerator<WireEvent> {
+          const modelCallId = wireModelCallId("model-call:dispatch-estimate");
+          const messageId = wireMessageId("message:dispatch-estimate");
+          yield args.writer.append({
+            kind: "model-call.started", modelCallId,
+            model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+            effort: "high", attempt: 1,
+          });
+          yield args.writer.append({
+            kind: "message.recorded", messageId, modelCallId,
+            stage: "started", role: "assistant",
+          });
+          yield args.writer.append({
+            kind: "message.recorded", messageId, modelCallId,
+            stage: "completed", role: "assistant", content: "done",
+          });
+          yield args.writer.append({
+            kind: "model-call.completed", modelCallId, status: "succeeded",
+            origin: "provider",
+            usage: {
+              lifetime: {
+                inputTokens: 1, outputTokens: 1, cacheReadTokens: 0,
+                cacheWriteTokens: 0, reasoningTokens: 0, modelCalls: 1,
+              },
+              context: { tokens: 1, window: 200_000 },
+            },
+            usageCoverage: "exact",
+            evidence: { turns: { unit: "assistant-turn", count: 1, comparable: true } },
+          });
+        })();
+      },
+    }),
     loadThreadFacts: () => [
       { predicate: "title", value: "Snapshot a dispatch estimate" },
       { predicate: "planned", value: "true" },
       { predicate: "atomic", value: "true" },
       { predicate: "estimate_hours", value: "1" },
+      { predicate: "judgment_grade", value: "s" },
     ],
-    loadChildren: () => [],
-  });
+      loadChildren: () => [],
+    });
+  } finally {
+    if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+    else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+    if (priorProvider === undefined) delete process.env.AGENT_PROVIDER;
+    else process.env.AGENT_PROVIDER = priorProvider;
+  }
 
-  const lines = await settledRunLines(agentId, "estimate_classification under");
-  expect(lines.some((line) => line.endsWith(" estimate_hours 1"))).toBe(true);
-  expect(lines.some((line) => / estimate_delta_ms -[0-9]+$/.test(line))).toBe(true);
-  expect(lines.some((line) => line.endsWith(" estimate_classification under"))).toBe(true);
-  expect(lines.some((line) => line.includes(" estimate_ratio "))).toBe(true);
+  const facts = await waitForRunFactProjection(agentId);
+  const factValues = (predicate: string) => facts
+    .filter(([candidate]) => candidate === predicate)
+    .map(([, value]) => value);
+  expect(factValues("estimate_hours")).toEqual(["1"]);
+  expect(factValues("estimate_delta_ms")[0]).toMatch(/^-[0-9]+$/);
+  expect(factValues("estimate_classification")).toEqual(["under"]);
+  expect(factValues("estimate_ratio")[0]).toMatch(/^0(?:\.[0-9]+)?$/);
+  expect(factValues("judgment_grade")).toEqual(["s"]);
+  expect(factValues("judgment_grade_status")).toEqual(["valid"]);
+  expect(factValues("judgment_grade_source")).toEqual(["thread"]);
 });
 
 test("dispatch rejects an invalid estimate before driver or provider side effects", async () => {
@@ -644,25 +733,32 @@ test("dispatch rejects an invalid estimate before driver or provider side effect
   let claimed = false;
   let queried = false;
 
-  await expect(dispatch("test-invalid-run-estimate", {
-    agentId: "test-invalid-run-estimate-agent",
-    routingMetadata: presetRequest("integrator"),
-    claimDriver: (() => {
-      claimed = true;
-      return { release() {} };
-    }) as any,
-    queryFn: (() => {
-      queried = true;
-      return (async function* () {})();
-    }) as any,
-    loadThreadFacts: () => [
-      { predicate: "title", value: "Reject invalid timing input" },
-      { predicate: "planned", value: "true" },
-      { predicate: "atomic", value: "true" },
-      { predicate: "estimate_hours", value: "-2" },
-    ],
-    loadChildren: () => [],
-  })).rejects.toThrow("invalid thread estimate_hours");
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  try {
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    await expect(dispatch("test-invalid-run-estimate", {
+      agentId: "test-invalid-run-estimate-agent",
+      routingMetadata: presetRequest("integrator"),
+      claimDriver: (() => {
+        claimed = true;
+        return { release() {} };
+      }) as any,
+      queryFn: (() => {
+        queried = true;
+        return (async function* () {})();
+      }) as any,
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Reject invalid timing input" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+        { predicate: "estimate_hours", value: "-2" },
+      ],
+      loadChildren: () => [],
+    })).rejects.toThrow("invalid thread estimate_hours");
+  } finally {
+    if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+    else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+  }
   expect(claimed).toBe(false);
   expect(queried).toBe(false);
 });
@@ -671,16 +767,13 @@ test("a spawn success terminal with an empty result is a LOUD ran_empty, never a
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
 
-  // The opus-high death shape: a real provider terminal (subtype success, NOT an
-  // error/turn-cap) whose result text is empty — the final turn hit the
-  // output-token ceiling mid extended-thinking/tool_use and committed no text.
+  // The opus-high death shape: a successful provider terminal whose completed
+  // assistant output is empty — the final turn committed no deliverable text.
   // Recording this as process=ran read as a clean AGENT COMPLETE no-op.
-  const emptyTerminalQuery: any = () => ({
+  const emptyTerminalQuery = (args: RoutedQueryArguments): WireQuery => ({
     interrupt: async () => {},
-    async *[Symbol.asyncIterator]() {
-      yield { type: "assistant", message: { role: "assistant", content: [{ type: "thinking", thinking: "" }] } };
-      yield { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] } };
-      yield { type: "result", subtype: "success", result: "", duration_ms: 1, num_turns: 35 };
+    [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+      return wireTurnEvents(args, { output: "", turns: 35, providerDurationMs: 1 });
     },
   });
 
@@ -713,9 +806,9 @@ test("a dispatch success terminal with an empty result is a LOUD ran_empty, neve
     agentId,
     routingMetadata: presetRequest("integrator"),
     claimDriver: (() => ({ release() {} })) as any,
-    queryFn: () => (async function* () {
-      yield { type: "result", subtype: "success", result: "", duration_ms: 1, num_turns: 40 };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "", turns: 40, providerDurationMs: 1,
+    }),
     loadThreadFacts: () => [
       { predicate: "title", value: "Empty result dispatch terminal" },
       { predicate: "planned", value: "true" },
@@ -724,7 +817,7 @@ test("a dispatch success terminal with an empty result is a LOUD ran_empty, neve
     loadChildren: () => [],
   });
 
-  const lines = await settledRunLines(agentId, "num_turns 40");
+  const lines = await settledRunLines(agentId);
   expect(lines.some((line) => line.endsWith(" process_outcome ran_empty"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(false);
   expect(lines.some((line) => line.endsWith(" delivery_outcome blocked"))).toBe(true);
@@ -835,18 +928,11 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
   const scenarios = [
     {
       label: "ran",
-      queryFn: () => (async function* () {
-        yield {
-          type: "result",
-          subtype: "success",
-          result: "done",
-          duration_ms: 1,
-          num_turns: 1,
-        };
-      })(),
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "done", turns: 1, providerDurationMs: 1,
+      }),
       processOutcome: "ran",
       deliveryOutcome: "unverified",
-      runTail: "num_turns 1",
       subject: "AGENT COMPLETE",
     },
     {
@@ -856,7 +942,6 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       },
       processOutcome: "blocked_preflight",
       deliveryOutcome: "blocked",
-      runTail: "num_turns 0",
       subject: "AGENT BLOCKED",
     },
     {
@@ -866,23 +951,19 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       })(),
       processOutcome: "died",
       deliveryOutcome: "blocked",
-      runTail: "process_outcome died",
       subject: "AGENT DEATH",
     },
     {
       label: "turn-cap",
-      queryFn: () => (async function* () {
-        yield {
-          type: "result",
-          subtype: "error_max_turns",
-          result: "partial",
-          duration_ms: 1,
-          num_turns: 2,
-        };
-      })(),
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        output: "partial",
+        turns: 2,
+        providerDurationMs: 1,
+        status: "failed",
+        errorCode: "provider_max_turns",
+      }),
       processOutcome: "max_turns",
       deliveryOutcome: "blocked",
-      runTail: "num_turns 2",
       subject: "TURN CAP",
     },
     {
@@ -898,7 +979,6 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       }),
       processOutcome: "watchdog_aborted",
       deliveryOutcome: "blocked",
-      runTail: "watchdog_reason north_watchdog_execution_inactivity",
       subject: "AGENT DEATH",
       stallMs: "10",
     },
@@ -929,7 +1009,7 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       `${scenario.subject} ${scenario.processOutcome === "died"
         ? "provider subprocess died for ordering probe — "
         : scenario.processOutcome === "max_turns"
-          ? "error_max_turns — partial: partial — "
+          ? "provider_max_turns — partial: partial — "
           : scenario.processOutcome === "watchdog_aborted"
             ? "north_watchdog_execution_inactivity silence_ms=20 last_outer=none last_provider=none — "
           : ""}process=${scenario.processOutcome}`,
@@ -950,11 +1030,14 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
       line === `tell agent:${agentId} process_outcome ${scenario.processOutcome}`
     );
     const runIndex = lines.findIndex((line) =>
-      line.includes(`tell run:${agentId}-`) && line.endsWith(` ${scenario.runTail}`)
+      line.startsWith("run-fact\t") && line.includes(agentId)
     );
+    const projection = capturedRunProjections(output).find((candidate) =>
+      candidate.agent === agentId);
     const pingIndex = lines.indexOf(pings[0]!);
     expect(terminalIndex).toBeGreaterThanOrEqual(0);
     expect(runIndex).toBeGreaterThanOrEqual(0);
+    expect(projection?.facts).toContainEqual(["process_outcome", scenario.processOutcome]);
     expect(terminalIndex).toBeLessThan(pingIndex);
     expect(runIndex).toBeLessThan(pingIndex);
     if (scenario.processOutcome === "blocked_preflight") {
@@ -1001,35 +1084,25 @@ test("dispatch wakes its coordinator once, after every terminal publication sett
 test("spawn and dispatch keep a silent outer stream alive from provider-native activity", async () => {
   const { spawn } = await import("./support/spawn");
   const { dispatch } = await import("./support/dispatch");
-  const activeNativeQuery = () => {
+  const activeNativeQuery = (args: RoutedQueryArguments): WireQuery => {
     const activity = createExecutionActivityEmitter();
-    let delivered = false;
     return {
       executionActivity: activity.source,
       close: async () => {},
-      [Symbol.asyncIterator]() {
-        return {
-          next: () => {
-            if (delivered) {
-              return Promise.resolve({ done: true as const, value: undefined });
-            }
-            delivered = true;
-            return new Promise((resolveResult) => {
-              const pulse = setInterval(() =>
-                activity.record("provider", "provider.codex.command.interaction"), 8);
-              setTimeout(() => {
-                clearInterval(pulse);
-                resolveResult({
-                  done: false,
-                  value: {
-                    type: "result", subtype: "success", result: "native activity completed",
-                    duration_ms: 1, num_turns: 1,
-                  },
-                });
-              }, 65);
-            });
-          },
-        };
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        return (async function*(): AsyncGenerator<WireEvent> {
+          await new Promise<void>((resolveDelay) => {
+            const pulse = setInterval(() =>
+              activity.record("provider", "provider.codex.command.interaction"), 8);
+            setTimeout(() => {
+              clearInterval(pulse);
+              resolveDelay();
+            }, 65);
+          });
+          yield* wireTurnEvents(args, {
+            output: "native activity completed", turns: 1, providerDurationMs: 1,
+          });
+        })();
       },
     };
   };
@@ -1044,7 +1117,7 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
           agentId,
           role: "integrator",
           routingMetadata: presetRequest("integrator"),
-          queryFn: activeNativeQuery as any,
+          queryFn: activeNativeQuery,
           childSettlementReader: () => ({ kind: "settled", children: [] }),
         });
       } else {
@@ -1052,7 +1125,7 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
           agentId,
           routingMetadata: presetRequest("integrator"),
           claimDriver: (() => ({ release() {} })) as any,
-          queryFn: activeNativeQuery as any,
+          queryFn: activeNativeQuery,
           loadThreadFacts: () => [
             { predicate: "title", value: "Prove native dispatch liveness" },
             { predicate: "planned", value: "true" },
@@ -1079,15 +1152,9 @@ test("a failed dispatch completion wake-up never replaces the execution outcome"
     agentId,
     routingMetadata: presetRequest("integrator"),
     claimDriver: (() => ({ release() {} })) as any,
-    queryFn: () => (async function* () {
-      yield {
-        type: "result",
-        subtype: "success",
-        result: "done despite notification failure",
-        duration_ms: 1,
-        num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done despite notification failure", turns: 1, providerDurationMs: 1,
+    }),
     loadThreadFacts: () => [
       { predicate: "title", value: "Keep notification failure non-fatal" },
       { predicate: "planned", value: "true" },
@@ -1103,7 +1170,7 @@ test("a failed dispatch completion wake-up never replaces the execution outcome"
     `send ${agentId} ${TEST_COORDINATOR} AGENT COMPLETE`,
     "g",
   ))).toHaveLength(1);
-  const lines = await settledRunLines(agentId, "num_turns 1");
+  const lines = await settledRunLines(agentId);
   expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
 });
 
@@ -1358,14 +1425,9 @@ test("dispatch publishes newly observed done-bar evidence as reported, never sel
         }] };
       },
     },
-    queryFn: () => {
+    queryFn: (args) => {
       expect(reserved?.runId.startsWith("run:test-reported-delivery-agent-")).toBe(true);
-      return (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-      })();
+      return wireTurnQuery(args, { output: "done", turns: 1, providerDurationMs: 1 });
     },
   });
   const logged = readFileSync(log, "utf8");
@@ -1431,15 +1493,12 @@ test("spawn reserves before provider execution and binds evidence plus telemetry
         };
       },
     },
-    queryFn: () => {
+    queryFn: (args) => {
       events.push("provider");
       expect(reserved?.threadId).toBe("test-proof-bound-thread");
-      return (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "evidence recorded",
-          duration_ms: 1, num_turns: 1,
-        };
-      })();
+      return wireTurnQuery(args, {
+        output: "evidence recorded", turns: 1, providerDurationMs: 1,
+      });
     },
   });
   expect(result).toBe("evidence recorded");
@@ -1451,7 +1510,7 @@ test("spawn reserves before provider execution and binds evidence plus telemetry
     "tell agent:test-proof-bound-spawn delivery_reason complete_run_scoped_done_bar_evidence_self_reported",
   );
   const lines = await settledRunLines("test-proof-bound-spawn");
-  expect(lines.some((line) => line.endsWith(" thread test-proof-bound-thread"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" thread @test-proof-bound-thread"))).toBe(true);
   expect(lines.some((line) => line.endsWith(" thread (ad-hoc)"))).toBe(false);
   expect(lines.some((line) => line.endsWith(" delivery_outcome reported"))).toBe(true);
 });
@@ -1471,29 +1530,11 @@ test("a spawn orchestrator gets a provider reduction turn after child settlement
   ] as const;
   let settlementIndex = 0;
   const seenInputs: string[] = [];
-  const queryFn: any = ({ prompt }: any) => ({
-    async *[Symbol.asyncIterator]() {
-      const input = prompt[Symbol.asyncIterator]();
-      const initial = await input.next();
-      seenInputs.push(initial.value.message.content);
-      yield {
-        type: "result", subtype: "success", result: "premature",
-        duration_ms: 1, num_turns: 1,
-      };
-      const continuation = await input.next();
-      seenInputs.push(continuation.value.message.content);
-      yield {
-        type: "result", subtype: "success", result: "child terminal observed",
-        duration_ms: 2, num_turns: 2,
-      };
-      const reduction = await input.next();
-      seenInputs.push(reduction.value.message.content);
-      yield {
-        type: "result", subtype: "success", result: "reduced",
-        duration_ms: 3, num_turns: 3,
-      };
-    },
-  });
+  const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(args, [
+    { output: "premature", providerDurationMs: 1, turns: 1 },
+    { output: "child terminal observed", providerDurationMs: 2, turns: 2 },
+    { output: "reduced", providerDurationMs: 3, turns: 3 },
+  ], { onInput: (text) => seenInputs.push(text) });
 
   const result = await spawn({
     prompt: "coordinate the child",
@@ -1529,28 +1570,10 @@ test("an orchestrator reduction continuation racing a closing provider stream bl
     children: ["@agent:child-a", "@agent:child-b"],
   };
   const seenInputs: string[] = [];
-  const queryFn: any = ({ prompt }: any) => ({
-    async *[Symbol.asyncIterator]() {
-      const input = prompt[Symbol.asyncIterator]();
-      const initial = await input.next();
-      seenInputs.push(initial.value.message.content);
-      // A genuine first turn — children have settled, so North will require a
-      // post-settlement reduction turn next.
-      yield {
-        type: "result", subtype: "success", result: "children coordinated",
-        duration_ms: 1, num_turns: 1,
-      };
-      // The reduction continuation is consumed, but the session is already
-      // tearing down: it answers on a closing stream with an empty-success
-      // terminal (0-byte result) instead of an actual reduction.
-      const reduction = await input.next();
-      seenInputs.push(reduction.value.message.content);
-      yield {
-        type: "result", subtype: "success", result: "",
-        duration_ms: 2, num_turns: 2,
-      };
-    },
-  });
+  const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(args, [
+    { output: "children coordinated", providerDurationMs: 1, turns: 1 },
+    { output: "", providerDurationMs: 2, turns: 2 },
+  ], { onInput: (text) => seenInputs.push(text) });
 
   await spawn({
     prompt: "coordinate two children then reduce",
@@ -1578,39 +1601,103 @@ test("an orchestrator reduction continuation racing a closing provider stream bl
   )).toBe(false);
 });
 
-// Orchestrator continuation race PREVENTION (thread 019f8ec5): on a streaming
-// provider North no longer injects the reduction continuation into the prior
-// turn's closing stream. It ends the turn and opens a fresh RESUMED turn (the
-// provider `resume` carrying the observed session id) that delivers the
-// continuation. The resumed turn returns a genuine reduction, so the lane
-// completes process=ran without ever touching the closing stream.
-test("a spawn orchestrator resumes the session for its reduction turn instead of racing a closing stream", async () => {
+// A streaming provider owns private continuation identity. The outer runtime
+// consumes each per-turn iterator completely, then asks the same query for the
+// next semantic turn and creates a fresh iterator. Both model terminals remain
+// in one canonical wire run; no provider session identifier crosses the seam.
+test("a spawn orchestrator consumes two model terminals from one streaming query across continuation", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   const settlement = {
     kind: "settled" as const,
     children: ["@agent:child-a", "@agent:child-b"],
   };
-  const seenPrompts: string[] = [];
-  const resumeArgs: Array<string | undefined> = [];
-  let turn = 0;
-  const queryFn: any = (args: any) => ({
-    async *[Symbol.asyncIterator]() {
-      turn++;
-      resumeArgs.push(args.resume);
-      const input = args.prompt[Symbol.asyncIterator]();
-      const first = await input.next();
-      seenPrompts.push(first.value.message.content);
-      // Every turn publishes the same provider session id; the second turn must
-      // arrive as a genuine resume of it, not a streamed continuation.
-      yield {
-        type: "result", subtype: "success",
-        result: turn === 1 ? "children coordinated" : "reduced",
-        session_id: "sess-anthropic-1",
-        duration_ms: turn, num_turns: 1,
-      };
-    },
-  });
+  const seenInputs: string[] = [];
+  let queryConstructions = 0;
+  let iteratorCount = 0;
+  let continuationCalls = 0;
+  let streaming = false;
+  let continuedInput: WireQueryInput | undefined;
+  const inputText = async (input: WireQueryInput): Promise<string> => {
+    if (typeof input === "string") return input;
+    const frame = await input[Symbol.asyncIterator]().next();
+    if (frame.done) throw new Error("streaming query input ended before a user frame");
+    return frame.value.text;
+  };
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return {
+      async continueTurn(input: WireQueryInput): Promise<void> {
+        if (streaming) throw new Error("continueTurn called before the current iterator completed");
+        if (continuedInput !== undefined) throw new Error("continuation input was not consumed");
+        continuationCalls++;
+        continuedInput = input;
+      },
+      async close(): Promise<void> {},
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        return (async function*(): AsyncGenerator<WireEvent> {
+          if (streaming) throw new Error("streaming query iterators overlapped");
+          streaming = true;
+          try {
+            iteratorCount++;
+            const turn = iteratorCount;
+            const input = turn === 1 ? args.input : continuedInput;
+            if (input === undefined) throw new Error("continuation iterator opened without input");
+            continuedInput = undefined;
+            seenInputs.push(await inputText(input));
+
+            const modelCallId = wireModelCallId(`model-call:spawn-continuation:${turn}`);
+            const messageId = wireMessageId(`message:spawn-continuation:${turn}`);
+            yield args.writer.append({
+              kind: "model-call.started",
+              modelCallId,
+              model: { provider: "anthropic", tier: "frontier", capabilityClass: "orchestrator" },
+              effort: "high",
+              attempt: turn,
+            });
+            yield args.writer.append({
+              kind: "message.recorded",
+              messageId,
+              modelCallId,
+              stage: "started",
+              role: "assistant",
+            });
+            yield args.writer.append({
+              kind: "message.recorded",
+              messageId,
+              modelCallId,
+              stage: "completed",
+              role: "assistant",
+              content: turn === 1 ? "children coordinated" : "reduced",
+            });
+            yield args.writer.append({
+              kind: "model-call.completed",
+              modelCallId,
+              status: "succeeded",
+              origin: "provider",
+              usage: {
+                lifetime: {
+                  inputTokens: 10 * turn,
+                  outputTokens: 5 * turn,
+                  cacheReadTokens: 0,
+                  cacheWriteTokens: 0,
+                  reasoningTokens: 0,
+                  modelCalls: turn,
+                },
+                context: { tokens: 10 * turn, window: 200_000 },
+              },
+              usageCoverage: "exact",
+              evidence: {
+                turns: { unit: "assistant-turn", count: 1, comparable: true },
+              },
+            });
+          } finally {
+            streaming = false;
+          }
+        })();
+      },
+    };
+  };
 
   const result = await spawn({
     prompt: "coordinate two children then reduce",
@@ -1625,13 +1712,146 @@ test("a spawn orchestrator resumes the session for its reduction turn instead of
   });
 
   expect(result).toBe("reduced");
-  expect(turn).toBe(2); // a genuine second (resumed) turn was opened
-  expect(resumeArgs[0]).toBeUndefined(); // turn 1 is the initial streaming turn
-  expect(resumeArgs[1]).toBe("sess-anthropic-1"); // turn 2 resumes the observed session
-  expect(seenPrompts[1]).toContain("post-settlement reduction turn"); // continuation delivered
-  const lines = await settledRunLines("test-spawn-resume-reduction");
-  expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
-  expect(lines.some((line) => line.endsWith(" process_outcome ran_empty"))).toBe(false);
+  expect(queryConstructions).toBe(1);
+  expect(iteratorCount).toBe(2);
+  expect(continuationCalls).toBe(1);
+  expect(seenInputs[0]).toBe("coordinate two children then reduce");
+  expect(seenInputs[1]).toContain("post-settlement reduction turn");
+
+  const replay = await readWireJsonl(
+    join(dir, "agent-test-spawn-resume-reduction.stream.jsonl"),
+  );
+  expect(replay.events.filter((event) => event.kind === "run.started")).toHaveLength(1);
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(2);
+  expect(replay.events.filter((event) => event.kind === "run.terminated")).toHaveLength(1);
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated",
+    lifecycle: "completed",
+    reason: { code: "completed" },
+  });
+});
+
+test("provider preaccept causes stay out of public spawn and dispatch wire terminals", async () => {
+  writeFileSync(log, "");
+  const canary = "RAW_PROVIDER_CAUSE_CANARY_64bde4b8";
+  const failure = () => new ProviderRetrySafeError(
+    "provider preaccept refused",
+    { cause: new Error(canary) },
+  );
+  const spawnAgent = "test-spawn-preflight-redaction";
+  const dispatchAgent = "test-dispatch-preflight-redaction";
+
+  await spawnUnderTest({
+    prompt: "prove spawn public terminal redaction",
+    agentId: spawnAgent,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    queryFn: () => { throw failure(); },
+  });
+  await dispatchUnderTest("test-dispatch-preflight-redaction-thread", {
+    agentId: dispatchAgent,
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: () => ({ release: () => true }),
+    queryFn: () => { throw failure(); },
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Prove dispatch public terminal redaction" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+    ],
+    loadChildren: () => [],
+  });
+
+  for (const agentId of [spawnAgent, dispatchAgent]) {
+    const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+    expect(JSON.stringify(replay.events)).not.toContain(canary);
+    expect(replay.events.at(-1)).toMatchObject({
+      kind: "run.terminated",
+      lifecycle: "blocked",
+      reason: {
+        code: "blocked",
+        detail: "blocked",
+      },
+    });
+  }
+});
+
+test("spawn and dispatch reject altered clones and replay only writer-owned events", async () => {
+  writeFileSync(log, "");
+  const forgedContent = "FORGED_PROVIDER_CONTENT_129f442d";
+  const canonicalEvents = new Map<string, WireEvent>();
+  const alteredCloneQuery = (label: string) => (args: RoutedQueryArguments): WireQuery => ({
+    async *[Symbol.asyncIterator](): AsyncGenerator<WireEvent> {
+      const modelCallId = wireModelCallId(`model-call:canonical-auth:${label}`);
+      const messageId = wireMessageId(`message:canonical-auth:${label}`);
+      yield args.writer.append({
+        kind: "model-call.started",
+        modelCallId,
+        model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+        effort: "high",
+        attempt: 1,
+      });
+      yield args.writer.append({
+        kind: "message.recorded",
+        messageId,
+        modelCallId,
+        stage: "started",
+        role: "assistant",
+      });
+      const canonical = args.writer.append({
+        kind: "message.recorded",
+        messageId,
+        modelCallId,
+        stage: "completed",
+        role: "assistant",
+        content: `writer-owned-${label}`,
+      });
+      canonicalEvents.set(label, canonical);
+      yield decodeWireEvent({ ...canonical, content: forgedContent });
+    },
+  });
+  const spawnAgent = "test-spawn-canonical-event-auth";
+  const dispatchAgent = "test-dispatch-canonical-event-auth";
+
+  const spawnResult = await spawnUnderTest({
+    prompt: "reject a forged spawn event",
+    agentId: spawnAgent,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    queryFn: alteredCloneQuery("spawn"),
+  });
+  expect(spawnResult).toBe("");
+  await dispatchUnderTest("test-dispatch-canonical-event-auth-thread", {
+    agentId: dispatchAgent,
+    routingMetadata: presetRequest("integrator"),
+    claimDriver: () => ({ release: () => true }),
+    queryFn: alteredCloneQuery("dispatch"),
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Reject a forged dispatch event" },
+      { predicate: "planned", value: "true" },
+      { predicate: "atomic", value: "true" },
+    ],
+    loadChildren: () => [],
+  });
+
+  for (const [label, agentId] of [
+    ["spawn", spawnAgent],
+    ["dispatch", dispatchAgent],
+  ] as const) {
+    const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+    const canonical = canonicalEvents.get(label)!;
+    expect(replay.events.find((event) => event.id === canonical.id)).toEqual(canonical);
+    expect(JSON.stringify(replay.events)).not.toContain(forgedContent);
+    expect(replay.events.at(-1)).toMatchObject({
+      kind: "run.terminated",
+      lifecycle: "failed",
+      reason: {
+        code: "provider_process_died",
+        detail: "provider_process_died",
+      },
+    });
+  }
 });
 
 // Resume is not a success guarantee (thread 019f8ec5): if the resumed reduction
@@ -1645,23 +1865,19 @@ test("a spawn orchestrator whose resumed reduction turn returns empty records th
     kind: "settled" as const,
     children: ["@agent:child-a", "@agent:child-b"],
   };
-  const resumeArgs: Array<string | undefined> = [];
-  let turn = 0;
-  const queryFn: any = (args: any) => ({
-    async *[Symbol.asyncIterator]() {
-      turn++;
-      resumeArgs.push(args.resume);
-      const input = args.prompt[Symbol.asyncIterator]();
-      await input.next();
-      yield {
-        type: "result", subtype: "success",
-        // Turn 1 is a genuine turn; the resumed reduction turn answers empty.
-        result: turn === 1 ? "children coordinated" : "",
-        session_id: "sess-anthropic-2",
-        duration_ms: turn, num_turns: 1,
-      };
-    },
-  });
+  let queryConstructions = 0;
+  let continuationCalls = 0;
+  const seenInputs: string[] = [];
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return wireTurnSequenceQuery(args, [
+      { output: "children coordinated", providerDurationMs: 1, turns: 1 },
+      { output: "", providerDurationMs: 2, turns: 1 },
+    ], {
+      onContinue: () => { continuationCalls++; },
+      onInput: (text) => seenInputs.push(text),
+    });
+  };
 
   await spawn({
     prompt: "coordinate two children then reduce",
@@ -1675,8 +1891,9 @@ test("a spawn orchestrator whose resumed reduction turn returns empty records th
     childSettlementReader: () => settlement,
   });
 
-  expect(turn).toBe(2); // the resumed turn was still opened
-  expect(resumeArgs[1]).toBe("sess-anthropic-2"); // and it was a resume
+  expect(queryConstructions).toBe(1);
+  expect(continuationCalls).toBe(1);
+  expect(seenInputs[1]).toContain("post-settlement reduction turn");
   const lines = await settledRunLines("test-spawn-resume-reduction-empty");
   expect(lines.some((line) =>
     line.endsWith(" process_outcome orchestrator_reduction_incomplete"),
@@ -1704,21 +1921,14 @@ test("a resumed continuation turn carries the same parent-run context for recurs
     children: ["@agent:child-a", "@agent:child-b"],
   };
   const optionsPerTurn: any[] = [];
-  let turn = 0;
-  const queryFn: any = (args: any) => ({
-    async *[Symbol.asyncIterator]() {
-      turn++;
-      optionsPerTurn.push(args.options);
-      const input = args.prompt[Symbol.asyncIterator]();
-      await input.next();
-      yield {
-        type: "result", subtype: "success",
-        result: turn === 1 ? "children coordinated" : "reduced",
-        session_id: "sess-anthropic-3",
-        duration_ms: turn, num_turns: 1,
-      };
-    },
-  });
+  let queryConstructions = 0;
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return wireTurnSequenceQuery(args, [
+      { output: "children coordinated", providerDurationMs: 1, turns: 1 },
+      { output: "reduced", providerDurationMs: 2, turns: 1 },
+    ], { onInput: () => optionsPerTurn.push(args.options) });
+  };
 
   await spawn({
     prompt: "coordinate two children then reduce",
@@ -1734,7 +1944,8 @@ test("a resumed continuation turn carries the same parent-run context for recurs
     childSettlementReader: () => settlement,
   });
 
-  expect(turn).toBe(2); // the resumed reduction turn opened
+  expect(queryConstructions).toBe(1);
+  expect(optionsPerTurn).toHaveLength(2);
   const turn1Env = optionsPerTurn[0].env;
   const resumedEnv = optionsPerTurn[1].env;
   // Parent context present on turn 1 (bind-child-thread reads exactly these).
@@ -1774,22 +1985,15 @@ test("spawn and dispatch force a zero-child director to dispatch two children be
     ];
     let reads = 0;
     const seenInputs: string[] = [];
-    const queryFn: any = ({ prompt }: any) => ({
-      async *[Symbol.asyncIterator]() {
-        const input = prompt[Symbol.asyncIterator]();
-        for (let i = 0; i < 3; i++) {
-          const next = await input.next();
-          seenInputs.push(next.value.message.content);
-          yield {
-            type: "result",
-            subtype: "success",
-            result: `provider-result-${i + 1}`,
-            duration_ms: i + 1,
-            num_turns: i + 1,
-          };
-        }
-      },
-    });
+    const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(
+      args,
+      Array.from({ length: 3 }, (_, index) => ({
+        output: `provider-result-${index + 1}`,
+        providerDurationMs: index + 1,
+        turns: index + 1,
+      })),
+      { onInput: (text) => seenInputs.push(text) },
+    );
     const childSettlementReader = () =>
       settlements[Math.min(reads++, settlements.length - 1)]!;
 
@@ -1835,21 +2039,10 @@ test("a spawn orchestrator hits a bounded no-progress cap as incomplete, never r
   const previousCap = process.env.NORTH_BG_MAX_CONTINUATIONS;
   process.env.NORTH_BG_MAX_CONTINUATIONS = "1";
   try {
-    const queryFn: any = ({ prompt }: any) => ({
-      async *[Symbol.asyncIterator]() {
-        const input = prompt[Symbol.asyncIterator]();
-        await input.next();
-        yield {
-          type: "result", subtype: "success", result: "first early exit",
-          duration_ms: 1, num_turns: 1,
-        };
-        await input.next();
-        yield {
-          type: "result", subtype: "success", result: "second early exit",
-          duration_ms: 2, num_turns: 2,
-        };
-      },
-    });
+    const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(args, [
+      { output: "first early exit", providerDurationMs: 1, turns: 1 },
+      { output: "second early exit", providerDurationMs: 2, turns: 2 },
+    ]);
     await spawn({
       prompt: "coordinate a stuck child",
       agentId: "test-spawn-child-cap",
@@ -1943,19 +2136,15 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
       const agentId = `test-${surface}-${scenario.label}`;
       let reads = 0;
       const seenInputs: string[] = [];
-      const queryFn: any = ({ prompt }: any) => ({
-        async *[Symbol.asyncIterator]() {
-          const input = prompt[Symbol.asyncIterator]();
-          for (let i = 0; i < scenario.providerResults; i++) {
-            const next = await input.next();
-            seenInputs.push(next.value.message.content);
-            yield {
-              type: "result", subtype: "success", result: `provider-result-${i + 1}`,
-              duration_ms: i + 1, num_turns: i + 1,
-            };
-          }
-        },
-      });
+      const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(
+        args,
+        Array.from({ length: scenario.providerResults }, (_, index) => ({
+          output: `provider-result-${index + 1}`,
+          providerDurationMs: index + 1,
+          turns: index + 1,
+        })),
+        { onInput: (text) => seenInputs.push(text) },
+      );
       const childSettlementReader = () =>
         scenario.settlements[Math.min(reads++, scenario.settlements.length - 1)]!;
 
@@ -2019,21 +2208,10 @@ test("spawn and dispatch block a previously live child disappearing from the gra
       { kind: "settled" as const, children: [] },
     ];
     let reads = 0;
-    const queryFn: any = ({ prompt }: any) => ({
-      async *[Symbol.asyncIterator]() {
-        const input = prompt[Symbol.asyncIterator]();
-        for (let i = 0; i < 2; i++) {
-          await input.next();
-          yield {
-            type: "result",
-            subtype: "success",
-            result: `provider-result-${i + 1}`,
-            duration_ms: i + 1,
-            num_turns: i + 1,
-          };
-        }
-      },
-    });
+    const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(args, [
+      { output: "provider-result-1", providerDurationMs: 1, turns: 1 },
+      { output: "provider-result-2", providerDurationMs: 2, turns: 2 },
+    ]);
     const childSettlementReader = () =>
       settlements[Math.min(reads++, settlements.length - 1)]!;
 
@@ -2097,22 +2275,10 @@ test("spawn and dispatch final gates reject a child disappearing after reduction
     ];
     let reads = 0;
     const seenInputs: string[] = [];
-    const queryFn: any = ({ prompt }: any) => ({
-      async *[Symbol.asyncIterator]() {
-        const input = prompt[Symbol.asyncIterator]();
-        for (let i = 0; i < 2; i++) {
-          const next = await input.next();
-          seenInputs.push(next.value.message.content);
-          yield {
-            type: "result",
-            subtype: "success",
-            result: `provider-result-${i + 1}`,
-            duration_ms: i + 1,
-            num_turns: i + 1,
-          };
-        }
-      },
-    });
+    const queryFn = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(args, [
+      { output: "provider-result-1", providerDurationMs: 1, turns: 1 },
+      { output: "provider-result-2", providerDurationMs: 2, turns: 2 },
+    ], { onInput: (text) => seenInputs.push(text) });
     const childSettlementReader = () =>
       settlements[Math.min(reads++, settlements.length - 1)]!;
 
@@ -2187,18 +2353,13 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
       outcome: "orchestrator_reduction_incomplete",
     },
   ];
-  const reducedTerminalQuery: any = ({ prompt }: any) => ({
-    async *[Symbol.asyncIterator]() {
-      const input = prompt[Symbol.asyncIterator]();
-      for (let i = 0; i < 2; i++) {
-        await input.next();
-        yield {
-          type: "result", subtype: "success", result: "provider said done",
-          duration_ms: i + 1, num_turns: i + 1,
-        };
-      }
-    },
-  });
+  const reducedTerminalQuery = (args: RoutedQueryArguments): WireQuery => wireTurnSequenceQuery(
+    args,
+    [
+      { output: "provider said done", providerDurationMs: 1, turns: 1 },
+      { output: "provider said done", providerDurationMs: 2, turns: 2 },
+    ],
+  );
 
   for (const surface of ["spawn", "dispatch"] as const) {
     for (const terminalState of terminalStates) {
@@ -2285,12 +2446,7 @@ test("spawn replays one transport-ambiguous reservation with the exact context b
     queryFn: (args) => {
       constructions++;
       providerEnv = args.options.env;
-      return (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-      })();
+      return wireTurnQuery(args, { output: "done", turns: 1, providerDurationMs: 1 });
     },
   });
   expect(reservations).toHaveLength(2);
@@ -2394,14 +2550,9 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
       load: () => ({ reservationValid: false, evidence: [] }),
       reserveOptions: { sleep: () => {} },
     },
-    queryFn: () => {
+    queryFn: (args) => {
       constructions++;
-      return (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "done",
-          duration_ms: 1, num_turns: 1,
-        };
-      })();
+      return wireTurnQuery(args, { output: "done", turns: 1, providerDurationMs: 1 });
     },
   });
   expect(reserveCalls).toBe(1);
@@ -2419,7 +2570,7 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
   )).toBe(true);
 });
 
-test("dispatch rotates away from a reservation that is invalid at finalization", async () => {
+test("dispatch retains its wire run when its reservation is invalid at finalization", async () => {
   const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
   let reservedRunId: string | undefined;
@@ -2443,12 +2594,9 @@ test("dispatch rotates away from a reservation that is invalid at finalization",
         return { reservationValid: false, evidence: [] };
       },
     },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   const lines = await settledRunLines(
     "test-dispatch-finalize-rotation-agent",
@@ -2456,9 +2604,9 @@ test("dispatch rotates away from a reservation that is invalid at finalization",
   );
   const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
   expect(reservedRunId).toBeDefined();
-  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(false);
+  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(true);
   expect(subjects.size).toBe(1);
-  expect(subjects.has(reservedRunId!)).toBe(false);
+  expect(subjects).toEqual(new Set([reservedRunId!]));
   expect(lines.some((line) =>
     line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
   )).toBe(true);
@@ -2499,12 +2647,9 @@ test("dispatch's finalize names an exhausted thread load apart from a genuinely 
         },
       },
       threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
-      queryFn: () => (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "done",
-          duration_ms: 1, num_turns: 1,
-        };
-      })(),
+      queryFn: (args) => wireTurnQuery(args, {
+        output: "done", turns: 1, providerDurationMs: 1,
+      }),
     });
     expect(calls).toBe(1 + 3);
     const messages = errorSpy.mock.calls.map((call) => String(call[0]));
@@ -2566,12 +2711,9 @@ test("dispatch still reports delivery when the thread read only fails transientl
       },
     },
     threadFactsLoadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   expect([calls, slept]).toEqual([4, [5, 10]]);
   const lines = await settledRunLines(
@@ -2616,12 +2758,9 @@ test("dispatch's finalize leaves a genuinely absent thread fail-closed without r
       },
     },
     threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   expect(calls).toBe(2);
   const lines = await settledRunLines(
@@ -2658,12 +2797,9 @@ test("spawn's finalize-rotation names an exhausted load apart from an invalid re
         },
         loadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
       },
-      queryFn: () => (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "done",
-          duration_ms: 1, num_turns: 1,
-        };
-      })(),
+      queryFn: (args) => wireTurnQuery(args, {
+        output: "done", turns: 1, providerDurationMs: 1,
+      }),
     });
     expect(loads).toBe(3);
     const messages = errorSpy.mock.calls.map((call) => String(call[0]));
@@ -2722,12 +2858,9 @@ test("spawn still reports delivery when the reservation read only fails transien
       },
       loadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
     },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   expect([loads, slept]).toEqual([3, [5, 10]]);
   const lines = await settledRunLines("test-spawn-contended-load");
@@ -2738,7 +2871,7 @@ test("spawn still reports delivery when the reservation read only fails transien
   expect(lines.some((line) => line.includes(" delivery_outcome unverified"))).toBe(false);
 });
 
-test("spawn rotates away from a reservation that is invalid at finalization", async () => {
+test("spawn retains its wire run when its reservation is invalid at finalization", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let reservedRunId: string | undefined;
@@ -2756,19 +2889,16 @@ test("spawn rotates away from a reservation that is invalid at finalization", as
         return { reservationValid: false, evidence: [] };
       },
     },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   const lines = await settledRunLines("test-spawn-finalize-rotation");
   const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
   expect(reservedRunId).toBeDefined();
-  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(false);
+  expect(lines.some((line) => line.startsWith(`tell ${reservedRunId} `))).toBe(true);
   expect(subjects.size).toBe(1);
-  expect(subjects.has(reservedRunId!)).toBe(false);
+  expect(subjects).toEqual(new Set([reservedRunId!]));
   expect(lines.some((line) =>
     line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
   )).toBe(true);
@@ -2806,12 +2936,9 @@ test("spawn's finalize names an exhausted thread load apart from a genuinely abs
         },
       },
       threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
-      queryFn: () => (async function* () {
-        yield {
-          type: "result", subtype: "success", result: "done",
-          duration_ms: 1, num_turns: 1,
-        };
-      })(),
+      queryFn: (args) => wireTurnQuery(args, {
+        output: "done", turns: 1, providerDurationMs: 1,
+      }),
     });
     expect(loads).toBe(1 + 3);
     const messages = errorSpy.mock.calls.map((call) => String(call[0]));
@@ -2875,12 +3002,9 @@ test("spawn still reports delivery when the thread read only fails transiently",
       },
     },
     threadFactsLoadOptions: { attempts: 3, backoffMs: 5, sleep: (ms) => slept.push(ms) },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   expect([loads, slept]).toEqual([4, [5, 10]]);
   const lines = await settledRunLines("test-spawn-contended-thread-load");
@@ -2921,12 +3045,9 @@ test("spawn's finalize leaves a genuinely absent thread fail-closed without retr
       },
     },
     threadFactsLoadOptions: { attempts: 3, backoffMs: 0, sleep: () => {} },
-    queryFn: () => (async function* () {
-      yield {
-        type: "result", subtype: "success", result: "done",
-        duration_ms: 1, num_turns: 1,
-      };
-    })(),
+    queryFn: (args) => wireTurnQuery(args, {
+      output: "done", turns: 1, providerDurationMs: 1,
+    }),
   });
   expect(loads).toBe(2);
   const lines = await settledRunLines("test-spawn-thread-absent");
@@ -2939,48 +3060,59 @@ test("spawn keeps omitted, reported-zero, and preflight-zero turn evidence disti
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
 
-  const terminal = (numTurns?: number) => () => (async function* () {
-    yield {
-      type: "result", subtype: "success", result: "done", duration_ms: 1,
-      ...(numTurns === undefined ? {} : { num_turns: numTurns }),
-    };
-  })();
+  const terminal = (numTurns?: number) => (args: RoutedQueryArguments): WireQuery =>
+    wireTurnQuery(args, {
+      output: "done", providerDurationMs: 1,
+      ...(numTurns === undefined ? {} : { turns: numTurns }),
+    });
 
   await spawn({
     prompt: "provider omits turn count", agentId: "test-turns-omitted",
     role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: terminal(),
   });
-  const omitted = await settledRunLines("test-turns-omitted");
-  expect(omitted.some((line) => line.includes(" num_turns "))).toBe(false);
+  const omitted = await readWireJsonl(join(dir, "agent-test-turns-omitted.stream.jsonl"));
+  const omittedTerminal = omitted.events.find((event) => event.kind === "model-call.completed");
+  expect(omittedTerminal?.kind === "model-call.completed"
+    ? omittedTerminal.evidence?.turns : undefined).toBeUndefined();
 
   await spawn({
     prompt: "provider reports zero turns", agentId: "test-turns-reported-zero",
     role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: terminal(0),
   });
-  const reportedZero = await settledRunLines("test-turns-reported-zero");
-  expect(reportedZero.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
+  const reportedZero = await readWireJsonl(
+    join(dir, "agent-test-turns-reported-zero.stream.jsonl"),
+  );
+  expect(reportedZero.events.find((event) => event.kind === "model-call.completed"))
+    .toMatchObject({ evidence: { turns: { unit: "assistant-turn", count: 0 } } });
 
   await spawn({
     prompt: "preflight blocks before provider acceptance", agentId: "test-turns-preflight-zero",
     role: "integrator", routingMetadata: presetRequest("integrator"),
     queryFn: () => { throw new ProviderRetrySafeError("test_retry_safe_preflight"); },
   });
-  const preflightZero = await settledRunLines("test-turns-preflight-zero");
-  expect(preflightZero.some((line) => line.endsWith(" process_outcome blocked_preflight"))).toBe(true);
-  expect(preflightZero.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
+  const preflightZero = await readWireJsonl(
+    join(dir, "agent-test-turns-preflight-zero.stream.jsonl"),
+  );
+  expect(preflightZero.events.filter((event) => event.kind === "model-call.started"))
+    .toHaveLength(0);
+  expect(preflightZero.events.at(-1)).toMatchObject({
+    kind: "run.terminated", lifecycle: "blocked",
+  });
 });
 
 test("dispatch keeps omitted, reported-zero, and preflight-zero turn evidence distinct", async () => {
   const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
 
-  const terminal = (numTurns?: number) => () => (async function* () {
-    yield {
-      type: "result", subtype: "success", result: "done", duration_ms: 1,
-      ...(numTurns === undefined ? {} : { num_turns: numTurns }),
-    };
-  })();
-  const dependencies = (agentId: string, queryFn: any) => ({
+  const terminal = (numTurns?: number) => (args: RoutedQueryArguments): WireQuery =>
+    wireTurnQuery(args, {
+      output: "done", providerDurationMs: 1,
+      ...(numTurns === undefined ? {} : { turns: numTurns }),
+    });
+  const dependencies = (
+    agentId: string,
+    queryFn: (args: RoutedQueryArguments) => WireQuery,
+  ) => ({
     agentId,
     routingMetadata: presetRequest("integrator"),
     claimDriver: (() => ({ release() {} })) as any,
@@ -2997,19 +3129,22 @@ test("dispatch keeps omitted, reported-zero, and preflight-zero turn evidence di
     "test-dispatch-turns-omitted",
     dependencies("test-dispatch-turns-omitted-agent", terminal()),
   );
-  const omitted = await settledRunLines(
-    "test-dispatch-turns-omitted-agent", "applied_domain_requirement_count 0",
+  const omitted = await readWireJsonl(
+    join(dir, "agent-test-dispatch-turns-omitted-agent.stream.jsonl"),
   );
-  expect(omitted.some((line) => line.includes(" num_turns "))).toBe(false);
+  const omittedTerminal = omitted.events.find((event) => event.kind === "model-call.completed");
+  expect(omittedTerminal?.kind === "model-call.completed"
+    ? omittedTerminal.evidence?.turns : undefined).toBeUndefined();
 
   await dispatch(
     "test-dispatch-turns-reported-zero",
     dependencies("test-dispatch-turns-reported-zero-agent", terminal(0)),
   );
-  const reportedZero = await settledRunLines(
-    "test-dispatch-turns-reported-zero-agent", "num_turns 0",
+  const reportedZero = await readWireJsonl(
+    join(dir, "agent-test-dispatch-turns-reported-zero-agent.stream.jsonl"),
   );
-  expect(reportedZero.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
+  expect(reportedZero.events.find((event) => event.kind === "model-call.completed"))
+    .toMatchObject({ evidence: { turns: { unit: "assistant-turn", count: 0 } } });
 
   await dispatch(
     "test-dispatch-turns-preflight-zero",
@@ -3018,28 +3153,80 @@ test("dispatch keeps omitted, reported-zero, and preflight-zero turn evidence di
       () => { throw new ProviderRetrySafeError("test_retry_safe_preflight"); },
     ),
   );
-  const preflightZero = await settledRunLines(
-    "test-dispatch-turns-preflight-zero-agent", "num_turns 0",
+  const preflightZero = await readWireJsonl(
+    join(dir, "agent-test-dispatch-turns-preflight-zero-agent.stream.jsonl"),
   );
-  expect(preflightZero.some((line) => line.endsWith(" process_outcome blocked_preflight"))).toBe(true);
-  expect(preflightZero.some((line) => line.endsWith(" num_turns 0"))).toBe(true);
+  expect(preflightZero.events.filter((event) => event.kind === "model-call.started"))
+    .toHaveLength(0);
+  expect(preflightZero.events.at(-1)).toMatchObject({
+    kind: "run.terminated", lifecycle: "blocked",
+  });
 });
+
+interface CapturedRunProjection {
+  agent: string;
+  facts: Array<[string, string]>;
+  lines: string[];
+}
+
+function capturedRunProjections(value: string): CapturedRunProjection[] {
+  const projections: CapturedRunProjection[] = [];
+  for (const line of value.split("\n")) {
+    if (!line.startsWith("run-fact\t")) continue;
+    const payload = line.split("\t").at(-1);
+    if (!payload) continue;
+    try {
+      const parsed: unknown = JSON.parse(payload);
+      if (!Array.isArray(parsed)) continue;
+      const facts = parsed as Array<[string, string]>;
+      const agent = facts.find(([predicate]) => predicate === "agent")?.[1];
+      const runId = facts.find(([predicate]) => predicate === "wire_run_id")?.[1];
+      if (!agent || !runId) continue;
+      projections.push({
+        agent,
+        facts,
+        lines: facts.map(([predicate, factValue]) =>
+          `tell ${runId} ${predicate} ${factValue}`),
+      });
+    } catch {
+      // The fake writer may still be appending its single capture line.
+    }
+  }
+  return projections;
+}
+
+function capturedLogWithRunProjections(value: string): string {
+  const projected = capturedRunProjections(value).flatMap(({ lines }) => lines);
+  return projected.length === 0 ? value : `${value}\n${projected.join("\n")}`;
+}
 
 async function waitForLog(needle: string): Promise<string> {
   for (let i = 0; i < 100; i++) {
     const value = existsSync(log) ? readFileSync(log, "utf8") : "";
-    if (value.includes(needle)) return value;
+    const observable = capturedLogWithRunProjections(value);
+    if (observable.includes(needle)) return observable;
     await Bun.sleep(10);
   }
   throw new Error(`timed out waiting for telemetry fact: ${needle}`);
 }
 
+async function waitForRunFactProjection(agent: string): Promise<Array<[string, string]>> {
+  for (let i = 0; i < 100; i++) {
+    const value = existsSync(log) ? readFileSync(log, "utf8") : "";
+    const projection = capturedRunProjections(value).find((candidate) =>
+      candidate.agent === agent);
+    if (projection) return projection.facts;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for run-fact projection: ${agent}`);
+}
+
 async function settledRunLines(agent: string, requiredSuffix = "error_count 0"): Promise<string[]> {
-  const marker = `tell run:${agent}-`;
   for (let i = 0, stable = 0, previous = ""; i < 100; i++) {
-    const lines = (existsSync(log) ? readFileSync(log, "utf8") : "")
-      .split("\n")
-      .filter((line) => line.includes(marker));
+    const value = existsSync(log) ? readFileSync(log, "utf8") : "";
+    const lines = capturedRunProjections(value)
+      .filter((projection) => projection.agent === agent)
+      .flatMap((projection) => projection.lines);
     const snapshot = lines.slice().sort().join("\n");
     const hasTailEvidence = lines.some((line) => line.endsWith(` ${requiredSuffix}`));
     if (hasTailEvidence && snapshot === previous) stable++;
@@ -3055,11 +3242,11 @@ test("public spawn composes justified explicit axes before Orchestration hydrati
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let queryOptions: any;
-  const queryFn: any = (args: any) => {
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
     queryOptions = args.options;
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "composed", duration_ms: 1, num_turns: 1 };
-    })();
+    return wireTurnQuery(args, {
+      output: "composed", turns: 1, providerDurationMs: 1,
+    });
   };
 
   await spawn({
@@ -3086,26 +3273,81 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let queryOptions: any;
-  const queryFn: any = (args: any) => {
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
     queryOptions = args.options;
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "integrated", duration_ms: 1, num_turns: 1 };
-    })();
+    return {
+      mcpActivity: () => ({
+        source: "production-path-fixture", coverage: "exact", totalCalls: 1,
+        tools: [{ server: "north", tool: "show", count: 1 }],
+        operationReceipts: [{
+          tool: "north/show", operation: "reasoning.inspect",
+          durationMs: 2, resultSize: 3, outcome: "ok",
+        }],
+        operationAggregates: [{
+          operation: "reasoning.inspect", count: 1,
+          totalDurationMs: 2, meanDurationMs: 2, failureCount: 0,
+        }],
+      }),
+      nativeCommandActivity: () => ({
+        source: "production-path-fixture", coverage: "exact", totalCommands: 1,
+        successfulCommands: 1, readCommands: 1, northBinaryProbe: "passed",
+        completions: [{
+          commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
+          status: "completed", exitCode: 0, shape: "read", durationMs: 3,
+        }],
+      }),
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        return (async function*(): AsyncGenerator<WireEvent> {
+          const modelCallId = wireModelCallId("model-call:production-provenance");
+          const messageId = wireMessageId("message:production-provenance");
+          yield args.writer.append({
+            kind: "model-call.started", modelCallId,
+            model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+            effort: "high", attempt: 1,
+          });
+          yield args.writer.append({
+            kind: "message.recorded", messageId, modelCallId,
+            stage: "started", role: "assistant",
+          });
+          yield args.writer.append({
+            kind: "message.recorded", messageId, modelCallId,
+            stage: "completed", role: "assistant", content: "integrated",
+          });
+          yield args.writer.append({
+            kind: "model-call.completed", modelCallId, status: "succeeded",
+            origin: "provider",
+            usage: {
+              lifetime: {
+                inputTokens: 10, outputTokens: 5, cacheReadTokens: 0,
+                cacheWriteTokens: 0, reasoningTokens: 0, modelCalls: 1,
+              },
+              context: { tokens: 10, window: 200_000 },
+            },
+            usageCoverage: "exact",
+            evidence: { turns: { unit: "assistant-turn", count: 1, comparable: true } },
+          });
+        })();
+      },
+    };
   };
 
-  await spawn({
-    prompt: "hydrate a role-only request", agentId: "test-role-only-integrator",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
-    pinEvidence: pinEvidence("anthropic"), queryFn,
-  });
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  try {
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    await spawn({
+      prompt: "hydrate a role-only request", agentId: "test-role-only-integrator",
+      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
+      pinEvidence: pinEvidence("anthropic"), queryFn,
+    });
+  } finally {
+    if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+    else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+  }
 
   expect(queryOptions.model).toBe("claude-opus-5");
   expect(queryOptions.effort).toBe("high");
-  const logged = await waitForLog("requested_role integrator");
-  for (const fact of [
-    "task_grade senior", "topology worker", "routing_tier senior",
-    "requested_reasoning high", "routing_posture deliver",
-  ]) expect(logged).toContain(fact);
+  const projectionFacts = await waitForRunFactProjection("test-role-only-integrator");
+  const logged = readFileSync(log, "utf8");
   for (const fact of [
     "tell agent:test-role-only-integrator provider anthropic",
     "tell agent:test-role-only-integrator provider_target anthropic",
@@ -3115,17 +3357,49 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
     "tell agent:test-role-only-integrator composition_id integrator",
     "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-orchestration-integrator-integrator",
   ]) expect(logged).toContain(fact);
+  const factValues = (predicate: string) => projectionFacts
+    .filter(([candidate]) => candidate === predicate)
+    .map(([, value]) => value);
+  for (const [predicate, value] of [
+    ["task_grade", "senior"],
+    ["topology", "worker"],
+    ["routing_tier", "senior"],
+    ["requested_reasoning", "high"],
+    ["routing_posture", "deliver"],
+  ] as const) expect(factValues(predicate)).toEqual([value]);
+  expect(factValues("provider")).toEqual(["anthropic"]);
+  expect(factValues("provider_target")).toEqual(["anthropic"]);
+  expect(factValues("requested_role")).toEqual(["integrator"]);
+  expect(factValues("routing_admission_receipt_version")).toEqual(["1"]);
+  expect(factValues("provider_catalogs_sha256")).toHaveLength(1);
+  expect(factValues("provider_catalogs_sha256")[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(factValues("learning_assignment_sha256")[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(factValues("prompt_receipt_sha256")[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(factValues("environment_receipt_sha256")[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(factValues("run_envelope_sha256")[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(factValues("prompt_composition_applied")).toEqual(["true"]);
+  expect(factValues("mcp_actual_calls")).toEqual(["1"]);
+  expect(factValues("native_command_total")).toEqual(["1"]);
+  expect(factValues("process_outcome")).toEqual(["ran"]);
+  expect(factValues("delivery_outcome")).toEqual(["unverified"]);
+  expect(factValues("error_count")).toEqual(["0"]);
+  expect(factValues("struggle_topology")).toEqual(["worker"]);
+  expect(factValues("judgment_grade_status")).toEqual(["unavailable"]);
+  expect(factValues("judgment_grade_source")).toEqual(["ad-hoc"]);
+  const encodedProjection = JSON.stringify(projectionFacts);
+  expect(encodedProjection).not.toContain(queryOptions.model);
+  expect(encodedProjection).not.toContain("completion outcome fixture");
 });
 
 test("tier-routed OpenAI identity records the resolved Sol route, not requested blanks", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
   let queryOptions: any;
-  const queryFn: any = (args: any) => {
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
     queryOptions = args.options;
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "routed", duration_ms: 1, num_turns: 1 };
-    })();
+    return wireTurnQuery(args, {
+      output: "routed", turns: 1, providerDurationMs: 1,
+    });
   };
 
   await spawn({ prompt: "route with OpenAI", agentId: "test-openai-designer",
@@ -3162,9 +3436,9 @@ test("public SpawnOptions target and Orchestration role land on exact account id
       prompt: "design on the work account", agentId: "test-target-designer",
       role: "designer", routingMetadata: presetRequest("designer"), provider: "anthropic", target: "claude-work",
       pinEvidence: pinEvidence("anthropic", "claude-work"),
-      queryFn: () => (async function* () {
-        yield { type: "result", subtype: "success", result: "designed", duration_ms: 1, num_turns: 1 };
-      })(),
+      queryFn: (args) => wireTurnQuery(args, {
+        output: "designed", turns: 1, providerDurationMs: 1,
+      }),
     });
     const logged = await waitForLog("requested_target claude-work");
     expect(logged).toContain("tell agent:test-target-designer provider_target claude-work");
@@ -3184,31 +3458,75 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   // consecutive tool errors trip the consecutive_errors sensor (STRUGGLE_ERROR_STREAK=3).
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  let modelChanged = false;
-  const queryFn: any = () => ({
-    // Present the in-flight controls; the retired machinery must never call them now.
-    setModel: async () => { modelChanged = true; },
-    applyFlagSettings: async () => { modelChanged = true; },
-    async *[Symbol.asyncIterator]() {
-      for (let i = 0; i < 3; i++) {
-        yield { type: "assistant", message: { content: [{ type: "tool_use", id: `s${i}`, name: "Bash", input: { i } }] } };
-        yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: `s${i}`, is_error: true }] } };
-      }
-      yield { type: "result", subtype: "success", result: "done anyway", duration_ms: 1, num_turns: 4 };
+  const queryFn = (args: RoutedQueryArguments): WireQuery => ({
+    [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+      return (async function*(): AsyncGenerator<WireEvent> {
+        const modelCallId = wireModelCallId("model-call:struggle-contract");
+        const messageId = wireMessageId("message:struggle-contract");
+        yield args.writer.append({
+          kind: "model-call.started", modelCallId,
+          model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+          effort: "high", attempt: 1,
+        });
+        yield args.writer.append({
+          kind: "message.recorded", messageId, modelCallId,
+          stage: "started", role: "assistant",
+        });
+        for (let index = 0; index < 3; index++) {
+          const toolCallId = wireToolCallId(`tool:struggle-contract:${index}`);
+          yield args.writer.append({
+            kind: "tool.admitted", toolCallId, modelCallId, messageId,
+            name: "Bash", argumentPreview: JSON.stringify({ index }),
+            schema: { status: "unavailable", reason: "fixture" },
+          });
+          yield args.writer.append({
+            kind: "tool.terminal", toolCallId,
+            status: "failed", origin: "provider", errorCode: "fixture_failure",
+          });
+        }
+        yield args.writer.append({
+          kind: "message.recorded", messageId, modelCallId,
+          stage: "completed", role: "assistant", content: "done anyway",
+        });
+        yield args.writer.append({
+          kind: "model-call.completed", modelCallId, status: "succeeded",
+          origin: "provider",
+          usage: {
+            lifetime: {
+              inputTokens: 3, outputTokens: 1, cacheReadTokens: 0,
+              cacheWriteTokens: 0, reasoningTokens: 0, modelCalls: 1,
+            },
+            context: { tokens: 3, window: 200_000 },
+          },
+          usageCoverage: "exact",
+          evidence: { turns: { unit: "assistant-turn", count: 1, comparable: true } },
+        });
+      })();
     },
   });
 
-  await spawn({ prompt: "hit repeated errors", agentId: "test-struggle-lane",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
-    provider: "anthropic", pinEvidence: pinEvidence("anthropic"), queryFn });
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  try {
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    await spawn({ prompt: "hit repeated errors", agentId: "test-struggle-lane",
+      role: "integrator", routingMetadata: presetRequest("integrator"),
+      provider: "anthropic", pinEvidence: pinEvidence("anthropic"), queryFn });
+  } finally {
+    if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+    else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+  }
 
-  const logged = await waitForLog("struggle consecutive_errors");
-  expect(logged).toContain("struggle consecutive_errors");
-  expect(logged).toContain("struggle_detector_policy_version north:struggle-observer:v1");
-  expect(logged).toContain("struggle_error_streak_threshold 3");
-  console.log(`[bar-evidence] ${logged.split("\n").find((l) => l.includes("struggle consecutive_errors"))}`);
+  const facts = await waitForRunFactProjection("test-struggle-lane");
+  const factValues = (predicate: string) => facts
+    .filter(([candidate]) => candidate === predicate)
+    .map(([, value]) => value);
+  expect(factValues("struggle")).toEqual(["consecutive_errors"]);
+  expect(factValues("error_count")).toEqual(["3"]);
+  expect(factValues("struggle_detector_policy_version"))
+    .toEqual(["north:struggle-observer:v1"]);
+  expect(factValues("struggle_error_streak_threshold")).toEqual(["3"]);
   // The run still finished normally at its immutable admitted route.
-  expect(modelChanged).toBe(false);
+  const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell agent:test-struggle-lane model claude-opus-5");
   expect(logged).not.toContain("outcome provider_escalation_unsupported");
 });

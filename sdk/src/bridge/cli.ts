@@ -2,21 +2,22 @@ import { spawn } from "node:child_process";
 import { unlinkSync } from "node:fs";
 import { Socket } from "node:net";
 import { resolve } from "node:path";
+import { run_northbridge_app_bang } from "./generated/north/bridge/app.js";
+import { runBridgeAcceptance } from "./accept";
+import type { WireEvent } from "../wire/events";
 import {
   bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole, pinningExecutions,
-  type BridgeHello, type BridgeLaunchProvider, type BridgeLaunchRole,
-  type BridgeRequest,
+  type BridgeHello, type BridgeLaunchProvider, type BridgeLaunchRole, type BridgeRequest,
+  type BridgeServerMessage,
 } from "./protocol";
-import type { JournalRecord, TornTail } from "./journal";
+import type { JournalRecord } from "./journal";
 import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
 
-type ServerMessage =
-  | BridgeHello
-  | { type: "launched"; executionId: string }
-  | { type: "controlled"; executionId: string; control: string; delivery: string }
-  | { type: "event"; record: JournalRecord }
-  | { type: "barrier"; executionId: string; cursor: number; tornTail?: TornTail }
-  | { type: "error"; message: string };
+export interface BridgeLaunchArguments {
+  role: BridgeLaunchRole;
+  provider?: BridgeLaunchProvider;
+  promptArguments: string[];
+}
 
 function usage(): never {
   console.error(
@@ -32,11 +33,7 @@ function usage(): never {
   process.exit(2);
 }
 
-export function parseBridgeLaunchArguments(args: string[]): {
-  role: BridgeLaunchRole;
-  provider?: BridgeLaunchProvider;
-  promptArguments: string[];
-} {
+export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArguments {
   let role: BridgeLaunchRole = "implementer";
   let provider: BridgeLaunchProvider | undefined;
   let index = 0;
@@ -83,12 +80,6 @@ async function runApp(args: string[]): Promise<number> {
     viewId = rest[1];
   }
   process.env.NORTH_BIN ??= resolve(import.meta.dir, "../../../bin/north");
-  const appModule = new URL("./generated/north/bridge/app.js", import.meta.url).href;
-  const { run_northbridge_app_bang } = await import(appModule) as {
-    run_northbridge_app_bang(
-      options: { viewId?: string; sourceIdentity?: string },
-    ): Promise<unknown>;
-  };
   // The checkout the app is running from, which is the same identity the
   // staleness handshake is fought over. The banner prints its short form, so
   // "which North Bridge am I looking at" is answerable from the screen.
@@ -138,26 +129,26 @@ function runDashboard(args: string[]): Promise<number> {
     stdio: "inherit",
     env: process.env,
   });
-  return new Promise((resolveExit, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code) => resolveExit(code ?? 1));
-  });
+  const result = Promise.withResolvers<number>();
+  child.once("error", result.reject);
+  child.once("exit", (code) => result.resolve(code ?? 1));
+  return result.promise;
 }
 
 function openSocket(path: string): Promise<Socket> {
-  return new Promise((resolveSocket, reject) => {
-    // Listeners first, then connect: a missing or dead socket path can fail
-    // during the connect call itself, and an error emitted before anything is
-    // listening is an uncaught error rather than this promise's rejection.
-    const socket = new Socket();
-    const onError = (error: Error) => { socket.destroy(); reject(error); };
-    socket.once("error", onError);
-    socket.once("connect", () => {
-      socket.off("error", onError);
-      resolveSocket(socket);
-    });
-    socket.connect(path);
+  const result = Promise.withResolvers<Socket>();
+  // Listeners first, then connect: a missing or dead socket path can fail
+  // during the connect call itself, and the error belongs to the returned
+  // promise rather than the process error channel.
+  const socket = new Socket();
+  const onError = (error: Error) => { socket.destroy(); result.reject(error); };
+  socket.once("error", onError);
+  socket.once("connect", () => {
+    socket.off("error", onError);
+    result.resolve(socket);
   });
+  socket.connect(path);
+  return result.promise;
 }
 
 async function connectedSocket(path: string): Promise<Socket> {
@@ -180,26 +171,32 @@ async function connectedSocket(path: string): Promise<Socket> {
 }
 
 export function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | null> {
-  return new Promise((resolveHello) => {
-    let buffer = "";
-    const finish = (value: BridgeHello | null) => {
-      clearTimeout(timer);
-      socket.off("data", onData);
-      resolveHello(value);
-    };
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    const onData = (chunk: string) => {
-      buffer += chunk;
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) return;
-      try {
-        const message = JSON.parse(buffer.slice(0, newline)) as ServerMessage;
-        finish(message.type === "hello" ? message : null);
-      } catch { finish(null); }
-    };
-    socket.setEncoding("utf8");
-    socket.on("data", onData);
-  });
+  const result = Promise.withResolvers<BridgeHello | null>();
+  let buffer = "";
+  const finish = (value: BridgeHello | null) => {
+    clearTimeout(timer);
+    socket.off("data", onData);
+    result.resolve(value);
+  };
+  const onData = (chunk: string) => {
+    buffer += chunk;
+    const newline = buffer.indexOf("\n");
+    if (newline < 0) return;
+    try {
+      const message = JSON.parse(buffer.slice(0, newline)) as BridgeServerMessage;
+      finish(message.type === "hello" ? message : null);
+    } catch { finish(null); }
+  };
+  const timer = setTimeout(() => finish(null), timeoutMs);
+  socket.setEncoding("utf8");
+  socket.on("data", onData);
+  return result.promise;
+}
+
+function socketClosed(socket: Socket): Promise<void> {
+  const result = Promise.withResolvers<void>();
+  socket.once("close", () => result.resolve());
+  return result.promise;
 }
 
 export interface BridgeConnection {
@@ -247,7 +244,7 @@ export async function verifiedSocket(path: string): Promise<BridgeConnection> {
       replacedFrom = hello.identity;
       replaced = true;
       socket.write(`${JSON.stringify({ op: "retire" })}\n`);
-      await new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
+      await socketClosed(socket);
     } else {
       socket.destroy();
       try { unlinkSync(path); } catch { /* replaced concurrently */ }
@@ -282,7 +279,7 @@ export async function runBridgeRestart(path: string): Promise<number> {
   if (socket !== undefined) {
     const hello = await readHello(socket, 750);
     retiredFrom = hello?.identity;
-    const closed = new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
+    const closed = socketClosed(socket);
     socket.write(`${JSON.stringify({ op: "retire" })}\n`);
     await closed;
     let gone = false;
@@ -312,47 +309,52 @@ function renderRecord(record: JournalRecord): string {
   return `[${record.seq}] ${record.kind}${data}`;
 }
 
+export function renderWireEvent(event: WireEvent): string {
+  return `[${event.sequence + 1}] ${event.kind} ${JSON.stringify(event)}`;
+}
+
 function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
-  return new Promise((resolveExit) => {
-    let buffer = "";
-    let exitCode = 0;
-    socket.setEncoding("utf8");
-    socket.on("data", (chunk: string) => {
-      buffer += chunk;
-      while (true) {
-        const newline = buffer.indexOf("\n");
-        if (newline < 0) break;
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (!line) continue;
-        const message = JSON.parse(line) as ServerMessage;
-        if (message.type === "hello") continue;
-        if (message.type === "launched") console.log(`execution ${message.executionId}`);
-        else if (message.type === "controlled")
-          console.log(`${message.executionId} ${message.delivery}`);
-        else if (message.type === "event") console.log(renderRecord(message.record));
-        else if (message.type === "barrier") {
-          console.log(`attached ${message.executionId} at ${message.cursor}`);
-          if (message.tornTail) {
-            console.error(
-              `torn journal tail at byte ${message.tornTail.offset}: `
-              + `${message.tornTail.availableBytes}/${message.tornTail.requiredBytes} bytes`,
-            );
-            exitCode = 1;
-          }
-        } else {
-          console.error(`north bridge: ${message.message}`);
+  const result = Promise.withResolvers<number>();
+  let buffer = "";
+  let exitCode = 0;
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk: string) => {
+    buffer += chunk;
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      const message = JSON.parse(line) as BridgeServerMessage;
+      if (message.type === "hello") continue;
+      if (message.type === "launched") console.log(`execution ${message.executionId}`);
+      else if (message.type === "controlled")
+        console.log(`${message.executionId} ${message.delivery}`);
+      else if (message.type === "event") console.log(renderRecord(message.record));
+      else if (message.type === "wire") console.log(renderWireEvent(message.event));
+      else if (message.type === "barrier") {
+        console.log(`attached ${message.executionId} at ${message.cursor}`);
+        if (message.tornTail) {
+          console.error(
+            `torn journal tail at byte ${message.tornTail.offset}: `
+            + `${message.tornTail.availableBytes}/${message.tornTail.requiredBytes} bytes`,
+          );
           exitCode = 1;
         }
+      } else {
+        console.error(`north bridge: ${message.message}`);
+        exitCode = 1;
       }
-    });
-    socket.once("error", (error) => {
-      console.error(`north bridge: ${error.message}`);
-      exitCode = 1;
-    });
-    socket.once("close", () => resolveExit(exitCode));
-    socket.write(`${JSON.stringify(request)}\n`);
+    }
   });
+  socket.once("error", (error) => {
+    console.error(`north bridge: ${error.message}`);
+    exitCode = 1;
+  });
+  socket.once("close", () => result.resolve(exitCode));
+  socket.write(`${JSON.stringify(request)}\n`);
+  return result.promise;
 }
 
 async function main(args: string[]): Promise<number> {
@@ -372,7 +374,6 @@ async function main(args: string[]): Promise<number> {
   }
   if (args[0] === "accept") {
     if (args.length !== 1) usage();
-    const { runBridgeAcceptance } = await import("./accept");
     try { await runBridgeAcceptance(); return 0; }
     catch { return 1; }
   }
@@ -397,7 +398,7 @@ async function main(args: string[]): Promise<number> {
     if (!executionId || args.length !== 2) usage();
     request = { op: "interruptTurn", executionId };
   } else {
-    let launch: ReturnType<typeof parseBridgeLaunchArguments>;
+    let launch: BridgeLaunchArguments;
     try { launch = parseBridgeLaunchArguments(args); }
     catch { usage(); }
     let prompt = launch.promptArguments.join(" ").trim();

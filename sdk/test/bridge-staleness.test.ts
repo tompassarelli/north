@@ -5,12 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
 import type {
-  BridgeProviderExecution, BridgeProviderSession, NormalizedProviderEvent,
+  BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
 } from "../src/bridge/provider";
+import type { BridgeServerMessage } from "../src/bridge/protocol";
+import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 interface Client {
   socket: Socket;
-  messages: any[];
+  messages: BridgeServerMessage[];
   closed: Promise<void>;
 }
 
@@ -21,11 +23,11 @@ afterEach(async () => {
 
 async function client(socketPath: string, request: object): Promise<Client> {
   const socket = connect(socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", reject);
-  });
-  const messages: any[] = [];
+  const connected = Promise.withResolvers<void>();
+  socket.once("connect", () => connected.resolve());
+  socket.once("error", connected.reject);
+  await connected.promise;
+  const messages: BridgeServerMessage[] = [];
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
@@ -33,13 +35,14 @@ async function client(socketPath: string, request: object): Promise<Client> {
     while (true) {
       const newline = buffer.indexOf("\n");
       if (newline < 0) break;
-      messages.push(JSON.parse(buffer.slice(0, newline)));
+      messages.push(JSON.parse(buffer.slice(0, newline)) as BridgeServerMessage);
       buffer = buffer.slice(newline + 1);
     }
   });
-  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  const closed = Promise.withResolvers<void>();
+  socket.once("close", () => closed.resolve());
   socket.write(`${JSON.stringify(request)}\n`);
-  return { socket, messages, closed };
+  return { socket, messages, closed: closed.promise };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -48,32 +51,18 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   if (!condition()) throw new Error(`timed out waiting for ${label}`);
 }
 
-class IdleSession implements BridgeProviderSession {
-  private ended = false;
-  private wake?: () => void;
-
-  async submitInput(): Promise<void> {}
-  async interruptTurn(): Promise<void> {}
-  async terminateSession(): Promise<void> {
-    this.ended = true;
-    this.wake?.();
-    this.wake = undefined;
-  }
-
-  async *events(): AsyncIterable<NormalizedProviderEvent> {
-    while (!this.ended) await new Promise<void>((resolve) => { this.wake = resolve; });
-  }
-}
-
 async function fixture(
   identity: () => string | undefined,
-  open?: () => Promise<BridgeProviderSession>,
+  open?: (context: BridgeProviderOpenContext) => Promise<BridgeProviderSession>,
 ) {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-staleness-"));
   const socketPath = join(root, "northd.sock");
   let opens = 0;
   const provider: BridgeProviderExecution = {
-    async open() { opens += 1; return open ? open() : new IdleSession(); },
+    async open(context) {
+      opens += 1;
+      return open ? open(context) : new BridgeWireTestSession(context);
+    },
   };
   let retired = 0;
   const northd = new Northd({
@@ -136,15 +125,17 @@ test("live executions pin a stale daemon and new launches fail explicitly", asyn
   const refused = await client(socketPath, { op: "launch", prompt: "again", cwd: "/" });
   await refused.closed;
   const failed = refused.messages.find((message) =>
-    message.type === "event" && message.record.kind === "execution.failed");
+    message.type === "event" && message.record.kind === "execution.failure");
   // `live` counts the sessions actually pinning the daemon, never the refused
   // launch itself, so a client can name why the daemon has not retired yet.
-  expect(failed.record.data).toEqual({
+  expect(failed?.type === "event" ? failed.record.data : undefined).toEqual({
     message: "bridge_daemon_source_stale", loaded: "rev-a", disk: "rev-b", live: 1,
   });
   expect(openCount()).toBe(1);
 
-  const launchedId = live.messages.find((message) => message.type === "launched").executionId;
+  const launchMessage = live.messages.find((message) => message.type === "launched");
+  if (!launchMessage || launchMessage.type !== "launched") throw new Error("launch id missing");
+  const launchedId = launchMessage.executionId;
   await client(socketPath, { op: "terminateSession", executionId: launchedId });
   await waitFor(() => retireCount() === 1, "retirement after termination");
 });
@@ -177,6 +168,7 @@ test("every connection opens with an identity hello", async () => {
   const session = await client(socketPath, { op: "attach", executionId: "missing", cursor: 0 });
   await waitFor(() => session.messages.length > 0, "hello");
   const hello = session.messages[0];
+  if (!hello || hello.type !== "hello") throw new Error("hello missing");
   expect(hello.type).toBe("hello");
   expect(hello.identity).toBe("rev-a");
   expect(hello.liveExecutions).toBe(0);
@@ -190,7 +182,7 @@ async function liveExecutions(socketPath: string): Promise<number> {
   const hello = probe.messages[0];
   probe.socket.destroy();
   await probe.closed;
-  expect(hello.type).toBe("hello");
+  if (!hello || hello.type !== "hello") throw new Error("hello missing");
   return hello.liveExecutions;
 }
 
@@ -206,7 +198,7 @@ test("a session whose provider refuses at admit stops holding the daemon open", 
   const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
   await waitFor(
     () => launched.messages.some((message) =>
-      message.type === "event" && message.record.kind === "execution.failed"),
+      message.type === "event" && message.record.kind === "execution.failure"),
     "provider refusal",
   );
   expect(await liveExecutions(socketPath)).toBe(0);
@@ -218,20 +210,24 @@ test("a session whose provider refuses at admit stops holding the daemon open", 
   await waitFor(() => !existsSync(socketPath), "socket teardown");
 });
 
-// The failure the daemon cannot even write down: the provider's error is larger
-// than a journal record, so the terminal record fails too. Liveness follows the
-// provider, never the journal, or an execution nobody can finish pins the
-// daemon against replacement.
-test("a failure the journal cannot record still releases the daemon", async () => {
+test("oversized provider prose is omitted from Bridge evidence and releases the daemon", async () => {
   let disk = "rev-a";
   const { socketPath, retireCount } = await fixture(() => disk, async () => {
     throw new Error("x".repeat(9 * 1024 * 1024));
   });
   const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
   await waitFor(
-    () => launched.messages.some((message) => message.type === "error"),
-    "unjournalable failure reported to the client",
+    () => launched.messages.some((message) =>
+      message.type === "event" && message.record.kind === "execution.failure"),
+    "bounded failure",
   );
+  const failure = launched.messages.find((message) =>
+    message.type === "event" && message.record.kind === "execution.failure");
+  expect(failure?.type === "event" ? failure.record.data : undefined).toEqual({
+    code: "provider_error",
+    classification: "provider_failure",
+  });
+  expect(JSON.stringify(launched.messages)).not.toContain("x".repeat(1_024));
   expect(await liveExecutions(socketPath)).toBe(0);
   launched.socket.destroy();
 
@@ -244,6 +240,6 @@ test("retire op retires an idle daemon on demand", async () => {
   const session = await client(socketPath, { op: "retire" });
   await session.closed;
   const accepted = session.messages.find((message) => message.type === "controlled");
-  expect(accepted.control).toBe("retire");
+  expect(accepted?.type === "controlled" ? accepted.control : undefined).toBe("retire");
   await waitFor(() => retireCount() === 1, "retire on demand");
 });

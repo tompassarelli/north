@@ -1,7 +1,6 @@
 (ns north.run-ledger
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
-            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def ^:private repo-root
@@ -9,18 +8,25 @@
           .getParentFile .getParentFile str))
 (def contract
   (json/parse-string
-   (slurp (str repo-root "/contracts/agent-run-ledger-v1.json"))))
+   (slurp (str repo-root "/contracts/agent-run-ledger-v2.json"))))
 (def version (get contract "version"))
-(def event-types (vec (keys (get contract "eventTypes"))))
-(def event-type-set (set event-types))
-(def coverage-values (set (get contract "coverage")))
+(def wire-version (get contract "wireVersion"))
+(def max-events (get-in contract ["bounds" "maxEventsPerRun"]))
+(def max-event-bytes (get-in contract ["bounds" "maxCanonicalEventBytes"]))
+(def max-batch-events (get-in contract ["bounds" "maxBatchEvents"]))
+(def max-projection-batch-bytes (get-in contract ["bounds" "maxProjectionBatchBytes"]))
+(def max-telemetry-projection-bytes
+  (get-in contract ["bounds" "maxTelemetryProjectionBytes"]))
+(def event-predicates (set (get contract "predicates")))
 
-(def event-predicates
-  #{"kind" "agent_run_ledger_version" "run" "thread" "agent"
-    "parent_run" "parent_thread" "run_coordinator" "run_event_sequence"
-    "run_event_type" "run_event_observed_at" "run_event_source"
-    "run_event_coverage" "run_event_data" "run_event_sha256"
-})
+(def ^:private required-event-predicates
+  #{"kind" "wire_ledger_version" "wire_version" "wire_run_id" "thread" "agent"
+    "wire_event_id" "wire_event_sequence" "wire_event_at" "wire_event_kind"
+    "wire_event_essential" "wire_event_json" "wire_event_sha256"})
+(def ^:private identifier-pattern #"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$")
+(def ^:private wire-id-pattern #"^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$")
+(def ^:private entity-pattern #"^@?[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
+(def ^:private digest-pattern #"^[a-f0-9]{64}$")
 
 (defn fail! [message data] (throw (ex-info message data)))
 
@@ -38,136 +44,150 @@
                         (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8))]
     (apply str (map #(format "%02x" (bit-and 0xff %)) digest))))
 
-(def ^:private identifier-pattern #"^[A-Za-z0-9][A-Za-z0-9_.:/-]*$")
-(def ^:private digest-pattern #"^[a-f0-9]{64}$")
-(def ^:private entity-pattern #"^@?(?:run:[A-Za-z0-9_.:-]+|[A-Za-z0-9][A-Za-z0-9_.:-]*)$")
-
 (defn canonical-entity [value label]
   (when-not (and (string? value) (re-matches entity-pattern value))
-    (fail! (str "invalid run ledger " label) {:value value}))
+    (fail! (str "invalid wire ledger " label) {:value value}))
   (if (str/starts-with? value "@") value (str "@" value)))
 
-(defn validate-payload! [event-type payload]
-  (let [spec (get-in contract ["eventTypes" event-type])
-        allowed (set (get spec "allowed"))
-        required (set (get spec "required"))
-        fields (set (keys payload))
-        max-length (get-in contract ["privacy" "maxIdentifierLength"])
-        forbidden (get-in contract ["privacy" "forbiddenKeyFragments"])]
-    (when-not spec (fail! "unsupported run ledger event type" {:type event-type}))
-    (when-not (map? payload) (fail! "run ledger event payload must be an object" {}))
-    (when-let [missing (seq (set/difference required fields))]
-      (fail! "run ledger event payload is missing required fields" {:missing missing}))
-    (when-let [extra (seq (set/difference fields allowed))]
-      (fail! "run ledger event payload has unexpected fields" {:extra extra}))
-    (doseq [[field value] payload
-            :let [normalized (str/lower-case field)
-                  kind (get-in contract ["fieldKinds" field])]]
-      (when (some #(str/includes? normalized %) forbidden)
-        (fail! "privacy-forbidden run ledger field" {:field field}))
-      (case kind
-        "count" (when-not (and (integer? value) (<= 0 value) (<= value 9007199254740991))
-                  (fail! "invalid run ledger count" {:field field :value value}))
-        "digest" (when-not (and (string? value) (re-matches digest-pattern value))
-                   (fail! "invalid run ledger digest" {:field field}))
-        "entity" (canonical-entity value field)
-        "identifier" (when-not (and (string? value)
-                                     (<= (count value) max-length)
-                                     (re-matches identifier-pattern value))
-                       (fail! "invalid run ledger identifier" {:field field}))
-        (fail! "run ledger contract has an unknown field kind" {:field field :kind kind})))
-    payload))
+(defn event-subject [run sequence]
+  (str "@run:wire-event-"
+       (sha256 (str "north-wire-event-subject:v2\u0000" run "\u0000" sequence))))
+
+(defn run-summary-subject [run]
+  (when-not (and (string? run) (re-matches wire-id-pattern run))
+    (fail! "invalid wire run id" {:value run}))
+  (if (re-matches #"^run:[A-Za-z0-9][A-Za-z0-9._:-]*$" run)
+    (str "@" run)
+    (str "@run:wire-summary-"
+         (sha256 (str "north-wire-run-summary-subject:v2\u0000" run)))))
 
 (defn- singleton-map [facts]
   (let [grouped (group-by first facts)]
     (doseq [[predicate entries] grouped]
       (when (> (count entries) 1)
-        (fail! "run event predicates must be singleton"
+        (fail! "wire event predicates must be singleton"
                {:predicate predicate :values (mapv second entries)})))
     (into {} (map (fn [[predicate entries]] [predicate (second (first entries))])) grouped)))
+
+(defn- parse-sequence [value]
+  (let [sequence (parse-long (or value ""))]
+    (when-not (and sequence (<= 0 sequence) (< sequence max-events))
+      (fail! "invalid wire event sequence" {:value value}))
+    sequence))
+
+(defn- parse-instant! [value]
+  (try
+    (java.time.Instant/parse value)
+    (catch Exception _ (fail! "invalid wire event timestamp" {:value value}))))
+
+(defn- parse-event-json! [raw]
+  (when-not (and (string? raw)
+                 (<= (alength (.getBytes raw java.nio.charset.StandardCharsets/UTF_8))
+                     max-event-bytes)
+                 (not (str/includes? raw "\n"))
+                 (not (str/includes? raw "\r")))
+    (fail! "wire event JSON is missing, multiline, or oversized" {}))
+  (let [event (try
+                (json/parse-string raw)
+                (catch Exception error
+                  (fail! "invalid wire event JSON" {:cause (.getMessage error)})))]
+    (when-not (map? event) (fail! "wire event JSON must encode an object" {}))
+    ;; TypeScript's encodeWireJsonlLine is the canonical-byte authority. Do not
+    ;; reserialize here: Cheshire and ECMAScript format exponent numbers
+    ;; differently. The exact bytes are retained and authenticated below.
+    event))
 
 (defn validate-event-facts! [subject facts]
   (let [unknown (seq (remove event-predicates (map first facts)))
         scalar (singleton-map facts)
-        event-type (get scalar "run_event_type")
-        sequence (parse-long (or (get scalar "run_event_sequence") ""))
-        payload (try (json/parse-string (or (get scalar "run_event_data") ""))
-                     (catch Exception error
-                       (fail! "invalid run event data JSON" {:cause (.getMessage error)})))
-        run (canonical-entity (get scalar "run") "run")
+        missing (seq (remove #(contains? scalar %) required-event-predicates))
+        raw (get scalar "wire_event_json")
+        event (parse-event-json! raw)
+        sequence (parse-sequence (get scalar "wire_event_sequence"))
+        run (get scalar "wire_run_id")
         thread (if (= "(ad-hoc)" (get scalar "thread"))
                  "(ad-hoc)"
                  (canonical-entity (get scalar "thread") "thread"))
         agent (get scalar "agent")
-        source (get scalar "run_event_source")
-        observed-at (get scalar "run_event_observed_at")
-        coverage (get scalar "run_event_coverage")]
-    (when unknown (fail! "run event contains unknown predicates" {:predicates unknown}))
-    (when-not (= "run_event" (get scalar "kind"))
-      (fail! "run event requires kind=run_event" {}))
-    (when-not (= version (get scalar "agent_run_ledger_version"))
-      (fail! "unsupported run ledger version" {:version (get scalar "agent_run_ledger_version")}))
-    (when-not (and sequence (<= 0 sequence)) (fail! "invalid run event sequence" {}))
+        event-id (get scalar "wire_event_id")
+        event-kind (get scalar "wire_event_kind")
+        event-at (get scalar "wire_event_at")
+        essential (get scalar "wire_event_essential")
+        digest (sha256 raw)
+        expected-subject (event-subject run sequence)]
+    (when unknown (fail! "wire event contains unknown predicates" {:predicates unknown}))
+    (when missing (fail! "wire event is missing required predicates" {:predicates missing}))
+    (when-not (= "wire_event" (get scalar "kind"))
+      (fail! "wire event requires kind=wire_event" {}))
+    (when-not (= version (get scalar "wire_ledger_version"))
+      (fail! "unsupported wire ledger version" {:version (get scalar "wire_ledger_version")}))
+    (when-not (= wire-version (get scalar "wire_version") (get event "version"))
+      (fail! "wire event version mismatch" {}))
     (when-not (and (string? agent) (re-matches identifier-pattern agent))
-      (fail! "invalid run event agent" {}))
-    (when-not (and (string? source) (re-matches identifier-pattern source))
-      (fail! "invalid run event source" {}))
-    (when-not (coverage-values coverage) (fail! "invalid run event coverage" {}))
-    (try (java.time.Instant/parse observed-at)
-         (catch Exception _ (fail! "invalid run event observed_at" {})))
-    (validate-payload! event-type payload)
-    (let [unsigned (cond-> {"version" version
-                            "run" run "thread" thread "agent" agent
-                            "sequence" sequence "type" event-type
-                            "observedAt" observed-at "source" source
-                            "coverage" coverage "payload" payload}
-                     (get scalar "parent_run")
-                     (assoc "parentRun" (canonical-entity (get scalar "parent_run") "parent_run"))
-                     (get scalar "parent_thread")
-                     (assoc "parentThread" (canonical-entity (get scalar "parent_thread") "parent_thread"))
-                     (get scalar "run_coordinator")
-                     (assoc "coordinator" (get scalar "run_coordinator")))
-          digest (sha256 (canonical-json unsigned))
-          run-tail (str/replace run #"^@run:" "")
-          expected-subject (format "@run:%s:event:%08d" run-tail sequence)]
-      (when-not (= digest (get scalar "run_event_sha256"))
-        (fail! "run event digest mismatch" {:expected digest}))
-      (when-not (= expected-subject (canonical-entity subject "event subject"))
-        (fail! "run event subject does not match its identity and digest"
-               {:expected expected-subject :actual subject}))
-      (assoc unsigned "subject" expected-subject "digest" digest))))
+      (fail! "invalid wire event agent" {}))
+    (when-not (and (string? event-id) (re-matches wire-id-pattern event-id))
+      (fail! "invalid wire event id" {}))
+    (when-not (and (string? run) (re-matches wire-id-pattern run))
+      (fail! "invalid wire run id" {}))
+    (when-not (and (string? event-kind) (not (str/blank? event-kind))
+                   (<= (count event-kind) 128))
+      (fail! "invalid wire event kind" {}))
+    (when-not (#{"true" "false"} essential)
+      (fail! "invalid wire event essential flag" {}))
+    (parse-instant! event-at)
+    (when-let [parent-thread (get scalar "parent_thread")]
+      (canonical-entity parent-thread "parent_thread"))
+    (when-let [coordinator (get scalar "run_coordinator")]
+      (when-not (re-matches identifier-pattern coordinator)
+        (fail! "invalid wire event coordinator" {})))
+    (when-not (and (= run (get event "runId"))
+                   (= sequence (get event "sequence"))
+                   (= event-id (get event "id"))
+                   (= event-kind (get event "kind"))
+                   (= event-at (get event "at"))
+                   (= (= essential "true") (get event "essential")))
+      (fail! "wire event envelope differs from its indexed facts" {}))
+    (when-not (and (vector? (get event "requiredSemantics"))
+                   (every? #(and (string? %) (not (str/blank? %)))
+                           (get event "requiredSemantics")))
+      (fail! "wire event requiredSemantics is malformed" {}))
+    (when-not (and (re-matches digest-pattern (or (get scalar "wire_event_sha256") ""))
+                   (= digest (get scalar "wire_event_sha256")))
+      (fail! "wire event digest mismatch" {:expected digest}))
+    (when-not (= expected-subject (canonical-entity subject "event subject"))
+      (fail! "wire event subject does not match run and sequence"
+             {:expected expected-subject :actual subject}))
+    {"subject" expected-subject
+     "run" run
+     "thread" thread
+     "agent" agent
+     "parentThread" (get scalar "parent_thread")
+     "coordinator" (get scalar "run_coordinator")
+     "sequence" sequence
+     "id" event-id
+     "at" event-at
+     "kind" event-kind
+     "essential" (= essential "true")
+     "json" raw
+     "digest" digest
+     "event" event}))
 
-(defn timeline [run-id header events]
-  (let [canonical-run (canonical-entity run-id "run")
+(defn ledger-digest [events]
+  (sha256 (canonical-json (mapv #(get % "digest") events))))
+
+(defn timeline [run-id events]
+  (let [run run-id
         ordered (vec (sort-by #(get % "sequence") events))
         sequences (mapv #(get % "sequence") ordered)
         expected (vec (range (count ordered)))
-        event-by-type (group-by #(get % "type") ordered)
-        observations
-        (mapv (fn [event-type]
-                (if-let [observed (seq (get event-by-type event-type))]
-                  {:type event-type :status :observed
-                   :coverage (get (last observed) "coverage")
-                   :source (get (last observed) "source")
-                   :events (vec observed)}
-                  {:type event-type :status :unknown
-                   :coverage "unknown" :source "unavailable" :events []}))
-              event-types)
-        header-count (some-> (get header "run_event_count") parse-long)
-        header-digest (get header "run_event_ledger_sha256")
-        actual-digest (when (seq ordered)
-                        (sha256 (canonical-json (mapv #(get % "digest") ordered))))]
-    {:run canonical-run
-     :thread (get header "thread")
-     :agent (get header "agent")
-     :parent-run (get header "parent_run")
-     :parent-thread (get header "parent_thread")
-     :coordinator (get header "run_coordinator")
+        terminal (last ordered)]
+    {:run run
+     :thread (get (first ordered) "thread")
+     :agent (get (first ordered) "agent")
+     :parent-thread (get (first ordered) "parentThread")
+     :coordinator (get (first ordered) "coordinator")
      :events ordered
-     :observations observations
      :valid-order? (= expected sequences)
-     :finalized? (and (= "terminal_cleanup" (get (last ordered) "type"))
-                      (= (dec (count ordered))
-                         (some-> (get header "run_event_terminal_sequence") parse-long)))
-     :header-count-valid? (or (nil? header-count) (= header-count (count ordered)))
-     :header-digest-valid? (or (nil? header-digest) (= header-digest actual-digest))}))
+     :finalized? (and (= "run.terminated" (get terminal "kind"))
+                      (= (dec (count ordered)) (get terminal "sequence")))
+     :digest (when (seq ordered) (ledger-digest ordered))}))

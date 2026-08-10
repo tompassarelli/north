@@ -20,7 +20,8 @@ import type {
   WorktreeAllocationEvent,
   WorktreeAllocationRegistration,
 } from "../src/worktree";
-import { ProviderRetrySafeError } from "../src/providers";
+import { ProviderRetrySafeError, type RoutedQueryArguments } from "../src/providers";
+import { wireTurnQuery } from "./support/wire-query";
 
 let dir: string;      // fake-north sandbox
 let log: string;      // fake-north invocation log
@@ -44,12 +45,10 @@ const TEST_COORDINATOR = `test-coordinator-${process.pid}`;
 
 // A fake SDK query that CAPTURES the Options it was handed, then yields a single clean
 // `result` turn so spawn() finalizes outcome=`ran` (the only worktree-removal case).
-function capturingQuery(sink: { options?: any }) {
-  return (args: any) => {
+function capturingQuery(sink: { options?: RoutedQueryArguments["options"] }) {
+  return (args: RoutedQueryArguments) => {
     sink.options = args.options;
-    return (async function* () {
-      yield { type: "result", subtype: "success", result: "done" };
-    })();
+    return wireTurnQuery(args, { output: "done" });
   };
 }
 
@@ -147,14 +146,14 @@ afterAll(() => {
 
 test("explicit worktree:false refuses managed mutation before canonical mutation", async () => {
   const { spawn } = await import("./support/spawn");
-  const sink: { options?: any } = {};
+  const sink: { options?: RoutedQueryArguments["options"] } = {};
   const agentId = "wt-off-1";
   let providerQueries = 0;
   let thrown: unknown;
   try { await spawn({
     prompt: "trivial default lane", agentId, worktree: false,
     routingMetadata: presetRequest("integrator"),
-    queryFn: (args: any) => {
+    queryFn: (args: RoutedQueryArguments) => {
       providerQueries++;
       return capturingQuery(sink)(args);
     },
@@ -179,7 +178,7 @@ test("mutation-capable spawn composes worktree=true without AGENT_WORKTREE", asy
   const { spawn } = await import("./support/spawn");
   delete process.env.AGENT_WORKTREE;
   process.chdir(repo);
-  const sink: { options?: any } = {};
+  const sink: { options?: RoutedQueryArguments["options"] } = {};
   const agentId = "wt-default-mutation-1";
   const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
   const registrations: WorktreeAllocationRegistration[] = [];
@@ -202,14 +201,14 @@ test("mutation-capable spawn composes worktree=true without AGENT_WORKTREE", asy
 
   expect(registrations).toHaveLength(1);
   expect(registrations[0].worktree).toBe(expectedPath);
-  expect(sink.options.cwd).toBe(expectedPath);
-  expect(sink.options.systemPrompt).toContain("Worktree isolation");
+  expect(sink.options!.cwd).toBe(expectedPath);
+  expect(sink.options!.systemPrompt).toContain("Worktree isolation");
 });
 
 test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, facts written, clean ran removes it", async () => {
   const { spawn } = await import("./support/spawn");
   process.chdir(repo); // spawn reads repoRoot = process.cwd()
-  const sink: { options?: any } = {};
+  const sink: { options?: RoutedQueryArguments["options"] } = {};
   const agentId = "wt-on-1";
   const expectedPath = `/tmp/${require("node:path").basename(repo)}-lane-${agentId}`;
   const registrations: WorktreeAllocationRegistration[] = [];
@@ -229,13 +228,13 @@ test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, 
 
   expect(typeof result).toBe("string");
   // Options.cwd points INTO the provisioned worktree.
-  expect(sink.options.cwd).toBe(expectedPath);
+  expect(sink.options!.cwd).toBe(expectedPath);
   // The isolation + landing + verify payload is appended to the lane's system prompt.
-  expect(sink.options.systemPrompt).toContain("Worktree isolation");
-  expect(sink.options.systemPrompt).toContain("ISOLATED");
-  expect(sink.options.systemPrompt).toContain("--ff-only");
+  expect(sink.options!.systemPrompt).toContain("Worktree isolation");
+  expect(sink.options!.systemPrompt).toContain("ISOLATED");
+  expect(sink.options!.systemPrompt).toContain("--ff-only");
   // Reports pointed at the MAIN tree's docs/private (absolute), not the worktree's.
-  expect(sink.options.systemPrompt).toContain(`${repo}/docs/private`);
+  expect(sink.options!.systemPrompt).toContain(`${repo}/docs/private`);
   // worktree + branch facts routed through NORTH_BIN (not a bare-`north` escape).
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain(`tell agent:${agentId} worktree ${expectedPath}`);
@@ -270,7 +269,7 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   const expectedPath = `/tmp/${require("node:path").basename(repo)}-${branch}`;
   const beforeLog = existsSync(log) ? readFileSync(log, "utf8") : "";
   const sharedBytes = readFileSync(join(repo, "a.txt"), "utf8");
-  const sink: { options?: any } = {};
+  const sink: { options?: RoutedQueryArguments["options"] } = {};
   let providerQueries = 0;
   let envelopeAdmissions = 0;
 
@@ -285,7 +284,7 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
       agentId,
       worktree: true,
       routingMetadata: presetRequest("integrator"),
-      queryFn: (args: any) => {
+      queryFn: (args: RoutedQueryArguments) => {
         providerQueries++;
         return capturingQuery(sink)(args);
       },
@@ -383,13 +382,13 @@ test("watchdog termination preserves live-child and quarantined-worktree recover
   process.env.NORTH_STALL_MS = "10";
   process.chdir(repo);
   try {
-    await expect(spawn({
+    const result = await spawn({
       prompt: "preserve watchdog recovery receipts",
       agentId,
       worktree: true,
       routingMetadata: presetRequest("integrator"),
       queryFn: () => ({
-        executionTransport: "codex-app-server",
+		executionTransport: "managed-app-server",
         interrupt: async () => {},
         close: async () => { throw new Error("interrupted provider stream closing"); },
         [Symbol.asyncIterator]() {
@@ -406,7 +405,8 @@ test("watchdog termination preserves live-child and quarantined-worktree recover
         register: () => {},
         event: (_subject: string, event: WorktreeAllocationEvent) => events.push(event),
       },
-    })).rejects.toThrow("interrupted provider stream closing");
+    });
+    expect(result).toBe("");
   } finally {
     delete process.env.NORTH_STALL_MS;
     process.chdir(origCwd);

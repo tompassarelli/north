@@ -43,7 +43,20 @@
       control-file (io/file control-dir (str id ".log"))]
   (.mkdirs stream-dir)
   (.mkdirs control-dir)
-  (spit stream-file "{\"type\":\"assistant\",\"message\":\"working\"}\n")
+  (spit stream-file
+        (str (json/generate-string
+              {:version "north:wire:v2"
+               :id "event:watch:0"
+               :runId "run:watch"
+               :sequence 0
+               :at "2026-08-10T00:00:00.000Z"
+               :kind "run.started"
+               :essential true
+               :requiredSemantics ["north.event-order.v1"
+                                   "north.tool-terminal.v1"
+                                   "north.usage-split.v1"]
+               :lifecycle "running"})
+             "\n"))
   ;; The production failure this guards against had a healthy canonical stream
   ;; while its process/control log was effectively silent.
   (spit control-file "")
@@ -54,7 +67,7 @@
                 (= (str stream-file) (get-in plan [:stream :path]))
                 (pos? (get-in plan [:stream :bytes]))
                 (zero? (get-in plan [:control :bytes]))
-                (str/includes? rendered "watch target: canonical SDK event stream")
+                (str/includes? rendered "watch target: canonical WireEvent stream")
                 (str/includes? rendered "event data present")
                 (str/includes? rendered "present but empty")
                 (str/includes? rendered "silence is not evidence that a worker stalled or died"))))
@@ -67,6 +80,146 @@
          (and (:error (watch-plan ["../lane"] (str stream-dir) (str control-dir)))
               (:error (watch-plan [id "--control" "extra"]
                                   (str stream-dir) (str control-dir))))))
+
+(let [envelope {:version "north:wire:v2"
+                :id "event:watch:render"
+                :runId "run:watch:render"
+                :sequence 7
+                :at "2026-08-10T00:00:07.000Z"
+                :essential true
+                :requiredSemantics ["north.event-order.v1"
+                                    "north.tool-terminal.v1"
+                                    "north.usage-split.v1"]}
+      progress (render-watch-wire-line
+                (json/generate-string
+                 (merge envelope
+                        {:kind "run.progress"
+                         :lifecycle "running"
+                         :progress {:currentAction "inspect\u001b[31m\tworkspace"
+                                    :compactions 2}})))
+      tool (render-watch-wire-line
+            (json/generate-string
+             (merge envelope
+                    {:kind "tool.terminal"
+                     :toolCallId "tool:watch:1"
+                     :status "failed"
+                     :origin "north"
+                     :resultPreview "bad\nresult\u001b[2J"
+                     :errorCode "tool_failed"})))
+      terminal (render-watch-wire-line
+                (json/generate-string
+                 (merge envelope
+                        {:kind "run.terminated"
+                         :lifecycle "completed"
+                         :reason {:code "completed"}})))
+      opaque (render-watch-wire-line
+              (json/generate-string
+               (merge envelope
+                      {:version "north:wire:v3"
+                       :kind "future.observation"
+                       :essential false})))
+      invalid-known (render-watch-wire-line
+                     (json/generate-string
+                      (merge envelope
+                             {:kind "run.progress"
+                              :essential false
+                              :lifecycle "running"
+                              :progress {}})))
+      essential (render-watch-wire-line
+                 (json/generate-string
+                  (merge envelope
+                         {:version "north:wire:v3"
+                          :kind "future.required"
+                          :essential true})))
+      malformed (render-watch-wire-line "{not-json}")
+      oversized (render-watch-wire-line
+                 (.repeat "界" (inc (quot max-watch-json-line-bytes 3))))
+      wide (watch-safe-text (.repeat "界" 200) max-watch-output-codepoints)]
+  (check "watch renders lifecycle, progress, tool, and terminal events semantically"
+         (and (str/includes? progress "… run running")
+              (str/includes? progress "action=inspect [31m workspace")
+              (str/includes? progress "compactions=2")
+              (str/includes? tool "tool ✗ failed")
+              (str/includes? tool "result=bad result [2J")
+              (str/includes? terminal "■ run completed reason=completed")
+              (not (str/includes? progress "\u001b"))
+              (not (str/includes? tool "\u001b"))))
+  (check "watch bounds opaque events and surfaces malformed or essential future input"
+         (and (str/includes? opaque "opaque nonessential")
+              (str/includes? opaque "kind=future.observation")
+              (<= (count opaque) max-watch-output-codepoints)
+              (str/includes? invalid-known "known event must be essential")
+              (str/includes? essential "unsupported essential wire event")
+              (str/includes? malformed "malformed wire JSONL")
+              (str/includes? oversized "line exceeds display bound")))
+  (check "watch bounds double-width text to the declared terminal column budget"
+         (and (<= (.count (.codePoints wide)) max-watch-output-codepoints)
+              (<= (* 2 (.count (.codePoints wide))) max-watch-output-columns)))
+  (check "watch sanitizes control diagnostics before terminal display"
+         (= "left [31m right" (watch-safe-text "left\u001b[31m\tright")))
+  (check "watch shortens HOME-prefixed status paths"
+         (or (nil? HOME)
+             (let [status (str/join
+                           "\n"
+                           (watch-status-lines
+                            {:mode :stream
+                             :stream {:path (str HOME "/code/agent-data/agent-probe.stream.jsonl")
+                                      :present? false}
+                             :control {:path (str HOME "/.local/state/north/agents/probe.log")
+                                       :present? false}}))]
+               (and (str/includes? status "~/")
+                    (not (str/includes? status HOME)))))))
+
+(let [scratch (.toFile (java.nio.file.Files/createTempDirectory
+                        "north-watch-follow-test-"
+                        (make-array java.nio.file.attribute.FileAttribute 0)))
+      stream-dir (io/file scratch "streams")
+      id "lane-watch-follow-1234"
+      stable (io/file stream-dir (str "agent-" id ".stream.jsonl"))
+      archive (io/file stream-dir (str "agent-" id ".archive-fixture.stream.jsonl"))
+      event-base {:version "north:wire:v2"
+                  :runId "run:watch:follow"
+                  :at "2026-08-10T00:00:00.000Z"
+                  :essential true
+                  :requiredSemantics ["north.event-order.v1"
+                                      "north.tool-terminal.v1"
+                                      "north.usage-split.v1"]}
+      started (json/generate-string
+               (merge event-base
+                      {:id "event:watch:follow:0" :sequence 0
+                       :kind "run.started" :lifecycle "running"}))
+      terminal (json/generate-string
+                (merge event-base
+                       {:id "event:watch:follow:1" :sequence 1
+                        :kind "run.terminated" :lifecycle "completed"
+                        :reason {:code "completed"}}))]
+  (.mkdirs stream-dir)
+  (spit stable (str started "\n"))
+  ;; This bounded child is the live `north watch` behavior probe. It is killed
+  ;; and reaped below after GNU tail has observed a stable-name replacement.
+  (let [watch-process
+        (proc/process
+         ["bb" (str root "/cli/agents-cli.clj") "watch" id]
+         {:out :string :err :string
+          :env (merge (into {} (System/getenv))
+                      {"NORTH_HOME" root
+                       "NORTH_STREAM_DIR" (str stream-dir)
+                       "NO_COLOR" "1"})})]
+    (Thread/sleep 1000)
+    (java.nio.file.Files/move
+     (.toPath stable) (.toPath archive)
+     (into-array java.nio.file.CopyOption
+                 [java.nio.file.StandardCopyOption/ATOMIC_MOVE]))
+    (spit stable (str terminal "\n"))
+    (Thread/sleep 2500)
+    (proc/destroy-tree watch-process)
+    (let [result (deref watch-process 3000 ::watch-timeout)
+          output (when (map? result) (:out result))]
+      (check "watch semantically follows stable-path rotation"
+             (and (map? result)
+                  (str/includes? output "▶ run started")
+                  (str/includes? output "■ run completed reason=completed")
+                  (not (str/includes? output "\u001b")))))))
 
 (defn managed [facts]
   (let [base (merge {"kind" "lane" "goal" "fixture" "repo" "~/code/north"

@@ -6,13 +6,17 @@ import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readHello, runBridgeRestart, verifiedSocket } from "../src/bridge/cli";
+import * as bridgeApp from "../src/bridge/generated/north/bridge/app.js";
+import * as bridgeModel from "../src/bridge/generated/north/bridge/model.js";
 import { Northd } from "../src/bridge/host";
 import {
   bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity,
 } from "../src/bridge/protocol";
 import type {
-  BridgeProviderExecution, BridgeProviderSession, NormalizedProviderEvent,
+  BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
 } from "../src/bridge/provider";
+import type { BridgeServerMessage } from "../src/bridge/protocol";
+import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 // The whole daemon lifecycle, through the entrypoints an operator reaches: the
 // client spawns a real northd process, the source identity moves under it, and
@@ -97,12 +101,12 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
 }
 
 interface Wire {
-  messages: any[];
+  messages: BridgeServerMessage[];
   socket: Socket;
 }
 
 function wired(socket: Socket): Wire {
-  const messages: any[] = [];
+  const messages: BridgeServerMessage[] = [];
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
@@ -110,7 +114,7 @@ function wired(socket: Socket): Wire {
     while (true) {
       const newline = buffer.indexOf("\n");
       if (newline < 0) break;
-      messages.push(JSON.parse(buffer.slice(0, newline)));
+      messages.push(JSON.parse(buffer.slice(0, newline)) as BridgeServerMessage);
       buffer = buffer.slice(newline + 1);
     }
   });
@@ -120,12 +124,11 @@ function wired(socket: Socket): Wire {
 
 async function opened(): Promise<Wire> {
   const socket = new Socket();
-  const connected = new Promise<void>((resolve, reject) => {
-    socket.once("connect", () => resolve());
-    socket.once("error", reject);
-  });
+  const connected = Promise.withResolvers<void>();
+  socket.once("connect", () => connected.resolve());
+  socket.once("error", connected.reject);
   socket.connect(socketPath);
-  await connected;
+  await connected.promise;
   return wired(socket);
 }
 
@@ -184,7 +187,7 @@ async function connectVerified(): Promise<{
 /** The provider is open and the daemon holds its session, not merely the launch. */
 function started(wire: Wire): boolean {
   return wire.messages.some((message) =>
-    message.type === "event" && message.record.kind === "provider.starting");
+    message.type === "wire" && message.event.kind === "model-call.started");
 }
 
 async function launch(prompt: string, role = "implementer"): Promise<Wire> {
@@ -212,20 +215,16 @@ async function saying<T>(body: () => Promise<T>): Promise<{
   }
 }
 
-class IdleSession implements BridgeProviderSession {
+class IdleSession extends BridgeWireTestSession implements BridgeProviderSession {
   terminated = false;
-  private wake?: () => void;
 
-  async submitInput(): Promise<void> {}
-  async interruptTurn(): Promise<void> {}
-  async terminateSession(): Promise<void> {
-    this.terminated = true;
-    this.wake?.();
-    this.wake = undefined;
+  constructor(context: BridgeProviderOpenContext) {
+    super(context);
   }
 
-  async *events(): AsyncIterable<NormalizedProviderEvent> {
-    while (!this.terminated) await new Promise<void>((resolve) => { this.wake = resolve; });
+  async terminateSession(): Promise<void> {
+    this.terminated = true;
+    await super.terminateSession();
   }
 }
 
@@ -234,7 +233,9 @@ class IdleSession implements BridgeProviderSession {
  * control. The identity still comes from disk, so it goes stale exactly the way
  * the spawned process does.
  */
-async function hostedDaemon(open: () => Promise<BridgeProviderSession>) {
+async function hostedDaemon(
+  open: (context: BridgeProviderOpenContext) => Promise<BridgeProviderSession>,
+) {
   let retired = 0;
   let closed = false;
   // Teardown runs exactly once, the way the daemon entrypoint guards it: a
@@ -247,7 +248,7 @@ async function hostedDaemon(open: () => Promise<BridgeProviderSession>) {
   const northd = new Northd({
     socketPath,
     journalRoot: bridgeJournalRoot(),
-    provider: { async open() { return open(); } } satisfies BridgeProviderExecution,
+    provider: { async open(context) { return open(context); } } satisfies BridgeProviderExecution,
     // Pinned, so a launch reaches its provider immediately: headroom selection
     // is a real probe with real latency, and a session still being selected is
     // a session this test would race.
@@ -289,7 +290,7 @@ test("a session that failed at admit does not pin a stale daemon", async () => {
   const failed = await launch("supervisor");
   await waitFor(
     () => failed.messages.some((message) =>
-      message.type === "event" && message.record.kind === "execution.failed"),
+      message.type === "event" && message.record.kind === "execution.failure"),
     "the admit failure",
   );
   expect((await connectVerified()).live).toBe(0);
@@ -307,8 +308,11 @@ test("a session that failed at admit does not pin a stale daemon", async () => {
 // driving a provider, and nobody attached to it. It must not cost them a daemon
 // they cannot replace — this is the case that made the whole ceremony appear.
 test("an abandoned control session is replaced in place, with one calm line", async () => {
-  const session = new IdleSession();
-  const hosted = await hostedDaemon(async () => session);
+  let session: IdleSession | undefined;
+  const hosted = await hostedDaemon(async (context) => {
+    session = new IdleSession(context);
+    return session;
+  });
   const control = await launch("supervisor", "director");
   await waitFor(() => started(control), "the control session");
   expect(await probe()).toMatchObject({ live: 1, pinning: 1 });
@@ -324,7 +328,7 @@ test("an abandoned control session is replaced in place, with one calm line", as
   revision(REV_B);
   const { value: fresh, out, err } = await saying(() => connectVerified());
   expect(hosted.retireCount()).toBe(1);
-  await waitFor(() => session.terminated, "the abandoned session to be torn down");
+  await waitFor(() => session?.terminated === true, "the abandoned session to be torn down");
   expect(fresh.identity).toBe(REV_B);
   expect(fresh.pid).not.toBe(process.pid);
   // One line, on stdout, where the app reads it as a system note. Nothing on
@@ -343,7 +347,7 @@ test("an abandoned control session is replaced in place, with one calm line", as
 });
 
 test("an attached control session still pins a stale daemon", async () => {
-  const hosted = await hostedDaemon(async () => new IdleSession());
+  const hosted = await hostedDaemon(async (context) => new IdleSession(context));
   const control = await launch("supervisor", "director");
   await waitFor(() => started(control), "the control session");
   revision(REV_C);
@@ -358,7 +362,7 @@ test("an attached control session still pins a stale daemon", async () => {
 // Detaching from work in flight is the attach contract, not abandonment: a
 // worker holds the daemon whether or not anyone is watching it.
 test("a detached worker still pins a stale daemon", async () => {
-  const hosted = await hostedDaemon(async () => new IdleSession());
+  const hosted = await hostedDaemon(async (context) => new IdleSession(context));
   const worker = await launch("do the work", "implementer");
   await waitFor(() => started(worker), "the worker session");
   worker.socket.destroy();
@@ -374,8 +378,11 @@ test("a detached worker still pins a stale daemon", async () => {
 });
 
 test("restart replaces a pinned daemon in place and leaves a live successor", async () => {
-  const session = new IdleSession();
-  const hosted = await hostedDaemon(async () => session);
+  let session: IdleSession | undefined;
+  const hosted = await hostedDaemon(async (context) => {
+    session = new IdleSession(context);
+    return session;
+  });
   const worker = await launch("stay");
   await waitFor(() => started(worker), "the live session");
   revision(REV_C);
@@ -383,7 +390,7 @@ test("restart replaces a pinned daemon in place and leaves a live successor", as
   const { value: code, out } = await saying(() => restart());
   expect(code).toBe(0);
   expect(hosted.retireCount()).toBe(1);
-  await waitFor(() => session.terminated, "the pinned session to be torn down");
+  await waitFor(() => session?.terminated === true, "the pinned session to be torn down");
   // Replaced, not merely retired: the successor is already up and named.
   expect(out).toBe(`control daemon replaced (${REV_A.slice(0, 8)} → ${REV_C.slice(0, 8)})`);
   expect(existsSync(socketPath)).toBe(true);
@@ -411,20 +418,9 @@ test("/restart is in both command sets and restores the session in place", async
     + "echo 'control daemon replaced (aaaaaaaa → b1b1b1b1)'\n",
   );
   chmodSync(north, 0o755);
-  // NORTH_BIN is read once when the app module loads, so it is pinned first.
   environment("NORTH_BIN", north);
-  const app = await import("../src/bridge/generated/north/bridge/app.js") as {
-    handle_local_command_bang(runtime: unknown, ui: unknown, input: string): boolean;
-    palette_options(frame: string, query: string): Array<{ name: string }>;
-  };
-  const model = await import("../src/bridge/generated/north/bridge/model.js") as {
-    Agent(id: string, name: string, status: string, task: string): unknown;
-    make_model(viewId: string): unknown;
-    upsert_agent(model: unknown, agent: unknown): unknown;
-    snapshot(model: unknown): { agents: Array<{ id: string; name: string }> };
-  };
   for (const frame of ["agents", "threads"]) {
-    expect(app.palette_options(frame, "/restart").map((option) => option.name))
+    expect(bridgeApp.palette_options(frame, "/restart").map((option) => option.name))
       .toEqual(["/restart"]);
   }
 
@@ -443,13 +439,14 @@ test("/restart is in both command sets and restores the session in place", async
     agentIndex: 3,
     supervisorId: dead,
     bridgeExecutions: new Set([dead]),
-    model: model.upsert_agent(
-      model.make_model("list"), model.Agent(dead, "Main", "ready", "Northbridge control session"),
+    model: bridgeModel.upsert_agent(
+      bridgeModel.make_model("list"),
+      bridgeModel.Agent(dead, "Main", "ready", "Northbridge control session"),
     ),
     render() {},
     renderConversation() {},
   };
-  expect(app.handle_local_command_bang(runtime, {}, "/restart")).toBe(true);
+  expect(bridgeApp.handle_local_command_bang(runtime, {}, "/restart")).toBe(true);
   await waitFor(
     () => existsSync(marker) && readFileSync(marker, "utf8").includes("--role"),
     "the restart verb and the session it restores",
@@ -463,7 +460,7 @@ test("/restart is in both command sets and restores the session in place", async
 
   // One Main, not a corpse beside its successor: the session that died with the
   // daemon leaves the roster, the routing set, and the supervisor binding.
-  expect(model.snapshot(runtime.model).agents.map((agent) => agent.id)).toEqual([]);
+  expect(bridgeModel.snapshot(runtime.model).agents.map((agent) => agent.id)).toEqual([]);
   expect(runtime.bridgeExecutions.has(dead)).toBe(false);
   expect(runtime.supervisorId).toBe("");
   expect(runtime.agentIndex).toBe(0);

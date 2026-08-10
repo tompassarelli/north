@@ -1,13 +1,15 @@
 import { anthropicProvider } from "./anthropic";
 import { openaiProvider } from "./openai";
 import type {
-  AgentProvider, AgentQuery, ProviderId, RoutingDecision,
+  AgentProvider, ProviderFallbackTransition, ProviderId, RoutingDecision,
 } from "./types";
-import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import type { SemanticTier } from "./catalog";
 import type { HarnessCompositionEvidence } from "../harness";
 import type { ProviderAuthoritySurface } from "./authority";
-import { routedQueryWithRegistry } from "./internal-router";
+import type { WireQuery } from "../wire/query";
+import {
+  routedQueryWithRegistry, type RoutedQueryArguments,
+} from "./internal-router";
 export {
   ProviderSelectionError, resourcePolicyFromEnv, selectProvider, selectProviderForExecution,
   selectProviderFromAvailability,
@@ -56,10 +58,10 @@ export function providerLiveInput(id: ProviderId): AgentProvider["liveInput"] {
 // errors unchanged because that SDK exposes no such typed signal.
 export function routedQuery(
   decision: RoutingDecision,
-  args: { prompt: string | AsyncIterable<any>; options: Options; resume?: string },
+  args: RoutedQueryArguments,
   tier?: SemanticTier,
   beforeFallback?: (
-    transition: import("./types").ProviderFallbackTransition,
+    transition: ProviderFallbackTransition,
   ) => Promise<void>,
   onRoute?: (
     decision: RoutingDecision,
@@ -67,7 +69,7 @@ export function routedQuery(
     authority: ProviderAuthoritySurface | undefined,
   ) => Promise<void> | void,
   onRouteAttempt?: (decision: RoutingDecision) => void,
-): AgentQuery {
+): WireQuery {
   return routedQueryWithRegistry(
     decision,
     args,
@@ -80,14 +82,16 @@ export function routedQuery(
 }
 export {
   isProvedUnsentPreacceptFailure, providerPreacceptError, providerRuntimeTelemetryValid,
+  providerRetrySafeTerminalDetail,
   ProviderEscalationUnsupportedError, ProviderRetrySafeError, ProviderRuntimeError,
 } from "./types";
 export {
   compileProviderAuthoritySurface, formatProviderAuthoritySurface,
 } from "./authority";
 export type {
-  AgentProvider, AllocationMode, EntitlementPressure, LiveInputCapability, ProviderId, ProviderPreference,
+  AgentProvider, AgentProviderQuery, AllocationMode, EntitlementPressure, LiveInputCapability, ProviderId, ProviderPreference,
   ProviderFallbackTransition, ResourcePolicy, RoutingDecision, RoutingFallbackReason,
   RoutingPreference, RoutingRequest, ProviderRuntimeReason, ProviderRuntimeTelemetry, ProviderUnsentProof,
 } from "./types";
+export type { RoutedQueryArguments } from "./internal-router";
 export type { ProviderAuthoritySurface } from "./authority";
