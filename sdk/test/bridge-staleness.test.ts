@@ -80,6 +80,12 @@ async function fixture(
     socketPath,
     journalRoot: join(root, "journal"),
     provider,
+    // Pinned, so a launch reaches its provider immediately. Headroom selection
+    // is a real entitlement probe with real latency, and every test here that
+    // waits on a provider open was waiting on that probe as well — the source
+    // of this file's load flake, and of a network round trip a unit suite has
+    // no business making.
+    selectProvider: async () => "openai",
     sourceIdentity: identity,
     stalePollMs: 20,
     onRetire: () => { retired += 1; void northd.close(); },

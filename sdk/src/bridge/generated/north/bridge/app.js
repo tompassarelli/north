@@ -1,7 +1,7 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { Agent, WorkItem, agent_id, agent_name, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_thread, focus_view, make_model, replace_projection, select_agent, select_thread, set_filter, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
+import { Agent, WorkItem, agent_id, agent_name, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_thread, focus_view, make_model, remove_agent, replace_projection, select_agent, select_thread, set_filter, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
 
 const IntlSegmenter = Intl.Segmenter;
 
@@ -1136,9 +1136,21 @@ return publish_line_bang(runtime, sound_status(runtime)); })() : (request.starts
 return publish_line_bang(runtime, sound_status(runtime)); })() : (() => { throw new Error("sound requires on, off, status, or pack peon|peasant"); })());
 }
 
+function forget_control_session_bang(runtime) {
+  const id = text(runtime.supervisorId);
+  if ((!(id === ""))) {
+    runtime.bridgeExecutions.delete(id);
+    (runtime.model = remove_agent(runtime.model, id));
+    (runtime.supervisorId = "");
+    (runtime.agentIndex = 0);
+    return runtime.render();
+  }
+}
+
 async function restart_daemon_bang(runtime) {
   return (async () => { try {
     await run_command([NORTH_BIN, "bridge", "restart"]);
+  forget_control_session_bang(runtime);
   publish_line_bang(runtime, "control daemon replaced; session restored");
   return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
   } catch (error) {

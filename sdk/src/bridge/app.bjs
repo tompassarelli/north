@@ -14,6 +14,7 @@
                                         bridgesnapshot-list bridgesnapshot-notice
                                         bridgesnapshot-selected-thread
                                         focus-view make-model
+                                        remove-agent
                                         replace-projection select-agent select-thread
                                         set-filter snapshot upsert-agent
                                         workitem-body workitem-condition workitem-dependencies
@@ -2046,14 +2047,28 @@
       :else
       (throw (Error. "sound requires on, off, status, or pack peon|peasant")))))
 
+;; The control session that died with the daemon. Its execution id belongs to a
+;; daemon that no longer exists, so it is not an agent in any state — leaving the
+;; row on the roster shows a corpse beside its own successor.
+(defn forget-control-session! [runtime: Any] -> Any
+  (let [id (text (.-supervisorId runtime))]
+    (when (not (identical? id ""))
+      (.delete (.-bridgeExecutions runtime) id)
+      (set! (.-model runtime) (remove-agent (.-model runtime) id))
+      (set! (.-supervisorId runtime) "")
+      (set! (.-agentIndex runtime) 0)
+      (.render runtime))))
+
 ;; The deliberate replacement, in both command sets because the daemon is
 ;; underneath both views. A stale daemon replaces itself at the next connect
 ;; when nothing depends on it; this is the escape for the case where something
-;; does. It happens in place: the daemon goes, its successor comes up, and the
-;; control session reopens in this same window — never a chore left on screen.
+;; does. It happens in place: the daemon goes, the row it owned goes with it,
+;; its successor comes up, and the control session reopens in this same
+;; window — never a chore left on screen.
 (defn restart-daemon! [runtime: Any] -> (Promise Any)
   (try
     (js/await (run-command [NORTH-BIN "bridge" "restart"]))
+    (forget-control-session! runtime)
     (publish-line! runtime "control daemon replaced; session restored")
     (js/await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
     (catch Error error

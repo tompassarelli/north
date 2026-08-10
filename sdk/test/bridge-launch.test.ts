@@ -417,11 +417,20 @@ test("/restart is in both command sets and restores the session in place", async
     handle_local_command_bang(runtime: unknown, ui: unknown, input: string): boolean;
     palette_options(frame: string, query: string): Array<{ name: string }>;
   };
+  const model = await import("../src/bridge/generated/north/bridge/model.js") as {
+    Agent(id: string, name: string, status: string, task: string): unknown;
+    make_model(viewId: string): unknown;
+    upsert_agent(model: unknown, agent: unknown): unknown;
+    snapshot(model: unknown): { agents: Array<{ id: string; name: string }> };
+  };
   for (const frame of ["agents", "threads"]) {
     expect(app.palette_options(frame, "/restart").map((option) => option.name))
       .toEqual(["/restart"]);
   }
 
+  // A window that already has a control session: the row on the roster, the
+  // execution the app routes messages to, and the id it calls its supervisor.
+  const dead = "dead-control-session";
   const runtime = {
     disposed: false,
     conversation: [] as Array<{ body: string }>,
@@ -431,6 +440,12 @@ test("/restart is in both command sets and restores the session in place", async
     workingSince: 0,
     spinnerTimer: null,
     spinnerIndex: 0,
+    agentIndex: 3,
+    supervisorId: dead,
+    bridgeExecutions: new Set([dead]),
+    model: model.upsert_agent(
+      model.make_model("list"), model.Agent(dead, "Main", "ready", "Northbridge control session"),
+    ),
     render() {},
     renderConversation() {},
   };
@@ -445,6 +460,13 @@ test("/restart is in both command sets and restores the session in place", async
   expect(argv[1]).toContain("bridge --role director");
   expect(runtime.conversation.map((item) => item.body))
     .toContain("control daemon replaced; session restored");
+
+  // One Main, not a corpse beside its successor: the session that died with the
+  // daemon leaves the roster, the routing set, and the supervisor binding.
+  expect(model.snapshot(runtime.model).agents.map((agent) => agent.id)).toEqual([]);
+  expect(runtime.bridgeExecutions.has(dead)).toBe(false);
+  expect(runtime.supervisorId).toBe("");
+  expect(runtime.agentIndex).toBe(0);
 });
 
 test("the hello a spawned daemon presents is its own identity and pid", async () => {
