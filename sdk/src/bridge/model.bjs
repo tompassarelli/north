@@ -67,6 +67,17 @@
                           (not (identical? (agent-id existing) (agent-id agent)))))]
     (with model [:agents (.concat agents agent)])))
 
+;; The roster can lose a member. A session that has been replaced is not a row
+;; with a sad status — it is not on the roster at all, and only the caller that
+;; replaced it knows that.
+(defn remove-agent
+  [model: BridgeModel
+   removed-id: String] -> BridgeModel
+  (with model
+    [:agents (.filter (bridgemodel-agents model)
+                      (fn [existing: Agent] -> Bool
+                        (not (identical? (agent-id existing) removed-id))))]))
+
 (defn focus-view
   [model: BridgeModel
    view-id: String] -> BridgeModel

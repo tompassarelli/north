@@ -59,7 +59,7 @@ export function bridgesnapshot_list(r) { return r.list; }
 
 export function bridgesnapshot_board(r) { return r.board; }
 
-export function bridgesnapshot_layout(r) { return r.layout; }
+function bridgesnapshot_layout(r) { return r.layout; }
 
 export function bridgesnapshot_active_view_id(r) { return r.active_view_id; }
 
@@ -70,7 +70,7 @@ export function bridgesnapshot_selected_thread(r) { return r.selected_thread; }
 export function bridgesnapshot_notice(r) { return r.notice; }
 
 function canonical_view(view_id) {
-  return (((view_id === "board") || (view_id === "kanban"))) ? "board" : (((view_id === "graph") || (view_id === "dag"))) ? "graph" : "list";
+  return ((((view_id === "board") || (view_id === "kanban"))) ? "board" : (((view_id === "graph") || (view_id === "dag"))) ? "graph" : "list");
 }
 
 export function make_model(view_id) {
@@ -87,12 +87,16 @@ export function upsert_agent(model, agent) {
   return Object.freeze({...model, agents: agents.concat(agent)});
 }
 
+export function remove_agent(model, removed_id) {
+  return Object.freeze({...model, agents: bridgemodel_agents(model).filter((existing) => (!(agent_id(existing) === removed_id)))});
+}
+
 export function focus_view(model, view_id) {
   const view = canonical_view(view_id);
   return Object.freeze({...model, active_view_id: view, notice: ("".concat("view ", view))});
 }
 
-export function set_layout(model, layout) {
+function set_layout(model, layout) {
   return Object.freeze({...model, layout: ((layout === "horizontal") ? "horizontal" : "vertical")});
 }
 
