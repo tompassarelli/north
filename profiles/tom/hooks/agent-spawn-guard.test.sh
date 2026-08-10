@@ -56,7 +56,7 @@ set_state managed on
 # EXPECT: allow | deny | silent. TOPOLOGY: worker | orchestrator | unset.
 run() {
   local expect="$1" desc="$2" topology="$3" tool="$4" payload="$5" extra="${6:-}"
-  local input out decision context ok=0
+  local input out decision ok=0
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
@@ -71,7 +71,6 @@ run() {
   [ -z "$extra" ] || set -- "$@" "$extra"
   out="$(printf '%s' "$input" | "$@" "$HOOK" 2>&1)"
   decision="$(jq -r '.hookSpecificOutput.permissionDecision // "silent"' <<<"${out:-null}" 2>/dev/null || printf malformed)"
-  context="$(jq -r '.hookSpecificOutput.additionalContext // ""' <<<"${out:-null}" 2>/dev/null || true)"
   case "$expect" in
     deny)  [ "$decision" = deny ] && ok=1 ;;
     allow) [ "$decision" != deny ] && [ "$decision" != malformed ] && ok=1 ;;
