@@ -143,6 +143,29 @@ test("live executions pin a stale daemon and new launches fail explicitly", asyn
   await waitFor(() => retireCount() === 1, "retirement after termination");
 });
 
+// Reading the identity costs a subprocess. Doing it after the socket is up
+// leaves a window where a client — the one that just spawned this daemon, and
+// is polling for the socket — is answered with a hello carrying no identity,
+// which every client reads as "nothing to check here". Nothing may be able to
+// ask before the answer exists.
+test("a daemon reads its identity before its socket exists", async () => {
+  const root = mkdtempSync(join(tmpdir(), "north-bridge-staleness-"));
+  const socketPath = join(root, "northd.sock");
+  let socketWhenProbed: boolean | undefined;
+  const northd = new Northd({
+    socketPath,
+    journalRoot: join(root, "journal"),
+    sourceIdentity: () => {
+      socketWhenProbed = existsSync(socketPath);
+      return "rev-a";
+    },
+  });
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  cleanups.push(() => northd.close());
+  await northd.listen();
+  expect(socketWhenProbed).toBe(false);
+});
+
 test("every connection opens with an identity hello", async () => {
   const { socketPath } = await fixture(() => "rev-a");
   const session = await client(socketPath, { op: "attach", executionId: "missing", cursor: 0 });

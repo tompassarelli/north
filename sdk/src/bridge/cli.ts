@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { Socket } from "node:net";
 import { resolve } from "node:path";
 import {
-  bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole,
+  bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole, pinningExecutions,
   type BridgeHello, type BridgeLaunchProvider, type BridgeLaunchRole,
   type BridgeRequest,
 } from "./protocol";
@@ -207,26 +207,45 @@ export interface BridgeConnection {
   hello: BridgeHello | null;
 }
 
+function shortIdentity(identity: string | undefined): string {
+  return identity ? identity.slice(0, 8) : "unknown";
+}
+
 /**
  * The staleness contract, client side: never talk to a daemon whose source
- * identity differs from the checkout — retire it when idle, replace it when
- * it predates the handshake, and only tolerate it while live sessions drain.
+ * identity differs from the checkout. A stale daemon nothing is depending on
+ * gets replaced here and now — retire it, spawn its successor, say so once —
+ * because the operator asked for a session, not for a chore. Only the sessions
+ * that genuinely hold it open (attached control, or a worker with work in
+ * flight) turn that into a refusal they have to answer.
  */
 export async function verifiedSocket(path: string): Promise<BridgeConnection> {
+  let replacedFrom: string | undefined;
+  let replaced = false;
   for (let attempt = 0; attempt < 3; attempt++) {
     const socket = await connectedSocket(path);
     const hello = await readHello(socket, 750);
     const disk = bridgeSourceIdentity();
     const fresh = hello !== null
       && (hello.identity === undefined || disk === undefined || hello.identity === disk);
-    if (fresh) return { socket, hello };
-    if (hello !== null && hello.liveExecutions > 0) {
-      console.error(`north bridge: northd is stale with ${hello.liveExecutions} live session(s);`
+    if (fresh) {
+      // One calm line, on the stream the app reads as a system note: what
+      // happened, which checkout won, and that the session is starting now.
+      if (replaced)
+        console.log(`northd: control daemon was stale — replaced (${shortIdentity(replacedFrom)}`
+          + ` → ${shortIdentity(hello.identity)}); starting fresh`);
+      return { socket, hello };
+    }
+    const pinning = hello === null ? 0 : pinningExecutions(hello);
+    if (pinning > 0) {
+      console.error(`north bridge: northd is stale with ${pinning} live session(s);`
         + " run 'north bridge restart' to replace it now, or new launches are refused"
         + " until it drains");
       return { socket, hello };
     }
     if (hello !== null) {
+      replacedFrom = hello.identity;
+      replaced = true;
       socket.write(`${JSON.stringify({ op: "retire" })}\n`);
       await new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
     } else {
@@ -249,36 +268,43 @@ async function daemonListening(path: string): Promise<boolean> {
 }
 
 /**
- * The deliberate force path. Staleness normally resolves itself — a stale idle
- * daemon retires at the handshake — but a session the operator has given up on
- * still counts as live, and no amount of waiting drains it. `restart` drains
- * nothing: it tells the daemon to go now and waits for the socket to close, so
- * the next connect spawns a daemon built from the checkout on disk.
+ * The deliberate force path, for the one case the handshake will not resolve on
+ * its own: a daemon genuinely pinned by sessions that are still someone's. It
+ * drains nothing — the daemon goes now — and it does not hand the operator a
+ * chore afterwards: the successor is up before this returns, so a caller can
+ * reopen its session immediately and in place.
  */
 export async function runBridgeRestart(path: string): Promise<number> {
-  let socket: Socket;
+  let retiredFrom: string | undefined;
+  let socket: Socket | undefined;
   try { socket = await openSocket(path); }
-  catch {
-    console.log("no control daemon is listening; the next north bridge command starts one");
-    return 0;
-  }
-  const hello = await readHello(socket, 750);
-  const named = hello ? ` (pid ${hello.pid}, ${hello.liveExecutions} live session(s))` : "";
-  const closed = new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
-  socket.write(`${JSON.stringify({ op: "retire" })}\n`);
-  await closed;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (!await daemonListening(path)) {
-      // A daemon that predates the retire op answers nothing and leaves its
-      // socket behind; the file is dead either way once nothing accepts on it.
-      try { unlinkSync(path); } catch { /* already reaped */ }
-      console.log(`control daemon retired${named}; the next north bridge command starts a fresh one`);
-      return 0;
+  catch { socket = undefined; }
+  if (socket !== undefined) {
+    const hello = await readHello(socket, 750);
+    retiredFrom = hello?.identity;
+    const closed = new Promise<void>((resolveClose) => socket.once("close", () => resolveClose()));
+    socket.write(`${JSON.stringify({ op: "retire" })}\n`);
+    await closed;
+    let gone = false;
+    for (let attempt = 0; attempt < 100 && !gone; attempt++) {
+      if (await daemonListening(path)) await Bun.sleep(20);
+      else gone = true;
     }
-    await Bun.sleep(20);
+    if (!gone) {
+      console.error(`north bridge: the control daemon is still listening at ${path}`);
+      return 1;
+    }
+    // A daemon that predates the retire op answers nothing and leaves its
+    // socket behind; the file is dead either way once nothing accepts on it.
+    try { unlinkSync(path); } catch { /* already reaped */ }
   }
-  console.error(`north bridge: the control daemon${named} is still listening at ${path}`);
-  return 1;
+  const successor = await verifiedSocket(path);
+  successor.socket.destroy();
+  const now = shortIdentity(successor.hello?.identity);
+  console.log(retiredFrom === undefined
+    ? `control daemon started (${now})`
+    : `control daemon replaced (${shortIdentity(retiredFrom)} → ${now})`);
+  return 0;
 }
 
 function renderRecord(record: JournalRecord): string {

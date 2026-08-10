@@ -18,7 +18,19 @@ export interface BridgeHello {
   type: "hello";
   identity?: string;
   liveExecutions: number;
+  /**
+   * The sessions that hold retirement open — live minus the abandoned control
+   * sessions nobody is attached to. Optional on the wire: a daemon from before
+   * this field answers with liveExecutions alone, and the client falls back to
+   * it rather than replacing a daemon on a count it did not send.
+   */
+  pinningExecutions?: number;
   pid: number;
+}
+
+/** What the replacement gate asks a hello. */
+export function pinningExecutions(hello: BridgeHello): number {
+  return hello.pinningExecutions ?? hello.liveExecutions;
 }
 
 export const BRIDGE_LAUNCH_ROLES = ["director", "implementer"] as const;
