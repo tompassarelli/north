@@ -113,7 +113,7 @@
                            "/config.toml")))
 
 (def mcp-usage
-  "usage: north config mcp [list|add <name> <url>|remove <name>]\nRemote HTTP MCP declarations are applied to both Claude (user scope) and Codex.")
+  "usage: north config mcp [list|add <name> <url>|add <name> -- <command> [args...]|remove <name>]\nMCP declarations are applied to both Claude (user scope) and Codex.")
 
 (declare print-provider-readouts)
 
@@ -125,20 +125,29 @@
     out))
 
 (defn cmd-mcp [args]
-  (let [[verb name url & extra] args]
+  (let [[verb name target & extra] args]
     (case (or verb "list")
-      "list" (do (when (or name url (seq extra)) (die mcp-usage))
+      "list" (do (when (or name target (seq extra)) (die mcp-usage))
                  (print-provider-readouts))
       "add" (do
-              (when (or (str/blank? name) (str/blank? url) (seq extra)
-                        (not (re-matches #"https?://.+" url)))
+              (when (or (str/blank? name) (str/blank? target))
                 (die mcp-usage))
-              (run-provider! "claude" "mcp" "add" "--scope" "user"
-                             "--transport" "http" name url)
-              (run-provider! "codex" "mcp" "add" name "--url" url)
-              (println (str name " → shared Claude/Codex MCP (" url ")")))
+              (if (= target "--")
+                (do
+                  (when-not (seq extra) (die mcp-usage))
+                  (apply run-provider! "claude" "mcp" "add" "--scope" "user"
+                         name "--" extra)
+                  (apply run-provider! "codex" "mcp" "add" name "--" extra)
+                  (println (str name " → shared Claude/Codex stdio MCP")))
+                (do
+                  (when (or (seq extra) (not (re-matches #"https?://.+" target)))
+                    (die mcp-usage))
+                  (run-provider! "claude" "mcp" "add" "--scope" "user"
+                                 "--transport" "http" name target)
+                  (run-provider! "codex" "mcp" "add" name "--url" target)
+                  (println (str name " → shared Claude/Codex MCP (" target ")")))))
       "remove" (do
-                 (when (or (str/blank? name) url (seq extra)) (die mcp-usage))
+                 (when (or (str/blank? name) target (seq extra)) (die mcp-usage))
                  (run-provider! "claude" "mcp" "remove" "--scope" "user" name)
                  (run-provider! "codex" "mcp" "remove" name)
                  (println (str name " removed from Claude and Codex MCP")))
