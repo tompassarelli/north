@@ -3275,7 +3275,7 @@
   (if (not dir-row?) "" (if expanded? "▾ " "▸ ")))
 
 ;; Pure: what a directory row calls itself on screen — the place, not the slug.
-;; `code  /home/tom/code` said the same thing twice, and the half that answers
+;; `code  ~/code` said the same thing twice, and the half that answers
 ;; "which directory is this" is the path: two checkouts of one repo have the
 ;; same slug and different paths, and the path is what you would type. The slug
 ;; stays every internal thing it already was — the flip address, `agents path`,
