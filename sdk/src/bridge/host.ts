@@ -8,8 +8,9 @@ import {
   type BridgeProviderSession, type NormalizedProviderEvent,
 } from "./provider";
 import {
-  bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity, parseBridgeRequest,
-  type BridgeLaunchProvider, type BridgeRequest,
+  bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole,
+  parseBridgeRequest,
+  type BridgeLaunchProvider, type BridgeLaunchRole, type BridgeRequest,
 } from "./protocol";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -17,7 +18,10 @@ const TERMINAL_KINDS = new Set(["execution.completed", "execution.failed"]);
 const STALE_POLL_MS = 15_000;
 
 type BridgeMessage =
-  | { type: "hello"; identity?: string; liveExecutions: number; pid: number }
+  | {
+    type: "hello"; identity?: string; liveExecutions: number;
+    pinningExecutions: number; pid: number;
+  }
   | { type: "launched"; executionId: string }
   | { type: "controlled"; executionId: string; control: string; delivery: string }
   | { type: "event"; record: JournalRecord }
@@ -48,6 +52,12 @@ type TurnDisposition = "completed" | "interrupted";
 
 interface ExecutionRuntime {
   executionId: string;
+  /**
+   * Director is the app's own control session — the one an operator abandons by
+   * closing the window. It is the only role whose attachment decides whether it
+   * holds retirement open.
+   */
+  role: BridgeLaunchRole;
   journal: ExecutionJournal;
   subscribers: Set<Socket>;
   abort: AbortController;
@@ -143,6 +153,11 @@ export class Northd {
       if (await liveSocket(this.socketPath)) throw new Error(`northd is already listening at ${this.socketPath}`);
       unlinkSync(this.socketPath);
     }
+    // Before the socket accepts anything. Reading the identity costs a
+    // subprocess, and a client that connects inside that window is answered
+    // with a hello carrying no identity — which every client reads as "nothing
+    // to check here". The daemon must know who it is before it can be asked.
+    this.loadedIdentity = this.sourceIdentity();
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => { this.server.off("listening", onListening); reject(error); };
       const onListening = () => { this.server.off("error", onError); resolve(); };
@@ -151,7 +166,6 @@ export class Northd {
       this.server.listen(this.socketPath);
     });
     chmodSync(this.socketPath, 0o600);
-    this.loadedIdentity = this.sourceIdentity();
     if (this.loadedIdentity !== undefined)
       this.staleTimer = setInterval(() => this.retireWhenStale(), this.stalePollMs);
   }
@@ -177,8 +191,30 @@ export class Northd {
     return live;
   }
 
+  /**
+   * Whether an execution holds retirement open. Live is not the same question:
+   * the app's control session outlives the window that opened it, and once
+   * nothing is attached to it there is nobody left for it to drain for — it is
+   * abandoned, and abandoning a session must not cost the operator a daemon
+   * they can never replace. A worker keeps pinning while detached, because
+   * detaching from work in flight is the attach contract, not abandonment.
+   */
+  private pinning(runtime: ExecutionRuntime): boolean {
+    if (!runtime.live) return false;
+    return !(runtime.role === "director" && runtime.subscribers.size === 0);
+  }
+
+  private pinningExecutions(except?: ExecutionRuntime): number {
+    let pinning = 0;
+    for (const runtime of this.runtimes.values()) {
+      if (runtime === except) continue;
+      if (this.pinning(runtime)) pinning += 1;
+    }
+    return pinning;
+  }
+
   private retireWhenStale(): void {
-    if (this.retiring || this.liveExecutions() > 0 || !this.stale()) return;
+    if (this.retiring || this.pinningExecutions() > 0 || !this.stale()) return;
     this.retiring = true;
     this.onRetire();
   }
@@ -209,8 +245,14 @@ export class Northd {
     const journal = new ExecutionJournal(this.journalRoot, executionId);
     const scan = journal.scan();
     const terminal = scan.records.some((record) => TERMINAL_KINDS.has(record.kind));
+    const accepted = scan.records.find((record) => record.kind === "execution.accepted");
     const runtime: ExecutionRuntime = {
       executionId,
+      // Replay reads the role back out of the log rather than assuming one, so
+      // a resurrected runtime classifies the same way the launch did.
+      role: parseBridgeLaunchRole(
+        typeof accepted?.data.role === "string" ? accepted.data.role : undefined,
+      ),
       journal,
       subscribers: new Set<Socket>(),
       abort: new AbortController(),
@@ -340,6 +382,7 @@ export class Northd {
     const executionId = randomUUID();
     const runtime: ExecutionRuntime = {
       executionId,
+      role: request.role,
       journal: new ExecutionJournal(this.journalRoot, executionId),
       subscribers: new Set(),
       abort: new AbortController(),
@@ -374,7 +417,7 @@ export class Northd {
         disk: this.sourceIdentity(),
         // The sessions still holding this daemon open — what a client needs to
         // say something more useful than the code.
-        live: this.liveExecutions(runtime),
+        live: this.pinningExecutions(runtime),
       });
       return;
     }
@@ -498,6 +541,10 @@ export class Northd {
       type: "hello",
       ...(this.loadedIdentity !== undefined ? { identity: this.loadedIdentity } : {}),
       liveExecutions: this.liveExecutions(),
+      // The count the replacement gate reads. Liveness rides along because it
+      // is what an operator is told; only this one decides whether a stale
+      // daemon may be replaced where it stands.
+      pinningExecutions: this.pinningExecutions(),
       pid: process.pid,
     });
     let buffer = "";

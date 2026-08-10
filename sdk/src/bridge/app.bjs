@@ -2047,14 +2047,15 @@
       (throw (Error. "sound requires on, off, status, or pack peon|peasant")))))
 
 ;; The deliberate replacement, in both command sets because the daemon is
-;; underneath both views. A stale daemon retires itself once its sessions drain,
-;; and a session nobody is waiting on never drains — so this drains nothing: it
-;; tells the daemon to go now, and the next command starts one built from the
-;; checkout on disk.
+;; underneath both views. A stale daemon replaces itself at the next connect
+;; when nothing depends on it; this is the escape for the case where something
+;; does. It happens in place: the daemon goes, its successor comes up, and the
+;; control session reopens in this same window — never a chore left on screen.
 (defn restart-daemon! [runtime: Any] -> (Promise Any)
   (try
-    (let [output (js/await (run-command [NORTH-BIN "bridge" "restart"]))]
-      (publish-line! runtime (.trim (text output))))
+    (js/await (run-command [NORTH-BIN "bridge" "restart"]))
+    (publish-line! runtime "control daemon replaced; session restored")
+    (js/await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
     (catch Error error
       (append-error! runtime (error-message error)))))
 
@@ -4502,6 +4503,12 @@
            (.startsWith line "[")
            (let [record (record-line line)]
              (when record (handle-record! runtime stream-state record)))
+
+           ;; The client replaced a stale daemon on its own. That is not an
+           ;; error and not a chore — it is one grey line, and then the session
+           ;; it was asked for.
+           (.startsWith line "northd: ")
+           (publish-line! runtime (.slice line 8))
 
            (.startsWith line "north bridge:")
            (append-error! runtime line)

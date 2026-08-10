@@ -1138,8 +1138,9 @@ return publish_line_bang(runtime, sound_status(runtime)); })() : (() => { throw 
 
 async function restart_daemon_bang(runtime) {
   return (async () => { try {
-    const output = await run_command([NORTH_BIN, "bridge", "restart"]);
-  return publish_line_bang(runtime, text(output).trim());
+    await run_command([NORTH_BIN, "bridge", "restart"]);
+  publish_line_bang(runtime, "control daemon replaced; session restored");
+  return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
   } catch (error) {
     return append_error_bang(runtime, error_message(error));
   } })();
@@ -2416,7 +2417,7 @@ return ((line.startsWith("execution ")) ? (() => { const execution_id = line.sli
 (stream_state.soundLive = true);
 return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : (line.startsWith("attached ")) ? (stream_state.soundLive = true) : (line.startsWith("[")) ? (() => { const record = record_line(line); if (record) {
   return handle_record_bang(runtime, stream_state, record);
-} })() : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null); });
+} })() : (line.startsWith("northd: ")) ? publish_line_bang(runtime, line.slice(8)) : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null); });
 }
 
 function supervisor_provider_flag() {
