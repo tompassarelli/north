@@ -1,6 +1,6 @@
 # orchestration
 
-*Every squad needs a orchestration.*
+*Every squad needs orchestration.*
 
 **Orchestration is a provider-neutral routing doctrine for multi-agent orchestration**
 — usable from any CLI or harness, not tied to one vendor. Orchestrating
@@ -19,6 +19,13 @@ it's a single worker or a multi-stage workflow.
 payload (role, grade, topology, posture, comms, provider family block, exact
 model delta) for any provider, so custom-surface lanes never launch on a bare
 task prompt.
+
+In a switchboard installation, Orchestration is a module set rather than one
+consumer skill. The set injects `doctrine.md` and contains the `staffing`
+module; it also contains the nested `coordination` module set, whose messages,
+threads, and assignments remain separate responsibilities. Turning off the
+outer set therefore removes the complete runtime surface without changing the
+members' remembered switches.
 
 Install it and your sessions gain:
 
@@ -112,20 +119,21 @@ Full rationale: [`docs/method.md`](docs/method.md).
 
 ## Install
 
-### Claude Code — skill plus agent files
+### Claude Code — staffing skill plus agent files
 
 Link the two surfaces into your Claude configuration, from a checkout of this
 repository:
 
 ```
-ln -s "$PWD/skill"          ~/.claude/skills/orchestration
+ln -s "$PWD/staffing"       ~/.claude/skills/staffing
 ln -s "$PWD/agents"/*.md    ~/.claude/agents/
 ```
 
-The `orchestration` skill is the on-demand entry point: the model loads it when
-a turn involves delegating, and it directs the session to read `doctrine.md` in
-full before the dispatch decision. The linked agent files register the template
-library, so spawn a template worker directly via the Agent tool
+The `staffing` skill registers the role-profile boundary and declares the
+template library. A host that supports module sets should inject `doctrine.md`
+as the outer Orchestration set's instructions; a host without module sets must
+load that doctrine through its own context mechanism before routing. The linked
+agent files register the template library, so spawn a template worker directly via the Agent tool
 (`subagent_type: "implementer"` — the plain template name; Claude Code rejects a
 `:` in an agent file's `name`, and it is reserved for plugin namespacing).
 
@@ -139,9 +147,9 @@ for anyone still running the marketplace install
 (`/plugin marketplace add tompassarelli/orchestration`). It is no longer the
 supported path: the plugin installs an unversioned *copy* of the doctrine and
 agents into the plugin cache, and it injected the doctrine digest into every
-session whether or not the session ever delegated. The skill replaces that
-SessionStart injection with an on-demand load of the one canonical file, and the
-agent symlinks replace the copied templates. Under the plugin the templates were
+session whether or not the session ever delegated. The switchboard module set
+replaces that SessionStart injection with the one canonical file, and the agent
+symlinks replace the copied templates. Under the plugin the templates were
 namespaced `orchestration:<role>`; installed as agent files they are the plain
 role names.
 
