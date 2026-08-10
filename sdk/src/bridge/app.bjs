@@ -536,6 +536,55 @@
     from-key? ""
     :else "quit")))
 
+;; Pure: which surface holds the keyboard. Exactly one, always — that is the
+;; whole content of a focus model, and it is what lets one key carry a different
+;; verb per context without ever carrying two at once. Innermost first, the same
+;; order the escape ladder climbs back out through, so "what does this key do
+;; here" and "what does escape take back here" are answered off one ordering.
+(js/export
+ (defn active-focus
+  [palette-open?: Bool
+   panel-open?: Bool
+   panel-focused?: Bool
+   filtering?: Bool
+   strip-focused?: Bool] -> String
+  (cond
+    palette-open? "palette"
+    (and panel-open? panel-focused? filtering?) "filter"
+    (and panel-open? panel-focused?) "panel"
+    strip-focused? "strip"
+    :else "composer")))
+
+;; Pure: what tab means, which is entirely a question of who has the keyboard.
+;; In the panel it is the fold — the affordance the tree had no discoverable key
+;; for, since ←/→ and h/l are conventions you either know or never find. In the
+;; composer it swaps which view is on screen, which is what it has always meant
+;; there. In the palette it completes, which is all it has ever meant there.
+;;
+;; A live filter keeps folding: tab is never a character — the letters h and l
+;; stand down while a query is up precisely because they ARE characters, and tab
+;; has no such conflict to lose.
+;;
+;; On a row that is not a node, tab climbs to the node the row lives inside
+;; rather than doing nothing. A key that appears in the legend has to move
+;; something wherever the cursor is standing, and the row you land on is the one
+;; the next press folds.
+(js/export
+ (defn tab-action
+  [focus: String
+   dir-row?: Bool
+   expanded?: Bool] -> String
+  (cond
+    (identical? focus "palette") "complete"
+    (or (identical? focus "panel") (identical? focus "filter"))
+    (if dir-row? (if expanded? "collapse" "expand") "climb")
+    :else "swap-view")))
+
+;; Pure: the view a swap lands on. Two views, so the swap is the other one.
+(js/export
+ (defn tab-swap-frame [frame: String] -> String
+  (if (threads-frame? frame) "agents" "threads")))
+
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
 (defn emoji-options [query: String] -> (Vec SlashCommand)
@@ -1276,19 +1325,28 @@
                      (fn [owner: String] -> String
                        (config-provenance-name "module" owner))))))))
 
-;; Pure: the state column's text. Both axes whenever they can disagree, one when
-;; they cannot, and the reason for every off the row's own switch does not
-;; explain. A pin says only `disabled` — the derived activity of a hook the user
-;; has pinned off is not a fact anyone needs. A bound hook carries the unit it
-;; follows; a gated unit of any kind carries the bundle that is holding it back,
-;; because `on` on a row that is not composing is otherwise a lie the panel
-;; tells silently.
+;; Pure: the state a row is in — ONE token, and a qualifier only where the row
+;; diverges from what that token would let you assume.
+;;
+;; The two-axis model underneath is unchanged; this is what it prints. `enabled`
+;; is never one of the words: a row that is on says `on`, and a row whose own
+;; switch is on while it is not composing says `off` and then why. Spending a
+;; whole token on the axis that agrees with the answer said nothing and buried
+;; the axis that did not.
+;;
+;; Provenance is the same rule one level out. A hook drawn UNDER the skill that
+;; claims it is already standing in the answer — the parent row names the
+;; claimant, and repeating it on every child is the noise that made a nested
+;; hook unreadable. Printed only where the row is not nested under its claimant:
+;; the flat hooks view, and hooks nobody claimed. Where the row is off BECAUSE
+;; of that claimant, the reason already names it and nothing repeats it.
 (js/export
  (defn config-state-text
   [entry: Any
    manifest: Any
    memberships: Any
-   active?: Bool] -> String
+   active?: Bool
+   nested?: Bool] -> String
   (let [state (configentry-state entry)
         hook? (identical? (configentry-kind entry) "hook")
         own? (if hook? (config-hook-enabled? state) (identical? state "on"))
@@ -1298,7 +1356,7 @@
                     (str " (" (.join gates ", ") " off)"))
         companion (if hook? (text (configentry-detail entry)) "")
         followed (config-find-companion manifest companion)
-        provenance (if (identical? companion "")
+        provenance (if (or nested? (identical? companion ""))
                      ""
                      ;; The kind comes with the name, so the unit a hook follows
                      ;; cannot be misread as another hook. A companion the
@@ -1307,13 +1365,25 @@
                      (str " · "
                           (config-provenance-name
                            (if followed (configentry-kind followed) "")
-                           companion)))]
+                           companion)))
+        ;; The claimant IS the reason a bound hook is not running, and it is the
+        ;; one provenance a nested row still has to print — not as provenance,
+        ;; which the parent row already gives, but as the divergence.
+        claimant-off? (and followed
+                           (not (config-entry-active? followed manifest
+                                                      memberships)))
+        reason (cond
+                 (not (identical? gate-note "")) gate-note
+                 claimant-off? (str " ("
+                                    (config-provenance-name
+                                     (configentry-kind followed) companion)
+                                    " off)")
+                 :else "")]
     (cond
       (and hook? (not own?)) "disabled"
       (not own?) "off"
-      hook? (str "enabled · " (if active? "on" "off") provenance gate-note)
-      active? "on"
-      :else (str "on · off" gate-note)))))
+      active? (str "on" provenance)
+      :else (str "off" reason)))))
 
 ;; Pure: which CLI verb a space on this row means. Both axes flip through the
 ;; same two verbs — `off` pins a hook disabled or switches a unit off, `on`
@@ -1806,12 +1876,20 @@
 ;; what space and enter act on. Every caller that used to read configEntries
 ;; directly reads this instead, or the filter would be a lie told only to the
 ;; renderer and space would flip a row that is not on screen.
+;; What is open before you have opened anything. GLOBAL is the profile every
+;; other node is read on top of, so it is the one node whose contents are always
+;; part of the answer; the rest open folded, which is what makes the panel a list
+;; of scopes rather than a wall. An empty list is a state you chose — shutting
+;; GLOBAL keeps it shut — because only an absent field falls back to this.
+(def PANEL-DEFAULT-EXPANDED: Any [GLOBAL-DIR-NAME])
+
 ;; The nodes this session has opened. Session-local by construction: it lives on
-;; the runtime and nothing writes it to disk, so the panel opens folded every
-;; time and a fold is never a setting you have to remember you changed.
+;; the runtime and nothing writes it to disk, so the panel opens to the same
+;; shape every time and a fold is never a setting you have to remember you
+;; changed.
 (defn panel-expanded [runtime: Any] -> Any
   (let [stored (.-expandedDirs runtime)]
-    (if stored stored [])))
+    (if stored stored PANEL-DEFAULT-EXPANDED)))
 
 (js/export
  (defn config-panel-rows [runtime: Any] -> Any
@@ -2285,25 +2363,51 @@
                           (identical? (workview-id view) canonical)))]
     (or selected (aget views 0))))
 
-(defn roster-text
+;; Pure: is this the roster row the banner is already saying? The banner states
+;; the control session's revision, model, directory and permissions, and the
+;; roster row one line above it states that same session's name and status —
+;; with the banner up, the row is the duplicate, and the row is what goes. It
+;; comes back with its status the moment the banner does not own the screen any
+;; more. Only the control session is ever suppressed; every other agent's row is
+;; the only place its status appears.
+(js/export
+ (defn roster-row-suppressed?
+  [agent-id: String
+   supervisor-id: String
+   banner?: Bool] -> Bool
+  (and banner?
+       (not (identical? supervisor-id ""))
+       (identical? agent-id supervisor-id))))
+
+(js/export
+ (defn roster-text
   [state: BridgeSnapshot
-   selected: Int] -> String
-  (let [agents (bridgesnapshot-agents state)]
-    (if (identical? (.-length agents) 0)
-      "No agents attached"
-      (.join
-       (.map agents
-             (fn
-               [agent: Agent
-                index: Int] -> String
-               (str (if (identical? index selected) "› " "  ")
-                    (let [name (agent-name agent)]
-                      (if (identical? name "") (agent-id agent) name))
-                    (if (identical? (agent-status agent) "") ""
-                      (str " (" (agent-status agent) ")"))
-                    (if (identical? (agent-task agent) "") ""
-                      (str " — " (agent-task agent))))))
-       "\n"))))
+   selected: Int
+   supervisor-id: String
+   banner?: Bool] -> String
+  (let [agents (bridgesnapshot-agents state)
+        rows (.filter
+              (.map agents
+                    (fn
+                      [agent: Agent
+                       index: Int] -> Any
+                      {:id (agent-id agent)
+                       :text (str (if (identical? index selected) "› " "  ")
+                                  (let [name (agent-name agent)]
+                                    (if (identical? name "") (agent-id agent) name))
+                                  (if (identical? (agent-status agent) "") ""
+                                    (str " (" (agent-status agent) ")"))
+                                  (if (identical? (agent-task agent) "") ""
+                                    (str " — " (agent-task agent))))}))
+              (fn [row: Any] -> Bool
+                (not (roster-row-suppressed? (.-id row) supervisor-id banner?))))]
+    (cond
+      (identical? (.-length agents) 0) "No agents attached"
+      ;; Everything the roster had to show is what the banner is showing. The
+      ;; pane says nothing rather than reporting "no agents" about a session
+      ;; that is plainly on the screen underneath.
+      (identical? (.-length rows) 0) ""
+      :else (.join (.map rows (fn [row: Any] -> String (.-text row))) "\n")))))
 
 (defn agent-display-name [agent: Agent] -> String
   (let [name (agent-name agent)]
@@ -2762,6 +2866,15 @@
          (not (identical? value "failed"))
          (not (identical? value "error"))))))
 
+;; Whether the banner owns the screen right now, asked of the runtime once so
+;; that everything which has to agree with the banner — the transcript that
+;; draws it, the roster that stands down for it — reads the same answer instead
+;; of each recomputing the rule.
+(defn banner-visible? [runtime: Any] -> Bool
+  (transcript-banner? (supervisor-status runtime)
+                      (.-length (.-conversation runtime))
+                      (if (.-working runtime) true false)))
+
 ;; The banner's own facts, each labelled, in one column. The label width is
 ;; fixed so the values line up as a column of answers rather than a paragraph.
 (def BANNER-LABEL-WIDTH: Int 13)
@@ -2872,6 +2985,63 @@
   (banner-box (session-banner-lines identity model effort directory permissions)
               width)))
 
+;; The two columns the box costs on each side of a content line. Sliced by
+;; UTF-16 length rather than graphemes on purpose: both are single-unit box
+;; characters, and the slice has to agree with `.startsWith`/`.endsWith`.
+(def BANNER-BOX-PREFIX: String "│ ")
+(def BANNER-BOX-SUFFIX: String " │")
+
+;; Pure: is this drawn line the box's top or bottom rule — border and nothing
+;; else? Those two lines carry no content at all, so they are frame end to end.
+(js/export
+ (defn banner-rule-line? [line: String] -> Bool
+  (or (.startsWith line "╭") (.startsWith line "╰"))))
+
+;; Pure: one drawn line -> [border-prefix content border-suffix]. The box's
+;; sides belong to the FRAME, not to the line they enclose: colouring a whole
+;; line coloured its borders with it, which is what made the pipes beside the
+;; title bright against an otherwise dim box — a frame in two tones, which reads
+;; as broken rather than as emphasis.
+(js/export
+ (defn banner-line-segments [line: String] -> Any
+  (cond
+    (banner-rule-line? line) [line "" ""]
+
+    (and (.startsWith line BANNER-BOX-PREFIX)
+         (.endsWith line BANNER-BOX-SUFFIX)
+         (>= (.-length line) 4))
+    [BANNER-BOX-PREFIX
+     (.slice line 2 (- (.-length line) 2))
+     BANNER-BOX-SUFFIX]
+
+    ;; The narrow banner draws no box, so the whole line is content.
+    :else ["" line ""])))
+
+;; Pure: the drawn banner -> the runs that paint it, in order, each carrying the
+;; tone it paints in. Exactly one tone is bright — the title's own text — and
+;; everything else, fields and the entire frame alike, is dim. Newlines ride
+;; along as frame runs so a caller emits the banner by walking this list and
+;; nothing else.
+(js/export
+ (defn session-banner-runs [lines: Any] -> Any
+  (let [runs []]
+    (.forEach
+     lines
+     (fn
+       [line: String
+        index: Int] -> Any
+       (let [segments (banner-line-segments line)
+             prefix (aget segments 0)
+             content (aget segments 1)
+             suffix (aget segments 2)]
+         (when (> index 0) (.push runs {:text "\n" :tone "frame"}))
+         (when (not (identical? prefix "")) (.push runs {:text prefix :tone "frame"}))
+         (when (not (identical? content ""))
+           (.push runs {:text content
+                        :tone (if (.includes content "North Bridge") "title" "field")}))
+         (when (not (identical? suffix "")) (.push runs {:text suffix :tone "frame"})))))
+    runs)))
+
 (js/export
  (defn render-conversation! [runtime: Any] -> Any
   (let [chunks []
@@ -2940,21 +3110,19 @@
         (push-chunk! chunks (brightBlack placeholder)))
       ;; The ready-and-empty screen: the one moment there is room to say what
       ;; session this is, and the one moment nothing else needs the space.
-      (when (transcript-banner? status (.-length items) working?)
-        (.forEach (session-banner (.-sourceIdentity runtime)
-                                  (.-sessionModel runtime)
-                                  (.-sessionEffort runtime)
-                                  (short-directory (.-sessionCwd runtime))
-                                  (.-sessionPermissions runtime)
-                                  (available-frame-width))
-                  (fn
-                    [line: String
-                     index: Int] -> Any
+      (when (banner-visible? runtime)
+        (.forEach (session-banner-runs
+                   (session-banner (.-sourceIdentity runtime)
+                                   (.-sessionModel runtime)
+                                   (.-sessionEffort runtime)
+                                   (short-directory (.-sessionCwd runtime))
+                                   (.-sessionPermissions runtime)
+                                   (available-frame-width)))
+                  (fn [run: Any] -> Any
                     (push-chunk! chunks
-                                 ((if (.includes line "North Bridge")
+                                 ((if (identical? (.-tone run) "title")
                                     brightWhite brightBlack)
-                                  (str (if (identical? index 0) "" "\n")
-                                       line)))))))
+                                  (.-text run)))))))
     (StyledText. chunks))))
 
 (defn visible-notice [notice: Any] -> String
@@ -3073,8 +3241,8 @@
 (js/export
  (defn config-panel-legend [filtering?: Bool] -> String
   (if filtering?
-    "  ↑/↓ move · space toggle · enter edit · esc clears filter"
-    "  ↑/↓ move · space toggle · enter edit · / filter · esc close")))
+    "  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter"
+    "  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close")))
 
 ;; The dimmest tone the panel has: brightBlack with the dim attribute on top of
 ;; it. What you switched off, and what is only on screen to give a match its
@@ -3124,11 +3292,43 @@
     (let [path (short-directory (text (configentry-detail entry)))]
       (text-or path (configentry-name entry)))))
 
-(defn config-row-text
+;; Pure: does this row have to say what KIND it is? A row drawn under a heading
+;; that already names its kind does not — HOOKS says it once over the whole
+;; section, and repeating it per row is the same duplication the state column
+;; was carrying. A row nested inside another UNIT does: the heading over it names
+;; its parent's kind, so without the tag a hook under a module reads as another
+;; module. General rule rather than a hook special case — any kind that ends up
+;; nested under a differently-kinded parent inherits it.
+;;
+;; Dim by construction at the call site: the tag says which sort of thing this
+;; is, and the name is still what you are scanning for.
+(js/export
+ (defn config-kind-tag
+  [kind: String
+   role: String] -> String
+  (let [headings (config-header-roles role)
+        depth (.-length headings)
+        innermost (if (> depth 0) (aget headings (- depth 1)) "")]
+    (if (or (identical? innermost "") (identical? innermost role))
+      ""
+      (str kind " · ")))))
+
+;; Pure: one row, in the order it reads. The NAME leads, because the name is
+;; what you came to the list to find; the state follows it after a colon,
+;; answering the question you only ask once you have found the row. The state
+;; column used to lead, which put a column of `on`s between the cursor and every
+;; name on screen.
+;;
+;; The name is what gives way when the panel is narrow: a clipped state is not a
+;; smaller answer, it is a wrong one.
+(js/export
+ (defn config-row-parts
   [entry: Any
    memberships: Any
    expanded?: Bool
-   width: Int] -> String
+   role: String
+   state-text: String
+   width: Int] -> Any
   (let [kind (configentry-kind entry)
         name (configentry-name entry)
         dir? (identical? kind "dir")
@@ -3144,12 +3344,19 @@
                    ""
                    (config-member-count-text (.-length members)))
                  :else (text (configentry-detail entry)))
-        label (str (config-fold-glyph dir? expanded?)
-                   (if dir? (config-dir-label entry) (config-row-label kind name)))]
-    (compact-text (if (identical? detail "")
-                    label
-                    (str label "  " detail))
-                  width)))
+        indent (config-row-indent role)
+        glyph (config-fold-glyph dir? expanded?)
+        tag (config-kind-tag kind role)
+        label (if dir? (config-dir-label entry) (config-row-label kind name))
+        room (Math/max 8 (- width
+                            (.-length indent) (.-length glyph) (.-length tag)
+                            (.-length state-text) (.-length detail) 4))]
+    {:indent indent
+     :glyph glyph
+     :tag tag
+     :name (compact-text label room)
+     :state state-text
+     :detail detail})))
 
 ;; How far a row sits from the panel's left edge, in steps of two. Depth reads
 ;; as depth: the directory at the margin, its own two files one step in, the
@@ -3179,28 +3386,6 @@
 ;; further in, over rows one step further in again.
 (defn config-header-indent [index: Int] -> String
   (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 2))))
-
-;; The state column's width. Non-hook rows keep the three cells `on`/`off` have
-;; always had; a hook spends more because it prints two axes and, when it is
-;; bound, the skill it follows. Both are minimums — a long companion name pushes
-;; its own row's label right rather than clipping the state.
-(def CONFIG-STATE-WIDTH: Int 3)
-(def CONFIG-HOOK-STATE-WIDTH: Int 12)
-
-(defn config-state-width [kind: String] -> Int
-  (if (identical? kind "hook") CONFIG-HOOK-STATE-WIDTH CONFIG-STATE-WIDTH))
-
-;; A state that is a phrase rather than a word needs more air before the name
-;; than `on`/`off` ever did: every hook row, and any row a module is gating,
-;; which now can be any kind. A row whose state still fits the three cells keeps
-;; the geometry it has.
-(defn config-state-gap
-  [kind: String
-   state-text: String] -> String
-  (if (or (identical? kind "hook")
-          (> (.-length state-text) CONFIG-STATE-WIDTH))
-    "  "
-    " "))
 
 (js/export
  (defn render-config-panel [runtime: Any] -> Any
@@ -3270,15 +3455,15 @@
                                          (not (config-view-folds? config-filter))
                                          (config-node-expanded?
                                           expanded (configentry-name entry))))
+                          ;; A row drawn under the unit that claims it is
+                          ;; standing in its own provenance, and says one token
+                          ;; less for it.
+                          nested? (identical? role "boundhook")
                           state-text (config-state-text entry manifest
-                                                        memberships active?)
-                          state-column (str (config-row-indent role)
-                                            (.padEnd state-text
-                                                     (config-state-width kind)
-                                                     " ")
-                                            (config-state-gap kind state-text))
-                          label-width (Math/max 12
-                                                (- width (.-length state-column)))
+                                                        memberships active?
+                                                        nested?)
+                          row (config-row-parts entry memberships open? role
+                                                state-text width)
                           headings (config-header-keys entry basis)
                           prior (if (identical? i start)
                                   []
@@ -3303,21 +3488,31 @@
                                      (brightCyan "› ")
                                      (if cursor? (brightBlack "› ")
                                          (brightBlack "  "))))
-                      (.push parts ((cond pinned? dimmest
-                                          active? brightGreen
-                                          :else brightBlack)
-                                    state-column))
                       ;; The cursor still lights its row, and a pinned row is
                       ;; the one exception: it stays dim under the cursor, which
                       ;; the marker in the gutter is there to locate.
-                      (.push parts
-                             ((cond pinned? dimmest
-                                    (and cursor? focused?) brightWhite
-                                    context? dimmest
-                                    :else brightBlack)
-                              (str (config-row-text entry memberships open?
-                                                    label-width)
-                                   tail))))))
+                      (let [name-tone (cond pinned? dimmest
+                                            (and cursor? focused?) brightWhite
+                                            context? dimmest
+                                            :else brightBlack)
+                            state-tone (cond pinned? dimmest
+                                             active? brightGreen
+                                             :else brightBlack)]
+                        (.push parts (name-tone (str (.-indent row)
+                                                     (.-glyph row))))
+                        ;; The kind, said only where the heading above does not
+                        ;; already say it, and said quietly: it tells you what
+                        ;; sort of thing this is, not which thing.
+                        (when (not (identical? (.-tag row) ""))
+                          (.push parts (dimmest (.-tag row))))
+                        (.push parts (name-tone (.-name row)))
+                        (.push parts (name-tone ": "))
+                        (.push parts (state-tone (.-state row)))
+                        (.push parts (name-tone
+                                      (str (if (identical? (.-detail row) "")
+                                             ""
+                                             (str "  " (.-detail row)))
+                                           tail)))))))
         (StyledText. parts))))))
 
 ;; ---------------------------------------------------------------------------
@@ -3509,7 +3704,9 @@
    meaning: String])
 
 (def HELP-ROWS: (Vec HelpRow)
-  [(->HelpRow "Tab" "swap Agents/Threads")
+  ;; One key, two meanings, decided by who holds the keyboard — so the row says
+  ;; both rather than naming one and leaving the other to be discovered.
+  [(->HelpRow "Tab" "swap Agents/Threads; folds in the switchboard")
    (->HelpRow "←/→" "switch thread view")
    (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
    (->HelpRow "Esc / Ctrl-C" "cancel the turn; the message comes back")
@@ -4187,7 +4384,9 @@
     (set! (.-content (.-viewTabsText ui))
           (render-view-tabs (.-frame runtime) state (workview-id current) runtime))
     (set! (.-content (.-agentsText ui))
-          (roster-text state (.-agentIndex runtime)))
+          (roster-text state (.-agentIndex runtime)
+                       (text (.-supervisorId runtime))
+                       (banner-visible? runtime)))
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
     (set! (.-visible (.-workText ui)) (not board?))
     (set! (.-visible (.-boardRoot ui)) board?)
@@ -5244,6 +5443,25 @@
       (and (not (panel-filtering? runtime))
            (or (bare-letter? name key "h") (bare-letter? name key "l")))))
 
+;; Carry out one fold decision. Every key that folds — the arrows, h and l, tab —
+;; decides with its own pure function and lands here, so the decisions stay
+;; separable and the effect stays one thing.
+(defn apply-fold-action!
+  [runtime: Any
+   rows: Any
+   node: String
+   action: String] -> Any
+  (cond
+    (identical? action "expand") (set-node-expanded! runtime node true)
+    (identical? action "collapse") (set-node-expanded! runtime node false)
+    (identical? action "climb")
+    (let [at (.findIndex rows
+                         (fn [row: Any] -> Bool
+                           (and (identical? (configentry-kind row) "dir")
+                                (identical? (configentry-name row) node))))]
+      (when (>= at 0) (set! (.-configIndex runtime) at)))
+    :else nil))
+
 ;; One press of a fold key, on whatever row the cursor is on. `l` opens the node
 ;; you are on; `h` shuts it, or climbs to the node when you are inside one, and
 ;; the cursor lands on the row you just folded so the next press has something
@@ -5257,21 +5475,29 @@
       (let [index (clamped-index (.-configIndex runtime) total)
             entry (aget rows index)
             dir? (identical? (configentry-kind entry) "dir")
-            node (config-row-node entry)
-            action (fold-key-action dir?
-                                    (config-node-expanded?
-                                     (panel-expanded runtime) node)
-                                    open-key?)]
-        (cond
-          (identical? action "expand") (set-node-expanded! runtime node true)
-          (identical? action "collapse") (set-node-expanded! runtime node false)
-          (identical? action "climb")
-          (let [at (.findIndex rows
-                               (fn [row: Any] -> Bool
-                                 (and (identical? (configentry-kind row) "dir")
-                                      (identical? (configentry-name row) node))))]
-            (when (>= at 0) (set! (.-configIndex runtime) at)))
-          :else nil)))))
+            node (config-row-node entry)]
+        (apply-fold-action!
+         runtime rows node
+         (fold-key-action dir?
+                          (config-node-expanded? (panel-expanded runtime) node)
+                          open-key?))))))
+
+;; One press of tab inside the panel: the fold, toggled rather than split across
+;; an open key and a shut one, because a key that has to be discoverable can
+;; only carry one verb.
+(js/export
+ (defn tab-fold-step! [runtime: Any] -> Any
+  (let [rows (config-panel-rows runtime)
+        total (.-length rows)]
+    (when (> total 0)
+      (let [index (clamped-index (.-configIndex runtime) total)
+            entry (aget rows index)
+            dir? (identical? (configentry-kind entry) "dir")
+            node (config-row-node entry)]
+        (apply-fold-action!
+         runtime rows node
+         (tab-action "panel" dir?
+                     (config-node-expanded? (panel-expanded runtime) node))))))))
 
 (defn ctrl-up-key?
   [name: String
@@ -5351,6 +5577,10 @@
                   (or (identical? name "up") (identical? name "down")
                       (ctrl-up-key? name key) (ctrl-down-key? name key)
                       (identical? name "space") (submit-key? name)
+                      ;; Tab is claimed here before the composer's view swap can
+                      ;; see it: with the panel focused the keyboard is the
+                      ;; panel's, and one key cannot mean two things at once.
+                      (identical? name "tab")
                       (fold-key? runtime name key)))
              (let [up? (or (identical? name "up") (ctrl-up-key? name key))
                    down? (or (identical? name "down") (ctrl-down-key? name key))]
@@ -5365,6 +5595,8 @@
                            delta (if up? -1 1)]
                        (set! (.-configIndex runtime)
                              (mod (+ current delta total) total)))))
+
+                 (identical? name "tab") (tab-fold-step! runtime)
 
                  (fold-key? runtime name key)
                  (fold-step! runtime
@@ -5535,8 +5767,7 @@
              (or (identical? name "tab") (identical? name "f2"))
              (do (.preventDefault key)
                  (.stopPropagation key)
-                 (show-frame! runtime ui
-                              (if (threads-frame? (.-frame runtime)) "agents" "threads")))
+                 (show-frame! runtime ui (tab-swap-frame (text (.-frame runtime)))))
 
              (identical? name "f1")
              (do (.preventDefault key)

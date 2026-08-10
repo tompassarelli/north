@@ -12,6 +12,7 @@ import {
   render_detail_panel_bang as renderDetailPanel,
   render_view_tabs as renderViewTabs,
   restore_submitted_text_bang as restoreSubmittedText,
+  tab_swap_frame as tabSwapFrame,
   thread_view_command_p as threadViewCommand,
   view_list as viewList,
   view_tab_id_at as viewTabIdAt,
@@ -427,4 +428,23 @@ test("showing Threads extends the bar with that view's own tabs", async () => {
   const list = await frameOf("threads", "list");
   expect(list.frame).toContain("[List]");
   expect(list.frame).not.toContain("[Board]");
+});
+
+// Tab's other meaning, the one it has always had: with the keyboard in the
+// composer it swaps which view is on screen. The panel's fold is a different
+// surface's verb and cannot reach here.
+test("tab swaps the view on screen, and swaps it back", async () => {
+  expect(tabSwapFrame("agents")).toBe("threads");
+  expect(tabSwapFrame("threads")).toBe("agents");
+
+  const agents = await frameOf("agents");
+  expect(agents.visibility).toEqual({ agents: true, threads: false });
+  expect(agents.frame).toContain("AGENTBODY");
+
+  const swapped = await frameOf(tabSwapFrame("agents") as string);
+  expect(swapped.visibility).toEqual({ agents: false, threads: true });
+  expect(swapped.frame).toContain("THREADBODY");
+
+  const back = await frameOf(tabSwapFrame("threads") as string);
+  expect(back.visibility).toEqual({ agents: true, threads: false });
 });

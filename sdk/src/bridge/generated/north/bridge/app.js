@@ -386,6 +386,18 @@ export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_fo
   return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : ((from_key_p && working_p)) ? "cancel-turn" : (from_key_p) ? "" : "quit");
 }
 
+export function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
+  return ((palette_open_p) ? "palette" : ((panel_open_p && panel_focused_p && filtering_p)) ? "filter" : ((panel_open_p && panel_focused_p)) ? "panel" : (strip_focused_p) ? "strip" : "composer");
+}
+
+export function tab_action(focus, dir_row_p, expanded_p) {
+  return (((focus === "palette")) ? "complete" : (((focus === "panel") || (focus === "filter"))) ? (dir_row_p ? (expanded_p ? "collapse" : "expand") : "climb") : "swap-view");
+}
+
+export function tab_swap_frame(frame) {
+  return (threads_frame_p(frame) ? "agents" : "threads");
+}
+
 function emoji_options(query) {
   const needle = query.trim().toLowerCase();
   return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
@@ -804,7 +816,7 @@ return (row ? config_entry_active_p(row, manifest, memberships) : false); }));
   return scope.concat((open_p ? [] : owners.map((owner) => config_provenance_name("module", owner))));
 }
 
-export function config_state_text(entry, manifest, memberships, active_p) {
+export function config_state_text(entry, manifest, memberships, active_p, nested_p) {
   const state = configentry_state(entry);
   const hook_p = (configentry_kind(entry) === "hook");
   const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
@@ -812,8 +824,10 @@ export function config_state_text(entry, manifest, memberships, active_p) {
   const gate_note = ((gates.length === 0) ? "" : ("".concat(" (", gates.join(", "), " off)")));
   const companion = (hook_p ? text(configentry_detail(entry)) : "");
   const followed = config_find_companion(manifest, companion);
-  const provenance = ((companion === "") ? "" : ("".concat(" · ", config_provenance_name((followed ? configentry_kind(followed) : ""), companion))));
-  return (((hook_p && (!own_p))) ? "disabled" : ((!own_p)) ? "off" : (hook_p) ? ("".concat("enabled · ", (active_p ? "on" : "off"), provenance, gate_note)) : (active_p) ? "on" : ("".concat("on · off", gate_note)));
+  const provenance = ((nested_p || (companion === "")) ? "" : ("".concat(" · ", config_provenance_name((followed ? configentry_kind(followed) : ""), companion))));
+  const claimant_off_p = (followed && (!config_entry_active_p(followed, manifest, memberships)));
+  const reason = (((!(gate_note === ""))) ? gate_note : (claimant_off_p) ? ("".concat(" (", config_provenance_name(configentry_kind(followed), companion), " off)")) : "");
+  return (((hook_p && (!own_p))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? ("".concat("on", provenance)) : ("".concat("off", reason)));
 }
 
 export function config_toggle_verb(state) {
@@ -991,9 +1005,11 @@ function panel_query(runtime) {
   return (panel_filtering_p(runtime) ? text(runtime.panelQuery) : "");
 }
 
+const PANEL_DEFAULT_EXPANDED = [GLOBAL_DIR_NAME];
+
 function panel_expanded(runtime) {
   const stored = runtime.expandedDirs;
-  return (stored ? stored : []);
+  return (stored ? stored : PANEL_DEFAULT_EXPANDED);
 }
 
 export function config_panel_rows(runtime) {
@@ -1296,9 +1312,14 @@ function selected_view(state, view_id) {
   return (selected || views[0]);
 }
 
-function roster_text(state, selected) {
+export function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
+  return (banner_p && (!(supervisor_id === "")) && (agent_id === supervisor_id));
+}
+
+export function roster_text(state, selected, supervisor_id, banner_p) {
   const agents = bridgesnapshot_agents(state);
-  return ((agents.length === 0) ? "No agents attached" : agents.map((agent, index) => ("".concat(((index === selected) ? "› " : "  "), (() => { const name = agent_name(agent); return ((name === "") ? agent_id(agent) : name); })(), ((agent_status(agent) === "") ? "" : ("".concat(" (", agent_status(agent), ")"))), ((agent_task(agent) === "") ? "" : ("".concat(" — ", agent_task(agent))))))).join("\n"));
+  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: ("".concat(((index === selected) ? "› " : "  "), (() => { const name = agent_name(agent); return ((name === "") ? agent_id(agent) : name); })(), ((agent_status(agent) === "") ? "" : ("".concat(" (", agent_status(agent), ")"))), ((agent_task(agent) === "") ? "" : ("".concat(" — ", agent_task(agent))))))})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
+  return (((agents.length === 0)) ? "No agents attached" : ((rows.length === 0)) ? "" : rows.map((row) => row.text).join("\n"));
 }
 
 function agent_display_name(agent) {
@@ -1528,6 +1549,10 @@ export function transcript_banner_p(status, item_count, working_p) {
   return ((item_count === 0) && (!working_p) && (!(value === "")) && (!(value === "starting")) && (!(value === "offline")) && (!(value === "failed")) && (!(value === "error")));
 }
 
+function banner_visible_p(runtime) {
+  return transcript_banner_p(supervisor_status(runtime), runtime.conversation.length, (runtime.working ? true : false));
+}
+
 const BANNER_LABEL_WIDTH = 13;
 
 const BANNER_MIN_COLUMNS = 55;
@@ -1584,6 +1609,39 @@ export function session_banner(identity, model, effort, directory, permissions, 
   return banner_box(session_banner_lines(identity, model, effort, directory, permissions), width);
 }
 
+const BANNER_BOX_PREFIX = "│ ";
+
+const BANNER_BOX_SUFFIX = " │";
+
+export function banner_rule_line_p(line) {
+  return (line.startsWith("╭") || line.startsWith("╰"));
+}
+
+export function banner_line_segments(line) {
+  return ((banner_rule_line_p(line)) ? [line, "", ""] : ((line.startsWith(BANNER_BOX_PREFIX) && line.endsWith(BANNER_BOX_SUFFIX) && (line.length >= 4))) ? [BANNER_BOX_PREFIX, line.slice(2, (line.length - 2)), BANNER_BOX_SUFFIX] : ["", line, ""]);
+}
+
+export function session_banner_runs(lines) {
+  const runs = [];
+  lines.forEach((line, index) => { const segments = banner_line_segments(line);
+const prefix = segments[0];
+const content = segments[1];
+const suffix = segments[2];
+if ((index > 0)) {
+  runs.push({text: "\n", tone: "frame"});
+}
+if ((!(prefix === ""))) {
+  runs.push({text: prefix, tone: "frame"});
+}
+if ((!(content === ""))) {
+  runs.push({text: content, tone: (content.includes("North Bridge") ? "title" : "field")});
+}
+if ((!(suffix === ""))) {
+  return runs.push({text: suffix, tone: "frame"});
+} });
+  return runs;
+}
+
 export function render_conversation_bang(runtime) {
   const chunks = [];
   const items = runtime.conversation;
@@ -1619,8 +1677,8 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
-  if (transcript_banner_p(status, items.length, working_p)) {
-    session_banner(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width()).forEach((line, index) => push_chunk_bang(chunks, ((line.includes("North Bridge") ? brightWhite : brightBlack))(("".concat(((index === 0) ? "" : "\n"), line)))));
+  if (banner_visible_p(runtime)) {
+    session_banner_runs(session_banner(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
   }
   return new StyledText(chunks);
 }
@@ -1665,7 +1723,7 @@ export function config_query_field(filtering_p, query) {
 }
 
 export function config_panel_legend(filtering_p) {
-  return (filtering_p ? "  ↑/↓ move · space toggle · enter edit · esc clears filter" : "  ↑/↓ move · space toggle · enter edit · / filter · esc close");
+  return (filtering_p ? "  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter" : "  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
 }
 
 function dimmest(value) {
@@ -1689,14 +1747,25 @@ function config_dir_label(entry) {
   }
 }
 
-function config_row_text(entry, memberships, expanded_p, width) {
+export function config_kind_tag(kind, role) {
+  const headings = config_header_roles(role);
+  const depth = headings.length;
+  const innermost = ((depth > 0) ? headings[(depth - 1)] : "");
+  return (((innermost === "") || (innermost === role)) ? "" : ("".concat(kind, " · ")));
+}
+
+export function config_row_parts(entry, memberships, expanded_p, role, state_text, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const dir_p = (kind === "dir");
   const members = config_module_members(memberships, name);
   const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
-  const label = ("".concat(config_fold_glyph(dir_p, expanded_p), (dir_p ? config_dir_label(entry) : config_row_label(kind, name))));
-  return compact_text(((detail === "") ? label : ("".concat(label, "  ", detail))), width);
+  const indent = config_row_indent(role);
+  const glyph = config_fold_glyph(dir_p, expanded_p);
+  const tag = config_kind_tag(kind, role);
+  const label = (dir_p ? config_dir_label(entry) : config_row_label(kind, name));
+  const room = Math.max(8, (width - indent.length - glyph.length - tag.length - state_text.length - detail.length - 4));
+  return {indent: indent, glyph: glyph, tag: tag, name: compact_text(label, room), state: state_text, detail: detail};
 }
 
 const CONFIG_INDENT_WIDTH = 2;
@@ -1711,18 +1780,6 @@ function config_row_indent(role) {
 
 function config_header_indent(index) {
   return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
-}
-
-const CONFIG_STATE_WIDTH = 3;
-
-const CONFIG_HOOK_STATE_WIDTH = 12;
-
-function config_state_width(kind) {
-  return ((kind === "hook") ? CONFIG_HOOK_STATE_WIDTH : CONFIG_STATE_WIDTH);
-}
-
-function config_state_gap(kind, state_text) {
-  return (((kind === "hook") || (state_text.length > CONFIG_STATE_WIDTH)) ? "  " : " ");
 }
 
 export function render_config_panel(runtime) {
@@ -1756,9 +1813,9 @@ const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state
 const context_p = config_row_context_only_p(entry, query);
 const role = config_row_role(entry, basis);
 const open_p = ((kind === "dir") && ((!(query.trim() === "")) || (!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry))));
-const state_text = config_state_text(entry, manifest, memberships, active_p);
-const state_column = ("".concat(config_row_indent(role), state_text.padEnd(config_state_width(kind), " "), config_state_gap(kind, state_text)));
-const label_width = Math.max(12, (width - state_column.length));
+const nested_p = (role === "boundhook");
+const state_text = config_state_text(entry, manifest, memberships, active_p, nested_p);
+const row = config_row_parts(entry, memberships, open_p, role, state_text, width);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
 const shared = config_header_shared(prior, headings);
@@ -1767,8 +1824,16 @@ config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow(("".concat(config_header_indent(at), config_section_title(heading), "\n"))));
 } });
 parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
-parts.push((((pinned_p) ? dimmest : (active_p) ? brightGreen : brightBlack))(state_column));
-return parts.push((((pinned_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack))(("".concat(config_row_text(entry, memberships, open_p, label_width), tail)))); });
+const name_tone = ((pinned_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack);
+const state_tone = ((pinned_p) ? dimmest : (active_p) ? brightGreen : brightBlack);
+parts.push(name_tone(("".concat(row.indent, row.glyph))));
+if ((!(row.tag === ""))) {
+  parts.push(dimmest(row.tag));
+}
+parts.push(name_tone(row.name));
+parts.push(name_tone(": "));
+parts.push(state_tone(row.state));
+return parts.push(name_tone(("".concat(((row.detail === "") ? "" : ("".concat("  ", row.detail))), tail)))); });
     return new StyledText(parts);
   }
 }
@@ -1900,7 +1965,7 @@ function helprow_keys(r) { return r.keys; }
 
 function helprow_meaning(r) { return r.meaning; }
 
-const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc / Ctrl-C", "cancel the turn; the message comes back"), HelpRow("/q /close /esc /exit", "escape — innermost first; at root, quits"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
+const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads; folds in the switchboard"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc / Ctrl-C", "cancel the turn; the message comes back"), HelpRow("/q /close /esc /exit", "escape — innermost first; at root, quits"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
 
 const HELP_KEY_WIDTH = 22;
 
@@ -2281,7 +2346,7 @@ function render_ui_bang(runtime, ui) {
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     apply_frame_visibility_bang(runtime, ui);
     (ui.viewTabsText.content = render_view_tabs(runtime.frame, state, workview_id(current), runtime));
-    (ui.agentsText.content = roster_text(state, runtime.agentIndex));
+    (ui.agentsText.content = roster_text(state, runtime.agentIndex, text(runtime.supervisorId), banner_visible_p(runtime)));
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = (!board_p));
     (ui.boardRoot.visible = board_p);
@@ -2894,6 +2959,12 @@ function fold_key_p(runtime, name, key) {
   return ((name === "left") || (name === "right") || ((!panel_filtering_p(runtime)) && (bare_letter_p(name, key, "h") || bare_letter_p(name, key, "l"))));
 }
 
+function apply_fold_action_bang(runtime, rows, node, action) {
+  return (((action === "expand")) ? set_node_expanded_bang(runtime, node, true) : ((action === "collapse")) ? set_node_expanded_bang(runtime, node, false) : ((action === "climb")) ? (() => { const at = rows.findIndex((row) => ((configentry_kind(row) === "dir") && (configentry_name(row) === node))); if ((at >= 0)) {
+  return (runtime.configIndex = at);
+} })() : null);
+}
+
 function fold_step_bang(runtime, open_key_p) {
   const rows = config_panel_rows(runtime);
   const total = rows.length;
@@ -2902,10 +2973,19 @@ function fold_step_bang(runtime, open_key_p) {
     const entry = rows[index];
     const dir_p = (configentry_kind(entry) === "dir");
     const node = config_row_node(entry);
-    const action = fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p);
-    return (((action === "expand")) ? set_node_expanded_bang(runtime, node, true) : ((action === "collapse")) ? set_node_expanded_bang(runtime, node, false) : ((action === "climb")) ? (() => { const at = rows.findIndex((row) => ((configentry_kind(row) === "dir") && (configentry_name(row) === node))); if ((at >= 0)) {
-  return (runtime.configIndex = at);
-} })() : null);
+    return apply_fold_action_bang(runtime, rows, node, fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p));
+  }
+}
+
+export function tab_fold_step_bang(runtime) {
+  const rows = config_panel_rows(runtime);
+  const total = rows.length;
+  if ((total > 0)) {
+    const index = clamped_index(runtime.configIndex, total);
+    const entry = rows[index];
+    const dir_p = (configentry_kind(entry) === "dir");
+    const node = config_row_node(entry);
+    return apply_fold_action_bang(runtime, rows, node, tab_action("panel", dir_p, config_node_expanded_p(panel_expanded(runtime), node)));
   }
 }
 
@@ -2932,7 +3012,7 @@ function install_keys_bang(runtime, ui) {
 return key.stopPropagation(); })() : null) : ((detail_open_p(runtime) && (!panel_focused_p(runtime)) && (!palette_open) && ctrl_down_key_p(name, key))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);
-return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || fold_key_p(runtime, name, key)))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || (name === "tab") || fold_key_p(runtime, name, key)))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if ((up_p || down_p)) {
   const total = config_panel_rows(runtime).length;
@@ -2942,6 +3022,8 @@ if ((up_p || down_p)) {
     const delta = (up_p ? -1 : 1);
     (runtime.configIndex = ((current + delta + total) % total));
   }
+} else if ((name === "tab")) {
+  tab_fold_step_bang(runtime);
 } else if (fold_key_p(runtime, name, key)) {
   fold_step_bang(runtime, ((name === "right") || bare_key_p(name, key, "l")));
 } else if ((name === "space")) {
@@ -3005,7 +3087,7 @@ return ((action === "fire") ? submit_input_bang(runtime, ui, completed.trim()) :
 key.stopPropagation();
 return focus_strip_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return show_frame_bang(runtime, ui, (threads_frame_p(runtime.frame) ? "agents" : "threads")); })() : ((name === "f1")) ? (() => { key.preventDefault();
+return show_frame_bang(runtime, ui, tab_swap_frame(text(runtime.frame))); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
 return toggle_help_bang(runtime, ui); })() : (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1); const next_index = ((index + delta + views.length) % views.length); const next_id = text(views[next_index].id); key.preventDefault();
 key.stopPropagation();

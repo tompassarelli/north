@@ -129,25 +129,39 @@ test("a hook's activity is derived from permission and its companion unit", () =
   expect(configEntryActive(row("hook", "pinned", "disabled"), MANIFEST, [])).toBe(false);
 });
 
-test("the state column says both axes, and where an off came from", () => {
-  const at = (name: string) => {
+// One state token per row, and a qualifier only where the row diverges from
+// what that token would let you assume. The word `enabled` is gone: it was
+// spent on the axis that always agreed with the answer.
+test("a row states one thing, and explains itself only when it diverges", () => {
+  const at = (name: string, nested = false) => {
     const entry = MANIFEST.find((r) => r.name === name)!;
-    return configStateText(entry, MANIFEST, [], configEntryActive(entry, MANIFEST, []));
+    return configStateText(
+      entry, MANIFEST, [], configEntryActive(entry, MANIFEST, []), nested);
   };
-  expect(at("worktree-guard")).toBe("enabled · on");
-  expect(at("firn-guard")).toBe("enabled · on · skill: firn");
+  expect(at("worktree-guard")).toBe("on");
   // Provenance is the companion's kind AND name, so the unit a hook follows
-  // cannot be misread as another hook.
-  expect(at("profile-guard")).toBe("enabled · on · dir: global");
-  expect(at("routing-guard")).toBe("enabled · on · module: orchestration");
-  // Permitted but inactive, and the row names the reason.
-  expect(at("webdev-guard")).toBe("enabled · off · skill: webdev");
+  // cannot be misread as another hook — but only where the row is not already
+  // drawn underneath that unit.
+  expect(at("firn-guard")).toBe("on · skill: firn");
+  expect(at("firn-guard", true)).toBe("on");
+  expect(at("profile-guard")).toBe("on · dir: global");
+  expect(at("routing-guard")).toBe("on · module: orchestration");
+  // Permitted but not running: the one case that owes an explanation, and it
+  // owes it whether or not it is nested, because the reason is not provenance.
+  expect(at("webdev-guard")).toBe("off (skill: webdev off)");
+  expect(at("webdev-guard", true)).toBe("off (skill: webdev off)");
   // A pin is not an off: no derived activity is reported for it at all.
   expect(at("tripwire-guard")).toBe("disabled");
 
+  // Nothing anywhere prints the word the two-axis model used to lead with.
+  for (const entry of MANIFEST)
+    expect(configStateText(entry, MANIFEST, [], configEntryActive(entry, MANIFEST, []), false))
+      .not.toContain("enabled");
+
   // Nothing else grows a second axis.
-  expect(configStateText(row("skill", "firn", "on"), MANIFEST, [], true)).toBe("on");
-  expect(configStateText(row("other", "statusline-script", "off"), MANIFEST, [], false)).toBe("off");
+  expect(configStateText(row("skill", "firn", "on"), MANIFEST, [], true, false)).toBe("on");
+  expect(configStateText(row("other", "statusline-script", "off"), MANIFEST, [], false, false))
+    .toBe("off");
 });
 
 test("space flips the axis the row stores, through the same two verbs", () => {
@@ -213,20 +227,26 @@ test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGIN
 
 test("each of the hook states renders as itself, whatever kind it follows", async () => {
   const frame = await frameOf("globals");
-  // Active, unbound: permitted and running.
-  expect(frame).toContain("enabled · on  worktree-guard");
-  // Active and bound: the unit it follows is on screen above it.
-  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
+  // The row reads name first and state after: the name is what you are looking
+  // for, and the state answers the question you ask once you have found it.
+  expect(frame).toContain("worktree-guard: on");
+  // Drawn under the skill that claims it: the parent row is the provenance, so
+  // the child says one token and no more. Its KIND is said instead, because the
+  // heading over it names its parent's kind and not its own.
+  expect(frame).toContain("hook · firn-guard: on");
   // A hook following the global profile, and one following a module, render
-  // and derive exactly like one following a skill.
-  expect(frame).toContain("enabled · on · dir: global  profile-guard");
-  expect(frame).toContain("enabled · on · module: orchestration  routing-guard");
-  // Permitted but inactive, with the reason on the row — the whole point of
-  // the companion field.
-  expect(frame).toContain("enabled · off · skill: webdev  webdev-guard");
+  // and derive exactly like one following a skill — and neither is nested under
+  // its claimant here, so both still name it.
+  expect(frame).toContain("profile-guard: on · dir: global");
+  expect(frame).toContain("routing-guard: on · module: orchestration");
+  // Permitted but inactive: the reason, because the row diverges from what `on`
+  // would have let you assume.
+  expect(frame).toContain("hook · webdev-guard: off (skill: webdev off)");
   // A user pin, which no flip will move. Distinct from an off.
-  expect(frame).toContain("disabled      tripwire-guard");
-  expect(frame).not.toContain("off  tripwire-guard");
+  expect(frame).toContain("tripwire-guard: disabled");
+  expect(frame).not.toContain("tripwire-guard: off");
+  // The word the two-axis model used to lead every hook row with is gone.
+  expect(frame).not.toContain("enabled");
 });
 
 test("a narrowed /hooks view still knows which of its hooks are running", async () => {
@@ -238,14 +258,17 @@ test("a narrowed /hooks view still knows which of its hooks are running", async 
   // the node's HOOKS heading, which is the truth about what is on screen.
   expect(frame).not.toContain("SKILLS");
   expect(frame).toContain("HOOKS");
-  expect(frame).toContain("enabled · off · skill: webdev  webdev-guard");
-  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
-  expect(frame).toContain("enabled · on · dir: global  profile-guard");
+  // Nothing is nested here, so provenance is the row's own to state — and the
+  // HOOKS heading already says what kind they are, so no row tags itself.
+  expect(frame).toContain("webdev-guard: off (skill: webdev off)");
+  expect(frame).toContain("firn-guard: on · skill: firn");
+  expect(frame).toContain("profile-guard: on · dir: global");
+  expect(frame).not.toContain("hook · ");
 });
 
 test("one unit flip re-renders every hook bound to it, with no hook line changed", async () => {
   const before = await frameOf("globals");
-  expect(before).toContain("enabled · on · dir: global  profile-guard");
+  expect(before).toContain("profile-guard: on · dir: global");
 
   // The manifest the CLI writes back after `agents off global`: the dir line
   // moved, the hook lines are byte-identical. This is why a toggle reloads
@@ -258,11 +281,13 @@ test("one unit flip re-renders every hook bound to it, with no hook line changed
     MANIFEST.filter((r) => r.kind === "hook"));
 
   const frame = await frameOf("globals", after);
-  expect(frame).toContain("enabled · off · dir: global  profile-guard");
-  expect(frame).not.toContain("enabled · on · dir: global  profile-guard");
+  // The claimant went off, so the hook diverges and names the claimant as the
+  // reason rather than as provenance.
+  expect(frame).toContain("profile-guard: off (dir: global off)");
+  expect(frame).not.toContain("profile-guard: on");
   // Hooks following other units are untouched by this one's cascade.
-  expect(frame).toContain("enabled · on · skill: firn  firn-guard");
+  expect(frame).toContain("hook · firn-guard: on");
   // The pin is immune to the cascade; the unbound hook never followed anything.
-  expect(frame).toContain("disabled      tripwire-guard");
-  expect(frame).toContain("enabled · on  worktree-guard");
+  expect(frame).toContain("tripwire-guard: disabled");
+  expect(frame).toContain("worktree-guard: on");
 });

@@ -203,12 +203,12 @@ test("a gated child says which row is holding it, kind and all, one hop per rung
   expect(stateOf(dirOff, "dir", "code")).toBe("off");
   // Its children's own switches are still on, and they are not composing. The
   // kind comes with the name so `code` cannot be misread as a peer.
-  expect(stateOf(dirOff, "ins", "code")).toBe("on · off (dir: code off)");
-  expect(stateOf(dirOff, "memroot", "code")).toBe("on · off (dir: code off)");
+  expect(stateOf(dirOff, "ins", "code")).toBe("off (dir: code off)");
+  expect(stateOf(dirOff, "memroot", "code")).toBe("off (dir: code off)");
   // A memory names the rung directly above it, which names the directory in
   // turn — the same ladder a skill inside a switched-off bundle reads as.
   expect(stateOf(dirOff, "mem", "code/report-style-recommendations"))
-    .toBe("on · off (memories: code off)");
+    .toBe("off (memories: code off)");
   expect(configGateModules(entryOf(dirOff, "ins", "code"), dirOff, []))
     .toEqual(["dir: code"]);
   expect(configGateModules(entryOf(dirOff, "mem", "code/report-style-recommendations"),
@@ -229,7 +229,7 @@ test("modules still gate a subtree row, by union, alongside the directory", () =
   expect(configEntryActive(entryOf(bundleOff, "mem", "code/report-style-recommendations"),
                            bundleOff, rosters)).toBe(false);
   expect(stateOf(bundleOff, "mem", "code/report-style-recommendations", rosters))
-    .toBe("on · off (module: orchestration off)");
+    .toBe("off (module: orchestration off)");
 
   // Both closed: the subtree gate reads first, because it is the coarser thing
   // and the one the panel nests the row under.
@@ -247,7 +247,7 @@ test("a memory with no memories row still answers to its directory", () => {
   expect(configEntryActive(entryOf(dirOff, "mem", "code/report-style-recommendations"),
                            dirOff, [])).toBe(false);
   expect(stateOf(dirOff, "mem", "code/report-style-recommendations"))
-    .toBe("on · off (dir: code off)");
+    .toBe("off (dir: code off)");
 
   // A subtree row whose directory is nowhere in the manifest is ungated rather
   // than dead: absence means the CLI never registered the scope, and the honest
@@ -331,14 +331,14 @@ test("the subtree renders nested under its directory, at both depths", async () 
   // one step further — and the second node reads the same way under the same
   // one heading.
   expect(lines.slice(at, at + 8)).toEqual([
-    "› on  ▾ GLOBAL",
-    "    on  AGENTS.md",
-    "  on  ▾ /tmp/switchboard-fixture/code",
-    "    on  AGENTS.md",
-    "    on  MEMORIES",
-    "      on  report-style-recommendations",
-    "      on  agents-switchboard-architecture",
-    "  on  ▾ /tmp/switchboard-fixture/north",
+    "› ▾ GLOBAL: on",
+    "    AGENTS.md: on",
+    "  ▾ /tmp/switchboard-fixture/code: on",
+    "    AGENTS.md: on",
+    "    MEMORIES: on",
+    "      report-style-recommendations: on",
+    "      agents-switchboard-architecture: on",
+    "  ▾ /tmp/switchboard-fixture/north: on",
   ]);
   // Directories are the panel's root level, not rows inside a section about
   // directories: there is no heading over them at all.
@@ -353,11 +353,11 @@ test("a directory row shows the place, and the slug stays behind the screen", as
   // `code  /tmp/…/code` said the same thing twice. The path is the half that
   // answers "which directory is this" — two checkouts of one repo share a slug
   // and differ only here — so the path is the row and the slug is not printed.
-  expect(lines).toContain("  on  ▾ /tmp/switchboard-fixture/code");
+  expect(lines).toContain("  ▾ /tmp/switchboard-fixture/code: on");
   expect(frame).not.toContain("code  /tmp");
   expect(frame).not.toContain("north  /tmp");
   // The root scope is the same rule with the root's own path.
-  expect(lines).toContain("› on  ▾ GLOBAL");
+  expect(lines).toContain("› ▾ GLOBAL: on");
   expect(frame).not.toContain("global  ~");
 
   // Everything the slug was is still the slug. It addresses the CLI…
@@ -366,7 +366,7 @@ test("a directory row shows the place, and the slug stays behind the screen", as
   expect(configReferenceText("dir", "code")).toBe("@dir:code ");
   // …it is what a gate note names, so provenance still reads as the CLI does…
   const dirOff = withState(MANIFEST, "dir", "code", "off");
-  expect(stateOf(dirOff, "ins", "code")).toBe("on · off (dir: code off)");
+  expect(stateOf(dirOff, "ins", "code")).toBe("off (dir: code off)");
   // …and it is still searchable, so `/code` finds the directory whose path is
   // on screen without the word `code` in it.
   const matched = configQueryRows(
@@ -379,30 +379,30 @@ test("a directory row shows the place, and the slug stays behind the screen", as
   // slug rather than rendering a blank row.
   const pathless = MANIFEST.map((r) =>
     r.kind === "dir" && r.name === "north" ? { ...r, detail: "" } : r);
-  expect(await frameOf("agentsmd", pathless)).toContain("  on  ▾ north");
+  expect(await frameOf("agentsmd", pathless)).toContain("  ▾ north: on");
 });
 
 test("a closed directory darkens its subtree on screen, and says which row did it", async () => {
   const lines = await frameOf("agentsmd", withState(MANIFEST, "dir", "code", "off"));
-  const at = lines.indexOf("  off ▾ /tmp/switchboard-fixture/code");
+  const at = lines.indexOf("  ▾ /tmp/switchboard-fixture/code: off");
   expect(at).toBeGreaterThanOrEqual(0);
   expect(lines.slice(at + 1, at + 5)).toEqual([
-    "    on · off (dir: code off)  AGENTS.md",
-    "    on · off (dir: code off)  MEMORIES",
-    "      on · off (memories: code off)  report-style-recommendations",
-    "      on · off (memories: code off)  agents-switchboard-architecture",
+    "    AGENTS.md: off (dir: code off)",
+    "    MEMORIES: off (dir: code off)",
+    "      report-style-recommendations: off (memories: code off)",
+    "      agents-switchboard-architecture: off (memories: code off)",
   ]);
   // The node next door is untouched, and still nests.
-  expect(lines).toContain("    on  AGENTS.md");
-  expect(lines).toContain("› on  ▾ GLOBAL");
+  expect(lines).toContain("    AGENTS.md: on");
+  expect(lines).toContain("› ▾ GLOBAL: on");
 });
 
 test("closing the memories keeps the instruction file, indentation and all", async () => {
   const lines = await frameOf("agentsmd",
                               withState(MANIFEST, "memroot", "code", "off"));
-  expect(lines).toContain("    on  AGENTS.md");
-  expect(lines).toContain("    off MEMORIES");
-  expect(lines).toContain("      on · off (memories: code off)  report-style-recommendations");
+  expect(lines).toContain("    AGENTS.md: on");
+  expect(lines).toContain("    MEMORIES: off");
+  expect(lines).toContain("      report-style-recommendations: off (memories: code off)");
 });
 
 test("/config carries the subtrees inside their nodes, sections intact", async () => {
@@ -414,7 +414,7 @@ test("/config carries the subtrees inside their nodes, sections intact", async (
   // The node's own files read FIRST inside it, before everything it turns on:
   // what the directory says, then what happens to be in force there.
   expect(frame.indexOf("AGENTS.md")).toBeLessThan(frame.indexOf("MODULE SETS"));
-  expect(lines).toContain("      on  report-style-recommendations");
+  expect(lines).toContain("      report-style-recommendations: on");
 });
 
 // A directory deep enough that the window is what limits the panel, so the
@@ -449,17 +449,17 @@ test("the window follows the cursor into the subtree, and pays for no heading", 
 
 test("scrolling a deep node is kind-agnostic: it follows the row, not the row's kind", async () => {
   const top = await frameOf("agentsmd", DEEP, 0, 40);
-  expect(top).toContain("› on  ▾ GLOBAL");
-  expect(top).toContain("      on  memory-00");
+  expect(top).toContain("› ▾ GLOBAL: on");
+  expect(top).toContain("      memory-00: on");
   // The tail is outside the window at the top of the list.
-  expect(top).not.toContain("      on  memory-39");
+  expect(top).not.toContain("      memory-39: on");
 
   const rows = configViewRows(DEEP.slice(), "agentsmd") as Row[];
   const bottom = await frameOf("agentsmd", DEEP, rows.length - 1, 40);
   // The cursor is on the last memory and the window came with it, still nested.
   // The marker keeps the leftmost cell on every row, whatever depth the row it
   // is on sits at.
-  expect(bottom).toContain("›     on  memory-39");
+  expect(bottom).toContain("›     memory-39: on");
   expect(bottom).not.toContain("  on  ▾ GLOBAL");
   // Nothing is printed over the rows but the panel's own title line: the window
   // is memories all the way up.
@@ -469,7 +469,7 @@ test("scrolling a deep node is kind-agnostic: it follows the row, not the row's 
   // Mid-list the cursor is centred, with the rows either side of it on screen.
   const middle = await frameOf("agentsmd", DEEP, 24, 40);
   const cursor = middle.findIndex((l) => l.startsWith("›"));
-  expect(middle[cursor]).toBe("›     on  memory-20");
-  expect(middle[cursor - 1]).toBe("      on  memory-19");
-  expect(middle[cursor + 1]).toBe("      on  memory-21");
+  expect(middle[cursor]).toBe("›     memory-20: on");
+  expect(middle[cursor - 1]).toBe("      memory-19: on");
+  expect(middle[cursor + 1]).toBe("      memory-21: on");
 });
