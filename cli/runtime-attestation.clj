@@ -374,10 +374,13 @@
              :runtime-record-invalid {:label label :value value}))
     parsed))
 
+;; The controller is a user unit: the coordination engine runs in the login
+;; session's manager, so the system manager cannot see it at all and answers
+;; LoadState=not-found for the unit that is in fact running.
 (defn- systemd-properties [unit]
   (let [result
         (proc/shell {:out :string :err :string :continue true}
-                    "systemctl" "show" unit "--no-pager"
+                    "systemctl" "--user" "show" unit "--no-pager"
                     "--property" "Id" "--property" "LoadState"
                     "--property" "ActiveState" "--property" "SubState"
                     "--property" "MainPID")]
