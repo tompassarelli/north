@@ -1,18 +1,25 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { BoxRenderable, ScrollBoxRenderable, TextRenderable } from "@opentui/core";
+import {
+  BoxRenderable, ScrollBoxRenderable, TextRenderable, brightBlack, brightWhite,
+} from "@opentui/core";
 import {
   banner_box as bannerBox,
+  banner_line_segments as bannerLineSegments,
   banner_permissions as bannerPermissions,
   banner_revision as bannerRevision,
+  banner_rule_line_p as bannerRuleLine,
   render_conversation_bang as renderConversation,
+  roster_row_suppressed_p as rosterRowSuppressed,
+  roster_text as rosterText,
   session_banner as sessionBanner,
   session_banner_lines as sessionBannerLines,
+  session_banner_runs as sessionBannerRuns,
   transcript_banner_p as transcriptBanner,
   transcript_placeholder as transcriptPlaceholder,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
-  Agent, make_model as makeModel, upsert_agent as upsertAgent,
+  Agent, make_model as makeModel, snapshot, upsert_agent as upsertAgent,
 } from "../src/bridge/generated/north/bridge/model.js";
 
 // The banner is sized against the frame, which is read off the terminal. Pin it
@@ -212,6 +219,135 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   const offline = captureCharFrame();
   expect(offline).toContain("Main is offline.");
   expect(offline).not.toContain("North Bridge");
+
+  renderer.destroy();
+});
+
+// The screenshot bug: the title LINE was coloured bright and every other line
+// dim, so the box characters took the colour of whatever line they sat on and
+// the frame came out in two tones — bright pipes beside the title, dim
+// everywhere else, which reads as a broken box rather than as emphasis.
+test("the box is one tone: the border is frame, and only content is coloured", () => {
+  expect(bannerRuleLine("╭─────╮")).toBe(true);
+  expect(bannerRuleLine("╰─────╯")).toBe(true);
+  expect(bannerRuleLine("│ abc │")).toBe(false);
+
+  // A content line is cut where the box stops, so the sides are never part of
+  // the run that carries the line's colour.
+  expect(bannerLineSegments("│ abc │")).toEqual(["│ ", "abc", " │"]);
+  expect(bannerLineSegments("╭─────╮")).toEqual(["╭─────╮", "", ""]);
+  // The narrow banner draws no box at all: all content, no frame.
+  expect(bannerLineSegments(">_ North Bridge (1f3c2de7)"))
+    .toEqual(["", ">_ North Bridge (1f3c2de7)", ""]);
+
+  const runs = sessionBannerRuns(
+    sessionBanner("1f3c2de7", "claude-fable-5", "xhigh", "~/code", "acceptEdits", 110),
+  ) as Array<{ text: string; tone: string }>;
+
+  // Exactly one bright run, and it is the title's own text — not the line it
+  // sits on, and never a border character.
+  const title = runs.filter((run) => run.tone === "title");
+  expect(title).toHaveLength(1);
+  expect(title[0]!.text).toContain(">_ North Bridge (1f3c2de7)");
+  expect(title[0]!.text).not.toContain("│");
+
+  // Every box character in the whole banner belongs to a frame run.
+  for (const run of runs)
+    if (/[╭─╮│╰╯]/.test(run.text)) expect(run.tone).toBe("frame");
+
+  // And the runs still spell the box exactly as it is drawn.
+  expect(runs.map((run) => run.text).join(""))
+    .toBe((sessionBanner("1f3c2de7", "claude-fable-5", "xhigh", "~/code",
+                         "acceptEdits", 110) as string[]).join("\n"));
+});
+
+test("the drawn banner paints its border dim on every line, title included", () => {
+  const chunks = (renderConversation(runtimeWith("ready")) as {
+    chunks: Array<{ text: string; fg?: unknown }>;
+  }).chunks;
+  const frame = JSON.stringify(brightBlack("x").fg);
+  const bright = JSON.stringify(brightWhite("x").fg);
+
+  const bordered = chunks.filter((chunk) => /[╭─╮│╰╯]/.test(chunk.text));
+  expect(bordered.length).toBeGreaterThan(0);
+  // The line the bug was visible on: the title's row carries borders too.
+  for (const chunk of bordered) expect(JSON.stringify(chunk.fg)).toBe(frame);
+
+  const titled = chunks.filter((chunk) => chunk.text.includes("North Bridge"));
+  expect(titled).toHaveLength(1);
+  expect(JSON.stringify(titled[0]!.fg)).toBe(bright);
+});
+
+// The second screenshot complaint: `› Main (ready) — Northbridge control
+// session` sat directly above a banner whose entire purpose is to state that
+// same session. One of the two is a duplicate, and it is the row.
+test("the roster stands down for the banner, and comes back with it", () => {
+  expect(rosterRowSuppressed("exec-supervisor", "exec-supervisor", true)).toBe(true);
+  // No banner, no suppression — the row is the only place the status appears.
+  expect(rosterRowSuppressed("exec-supervisor", "exec-supervisor", false)).toBe(false);
+  // Another agent's row is never the banner's duplicate.
+  expect(rosterRowSuppressed("exec-worker", "exec-supervisor", true)).toBe(false);
+  // Nothing is suppressed on behalf of a session that has no id yet.
+  expect(rosterRowSuppressed("exec-supervisor", "", true)).toBe(false);
+
+  const control = snapshot(runtimeWith("ready").model);
+  expect(rosterText(control, 0, "exec-supervisor", false))
+    .toBe("› Main (ready) — Northbridge control session");
+  // With the banner up the pane says nothing rather than reporting "no agents"
+  // about a session that is plainly on the screen underneath it.
+  expect(rosterText(control, 0, "exec-supervisor", true)).toBe("");
+  expect(rosterText(snapshot(makeModel("list")), 0, "exec-supervisor", true))
+    .toBe("No agents attached");
+
+  // A worker keeps its row, and the marker still tracks the runtime's index
+  // into the full roster rather than into what survived the filter.
+  const withWorker = snapshot(upsertAgent(
+    runtimeWith("ready").model,
+    Agent("exec-worker", "Worker", "running", "landing the fix"),
+  ));
+  expect(rosterText(withWorker, 1, "exec-supervisor", true))
+    .toBe("› Worker (running) — landing the fix");
+  expect(rosterText(withWorker, 1, "exec-supervisor", false))
+    .toBe("  Main (ready) — Northbridge control session"
+      + "\n› Worker (running) — landing the fix");
+});
+
+test("the roster row and the banner are never on screen together", async () => {
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+    width: 90, height: 14,
+  });
+  const pane = new BoxRenderable(renderer, { id: "agents-pane", flexGrow: 1 });
+  const roster = new TextRenderable(renderer, { id: "agents-text", height: 4, wrapMode: "word" });
+  const scroll = new ScrollBoxRenderable(renderer, { id: "transcript-scroll", flexGrow: 1 });
+  const transcript = new TextRenderable(renderer, { id: "transcript-text", wrapMode: "word" });
+  scroll.add(transcript);
+  pane.add(roster);
+  pane.add(scroll);
+  renderer.root.add(pane);
+
+  // Banner state: ready, empty, idle.
+  const ready = runtimeWith("ready");
+  roster.content = rosterText(snapshot(ready.model), 0, "exec-supervisor", true);
+  transcript.content = renderConversation(ready);
+  await renderOnce();
+  const banner = captureCharFrame();
+  expect(banner).toContain(">_ North Bridge (1f3c2de7)");
+  expect(banner).not.toContain("Northbridge control session");
+  expect(banner).not.toContain("Main (ready)");
+
+  // One line of transcript and the banner is gone, so the row is back — with
+  // its status, which is the fact the banner was standing in for.
+  const answered = runtimeWith("ready");
+  answered.conversation = [{
+    id: "item-1", kind: "assistant", title: "", body: "hello", status: "done", data: null,
+  }];
+  roster.content = rosterText(snapshot(answered.model), 0, "exec-supervisor", false);
+  transcript.content = renderConversation(answered);
+  await renderOnce();
+  const conversing = captureCharFrame();
+  expect(conversing).not.toContain("North Bridge (");
+  expect(conversing).toContain("Main (ready)");
+  expect(conversing).toContain("Northbridge control session");
 
   renderer.destroy();
 });

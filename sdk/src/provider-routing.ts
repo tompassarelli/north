@@ -356,6 +356,144 @@ export function probeOpenAI(target?: RoutingTarget): ProviderAvailability {
   return availabilityOf(persistAuthVerdict(cachePath, key, "openai", true, reason), disabled, target?.id);
 }
 
+/**
+ * How long a persisted auth verdict still routes without being re-proved.
+ * Deliberately far longer than the retention a FAILED probe gets: nothing
+ * failed here, the probe was simply not run, and the turn that follows is the
+ * real check — a credential that died in between fails the provider open, which
+ * already re-routes.
+ */
+const CACHED_ROUTE_AUTH_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** A machine with nothing cached may probe, but never for longer than this. */
+export const BOOT_ROUTING_TIMEOUT_MS = 2_000;
+
+/**
+ * Availability from the persisted verdict alone — no spawn, no network.
+ * Undefined is "never observed", the one state a cache cannot answer for.
+ */
+export function cachedAvailability(
+  target: RoutingTarget,
+  now = Date.now(),
+  cachePath = authStateCachePath(),
+): ProviderAvailability | undefined {
+  const env = observeEnvironmentForTarget(target.provider, target);
+  const disabled = (target.provider === "anthropic"
+    ? env.NORTH_DISABLE_ANTHROPIC
+    : env.NORTH_DISABLE_OPENAI) === "1";
+  const cached = readAuthState(cachePath, authCacheKey(target.provider, target.id));
+  if (!cached || now - cached.at > CACHED_ROUTE_AUTH_TTL_MS) return undefined;
+  return availabilityOf(cached, disabled, target.id);
+}
+
+export interface CachedTargetRouting {
+  target: RoutingTarget;
+  eligible: boolean;
+  headroom: EntitlementPressure;
+}
+
+/**
+ * Every configured target carrying the two facts `north providers` reports
+ * about it — whether it routes, and how much of its entitlement is left — read
+ * from the persisted evidence rather than probed for. Same derivation as the
+ * status document: pressure from the observations the policy folded in,
+ * eligibility from the last auth verdict.
+ */
+export function cachedTargetRouting(
+  policy: ResourcePolicy = resourcePolicyFromEnv(),
+  now = Date.now(),
+): CachedTargetRouting[] {
+  const cachePath = authStateCachePath();
+  return orderedTargets(policy).map((target) => {
+    const availability = cachedAvailability(target, now, cachePath);
+    const headroom = policy.targetPressures?.[target.id]
+      ?? policy.pressures[target.provider] ?? "unknown";
+    return {
+      target,
+      headroom,
+      eligible: availability?.available === true
+        && availability.reason !== "disabled" && headroom !== "exhausted",
+    };
+  });
+}
+
+/**
+ * Route from what is already on disk: the same rules `selectProvider` applies,
+ * with the auth verdict read from cache instead of spawned for and the pressure
+ * read from the observations a previous refresh persisted. Undefined means the
+ * cache cannot answer — nothing observed, or nothing observed is routable — and
+ * the caller decides whether that is worth waiting on a probe for.
+ */
+export async function selectProviderFromCachedState(
+  requested?: RoutingPreference,
+  policy: ResourcePolicy = resourcePolicyFromEnv(),
+  context: {
+    tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
+    capabilities?: readonly OrchestrationCapability[];
+  } = {},
+  now = Date.now(),
+): Promise<RoutingDecision | undefined> {
+  const preference = requested
+    ?? (process.env.AGENT_PROVIDER as ProviderPreference | undefined) ?? "auto";
+  const request = typeof preference === "string" ? { provider: preference } : preference;
+  const requestedProvider = request.provider ?? "auto";
+  const cachePath = authStateCachePath();
+  const availability = orderedTargets(policy)
+    .filter((target) => request.target !== undefined ? target.id === request.target
+      : requestedProvider !== "auto" ? target.provider === requestedProvider
+        : true)
+    .map((target) => cachedAvailability(target, now, cachePath) ?? {
+      targetId: target.id, provider: target.provider, installed: false,
+      authenticated: false, available: false, reason: "unknown" as const,
+    });
+  let store: ProviderModelObservationStore | undefined;
+  try { store = await readProviderModelObservations(providerModelObservationPath()); }
+  catch { /* malformed/unreadable evidence is unavailable */ }
+  const reasoning = context.reasoning
+    ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
+  try {
+    return selectProviderFromAvailability(
+      preference, availability, policy, context.tier, context.stableKey,
+      reasoning, context.model, context.capabilities, { store },
+    );
+  } catch { return undefined; }
+}
+
+/**
+ * The route a policy declares before anything has been observed about it: the
+ * first configured target for a provider. Not a verdict — a default, for the one
+ * case where nothing is cached and nothing can be waited for. Routing to
+ * somebody's account beats routing to ambient credentials, which are nobody's.
+ */
+export function configuredDefaultTarget(
+  provider: ProviderId,
+  policy: ResourcePolicy = resourcePolicyFromEnv(),
+): RoutingTarget | undefined {
+  return orderedTargets(policy).find((target) => target.provider === provider);
+}
+
+let routingRefreshInFlight: Promise<void> | undefined;
+
+/**
+ * Bring the persisted verdicts up to date off the critical path, so the boot
+ * that reads them next reads something current. Deferred by a turn of the loop
+ * because the auth probes are synchronous spawns — run inline they would block
+ * exactly the caller this exists to unblock. Never awaited, never holds the
+ * process open, and collapses to one refresh at a time.
+ */
+export function refreshProviderRoutingInBackground(
+  requested?: RoutingPreference,
+  refresh: (preference?: RoutingPreference) => Promise<unknown> = selectProviderForExecution,
+): Promise<void> {
+  if (routingRefreshInFlight) return routingRefreshInFlight;
+  routingRefreshInFlight = (async () => {
+    await new Promise<void>((resolve) => { setTimeout(resolve, 0).unref?.(); });
+    try { await refresh(requested); }
+    catch { /* the cache keeps its last answer until a refresh succeeds */ }
+  })().finally(() => { routingRefreshInFlight = undefined; });
+  return routingRefreshInFlight;
+}
+
 function stableUnit(value: string): number {
   // Target IDs often share long prefixes. A 32-bit non-cryptographic hash
   // correlated those suffixes badly enough to turn equal a/b/c weights into an

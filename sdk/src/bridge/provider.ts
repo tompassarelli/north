@@ -1,3 +1,4 @@
+import type { RoutingTarget } from "../providers/types";
 import type { BridgeLaunchProvider, BridgeLaunchRole } from "./protocol";
 
 export interface NormalizedProviderEvent {
@@ -128,11 +129,47 @@ function jsonData(value: unknown): Record<string, unknown> {
     : { value: normalized };
 }
 
+type ProviderRouting = Pick<typeof import("../provider-routing"),
+  "selectProviderFromCachedState" | "refreshProviderRoutingInBackground"
+  | "selectProviderForExecution" | "configuredDefaultTarget" | "BOOT_ROUTING_TIMEOUT_MS">;
+
+/**
+ * The route, without waiting on the network for it. Opening a session must not
+ * block on a live entitlement probe: boot starts on the verdicts a previous
+ * session already persisted, refreshes them behind the session, and lets the
+ * first real turn catch a credential that died in between — the open error path
+ * already re-routes on an auth failure.
+ *
+ * Without a routed target the adapter falls back to ambient credentials, which
+ * are nobody's account: the Claude SDK then fails the turn on an expired OAuth.
+ * So a machine with nothing cached still probes — bounded, and falling back to
+ * the target the policy configures first rather than to nobody.
+ */
+export async function bridgeRoute(
+  routing: ProviderRouting,
+  provider: BridgeLaunchProvider,
+): Promise<{ target?: RoutingTarget; id: string }> {
+  const cached = await routing.selectProviderFromCachedState({ provider });
+  if (cached) {
+    void routing.refreshProviderRoutingInBackground({ provider });
+    return { target: cached.routingTargets[cached.target], id: cached.target };
+  }
+  try {
+    const decision = await routing.selectProviderForExecution({ provider }, undefined, {
+      signal: AbortSignal.timeout(routing.BOOT_ROUTING_TIMEOUT_MS),
+    });
+    return { target: decision.routingTargets[decision.target], id: decision.target };
+  } catch {
+    const fallback = routing.configuredDefaultTarget(provider);
+    return { ...(fallback ? { target: fallback } : {}), id: fallback?.id ?? provider };
+  }
+}
+
 export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
     const [
       { harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }, { anthropicProvider },
-      { selectProviderForExecution }, { markCoordinationOptional },
+      routing, { markCoordinationOptional },
     ] = await Promise.all([
       import("../harness"),
       import("../orchestration-staffing"),
@@ -142,10 +179,8 @@ export const bridgeProvider: BridgeProviderExecution = {
       import("../execution-admission"),
     ]);
     const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
-    // Without a routed target the adapter falls back to ambient credentials, which
-    // are nobody's account: the Claude SDK then fails the turn on an expired OAuth.
-    const decision = await selectProviderForExecution({ provider: context.provider });
-    const target = decision.routingTargets[decision.target];
+    const route = await bridgeRoute(routing, context.provider);
+    const target = route.target;
     const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
     const options = harnessOptions({
@@ -186,7 +221,7 @@ export const bridgeProvider: BridgeProviderExecution = {
         // states it rather than leaving the operator to infer it from whether
         // an edit went through.
         permissionMode: options.permissionMode,
-        target: decision.target,
+        target: route.id,
       },
     });
     let activitySequence = query.executionActivity?.snapshot().sequence ?? 0;
@@ -254,24 +289,32 @@ const BRIDGE_PRESSURE_RANK: Record<string, number> = {
   plenty: 4, normal: 3, low: 2, unknown: 1, exhausted: 0,
 };
 
+// Accounts tie at `plenty` most days, so the order this is walked in is the
+// order that actually decides. Anthropic first, because that is the order the
+// providers document has always been grouped in and therefore the provider an
+// unpinned bridge has always opened on; capacity only overrides it when the
+// pressures genuinely differ.
+const BRIDGE_PROVIDER_ORDER: BridgeLaunchProvider[] = ["anthropic", "openai"];
+
 /**
  * Unpinned launches follow capacity: an exhausted entitlement is the one failure
- * a supervisor cannot work around, and it surfaces only as a provider error mid-turn.
- * Falls back to openai so a probe failure never blocks a launch outright.
+ * a supervisor cannot work around, and it surfaces only as a provider error
+ * mid-turn. Capacity is read from the evidence a previous refresh persisted
+ * rather than probed for here — this runs before a session opens, with the
+ * operator watching an empty screen while it does. Falls back to openai so an
+ * unreadable cache never blocks a launch outright.
  */
 export async function selectBridgeProvider(): Promise<BridgeLaunchProvider> {
   try {
-    const { collectProvidersStatus } = await import("../providers-cli");
-    const document = await collectProvidersStatus();
+    const { cachedTargetRouting } = await import("../provider-routing");
+    const routing = cachedTargetRouting();
     let best: { provider: BridgeLaunchProvider; rank: number } | undefined;
-    for (const entry of document.providers) {
-      for (const target of entry.targets) {
-        if (target.routing !== "eligible") continue;
-        if (target.provider !== "anthropic" && target.provider !== "openai") continue;
-        const rank = BRIDGE_PRESSURE_RANK[target.headroom] ?? 0;
-        if (!best || rank > best.rank) best = { provider: target.provider, rank };
+    for (const provider of BRIDGE_PROVIDER_ORDER)
+      for (const { target, eligible, headroom } of routing) {
+        if (!eligible || target.provider !== provider) continue;
+        const rank = BRIDGE_PRESSURE_RANK[headroom] ?? 0;
+        if (!best || rank > best.rank) best = { provider, rank };
       }
-    }
     return best?.provider ?? "openai";
   } catch {
     return "openai";

@@ -20,6 +20,11 @@ import {
   filter_character as filterCharacter,
   filter_key_action as filterKeyAction,
   fold_key_action as foldKeyAction,
+  active_focus as activeFocus,
+  config_kind_tag as configKindTag,
+  tab_action as tabAction,
+  tab_fold_step_bang as tabFoldStep,
+  tab_swap_frame as tabSwapFrame,
   help_query_rows as helpQueryRows,
   render_detail_panel_bang as renderDetailPanel,
   set_node_expanded_bang as setNodeExpanded,
@@ -299,7 +304,7 @@ async function frameOf(runtime: unknown, height = 26) {
 test("a filtered switchboard shows the query, the matches, and the headings that survived", async () => {
   const before = await frameOf(configRuntime(MANIFEST, "all", 0, null, ["global"]));
   expect(before[0]).toBe(
-    "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close");
+    "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
   for (const heading of ["MODULE SETS", "SKILLS", "MODULES", "HOOKS", "OTHER"]) {
     expect(before.some((l) => l.trim() === heading)).toBe(true);
   }
@@ -308,14 +313,14 @@ test("a filtered switchboard shows the query, the matches, and the headings that
 
   const after = await frameOf(configRuntime(MANIFEST, "all", 0, "guard"));
   expect(after).toEqual([
-    "context switchboard  /guard  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "› on  ▾ GLOBAL",
+    "context switchboard  /guard  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
+    "› ▾ GLOBAL: on",
     "    SKILLS",
     "      MODULES",
-    "        on  firn",
-    "          enabled · on · skill: firn  firn-guard",
+    "        firn: on",
+    "          hook · firn-guard: on",
     "    HOOKS",
-    "      disabled      tripwire-guard",
+    "      tripwire-guard: disabled",
   ]);
   // Every heading with nothing left prints nothing: headings go with the rows
   // they head.
@@ -327,22 +332,22 @@ test("a filtered switchboard shows the query, the matches, and the headings that
 test("a matching memory keeps the directory it hangs off, nested as it was", async () => {
   const frame = await frameOf(configRuntime(MANIFEST, "all", 0, "report-style"));
   expect(frame).toEqual([
-    "context switchboard  /report-style  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "› on  ▾ /tmp/switchboard-fixture/code",
-    "    on  MEMORIES",
-    "      on  report-style-recommendations",
+    "context switchboard  /report-style  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
+    "› ▾ /tmp/switchboard-fixture/code: on",
+    "    MEMORIES: on",
+    "      report-style-recommendations: on",
   ]);
 
   // The other direction: a matched node answers with its whole subtree,
   // indentation and all, however folded it was.
   const parent = await frameOf(configRuntime(MANIFEST, "agentsmd", 0, "fixture/code"));
   expect(parent).toEqual([
-    "directory context  /fixture/code  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "› on  ▾ /tmp/switchboard-fixture/code",
-    "    on  AGENTS.md",
-    "    on  MEMORIES",
-    "      on  report-style-recommendations",
-    "      on  agents-switchboard-architecture",
+    "directory context  /fixture/code  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
+    "› ▾ /tmp/switchboard-fixture/code: on",
+    "    AGENTS.md: on",
+    "    MEMORIES: on",
+    "      report-style-recommendations: on",
+    "      agents-switchboard-architecture: on",
   ]);
 });
 
@@ -356,22 +361,22 @@ test("a query that matches nothing says so, and keeps the field to back out of",
 test("folding renders as folding: a marker, and the rows that came with it", async () => {
   const shut = await frameOf(configRuntime(MANIFEST, "all"));
   expect(shut).toEqual([
-    "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close",
-    "› on  ▸ GLOBAL",
-    "  on  ▸ /tmp/switchboard-fixture/code",
-    "  on  ▸ /tmp/switchboard-fixture/north",
+    "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
+    "› ▸ GLOBAL: on",
+    "  ▸ /tmp/switchboard-fixture/code: on",
+    "  ▸ /tmp/switchboard-fixture/north: on",
   ]);
 
   const open = await frameOf(configRuntime(MANIFEST, "all", 1, null, ["code"]));
   expect(open).toEqual([
-    "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close",
-    "  on  ▸ GLOBAL",
-    "› on  ▾ /tmp/switchboard-fixture/code",
-    "    on  AGENTS.md",
-    "    on  MEMORIES",
-    "      on  report-style-recommendations",
-    "      on  agents-switchboard-architecture",
-    "  on  ▸ /tmp/switchboard-fixture/north",
+    "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
+    "  ▸ GLOBAL: on",
+    "› ▾ /tmp/switchboard-fixture/code: on",
+    "    AGENTS.md: on",
+    "    MEMORIES: on",
+    "      report-style-recommendations: on",
+    "      agents-switchboard-architecture: on",
+    "  ▸ /tmp/switchboard-fixture/north: on",
   ]);
 });
 
@@ -452,7 +457,12 @@ test("what you turned off recedes: a pinned hook is the dimmest row on screen", 
   // A running hook keeps its colour and its normal weight.
   const running = spanWith(lines, "firn-guard");
   expect(running.some((s) => s.fg === BRIGHT_GREEN && !s.dim)).toBe(true);
-  expect(running.every((s) => !s.dim)).toBe(true);
+  // Everything but the kind tag, which is dim on every row that carries one:
+  // the tag says what sort of thing this is, and the name stays the loud part.
+  expect(running.filter((s) => !s.text.includes("hook · ")).every((s) => !s.dim))
+    .toBe(true);
+  expect(running.filter((s) => s.text.includes("hook · ")).every((s) => s.dim))
+    .toBe(true);
 
   // A hook the user pinned off is dim end to end — the state column AND the
   // name — instead of wearing the warning colour it used to shout in.
@@ -501,11 +511,152 @@ test("the cursor still finds its row, and space still has a row to flip", async 
   // Cursor on the second surviving row rather than the second row of the view.
   const runtime = configRuntime(MANIFEST, "all", 3, "guard");
   const frame = await frameOf(runtime);
-  expect(frame).toContain("›     disabled      tripwire-guard");
+  expect(frame).toContain("›     tripwire-guard: disabled");
   expect((configPanelRows(runtime) as Row[])[3]!.name).toBe("tripwire-guard");
 
   // An index past the end of the filtered rows still renders a cursor, on the
   // last row there is.
   const overrun = await frameOf(configRuntime(MANIFEST, "all", 99, "guard"));
-  expect(overrun).toContain("›     disabled      tripwire-guard");
+  expect(overrun).toContain("›     tripwire-guard: disabled");
+});
+
+// --- Focus decides what a key means -----------------------------------------
+//
+// The switchboard had no discoverable way to unfold: ←/→ and h/l are
+// conventions you either arrive knowing or never find, and the legend named
+// neither. Tab is the discoverable key, which means tab now carries two verbs —
+// so the verb it carries has to be a function of focus and nothing else.
+
+test("exactly one surface holds the keyboard, innermost first", () => {
+  // palette, panel + filter, panel, strip, composer.
+  expect(activeFocus(true, true, true, true, true)).toBe("palette");
+  expect(activeFocus(false, true, true, true, true)).toBe("filter");
+  expect(activeFocus(false, true, true, false, true)).toBe("panel");
+  expect(activeFocus(false, false, false, false, true)).toBe("strip");
+  expect(activeFocus(false, false, false, false, false)).toBe("composer");
+  // An open panel nobody is focused on does not hold anything: you went back to
+  // your sentence and the panel stayed on screen behind it.
+  expect(activeFocus(false, true, false, false, false)).toBe("composer");
+  // Nor does a filter flag on a panel that is not focused.
+  expect(activeFocus(false, true, false, true, false)).toBe("composer");
+});
+
+test("tab means the fold in the panel and the view swap in the composer", () => {
+  // Panel, on a node: the toggle, both directions.
+  expect(tabAction("panel", true, false)).toBe("expand");
+  expect(tabAction("panel", true, true)).toBe("collapse");
+  // Panel, on a row inside a node: climb to the node, so the next press folds
+  // it. A legend key must move something wherever the cursor stands.
+  expect(tabAction("panel", false, false)).toBe("climb");
+  expect(tabAction("panel", false, true)).toBe("climb");
+  // A live filter keeps folding: tab is never a character, unlike the h and l
+  // that have to stand down while a query is being typed.
+  expect(tabAction("filter", true, false)).toBe("expand");
+  expect(tabAction("filter", true, true)).toBe("collapse");
+  expect(tabAction("filter", false, false)).toBe("climb");
+  // Everywhere else it is what it has always been.
+  expect(tabAction("composer", true, true)).toBe("swap-view");
+  expect(tabAction("strip", true, true)).toBe("swap-view");
+  expect(tabAction("palette", true, true)).toBe("complete");
+  // One key, one meaning per context, and never two at once.
+  for (const focus of ["palette", "filter", "panel", "strip", "composer"])
+    expect(new Set([tabAction(focus, true, true)]).size).toBe(1);
+});
+
+test("the legend advertises the fold, and names tab for it", () => {
+  expect(configPanelLegend(false))
+    .toBe("  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
+  expect(configPanelLegend(true))
+    .toBe("  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter");
+  // Named before the other things a row can do, because it is the affordance
+  // that was invisible.
+  for (const filtering of [false, true]) {
+    const legend = configPanelLegend(filtering) as string;
+    expect(legend).toContain("tab fold");
+    expect(legend.indexOf("tab fold")).toBeLessThan(legend.indexOf("space toggle"));
+  }
+});
+
+test("GLOBAL is open before you open anything, and shuts when you shut it", async () => {
+  // A runtime that has never touched the fold: the profile every other node is
+  // read on top of is already showing.
+  const fresh = configRuntime(MANIFEST, "all");
+  delete (fresh as { expandedDirs?: unknown }).expandedDirs;
+  const rows = configPanelRows(fresh) as Row[];
+  expect(rows.some((r) => r.kind === "dir" && r.name === "global")).toBe(true);
+  expect(rows.length).toBeGreaterThan(3);
+
+  const frame = await frameOf(fresh);
+  expect(frame).toContain("› ▾ GLOBAL: on");
+  expect(frame).not.toContain("▸ GLOBAL");
+
+  // And it is a default, not a floor: shutting it sticks.
+  setNodeExpanded(fresh, "global", false);
+  expect(fresh.expandedDirs).toEqual([]);
+  expect(configPanelRows(fresh)).toHaveLength(3);
+});
+
+// A row under a heading that already names its kind says nothing extra; a row
+// nested inside another UNIT has to say what it is, because the heading over it
+// names its parent's kind and not its own.
+test("a row names its kind only where nothing above it already did", () => {
+  expect(configKindTag("hook", "boundhook")).toBe("hook · ");
+  expect(configKindTag("hook", "hook")).toBe("");
+  expect(configKindTag("skill", "skill")).toBe("");
+  // A module row IS a skill — one that brings hooks — and it reads under
+  // MODULES, which is the heading its role names. No tag.
+  expect(configKindTag("skill", "module")).toBe("");
+  expect(configKindTag("module", "moduleset")).toBe("");
+  expect(configKindTag("plugin", "plugin")).toBe("");
+  // Directories head nothing at all: they are the panel's root level, and the
+  // position says what they are.
+  expect(configKindTag("dir", "dir")).toBe("");
+  expect(configKindTag("ins", "ins")).toBe("");
+  expect(configKindTag("mem", "mem")).toBe("");
+});
+
+test("tab folds the node under the cursor, on screen, both ways", async () => {
+  const runtime = configRuntime(MANIFEST, "all", 1, null, []);
+  // Cursor on the second directory, everything shut.
+  expect(await frameOf(runtime)).toEqual([
+    "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
+    "  ▸ GLOBAL: on",
+    "› ▸ /tmp/switchboard-fixture/code: on",
+    "  ▸ /tmp/switchboard-fixture/north: on",
+  ]);
+
+  tabFoldStep(runtime);
+  const opened = await frameOf(runtime);
+  expect(opened).toContain("› ▾ /tmp/switchboard-fixture/code: on");
+  expect(opened).toContain("    AGENTS.md: on");
+  // The node next door did not move.
+  expect(opened).toContain("  ▸ GLOBAL: on");
+
+  // The same key shuts it again — one verb, both directions.
+  tabFoldStep(runtime);
+  expect(await frameOf(runtime)).toContain("› ▸ /tmp/switchboard-fixture/code: on");
+
+  // From a row INSIDE a node, tab climbs to the node rather than doing nothing,
+  // and the next press folds what it landed on.
+  tabFoldStep(runtime);
+  const inside = configRuntime(MANIFEST, "all", 3, null, ["code"]);
+  expect((configPanelRows(inside) as Row[])[3]!.kind).not.toBe("dir");
+  tabFoldStep(inside);
+  expect(inside.configIndex).toBe(1);
+  expect((configPanelRows(inside) as Row[])[1]!.name).toBe("code");
+  tabFoldStep(inside);
+  expect(inside.expandedDirs).toEqual([]);
+});
+
+test("tab in the composer swaps the view, and never folds anything", async () => {
+  expect(tabSwapFrame("agents")).toBe("threads");
+  expect(tabSwapFrame("threads")).toBe("agents");
+
+  // The panel's fold state is untouched by the composer's tab: the two verbs
+  // live on different surfaces and neither reaches the other.
+  const runtime = configRuntime(MANIFEST, "all", 0, null, ["code"]);
+  const before = await frameOf(runtime);
+  tabSwapFrame("agents");
+  expect(await frameOf(runtime)).toEqual(before);
+  expect(runtime.expandedDirs).toEqual(["code"]);
 });
