@@ -195,7 +195,7 @@ async function frameOf(view: string, entries: Row[] = MANIFEST,
 test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGINS, OTHER", async () => {
   const frame = await frameOf("all", MANIFEST, ["global"]);
   const order = [
-    "DIRECTORY", "MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS", "OTHER",
+    "MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -204,10 +204,11 @@ test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGIN
   });
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
   // The root node heads the tree, above the per-directory nodes read on top of
-  // it, and its stack is inside it rather than beside it.
-  expect(frame.indexOf("global  ~")).toBeGreaterThan(frame.indexOf("DIRECTORY"));
-  expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
-  expect(frame.indexOf("MODULE SETS")).toBeLessThan(frame.indexOf("north  /tmp"));
+  // it, and its stack is inside it rather than beside it. Nothing is printed
+  // over the directories themselves.
+  expect(frame).not.toContain("DIRECTORY");
+  expect(frame.indexOf("▾ GLOBAL")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
+  expect(frame.indexOf("MODULE SETS")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
 });
 
 test("each of the hook states renders as itself, whatever kind it follows", async () => {

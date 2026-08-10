@@ -737,8 +737,8 @@ export function config_row_label(kind, name) {
   return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "MEMORIES" : ((kind === "mem")) ? config_mem_name(name) : name);
 }
 
-export function config_cli_name(__kind, name) {
-  return name;
+export function config_cli_name(kind, name) {
+  return (((kind === "ins")) ? ("".concat(name, "/AGENTS.md")) : ((kind === "memroot")) ? ("".concat(name, "/memories")) : name);
 }
 
 export function config_reference_text(kind, name) {
@@ -857,7 +857,7 @@ export function config_row_role(entry, rows) {
 }
 
 function config_section_rank(role) {
-  return (((role === "moduleset")) ? 0 : ((role === "module")) ? 1 : ((role === "boundhook")) ? 2 : ((role === "skill")) ? 3 : ((role === "hook")) ? 4 : ((role === "plugin")) ? 5 : ((role === "other")) ? 6 : ((role === "ins")) ? 7 : ((role === "memroot")) ? 8 : ((role === "mem")) ? 9 : 10);
+  return (((role === "ins")) ? 0 : ((role === "memroot")) ? 1 : ((role === "mem")) ? 2 : ((role === "moduleset")) ? 3 : ((role === "module")) ? 4 : ((role === "boundhook")) ? 5 : ((role === "skill")) ? 6 : ((role === "hook")) ? 7 : ((role === "plugin")) ? 8 : ((role === "other")) ? 9 : 10);
 }
 
 function config_node_rank(entry) {
@@ -1617,20 +1617,18 @@ function visible_notice(notice) {
   return (((value === "view dag")) ? "view graph" : ((value === "view kanban")) ? "view board" : value);
 }
 
-const CONFIG_TREE_TITLE = "DIRECTORY";
-
 export function config_section_title(role) {
-  return (((role === "dir")) ? CONFIG_TREE_TITLE : ((role === "moduleset")) ? "MODULE SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
+  return (((role === "moduleset")) ? "MODULE SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
 }
 
 export function config_header_roles(role) {
-  return (((role === "moduleset")) ? ["dir", "moduleset"] : ((role === "module")) ? ["dir", "skill", "module"] : ((role === "boundhook")) ? ["dir", "skill", "module"] : ((role === "skill")) ? ["dir", "skill"] : ((role === "hook")) ? ["dir", "hook"] : ((role === "plugin")) ? ["dir", "plugin"] : ((role === "other")) ? ["dir", "other"] : ["dir"]);
+  return (((role === "moduleset")) ? ["moduleset"] : ((role === "module")) ? ["skill", "module"] : ((role === "boundhook")) ? ["skill", "module"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : ((role === "plugin")) ? ["plugin"] : ((role === "other")) ? ["other"] : []);
 }
 
 export function config_header_keys(entry, rows) {
   const role = config_row_role(entry, rows);
   const scope = config_row_scope(configentry_kind(entry), configentry_name(entry));
-  return config_header_roles(role).map((heading) => ((heading === "dir") ? "dir" : ("".concat(scope, " ", heading))));
+  return config_header_roles(role).map((heading) => ("".concat(scope, " ", heading)));
 }
 
 export function config_header_shared(prior, current) {
@@ -1669,12 +1667,22 @@ function config_fold_glyph(dir_row_p, expanded_p) {
   return ((!dir_row_p) ? "" : (expanded_p ? "▾ " : "▸ "));
 }
 
+function config_dir_label(entry) {
+  if (config_global_row_p(configentry_kind(entry), configentry_name(entry))) {
+    return "GLOBAL";
+  } else {
+    const path = short_directory(text(configentry_detail(entry)));
+    return text_or(path, configentry_name(entry));
+  }
+}
+
 function config_row_text(entry, memberships, expanded_p, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
+  const dir_p = (kind === "dir");
   const members = config_module_members(memberships, name);
-  const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
-  const label = ("".concat(config_fold_glyph((kind === "dir"), expanded_p), config_row_label(kind, name)));
+  const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
+  const label = ("".concat(config_fold_glyph(dir_p, expanded_p), (dir_p ? config_dir_label(entry) : config_row_label(kind, name))));
   return compact_text(((detail === "") ? label : ("".concat(label, "  ", detail))), width);
 }
 
@@ -1689,7 +1697,7 @@ function config_row_indent(role) {
 }
 
 function config_header_indent(index) {
-  return " ".repeat((CONFIG_INDENT_WIDTH * (index + 1)));
+  return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
 }
 
 const CONFIG_STATE_WIDTH = 3;
@@ -1743,7 +1751,7 @@ const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis))
 const shared = config_header_shared(prior, headings);
 const tail = (((i + 1) === stop) ? "" : "\n");
 config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
-  return parts.push(brightYellow(("".concat(((heading === "dir") ? "" : config_header_indent(at)), config_section_title(heading), "\n"))));
+  return parts.push(brightYellow(("".concat(config_header_indent(at), config_section_title(heading), "\n"))));
 } });
 parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
 parts.push((((pinned_p) ? dimmest : (active_p) ? brightGreen : brightBlack))(state_column));
@@ -1787,14 +1795,14 @@ function detail_agents(runtime) {
 
 const DETAIL_CHROME_ROWS = 3;
 
-const CONFIG_SECTION_ROWS = 7;
+const CONFIG_SECTION_ROWS = 6;
 
 function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
 }
 
 export function config_section_rows(view) {
-  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 6 : ((view === "agentsmd")) ? 1 : 2);
+  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 5 : ((view === "agentsmd")) ? 0 : 1);
 }
 
 export function config_visible_count(total, view) {
