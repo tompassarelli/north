@@ -280,6 +280,7 @@
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/mcp" "share HTTP MCP: add <name> <url> | remove <name> | list" true "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
@@ -310,6 +311,7 @@
    (->SlashCommand "/config" "toggle the context switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/mcp" "share HTTP MCP: add <name> <url> | remove <name> | list" true "" false)
    (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
@@ -2200,6 +2202,19 @@
 
           (identical? name "skills")
           (do (open-config-panel! runtime ui "skill") true)
+
+          (identical? name "mcp")
+          (do
+            (let [parts (.filter (.split (.trim rest) #"\\s+")
+                                 (fn [part: String] -> Bool
+                                   (not (identical? part ""))))]
+              (-> (run-command (.concat [(north-bin) "config" "mcp"] parts))
+                  (.then (fn [output: String] -> Any
+                           (publish-line! runtime (.trim output))))
+                  (.catch (fn [error: Any] -> Any
+                            (publish-line! runtime
+                                           (str "error: " (error-message error)))))))
+            true)
 
           (identical? name "plugins")
           (do (open-config-panel! runtime ui "plugin") true)

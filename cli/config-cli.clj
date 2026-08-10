@@ -112,6 +112,38 @@
                       (str (or (System/getenv "CODEX_HOME") (str home "/.codex"))
                            "/config.toml")))
 
+(def mcp-usage
+  "usage: north config mcp [list|add <name> <url>|remove <name>]\nRemote HTTP MCP declarations are applied to both Claude (user scope) and Codex.")
+
+(declare print-provider-readouts)
+
+(defn- run-provider! [& argv]
+  (let [{:keys [exit out err]} (apply shell/sh argv)]
+    (when-not (zero? exit)
+      (throw (ex-info (str (str/join " " argv) " failed: "
+                           (str/trim (if (str/blank? err) out err))) {})))
+    out))
+
+(defn cmd-mcp [args]
+  (let [[verb name url & extra] args]
+    (case (or verb "list")
+      "list" (do (when (or name url (seq extra)) (die mcp-usage))
+                 (print-provider-readouts))
+      "add" (do
+              (when (or (str/blank? name) (str/blank? url) (seq extra)
+                        (not (re-matches #"https?://.+" url)))
+                (die mcp-usage))
+              (run-provider! "claude" "mcp" "add" "--scope" "user"
+                             "--transport" "http" name url)
+              (run-provider! "codex" "mcp" "add" name "--url" url)
+              (println (str name " → shared Claude/Codex MCP (" url ")")))
+      "remove" (do
+                 (when (or (str/blank? name) url (seq extra)) (die mcp-usage))
+                 (run-provider! "claude" "mcp" "remove" "--scope" "user" name)
+                 (run-provider! "codex" "mcp" "remove" name)
+                 (println (str name " removed from Claude and Codex MCP")))
+      (die mcp-usage))))
+
 (defn- json-at [path]
   (when-let [text (slurp' path)]
     (try (json/parse-string text false) (catch Exception _ nil))))
@@ -1787,11 +1819,12 @@
         "hooks"    (cmd-hooks rest)
         "context"  (cmd-context rest)
         "skills"   (cmd-skills rest)
+        "mcp"      (cmd-mcp rest)
         "comms"    (cmd-comms rest)
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|guards|hooks|context|skills|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|guards|hooks|context|skills|mcp|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 
