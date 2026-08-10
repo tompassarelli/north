@@ -110,7 +110,7 @@
     (spit log "FRAMLOG fixture\n")
     (write-receipt! receipt
                     {"format" attestation/release-receipt-format
-                     "source" "/home/fixture/code/fram/wt-cut-from"
+                     "source" "/var/empty/fram-cut-from"
                      "revision" revision
                      "tree" tree
                      "native_artifact_dir" artifact-directory
@@ -189,7 +189,7 @@
                    (= source (get-in verified [:identity :source]))
                    ;; provenance only: the checkout a release was cut from is
                    ;; mutable and is never resolved
-                   (= "/home/fixture/code/fram/wt-cut-from"
+                   (= "/var/empty/fram-cut-from"
                       (get-in verified [:identity :cut-from]))))
 
       (check! "selection-file variables consistent with the sealed release are accepted"
@@ -289,7 +289,7 @@
     (write-record! record @values)
     (write-receipt! receipt
                     {"format" attestation/release-receipt-format
-                     "source" "/home/fixture/code/fram/wt-cut-from"
+                     "source" "/var/empty/fram-cut-from"
                      "revision" (apply str (repeat 40 "c"))
                      "tree" (apply str (repeat 40 "d"))
                      "native_artifact_dir" artifact-directory
