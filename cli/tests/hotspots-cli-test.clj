@@ -62,7 +62,7 @@
 (def leverage-source (slurp (str (.getParent (java.io.File. (System/getProperty "babashka.file")))
                         "/../hotspots-cli.clj")))
 (check! "coordinator section names its source"
-        (str/includes? leverage-source "source: journalctl north-coord.service"))
+        (str/includes? leverage-source "source: journalctl north-fram.service"))
 (check! "lane section names its source"
         (str/includes? leverage-source "source: ~/.local/state/north/agents"))
 (check! "the tail-vs-population caveat is stated to the reader"

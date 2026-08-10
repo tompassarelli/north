@@ -207,12 +207,17 @@
                           journals))}))
 (defn socket-up? [port] (try (with-open [s (Socket.)] (.connect s (InetSocketAddress. "127.0.0.1" port) 400) true) (catch Exception _ false)))
 (defn cgroup [unit]
-  (let [base (io/file "/sys/fs/cgroup/system.slice" unit)]
+  ;; User-scope units live under a delegated user slice, so the path comes from
+  ;; systemd rather than a hardcoded system.slice prefix.
+  (let [cg (some-> (:data (run ["systemctl" "--user" "show" unit "-p" "ControlGroup" "--value"] 1500))
+                   str/trim not-empty)
+        base (io/file (str "/sys/fs/cgroup" cg))]
     (into {} (for [k ["memory.current" "memory.high" "memory.max"]]
-               [k (try (str/trim (slurp (io/file base k))) (catch Exception _ "unavailable"))]))))
+               [k (or (when cg (try (str/trim (slurp (io/file base k))) (catch Exception _ nil)))
+                      "unavailable")]))))
 (defn health []
-  {:services (into {} (for [[unit port] [["north-coord.service" 7977] ["north-telemetry-coord.service" 7978]]]
-                        [unit {:active (= "active" (str/trim (or (:data (run ["systemctl" "is-active" unit] 1500)) "")))
+  {:services (into {} (for [[unit port] [["north-fram.service" 7977] ["north-telemetry-coord.service" 7978]]]
+                        [unit {:active (= "active" (str/trim (or (:data (run ["systemctl" "--user" "is-active" unit] 1500)) "")))
                                :socket (socket-up? port) :memory (cgroup unit)}]))})
 (defn board [] (let [r (run [(str north-root "/bin/north") "board" "--fresh"] 120000)] (if (= :ok (:status r)) (assoc r :data {:text (:data r)}) r)))
 (defn providers [] (let [r (run [(str north-root "/bin/north") "providers" "--json"] 45000)] (if (= :ok (:status r)) (try (assoc r :data (json/parse-string (:data r) true)) (catch Exception e {:status :error :detail (.getMessage e)})) r)))
