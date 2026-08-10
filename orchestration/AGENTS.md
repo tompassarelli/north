@@ -12,10 +12,14 @@ capability. Neither implies the other.
   not in routing laws or North-facing contracts.
 - `agents/*.md` and `docs/adapters/north.md` are generated. Change source docs,
   provider catalogs, or `scripts/build-agents.mjs`, then rebuild them.
-- `skill/SKILL.md` is the on-demand Claude Code entry point. It is a pointer to
-  `doctrine.md` and must stay one: never copy doctrine text into it.
-- The `.claude-plugin/` distribution is deprecated in favor of the skill plus
-  `~/.claude/agents` symlinks; it is kept for history, not extended. Preserve
+- `doctrine.md` is injected by the `orchestration` module set. It must contain
+  orchestration policy only; transport commands belong to coordination.
+- `staffing/SKILL.md` owns the role-profile module, including its hook and
+  generated agent-template declarations. Keep it a narrow pointer to the
+  canonical doctrine and source catalogs rather than copying policy into it.
+- The `.claude-plugin/` distribution is deprecated in favor of the switchboard
+  module set, staffing skill, and `~/.claude/agents` symlinks; it is kept for
+  history, not extended. Preserve
   the Claude Code adapter shape either way, and do not make Claude-specific
   frontmatter or hook behavior the portable contract.
 - Agent type names are the plain template names. Claude Code rejects `:` in an

@@ -13,45 +13,49 @@ Snapshot date: 2026-08-03.
 ## The pipeline
 
 ```text
-North repository sources
-  north:profiles/tom/
-  north:agent-profile/
-           │
-           │ checked-in composition
-           ▼
-Firn/Home Manager projection
-  ~/.agents/AGENTS.md
-  ~/.agents/docs
-  ~/.agents/hooks
-  ~/.agents/skills ────────────┐
-           │                   │
-           │                   │ atomic skills generation
-           │                   ▼
-           │       ~/.local/state/north/skills
-           │
-     ┌─────┴──────────────────────────────────────┐
-     │                                            │
-     ▼                                            ▼
-Claude Code                                 Codex
-~/.claude/CLAUDE.md                         ~/.codex/AGENTS.md
+Firn durable profile      Active module instructions and skills
+dotfiles/agents/AGENTS.md orchestration · coordination · …
+              │                         │
+              └──────────┬──────────────┘
+                         ▼
+               agents switchboard composition
+               ~/.config/agents/CLAUDE.md
+               ~/.config/agents/AGENTS.md
+               ~/.config/agents/skills
+               ~/.config/agents/activity.conf
+                         │
+       ┌─────────────────┼────────────────────┐
+       ▼                 ▼                    ▼
+Claude Code            Codex            managed workers
+~/.claude/CLAUDE.md    ~/.codex/AGENTS.md ~/.agents/AGENTS.md
 ~/.claude/settings.json                     per-account CODEX_HOME
 ~/.claude/hooks                             /etc/codex/requirements.toml
 ~/.claude/skills                            /etc/codex/hooks
 ~/.claude.json MCP                          account/plugin state
 plugins
+
+North profile support surfaces
+  north:profiles/tom/docs  ──► ~/.agents/docs
+  north:profiles/tom/hooks ──► ~/.agents/hooks
 ```
 
-North owns the profile content. Firn owns the system and Home Manager wiring that projects it into provider discovery locations.
+Firn owns durable global policy and the switchboard. Optional consumer behavior
+belongs to its North module or skill. Home Manager projects the composed target
+and North-owned support surfaces into provider discovery locations.
 
 ## How `~/.agents` is composed
 
-[Observed] `north:profiles/tom/` is the personal policy owner. `north:agent-profile/` is the stable composed provider-independent view. It includes North policy plus linked integration material owned by North, Fram, Beagle, and Firn.
+[Observed] `nixos-config:dotfiles/agents/AGENTS.md` is the durable global policy
+source. `agents apply` appends instructions only for active module sets and
+writes the provider-neutral targets under `~/.config/agents/`. Static provider
+hook adapters consume `activity.conf`, a derived projection rather than a
+second policy source.
 
 [Observed] `nixos-config:modules/north-profile/default.bnix` declares these Home Manager projections:
 
 | Live path | Source |
 |---|---|
-| `~/.agents/AGENTS.md` | `north:agent-profile/AGENTS.md` |
+| `~/.agents/AGENTS.md` | `~/.config/agents/AGENTS.md` |
 | `~/.agents/docs` | `north:agent-profile/docs` |
 | `~/.agents/hooks` | `north:agent-profile/hooks` |
 | `~/.agents/skills` | `~/.local/state/north/skills` |
@@ -71,13 +75,18 @@ These are out-of-store links. A content change at an existing North source path 
 
 There is no single “recompose everything” operation.
 
-- A landed edit under `north:agent-profile/` changes the linked `~/.agents` content immediately.
+- `agents apply` atomically recomposes global instructions, provider skill
+  links, hook activity, and role-profile links from switch state.
+- A landed edit under `north:agent-profile/` changes linked docs and hooks
+  immediately; it does not bypass the composed instruction target.
 - A Firn/Home Manager activation creates or restores the provider discovery links, seeds Claude settings, installs Codex requirements, and reconciles Claude MCP declarations.
 - `north config context apply` materializes the selected Claude constitution into `~/.claude/CLAUDE.md`.
 - `north config skills sync`, or a skills on/off mutation, stages an immutable skills generation and atomically repoints `~/.local/state/north/skills`.
 - Codex enforcement promotion changes `/var/lib/north-enforcement/active/current`, which is referenced by root-managed hook commands without waiting for a system rebuild.
 
-A later Home Manager activation can restore `~/.claude/CLAUDE.md` to the full `~/.agents/AGENTS.md` link even while `harness.conf` still says that context is gated. State and projection can therefore disagree.
+A later Home Manager activation restores every global instruction link to its
+switchboard-composed target. It cannot reactivate a module by pointing a
+provider at North's personal profile.
 
 ## Canonical harness state
 
@@ -137,12 +146,15 @@ Claude receives:
 
 1. The provider’s built-in system prompt.
 2. The selected account’s settings and provider state.
-3. `~/.claude/CLAUDE.md`, normally linked to `~/.agents/AGENTS.md`.
+3. `~/.claude/CLAUDE.md`, linked to the switchboard-composed
+   `~/.config/agents/CLAUDE.md`.
 4. Provider-native `CLAUDE.md` files found from the working directory and its ancestors.
 5. Any additional context emitted by lifecycle hooks.
 6. Any enabled plugin’s session-start context.
 
-`north config context` controls only the materialized Claude constitution. It does not control repository `CLAUDE.md` files, plugin context, SessionStart hooks, or Codex.
+The `agents` switchboard controls global instructions, optional module
+instructions, skill links, and governed hooks. It does not control repository
+`CLAUDE.md` files or provider-native state.
 
 ### Settings
 
@@ -152,8 +164,8 @@ Claude receives:
 - effort `xhigh`
 - North/Fram/Firn authoring and lifecycle hooks
 - North status-line integration
-- enabled Rust, TypeScript, and orchestration plugins
-- the North orchestration marketplace source
+- enabled Rust and TypeScript language plugins
+- no Orchestration plugin or marketplace; that surface is switchboard-owned
 
 Account settings mirror this surface through the wrapper’s account bootstrap.
 
@@ -167,7 +179,9 @@ The profile registry currently contains these classes:
 - Context hook: Beagle SessionStart.
 - Coordination hooks: North session end and hook detachment.
 
-Claude settings also contain lifecycle hooks outside that registry: `north-on-spawn`, `north-on-stop`, `north-mark-delegated`, and `north-on-tooluse`. The orchestration plugin has its own SessionStart injector.
+The `north-session-lifecycle` hook module contains `north-on-spawn`,
+`north-on-stop`, and `north-mark-delegated`; the `assignments` skill claims it,
+so the coordination and orchestration module-set gates apply to it too.
 
 Consequences:
 
@@ -182,12 +196,9 @@ A fresh session can receive context from:
 
 - `beagle-session-start`, when the project matches its Beagle conditions.
 - `north-on-spawn`, which emits North coordination context and attempts presence registration.
-- the orchestration plugin, which emits an orchestration doctrine digest.
+- the switchboard-composed Orchestration doctrine, only when its outer module
+  set derives active.
 - other provider plugins.
-
-[Observed] The orchestration plugin injector reads canonical `~/.local/state/north/harness.conf`, so its adapter selection follows the same dispatch state as North enforcement.
-
-[Observed drift] The installed plugin registry names an orchestration cache path that is absent. The source plugin remains enabled in settings. Whether Claude successfully loads it in a fresh session was not runtime-verified.
 
 ### MCP
 
@@ -338,7 +349,8 @@ As of this snapshot:
 
 - Canonical state says `dispatch=auto`, while the legacy Claude state says `dispatch=warn`.
 - The shared North skills farm is absent even though the source inventory contains four skills.
-- The orchestration plugin registry points at a missing installed-cache path.
+- The historical Orchestration plugin files remain as archive material but no
+  provider settings enable them.
 - Claude context state has no freshness or checksum proof against the materialized `~/.claude/CLAUDE.md`.
 - Direct Codex account configs and the global `~/.codex/config.toml` expose different MCP surfaces.
 - A worker-topology guard treats several semantically read-only `north config` subcommands as mutations.

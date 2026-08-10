@@ -48,6 +48,16 @@ capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
 
+# Claude composes this hook dynamically. Codex has a static managed hook
+# manifest, so its co-located switchboard activity reader supplies the same
+# gate. A checkout without that adapter retains the existing behavior.
+switchboard_activity="${BASH_SOURCE[0]%/*}/lib/switchboard-activity.sh"
+if [ -r "$switchboard_activity" ]; then
+  # shellcheck disable=SC1090
+  source "$switchboard_activity" || exit 0
+  agents_switchboard_active hook agent-spawn-guard || exit 0
+fi
+
 # A missing resolver leaves this deny-capable guard live. Only an affirmative
 # off verdict may silence it.
 # shellcheck disable=SC1091
