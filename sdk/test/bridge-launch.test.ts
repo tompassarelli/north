@@ -466,6 +466,13 @@ test("/restart is in both command sets and restores the session in place", async
   expect(runtime.agentIndex).toBe(0);
 });
 
+test("/mcp is discoverable from both bridge views", () => {
+  for (const frame of ["agents", "threads"]) {
+    expect(bridgeApp.palette_options(frame, "/mcp").map((option) => option.name))
+      .toEqual(["/mcp"]);
+  }
+});
+
 test("the hello a spawned daemon presents is its own identity and pid", async () => {
   const daemon = await connectVerified();
   const wire = await opened();
