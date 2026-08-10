@@ -1,17 +1,20 @@
 (ns north.runtime-attestation
-  "Bind one canonical FRAMRPC listener to its exact frozen Fram source,
-  sealed Native READY artifact, FRAMLOG, SpaceId, and systemd owner."
+  "Bind one canonical FRAMRPC listener to the sealed Fram release the live
+  selection names, its Native READY artifact, FRAMLOG, SpaceId, and systemd
+  owner."
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (def attestation-format "north-framrpc-runtime-attestation/v1")
 (def active-runtime-record-format "north-framrpc-runtime/v1")
-;; Composed, never literal: the packaged tree's purity scan rejects a checkout path.
-(def frozen-fram-source
-  (str (System/getenv "HOME") "/code/fram/wt-core-target-production-5db9b38"))
-(def frozen-fram-revision "5db9b38fb05a618d76bd6e386f6a542274d9a8b9")
-(def frozen-fram-tree "e3c2bdedf8bd2f1e5c775d16628acc0169785e8f")
+(def release-receipt-format "north-fram-release/v1")
+(def release-receipt-name "RELEASE")
+(def release-receipt-read-limit 4096)
+;; The receipt's own field order, which is what a sealed release publishes.
+(def release-receipt-order
+  ["format" "source" "revision" "tree" "native_artifact_dir"
+   "native_closure_sha256" "server_artifact_sha256" "created"])
 (def runtime-record-order
   ["FORMAT" "FRAM_SOURCE" "FRAM_REVISION" "FRAM_TREE"
    "FRAM_NATIVE_ARTIFACT_DIR" "FRAM_NATIVE_CLOSURE_SHA256"
@@ -286,41 +289,83 @@
              (assoc result key value)))))
      {} (remove str/blank? (str/split text #"\u0000")))))
 
-(defn- git-value! [source expression]
-  (let [result (proc/shell {:out :string :err :string :continue true}
-                           "git" "-C" source "rev-parse" "--verify" expression)
-        value (str/trim (:out result))]
-    (when-not (and (zero? (:exit result))
-                   (re-matches #"[0-9a-f]{40,64}" value))
-      (fail! "frozen Fram source lacks exact Git provenance"
-             :runtime-source-invalid
-             {:source source :expression expression :error (str/trim (:err result))}))
-    value))
+(defn sealed-release-home
+  "The sealed Fram release the live selection names. A pointer names an
+   immutable snapshot: nothing here may name a checkout or a worktree."
+  []
+  (let [home (System/getenv "FRAM_HOME")]
+    (when (str/blank? (str home))
+      (fail! "FRAM_HOME must name the sealed Fram release"
+             :runtime-release-unselected))
+    home))
 
-(defn- source-identity! [source expected-revision expected-tree]
-  (let [canonical (.getCanonicalPath (io/file source))
-        marker (.toPath (io/file canonical ".git"))]
-    (when (or (not (.isDirectory (io/file canonical)))
-              (java.nio.file.Files/isSymbolicLink marker)
-              (not (java.nio.file.Files/exists marker (no-follow-options))))
-      (fail! "frozen Fram source is not an exact Git checkout"
-             :runtime-source-invalid {:source canonical}))
-    (let [revision (git-value! canonical "HEAD")
-          tree (git-value! canonical "HEAD^{tree}")
-          dirty (proc/shell {:out :string :err :string :continue true}
-                            "git" "-C" canonical "status" "--porcelain"
-                            "--untracked-files=all")]
-      (when-not (and (= expected-revision revision)
-                     (= expected-tree tree)
-                     (zero? (:exit dirty))
-                     (str/blank? (:out dirty)))
-        (fail! "listener source is not the exact clean frozen Fram"
-               :runtime-source-mismatch
-               {:source canonical
-                :expected {:revision expected-revision :tree expected-tree}
-                :actual {:revision revision :tree tree}
-                :changes (str/split-lines (:out dirty))}))
-      {:source canonical :revision revision :tree tree})))
+(defn sealed-release-identity!
+  "Read the sealed release's own receipt. The receipt is the immutable record
+   of which Fram revision and tree were sealed into this release, so expected
+   identity is derived from the selected snapshot instead of a literal any
+   later engine generation would silently invalidate. `source` names the
+   checkout the release was CUT FROM; it is provenance only and is never
+   resolved — that checkout is mutable and may not exist."
+  [home]
+  (let [directory (canonical-directory! "sealed Fram release" home)
+        receipt-path (.getPath (io/file directory release-receipt-name))
+        {canonical :path before :state}
+        (canonical-regular-file! "sealed Fram release receipt" receipt-path)]
+    (when (> (:size before) release-receipt-read-limit)
+      (fail! "sealed Fram release receipt exceeds its read bound"
+             :runtime-release-invalid
+             {:path canonical :bytes (:size before)
+              :limit release-receipt-read-limit}))
+    (let [payload (java.nio.file.Files/readAllBytes (.toPath (io/file canonical)))
+          after (unix-file-state! "sealed Fram release receipt" canonical)]
+      (when-not (and (= before after) (= (:size before) (alength payload)))
+        (fail! "sealed Fram release receipt changed while it was read"
+               :runtime-release-raced {:path canonical}))
+      (when (or (zero? (alength payload))
+                (not= 10 (bit-and 255 (aget payload (dec (alength payload)))))
+                (some #(= 13 (bit-and 255 %)) payload))
+        (fail! "sealed Fram release receipt must be canonical LF text"
+               :runtime-release-invalid {:path canonical}))
+      (let [pairs
+            (mapv
+             (fn [line]
+               (let [index (str/index-of line "=")]
+                 (when-not (and index (pos? index))
+                   (fail! "sealed Fram release receipt has a malformed line"
+                          :runtime-release-invalid {:path canonical :line line}))
+                 [(subs line 0 index) (subs line (inc index))]))
+             (str/split-lines
+              (String. ^bytes payload
+                       java.nio.charset.StandardCharsets/UTF_8)))
+            values (into {} pairs)]
+        (when-not (and (= release-receipt-order (mapv first pairs))
+                       (= (count release-receipt-order) (count values))
+                       (not-any? str/blank? (vals values))
+                       (= release-receipt-format (get values "format")))
+          (fail! "sealed Fram release receipt has the wrong exact field set"
+                 :runtime-release-invalid
+                 {:path canonical :fields (mapv first pairs)}))
+        (let [revision (get values "revision")
+              tree (get values "tree")]
+          (when-not (and (re-matches #"[0-9a-f]{40,64}" revision)
+                         (re-matches #"[0-9a-f]{40,64}" tree)
+                         (re-matches #"[0-9a-f]{64}"
+                                     (get values "native_closure_sha256"))
+                         (re-matches #"[0-9a-f]{64}"
+                                     (get values "server_artifact_sha256"))
+                         (str/starts-with? (get values "native_artifact_dir") "/")
+                         (str/starts-with? (get values "source") "/"))
+            (fail! "sealed Fram release receipt lacks exact identity"
+                   :runtime-release-invalid {:path canonical}))
+          {:source directory
+           :revision revision
+           :tree tree
+           :cut-from (get values "source")
+           :native-artifact-dir (get values "native_artifact_dir")
+           :native-closure-sha256 (get values "native_closure_sha256")
+           :server-artifact-sha256 (get values "server_artifact_sha256")
+           :receipt {:path canonical :bytes (alength payload)
+                     :sha256 (sha256-bytes payload)}})))))
 
 (defn- parse-positive-long! [label value]
   (let [parsed (parse-long (str value))]
@@ -385,13 +430,60 @@
                       (str/starts-with? key "NORTH_"))))
         environment))
 
+;; A unit that loads the selection file carries more FRAM_/NORTH_ variables
+;; than the seven that name identity, so exact-set equality would reject the
+;; supported launch shape. What must never disagree is any variable that can
+;; select a different engine, artifact, FRAMLOG, port, or SpaceId: required
+;; names must be present and exact, constrained names must be exact when
+;; present, and the names that would route the launcher away from the sealed
+;; Native artifact must be absent.
+(defn- sealed-environment-expectation
+  [{:keys [source native-artifact-dir native-closure-sha256
+           server-artifact-sha256]}
+   {:keys [space-id port log controller-unit server-artifact]}]
+  {:required
+   {"FRAM_HOME" source
+    "FRAM_SERVER_RUNTIME" "native"
+    "FRAM_NATIVE_ARTIFACT_DIR" native-artifact-dir
+    "FRAM_SPACE_ID" space-id
+    "FRAM_SERVER_PORT" (str port)
+    "FRAM_LOG" log
+    "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
+   :constrained
+   {"FRAM_BIN" (.getPath (io/file source "bin"))
+    "FRAM_OUT" (.getPath (io/file source "out"))
+    "NORTH_FRAMRPC_OUT" (.getPath (io/file source "out"))
+    "FRAM_SERVER_ARTIFACT" server-artifact
+    "FRAM_SERVER_ARTIFACT_SHA256" server-artifact-sha256
+    "FRAM_NATIVE_CLOSURE_SHA256" native-closure-sha256
+    "NORTH_PORT" (str port)}
+   :forbidden
+   #{"FRAM_JAVA" "FRAM_SERVER_CLASSPATH_FILE" "FRAM_GRAAL_ARTIFACT"
+     "FRAM_LISTEN_FD"}})
+
+(defn- environment-disagreements [expectation environment]
+  (let [{:keys [required constrained forbidden]} expectation]
+    (vec
+     (sort
+      (concat
+       (keep (fn [[key value]]
+               (when-not (= value (get environment key)) key))
+             required)
+       (keep (fn [[key value]]
+               (when (and (contains? environment key)
+                          (not= value (get environment key)))
+                 key))
+             constrained)
+       (filter #(contains? environment %) forbidden))))))
+
 (defn attest-active-runtime!
   "Attest one active canonical writer from its launcher-owned 0600 record."
   [{:keys [port served-log space-id record-path controller-unit]}]
   (when-not (and port served-log space-id record-path controller-unit)
     (fail! "FRAMRPC runtime attestation requires port, log, SpaceId, record, and unit"
            :runtime-attestation-request-invalid))
-  (let [sealed (read-record! record-path)
+  (let [release (sealed-release-identity! (sealed-release-home))
+        sealed (read-record! record-path)
         values (:values sealed)
         record-port (parse-positive-long! "FRAM_PORT" (get values "FRAM_PORT"))
         pid (parse-positive-long! "PID" (get values "PID"))
@@ -416,11 +508,14 @@
         (artifact-record "sealed Native Fram server" expected-server-path)
         log (.getCanonicalPath (io/file (get values "FRAM_LOG")))
         requested-log (.getCanonicalPath (io/file served-log))]
-    (when-not (and (= frozen-fram-source source-field source)
-                   (= frozen-fram-revision (get values "FRAM_REVISION"))
-                   (= frozen-fram-tree (get values "FRAM_TREE"))
-                   (= artifact-directory
+    (when-not (and (= (:source release) source-field source)
+                   (= (:revision release) (get values "FRAM_REVISION"))
+                   (= (:tree release) (get values "FRAM_TREE"))
+                   (= (:native-artifact-dir release) artifact-directory
                       (get values "FRAM_NATIVE_ARTIFACT_DIR"))
+                   (= (:native-closure-sha256 release) closure-sha256)
+                   (= (:server-artifact-sha256 release)
+                      (get values "FRAM_SERVER_ARTIFACT_SHA256"))
                    (= expected-server-path
                       (get values "FRAM_SERVER_ARTIFACT")
                       (:path server-artifact))
@@ -437,39 +532,40 @@
              :runtime-record-invalid
              {:request {:port port :log requested-log :space-id space-id
                         :controller-unit controller-unit}
+              :release (dissoc release :receipt)
               :record (dissoc values "PID_BIRTH")}))
-    (let [source-identity
-          (source-identity! source frozen-fram-revision frozen-fram-tree)
-          listener-owners (listener-pids record-port)
+    (let [listener-owners (listener-pids record-port)
           birth (process-birth-token pid)
           start (process-start-millis pid)
           controller-pid (systemd-main-pid! controller-unit)
           shape (exact-process-shape! pid source expected-server-path)
           environment (process-environment pid)
-          expected-environment
-          {"FRAM_HOME" source
-           "FRAM_SERVER_RUNTIME" "native"
-           "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
-           "FRAM_SPACE_ID" space-id
-           "FRAM_SERVER_PORT" (str record-port)
-           "FRAM_LOG" log
-           "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
-          actual-environment (runtime-identity-environment environment)]
+          disagreements
+          (environment-disagreements
+           (sealed-environment-expectation
+            release
+            {:space-id space-id :port record-port :log log
+             :controller-unit controller-unit
+             :server-artifact expected-server-path})
+           environment)]
       (when-not (and (= [pid] listener-owners)
                      (= (get values "PID_BIRTH") birth)
                      (integer? start)
                      (= pid controller-pid)
-                     (= expected-environment actual-environment))
+                     (empty? disagreements))
         (fail! "FRAMRPC runtime record, listener, environment, and systemd owner disagree"
                :runtime-process-attestation-failed
                {:pid pid :listener-pids listener-owners
                 :expected-birth (get values "PID_BIRTH") :actual-birth birth
                 :process-start-millis start :controller-pid controller-pid
-                :environment-keys (sort (keys actual-environment))}))
+                :environment-disagreements disagreements
+                :environment-keys
+                (sort (keys (runtime-identity-environment environment)))}))
       {:format attestation-format
        :request {:port record-port :served-log log :space-id space-id
                  :record-path (:path sealed) :controller-unit controller-unit}
-       :identity (merge source-identity
+       :identity (merge (select-keys release
+                                     [:source :revision :tree :cut-from :receipt])
                         {:native-artifact
                          {:directory artifact-directory
                           :closure-sha256 closure-sha256

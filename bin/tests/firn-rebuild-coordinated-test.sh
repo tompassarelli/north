@@ -277,7 +277,7 @@ mapfile -t coordination_calls <"$ready_calls"
 [[ "${coordination_calls[0]}" == \
   "bb $north_cli_root/cli/coord.clj 7977 coordination" ]]
 [[ "${coordination_calls[1]}" == \
-  "bb $north_cli_root/cli/runtime-attestation.clj 7977 $coord_log north-coordination $state_home/north/framrpc-runtime/north-coord.runtime north-coord.service" ]]
+  "bb $north_cli_root/cli/runtime-attestation.clj 7977 $coord_log north-coordination $state_home/north/framrpc-runtime/north-fram.runtime north-fram.service" ]]
 
 : >"$ready_calls"
 NORTH_TELEMETRY_PARTITION=1 run_ready >"$scratch/stage-a-ready.out"

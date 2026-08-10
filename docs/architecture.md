@@ -78,8 +78,9 @@ state and are **not** part of this repository.
 Every **coordination-graph** write serializes through one current Fram server,
 which rule-checks it before it lands. The configured server listens locally on
 `127.0.0.1:7977` (`NORTH_PORT`); canonical FRAMRPC requests carry the selected
-SpaceId, and `north:cli/runtime-attestation.clj` binds the live listener to its
-exact Fram source, artifact, database, and service owner.
+SpaceId, and `north:cli/runtime-attestation.clj` binds the live listener to the
+sealed Fram release `FRAM_HOME` names — its receipt's revision and tree, its
+Native artifact, database, and service owner.
 
 Two writes are deliberately carved out of that path. Telemetry subjects
 (`run:`/`session:`/`mine:`/`guard_denial:`) route to the telemetry partition on

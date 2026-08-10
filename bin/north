@@ -301,7 +301,7 @@ coord_runtime_ready() {
     >/dev/null || return $?
   "$BB" "$NORTH/cli/runtime-attestation.clj" \
     "${NORTH_PORT:-7977}" "$FRAM_LOG" "$FRAM_SPACE_ID" \
-    "$runtime_root/north-coord.runtime" north-coord.service \
+    "$runtime_root/north-fram.runtime" north-fram.service \
     >/dev/null || return $?
   if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
     env -u FRAM_TELEMETRY_LOG \

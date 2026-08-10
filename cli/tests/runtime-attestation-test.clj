@@ -51,6 +51,14 @@
   (set-mode! path record-permissions)
   path)
 
+(defn write-receipt! [path values]
+  (spit path
+        (str (str/join "\n"
+                       (map #(str % "=" (get values %))
+                            attestation/release-receipt-order))
+             "\n"))
+  path)
+
 (defn denied-type [operation]
   (try
     (operation)
@@ -68,8 +76,9 @@
       ready (.getCanonicalPath (io/file artifact-directory "READY"))
       input-manifest
       (.getCanonicalPath (io/file artifact-directory "input.manifest"))
+      receipt (.getCanonicalPath (io/file source attestation/release-receipt-name))
       log (.getCanonicalPath (io/file temp "coordination.framlog"))
-      record (.getCanonicalPath (io/file temp "north-coord.runtime"))
+      record (.getCanonicalPath (io/file temp "north-fram.runtime"))
       revision (apply str (repeat 40 "a"))
       tree (apply str (repeat 40 "b"))
       manifest-payload "sealed Native input manifest fixture\n"
@@ -77,13 +86,18 @@
       port 47977
       pid 4242
       birth "proc:987654"
-      unit "north-coord.service"
-      source-identity-var
-      (ns-resolve 'north.runtime-attestation 'source-identity!)
+      unit "north-fram.service"
       closure-sha256
       (atom nil)
       values
-      (atom nil)]
+      (atom nil)
+      release-redef {#'attestation/sealed-release-home (fn [] source)}
+      attest-record!
+      (fn []
+        (with-redefs-fn release-redef
+          #(attestation/attest-active-runtime!
+            {:port port :served-log log :space-id space-id
+             :record-path record :controller-unit unit})))]
   (try
     (.mkdirs (io/file source))
     (.mkdirs (.getParentFile (io/file artifact)))
@@ -94,6 +108,15 @@
     (spit artifact "sealed executable fixture\n")
     (set-mode! artifact artifact-permissions)
     (spit log "FRAMLOG fixture\n")
+    (write-receipt! receipt
+                    {"format" attestation/release-receipt-format
+                     "source" "/home/fixture/code/fram/wt-cut-from"
+                     "revision" revision
+                     "tree" tree
+                     "native_artifact_dir" artifact-directory
+                     "native_closure_sha256" @closure-sha256
+                     "server_artifact_sha256" (sha256-file artifact)
+                     "created" "2026-08-09T20:58:38+08:00"})
     (reset!
      values
      {"FORMAT" attestation/active-runtime-record-format
@@ -121,15 +144,7 @@
            "FRAM_LOG" log
            "NORTH_COORD_SYSTEMD_UNIT" unit}
           valid-redefs
-          {#'attestation/frozen-fram-source source
-           #'attestation/frozen-fram-revision revision
-           #'attestation/frozen-fram-tree tree
-           source-identity-var
-           (fn [actual-source actual-revision actual-tree]
-             (when-not (= [source revision tree]
-                          [actual-source actual-revision actual-tree])
-               (throw (ex-info "wrong source identity" {})))
-             {:source source :revision revision :tree tree})
+          {#'attestation/sealed-release-home (fn [] source)
            #'attestation/listener-pids (fn [_] [pid])
            #'attestation/process-birth-token (fn [_] birth)
            #'attestation/process-start-millis (fn [_] 123456789)
@@ -168,12 +183,53 @@
                    #(denied-type
                      (fn [] (attestation/attest-active-runtime! request))))))
 
-      (check! "any additional runtime identity environment is rejected"
+      (check! "the sealed release receipt supplies the expected revision and tree"
+              (and (= revision (get-in verified [:identity :revision]))
+                   (= tree (get-in verified [:identity :tree]))
+                   (= source (get-in verified [:identity :source]))
+                   ;; provenance only: the checkout a release was cut from is
+                   ;; mutable and is never resolved
+                   (= "/home/fixture/code/fram/wt-cut-from"
+                      (get-in verified [:identity :cut-from]))))
+
+      (check! "selection-file variables consistent with the sealed release are accepted"
+              (map? (with-redefs-fn
+                      (assoc valid-redefs #'attestation/process-environment
+                             (fn [_]
+                               (assoc environment
+                                      "FRAM_SERVER_ARTIFACT" artifact
+                                      "FRAM_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
+                                      "FRAM_NATIVE_CLOSURE_SHA256" @closure-sha256
+                                      "FRAM_BIN" (str source "/bin")
+                                      "FRAM_OUT" (str source "/out")
+                                      "NORTH_FRAMRPC_OUT" (str source "/out")
+                                      "NORTH_PORT" (str port)
+                                      "FRAM_MAX_ACTIVE_CLIENTS" "64"
+                                      "NORTH_TELEMETRY_PORT" "7978")))
+                      #(attestation/attest-active-runtime! request))))
+
+      (check! "an environment that redirects the sealed artifact is rejected"
               (= :runtime-process-attestation-failed
                  (with-redefs-fn
                    (assoc valid-redefs #'attestation/process-environment
                           (fn [_] (assoc environment
-                                   "FRAM_SERVER_ARTIFACT" artifact)))
+                                         "FRAM_SERVER_ARTIFACT" "/tmp/other-server")))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
+
+      (check! "a socket-activation or JVM selector in the environment is rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/process-environment
+                          (fn [_] (assoc environment "FRAM_LISTEN_FD" "3")))
+                   #(denied-type
+                     (fn [] (attestation/attest-active-runtime! request))))))
+
+      (check! "a missing required identity variable is rejected"
+              (= :runtime-process-attestation-failed
+                 (with-redefs-fn
+                   (assoc valid-redefs #'attestation/process-environment
+                          (fn [_] (dissoc environment "NORTH_COORD_SYSTEMD_UNIT")))
                    #(denied-type
                      (fn [] (attestation/attest-active-runtime! request))))))
 
@@ -205,28 +261,19 @@
                                  (apply str (repeat 64 "0"))))
     (check! "artifact digest disagreement is rejected"
             (= :runtime-record-invalid
-               (denied-type
-                #(attestation/attest-active-runtime!
-                  {:port port :served-log log :space-id space-id
-                   :record-path record :controller-unit unit}))))
+               (denied-type attest-record!)))
 
     (write-record! record @values)
     (spit ready (str "fram-native-build/v1 " @closure-sha256))
     (check! "READY receipt must have the exact closure and final LF"
             (= :runtime-record-invalid
-               (denied-type
-                #(attestation/attest-active-runtime!
-                  {:port port :served-log log :space-id space-id
-                   :record-path record :controller-unit unit}))))
+               (denied-type attest-record!)))
     (spit ready (str "fram-native-build/v1 " @closure-sha256 "\n"))
 
     (spit input-manifest "changed Native input manifest fixture\n")
     (check! "input manifest must hash to the READY closure"
             (= :runtime-record-invalid
-               (denied-type
-                #(attestation/attest-active-runtime!
-                  {:port port :served-log log :space-id space-id
-                   :record-path record :controller-unit unit}))))
+               (denied-type attest-record!)))
     (spit input-manifest manifest-payload)
 
     (spit record
@@ -235,10 +282,33 @@
     (set-mode! record record-permissions)
     (check! "partial runtime identity is rejected before process trust"
             (= :runtime-record-invalid
-               (denied-type
-                #(attestation/attest-active-runtime!
-                  {:port port :served-log log :space-id space-id
-                   :record-path record :controller-unit unit}))))
+               (denied-type attest-record!)))
+
+    ;; The staleness case the hardcoded literal used to cause: the selected
+    ;; release moves on and the record still names the previous engine.
+    (write-record! record @values)
+    (write-receipt! receipt
+                    {"format" attestation/release-receipt-format
+                     "source" "/home/fixture/code/fram/wt-cut-from"
+                     "revision" (apply str (repeat 40 "c"))
+                     "tree" (apply str (repeat 40 "d"))
+                     "native_artifact_dir" artifact-directory
+                     "native_closure_sha256" @closure-sha256
+                     "server_artifact_sha256" (sha256-file artifact)
+                     "created" "2026-08-10T00:00:00+08:00"})
+    (check! "a record naming a superseded engine generation is rejected"
+            (= :runtime-record-invalid
+               (denied-type attest-record!)))
+
+    (spit receipt "format=north-fram-release/v1\nrevision=nope\n")
+    (check! "a malformed sealed release receipt is rejected"
+            (= :runtime-release-invalid
+               (denied-type attest-record!)))
+
+    (java.nio.file.Files/delete (.toPath (io/file receipt)))
+    (check! "a selected release without a receipt is rejected"
+            (= :runtime-path-invalid
+               (denied-type attest-record!)))
     (finally
       (delete-tree! temp))))
 
