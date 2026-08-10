@@ -1067,19 +1067,28 @@
     :else name)))
 
 ;; Pure: the argument the CLI verbs take for this row — `agents on|off <target>`
-;; and `agents path <target>`. The manifest name IS the address: a memory's name
-;; already carries its slug, and a directory's instruction file answers to the
-;; slug because `agents path <slug>` resolves to exactly that file. One function
-;; so the whole panel addresses the CLI in one place.
+;; and `agents path <target>`, which speak the same spellings.
 ;;
-;; SEAM: `dir <slug>` and `ins <slug>` share an address, so a toggle on either
-;; sends the same argv. The CLI owns the disambiguation; if it grows a qualified
-;; spelling for the instruction file, this is the only function that changes.
+;; Everything under a directory gate is addressed THROUGH it, because that is
+;; what it is: `code/AGENTS.md` is that directory's instruction file,
+;; `code/memories` the group, and any other leaf is a memory by its file name.
+;; The slash is what keeps memory names out of the bare namespace a companion or
+;; a module member is written in — two directories may both remember `style.md`
+;; — and it is what ends the collision the slug used to have with its own
+;; subtree: `agents off code` closes the directory, and nothing else answers to
+;; that name any more.
+;;
+;; A memory's manifest name already carries both halves, extension and all, so
+;; it is its own address. One function, so the whole panel speaks to the CLI in
+;; one place.
 (js/export
  (defn config-cli-name
-  [_kind: String
+  [kind: String
    name: String] -> String
-  name))
+  (cond
+    (identical? kind "ins") (str name "/AGENTS.md")
+    (identical? kind "memroot") (str name "/memories")
+    :else name)))
 
 ;; Pure: how a row is written into a sentence. `@` on a row drops it into the
 ;; composer as a reference the reader can resolve without the panel in front of
@@ -1445,23 +1454,24 @@
 
       :else kind))))
 
-;; Reading order inside a node, coarsest first: the sets that carry everything,
-;; the skills (modules first, each with its hooks, then the plain ones), the
-;; hooks nobody claimed, other people's plugins, the loose switches — and last
-;; the node's own two files, which are what the directory itself says rather
-;; than what it turns on.
+;; Reading order inside a node: what the directory SAYS before what it turns on.
+;; Its instruction file and its memories are the directory itself speaking, and
+;; they are the reason you opened the node; the switches under them are things
+;; that happen to be in force there. Then the coarsest of those first — the sets
+;; that carry everything, the skills (modules with their hooks, then the plain
+;; ones), the hooks nobody claimed, other people's plugins, the loose switches.
 (defn config-section-rank [role: String] -> Int
   (cond
-    (identical? role "moduleset") 0
-    (identical? role "module") 1
-    (identical? role "boundhook") 2
-    (identical? role "skill") 3
-    (identical? role "hook") 4
-    (identical? role "plugin") 5
-    (identical? role "other") 6
-    (identical? role "ins") 7
-    (identical? role "memroot") 8
-    (identical? role "mem") 9
+    (identical? role "ins") 0
+    (identical? role "memroot") 1
+    (identical? role "mem") 2
+    (identical? role "moduleset") 3
+    (identical? role "module") 4
+    (identical? role "boundhook") 5
+    (identical? role "skill") 6
+    (identical? role "hook") 7
+    (identical? role "plugin") 8
+    (identical? role "other") 9
     :else 10))
 
 ;; The global profile is the file every other node is read on top of, so its
@@ -2938,19 +2948,16 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
-;; The one top-level heading: directories are what the panel is a list of, and
-;; everything else is inside one.
-(def CONFIG-TREE-TITLE: String "DIRECTORY")
-
-;; The heading a role prints under. A directory's two files are ROWS rather than
-;; sections — they carry a switch each, and a heading you cannot flip would be a
-;; worse lie than a row that reads in capitals — so `AGENTS.md` and `MEMORIES`
-;; head nothing and the memories simply nest under the gate that holds them. A
-;; bound hook heads nothing either: it is drawn under the skill that declared it.
+;; The heading a role prints under. Directories head NOTHING: they are the
+;; panel's root level, not rows inside a section about directories, and a
+;; heading over them would be a word spent saying what the shape already says.
+;; A directory's two files are rows rather than sections for the same reason
+;; from the other end — they carry a switch each, and a heading you cannot flip
+;; would be a worse lie than a row that reads in capitals. A bound hook heads
+;; nothing either: it is drawn under the skill that declared it.
 (js/export
  (defn config-section-title [role: String] -> String
   (cond
-    (identical? role "dir") CONFIG-TREE-TITLE
     (identical? role "moduleset") "MODULE SETS"
     (identical? role "module") "MODULES"
     (identical? role "skill") "SKILLS"
@@ -2967,24 +2974,23 @@
 ;; SKILLS and not above it, and its hooks share its path exactly because they
 ;; are drawn inside it.
 ;;
-;; A directory's own files sit under DIRECTORY and no heading of their own, and
-;; so does a directory: that is why the second node prints no second DIRECTORY.
+;; A directory sits under nothing, and so do the files it carries: an empty path
+;; is the root of the panel.
 (js/export
  (defn config-header-roles [role: String] -> Any
   (cond
-    (identical? role "moduleset") ["dir" "moduleset"]
-    (identical? role "module") ["dir" "skill" "module"]
-    (identical? role "boundhook") ["dir" "skill" "module"]
-    (identical? role "skill") ["dir" "skill"]
-    (identical? role "hook") ["dir" "hook"]
-    (identical? role "plugin") ["dir" "plugin"]
-    (identical? role "other") ["dir" "other"]
-    :else ["dir"])))
+    (identical? role "moduleset") ["moduleset"]
+    (identical? role "module") ["skill" "module"]
+    (identical? role "boundhook") ["skill" "module"]
+    (identical? role "skill") ["skill"]
+    (identical? role "hook") ["hook"]
+    (identical? role "plugin") ["plugin"]
+    (identical? role "other") ["other"]
+    :else [])))
 
 ;; Pure: those headings as keys that say which NODE they belong to, so two
 ;; directories with skills print two SKILLS headings — one inside each — and a
-;; window that opens mid-node still prints the heading the row is under. The
-;; directory heading is the panel's own and is not scoped to anything.
+;; window that opens mid-node still prints the heading the row is under.
 (js/export
  (defn config-header-keys
   [entry: Any
@@ -2994,9 +3000,7 @@
                                 (configentry-name entry))]
     (.map (config-header-roles role)
           (fn [heading: String] -> String
-            (if (identical? heading "dir")
-              "dir"
-              (str scope " " heading)))))))
+            (str scope " " heading))))))
 
 ;; Pure: how many of two heading paths agree from the outside in, which is how
 ;; many headings a row does NOT have to print again.
@@ -3086,6 +3090,24 @@
    expanded?: Bool] -> String
   (if (not dir-row?) "" (if expanded? "▾ " "▸ ")))
 
+;; Pure: what a directory row calls itself on screen — the place, not the slug.
+;; `code  /home/tom/code` said the same thing twice, and the half that answers
+;; "which directory is this" is the path: two checkouts of one repo have the
+;; same slug and different paths, and the path is what you would type. The slug
+;; stays every internal thing it already was — the flip address, `agents path`,
+;; the search text, an `@dir:` reference — because none of those are reading.
+;; A row whose path the CLI has not filled in falls back to the slug rather
+;; than rendering nothing.
+;;
+;; The root scope is the exception, and not really one: its "directory" is `~`,
+;; which names a place but not the thing it is — the profile every other node is
+;; read on top of. It says GLOBAL, which is what it is.
+(defn config-dir-label [entry: Any] -> String
+  (if (config-global-row? (configentry-kind entry) (configentry-name entry))
+    "GLOBAL"
+    (let [path (short-directory (text (configentry-detail entry)))]
+      (text-or path (configentry-name entry)))))
+
 (defn config-row-text
   [entry: Any
    memberships: Any
@@ -3093,17 +3115,21 @@
    width: Int] -> String
   (let [kind (configentry-kind entry)
         name (configentry-name entry)
+        dir? (identical? kind "dir")
         members (config-module-members memberships name)
         detail (cond
                  (identical? kind "hook") ""
                  (config-subtree-kind? kind) ""
+                 ;; The path IS the directory row's label now, so it is not also
+                 ;; the thing printed after it.
+                 dir? ""
                  (identical? kind "module")
                  (if (nil? members)
                    ""
                    (config-member-count-text (.-length members)))
                  :else (text (configentry-detail entry)))
-        label (str (config-fold-glyph (identical? kind "dir") expanded?)
-                   (config-row-label kind name))]
+        label (str (config-fold-glyph dir? expanded?)
+                   (if dir? (config-dir-label entry) (config-row-label kind name)))]
     (compact-text (if (identical? detail "")
                     label
                     (str label "  " detail))
@@ -3136,7 +3162,7 @@
 ;; node sits where that node's own files sit; a subsection heading sits one step
 ;; further in, over rows one step further in again.
 (defn config-header-indent [index: Int] -> String
-  (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 1))))
+  (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 2))))
 
 ;; The state column's width. Non-hook rows keep the three cells `on`/`off` have
 ;; always had; a hook spends more because it prints two axes and, when it is
@@ -3254,9 +3280,7 @@
                                   (when (>= at shared)
                                     (.push parts
                                            (brightYellow
-                                            (str (if (identical? heading "dir")
-                                                   ""
-                                                   (config-header-indent at))
+                                            (str (config-header-indent at)
                                                  (config-section-title heading)
                                                  "\n"))))))
                       (.push parts (if (and cursor? focused?)
@@ -3326,13 +3350,13 @@
 (def DETAIL-CHROME-ROWS: Int 3)
 
 ;; Headings are content the panel inserts between rows, so the layout budgets
-;; for them: DIRECTORY, and inside a node MODULE SETS, SKILLS, its MODULES
-;; subsection, HOOKS, PLUGINS and OTHER. Seven, because only the root node
-;; carries kind sections today — the day a project carries its own skills, a
-;; window spanning two nodes can print more, and this ceiling is where that is
-;; paid for. A directory's own files and its memories are ROWS, not headings, so
-;; a deeper tree costs list rows and never a heading.
-(def CONFIG-SECTION-ROWS: Int 7)
+;; for them: inside a node, MODULE SETS, SKILLS, its MODULES subsection, HOOKS,
+;; PLUGINS and OTHER. Six, because only the root node carries kind sections
+;; today — the day a project carries its own skills, a window spanning two nodes
+;; can print more, and this ceiling is where that is paid for. Directories head
+;; nothing at all, and a directory's own files and memories are ROWS rather than
+;; headings, so a deeper tree costs list rows and never a heading.
+(def CONFIG-SECTION-ROWS: Int 6)
 
 (defn detail-visible-count
   [total: Int
@@ -3342,16 +3366,16 @@
 
 ;; A narrowed view pays only for the headings it can actually show, so it keeps
 ;; the rows the full switchboard has to give up. /globals is the root node with
-;; everything but plugins; /agentsmd is directories and their own files, which
-;; is DIRECTORY and nothing else; a kind view is DIRECTORY plus that kind's own
+;; everything but plugins; /agentsmd is directories and the files they carry,
+;; which are rows under no heading whatsoever; a kind view is that one kind's
 ;; heading under whichever nodes have any.
 (js/export
  (defn config-section-rows [view: String] -> Int
   (cond
     (identical? view "all") CONFIG-SECTION-ROWS
-    (identical? view "globals") 6
-    (identical? view "agentsmd") 1
-    :else 2)))
+    (identical? view "globals") 5
+    (identical? view "agentsmd") 0
+    :else 1)))
 
 (js/export
  (defn config-visible-count

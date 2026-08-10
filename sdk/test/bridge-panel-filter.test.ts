@@ -265,9 +265,9 @@ test("the cursor belongs to the visible rows, and comes back inside when they sh
 test("the panel is as tall as what the filter left it", () => {
   const wide = configRuntime(MANIFEST, "all", 0, null, ["global"]);
   const narrow = configRuntime(MANIFEST, "all", 0, "guard");
-  // Four rows, and the four headings they are under — DIRECTORY, SKILLS, its
-  // MODULES subsection, HOOKS — plus the title line.
-  expect(configDetailLines(narrow)).toBe(1 + 4 + 4);
+  // Four rows, and the three headings they are under — SKILLS, its MODULES
+  // subsection, HOOKS — plus the title line.
+  expect(configDetailLines(narrow)).toBe(1 + 4 + 3);
   expect(configDetailLines(narrow)).toBeLessThan(configDetailLines(wide));
   expect(detailHeight(narrow)).toBeLessThanOrEqual(PANEL_BUDGET);
 
@@ -300,16 +300,16 @@ test("a filtered switchboard shows the query, the matches, and the headings that
   const before = await frameOf(configRuntime(MANIFEST, "all", 0, null, ["global"]));
   expect(before[0]).toBe(
     "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close");
-  for (const heading of ["DIRECTORY", "MODULE SETS", "SKILLS", "MODULES",
-                         "HOOKS", "OTHER"]) {
+  for (const heading of ["MODULE SETS", "SKILLS", "MODULES", "HOOKS", "OTHER"]) {
     expect(before.some((l) => l.trim() === heading)).toBe(true);
   }
+  // Directories are the root level, under nothing.
+  expect(before.some((l) => l.trim() === "DIRECTORY")).toBe(false);
 
   const after = await frameOf(configRuntime(MANIFEST, "all", 0, "guard"));
   expect(after).toEqual([
     "context switchboard  /guard  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "DIRECTORY",
-    "› on  ▾ global  ~",
+    "› on  ▾ GLOBAL",
     "    SKILLS",
     "      MODULES",
     "        on  firn",
@@ -328,8 +328,7 @@ test("a matching memory keeps the directory it hangs off, nested as it was", asy
   const frame = await frameOf(configRuntime(MANIFEST, "all", 0, "report-style"));
   expect(frame).toEqual([
     "context switchboard  /report-style  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "DIRECTORY",
-    "› on  ▾ code  /tmp/switchboard-fixture/code",
+    "› on  ▾ /tmp/switchboard-fixture/code",
     "    on  MEMORIES",
     "      on  report-style-recommendations",
   ]);
@@ -339,8 +338,7 @@ test("a matching memory keeps the directory it hangs off, nested as it was", asy
   const parent = await frameOf(configRuntime(MANIFEST, "agentsmd", 0, "fixture/code"));
   expect(parent).toEqual([
     "directory context  /fixture/code  ↑/↓ move · space toggle · enter edit · esc clears filter",
-    "DIRECTORY",
-    "› on  ▾ code  /tmp/switchboard-fixture/code",
+    "› on  ▾ /tmp/switchboard-fixture/code",
     "    on  AGENTS.md",
     "    on  MEMORIES",
     "      on  report-style-recommendations",
@@ -359,23 +357,21 @@ test("folding renders as folding: a marker, and the rows that came with it", asy
   const shut = await frameOf(configRuntime(MANIFEST, "all"));
   expect(shut).toEqual([
     "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close",
-    "DIRECTORY",
-    "› on  ▸ global  ~",
-    "  on  ▸ code  /tmp/switchboard-fixture/code",
-    "  on  ▸ north  /tmp/switchboard-fixture/north",
+    "› on  ▸ GLOBAL",
+    "  on  ▸ /tmp/switchboard-fixture/code",
+    "  on  ▸ /tmp/switchboard-fixture/north",
   ]);
 
   const open = await frameOf(configRuntime(MANIFEST, "all", 1, null, ["code"]));
   expect(open).toEqual([
     "context switchboard  ↑/↓ move · space toggle · enter edit · / filter · esc close",
-    "DIRECTORY",
-    "  on  ▸ global  ~",
-    "› on  ▾ code  /tmp/switchboard-fixture/code",
+    "  on  ▸ GLOBAL",
+    "› on  ▾ /tmp/switchboard-fixture/code",
     "    on  AGENTS.md",
     "    on  MEMORIES",
     "      on  report-style-recommendations",
     "      on  agents-switchboard-architecture",
-    "  on  ▸ north  /tmp/switchboard-fixture/north",
+    "  on  ▸ /tmp/switchboard-fixture/north",
   ]);
 });
 
@@ -409,11 +405,11 @@ test("@ writes the selected row into the sentence, kind first", () => {
   expect(configReferenceText("module", "dev-core")).toBe("@module:dev-core ");
   expect(configReferenceText("dir", "code")).toBe("@dir:code ");
   // The subtree rows use the word the panel uses for them and the address the
-  // CLI answers to.
-  expect(configReferenceText("ins", "code")).toBe("@file:code ");
-  expect(configReferenceText("memroot", "code")).toBe("@memories:code ");
-  expect(configReferenceText("mem", "code/report-style-recommendations"))
-    .toBe("@memory:code/report-style-recommendations ");
+  // CLI answers to — which is the qualified one, through the directory gate.
+  expect(configReferenceText("ins", "code")).toBe("@file:code/AGENTS.md ");
+  expect(configReferenceText("memroot", "code")).toBe("@memories:code/memories ");
+  expect(configReferenceText("mem", "code/report-style-recommendations.md"))
+    .toBe("@memory:code/report-style-recommendations.md ");
   // The trailing space is part of it: the next thing typed is the rest of the
   // sentence, not more of the reference.
   expect(configReferenceText("skill", "firn").endsWith(" ")).toBe(true);
@@ -489,13 +485,13 @@ test("a row kept only for context is dimmer than the match it is holding up", as
 
 test("an unfocused panel stops burning its cursor, and says so without moving", async () => {
   const focused = await spansOf(configRuntime(MANIFEST, "all", 0, null, [], true));
-  const marker = focused[2]!.find((s) => s.text.includes("›"))!;
+  const marker = focused[1]!.find((s) => s.text.includes("›"))!;
   expect(marker.fg).toBe(BRIGHT_CYAN);
 
   // `@` hands the keyboard back to the composer with the panel still open. The
   // rows do not move; the cursor stops claiming to be yours.
   const handed = await spansOf(configRuntime(MANIFEST, "all", 0, null, [], false));
-  const quiet = handed[2]!.find((s) => s.text.includes("›"))!;
+  const quiet = handed[1]!.find((s) => s.text.includes("›"))!;
   expect(quiet.fg).toBe(BRIGHT_BLACK);
   expect(await frameOf(configRuntime(MANIFEST, "all", 0, null, [], false)))
     .toEqual(await frameOf(configRuntime(MANIFEST, "all", 0, null, [], true)));

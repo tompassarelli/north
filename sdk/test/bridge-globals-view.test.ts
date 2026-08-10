@@ -136,8 +136,11 @@ test("the tree is directories first, each carrying what is scoped to it", () => 
 });
 
 test("MODULES is a subsection of SKILLS, and the headings say so", () => {
+  // Directories are the panel's root level: no heading over them, and none of
+  // their own, because the shape already says what they are.
+  expect(configSectionTitle("dir")).toBe("");
+  expect(configHeaderRoles("dir")).toEqual([]);
   // The stack inside a node, in the order it reads.
-  expect(configSectionTitle("dir")).toBe("DIRECTORY");
   expect(configSectionTitle("moduleset")).toBe("MODULE SETS");
   expect(configSectionTitle("module")).toBe("MODULES");
   expect(configSectionTitle("skill")).toBe("SKILLS");
@@ -148,33 +151,33 @@ test("MODULES is a subsection of SKILLS, and the headings say so", () => {
   // but DIRECTORY.
   for (const role of ["ins", "memroot", "mem"]) {
     expect(configSectionTitle(role)).toBe("");
-    expect(configHeaderRoles(role)).toEqual(["dir"]);
+    expect(configHeaderRoles(role)).toEqual([]);
   }
   // A module is a skill that brings hooks, so it reads inside SKILLS; its hooks
   // read inside it and head nothing of their own.
-  expect(configHeaderRoles("module")).toEqual(["dir", "skill", "module"]);
-  expect(configHeaderRoles("skill")).toEqual(["dir", "skill"]);
-  expect(configHeaderRoles("boundhook")).toEqual(["dir", "skill", "module"]);
-  expect(configHeaderRoles("hook")).toEqual(["dir", "hook"]);
+  expect(configHeaderRoles("module")).toEqual(["skill", "module"]);
+  expect(configHeaderRoles("skill")).toEqual(["skill"]);
+  expect(configHeaderRoles("boundhook")).toEqual(["skill", "module"]);
+  expect(configHeaderRoles("hook")).toEqual(["hook"]);
 });
 
 test("the heading budget covers what a view can print", () => {
-  // DIRECTORY plus the six headings a node can carry: MODULE SETS, SKILLS, its
-  // MODULES subsection, HOOKS, PLUGINS, OTHER.
-  expect(configSectionRows("all")).toBe(7);
+  // The six headings a node can carry: MODULE SETS, SKILLS, its MODULES
+  // subsection, HOOKS, PLUGINS, OTHER. Directories head nothing.
+  expect(configSectionRows("all")).toBe(6);
   // /globals is the root node without plugins.
-  expect(configSectionRows("globals")).toBe(6);
-  // /agentsmd is DIRECTORY and the rows under it.
-  expect(configSectionRows("agentsmd")).toBe(1);
-  // A kind view is DIRECTORY plus that kind's own heading.
-  expect(configSectionRows("hook")).toBe(2);
-  expect(configSectionRows("module")).toBe(2);
+  expect(configSectionRows("globals")).toBe(5);
+  // /agentsmd is directories and the files they carry: rows, no headings.
+  expect(configSectionRows("agentsmd")).toBe(0);
+  // A kind view is that one kind's heading.
+  expect(configSectionRows("hook")).toBe(1);
+  expect(configSectionRows("module")).toBe(1);
 
   // A narrowed view keeps the rows the full switchboard has to give up.
   const total = 100;
   expect(configVisibleCount(total, "hook")).toBeGreaterThan(configVisibleCount(total, "globals"));
   expect(configVisibleCount(total, "globals")).toBeGreaterThan(configVisibleCount(total, "all"));
-  expect(configVisibleCount(total, "all")).toBe(ROWS - CHROME_ROWS - MIN_WORKSPACE_ROWS - 3 - 7);
+  expect(configVisibleCount(total, "all")).toBe(ROWS - CHROME_ROWS - MIN_WORKSPACE_ROWS - 3 - 6);
 
   // Folding is for the view that shows everything; a narrowed view is already
   // an answer and would answer nothing folded shut.
@@ -219,8 +222,8 @@ test("a node with every heading in it still fits the docked panel", () => {
   expect(window).toBeLessThan(rows.length);
 
   // Title line + windowed rows + the headings inside the window. Every one of
-  // the seven is in it, which is what makes the budget load-bearing.
-  expect(configDetailLines(runtime)).toBe(1 + window + 7);
+  // the six is in it, which is what makes the budget load-bearing.
+  expect(configDetailLines(runtime)).toBe(1 + window + 6);
   // The number the layout actually spends: the extra heading row is paid for by
   // one fewer list row, so the panel is exactly as tall as it always was.
   expect(detailHeight(runtime)).toBe(PANEL_BUDGET);
@@ -252,8 +255,7 @@ async function frameOf(view: string, entries: Row[] = MANIFEST,
 test("/globals is the root node, expanded, with everything scoped to it", async () => {
   const frame = await frameOf("globals");
   expect(frame).toContain("globals");
-  expect(frame).toContain("DIRECTORY");
-  expect(frame).toContain("global  ~");
+  expect(frame).toContain("▾ GLOBAL");
   expect(frame).toContain("MODULE SETS");
   expect(frame).toContain("SKILLS");
   expect(frame).toContain("MODULES");
@@ -271,16 +273,17 @@ test("/globals is the root node, expanded, with everything scoped to it", async 
 test("/agentsmd is every node and the files it carries", async () => {
   const frame = await frameOf("agentsmd");
   expect(frame).toContain("directory context");
-  expect(frame).toContain("DIRECTORY");
-  // The manifest token is not the heading, and neither is the old name.
+  // Directories are the root level: no wrapper heading over them, and none of
+  // the names the wrapper used to go by.
+  expect(frame).not.toContain("DIRECTORY");
   expect(frame).not.toContain("DIRECTORY INSTRUCTIONS");
   expect(frame).not.toContain("agents.md & directory context");
   // The root scope reads above the narrower scopes layered on it.
-  expect(frame.indexOf("global  ~")).toBeGreaterThanOrEqual(0);
-  expect(frame.indexOf("global  ~")).toBeLessThan(frame.indexOf("north  /tmp"));
+  expect(frame.indexOf("▾ GLOBAL")).toBeGreaterThanOrEqual(0);
+  expect(frame.indexOf("▾ GLOBAL")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
   // Slug plus state plus the directory the CLI hands over, on one row.
-  expect(frame).toContain("north  /tmp/switchboard-fixture/north");
-  expect(frame).toContain("nixos-config  /tmp/switchboard-fixture/nixos-config");
+  expect(frame).toContain("/tmp/switchboard-fixture/north");
+  expect(frame).toContain("/tmp/switchboard-fixture/nixos-config");
   expect(frame).toContain("on ");
   expect(frame).toContain("off ");
   // Nothing a node turns on belongs in this view.
@@ -294,26 +297,27 @@ test("/config opens as a list of directories, and expands into the stack", async
   // Folded is the default: which scopes exist, answered before what is in them.
   const folded = await frameOf("all");
   expect(folded).toContain("context switchboard");
-  expect(folded).toContain("DIRECTORY");
-  expect(folded).toContain("▸ global  ~");
-  expect(folded).toContain("▸ code  /tmp/switchboard-fixture/code");
+  expect(folded).not.toContain("DIRECTORY");
+  expect(folded).toContain("▸ GLOBAL");
+  expect(folded).toContain("▸ /tmp/switchboard-fixture/code");
   for (const header of ["MODULE SETS", "SKILLS", "HOOKS", "PLUGINS", "OTHER"]) {
     expect(folded).not.toContain(header);
   }
 
   const open = await frameOf("all", MANIFEST, ["global"]);
-  const order = ["DIRECTORY", "MODULE SETS", "SKILLS", "MODULES", "HOOKS",
-                 "PLUGINS", "OTHER"];
+  const order = ["MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS",
+                 "OTHER"];
   const seen = order.map((header) => {
     const at = open.indexOf(header);
     expect(at).toBeGreaterThanOrEqual(0);
     return at;
   });
   expect(seen).toEqual([...seen].sort((a, b) => a - b));
-  expect(open).toContain("▾ global  ~");
+  expect(open).toContain("▾ GLOBAL");
   // The headings the taxonomy and the rename retired.
   expect(open).not.toContain("GLOBALS");
   expect(open).not.toContain("DIRECTORY INSTRUCTIONS");
+  expect(open).not.toContain("DIRECTORY");
 });
 
 test("/modules narrows to the module sets, under the node that holds them", async () => {
@@ -322,7 +326,7 @@ test("/modules narrows to the module sets, under the node that holds them", asyn
   expect(frame).toContain("orchestration");
   expect(frame).toContain("MODULE SETS");
   // A narrow view carries the node its rows are in and no other kind's rows.
-  expect(frame).toContain("global  ~");
+  expect(frame).toContain("▾ GLOBAL");
   expect(frame).not.toContain("firn-guard");
   expect(frame).not.toContain("statusline-script");
   // …and no node that has none of them.
