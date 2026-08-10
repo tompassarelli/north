@@ -2,15 +2,26 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  wireMessageId,
+  wireModelCallId,
+  type WireEvent,
+  type WireEventWriter,
+  type WireKnownEvent,
+  type WireModelCallId,
+} from "../wire";
 import { Northd } from "./host";
-import { scanJournalFile, type JournalRecord } from "./journal";
-import type {
-  BridgeProviderExecution, BridgeProviderSession, NormalizedProviderEvent,
-} from "./provider";
+import {
+  readBridgeWireJournal,
+  scanJournalFile,
+  type JournalRecord,
+} from "./journal";
+import type { BridgeProviderExecution, BridgeProviderSession } from "./provider";
+import type { BridgeServerMessage } from "./protocol";
 
 interface Client {
   socket: Socket;
-  messages: any[];
+  messages: BridgeServerMessage[];
   closed: Promise<void>;
 }
 
@@ -26,18 +37,49 @@ interface HistoryState {
   status: string;
 }
 
+function knownWireEvent(event: WireEvent): event is WireKnownEvent {
+  return event.version === "north:wire:v2" && event.essential;
+}
+
 class AcceptanceSession implements BridgeProviderSession {
   readonly effects: string[] = [];
-  private readonly queue: NormalizedProviderEvent[] = [];
-  private wake?: () => void;
-  private ended = false;
+  #writer: WireEventWriter;
+  #executionId: string;
+  #queue: WireEvent[] = [];
+  #waiting?: PromiseWithResolvers<void>;
+  #ended = false;
+  #turn = 0;
+  #activeModelCall?: WireModelCallId;
 
-  constructor(readonly executionId: string, prompt: string) {
-    this.emit({ kind: "assistant", data: { text: `started: ${prompt}` } });
+  constructor(executionId: string, prompt: string, writer: WireEventWriter) {
+    this.#executionId = executionId;
+    this.#writer = writer;
+    this.#startTurn();
+    this.emitAssistant(`started: ${prompt}`);
+  }
+
+  #publish(events: readonly WireEvent[]): void {
+    this.#queue.push(...events);
+    this.#waiting?.resolve();
+    this.#waiting = undefined;
+  }
+
+  #startTurn(): void {
+    this.#turn += 1;
+    const modelCallId = wireModelCallId(`model-call:bridge:${this.#executionId}:${this.#turn}`);
+    this.#activeModelCall = modelCallId;
+    this.#publish([this.#writer.append({
+      kind: "model-call.started",
+      modelCallId,
+      model: { provider: "openai", capabilityClass: "authoring" },
+      effort: "high",
+      attempt: 1,
+    })]);
   }
 
   async submitInput(input: string): Promise<void> {
     this.effects.push(`submit:${input}`);
+    this.#startTurn();
   }
 
   async interruptTurn(): Promise<void> {
@@ -45,43 +87,92 @@ class AcceptanceSession implements BridgeProviderSession {
   }
 
   async terminateSession(): Promise<void> {
-    if (this.ended) return;
+    if (this.#ended) return;
     this.effects.push("terminate");
-    this.ended = true;
-    this.wake?.();
-    this.wake = undefined;
+    this.#ended = true;
+    this.#waiting?.resolve();
+    this.#waiting = undefined;
   }
 
-  emit(event: NormalizedProviderEvent): void {
-    this.queue.push(event);
-    this.wake?.();
-    this.wake = undefined;
+  emitAssistant(text: string): void {
+    const modelCallId = this.#activeModelCall;
+    if (!modelCallId) throw new Error("acceptance session has no active model call");
+    const messageId = wireMessageId(
+      `message:bridge:${this.#executionId}:${this.#turn}:${crypto.randomUUID()}`,
+    );
+    this.#publish(this.#writer.appendAll([
+      {
+        kind: "message.recorded",
+        messageId,
+        modelCallId,
+        stage: "started",
+        role: "assistant",
+      },
+      {
+        kind: "message.recorded",
+        messageId,
+        modelCallId,
+        stage: "delta",
+        role: "assistant",
+        content: text,
+      },
+      {
+        kind: "message.recorded",
+        messageId,
+        modelCallId,
+        stage: "completed",
+        role: "assistant",
+      },
+    ]));
   }
 
   settle(result: string): void {
-    this.emit({ kind: "result", data: { result }, turnTerminal: true });
+    const modelCallId = this.#activeModelCall;
+    if (!modelCallId) throw new Error("acceptance session has no active model call");
+    this.emitAssistant(result);
+    this.#publish([this.#writer.append({
+      kind: "model-call.completed",
+      modelCallId,
+      status: "succeeded",
+      origin: "provider",
+      usage: {
+        lifetime: {
+          inputTokens: this.#turn,
+          outputTokens: this.#turn,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          reasoningTokens: 0,
+          modelCalls: this.#turn,
+        },
+        context: { tokens: this.#turn * 2 },
+      },
+      usageCoverage: "exact",
+    })]);
+    this.#activeModelCall = undefined;
   }
 
-  async *events(): AsyncIterable<NormalizedProviderEvent> {
+  async *events(): AsyncGenerator<WireEvent, void, unknown> {
     while (true) {
-      const event = this.queue.shift();
+      const event = this.#queue.shift();
       if (event) {
         yield event;
         continue;
       }
-      if (this.ended) return;
-      await new Promise<void>((resolve) => { this.wake = resolve; });
+      if (this.#ended) return;
+      this.#waiting = Promise.withResolvers<void>();
+      await this.#waiting.promise;
+      this.#waiting = undefined;
     }
   }
 }
 
 async function client(socketPath: string, request: object): Promise<Client> {
+  const connected = Promise.withResolvers<void>();
   const socket = connect(socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", reject);
-  });
-  const messages: any[] = [];
+  socket.once("connect", () => connected.resolve());
+  socket.once("error", connected.reject);
+  await connected.promise;
+  const messages: BridgeServerMessage[] = [];
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
@@ -91,12 +182,13 @@ async function client(socketPath: string, request: object): Promise<Client> {
       if (newline < 0) break;
       const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
-      if (line) messages.push(JSON.parse(line));
+      if (line) messages.push(JSON.parse(line) as BridgeServerMessage);
     }
   });
-  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  const closed = Promise.withResolvers<void>();
+  socket.once("close", () => closed.resolve());
   socket.write(`${JSON.stringify(request)}\n`);
-  return { socket, messages, closed };
+  return { socket, messages, closed: closed.promise };
 }
 
 async function waitFor(condition: () => boolean, label: string): Promise<void> {
@@ -105,58 +197,72 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   if (!condition()) throw new Error(`timed out waiting for ${label}`);
 }
 
-function executionId(client: Client): string {
-  const id = client.messages.find((message) => message.type === "launched")?.executionId;
-  if (typeof id !== "string") throw new Error("launch response omitted execution id");
-  return id;
+function executionId(clientConnection: Client): string {
+  const launched = clientConnection.messages.find((message) => message.type === "launched");
+  if (!launched || launched.type !== "launched") {
+    throw new Error("launch response omitted execution id");
+  }
+  return launched.executionId;
 }
 
-function state(records: JournalRecord[]): HistoryState {
-  const accepted = records.find((record) => record.kind === "execution.accepted");
-  const terminal = records.findLast((record) => record.kind.startsWith("execution."));
+function state(controls: JournalRecord[], wire: readonly WireEvent[]): HistoryState {
+  const accepted = controls.find((record) => record.kind === "execution.accepted");
+  const terminal = wire.findLast((event) =>
+    knownWireEvent(event) && event.kind === "run.terminated");
   return {
     prompt: String(accepted?.data.prompt ?? ""),
-    turns: records.filter((record) => record.kind === "provider.result").length,
-    queuedInputs: records.filter((record) => record.kind === "control.submit_input").length,
-    interrupts: records.filter((record) => record.kind === "control.interrupt_turn").length,
-    status: terminal?.kind.replace("execution.", "") ?? "active",
+    turns: wire.filter((event) => event.kind === "model-call.completed").length,
+    queuedInputs: controls.filter((record) => record.kind === "control.submit_input").length,
+    interrupts: controls.filter((record) => record.kind === "control.interrupt_turn").length,
+    status: terminal && knownWireEvent(terminal) && terminal.kind === "run.terminated"
+      ? terminal.lifecycle
+      : "active",
   };
 }
 
-function explain(records: JournalRecord[]): string {
-  const summary = state(records);
-  const actions = records.flatMap((record) => {
+function explain(controls: JournalRecord[], wire: readonly WireEvent[]): string {
+  const summary = state(controls, wire);
+  const actions = controls.flatMap((record) => {
     if (record.kind === "control.submit_input") return [`queued ${JSON.stringify(record.data.input)}`];
     if (record.kind === "control.interrupt_turn") return ["interrupted active turn"];
-    if (record.kind === "provider.result") return [`result ${JSON.stringify(record.data.result)}`];
     if (record.kind === "control.terminate_session") return ["terminated session"];
     return [];
   });
-  return `prompt ${JSON.stringify(summary.prompt)} -> ${actions.join(" -> ")}`;
+  const results = wire.flatMap((event) =>
+    knownWireEvent(event)
+      && event.kind === "message.recorded"
+      && event.role === "assistant"
+      && event.stage === "delta"
+      && typeof event.content === "string"
+      ? [`result ${JSON.stringify(event.content)}`]
+      : []);
+  return `prompt ${JSON.stringify(summary.prompt)} -> ${[...actions, ...results].join(" -> ")}`;
 }
 
 async function closedPort(): Promise<number> {
   const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(0, "127.0.0.1", () => listening.resolve());
+  await listening.promise;
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("could not allocate dead coordinator port");
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  const closed = Promise.withResolvers<void>();
+  server.close((error) => error ? closed.reject(error) : closed.resolve());
+  await closed.promise;
   return address.port;
 }
 
 async function portIsDead(port: number): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port });
-    socket.once("connect", () => { socket.destroy(); resolve(false); });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      socket.destroy();
-      if (error.code === "ECONNREFUSED") resolve(true);
-      else reject(error);
-    });
+  const result = Promise.withResolvers<boolean>();
+  const socket = connect({ host: "127.0.0.1", port });
+  socket.once("connect", () => { socket.destroy(); result.resolve(false); });
+  socket.once("error", (error: NodeJS.ErrnoException) => {
+    socket.destroy();
+    if (error.code === "ECONNREFUSED") result.resolve(true);
+    else result.reject(error);
   });
+  return result.promise;
 }
 
 export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Promise<string[]> {
@@ -170,17 +276,17 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
   const sessions = new Map<string, AcceptanceSession>();
   const provider: BridgeProviderExecution = {
     async open(context) {
-      const session = new AcceptanceSession(context.executionId, context.prompt);
+      const session = new AcceptanceSession(context.executionId, context.prompt, context.writer);
       sessions.set(context.executionId, session);
       return session;
     },
   };
-  const northd = new Northd({ socketPath, journalRoot, provider, providerAdapter: "mock-provider" });
+  const northd = new Northd({ socketPath, journalRoot, provider });
   let hostOpen = false;
   const previousNorthPort = process.env.NORTH_PORT;
 
   try {
-    emit("INFO provider=mock-provider (deterministic fixture; live Codex admission is probed separately)");
+    emit("INFO provider=mock-provider (deterministic fixture; live admission is probed separately)");
     await northd.listen();
     hostOpen = true;
     const messagedLaunch = await client(socketPath, {
@@ -190,14 +296,17 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
       op: "launch", prompt: "beta initial", cwd: root,
     });
     await waitFor(
-      () => messagedLaunch.messages.some((message) => message.record?.kind === "provider.assistant")
-        && interruptedLaunch.messages.some((message) => message.record?.kind === "provider.assistant"),
+      () => messagedLaunch.messages.some((message) =>
+        message.type === "wire" && message.event.kind === "message.recorded")
+        && interruptedLaunch.messages.some((message) =>
+          message.type === "wire" && message.event.kind === "message.recorded"),
       "both provider executions",
     );
     const messagedId = executionId(messagedLaunch);
     const interruptedId = executionId(interruptedLaunch);
-    if (messagedId === interruptedId || sessions.size !== 2)
+    if (messagedId === interruptedId || sessions.size !== 2) {
       throw new Error("two launches did not produce independent provider sessions");
+    }
     pass("launch-two-provider-executions", "2 independent sessions are active");
 
     messagedLaunch.socket.destroy();
@@ -214,7 +323,7 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
         && interruptedAttach.messages.some((message) => message.type === "barrier"),
       "both reattach barriers",
     );
-    pass("reattach-to-both", "both journals replayed through attachment barriers and resumed live tails");
+    pass("reattach-to-both", "both wire projections replayed and resumed live tails");
 
     const messagedSession = sessions.get(messagedId)!;
     const interruptedSession = sessions.get(interruptedId)!;
@@ -222,29 +331,35 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
       op: "submitInput", executionId: messagedId, input: "alpha follow-up",
     });
     await msg.closed;
-    if (msg.messages.at(-1)?.delivery !== "queued-next-turn"
-        || messagedSession.effects.includes("submit:alpha follow-up"))
+    const msgResult = msg.messages.at(-1);
+    if (msgResult?.type !== "controlled" || msgResult.delivery !== "queued-next-turn"
+        || messagedSession.effects.includes("submit:alpha follow-up")) {
       throw new Error("msg was not held at the active-turn boundary");
+    }
     messagedSession.settle("alpha initial complete");
     await waitFor(
       () => messagedSession.effects.includes("submit:alpha follow-up"),
       "queued follow-up delivery",
     );
-    messagedSession.emit({ kind: "assistant", data: { text: "alpha follow-up running" } });
+    messagedSession.emitAssistant("alpha follow-up running");
     messagedSession.settle("alpha follow-up complete");
-    pass("msg-one-queued-next-turn", "follow-up stayed queued until the first turn terminal event");
+    pass("msg-one-queued-next-turn", "follow-up stayed queued until model-call.completed");
 
     const interrupt = await client(socketPath, { op: "interruptTurn", executionId: interruptedId });
     await interrupt.closed;
-    if (interrupt.messages.at(-1)?.delivery !== "active-turn"
-        || interruptedSession.effects.at(-1) !== "interrupt")
+    const interruptResult = interrupt.messages.at(-1);
+    if (interruptResult?.type !== "controlled" || interruptResult.delivery !== "active-turn"
+        || interruptedSession.effects.at(-1) !== "interrupt") {
       throw new Error("interrupt did not reach the other active provider turn");
+    }
     interruptedSession.settle("beta interrupted");
     pass("interrupt-the-other", "active turn interrupted without terminating its provider session");
 
     await waitFor(
-      () => messagedAttach.messages.filter((message) => message.record?.kind === "session.idle").length === 2
-        && interruptedAttach.messages.some((message) => message.record?.kind === "session.idle"),
+      () => messagedAttach.messages.filter((message) =>
+        message.type === "event" && message.record.kind === "session.idle").length === 2
+        && interruptedAttach.messages.some((message) =>
+          message.type === "event" && message.record.kind === "session.idle"),
       "turn terminal boundaries",
     );
     const messagedTerminate = await client(socketPath, {
@@ -260,7 +375,9 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     hostOpen = false;
     const deadPort = await closedPort();
     process.env.NORTH_PORT = String(deadPort);
-    if (!await portIsDead(deadPort)) throw new Error(`coordinator probe unexpectedly connected to ${deadPort}`);
+    if (!await portIsDead(deadPort)) {
+      throw new Error(`coordinator probe unexpectedly connected to ${deadPort}`);
+    }
     pass("coordinator-down-for-replay-explain", `NORTH_PORT=${deadPort} refused connections`);
 
     const messagedRecords = scanJournalFile(
@@ -269,29 +386,32 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     const interruptedRecords = scanJournalFile(
       join(journalRoot, interruptedId, "events.log"), interruptedId,
     ).records;
-    const messagedState = state(messagedRecords);
-    const interruptedState = state(interruptedRecords);
-    emit("STATE DIFF (journal only)");
+    const messagedWire = (await readBridgeWireJournal(journalRoot, messagedId)).events;
+    const interruptedWire = (await readBridgeWireJournal(journalRoot, interruptedId)).events;
+    const messagedState = state(messagedRecords, messagedWire);
+    const interruptedState = state(interruptedRecords, interruptedWire);
+    emit("STATE DIFF (control + canonical wire projection)");
     emit(`  messaged: turns=${messagedState.turns} queued=${messagedState.queuedInputs} interrupts=${messagedState.interrupts} status=${messagedState.status}`);
     emit(`  interrupted: turns=${interruptedState.turns} queued=${interruptedState.queuedInputs} interrupts=${interruptedState.interrupts} status=${interruptedState.status}`);
     if (messagedState.turns !== 2 || messagedState.queuedInputs !== 1 || messagedState.interrupts !== 0
         || interruptedState.turns !== 1 || interruptedState.queuedInputs !== 0
-        || interruptedState.interrupts !== 1)
-      throw new Error("journal-derived session states did not preserve the expected difference");
+        || interruptedState.interrupts !== 1) {
+      throw new Error("replayed session states did not preserve the expected difference");
+    }
     pass("render-state-diff", "messaged and interrupted histories remain distinguishable");
 
     emit("JOURNAL EXPLANATIONS (northd closed; coordinator unreachable)");
-    emit(`  messaged: ${explain(messagedRecords)}`);
-    emit(`  interrupted: ${explain(interruptedRecords)}`);
-    if (!explain(messagedRecords).includes("queued \"alpha follow-up\"")
-        || !explain(interruptedRecords).includes("interrupted active turn"))
-      throw new Error("journal-only explanation omitted a control history");
-    pass("explain-both-from-journal-alone", "both prompts, controls, results, and termination were reconstructed");
+    emit(`  messaged: ${explain(messagedRecords, messagedWire)}`);
+    emit(`  interrupted: ${explain(interruptedRecords, interruptedWire)}`);
+    if (!explain(messagedRecords, messagedWire).includes("queued \"alpha follow-up\"")
+        || !explain(interruptedRecords, interruptedWire).includes("interrupted active turn")) {
+      throw new Error("replay explanation omitted a control history");
+    }
+    pass("explain-both-from-journal-alone", "controls and exact wire results were reconstructed");
     emit("ACCEPTANCE PASS 8/8");
     return lines;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    emit(`FAIL acceptance: ${message}`);
+    emit(`FAIL acceptance: ${errorMessage(error)}`);
     throw error;
   } finally {
     if (hostOpen) await northd.close().catch(() => {});
@@ -299,6 +419,10 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     else process.env.NORTH_PORT = previousNorthPort;
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 if (import.meta.main) {

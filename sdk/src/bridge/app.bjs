@@ -121,7 +121,7 @@
    label: String
    count: Int])
 
-(def NORTH-BIN: String
+(defn north-bin [] -> String
   (let [configured (text (.-NORTH_BIN (.-env process)))]
     (if (identical? configured "") "north" configured)))
 
@@ -353,7 +353,9 @@
     "control daemon is stale — /restart to replace it now"))
 
 (defn failure-summary [data: Any] -> String
-  (let [message (text (.-message data))
+  (let [message (text-or (.-message data)
+                         (text-or (.-detail data)
+                                  (text-or (.-classification data) (text (.-code data)))))
         causes (.-causes data)
         cause (if (and causes (> (.-length causes) 0))
                 (text (aget causes 0)) "")]
@@ -2145,7 +2147,7 @@
 ;; window — never a chore left on screen.
 (defn restart-daemon! [runtime: Any] -> (Promise Any)
   (try
-    (js/await (run-command [NORTH-BIN "bridge" "restart"]))
+    (js/await (run-command [(north-bin) "bridge" "restart"]))
     (forget-control-session! runtime)
     (publish-line! runtime "control daemon replaced; session restored")
     (js/await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
@@ -2278,11 +2280,11 @@
   (let [payloads
         (js/await
          (Promise/all
-          [(.catch (run-json [NORTH-BIN "agents" "--json"])
+          [(.catch (run-json [(north-bin) "agents" "--json"])
                    (fn [_: Any] -> Any nil))
-           (.catch (run-json [NORTH-BIN "json" "board" "--all"])
+           (.catch (run-json [(north-bin) "json" "board" "--all"])
                    (fn [_: Any] -> Any nil))
-           (.catch (run-json [NORTH-BIN "json" "done"])
+           (.catch (run-json [(north-bin) "json" "done"])
                    (fn [_: Any] -> Any nil))]))
         agent-payload (aget payloads 0)
         board (aget payloads 1)
@@ -2302,7 +2304,7 @@
         ids (.concat (board-ids open-rows) (board-ids done-rows))
         facts (if (> (.-length ids) 0)
                 (js/await
-                 (.catch (run-json [NORTH-BIN "json" "show-many" (.join ids ",")])
+                 (.catch (run-json [(north-bin) "json" "show-many" (.join ids ",")])
                          (fn [_: Any] -> Any [])))
                 [])
         work (if (Array/isArray board)
@@ -3737,7 +3739,7 @@
   (let [total (.-length (help-query-rows query))]
     (Math/max 1 (Math/min total (detail-visible-count total 0)))))
 
-(defn render-help-panel [runtime: Any] -> Any
+(defn render-help-panel! [runtime: Any] -> Any
   (let [filtering? (panel-filtering? runtime)
         query (panel-query runtime)
         matched (help-query-rows query)
@@ -3768,7 +3770,7 @@
   (cond
     (detail-showing? runtime "config") (render-config-panel runtime)
     (detail-showing? runtime "agents") (render-agent-detail runtime)
-    (detail-showing? runtime "help") (render-help-panel runtime)
+    (detail-showing? runtime "help") (render-help-panel! runtime)
     :else (StyledText. [(brightBlack "")]))))
 
 (defn segment-chunk
@@ -3853,7 +3855,7 @@
   (push-chunk! chunks (dim (text-or (.-sessionBranch session) "branch pending"))))
 
 (js/export
- (defn render-view-tabs
+ (defn render-view-tabs!
   [frame: Any
    state: BridgeSnapshot
    view-id: String
@@ -4087,8 +4089,8 @@
    position: String
    anchor-id: String] -> (Promise Any)
   (let [argv (if (identical? anchor-id "")
-               [NORTH-BIN "queue" "move" thread-id position]
-               [NORTH-BIN "queue" "move" thread-id position anchor-id])
+               [(north-bin) "queue" "move" thread-id position]
+               [(north-bin) "queue" "move" thread-id position anchor-id])
         output (js/await (run-command argv))]
     (set! (.-workspaceNotice runtime) (.trim (text output)))
     (js/await (refresh! runtime))))
@@ -4382,7 +4384,7 @@
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
     (apply-frame-visibility! runtime ui)
     (set! (.-content (.-viewTabsText ui))
-          (render-view-tabs (.-frame runtime) state (workview-id current) runtime))
+          (render-view-tabs! (.-frame runtime) state (workview-id current) runtime))
     (set! (.-content (.-agentsText ui))
           (roster-text state (.-agentIndex runtime)
                        (text (.-supervisorId runtime))
@@ -4470,158 +4472,96 @@
      (conversation-item-with-data! id kind actual-title (clipped (str prior delta) 6000) status
                                    (if existing (conversationitem-data existing) nil)))))
 
-(defn assistant-message-text [data: Any] -> String
-  (let [message (.-message data)
-        content (if message (.-content message) nil)]
-    (if (Array/isArray content)
-      (.join
-       (.filter
-        (.map content (fn [part: Any] -> String (text (.-text part))))
-        (fn [part: String] -> Bool (not (identical? part ""))))
-       "\n")
-      (text-or (.-text data) (text (.-result data))))))
+(defn wire-content-text [value: Any] -> String
+  (cond
+    (nil? value) ""
+    (identical? (js/typeof value) "string") value
+    (Array/isArray value)
+    (.join
+     (.filter
+      (.map value (fn [part: Any] -> String (wire-content-text part)))
+      (fn [part: String] -> Bool (not (identical? part ""))))
+     "\n")
+    :else (safe-json value)))
 
-(defn adopt-session-metadata!
+(defn adopt-wire-model!
   [runtime: Any
-   source: Any] -> Any
-  (when source
-    (let [model (text-or (.-model source) (text (.-modelName source)))
-          effort (text-or (.-reasoningEffort source) (text (.-effort source)))
-          cwd (text-or (.-cwd source) (text (.-workingDirectory source)))
-          permissions (text (.-permissionMode source))]
-      (when (not (identical? model "")) (set! (.-sessionModel runtime) model))
-      (when (not (identical? effort "")) (set! (.-sessionEffort runtime) effort))
-      (when (not (identical? cwd "")) (set! (.-sessionCwd runtime) cwd))
-      (when (not (identical? permissions ""))
-        (set! (.-sessionPermissions runtime) permissions)))))
+   model: Any
+   effort: Any] -> Any
+  (when model
+    (let [provider (text (.-provider model))
+          tier (text (.-tier model))
+          label (cond
+                  (and (not (identical? provider ""))
+                       (not (identical? tier ""))) (str provider "/" tier)
+                  (not (identical? provider "")) provider
+                  :else "")]
+      (when (not (identical? label "")) (set! (.-sessionModel runtime) label))))
+  (let [effort-label (text effort)]
+    (when (not (identical? effort-label ""))
+      (set! (.-sessionEffort runtime) effort-label))))
 
-(defn handle-codex-event!
+(defn intermediate-provider-session-replacement? [data: Any] -> Bool
+  (and (identical? (text (.-status data)) "failed")
+       (identical? (text (.-origin data)) "north")
+       (identical? (text (.-errorCode data)) "provider_session_replaced")))
+
+(defn handle-wire-message!
   [runtime: Any
    stream-state: Any
    data: Any] -> Any
-  (let [method (text (.-method data))
-        params (or (.-params data) {})
-        execution-id (text (.-executionId stream-state))]
+  (let [role (text (.-role data))
+        stage (text (.-stage data))
+        execution-id (text (.-executionId stream-state))
+        id (event-item-id execution-id (.-messageId data))
+        body (clean-text (wire-content-text (.-content data)))
+        existing (conversation-item-by-id runtime id)]
+    (when (and (identical? role "assistant") (not (.-booting stream-state)))
+      (cond
+        (identical? stage "started")
+        (upsert-conversation! runtime (conversation-item id "assistant" "" "" "running"))
+
+        (identical? stage "delta")
+        (append-item-delta! runtime id "assistant" "" body "running")
+
+        (identical? stage "completed")
+        (let [completed-body (if (identical? body "")
+                               (if existing (conversationitem-body existing) "")
+                               body)]
+          (set! (.-lastAssistantText runtime) completed-body)
+          (upsert-conversation!
+           runtime (conversation-item id "assistant" "" completed-body "done")))
+
+        :else nil))))
+
+(defn handle-wire-tool!
+  [runtime: Any
+   stream-state: Any
+   data: Any
+   kind: String] -> Any
+  (let [id (event-item-id (text (.-executionId stream-state)) (.-toolCallId data))
+        existing (conversation-item-by-id runtime id)]
     (cond
-      (identical? method "thread/started")
-      (adopt-session-metadata! runtime (.-thread params))
+      (identical? kind "tool.admitted")
+      (upsert-conversation!
+       runtime
+       (conversation-item id "tool" (text (.-name data))
+                          (clean-text (.-argumentPreview data)) "running"))
 
-      (identical? method "model/safetyBuffering/updated")
-      (adopt-session-metadata! runtime params)
+      (identical? kind "tool.progress")
+      (append-item-delta! runtime id "tool"
+                          (if existing (conversationitem-title existing) "Tool activity")
+                          (wire-content-text (.-progress data)) "running")
 
-      (identical? method "turn/started")
-      (do (adopt-session-metadata! runtime (or (.-turn params) params))
-          (set-working! runtime true "Codex is working")
-          (when (not (identical? execution-id ""))
-            (bridge-agent! runtime execution-id (text (.-role stream-state)) "working")))
-
-      (identical? method "item/started")
-      (let [item (.-item params)
-            kind (if item (text (.-type item)) "")
-            id (event-item-id execution-id (if item (.-id item) "item"))]
-        (cond
-          (identical? kind "commandExecution")
-          (upsert-conversation!
-           runtime
-           (conversation-item-with-data! id "command" (clean-text (.-command item)) "" "running" item))
-
-          (identical? kind "mcpToolCall")
-          (upsert-conversation!
-           runtime
-           (conversation-item id "tool"
-                              (str "Called " (text (.-server item)) "." (text (.-tool item)))
-                              (safe-json (.-arguments item)) "running"))
-
-          (identical? kind "fileChange")
-          (upsert-conversation!
-           runtime (conversation-item-with-data! id "change" "Editing files" "" "running" item))
-
-          :else nil))
-
-      (identical? method "item/commandExecution/outputDelta")
-      (append-item-delta! runtime
-                          (event-item-id execution-id (.-itemId params))
-                          "command" "command" (text (.-delta params)) "running")
-
-      (identical? method "item/agentMessage/delta")
-      (when (not (.-booting stream-state))
-        (append-item-delta! runtime
-                            (event-item-id execution-id (.-itemId params))
-                            "assistant" "" (text (.-delta params)) "running"))
-
-      (or (identical? method "item/reasoning/summaryTextDelta")
-          (identical? method "item/plan/delta"))
-      (append-item-delta! runtime
-                          (event-item-id execution-id (.-itemId params))
-                          "thought" "" (text (.-delta params)) "running")
-
-      (identical? method "item/fileChange/outputDelta")
-      (append-item-delta! runtime
-                          (event-item-id execution-id (.-itemId params))
-                          "change" "Editing files" (text (.-delta params)) "running")
-
-      (identical? method "item/fileChange/patchUpdated")
-      (let [id (event-item-id execution-id (.-itemId params))
-            existing (conversation-item-by-id runtime id)]
-        (upsert-conversation!
-         runtime
-         (conversation-item-with-data!
-          id "change" "Editing files"
-          (if existing (conversationitem-body existing) "") "running" params)))
-
-      (identical? method "item/mcpToolCall/progress")
-      (append-item-delta! runtime
-                          (event-item-id execution-id (.-itemId params))
-                          "tool" "Tool activity" (text (.-message params)) "running")
-
-      (identical? method "item/completed")
-      (let [item (.-item params)
-            kind (if item (text (.-type item)) "")
-            id (event-item-id execution-id (if item (.-id item) "item"))]
-        (cond
-          (identical? kind "commandExecution")
-          (upsert-conversation!
-           runtime
-           (conversation-item-with-data!
-            id "command" (clean-text (.-command item))
-            (clipped (.-aggregatedOutput item) 6000)
-            (if (and (identical? (text (.-status item)) "completed")
-                     (identical? (.-exitCode item) 0))
-              "done" "failed")
-            item))
-
-          (identical? kind "agentMessage")
-          (let [body (clean-text (.-text item))]
-            (set! (.-lastAssistantText runtime) body)
-            (when (not (.-booting stream-state))
-              (upsert-conversation!
-               runtime (conversation-item id "assistant" "" body "done"))))
-
-          (identical? kind "mcpToolCall")
-          (upsert-conversation!
-           runtime
-           (conversation-item id "tool"
-                              (str "Called " (text (.-server item)) "." (text (.-tool item)))
-                              (clipped (safe-json (.-result item)) 6000)
-                              (if (identical? (text (.-status item)) "failed") "failed" "done")))
-
-          (identical? kind "fileChange")
-          (upsert-conversation!
-           runtime
-           (conversation-item-with-data!
-            id "change" "Edited files" ""
-            (if (identical? (text (.-status item)) "failed") "failed" "done")
-            item))
-
-          (or (identical? kind "webSearch") (identical? kind "todoList"))
-          (upsert-conversation!
-           runtime
-           (conversation-item id "tool" kind (clipped (safe-json item) 3000) "done"))
-
-          :else nil))
-
-      (identical? method "turn/completed")
-      (set! (.-workingLabel runtime) "Finishing")
+      (identical? kind "tool.terminal")
+      (upsert-conversation!
+       runtime
+       (conversation-item id "tool"
+                          (if existing (conversationitem-title existing) "Tool activity")
+                          (text-or (.-resultPreview data)
+                                   (if existing (conversationitem-body existing) ""))
+                          (if (identical? (text (.-status data)) "succeeded")
+                            "done" "failed")))
 
       :else nil)))
 
@@ -4638,28 +4578,41 @@
         (when (not (identical? cwd ""))
           (set! (.-sessionCwd runtime) cwd)))
 
-      (identical? kind "provider.starting")
-      (when (not (identical? execution-id ""))
-        (bridge-agent! runtime execution-id (text (.-role stream-state)) "starting"))
+      (identical? kind "model-call.started")
+      (do (adopt-wire-model! runtime (.-model data) (.-effort data))
+          (set-working! runtime true "Agent is working")
+          (when (not (identical? execution-id ""))
+            (bridge-agent! runtime execution-id (text (.-role stream-state)) "working")))
 
-      (identical? kind "provider.codex.event")
-      (handle-codex-event! runtime stream-state data)
+      (identical? kind "message.recorded")
+      (handle-wire-message! runtime stream-state data)
 
-      (identical? kind "provider.session.config")
-      (adopt-session-metadata! runtime data)
+      (or (identical? kind "tool.admitted")
+          (identical? kind "tool.progress")
+          (identical? kind "tool.terminal"))
+      (handle-wire-tool! runtime stream-state data kind)
 
-      (identical? kind "provider.assistant")
-      (let [body (assistant-message-text data)]
-        (when (and (not (.-booting stream-state))
-                   (not (identical? body ""))
-                   (not (identical? body (.-lastAssistantText runtime))))
-          (set! (.-lastAssistantText runtime) body)
-          (upsert-conversation!
-           runtime
-           (conversation-item (next-item-id! runtime "assistant") "assistant" "" body "done"))))
+      (identical? kind "run.progress")
+      (let [progress (or (.-progress data) {})
+            action (text (.-currentAction progress))
+            lifecycle (text (.-lifecycle data))]
+        (adopt-wire-model! runtime (.-model progress) (.-effort progress))
+        (when (.-branch progress)
+          (set! (.-sessionBranch runtime) (text (.-name (.-branch progress)))))
+        (if (identical? lifecycle "waiting")
+          (set-working! runtime false "")
+          (when (not (identical? action "")) (set-working! runtime true action))))
 
-      (identical? kind "provider.result")
-      (set-working! runtime false "")
+      (identical? kind "artifact.published")
+      (upsert-conversation!
+       runtime
+       (conversation-item (event-item-id execution-id (.-artifactId data)) "change"
+                          (text-or (.-label data) "Published artifact")
+                          (text (.-mediaType data)) "done"))
+
+      (identical? kind "model-call.completed")
+      (when (not (intermediate-provider-session-replacement? data))
+        (set-working! runtime false ""))
 
       (identical? kind "session.idle")
       (let [disposition (text (.-disposition data))
@@ -4678,22 +4631,24 @@
         (when (not (identical? execution-id ""))
           (bridge-agent! runtime execution-id (text (.-role stream-state)) "ready")))
 
-      (identical? kind "execution.failed")
-      (let [execution-id (text (.-executionId stream-state))]
-        (set-working! runtime false "")
-        (play-sound-event! runtime stream-state "failed")
-        (append-error! runtime (failure-summary data))
-        (when (not (identical? execution-id ""))
-          (bridge-agent! runtime execution-id
-                         (text (.-role stream-state)) "offline")))
+      (identical? kind "run.terminated")
+      (do (set-working! runtime false "")
+          (when (or (identical? (text (.-lifecycle data)) "failed")
+                    (identical? (text (.-lifecycle data)) "blocked"))
+            (play-sound-event! runtime stream-state "failed")
+            (append-error! runtime (failure-summary (.-reason data))))
+          (when (not (identical? execution-id ""))
+            (bridge-agent! runtime execution-id
+                           (text (.-role stream-state)) "offline")))
 
-      (or (.includes kind "failed") (.includes kind "error"))
+      (identical? kind "execution.failure")
       (do (set-working! runtime false "")
           (append-error! runtime (str kind ": " (failure-summary data))))
 
       :else nil)))
 
-(defn parse-bridge-stream!
+(js/export
+ (defn parse-bridge-stream!
   [runtime: Any
    stream-state: Any
    chunk: String] -> Any
@@ -4727,7 +4682,7 @@
            (.startsWith line "north bridge:")
            (append-error! runtime line)
 
-           :else nil))))))
+           :else nil)))))))
 
 (defn supervisor-provider-flag [] -> String
   (let [value (.trim (text (.-NORTH_BRIDGE_PROVIDER (.-env process))))]
@@ -4763,7 +4718,7 @@
         (js/await
          (stream-command
           (let [flag (supervisor-provider-flag)
-                base [NORTH-BIN "bridge" "--role"
+                base [(north-bin) "bridge" "--role"
                       (if (identical? role "supervisor") "director" "implementer")]]
             (if (identical? flag "")
               (conj base prompt)
@@ -4789,11 +4744,11 @@
         foot (.which Bun "foot")
         xterm (.which Bun "xterm")
         argv (cond
-               ghostty [ghostty "-e" NORTH-BIN "bridge" "app" "--view-id" view-id]
-               kitty [kitty "--detach" NORTH-BIN "bridge" "app" "--view-id" view-id]
-               wezterm [wezterm "start" "--always-new-process" "--" NORTH-BIN "bridge" "app" "--view-id" view-id]
-               foot [foot NORTH-BIN "bridge" "app" "--view-id" view-id]
-               xterm [xterm "-e" NORTH-BIN "bridge" "app" "--view-id" view-id]
+               ghostty [ghostty "-e" (north-bin) "bridge" "app" "--view-id" view-id]
+               kitty [kitty "--detach" (north-bin) "bridge" "app" "--view-id" view-id]
+               wezterm [wezterm "start" "--always-new-process" "--" (north-bin) "bridge" "app" "--view-id" view-id]
+               foot [foot (north-bin) "bridge" "app" "--view-id" view-id]
+               xterm [xterm "-e" (north-bin) "bridge" "app" "--view-id" view-id]
                :else nil)]
     (when (nil? argv)
       (throw (Error. "no supported terminal found for pop-out")))
@@ -4825,7 +4780,7 @@
   [runtime: Any
    title: String] -> (Promise Any)
   (when (identical? title "") (throw (Error. "capture requires a title")))
-  (let [output (js/await (run-command [NORTH-BIN "capture" title]))]
+  (let [output (js/await (run-command [(north-bin) "capture" title]))]
     (publish-line! runtime (.trim (text output))))
   (js/await (refresh! runtime)))
 
@@ -4853,7 +4808,7 @@
    target: String] -> (Promise Any)
   (when (not (.has (.-bridgeExecutions runtime) target))
     (throw (Error. "interrupt is available for Bridge-launched executions")))
-  (js/await (run-command [NORTH-BIN "bridge" "interrupt" target]))
+  (js/await (run-command [(north-bin) "bridge" "interrupt" target]))
   (set-working! runtime false "")
   (append-interrupted! runtime)
   (restore-submitted-text! runtime ui))
@@ -4895,8 +4850,8 @@
             (set! (.-lastSubmitted runtime) message)
             (set-working! runtime true "Codex is working")
             (if (.has (.-bridgeExecutions runtime) target)
-              (js/await (run-command [NORTH-BIN "bridge" "msg" target message]))
-              (js/await (run-command [NORTH-BIN "msg" target message])))
+              (js/await (run-command [(north-bin) "bridge" "msg" target message]))
+              (js/await (run-command [(north-bin) "msg" target message])))
             (.render runtime))))))))
 
 (defn submit-work!
@@ -4935,8 +4890,8 @@
         (when (identical? prior "") (throw (Error. "an unassigned thread requires: /assign <prior-driver> <next-driver>")))
         (when (identical? next-driver "") (throw (Error. "assign requires a new driver")))
         (publish-line! runtime "driver reassignment is a retract-then-tell operation")
-        (js/await (run-command [NORTH-BIN "retract" thread-id "driver" prior]))
-        (js/await (run-command [NORTH-BIN "tell" thread-id "driver" next-driver]))
+        (js/await (run-command [(north-bin) "retract" thread-id "driver" prior]))
+        (js/await (run-command [(north-bin) "tell" thread-id "driver" next-driver]))
         (publish-line! runtime (str "assigned @" thread-id " to " next-driver))
         (js/await (refresh! runtime)))
 
@@ -4948,7 +4903,7 @@
           (throw (Error. "outcome requires: /outcome <thread-id> <result>")))
         (when (identical? result "")
           (throw (Error. "outcome requires a result")))
-        (js/await (run-command [NORTH-BIN "tell" thread-id "outcome" result]))
+        (js/await (run-command [(north-bin) "tell" thread-id "outcome" result]))
         (set! (.-workspaceNotice runtime) (str "Recorded outcome for @" thread-id "."))
         (js/await (refresh! runtime)))
 

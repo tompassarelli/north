@@ -337,11 +337,26 @@
                          query limit cursor at-version)))
 
 (defn bounded-query-in-domain [port domain query max-rows]
-  (let [page (query-page-in-domain port domain query max-rows nil)]
-    (when-not (:done? page)
-      (throw (ex-info "query exceeded its row bound"
-                      {:type :query-row-limit :max-rows max-rows})))
-    {:rows (:rows page) :served-version (:served-version page)}))
+  (when-not (and (integer? max-rows) (pos? max-rows))
+    (throw (ex-info "query row bound must be a positive integer"
+                    {:type :invalid-query-row-bound :max-rows max-rows})))
+  (loop [remaining max-rows cursor nil rows [] at-version nil]
+    (let [limit (min remaining query-page-row-limit)
+          page (query-page-in-domain port domain query limit cursor at-version)
+          combined (into rows (:rows page))]
+      (cond
+        (:done? page)
+        {:rows combined :served-version (:served-version page)}
+
+        (= (count combined) max-rows)
+        (throw (ex-info "query exceeded its row bound"
+                        {:type :query-row-limit :max-rows max-rows}))
+
+        :else
+        (recur (- remaining (count (:rows page)))
+               (:cursor page)
+               combined
+               (or at-version (:served-version page)))))))
 
 (defn bounded-query [port query max-rows]
   (bounded-query-in-domain port (domain-for-query query) query max-rows))

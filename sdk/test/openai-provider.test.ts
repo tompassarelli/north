@@ -1,25 +1,29 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { spawn as spawnChild } from "node:child_process";
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync,
-  realpathSync, rmSync, writeFileSync,
+  realpathSync, rmSync, symlinkSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import {
-  codexHarnessArguments, internalOpenAIProviderWithManagedHooksProbeForTest, openaiProvider,
+  codexHarnessArguments, internalOpenAIProviderWithManagedHooksProbeForTest,
+  openaiProvider as rawOpenAIProvider,
 } from "../src/providers/openai";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
+  ManagedCodexAppServerRun, ManagedCodexHarvestError,
+  type ManagedCodexAppServerOptions, type ManagedCodexNextInput, type ManagedCodexResult,
 } from "../src/providers/codex-app-server";
 import { ProviderRetrySafeError } from "../src/providers";
 import { anthropicProvider } from "../src/providers/anthropic";
 import { routedQueryWithRegistry } from "../src/providers/internal-router";
 import { harnessOptions } from "../src/harness";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
-import { markExecutionAdmission } from "../src/execution-admission";
+import { markCoordinationOptional, markExecutionAdmission } from "../src/execution-admission";
 import { selectProviderFromAvailability } from "../src/provider-routing";
 import { providerEnvironmentForTarget } from "../src/accounts";
 import { scrubAmbientGraphEnv } from "./support/managed-env";
@@ -30,6 +34,55 @@ import { kw } from "../src/coord-wire";
 import {
   decodeFrame, encodeResponseFrame, rpcRecord, RPC_V1_HEADER_BYTES,
 } from "../src/framrpc-codec";
+import {
+  WireEventWriter,
+  wireEventId,
+  wireRunId,
+  type WireEvent,
+  type WireQueryInput,
+} from "../src/wire";
+import type { AgentProvider, RoutingTarget } from "../src/providers/types";
+
+let wireQuerySequence = 0;
+
+function testWireContext() {
+  const sequence = wireQuerySequence++;
+  const writer = new WireEventWriter({
+    runId: wireRunId(`run:openai-provider-test:${sequence}`),
+    eventId: (index) => wireEventId(`event:openai-provider-test:${sequence}:${index}`),
+  });
+  writer.append({ kind: "run.started", lifecycle: "running", owner: "test" });
+  return {
+    writer,
+    route: {
+      model: { provider: "openai" as const, capabilityClass: "unknown" as const },
+      effort: "medium" as const,
+      attempt: 1,
+    },
+  };
+}
+
+interface LegacyOpenAIQueryArguments {
+  prompt: WireQueryInput;
+  options: Options;
+  target?: RoutingTarget;
+}
+
+function testProvider(provider: AgentProvider) {
+  return {
+    ...provider,
+    query(args: LegacyOpenAIQueryArguments) {
+      return provider.query({
+        input: args.prompt,
+        options: args.options,
+        ...(args.target === undefined ? {} : { target: args.target }),
+        context: testWireContext(),
+      });
+    },
+  };
+}
+
+const openaiProvider = testProvider(rawOpenAIProvider);
 
 // The proxy tracks the declared `web` capability, not the sandbox. Spelled out
 // rather than imported from managedCodexNetworkArguments: an independent statement
@@ -56,6 +109,7 @@ let restoreGraphEnv: (() => void) | undefined;
 
 const savedBin = process.env.NORTH_CODEX_BIN;
 const savedHome = process.env.HOME;
+const savedAgentLawsPath = process.env.AGENT_LAWS_PATH;
 const savedPort = process.env.NORTH_PORT;
 const savedLaws = process.env.AGENT_LAWS;
 const savedOrchestration = process.env.NORTH_ORCHESTRATION_HOME;
@@ -94,6 +148,55 @@ const codexSuccess = (
   ...middle,
   codexTerminal(usage),
 ];
+
+const RESPAWN_FAILURE_THREAD = "019f7abc-0000-7000-8000-00000000feed";
+const RESPAWN_FAILURE_TURN = "019f7abc-0000-7000-8000-00000000beef";
+
+class RespawnThenPreflightFailureRun extends ManagedCodexAppServerRun {
+  readonly #runOptions: ManagedCodexAppServerOptions;
+
+  constructor(options: ManagedCodexAppServerOptions) {
+    super(options);
+    this.#runOptions = options;
+  }
+
+  override async *session(
+    _nextInput: ManagedCodexNextInput,
+  ): AsyncGenerator<ManagedCodexResult> {
+    this.#runOptions.onEvent?.("turn/started", {
+      threadId: RESPAWN_FAILURE_THREAD,
+      turn: { id: RESPAWN_FAILURE_TURN, status: "inProgress" },
+    });
+    this.#runOptions.onRespawn?.();
+    throw new ManagedCodexHarvestError({
+      turnIds: [],
+      completedTurns: 0,
+      text: "",
+      mcp: {
+        source: "test:replacement-preflight",
+        coverage: "unknown",
+        tools: [],
+        operationReceipts: [],
+        operationAggregates: [],
+      },
+      nativeCommands: {
+        source: "test:replacement-preflight",
+        coverage: "unknown",
+        northBinaryProbe: "not_observed",
+        completions: [],
+      },
+      unsupportedNotifications: {},
+      landedWork: true,
+      respawnCount: 1,
+      respawns: [{
+        attempt: 1,
+        reason: "CANARY-private-provider-death-reason",
+        threadId: RESPAWN_FAILURE_THREAD,
+        completedTurns: 0,
+      }],
+    }, { cause: new Error("replacement managed Codex preflight failed") });
+  }
+}
 afterEach(() => {
   restoreGraphEnv?.();
   restoreGraphEnv = undefined;
@@ -101,6 +204,8 @@ afterEach(() => {
   else process.env.NORTH_CODEX_BIN = savedBin;
   if (savedHome === undefined) delete process.env.HOME;
   else process.env.HOME = savedHome;
+  if (savedAgentLawsPath === undefined) delete process.env.AGENT_LAWS_PATH;
+  else process.env.AGENT_LAWS_PATH = savedAgentLawsPath;
   if (savedPort === undefined) delete process.env.NORTH_PORT;
   else process.env.NORTH_PORT = savedPort;
   if (savedLaws === undefined) delete process.env.AGENT_LAWS;
@@ -112,33 +217,37 @@ afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-async function resultFromScript(lines: string[]): Promise<any> {
+async function eventsFromScript(lines: string[]): Promise<WireEvent[]> {
   const directory = mkdtempSync(join(tmpdir(), "north-codex-usage-"));
   temporary.push(directory);
   const command = join(directory, "fake-codex");
   writeFileSync(command, `#!/usr/bin/env bash\n${lines.map((line) => `printf '%s\\n' '${line}'`).join("\n")}\n`);
   chmodSync(command, 0o700);
   process.env.NORTH_CODEX_BIN = command;
-  const messages: any[] = [];
-  for await (const message of openaiProvider.query({ prompt: "x", options: {} as any }) as AsyncIterable<any>) {
-    messages.push(message);
+  const events: WireEvent[] = [];
+  for await (const event of openaiProvider.query({ prompt: "x", options: {} })) {
+    events.push(event);
   }
-  return messages.at(-1);
+  return events;
 }
 
-async function resultFromScriptBody(body: string): Promise<any> {
+async function resultFromScript(lines: string[]): Promise<WireEvent | undefined> {
+  return (await eventsFromScript(lines)).at(-1);
+}
+
+async function resultFromScriptBody(body: string): Promise<WireEvent | undefined> {
   const directory = mkdtempSync(join(tmpdir(), "north-codex-protocol-"));
   temporary.push(directory);
   const executable = join(directory, "fake-codex");
   writeFileSync(executable, `#!/usr/bin/env bash\nset -eu\n${body}\n`);
   chmodSync(executable, 0o700);
   process.env.NORTH_CODEX_BIN = executable;
-  const messages: any[] = [];
-  for await (const message of openaiProvider.query({
+  const events: WireEvent[] = [];
+  for await (const event of openaiProvider.query({
     prompt: "x",
-    options: {} as any,
-  }) as AsyncIterable<any>) messages.push(message);
-  return messages.at(-1);
+    options: {},
+  })) events.push(event);
+  return events.at(-1);
 }
 
 async function waitForFile(path: string, timeoutMs = 2_000): Promise<void> {
@@ -188,23 +297,23 @@ async function within<T>(promise: Promise<T>, timeoutMs: number, label: string):
 test("Codex adapter owns the cumulative total and does not double-count subsets", async () => {
   const result = await resultFromScript(codexSuccess([], {
       input_tokens: 100, cached_input_tokens: 60,
-      output_tokens: 20, reasoning_output_tokens: 7,
+      cache_write_input_tokens: 11, output_tokens: 20, reasoning_output_tokens: 7,
   }));
+  expect(result?.kind).toBe("model-call.completed");
+  if (result?.kind !== "model-call.completed") throw new Error("expected model terminal");
   expect(result.usage).toEqual({
-    input_tokens: 100, cached_input_tokens: 60,
-    output_tokens: 20, reasoning_output_tokens: 7,
+    lifetime: {
+      inputTokens: 100, cacheReadTokens: 60, cacheWriteTokens: 11,
+      outputTokens: 20, reasoningTokens: 7, modelCalls: 1,
+    },
+    context: { tokens: 120 },
   });
-  expect(result._north_usage).toEqual({
-    provider: "openai", terminal_count: 1,
-    scope: "codex_fresh_invocation_thread_cumulative",
-    total_status: "exact", total_tokens: 120,
-  });
-  expect(result._north_provider_join).toEqual({
+  expect(result.evidence?.providerJoin).toEqual({
     version: "north-provider-join:v1",
     sessionKey: providerSessionKey("67e55044-10b1-426f-9247-bb680e5fe0c8"),
     turnKeys: [], sessionPersistence: "persisted", coverage: "partial",
   });
-  expect(result).not.toHaveProperty("duration_ms");
+	expect(result.evidence?.providerDurationMs).toBeUndefined();
 });
 
 test("Codex never fabricates num_turns, and its honest activity signal reflects tool calls (thread 019f9c36)", async () => {
@@ -215,19 +324,23 @@ test("Codex never fabricates num_turns, and its honest activity signal reflects 
   // named distinctly, marked not comparable, and must actually vary with
   // observed tool activity.
   const idle = await resultFromScript(codexSuccess([]));
-  expect(idle).not.toHaveProperty("num_turns");
-  expect(idle._north_codex_turn_activity).toEqual({
-    turnUnits: 1, toolItems: 0, comparable: false,
+  if (idle?.kind !== "model-call.completed") throw new Error("expected idle model terminal");
+  expect(idle.evidence?.turns).toEqual({
+    unit: "provider-turn", count: 1, toolItems: 0, comparable: false,
   });
 
-  const busy = await resultFromScript(codexSuccess([
+  const busyEvents = await eventsFromScript(codexSuccess([
     JSON.stringify({
-      type: "item.completed",
-      item: { id: "item_cmd_1", type: "command_execution" },
+      type: "item.started",
+      item: { id: "item_cmd_1", type: "command_execution", status: "in_progress" },
     }),
     JSON.stringify({
       type: "item.completed",
-      item: { id: "item_cmd_2", type: "file_change" },
+      item: { id: "item_cmd_1", type: "command_execution", status: "completed" },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_cmd_2", type: "file_change", status: "failed" },
     }),
     // Reasoning completes on nearly every turn whether or not a tool ran, so
     // it is NOT a work item on either transport (thread 019f9cc2): counting it
@@ -237,16 +350,24 @@ test("Codex never fabricates num_turns, and its honest activity signal reflects 
       item: { id: "item_reasoning_1", type: "reasoning" },
     }),
   ]));
-  expect(busy).not.toHaveProperty("num_turns");
-  expect(busy._north_codex_turn_activity).toEqual({
-    turnUnits: 1, toolItems: 2, comparable: false,
+  const busy = busyEvents.at(-1);
+  if (busy?.kind !== "model-call.completed") throw new Error("expected busy model terminal");
+  expect(busy.evidence?.turns).toEqual({
+    unit: "provider-turn", count: 1, toolItems: 2, comparable: false,
   });
+  expect(busyEvents).toContainEqual(expect.objectContaining({
+    kind: "tool.terminal", status: "failed", origin: "provider",
+    errorCode: "tool_failed",
+  }));
 
   // The regression this guards against: a 0-tool-call run and a 2-tool-call
   // run must never report the same turn count under the name num_turns
   // (there is none), and their honest activity counts must differ.
-  expect(idle._north_codex_turn_activity.toolItems)
-    .not.toBe(busy._north_codex_turn_activity.toolItems);
+  if (idle.evidence?.turns?.unit !== "provider-turn"
+      || busy.evidence?.turns?.unit !== "provider-turn") {
+    throw new Error("expected Codex turn evidence");
+  }
+  expect(idle.evidence.turns.toolItems).not.toBe(busy.evidence.turns.toolItems);
 });
 
 test("Codex requires one complete terminal and never synthesizes exit-zero success", async () => {
@@ -322,7 +443,44 @@ test("Codex lifecycle events are closed, ordered, and terminal exactly once", as
   }
 });
 
-test("Codex terminal usage is an exact coherent four-counter contract", async () => {
+test("Codex turn.failed records an unavailable provider terminal without exact-zero usage", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "north-codex-failed-usage-"));
+	temporary.push(directory);
+	const command = join(directory, "fake-codex");
+	writeFileSync(command, `#!/usr/bin/env bash
+printf '%s\n' '${codexThreadStarted}'
+printf '%s\n' '${codexTurnStarted}'
+printf '%s\n' '${JSON.stringify({ type: "turn.failed", error: { message: "private failure" } })}'
+`);
+	chmodSync(command, 0o700);
+	process.env.NORTH_CODEX_BIN = command;
+	const context = testWireContext();
+	const events: WireEvent[] = [];
+	let failure: unknown;
+	try {
+		for await (const event of rawOpenAIProvider.query({
+			input: "x",
+			options: {},
+			context,
+		})) events.push(event);
+	} catch (error) {
+		failure = error;
+	}
+	expect((failure as Error).message).toBe("openai_provider_execution_failed");
+	expect(events.at(-1)).toMatchObject({
+		kind: "model-call.completed",
+		status: "failed",
+		origin: "provider",
+		usageCoverage: "unavailable",
+	});
+	expect(context.writer.snapshot()?.usageCoverage).toEqual({
+		providerTerminalCount: 1,
+		scope: "wire_run_cumulative",
+		totalStatus: "unknown_incomplete_terminal",
+	});
+});
+
+test("Codex terminal usage preserves every reported cache and reasoning counter", async () => {
   const invalidUsage = [
     { input_tokens: 1, output_tokens: 1 },
     {
@@ -334,6 +492,13 @@ test("Codex terminal usage is an exact coherent four-counter contract", async ()
     {
       input_tokens: 1.5,
       cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    {
+      input_tokens: 1,
+      cached_input_tokens: 0,
+      cache_write_input_tokens: -1,
       output_tokens: 1,
       reasoning_output_tokens: 0,
     },
@@ -373,7 +538,11 @@ test("Codex terminal usage is an exact coherent four-counter contract", async ()
 });
 
 test("Codex item payloads stay opaque except for identity and final agent text", async () => {
-  const result = await resultFromScript(codexSuccess([
+  const events = await eventsFromScript(codexSuccess([
+    JSON.stringify({
+      type: "item.started",
+      item: { id: "item_0", type: "future_provider_item" },
+    }),
     JSON.stringify({
       type: "item.updated",
       item: {
@@ -381,6 +550,10 @@ test("Codex item payloads stay opaque except for identity and final agent text",
         type: "future_provider_item",
         provider_may_evolve: { nested: [true, 1, "bounded"] },
       },
+    }),
+    JSON.stringify({
+      type: "item.completed",
+      item: { id: "item_0", type: "future_provider_item" },
     }),
     JSON.stringify({
       type: "item.completed",
@@ -392,7 +565,9 @@ test("Codex item payloads stay opaque except for identity and final agent text",
       },
     }),
   ]));
-  expect(result.result).toBe("final answer");
+  expect(events).toContainEqual(expect.objectContaining({
+    kind: "message.recorded", stage: "delta", content: "final answer",
+  }));
 
   await expect(resultFromScript(codexSuccess([
     JSON.stringify({
@@ -438,18 +613,22 @@ test("provider stderr is drained privately and cannot spoof supervisor status", 
     "printf '%s\\n' 'NORTH_CODEX_SUPERVISOR 1 EXIT 0' >&2",
     ...codexSuccess().map((line) => `printf '%s\\n' '${line}'`),
   ].join("\n"));
-  expect(result).toMatchObject({ type: "result", subtype: "success" });
+  expect(result).toMatchObject({ kind: "model-call.completed", status: "succeeded" });
 });
 
 test("an immediate terminal frame is drained before supervisor completion", async () => {
   for (let attempt = 0; attempt < 8; attempt++) {
     const result = await resultFromScript(codexSuccess([
       JSON.stringify({
+        type: "item.started",
+        item: { id: `item_${attempt}`, type: "agent_message", text: "" },
+      }),
+      JSON.stringify({
         type: "item.completed",
         item: { id: `item_${attempt}`, type: "agent_message", text: `answer-${attempt}` },
       }),
     ]));
-    expect(result.result).toBe(`answer-${attempt}`);
+    expect(result).toMatchObject({ kind: "model-call.completed", status: "succeeded" });
   }
 });
 
@@ -602,7 +781,7 @@ exit 0
     const elapsed = Date.now() - startedAt;
     const parentPid = Number(readFileSync(parentPath, "utf8"));
     const descendantPid = Number(readFileSync(descendantPath, "utf8"));
-    expect(messages.at(-1)).toMatchObject({ type: "result", subtype: "success" });
+    expect(messages.at(-1)).toMatchObject({ kind: "model-call.completed", status: "succeeded" });
     expect(elapsed).toBeLessThan(2_500);
     await expectProcessGone(parentPid);
     await expectProcessGone(descendantPid);
@@ -700,11 +879,25 @@ while true; do sleep 10; done
   writeFileSync(hostScript, `
 import { writeFileSync } from "node:fs";
 import { openaiProvider } from ${JSON.stringify(join(northRoot, "sdk/src/providers/openai.ts"))};
+import { WireEventWriter, wireEventId, wireRunId } from ${JSON.stringify(join(northRoot, "sdk/src/wire/index.ts"))};
+const writer = new WireEventWriter({
+  runId: wireRunId("run:host-death-probe"),
+  eventId: (sequence) => wireEventId(\`event:host-death-probe:\${sequence}\`),
+});
+writer.append({ kind: "run.started", lifecycle: "running", owner: "test" });
 writeFileSync(${JSON.stringify(hostPath)}, String(process.pid));
 for await (const _ of openaiProvider.query({
-  prompt: "host-death-probe",
+  input: "host-death-probe",
   options: { env: { ...process.env, NORTH_CODEX_BIN: ${JSON.stringify(command)} } },
-}) as AsyncIterable<any>) {}
+  context: {
+    writer,
+    route: {
+      model: { provider: "openai", capabilityClass: "unknown" },
+      effort: "medium",
+      attempt: 1,
+    },
+  },
+})) {}
 `);
   const host = spawnChild(process.execPath, [hostScript], {
     env: { ...process.env, NORTH_CODEX_BIN: command },
@@ -794,6 +987,7 @@ printf '%s' "$CODEX_HOME" > "$CODEX_HOME/execution-root"
 printf '%s\n' "$@" > "$CODEX_HOME/argv"
 printf '%s\n' '{"type":"thread.started","thread_id":"67e55044-10b1-426f-9247-bb680e5fe0c8"}'
 printf '%s\n' '{"type":"turn.started"}'
+printf '{"type":"item.started","item":{"id":"item_0","type":"agent_message","text":""}}\n'
 printf '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"%s"}}\n' "$CODEX_HOME"
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":0}}'
 `);
@@ -804,16 +998,21 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     { id: "codex-two", provider: "openai" as const, authMode: "isolated" as const, profile: "two" },
   ];
   const execute = async (target: typeof targets[number]) => {
-    const messages: any[] = [];
-    for await (const message of openaiProvider.query({ prompt: target.id, options: {} as any, target }) as AsyncIterable<any>)
-      messages.push(message);
-    return messages.at(-1);
+    const events: WireEvent[] = [];
+    for await (const event of openaiProvider.query({ prompt: target.id, options: {}, target })) {
+      events.push(event);
+    }
+    return events;
   };
   const [first, second] = await Promise.all(targets.map(execute));
   const firstRoot = join(home, ".local/state/north/accounts/openai/one");
   const secondRoot = join(home, ".local/state/north/accounts/openai/two");
-  expect(first.result).toBe(firstRoot);
-  expect(second.result).toBe(secondRoot);
+  expect(first).toContainEqual(expect.objectContaining({
+    kind: "message.recorded", stage: "delta", content: firstRoot,
+  }));
+  expect(second).toContainEqual(expect.objectContaining({
+    kind: "message.recorded", stage: "delta", content: secondRoot,
+  }));
   expect(readFileSync(join(firstRoot, "execution-root"), "utf8")).toBe(firstRoot);
   expect(readFileSync(join(secondRoot, "execution-root"), "utf8")).toBe(secondRoot);
   for (const root of [firstRoot, secondRoot]) {
@@ -945,6 +1144,93 @@ test("the executable Codex adapter admits exact managed orchestrator authority",
   expect(codexHarnessArguments(options)).toEqual(expectedCodexFeatureArgs(true));
 });
 
+test("a replacement preflight failure drains its respawn terminal before iterator rejection", async () => {
+  const home = mkdtempSync(join(tmpdir(), "north-openai-respawn-preflight-wire-"));
+  temporary.push(home);
+  process.env.HOME = home;
+  process.env.AGENT_LAWS = "on";
+  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(
+    savedOrchestration ?? join(northRoot, "orchestration"),
+  );
+
+  const canonicalAgents = join(home, ".agents", "AGENTS.md");
+  mkdirSync(join(home, ".agents"), { recursive: true });
+  writeFileSync(canonicalAgents, "RESPAWN_PREFLIGHT_CANONICAL\n");
+  process.env.AGENT_LAWS_PATH = canonicalAgents;
+  const codexHome = join(home, ".codex");
+  mkdirSync(codexHome);
+  symlinkSync(canonicalAgents, join(codexHome, "AGENTS.md"));
+  const auth = join(codexHome, "auth.json");
+  writeFileSync(auth, "{}\n", { mode: 0o600 });
+  chmodSync(auth, 0o600);
+
+  const options = harnessOptions({
+    self: "openai-respawn-preflight-wire-proof",
+    provider: "openai",
+    cwd: northRoot,
+    model: "gpt-5.6-luna",
+    routingMetadata: applyOrchestrationStaffing({ role: "scout" }),
+    presenceRegistrar: false,
+  });
+  markCoordinationOptional(options as object);
+  const context = testWireContext();
+  const provider = internalOpenAIProviderWithManagedHooksProbeForTest(
+    () => {},
+    {
+      resolveManagedCommand: () => "/bin/true",
+      createManagedRun: (runOptions) => new RespawnThenPreflightFailureRun(runOptions),
+    },
+  );
+  const query = provider.query({ input: "perform managed work", options, context });
+  const observed: WireEvent[] = [];
+  const unsubscribe = query.subscribeProviderEvents?.((event) => observed.push(event));
+  const yielded: WireEvent[] = [];
+  let caught: unknown;
+  try {
+    for await (const event of query) yielded.push(event);
+  } catch (error) {
+    caught = error;
+  } finally {
+    unsubscribe?.();
+  }
+
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const yieldedRespawnTerminals = yielded.filter((event) =>
+    event.kind === "model-call.completed"
+    && event.status === "failed"
+    && event.origin === "north"
+    && event.errorCode === "provider_session_replaced");
+  expect(yieldedRespawnTerminals).toHaveLength(1);
+  expect(observed.filter((event) => event.id === yieldedRespawnTerminals[0]!.id))
+    .toHaveLength(1);
+  expect(context.writer.events().filter((event) => event.id === yieldedRespawnTerminals[0]!.id))
+    .toHaveLength(1);
+  for (const serialized of [
+    JSON.stringify(yielded),
+    JSON.stringify(observed),
+    JSON.stringify(context.writer.events()),
+  ]) {
+    expect(serialized).not.toContain("CANARY-private-provider-death-reason");
+    expect(serialized).not.toContain(RESPAWN_FAILURE_THREAD);
+    expect(serialized).not.toContain(RESPAWN_FAILURE_TURN);
+    expect(serialized).not.toContain("gpt-5.6-luna");
+  }
+
+  context.writer.append({
+    kind: "run.terminated",
+    lifecycle: "failed",
+    reason: { code: "provider_process_died" },
+  });
+  const snapshot = context.writer.snapshot()!;
+  expect(snapshot.lifecycle).toBe("failed");
+  expect(Object.values(snapshot.modelCalls).some((call) => call.status === "running"))
+    .toBe(false);
+  expect(Object.values(snapshot.toolCalls).some((call) => call.status === "pending"))
+    .toBe(false);
+  expect(Object.values(snapshot.messages).some((message) => message.stage !== "completed"))
+    .toBe(false);
+});
+
 test("managed executable resolution fails retry-safe before onRoute or query construction", async () => {
   const home = mkdtempSync(join(tmpdir(), "north-openai-command-preflight-"));
   temporary.push(home);
@@ -998,7 +1284,7 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   );
   const query = routedQueryWithRegistry(
     decision,
-    { prompt: "must not run", options },
+    { input: "must not run", options, writer: testWireContext().writer },
     "economy",
     Object.freeze({ anthropic: anthropicProvider, openai: Object.freeze(provider) }),
     undefined,
@@ -1110,7 +1396,7 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   let routePublished = false;
   const query = routedQueryWithRegistry(
     decision,
-    { prompt: "must not run", options },
+    { input: "must not run", options, writer: testWireContext().writer },
     "economy",
     Object.freeze({
       anthropic: anthropicProvider,

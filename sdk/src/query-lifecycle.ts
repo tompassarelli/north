@@ -6,7 +6,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import type { AgentQuery } from "./providers/types";
+import type { WireQuery } from "./wire/query";
 import {
   registerHostTerminationParticipant,
   type HostTerminationParticipant,
@@ -516,19 +516,20 @@ export function replaySessionHardCapHandoffs(
 }
 
 /** Bound turn-level interruption so process cleanup cannot be held hostage by a control request. */
-export async function interruptAgentQuery(
-  query: AgentQuery | undefined,
+export async function interruptWireQuery(
+  query: WireQuery | undefined,
   timeoutMs = 1_000,
 ): Promise<void> {
   if (!query?.interrupt) return;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = Promise.withResolvers<void>();
+  const timer = setTimeout(timeout.resolve, timeoutMs);
   try {
     await Promise.race([
       Promise.resolve(query.interrupt()).catch(() => undefined),
-      new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); }),
+      timeout.promise,
     ]);
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 
@@ -567,7 +568,8 @@ export interface ManagedOwnedResource {
  */
 export class ManagedQueryTermination {
   readonly abortController = new AbortController();
-  private query: AgentQuery | undefined;
+  private query: WireQuery | undefined;
+  readonly #queryClosures = new WeakMap<WireQuery, Promise<void>>();
   private closeInput: (() => void) | undefined;
   private inputClosed = false;
   private closePromise: Promise<void> | undefined;
@@ -605,7 +607,7 @@ export class ManagedQueryTermination {
     });
     this.hardCapOptions = hardCapOptions;
     this.cancelHardCapTimer = hardCapOptions?.cancel
-      ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+      ?? ((timer) => clearTimeout(timer as NodeJS.Timeout));
     if (hardCapOptions) {
       const hardCapMs = hardCapOptions.hardCapMs
         ?? DEFAULT_MANAGED_SESSION_HARD_CAP_MS;
@@ -662,7 +664,15 @@ export class ManagedQueryTermination {
     if (this.hardCapFrozen || this.hostSignal()) this.closeInputSafely();
   }
 
-  attachQuery(query: AgentQuery): void {
+  attachQuery(query: WireQuery): void {
+    if (this.closePromise || this.released || this.#queryClosures.has(query)) {
+      query.forceClose?.();
+      throw new Error("managed_query_attached_after_close");
+    }
+    if (this.query && this.query !== query) {
+      query.forceClose?.();
+      throw new Error("managed_query_replaced_before_close");
+    }
     if (this.hardCapError) {
       query.forceClose?.();
       throw this.hardCapError;
@@ -679,6 +689,29 @@ export class ManagedQueryTermination {
       query.forceClose?.();
       throw new HostTerminationError(this.hostSignal()!);
     }
+  }
+
+  /** Close and detach one provider attempt without ending the shared managed session. */
+  closeQuery(
+    query: WireQuery | undefined = this.query,
+    interruptTimeoutMs = 1_000,
+  ): Promise<void> {
+    if (!query) return Promise.resolve();
+    const existing = this.#queryClosures.get(query);
+    if (existing) return existing;
+    if (this.query !== query) {
+      return Promise.reject(new Error("managed_query_close_requires_attached_query"));
+    }
+    const closing = (async () => {
+      try {
+        await interruptWireQuery(query, interruptTimeoutMs);
+        await query.close?.();
+      } finally {
+        if (this.query === query) this.query = undefined;
+      }
+    })();
+    this.#queryClosures.set(query, closing);
+    return closing;
   }
 
   attachResource(resource: ManagedOwnedResource): void {
@@ -703,8 +736,7 @@ export class ManagedQueryTermination {
       const failures: unknown[] = [];
       if (this.query) {
         try {
-          await interruptAgentQuery(this.query, interruptTimeoutMs);
-          await this.query.close?.();
+          await this.closeQuery(this.query, interruptTimeoutMs);
         } catch (error) {
           failures.push(error);
         }
@@ -755,6 +787,10 @@ export class ManagedQueryTermination {
   private async reachHardCap(): Promise<void> {
     if (!this.hardCapActive || this.released || this.hardCapReached
         || !this.hardCapOptions) return;
+    // closeQuery detaches the attempt after graceful teardown so a retry may
+    // attach its successor. Retain only this expiring attempt for the hard-cap
+    // force-close fallback below; it is never made attachable again.
+    const expiringQuery = this.query;
     this.hardCapActive = false;
     this.hardCapFrozen = true;
     this.closeInputSafely();
@@ -809,7 +845,10 @@ export class ManagedQueryTermination {
         + (error instanceof Error ? error.message : String(error)),
       );
     }
-    try { this.forceClose(); }
+    try {
+      expiringQuery?.forceClose?.();
+      this.forceClose();
+    }
     catch (error) {
       console.error(
         `[session-cap] @agent:${this.hardCapOptions.agentId} force-close reported: `

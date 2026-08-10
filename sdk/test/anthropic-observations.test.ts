@@ -7,8 +7,9 @@ import {
   observationFromAnthropicRateLimit,
   anthropicTargetId,
   observeAnthropicQuery,
+	type AnthropicObservedFrame,
 } from "../src/providers/anthropic-observations";
-import type { AgentQuery, ProviderUsageObservation } from "../src/providers/types";
+import type { ProviderUsageObservation } from "../src/providers/types";
 import { balancedAllocationEstimates } from "../src/provider-routing";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 
@@ -94,9 +95,15 @@ test("status-only model rejection remains scoped and unknown type text stays pri
     availability, policy, "senior", "high", "claude-opus-5",
   )[0]).toMatchObject({ pressure: "exhausted", eligible: false });
 
-  const opaque = observationFromAnthropicRateLimit(event({
-    status: "rejected", resetsAt, rateLimitType: "secret-canary-model-bucket" as any,
-  }), "claude", now);
+	const opaqueEvent = {
+		...event({ status: "rejected", resetsAt }),
+		rate_limit_info: {
+			status: "rejected",
+			resetsAt,
+			rateLimitType: "secret-canary-model-bucket",
+		},
+	} as unknown as SDKRateLimitEvent;
+	const opaque = observationFromAnthropicRateLimit(opaqueEvent, "claude", now);
   expect(opaque.categoricalSignals?.[0]?.limitId).toBe("claude:model:opaque-event");
   expect(JSON.stringify(opaque)).not.toContain("secret-canary");
   const opaquePolicy = { ...policy, automatedPressureObservationSets: { claude: [opaque] } };
@@ -122,37 +129,24 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     ] } },
     { type: "result", subtype: "success", session_id: "test-session" },
   ];
-  let interrupted = false;
-  let closed = false;
-  let forceClosed = false;
-  const models: string[] = [];
-  const efforts: Array<string | null | undefined> = [];
-  const source: AgentQuery = {
-    interrupt: async () => { interrupted = true; },
-    close: async () => { closed = true; },
-    forceClose: () => { forceClosed = true; },
-    setModel: async (model) => { models.push(model); },
-    applyFlagSettings: async (settings) => { efforts.push(settings.effortLevel); },
-    async *[Symbol.asyncIterator]() { yield* messages; },
-  };
-  const written: ProviderUsageObservation[] = [];
-  const observed = observeAnthropicQuery(source, {
-    targetId: () => "claude-primary",
-    now: () => new Date("2026-07-16T12:00:00Z"),
-    write: async (value) => { written.push(value); },
-  });
-  const received: any[] = [];
-  for await (const message of observed) received.push(message);
-  await observed.interrupt?.();
-  await observed.setModel?.("claude-opus-4-8");
-  await observed.applyFlagSettings?.({ effortLevel: "xhigh" });
-  await observed.close?.();
-  observed.forceClose?.();
+	const source: AsyncIterable<unknown> = {
+		async *[Symbol.asyncIterator]() { yield* messages; },
+	};
+	const written: ProviderUsageObservation[] = [];
+	const sessionIds: string[] = [];
+	const observed = observeAnthropicQuery(source, {
+		targetId: () => "claude-primary",
+		now: () => new Date("2026-07-16T12:00:00Z"),
+		write: async (value) => { written.push(value); },
+		onSessionId: (sessionId) => { sessionIds.push(sessionId); },
+	});
+	const received: AnthropicObservedFrame[] = [];
+	for await (const message of observed) received.push(message);
 
-  expect(received.slice(0, -1)).toEqual(messages.slice(0, -1));
-  expect(received.at(-1)).toEqual({
-    ...messages.at(-1),
-    _north_provider_join: {
+	expect(received.slice(0, -1).map(({ frame }) => frame)).toEqual(messages.slice(0, -1));
+	expect(received.at(-1)).toEqual({
+		frame: messages.at(-1),
+		providerJoin: {
       version: "north-provider-join:v1",
       sessionKey: providerSessionKey("test-session"),
       turnKeys: [providerTurnKey("anthropic", "msg_test_join")],
@@ -166,12 +160,7 @@ test("observes rate-limit messages without extra turns and preserves the stream"
     provider: "anthropic",
     windows: [{ limitId: "seven_day", usedPercent: 72 }],
   });
-  expect(interrupted).toBe(true);
-  expect(closed).toBe(true);
-  expect(forceClosed).toBe(true);
-  expect(observed.supportsInFlightEscalation?.()).toBe(true);
-  expect(models).toEqual(["claude-opus-4-8"]);
-  expect(efforts).toEqual(["xhigh"]);
+	expect(sessionIds).toEqual(["test-session", "test-session", "test-session"]);
   expect(observed.mcpActivity?.()).toEqual({
     source: "anthropic-agent-sdk:assistant-tool-use", coverage: "exact", totalCalls: 1,
     tools: [{ server: "north", tool: "tell", count: 1 }],
@@ -182,11 +171,11 @@ test("observes rate-limit messages without extra turns and preserves the stream"
 
 test("observation persistence failures never interrupt Claude output", async () => {
   const message = event({ status: "allowed_warning" });
-  const source: AgentQuery = { async *[Symbol.asyncIterator]() { yield message; } };
-  const observed = observeAnthropicQuery(source, { write: async () => { throw new Error("disk unavailable"); } });
-  const received: any[] = [];
-  for await (const value of observed) received.push(value);
-  expect(received).toEqual([message]);
+	const source: AsyncIterable<unknown> = { async *[Symbol.asyncIterator]() { yield message; } };
+	const observed = observeAnthropicQuery(source, { write: async () => { throw new Error("disk unavailable"); } });
+	const received: AnthropicObservedFrame[] = [];
+	for await (const value of observed) received.push(value);
+	expect(received).toEqual([{ frame: message }]);
 });
 
 test("interactive statusline attribution requires one verified isolated Claude config root", () => {

@@ -1,745 +1,539 @@
 import { expect, test } from "bun:test";
+
+import { providerJoinEvidence } from "../src/providers/provider-join";
+import { wireLedgerSummary } from "../src/run-ledger";
 import {
-  classifyTurnProvenance, codexTurnActivityFromResult, newRunId,
-  authoringAuthoritySurfaceEvidence, applyTerminalCoordinatorReadTimeout,
-  runEstimateFromThreadFacts, runFacts,
+	applyTerminalCoordinatorReadTimeout,
+	newRunId,
+	recordWireRunTelemetry,
+	wireRunTelemetryFacts,
 } from "../src/telemetry";
 import {
-  assessThreadDelivery, RUN_BAR_EVIDENCE_VERSION, validRunEntity,
-} from "../src/delivery-verification";
-import { makeStruggleObserver, resolveStrugglePolicy } from "../src/struggle";
-import {
-  providerJoinEvidence, providerSessionKey, providerTurnKey,
-} from "../src/providers/provider-join";
-import {
-  assignLearningEpisode, DEFAULT_LEARNING_POLICY, learningAssignmentFacts,
-} from "../src/learning-regime";
-import { sha256Bytes } from "../src/composition-receipt";
+	WireEventWriter,
+	reduceWireEvents,
+	wireEventId,
+	wireModelCallId,
+	wireRunId,
+} from "../src/wire";
 
-// Canonical North routing selects the telemetry FRAMRPC endpoint and SpaceId by
-// the subject token before publication. A run's body facts are written before
-// its `kind run` marker, so the minted subject must carry the `run` token without
-// depending on stored graph state.
-const TELEMETRY_KINDS = new Set(["run", "session", "mine", "guard_denial"]);
-
-test("terminal publication derives the coordinator read timeout without overriding callers", () => {
-  const derived: NodeJS.ProcessEnv = {};
-  applyTerminalCoordinatorReadTimeout(derived);
-  expect(derived.NORTH_COORD_READ_TIMEOUT_MS).toBe("70000");
-
-  const explicit: NodeJS.ProcessEnv = { NORTH_COORD_READ_TIMEOUT_MS: "45000" };
-  applyTerminalCoordinatorReadTimeout(explicit);
-  expect(explicit.NORTH_COORD_READ_TIMEOUT_MS).toBe("45000");
+const identity = Object.freeze({
+	thread: "@thread-telemetry",
+	agent: "telemetry-lane",
+	parentThread: "@thread-parent",
+	coordinator: "root",
 });
 
-function subjectToken(subject: string): string | undefined {
-  const s = subject.startsWith("@") ? subject : `@${subject}`;
-  const colon = s.indexOf(":");
-  return colon > 0 ? s.slice(1, colon) : undefined;
+function completedRun(runId = wireRunId("run:telemetry-lane-001")) {
+	let tick = 0;
+	const writer = new WireEventWriter({
+		runId,
+		eventId: (sequence) => wireEventId(`event:telemetry:${sequence}`),
+		now: () => new Date(Date.UTC(2026, 7, 10, 1, 0, tick++)).toISOString(),
+	});
+	writer.append({
+		kind: "run.started",
+		lifecycle: "running",
+		owner: "telemetry-lane",
+		parentRunId: wireRunId("run:telemetry-parent"),
+	});
+	writer.append({
+		kind: "run.progress",
+		lifecycle: "running",
+		progress: {
+			compactions: 2,
+			model: { provider: "openai", tier: "senior", capabilityClass: "authoring" },
+			effort: "high",
+			usage: {
+				lifetime: {
+					inputTokens: 100,
+					outputTokens: 20,
+					cacheReadTokens: 40,
+					cacheWriteTokens: 10,
+					reasoningTokens: 5,
+					modelCalls: 0,
+				},
+				context: { tokens: 80, window: 400_000 },
+			},
+		},
+	});
+	writer.terminate({ lifecycle: "completed", reason: { code: "completed" } });
+	return writer.events();
 }
 
-test("a minted run subject selects the telemetry SpaceId before its kind marker lands", () => {
-  for (const agent of ["lane-abc123", "sdk-spawn-mrok0z6m-165cef51", "codex-work"]) {
-    const runId = newRunId(agent);
-    // The pre-kind publication routes from the first-colon token alone.
-    const token = subjectToken(runId);
-    expect(token).toBe("run");
-    expect(TELEMETRY_KINDS.has(token as string)).toBe(true);
-    // and the id must still validate as a run entity (both `@run-`/`@run:` forms).
-    expect(validRunEntity(`@${runId}`)).toBe(true);
-  }
+test("terminal coordinator timeout preserves an explicit caller value", () => {
+	const derived: NodeJS.ProcessEnv = {};
+	applyTerminalCoordinatorReadTimeout(derived);
+	expect(derived.NORTH_COORD_READ_TIMEOUT_MS).toBe("70000");
+	const explicit: NodeJS.ProcessEnv = { NORTH_COORD_READ_TIMEOUT_MS: "90000" };
+	applyTerminalCoordinatorReadTimeout(explicit);
+	expect(explicit.NORTH_COORD_READ_TIMEOUT_MS).toBe("90000");
 });
 
-test("a completed run carries every mandatory terminal predicate", () => {
-  // The dark-telemetry symptom (2026-07-17..20) was @run subjects reduced to a
-  // lone `kind run`. A completed run MUST carry its terminal facts.
-  const facts = runFacts({
-    thread: "@2026-07-20-000000", agent: "lane-complete",
-    tokenUsage: {
-      inputTokens: 8794, outputTokens: 86323,
-      cacheCreateTokens: 165477, cacheReadTokens: 10047431,
-      total: 10308025, terminalCount: 1,
-      terminalScope: "anthropic_result_terminal", totalStatus: "exact",
-    },
-    durationMs: 2171896, posture: "spawn", outcome: "ran", processOutcome: "ran",
-  });
-  const predicates = new Set(facts.map(([predicate]) => predicate));
-  for (const mandatory of ["kind", "thread", "agent", "tokens", "duration_ms", "posture", "outcome", "at"]) {
-    expect(predicates.has(mandatory)).toBe(true);
-  }
-  expect(facts).toContainEqual(["tokens", "10308025"]);
-  expect(facts).toContainEqual(["outcome", "ran"]);
+test("run telemetry is derived only from a recorded terminal wire snapshot", () => {
+	const events = completedRun();
+	const snapshot = reduceWireEvents(events);
+	const summary = wireLedgerSummary(events);
+	const projection = wireRunTelemetryFacts(identity, snapshot, {
+		status: "recorded",
+		summary,
+	}, {});
+	const facts = new Map(projection.facts);
+
+	expect(projection.subject).toBe("@run:telemetry-lane-001");
+	expect(facts.get("wire_run_id")).toBe("run:telemetry-lane-001");
+	expect(facts.get("wire_ledger_status")).toBe("complete");
+	expect(facts.get("wire_event_count")).toBe(String(events.length));
+	expect(facts.get("wire_ledger_sha256")).toBe(summary.digest);
+	expect(facts.get("wire_run_lifecycle")).toBe("completed");
+	expect(facts.get("outcome")).toBe("ran");
+	expect(facts.get("duration_ms")).toBe("2000");
+	expect(facts.get("lifetime_input_tokens")).toBe("100");
+	expect(facts.get("lifetime_cache_write_tokens")).toBe("10");
+	expect(facts.get("usage_terminal_count")).toBe("0");
+	expect(facts.get("usage_scope")).toBe("wire_run_cumulative");
+	expect(facts.get("usage_total_status")).toBe("partial");
+	expect(facts.has("tokens")).toBe(false);
+	expect(facts.get("context_tokens")).toBe("80");
+	expect(facts.get("context_window_tokens")).toBe("400000");
+	expect(facts.get("model_tier")).toBe("senior");
+	expect(facts.get("effort")).toBe("high");
+	expect(facts.get("parent_run")).toBe("@run:telemetry-parent");
+	expect(facts.get("provider_session_persistence")).toBe("unknown");
+	expect(facts.get("turn_provenance")).toBe("unknown");
+
+	const encoded = JSON.stringify(projection);
+	expect(encoded).not.toContain("provider_target");
+	expect(encoded).not.toContain("transport");
+	expect(encoded).not.toContain("_north");
+	expect(encoded).not.toContain("gpt-");
 });
 
-test("managed runs record the exact effective authoring surface and native runs stay unknown", () => {
-  const authority = (capabilities: any[]) => ({
-    provider: "openai" as const,
-    capabilities,
-    nativeMultiAgent: "disabled" as const,
-    liveInput: "unsupported" as const,
-    northEnabledTools: [],
-    authoringHooks: "managed-only" as const,
-    sandbox: capabilities.includes("filesystem.write")
-      ? "workspace-write" as const : "read-only" as const,
-    web: "disabled" as const,
-    managedTools: [],
-  });
-  expect(authoringAuthoritySurfaceEvidence({
-    executionSource: "north-managed",
-    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
-      "filesystem.write", "shell"]),
-  })).toEqual({ surface: "text", coverage: "exact" });
-  expect(authoringAuthoritySurfaceEvidence({
-    executionSource: "north-managed",
-    effectiveAuthority: authority(["filesystem.read", "filesystem.search", "shell.readonly"]),
-  })).toEqual({ surface: "none", coverage: "exact" });
-  expect(authoringAuthoritySurfaceEvidence({ executionSource: "provider-native" }))
-    .toEqual({ surface: "unknown", coverage: "unknown" });
+test("terminal telemetry preserves dispatch estimate calibration and struggle evidence", () => {
+	const events = completedRun();
+	const projection = wireRunTelemetryFacts(
+		identity,
+		reduceWireEvents(events),
+		{ status: "recorded", summary: wireLedgerSummary(events) },
+		{
+			runEstimate: { hours: "0.001", durationMs: 3_600 },
+			judgmentGrade: { grade: "m", status: "valid", source: "thread" },
+			struggleObservation: {
+				policyVersion: "north:struggle-observer:v1",
+				topology: "worker",
+				errorStreakThreshold: 3,
+				loopRepeatThreshold: 3,
+				loopWindow: 20,
+				noProgressTurnThreshold: 6,
+				errorCount: 3,
+				triggers: ["consecutive_errors"],
+			},
+		},
+	);
 
-  const facts = runFacts({
-    thread: "thread-authoring", agent: "lane-authoring", durationMs: 1,
-    posture: "spawn", outcome: "ran", executionSource: "north-managed",
-    effectiveAuthority: authority(["filesystem.read", "filesystem.search",
-      "filesystem.write", "shell"]),
-  });
-  expect(facts).toContainEqual(["authoring_authority_surface", "text"]);
-  expect(facts).toContainEqual(["authoring_authority_surface_coverage", "exact"]);
+	expect(projection.facts).toContainEqual(["estimate_hours", "0.001"]);
+	expect(projection.facts).toContainEqual(["estimate_delta_ms", "-1600"]);
+	expect(projection.facts).toContainEqual(["estimate_ratio", "0.555556"]);
+	expect(projection.facts).toContainEqual(["estimate_classification", "under"]);
+	expect(projection.facts).toContainEqual(["judgment_grade", "m"]);
+	expect(projection.facts).toContainEqual(["judgment_grade_status", "valid"]);
+	expect(projection.facts).toContainEqual(["judgment_grade_source", "thread"]);
+	expect(projection.facts).toContainEqual(["error_count", "3"]);
+	expect(projection.facts).toContainEqual(["struggle", "consecutive_errors"]);
+	expect(projection.facts).toContainEqual([
+		"struggle_detector_policy_version",
+		"north:struggle-observer:v1",
+	]);
+	expect(projection.facts).toContainEqual(["struggle_topology", "worker"]);
+	expect(projection.facts).toContainEqual(["struggle_error_streak_threshold", "3"]);
+	expect(projection.facts).toContainEqual(["struggle_loop_repeat_threshold", "3"]);
+	expect(projection.facts).toContainEqual(["struggle_loop_window", "20"]);
+	expect(projection.facts).toContainEqual(["struggle_no_progress_turn_threshold", "6"]);
 });
 
-test("run wall-time comparison varies for under/on/over and preserves no-estimate runs", () => {
-  const timing = (durationMs: number) => Object.fromEntries(runFacts({
-    thread: "@timed-thread", agent: `lane-${durationMs}`,
-    durationMs, estimateHours: "0.001", posture: "atomic", outcome: "ran",
-  }, "2026-07-29T00:00:00.000Z"));
-
-  expect(timing(1_800)).toMatchObject({
-    duration_ms: "1800", estimate_hours: "0.001", estimate_delta_ms: "-1800",
-    estimate_ratio: "0.5", estimate_classification: "under",
-  });
-  expect(timing(0)).toMatchObject({
-    duration_ms: "0", estimate_delta_ms: "-3600",
-    estimate_ratio: "0", estimate_classification: "under",
-  });
-  expect(timing(3_600)).toMatchObject({
-    duration_ms: "3600", estimate_hours: "0.001", estimate_delta_ms: "0",
-    estimate_ratio: "1", estimate_classification: "on",
-  });
-  expect(timing(7_200)).toMatchObject({
-    duration_ms: "7200", estimate_hours: "0.001", estimate_delta_ms: "3600",
-    estimate_ratio: "2", estimate_classification: "over",
-  });
-
-  const legacy = Object.fromEntries(runFacts({
-    thread: "@legacy-thread", agent: "lane-legacy",
-    durationMs: 3_600, posture: "atomic", outcome: "ran",
-  }));
-  expect(Object.keys(legacy).some((predicate) => predicate.startsWith("estimate_"))).toBe(false);
+test("run telemetry aggregates complete provider evidence across a managed session replacement", () => {
+	let tick = 0;
+	const writer = new WireEventWriter({
+		runId: wireRunId("run:telemetry-provider-evidence"),
+		eventId: (sequence) => wireEventId(`event:telemetry-provider-evidence:${sequence}`),
+		now: () => new Date(Date.UTC(2026, 7, 10, 2, 0, tick++)).toISOString(),
+	});
+	writer.append({ kind: "run.started", lifecycle: "running" });
+	for (const [index, inputTokens, outputTokens, toolItems, durationMs] of [
+		[1, 100, 20, 2, 100],
+		[2, 150, 30, 3, 150],
+	] as const) {
+		const modelCallId = wireModelCallId(`model-call:telemetry-provider-evidence:${index}`);
+		writer.append({
+			kind: "model-call.started",
+			modelCallId,
+			model: { provider: "openai", tier: "senior" },
+			attempt: index,
+		});
+		writer.append({
+			kind: "model-call.completed",
+			modelCallId,
+			status: "succeeded",
+			origin: "provider",
+			usageCoverage: "exact",
+			usage: {
+				lifetime: {
+					inputTokens,
+					outputTokens,
+					cacheReadTokens: 40,
+					cacheWriteTokens: 0,
+					reasoningTokens: 5,
+					modelCalls: index,
+				},
+				context: { tokens: inputTokens },
+			},
+			evidence: {
+				providerJoin: providerJoinEvidence("openai", {
+					sessionId: `private-session-${index}`,
+					turnIds: [`private-turn-${index}`],
+					sessionPersistence: "ephemeral",
+				}),
+				turns: { unit: "provider-turn", count: 1, toolItems, comparable: false },
+				providerDurationMs: durationMs,
+			},
+		});
+	}
+	writer.terminate({ lifecycle: "completed", reason: { code: "completed" } });
+	const events = writer.events();
+	const projection = wireRunTelemetryFacts(
+		identity,
+		reduceWireEvents(events),
+		{ status: "recorded", summary: wireLedgerSummary(events) },
+		{},
+	);
+	const facts = new Map(projection.facts);
+	expect(facts.get("usage_terminal_count")).toBe("2");
+	expect(facts.get("usage_scope")).toBe("wire_run_cumulative");
+	expect(facts.get("usage_total_status")).toBe("exact");
+	expect(facts.get("tokens")).toBe("180");
+	expect(facts.get("turn_provenance")).toBe("provider-terminal");
+	expect(projection.facts.filter(([predicate]) => predicate === "provider_turn_units"))
+		.toEqual([["provider_turn_units", "2"]]);
+	expect(projection.facts.filter(([predicate]) => predicate === "provider_tool_items"))
+		.toEqual([["provider_tool_items", "5"]]);
+	expect(projection.facts.filter(
+		([predicate]) => predicate === "provider_turn_metric_comparable",
+	)).toEqual([["provider_turn_metric_comparable", "false"]]);
+	expect(projection.facts.some(([predicate]) => predicate.startsWith("codex_"))).toBe(false);
+	expect(facts.get("provider_duration_ms")).toBe("250");
+	expect(facts.get("provider_join_coverage")).toBe("partial");
+	expect(facts.has("provider_session_key")).toBe(false);
+	expect(projection.facts.filter(([predicate]) => predicate === "provider_turn_key"))
+		.toHaveLength(2);
+	expect(JSON.stringify(projection)).not.toContain("private-session");
+	expect(JSON.stringify(projection)).not.toContain("private-turn");
 });
 
-test("dispatch estimate capture accepts one positive estimate and rejects malformed snapshots", () => {
-  expect(runEstimateFromThreadFacts([
-    { predicate: "title", value: "Timed work" },
-    { predicate: "estimate_hours", value: "1.25" },
-  ])).toEqual({ hours: "1.25", durationMs: 4_500_000 });
-  expect(runEstimateFromThreadFacts([{ predicate: "title", value: "Legacy work" }]))
-    .toBeUndefined();
-  expect(() => runEstimateFromThreadFacts([
-    { predicate: "estimate_hours", value: "1" },
-    { predicate: "estimate_hours", value: "2" },
-  ])).toThrow("duplicate");
-  expect(() => runEstimateFromThreadFacts([
-    { predicate: "estimate_hours", value: "0" },
-  ])).toThrow("not-positive-finite-hours");
+test("managed respawn telemetry preserves joins without overstating reset-session totals", () => {
+	let tick = 0;
+	const writer = new WireEventWriter({
+		runId: wireRunId("run:telemetry-provider-respawn"),
+		eventId: (sequence) => wireEventId(`event:telemetry-provider-respawn:${sequence}`),
+		now: () => new Date(Date.UTC(2026, 7, 10, 2, 30, tick++)).toISOString(),
+	});
+	writer.append({ kind: "run.started", lifecycle: "running" });
+	const firstCallId = wireModelCallId("model-call:telemetry-provider-respawn:1");
+	writer.append({
+		kind: "model-call.started",
+		modelCallId: firstCallId,
+		model: { provider: "openai", tier: "senior" },
+		attempt: 1,
+	});
+	writer.append({
+		kind: "run.progress",
+		lifecycle: "running",
+		progress: {
+			usage: {
+				lifetime: {
+					inputTokens: 60,
+					outputTokens: 10,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+					reasoningTokens: 0,
+					modelCalls: 1,
+				},
+				context: { tokens: 70 },
+			},
+		},
+	});
+	writer.append({
+		kind: "model-call.completed",
+		modelCallId: firstCallId,
+		status: "failed",
+		origin: "north",
+		usageCoverage: "unavailable",
+		usage: writer.snapshot()!.usage,
+		errorCode: "provider_session_replaced",
+		evidence: {
+			providerJoin: providerJoinEvidence("openai", {
+				sessionId: "private-session-before-respawn",
+				turnIds: ["private-turn-before-respawn"],
+				sessionPersistence: "persisted",
+			}),
+			turns: { unit: "provider-turn", count: 1, toolItems: 0, comparable: false },
+		},
+	});
+	const replacementCallId = wireModelCallId("model-call:telemetry-provider-respawn:2");
+	writer.append({
+		kind: "model-call.started",
+		modelCallId: replacementCallId,
+		model: { provider: "openai", tier: "senior" },
+		attempt: 2,
+	});
+	writer.append({
+		kind: "model-call.completed",
+		modelCallId: replacementCallId,
+		status: "succeeded",
+		origin: "provider",
+		usageCoverage: "exact",
+		usage: {
+			lifetime: {
+				inputTokens: 160,
+				outputTokens: 30,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				reasoningTokens: 0,
+				modelCalls: 2,
+			},
+			context: { tokens: 130 },
+		},
+		evidence: {
+			providerJoin: providerJoinEvidence("openai", {
+				sessionId: "private-session-after-respawn",
+				turnIds: ["private-turn-after-respawn"],
+				sessionPersistence: "persisted",
+			}),
+			turns: { unit: "provider-turn", count: 1, toolItems: 2, comparable: false },
+			providerDurationMs: 200,
+		},
+	});
+	writer.terminate({ lifecycle: "completed", reason: { code: "completed" } });
+	const events = writer.events();
+	const projection = wireRunTelemetryFacts(
+		identity,
+		reduceWireEvents(events),
+		{ status: "recorded", summary: wireLedgerSummary(events) },
+		{},
+	);
+	const facts = new Map(projection.facts);
+	expect(facts.get("usage_total_status")).toBe("partial");
+	expect(facts.get("usage_terminal_count")).toBe("1");
+	expect(facts.has("tokens")).toBe(false);
+	expect(facts.get("provider_join_coverage")).toBe("partial");
+	expect(facts.has("provider_session_key")).toBe(false);
+	expect(projection.facts.filter(([predicate]) => predicate === "provider_turn_key"))
+		.toHaveLength(2);
+	expect(facts.get("turn_provenance")).toBe("unknown");
+	expect(facts.has("provider_turn_units")).toBe(false);
+	expect(facts.has("provider_tool_items")).toBe(false);
+	expect(facts.has("provider_duration_ms")).toBe(false);
+	const encoded = JSON.stringify(projection);
+	expect(encoded).not.toContain("private-session");
+	expect(encoded).not.toContain("private-turn");
 });
 
-test("recurring canaries retain only their reliability roll-up projection", () => {
-  const learningAssignment = assignLearningEpisode(DEFAULT_LEARNING_POLICY, {
-    episodeId: "canary-episode",
-    taskSignatureSha256: sha256Bytes("canary-task"),
-    taskSignatureCoverage: "exact",
-    baseline: {
-      modelTier: "economy", effort: "low", prompt: "baseline",
-      authoring: "text", history: "git",
-    },
-  });
-  const recurringCanary = {
-    thread: "@canary-thread", agent: "lane-canary", durationMs: 250,
-    posture: "spawn", outcome: "ran", processOutcome: "ran",
-    provider: "openai", providerTarget: "codex-personal",
-    deliveryOutcome: "reported", deliveryReason: "complete_run_scoped_done_bar_evidence_self_reported",
-    deliveryProof: {
-      deliveryEvidence: "{\"run\":\"@run:canary\"}",
-      deliveryEvidenceSha256: "a".repeat(64),
-    },
-    routingPinEvidence: {
-      policyVersion: "north-routing-pin-v1",
-      issuedAt: "2026-07-26T00:00:00.000Z",
-      expiresAt: "2026-07-26T00:15:00.000Z",
-      reasonCode: "calibration-experiment",
-      detail: "recurring-cross-provider-canary:@canary-thread",
-      pins: [{ kind: "provider", value: "openai" }],
-    },
-  } as any;
-  const facts = runFacts({ ...recurringCanary, learningAssignment });
-
-  const predicates = new Set(facts.map(([predicate]) => predicate));
-  const reliabilityPredicates = new Set([
-    "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
-    "duration_ms", "posture", "outcome", "at", "process_outcome",
-    "provider", "provider_target", "delivery_outcome", "delivery_reason",
-    "delivery_evidence", "delivery_evidence_sha256",
-    "routing_pin_reason_code", "routing_pin_detail",
-  ]);
-  const assignmentPredicates = new Set(
-    learningAssignmentFacts(learningAssignment).map(([predicate]) => predicate),
-  );
-  expect(facts).toHaveLength(reliabilityPredicates.size + assignmentPredicates.size);
-  expect(predicates).toEqual(new Set([...reliabilityPredicates, ...assignmentPredicates]));
-  expect(predicates.has("routing_assessment_policy")).toBe(false);
-  expect(predicates.has("prompt_composition_applied")).toBe(false);
-  expect(new Set(runFacts(recurringCanary).map(([predicate]) => predicate)))
-    .toEqual(reliabilityPredicates);
+test("a North-synthetic latest call keeps joins but makes run turn and token totals inexact", () => {
+	let tick = 0;
+	const writer = new WireEventWriter({
+		runId: wireRunId("run:telemetry-synthetic-latest"),
+		eventId: (sequence) => wireEventId(`event:telemetry-synthetic-latest:${sequence}`),
+		now: () => new Date(Date.UTC(2026, 7, 10, 3, 0, tick++)).toISOString(),
+	});
+	writer.append({ kind: "run.started", lifecycle: "running" });
+	const firstCallId = wireModelCallId("model-call:telemetry-synthetic-latest:1");
+	writer.append({
+		kind: "model-call.started",
+		modelCallId: firstCallId,
+		model: { provider: "openai", tier: "standard" },
+		attempt: 1,
+	});
+	writer.append({
+		kind: "model-call.completed",
+		modelCallId: firstCallId,
+		status: "succeeded",
+		origin: "provider",
+		usageCoverage: "exact",
+		usage: {
+			lifetime: {
+				inputTokens: 100,
+				outputTokens: 20,
+				cacheReadTokens: 40,
+				cacheWriteTokens: 0,
+				reasoningTokens: 5,
+				modelCalls: 1,
+			},
+			context: { tokens: 80 },
+		},
+		evidence: {
+			providerJoin: providerJoinEvidence("openai", {
+				sessionId: "private-session",
+				turnIds: ["private-turn-1"],
+				sessionPersistence: "ephemeral",
+			}),
+			turns: { unit: "provider-turn", count: 1, toolItems: 2, comparable: false },
+			providerDurationMs: 100,
+		},
+	});
+	const secondCallId = wireModelCallId("model-call:telemetry-synthetic-latest:2");
+	writer.append({
+		kind: "model-call.started",
+		modelCallId: secondCallId,
+		model: { provider: "openai", tier: "standard" },
+		attempt: 2,
+	});
+	writer.append({
+		kind: "model-call.completed",
+		modelCallId: secondCallId,
+		status: "cancelled",
+		origin: "north",
+		usageCoverage: "unavailable",
+		usage: writer.snapshot()!.usage,
+		errorCode: "north_abort",
+		evidence: {
+			turns: { unit: "provider-turn", count: 1, toolItems: 99, comparable: false },
+			providerDurationMs: 999,
+		},
+	});
+	writer.terminate({ lifecycle: "cancelled", reason: { code: "aborted" } });
+	const events = writer.events();
+	const projection = wireRunTelemetryFacts(
+		identity,
+		reduceWireEvents(events),
+		{ status: "recorded", summary: wireLedgerSummary(events) },
+		{},
+	);
+	const facts = new Map(projection.facts);
+	expect(facts.get("provider_session_persistence")).toBe("ephemeral");
+	expect(facts.get("provider_join_coverage")).toBe("partial");
+	expect(projection.facts.filter(([predicate]) => predicate === "provider_turn_key"))
+		.toHaveLength(1);
+	expect(facts.get("turn_provenance")).toBe("unknown");
+	expect(facts.has("provider_turn_units")).toBe(false);
+	expect(facts.has("provider_tool_items")).toBe(false);
+	expect(facts.has("provider_duration_ms")).toBe(false);
+	expect(facts.get("usage_terminal_count")).toBe("1");
+	expect(facts.get("usage_total_status")).toBe("partial");
+	expect(facts.has("tokens")).toBe(false);
 });
 
-test("a @run model fact is canonicalized at write, never a bare family alias", () => {
-  const facts = runFacts({
-    thread: "@run-alias", agent: "lane-alias", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "anthropic", model: "opus",
-  });
-  expect(facts).toContainEqual(["model", "claude-opus-5"]);
-  expect(facts.some(([, v]) => v === "opus")).toBe(false);
+test("watchdog facts come only from replayed provider-neutral abort evidence", () => {
+	let tick = 0;
+	const writer = new WireEventWriter({
+		runId: wireRunId("run:telemetry-watchdog"),
+		eventId: (sequence) => wireEventId(`event:telemetry-watchdog:${sequence}`),
+		now: () => new Date(Date.UTC(2026, 7, 10, 4, 0, tick++)).toISOString(),
+	});
+	writer.append({ kind: "run.started", lifecycle: "running" });
+	writer.terminate({
+		lifecycle: "cancelled",
+		reason: { code: "aborted" },
+		abort: {
+			requestedAt: "2026-08-10T04:00:01.000Z",
+			source: "watchdog",
+			reason: "north_watchdog_execution_inactivity",
+			watchdog: {
+				silenceMs: 20_000,
+				lastOuter: {
+					origin: "outer",
+					kind: "message",
+					observedAt: "2026-08-10T03:59:40.000Z",
+				},
+				lastProvider: {
+					origin: "provider",
+					kind: "tool",
+					observedAt: "2026-08-10T03:59:39.000Z",
+				},
+			},
+		},
+	});
+	const events = writer.events();
+	const projection = wireRunTelemetryFacts(
+		identity,
+		reduceWireEvents(events),
+		{ status: "recorded", summary: wireLedgerSummary(events) },
+		{},
+	);
+	expect(projection.facts).toContainEqual([
+		"watchdog_reason",
+		"north_watchdog_execution_inactivity",
+	]);
+	expect(projection.facts).toContainEqual(["watchdog_silence_ms", "20000"]);
+	expect(projection.facts).toContainEqual([
+		"watchdog_last_outer_activity",
+		JSON.stringify({
+			origin: "outer",
+			kind: "message",
+			observedAt: "2026-08-10T03:59:40.000Z",
+		}),
+	]);
+	expect(projection.facts).toContainEqual([
+		"watchdog_last_provider_activity",
+		JSON.stringify({
+			origin: "provider",
+			kind: "tool",
+			observedAt: "2026-08-10T03:59:39.000Z",
+		}),
+	]);
 });
 
-test("a fallback-death @run drops the routed-intent model rather than write a cross-provider phantom", () => {
-  // lane-mrtcfwgj shape: executed provider=anthropic after openai->anthropic
-  // fallback, but the routed-intent model gpt-5.6-sol lagged. Write no model.
-  const facts = runFacts({
-    thread: "@run-phantom", agent: "lane-phantom", durationMs: 1,
-    posture: "spawn", outcome: "died", provider: "anthropic", model: "gpt-5.6-sol",
-  });
-  expect(facts.some(([predicate]) => predicate === "model")).toBe(false);
+test("a mismatched ledger can never produce a completeness projection", () => {
+	const events = completedRun();
+	const snapshot = reduceWireEvents(events);
+	const summary = wireLedgerSummary(events);
+	expect(() => wireRunTelemetryFacts(identity, snapshot, {
+		status: "recorded",
+		summary: { ...summary, digest: "0".repeat(64), eventCount: summary.eventCount + 1 },
+	}, {})).toThrow("does not match the run snapshot");
 });
 
-test("a blocked_preflight @run carries the full nested cause chain as preflight_cause", () => {
-  const facts = runFacts({
-    thread: "@run-preflight", agent: "lane-preflight", durationMs: 1,
-    posture: "spawn", outcome: "blocked_preflight", processOutcome: "blocked_preflight",
-    preflightCause: "openai_codex_authority_preflight_failed <- cause: rpc handshake refused",
-  });
-  expect(facts).toContainEqual([
-    "preflight_cause",
-    "openai_codex_authority_preflight_failed <- cause: rpc handshake refused",
-  ]);
+test("run summary subjects cannot collide across exact wire run IDs", () => {
+	const plainEvents = completedRun();
+	const atPrefixedEvents = completedRun(wireRunId("@run:telemetry-lane-001"));
+	const plain = wireRunTelemetryFacts(identity, reduceWireEvents(plainEvents), {
+		status: "recorded",
+		summary: wireLedgerSummary(plainEvents),
+	}, {});
+	const atPrefixed = wireRunTelemetryFacts(identity, reduceWireEvents(atPrefixedEvents), {
+		status: "recorded",
+		summary: wireLedgerSummary(atPrefixedEvents),
+	}, {});
+
+	expect(plain.subject).toBe("@run:telemetry-lane-001");
+	expect(atPrefixed.subject).toMatch(/^@run:wire-summary-[a-f0-9]{64}$/);
+	expect(atPrefixed.subject).not.toBe(plain.subject);
+	expect(new Map(atPrefixed.facts).get("wire_run_id")).toBe("@run:telemetry-lane-001");
 });
 
-test("a provider_error @run carries the provider payload as provider_error_detail", () => {
-  // thread 019f9cec: without this fact a dead managed lane leaves NOTHING in the
-  // graph naming why the provider failed — the frame is dropped, the throw is
-  // discarded by the message loop's break, and the managed home is disposed.
-  const detail = "provider error terminal: subtype=error_during_execution is_error=true "
-    + "failure=openai_provider_execution_failed <- cause: provider turn error";
-  const facts = runFacts({
-    thread: "@run-provider-error", agent: "lane-provider-error", durationMs: 1,
-    posture: "spawn", outcome: "provider_error", processOutcome: "provider_error",
-    providerErrorDetail: `${detail}\n  padded`,
-  });
-  expect(facts).toContainEqual(["provider_error_detail", `${detail} padded`]);
-  const [, value] = facts.find(([predicate]) => predicate === "provider_error_detail")!;
-  expect(value.length).toBeLessThanOrEqual(1200);
+test("recording forwards one immutable projection and preserves sink unavailability", async () => {
+	const events = completedRun();
+	const snapshot = reduceWireEvents(events);
+	const summary = wireLedgerSummary(events);
+	let calls = 0;
+	const status = await recordWireRunTelemetry(
+		identity,
+		snapshot,
+		{ status: "recorded", summary },
+		{},
+		1234,
+		async (projection, timeoutMs) => {
+			calls += 1;
+			expect(Object.isFrozen(projection)).toBe(true);
+			expect(timeoutMs).toBe(1234);
+			return "unavailable";
+		},
+	);
+	expect(status).toBe("unavailable");
+	expect(calls).toBe(1);
 });
 
-test("a North watchdog abort carries its initiating reason and both last-activity observations", () => {
-  const facts = runFacts({
-    thread: "@run-watchdog", agent: "lane-watchdog", durationMs: 1,
-    posture: "spawn", outcome: "watchdog_aborted", processOutcome: "watchdog_aborted",
-    watchdogAbort: {
-      reason: "north_watchdog_execution_inactivity",
-      silenceMs: 1_200_000,
-      lastOuter: {
-        origin: "outer",
-        kind: "outer.assistant.text",
-        observedAt: "2026-07-28T01:40:00.000Z",
-      },
-      lastProvider: {
-        origin: "provider",
-        kind: "provider.codex.mcp.progress",
-        observedAt: "2026-07-28T01:48:48.000Z",
-      },
-    },
-  });
-  expect(facts).toContainEqual([
-    "watchdog_reason", "north_watchdog_execution_inactivity",
-  ]);
-  expect(facts).toContainEqual(["watchdog_silence_ms", "1200000"]);
-  expect(facts).toContainEqual([
-    "watchdog_last_outer_activity",
-    JSON.stringify({
-      origin: "outer",
-      kind: "outer.assistant.text",
-      observedAt: "2026-07-28T01:40:00.000Z",
-    }),
-  ]);
-  expect(facts).toContainEqual([
-    "watchdog_last_provider_activity",
-    JSON.stringify({
-      origin: "provider",
-      kind: "provider.codex.mcp.progress",
-      observedAt: "2026-07-28T01:48:48.000Z",
-    }),
-  ]);
-  expect(facts.some(([predicate]) => predicate === "provider_error_detail")).toBe(false);
-});
-
-test("current run telemetry freezes judgment and the full effective detector policy", () => {
-  const struggle = makeStruggleObserver(resolveStrugglePolicy("orchestrator", {
-    STRUGGLE_ERROR_STREAK: "4",
-    STRUGGLE_LOOP_REPEAT: "3",
-    STRUGGLE_LOOP_WINDOW: "24",
-    STRUGGLE_STALL_TURNS: "8",
-    STRUGGLE_STALL_TURNS_ORCHESTRATOR: "16",
-  }));
-  const facts = runFacts({
-    thread: "thread-grade", agent: "lane-grade", durationMs: 1,
-    posture: "composite", outcome: "ran",
-    judgmentGrade: { grade: "l", status: "valid", source: "thread" },
-    struggleObservation: struggle.snapshot(),
-  });
-  for (const expected of [
-    ["judgment_grade", "l"],
-    ["judgment_grade_status", "valid"],
-    ["judgment_grade_source", "thread"],
-    ["struggle_detector_policy_version", "north:struggle-observer:v1"],
-    ["struggle_topology", "orchestrator"],
-    ["struggle_error_streak_threshold", "4"],
-    ["struggle_loop_repeat_threshold", "3"],
-    ["struggle_loop_window", "24"],
-    ["struggle_no_progress_turn_threshold", "16"],
-    ["error_count", "0"],
-  ]) expect(facts).toContainEqual(expected);
-
-  const adHoc = runFacts({
-    thread: "(ad-hoc)", agent: "lane-ad-hoc", durationMs: 1,
-    posture: "spawn", outcome: "ran",
-    judgmentGrade: { status: "unavailable", source: "ad-hoc" },
-    struggleObservation: makeStruggleObserver(resolveStrugglePolicy("worker", {})).snapshot(),
-  });
-  expect(adHoc).toContainEqual(["judgment_grade_status", "unavailable"]);
-  expect(adHoc).toContainEqual(["judgment_grade_source", "ad-hoc"]);
-  expect(adHoc.some(([predicate]) => predicate === "judgment_grade")).toBe(false);
-});
-
-test("telemetry rejects internally inconsistent observation snapshots", () => {
-  const base = {
-    thread: "thread", agent: "lane", durationMs: 1, posture: "atomic", outcome: "ran",
-    struggleObservation: makeStruggleObserver(resolveStrugglePolicy("worker", {})).snapshot(),
-  };
-  expect(() => runFacts({
-    ...base,
-    judgmentGrade: { grade: "s", status: "unavailable", source: "thread" } as any,
-  })).toThrow("invalid run-local judgment_grade snapshot");
-  expect(() => runFacts({
-    ...base,
-    judgmentGrade: { status: "unavailable", source: "ad-hoc" },
-    struggleObservation: { ...base.struggleObservation, loopWindow: 2, loopRepeatThreshold: 3 },
-  })).toThrow("exceeds loop window");
-});
-
-test("run telemetry is token- and routing-based with no price-derived fields", () => {
-  expect(runFacts({
-    thread: "thread-1",
-    agent: "lane-1",
-    tokens: 321,
-    durationMs: 45,
-    posture: "spawn",
-    outcome: "ran",
-    provider: "openai",
-  }, "2026-07-16T00:00:00.000Z")).toEqual([
-    ["kind", "run"],
-    ["thread", "thread-1"],
-    ["agent", "lane-1"],
-    ["agent_run_ledger_version", "north-agent-run-ledger:v1"],
-    ["run_event_status", "unavailable"],
-    ["tokens", "321"],
-    ["duration_ms", "45"],
-    ["posture", "spawn"],
-    ["outcome", "ran"],
-    ["at", "2026-07-16T00:00:00.000Z"],
-    ["provider", "openai"],
-  ]);
-});
-
-test("run telemetry carries admission receipt and overlap-safe execution provenance", () => {
-  const providerJoin = providerJoinEvidence("openai", {
-    sessionId: "session-provenance",
-    turnIds: ["turn-provenance-a", "turn-provenance-b"],
-    sessionPersistence: "persisted",
-  });
-  const facts = runFacts({
-    thread: "thread-provenance", agent: "lane-provenance", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "openai",
-    executionSource: "north-managed", executionTransport: "codex-cli",
-    providerSessionPersistence: "persisted", providerJoin, northSessionId: "north-session",
-    threadProvenance: "exact", turnProvenance: "provider-terminal",
-    routingAdmissionReceipt: {
-      version: 1,
-      routingRequestSha256: "a".repeat(64),
-      staffingCatalogSha256: "b".repeat(64),
-      providerCatalogsSha256: "c".repeat(64),
-      routingPolicySha256: "unavailable",
-      appliedAxes: { taskGrade: "mid", topology: "worker", tier: "standard", reasoning: "medium", posture: "deliver" },
-      overrideEvidence: { changedAxes: [], status: "none" },
-      pinEvidenceStatus: "none",
-    },
-  });
-  for (const expected of [
-    ["execution_source", "north-managed"],
-    ["execution_transport", "codex-cli"],
-    ["provider_session_persistence", "persisted"],
-    ["provider_join_key_version", "north-provider-join:v1"],
-    ["provider_join_coverage", "exact"],
-    ["provider_session_key", providerSessionKey("session-provenance")],
-    ["provider_turn_key", providerTurnKey("openai", "turn-provenance-a")],
-    ["provider_turn_key", providerTurnKey("openai", "turn-provenance-b")],
-    ["north_session_id", "north-session"],
-    ["thread_provenance", "exact"],
-    ["turn_provenance", "provider-terminal"],
-    ["routing_assessment_status", "unavailable"],
-    ["routing_pin_evidence_status", "none"],
-  ]) expect(facts).toContainEqual(expected);
-});
-
-test("turn provenance follows terminal phase, not a zero-turn counter", () => {
-  expect(classifyTurnProvenance({ type: "result", num_turns: 0 }, "ran"))
-    .toBe("provider-terminal");
-  expect(classifyTurnProvenance(undefined, "blocked_preflight")).toBe("pre-provider");
-  expect(classifyTurnProvenance(undefined, "blocked_spend_guard")).toBe("pre-provider");
-  expect(classifyTurnProvenance(undefined, "provider_error")).toBe("unknown");
-});
-
-test("telemetry accepts the managed Codex app-server transport distinctly from CLI fallback", () => {
-  const facts = runFacts({
-    thread: "thread-app-server", agent: "lane-app-server", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "openai",
-    executionSource: "north-managed", executionTransport: "codex-app-server",
-  });
-  expect(facts).toContainEqual(["execution_transport", "codex-app-server"]);
-});
-
-test("a managed Codex app-server terminal records its observed tool-item count, not just turn units", () => {
-  // Thread 019f9cc2: every managed lane wrote codex_turn_units=1 and NO
-  // codex_tool_items, because the app-server terminal carried no toolItems at
-  // all — lanes that provably ran tools (file written, commit harvested) read
-  // as "one turn, activity unknown". The app-server terminal now carries the
-  // count summed from observed item/completed events, and it must survive the
-  // terminal -> RunRecord -> facts translation.
-  const codexTurnActivity = codexTurnActivityFromResult({
-    type: "result", subtype: "success",
-    _north_codex_turn_activity: { turnUnits: 1, toolItems: 7, comparable: false },
-  });
-  expect(codexTurnActivity).toEqual({ turnUnits: 1, toolItems: 7, comparable: false });
-  const facts = runFacts({
-    thread: "thread-app-server-items", agent: "lane-app-server-items", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "openai",
-    executionSource: "north-managed", executionTransport: "codex-app-server",
-    codexTurnActivity,
-  });
-  expect(facts).toContainEqual(["codex_turn_units", "1"]);
-  expect(facts).toContainEqual(["codex_tool_items", "7"]);
-  // The disclaimer travels with the count; num_turns never appears.
-  expect(facts).toContainEqual(["codex_turn_metric_comparable", "false"]);
-  expect(facts.map(([predicate]) => predicate)).not.toContain("num_turns");
-});
-
-test("run telemetry carries bounded native command evidence without raw command or output", () => {
-  const facts = runFacts({
-    thread: "thread-native-command", agent: "lane-native-command", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "openai",
-    nativeCommandActivity: {
-      source: "codex-app-server:item-completed", coverage: "exact",
-      totalCommands: 1, successfulCommands: 1, failedCommands: 0, declinedCommands: 0,
-      northBinaryProbe: "passed",
-      completions: [{
-        commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
-        status: "completed", exitCode: 0, shape: "read", durationMs: 5,
-      }],
-    },
-  });
-  for (const expected of [
-    ["native_command_activity_source", "codex-app-server:item-completed"],
-    ["native_command_activity_coverage", "exact"],
-    ["native_north_binary_probe", "passed"],
-    ["native_command_total", "1"],
-    ["native_command_successful", "1"],
-  ]) expect(facts).toContainEqual(expected);
-  const serialized = JSON.stringify(facts);
-  expect(serialized).not.toContain("command -v north");
-  expect(serialized).not.toContain("/nix/store/");
-  expect(facts.filter(([predicate]) => predicate === "native_command_completion"))
-    .toHaveLength(1);
-});
-
-test("run telemetry publishes reconciled MCP operation receipts and aggregates", () => {
-  const facts = runFacts({
-    thread: "thread-mcp-operation", agent: "lane-mcp-operation", durationMs: 1,
-    posture: "spawn", outcome: "ran", provider: "openai",
-    mcpActivity: {
-      source: "fixture", coverage: "exact", totalCalls: 2,
-      tools: [{ server: "fram", tool: "set-body", count: 2 }],
-      operationReceipts: [
-        { tool: "fram/set-body", operation: "authoring.write", durationMs: 2, resultSize: 4, outcome: "ok" },
-        { tool: "fram/set-body", operation: "authoring.write", durationMs: 6, resultSize: 4, outcome: "typed_failure" },
-      ],
-      operationAggregates: [{ operation: "authoring.write", count: 2, totalDurationMs: 8, meanDurationMs: 4, failureCount: 1 }],
-    },
-  });
-  expect(facts.filter(([predicate]) => predicate === "mcp_operation_receipt")).toHaveLength(2);
-  expect(facts).toContainEqual(["mcp_operation_aggregate", JSON.stringify({
-    operation: "authoring.write", count: 2, totalDurationMs: 8, meanDurationMs: 4, failureCount: 1,
-  })]);
-});
-
-test("run telemetry rejects incomplete or unbounded native command evidence", () => {
-  const base = {
-    thread: "thread-native-command", agent: "lane-native-command", durationMs: 1,
-    posture: "spawn", outcome: "ran",
-  };
-  expect(() => runFacts({
-    ...base,
-    nativeCommandActivity: {
-      source: "codex-app-server:unsettled", coverage: "unknown",
-      totalCommands: 0, northBinaryProbe: "passed", completions: [],
-    },
-  } as any)).toThrow("unknown native command activity carries terminal evidence");
-  expect(() => runFacts({
-    ...base,
-    nativeCommandActivity: {
-      source: "codex-app-server:item-completed", coverage: "exact",
-      totalCommands: 33, successfulCommands: 33, failedCommands: 0, declinedCommands: 0,
-      northBinaryProbe: "passed",
-      completions: Array.from({ length: 33 }, () => ({
-        commandSha256: "a".repeat(64), outputSha256: "b".repeat(64),
-        status: "completed", exitCode: 0,
-      })),
-    },
-  } as any)).toThrow("invalid native command activity observation");
-});
-
-test("run telemetry preserves requested, active, and fallback account targets", () => {
-  const facts = runFacts({
-    thread: "thread-target", agent: "lane-target", durationMs: 2, posture: "spawn", outcome: "ran",
-    provider: "openai", providerTarget: "codex-work", requestedProvider: "auto",
-    requestedTarget: "claude-personal", fallbackPath: ["anthropic", "openai"],
-    fallbackTargetPath: ["claude-personal", "codex-work"],
-    providerReason: "mode=preferential; target=claude-personal; pressure=normal; order=claude-personal -> codex-work",
-    allocationMode: "preferential", entitlementPressure: "low",
-    fallbackReasons: [{ sequence: 1, reason: "provider_retry_safe_before_acceptance",
-      fromTarget: "claude-personal", fromProvider: "anthropic",
-      toTarget: "codex-work", toProvider: "openai" }],
-  });
-  expect(facts).toContainEqual(["provider_target", "codex-work"]);
-  expect(facts).toContainEqual(["requested_provider", "auto"]);
-  expect(facts).toContainEqual(["requested_target", "claude-personal"]);
-  expect(facts).toContainEqual(["fallback_target_path", "claude-personal -> codex-work"]);
-  expect(facts).toContainEqual(["provider_reason", "mode=preferential; target=claude-personal; pressure=normal; order=claude-personal -> codex-work"]);
-  expect(facts).toContainEqual(["allocation_mode", "preferential"]);
-  expect(facts).toContainEqual(["entitlement_pressure", "low"]);
-  expect(facts.filter(([predicate]) => predicate === "fallback_reason")).toEqual([["fallback_reason", JSON.stringify({
-    sequence: 1, reason: "provider_retry_safe_before_acceptance",
-    fromTarget: "claude-personal", fromProvider: "anthropic",
-    toTarget: "codex-work", toProvider: "openai",
-  })]]);
-});
-
-test("run telemetry persists structured exact-model availability evidence", () => {
-  const facts = runFacts({
-    thread: "thread-model", agent: "lane-model", durationMs: 2,
-    posture: "spawn", outcome: "ran", provider: "anthropic",
-    providerTarget: "claude-personal", model: "claude-fable-5",
-    modelAvailability: {
-      provider: "anthropic", targetId: "claude-personal", authMode: "ambient",
-      model: "claude-fable-5", observedAt: "2026-07-20T10:00:00.000Z",
-      source: "claude-agent-sdk:Query.supportedModels",
-      observationDigest: "a".repeat(64),
-    },
-  });
-  expect(facts).toContainEqual(["provider_target", "claude-personal"]);
-  expect(facts).toContainEqual(["model", "claude-fable-5"]);
-  expect(facts).toContainEqual(["model_availability_target", "claude-personal"]);
-  expect(facts).toContainEqual(["model_availability_source", "claude-agent-sdk:Query.supportedModels"]);
-  expect(facts).toContainEqual(["model_availability_observed_at", "2026-07-20T10:00:00.000Z"]);
-  expect(facts).toContainEqual(["model_availability_model", "claude-fable-5"]);
-  expect(facts).toContainEqual(["model_availability_digest", "a".repeat(64)]);
-  expect(() => runFacts({
-    thread: "thread-model", agent: "lane-model", durationMs: 2,
-    posture: "spawn", outcome: "ran", provider: "anthropic",
-    providerTarget: "claude-personal", model: "claude-opus-4-8",
-    modelAvailability: {
-      provider: "anthropic", targetId: "claude-personal", authMode: "ambient",
-      model: "claude-fable-5", observedAt: "2026-07-20T10:00:00.000Z",
-      source: "claude-agent-sdk:Query.supportedModels",
-      observationDigest: "a".repeat(64),
-    },
-  })).toThrow("does not match the final provider route");
-});
-
-test("run telemetry separates wall time, provider time, process terminal, and delivery truth", () => {
-  const facts = runFacts({
-    thread: "thread-terminal", agent: "lane-terminal",
-    durationMs: 1250, providerDurationMs: 900,
-    posture: "spawn", outcome: "ran", processOutcome: "ran",
-    deliveryOutcome: "unverified",
-    deliveryReason: "provider_terminal_success_without_external_verification",
-  });
-  expect(facts).toContainEqual(["duration_ms", "1250"]);
-  expect(facts).toContainEqual(["provider_duration_ms", "900"]);
-  expect(facts).toContainEqual(["process_outcome", "ran"]);
-  expect(facts).toContainEqual(["delivery_outcome", "unverified"]);
-  expect(facts).toContainEqual([
-    "delivery_reason", "provider_terminal_success_without_external_verification",
-  ]);
-});
-
-test("reported run telemetry carries the exact evidence snapshot and digest", () => {
-  const assessment = assessThreadDelivery("thread", "agent", [
-    { predicate: "done_when", value: "tests pass" },
-  ], [
-    { predicate: "done_when", value: "tests pass" },
-  ], "run-agent", [{
-    version: RUN_BAR_EVIDENCE_VERSION,
-    run: "@run-agent",
-    thread: "@thread",
-    reporter: "@agent:agent",
-    bar: "tests pass",
-    observed: "exit 0",
-    recordedAt: "2026-07-18T10:00:00.000Z",
-  }]);
-  if (assessment.deliveryOutcome !== "reported") throw new Error("expected reported");
-  const facts = runFacts({
-    thread: "thread", agent: "agent", durationMs: 1, posture: "atomic",
-    outcome: "ran", processOutcome: "ran",
-    deliveryOutcome: assessment.deliveryOutcome,
-    deliveryReason: assessment.deliveryReason,
-    deliveryProof: assessment.proof,
-  }, "2026-07-18T10:00:01.000Z");
-  expect(facts).toContainEqual(["delivery_outcome", "reported"]);
-  expect(facts).toContainEqual(["delivery_evidence", assessment.proof.deliveryEvidence]);
-  expect(facts).toContainEqual([
-    "delivery_evidence_sha256",
-    assessment.proof.deliveryEvidenceSha256,
-  ]);
-  expect(facts.some(([predicate]) => predicate === "delivery_attestation")).toBe(false);
-});
-
-test("run telemetry preserves each exact observed token component once", () => {
-  const facts = runFacts({
-    thread: "thread-2",
-    agent: "lane-2",
-    tokens: 200,
-    tokenUsage: {
-      inputTokens: 101,
-      outputTokens: 23,
-      cacheCreateTokens: 17,
-      cacheReadTokens: 59,
-      total: 200,
-      terminalCount: 1,
-      terminalScope: "anthropic_result_terminal",
-      totalStatus: "exact",
-    },
-    durationMs: 45,
-    posture: "spawn",
-    outcome: "ran",
-  }, "2026-07-16T00:00:00.000Z");
-
-  expect(facts.filter(([predicate]) => predicate === "tokens")).toEqual([["tokens", "200"]]);
-  expect(facts.filter(([predicate]) => predicate.endsWith("_tokens"))).toEqual([
-    ["input_tokens", "101"],
-    ["output_tokens", "23"],
-    ["cache_create_tokens", "17"],
-    ["cache_read_tokens", "59"],
-  ]);
-  expect(facts).toContainEqual(["usage_terminal_count", "1"]);
-  expect(facts).toContainEqual(["usage_scope", "anthropic_result_terminal"]);
-  expect(facts).toContainEqual(["usage_total_status", "exact"]);
-});
-
-test("run telemetry omits terminal components that were not observed", () => {
-  const facts = runFacts({
-    thread: "thread-3",
-    agent: "lane-3",
-    tokenUsage: { inputTokens: 7, terminalCount: 1,
-      terminalScope: "anthropic_result_terminal", totalStatus: "unknown_incomplete_terminal" },
-    durationMs: 0,
-    posture: "atomic",
-    outcome: "ran",
-  });
-
-  expect(facts).toContainEqual(["input_tokens", "7"]);
-  expect(facts.some(([predicate]) => predicate === "tokens")).toBe(false);
-  expect(facts.some(([predicate]) => predicate === "output_tokens")).toBe(false);
-  expect(facts.some(([predicate]) => predicate.startsWith("cache_") && predicate.endsWith("_tokens"))).toBe(false);
-});
-
-test("Codex subset counters are retained without changing its adapter-owned total", () => {
-  const facts = runFacts({
-    thread: "thread-4", agent: "lane-4", tokens: 999,
-    tokenUsage: {
-      inputTokens: 100, cachedInputTokens: 60,
-      outputTokens: 20, reasoningOutputTokens: 7,
-      total: 120, terminalCount: 1,
-      terminalScope: "codex_fresh_invocation_thread_cumulative", totalStatus: "exact",
-    },
-    durationMs: 1, posture: "spawn", outcome: "ran",
-  });
-  expect(facts).toContainEqual(["tokens", "120"]);
-  expect(facts).toContainEqual(["cached_input_tokens", "60"]);
-  expect(facts).toContainEqual(["reasoning_output_tokens", "7"]);
-  expect(facts).not.toContainEqual(["tokens", "999"]);
-});
-
-test("zero and repeated terminals remain queryable without a fabricated token total", () => {
-  for (const tokenUsage of [
-    { terminalCount: 0, totalStatus: "unknown_no_terminal" as const },
-    { terminalCount: 2, terminalScope: "anthropic_result_terminal" as const,
-      totalStatus: "unknown_repeated_terminal" as const },
-  ]) {
-    const facts = runFacts({ thread: "thread-u", agent: "lane-u", tokenUsage,
-      tokens: 0,
-      durationMs: 0, posture: "spawn", outcome: "died" });
-    expect(facts.some(([predicate]) => predicate === "tokens")).toBe(false);
-    expect(facts).toContainEqual(["usage_terminal_count", String(tokenUsage.terminalCount)]);
-    expect(facts).toContainEqual(["usage_total_status", tokenUsage.totalStatus]);
-  }
-});
-
-test("prompt economics persists only content-free measurements and exact zero compactions", () => {
-  const facts = runFacts({
-    thread: "thread-economics", agent: "lane-economics", durationMs: 1,
-    posture: "spawn", outcome: "ran", compactions: 0,
-    promptComposition: { promptEconomics: {
-      compositionVersion: "north-harness-prompt:v1",
-      compositionDigest: "a".repeat(64),
-      capabilityClass: "authoring", capabilityCount: 4,
-      stablePrefixBytes: 1200, uniqueTailBytes: 300, totalBytes: 1500,
-      byteMeasurementSource: "node-buffer-byte-length:utf8",
-      tokenMeasurementStatus: "unknown",
-      tokenMeasurementSource: "authoritative-tokenizer-unavailable",
-      providerContextWindowTokens: 400000,
-      contextWindowEffectiveFrom: "2026-01-01",
-      contextWindowStatus: "observed", contextWindowSource: "orchestration-provider-catalog",
-      contextBudgetStatus: "unknown", contextBudgetSource: "north-harness-unconfigured",
-      compactionPolicy: "native-auto-compact-enabled",
-      compactionPolicyVersion: "north-native-auto-compact:v1",
-    } },
-  });
-  for (const expected of [
-    ["prompt_composition_version", "north-harness-prompt:v1"],
-    ["capability_class", "authoring"],
-    ["prompt_stable_prefix_bytes", "1200"],
-    ["prompt_unique_tail_bytes", "300"],
-    ["prompt_total_bytes", "1500"],
-    ["provider_context_window_tokens", "400000"],
-    ["context_budget_status", "unknown"],
-    ["compaction_count", "0"],
-  ]) expect(facts).toContainEqual(expected);
-  expect(JSON.stringify(facts)).not.toContain("CANARY-private-prompt-content");
+test("new run IDs are branded, unique North run identities", () => {
+	const first = newRunId("same-agent");
+	const second = newRunId("same-agent");
+	expect(first).toMatch(/^run:same-agent-[0-9a-f-]{36}$/);
+	expect(second).not.toBe(first);
+	expect(() => newRunId("bad agent")).toThrow("invalid run agent identity");
 });

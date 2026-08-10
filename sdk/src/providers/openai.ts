@@ -1,3 +1,4 @@
+import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -7,12 +8,10 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  ProviderRetrySafeError, type AgentProvider, type AgentQuery, type ProviderAvailability,
-  type ProviderExecutionEvent,
+  ProviderRetrySafeError, type AgentProvider, type ProviderAvailability,
 } from "./types";
 import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
-import type { AdapterUsageMetadata, TerminalTokenUsage } from "../usage";
 import { codexConfigArguments, providerEnvironmentForTarget } from "../accounts";
 import type { OrchestrationCapability } from "../orchestration-capabilities";
 import {
@@ -33,7 +32,6 @@ import {
   type OpenAIAuthoritySurface,
 } from "./authority";
 import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
-import { causeChain } from "../death";
 import { assertInstalledManagedCodexHooks } from "./codex-managed-hooks";
 import {
   trustedGitProjectRoot, trustedManagedCodexExecutable,
@@ -41,16 +39,42 @@ import {
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
   ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
+  type ManagedCodexAppServerOptions, type ManagedCodexInterruptEvidence,
 } from "./codex-app-server";
 import { managedCodexNetworkArguments } from "./codex-network-policy";
-import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
+import { providerJoinEvidence } from "./provider-join";
 import {
   prepareManagedCodexHome, type PreparedManagedCodexHome,
 } from "./managed-codex-home";
 import { CODEX_SUPERVISOR_STATUS_PREFIX } from "./codex-supervisor-protocol";
 import { type McpActivityObservation, unknownMcpActivity } from "../tool-activity";
+import {
+  WireEventWriter,
+  wireMessageId,
+  wireModelCallId,
+  wireToolCallId,
+  type WireCompletionEvidence,
+  type WireCompletionInterruptEvidence,
+  type WireArtifactSink,
+  type WireEvent,
+  type WireEventDraft,
+  type WireKnownEvent,
+  type WireMessageId,
+  type WireModelCallId,
+  type WireQuery,
+  type WireQueryInput,
+  type WireQueryRoute,
+  type WireToolCallId,
+  type WireUsageSnapshot,
+  type WireUserInputFrame,
+} from "../wire";
+import {
+  OpenAIWireNormalizer,
+  type OpenAIWireTurnSettlementInput,
+} from "./openai-wire";
 
 type ManagedCommandResolver = () => string;
+type ManagedRunFactory = (options: ManagedCodexAppServerOptions) => ManagedCodexAppServerRun;
 
 interface ManagedCodexLaunchReceipt {
   command: string;
@@ -58,6 +82,14 @@ interface ManagedCodexLaunchReceipt {
 }
 
 const managedLaunchReceipts = new WeakMap<object, ManagedCodexLaunchReceipt>();
+
+function optionRecord(options: Options): Record<string, unknown> {
+  return options as unknown as Record<string, unknown>;
+}
+
+function isManagedOpenAI(options: Options): boolean {
+  return optionRecord(options).northCapabilities !== undefined;
+}
 
 function resolveManagedCommand(resolver: ManagedCommandResolver): string {
   try {
@@ -89,9 +121,9 @@ function takeManagedLaunch(options: unknown): ManagedCodexLaunchReceipt | undefi
 const CODEX_SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
 
 /** Per-invocation Codex restrictions derived from the provider-neutral harness contract. */
-export function codexHarnessArguments(options: any): string[] {
-  const denied = new Set(Array.isArray(options?.disallowedTools) ? options.disallowedTools : []);
-  const surface = options?.northCapabilities === undefined
+export function codexHarnessArguments(options: Options): string[] {
+  const denied = new Set(options.disallowedTools ?? []);
+  const surface = !isManagedOpenAI(options)
     ? undefined
     : compileProviderAuthoritySurface("openai", options) as OpenAIAuthoritySurface;
   if (surface) return managedCodexAuthorityArguments(options, surface);
@@ -111,8 +143,8 @@ function defaultCodexProjectRoot(cwd: string): string {
   return trustedGitProjectRoot(cwd);
 }
 
-function managedDeveloperInstructions(options: any): string {
-  if (typeof options?.systemPrompt !== "string" || !options.systemPrompt.trim())
+function managedDeveloperInstructions(options: Options): string {
+  if (typeof options.systemPrompt !== "string" || !options.systemPrompt.trim())
     throw new ProviderRetrySafeError("openai_developer_instructions_contract_missing");
   return options.systemPrompt;
 }
@@ -184,7 +216,7 @@ export function assertCodexGlobalAgentsForEnvironment(
 }
 
 function managedCodexTargetEnvironment(
-  options: any,
+  options: Options,
   target: RoutingTarget | undefined,
 ): PreparedManagedCodexHome {
   let accountEnv: NodeJS.ProcessEnv;
@@ -210,7 +242,7 @@ function managedCodexTargetEnvironment(
 }
 
 function managedCodexAuthorityArguments(
-  options: any,
+  options: Options,
   surface: OpenAIAuthoritySurface,
 ): string[] {
   // This helper is also exported indirectly through codexHarnessArguments, so
@@ -231,7 +263,7 @@ function managedCodexAuthorityArguments(
   ];
 }
 
-export function codexGlobalArguments(options: any): string[] {
+export function codexGlobalArguments(options: Options): string[] {
   void options;
   return [];
 }
@@ -240,8 +272,8 @@ export function probeCodex(target?: RoutingTarget): ProviderAvailability {
   return probeOpenAI(target);
 }
 
-function validateOpenAIHarness(options: any): OrchestrationCapability[] | undefined {
-  if (options?.northCapabilities === undefined) return undefined;
+function validateOpenAIHarness(options: Options): OrchestrationCapability[] | undefined {
+  if (!isManagedOpenAI(options)) return undefined;
   if (!hasCanonicalHarnessAuthority(options, "openai"))
     throw new ProviderRetrySafeError("openai_harness_authority_seal_missing");
   const surface = compileProviderAuthoritySurface("openai", options) as OpenAIAuthoritySurface;
@@ -272,7 +304,7 @@ function validateOpenAIHarness(options: any): OrchestrationCapability[] | undefi
 type ManagedHooksProbe = () => void;
 
 async function admitOpenAIWithManagedHooksProbe(
-  options: any,
+  options: Options,
   target: RoutingTarget | undefined,
   assertManagedHooks: ManagedHooksProbe,
   resolveCommand: ManagedCommandResolver = trustedManagedCodexExecutable,
@@ -295,21 +327,20 @@ async function admitOpenAIWithManagedHooksProbe(
   }
 }
 
-export async function admitOpenAI(options: any, target?: RoutingTarget): Promise<void> {
+export async function admitOpenAI(options: Options, target?: RoutingTarget): Promise<void> {
   await admitOpenAIWithManagedHooksProbe(
     options, target, assertInstalledManagedCodexHooks,
   );
 }
 
-function frameText(v: any): string {
-  if (typeof v === "string") return v;
-  if (v?.type === "user" && typeof v.message?.content === "string") return v.message.content;
-  if (v?.type === "user" && Array.isArray(v.message?.content))
-    return v.message.content.map((x: any) => x.text ?? "").join("\n");
-  return String(v?.text ?? v?.content ?? v ?? "");
+function frameText(frame: WireUserInputFrame): string {
+  if (frame.kind !== "user.input" || typeof frame.text !== "string") {
+    throw new TypeError("OpenAI input frame is invalid");
+  }
+  return frame.text;
 }
 
-async function initialPrompt(value: string | AsyncIterable<any>): Promise<string> {
+async function initialPrompt(value: WireQueryInput): Promise<string> {
   if (typeof value === "string") return value;
   const it = value[Symbol.asyncIterator]();
   try {
@@ -327,14 +358,16 @@ async function initialPrompt(value: string | AsyncIterable<any>): Promise<string
 // prompt is single-turn. Unlike `initialPrompt`, the iterator is NOT closed
 // after the first frame — continuation depends on pulling later frames.
 interface PromptFrames {
+  readonly streaming: boolean;
   first(): Promise<string>;
   next(): Promise<string | undefined>;
   close(): Promise<void>;
 }
 
-function promptFrames(value: string | AsyncIterable<any>): PromptFrames {
+function promptFrames(value: WireQueryInput): PromptFrames {
   if (typeof value === "string") {
     return {
+      streaming: false,
       async first() { return value; },
       async next() { return undefined; },
       async close() { /* no iterator to release */ },
@@ -349,6 +382,7 @@ function promptFrames(value: string | AsyncIterable<any>): PromptFrames {
     return frameText(frame.value);
   };
   return {
+    streaming: true,
     async first() { return (await pull()) ?? ""; },
     async next() { return pull(); },
     async close() {
@@ -383,25 +417,22 @@ function waitForExitBounded(
   timeoutMs: number,
 ): Promise<boolean> {
   if (supervisorExited(child)) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const finish = (exited: boolean): void => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      child.off("exit", onExit);
-      resolve(exited);
-    };
-    const onExit = (): void => finish(true);
-    // Listen first, then re-check state to close the exit-before-listener race.
-    child.once("exit", onExit);
-    if (supervisorExited(child)) {
-      finish(true);
-      return;
-    }
-    timer = setTimeout(() => finish(supervisorExited(child)), timeoutMs);
-  });
+  const settled = Promise.withResolvers<boolean>();
+  let finished = false;
+  let timer: NodeJS.Timeout | undefined;
+  const finish = (exited: boolean): void => {
+    if (finished) return;
+    finished = true;
+    if (timer) clearTimeout(timer);
+    child.off("exit", onExit);
+    settled.resolve(exited);
+  };
+  const onExit = (): void => finish(true);
+  // Listen first, then re-check state to close the exit-before-listener race.
+  child.once("exit", onExit);
+  if (supervisorExited(child)) finish(true);
+  else timer = setTimeout(() => finish(supervisorExited(child)), timeoutMs);
+  return settled.promise;
 }
 
 function closeSupervisorControl(child: ChildProcessWithoutNullStreams): void {
@@ -412,6 +443,10 @@ function destroySupervisorControl(child: ChildProcessWithoutNullStreams): void {
   try { child.stdin.destroy(); } catch { /* already closed */ }
 }
 
+interface DestroyableWritable extends NodeJS.WritableStream {
+  destroy(): void;
+}
+
 function destroyCodexPipes(child: ChildProcessWithoutNullStreams): void {
   try { child.stdin.destroy(); } catch { /* already closed */ }
   try { child.stdout.destroy(); } catch { /* already closed */ }
@@ -419,7 +454,7 @@ function destroyCodexPipes(child: ChildProcessWithoutNullStreams): void {
   // POSIX never gives Bun a numeric prompt descriptor: the supervisor consumes
   // a private spool and FIFO. Only Windows creates an owned fd-4 pipe.
   if (process.platform === "win32") {
-    const prompt = (child.stdio as any[])[4];
+    const prompt = (child.stdio as unknown as Array<DestroyableWritable | null>)[4];
     try { prompt?.destroy(); } catch { /* already closed */ }
   }
   destroySupervisorControl(child);
@@ -451,18 +486,14 @@ function observeSupervisor(
 ): SupervisorObservation {
   const status = child.stderr;
   let startedSettled = false;
-  let resolveStarted!: (value: "started" | "unavailable") => void;
-  let rejectStarted!: (error: unknown) => void;
-  const started = new Promise<"started" | "unavailable">((resolve, reject) => {
-    resolveStarted = resolve;
-    rejectStarted = reject;
-  });
+  const startedDeferred = Promise.withResolvers<"started" | "unavailable">();
+  const started = startedDeferred.promise;
   const settleStarted = (value: "started" | "unavailable") => {
     if (startedSettled) throw new Error("openai_provider_execution_failed", {
       cause: new Error("Codex supervisor status emitted more than one start receipt"),
     });
     startedSettled = true;
-    resolveStarted(value);
+    startedDeferred.resolve(value);
   };
   const completed = (async (): Promise<number> => {
     if (!status) throw new Error("openai_provider_execution_failed", {
@@ -519,7 +550,7 @@ function observeSupervisor(
   void completed.catch((error) => {
     if (!startedSettled) {
       startedSettled = true;
-      rejectStarted(error);
+      startedDeferred.reject(error);
     }
   });
   return { started, completed };
@@ -555,18 +586,18 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
     fd4: "pipe",
     async send(child) {
       const frame = supervisorPromptFrame(prompt);
-      const target = (child.stdio as any[])[4] as NodeJS.WritableStream | undefined;
+      const target = (child.stdio as unknown as Array<DestroyableWritable | null>)[4];
       if (!target) throw new Error("openai_provider_execution_failed", {
         cause: new Error("Codex supervisor prompt pipe fd 4 is unavailable"),
       });
-      await new Promise<void>((resolveWrite, reject) => {
-        const onError = (error: Error) => reject(error);
+      const write = Promise.withResolvers<void>();
+      const onError = (error: Error) => write.reject(error);
         target.once("error", onError);
         target.end(frame, () => {
           target.removeListener("error", onError);
-          resolveWrite();
+          write.resolve();
         });
-      });
+      await write.promise;
     },
     abort() {},
   };
@@ -617,9 +648,10 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
 }
 
 type JsonObject = Record<string, unknown>;
-interface ExactCodexUsage extends TerminalTokenUsage {
+interface ExactCodexUsage {
   input_tokens: number;
   cached_input_tokens: number;
+  cache_write_input_tokens: number;
   output_tokens: number;
   reasoning_output_tokens: number;
 }
@@ -659,10 +691,17 @@ function protocolId(value: unknown, label: string): string {
   return id;
 }
 
-function validateCodexItem(value: unknown): { type: string; text?: string } {
+interface ValidatedCodexItem {
+  id: string;
+  type: string;
+  text?: string;
+  status?: "in_progress" | "completed" | "failed";
+}
+
+function validateCodexItem(value: unknown): ValidatedCodexItem {
   const item = objectValue(value, "Codex item");
   const type = boundedProtocolString(item.type, "Codex item type");
-  protocolId(item.id, "Codex item id");
+  const id = protocolId(item.id, "Codex item id");
   // Item payloads are provider-incidental, not North authority. Keep them
   // strictly framed/parsed/bounded and require stable identity, but do not
   // freeze Codex's evolving command/MCP/web/todo payload union here. Only the
@@ -670,18 +709,26 @@ function validateCodexItem(value: unknown): { type: string; text?: string } {
   if (type === "agent_message") {
     if (typeof item.text !== "string")
       throw new Error("Codex agent-message text must be a string");
-    return { type, text: item.text };
+    return { id, type, text: item.text };
   }
-  return { type };
+  if (type === "error") {
+    boundedProtocolString(item.message, "Codex error-item message", CODEX_JSONL_MAX_LINE_BYTES);
+    return { id, type, status: "failed" };
+  }
+  if (item.status === undefined) return { id, type };
+  if (item.status !== "in_progress" && item.status !== "completed" && item.status !== "failed") {
+    throw new Error("Codex item status is invalid");
+  }
+  return { id, type, status: item.status };
 }
 
 function exactUsage(value: unknown): ExactCodexUsage {
   const usage = objectValue(value, "Codex terminal usage");
-  exactKeys(
-    usage,
-    ["cached_input_tokens", "input_tokens", "output_tokens", "reasoning_output_tokens"],
-    "Codex terminal usage",
-  );
+  const baseKeys = [
+    "cached_input_tokens", "input_tokens", "output_tokens", "reasoning_output_tokens",
+  ] as const;
+  exactKeys(usage, usage.cache_write_input_tokens === undefined
+    ? baseKeys : [...baseKeys, "cache_write_input_tokens"], "Codex terminal usage");
   const counter = (name: string): number => {
     const token = usage[name];
     if (typeof token !== "number" || !Number.isSafeInteger(token) || token < 0)
@@ -690,6 +737,8 @@ function exactUsage(value: unknown): ExactCodexUsage {
   };
   const inputTokens = counter("input_tokens");
   const cachedInputTokens = counter("cached_input_tokens");
+  const cacheWriteInputTokens = usage.cache_write_input_tokens === undefined
+    ? 0 : counter("cache_write_input_tokens");
   const outputTokens = counter("output_tokens");
   const reasoningOutputTokens = counter("reasoning_output_tokens");
   if (cachedInputTokens > inputTokens || reasoningOutputTokens > outputTokens
@@ -699,60 +748,142 @@ function exactUsage(value: unknown): ExactCodexUsage {
   return {
     input_tokens: inputTokens,
     cached_input_tokens: cachedInputTokens,
+    cache_write_input_tokens: cacheWriteInputTokens,
     output_tokens: outputTokens,
     reasoning_output_tokens: reasoningOutputTokens,
   };
 }
 
 interface CodexProtocolResult {
-  text?: string;
-  usage?: ExactCodexUsage;
+  events: readonly WireKnownEvent[];
   activityKind?: string;
+  failure?: Error;
 }
 
-/**
- * Codex-only turn/tool-activity telemetry. Deliberately NOT named or shaped
- * like SDKResultMessage.num_turns: Codex nests tool calls inside one turn per
- * input frame, while Claude's num_turns counts real assistant turns. The two
- * quantities are not the same measurement and must never be joined across
- * providers (thread 019f9c36 — a coordinator did exactly that and quarantined
- * a healthy provider on the strength of a fabricated constant).
- */
-interface CodexTurnActivity {
-  /** Codex-defined turn count for this invocation. Always structurally 1 on
-   * the codex-cli path (one input frame, no live-input); on the app-server
-   * path this is once per resolved North input frame. Not comparable. */
-  turnUnits: number;
-  /** Count of completed work items (tool/command/file-change/MCP/web-search
-   * calls — everything except the assistant's own message and its reasoning
-   * blocks) nested inside the turn(s) above: the honest "did work happen"
-   * signal a turn count cannot provide. Counted from observed item-completion
-   * events on BOTH transports — `item.completed` on codex-exec and
-   * `item/completed` on the app-server. It stayed absent on the app-server
-   * path until thread 019f9cc2, which made every managed lane report
-   * turn units with no item count at all; mcpActivity/nativeCommandActivity
-   * cover only two of the item kinds and are reported elsewhere. */
-  toolItems?: number;
-  /** Always false. Exists so a consumer that forwards this object cannot
-   * accidentally present it as a comparable turn count without also
-   * forwarding the disclaimer. */
-  comparable: false;
+type CodexExecOpenItem =
+  | { category: "message"; type: "agent_message"; messageId: WireMessageId; text: string }
+  | { category: "tool"; type: string; toolCallId: WireToolCallId }
+  | { category: "ignored"; type: "reasoning" };
+
+function codexExecToolName(type: string): string {
+  if (type === "command_execution" || type === "commandExecution") return "command";
+  if (type === "file_change" || type === "fileChange") return "file-change";
+  if (type === "mcp_tool_call" || type === "mcpToolCall") return "mcp-tool";
+  if (type === "web_search" || type === "webSearch") return "web-search";
+  if (type === "todo_list" || type === "todoList") return "todo-list";
+  if (type === "error") return "provider-error";
+  return "provider-item";
 }
 
 class CodexExecProtocol {
-  private phase: "thread" | "turn" | "running" | "completed" = "thread";
-  private usage?: ExactCodexUsage;
-  private threadId?: string;
+  #phase: "thread" | "turn" | "running" | "completed" = "thread";
+  #usage?: ExactCodexUsage;
+  #threadId?: string;
+  #modelCallId?: WireModelCallId;
+  #openItems = new Map<string, CodexExecOpenItem>();
+  #completedItems = new Set<string>();
   // Codex nests every tool/command/file-change item *inside* one turn; a turn
   // count is therefore never a tool-loop proxy (thread 019f9c36). This counts
   // completed non-agent_message items — the one honest, provider-internal
   // "how much did it actually do" signal `codex exec` exposes. It is NOT the
   // same quantity as Claude SDK's num_turns and must never be stored or
   // reported under that name.
-  private toolItemCount = 0;
+  #toolItemCount = 0;
+  readonly #writer: WireEventWriter;
+  readonly #route: WireQueryRoute;
+
+  constructor(
+    writer: WireEventWriter,
+    route: WireQueryRoute,
+  ) {
+    this.#writer = writer;
+    this.#route = route;
+  }
+
+  #events(drafts: readonly WireEventDraft[]): readonly WireKnownEvent[] {
+    return drafts.length ? this.#writer.appendAll(drafts) : Object.freeze([]);
+  }
+
+  #usageSnapshot(usage: ExactCodexUsage): WireUsageSnapshot {
+    const contextTokens = usage.input_tokens + usage.output_tokens;
+    if (this.#route.contextWindow !== undefined && contextTokens > this.#route.contextWindow) {
+      throw new Error("Codex terminal usage exceeds its semantic context window");
+    }
+    return {
+      lifetime: {
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: usage.cached_input_tokens,
+        cacheWriteTokens: usage.cache_write_input_tokens,
+        reasoningTokens: usage.reasoning_output_tokens,
+        modelCalls: this.#writer.snapshot()!.usage.lifetime.modelCalls,
+      },
+      context: {
+        tokens: contextTokens,
+        ...(this.#route.contextWindow === undefined ? {} : { window: this.#route.contextWindow }),
+      },
+    };
+  }
+
+  #completionEvidence(failure?: string): WireCompletionEvidence {
+    return {
+      ...(this.#threadId === undefined ? {} : {
+        providerJoin: providerJoinEvidence("openai", {
+          sessionId: this.#threadId,
+          sessionPersistence: "persisted",
+        }),
+      }),
+      turns: {
+        unit: "provider-turn",
+        count: 1,
+        toolItems: this.#toolItemCount,
+        comparable: false,
+      },
+      ...(failure === undefined ? {} : { failure: { detail: failure } }),
+    };
+  }
+
+  #settle(
+    status: "failed" | "cancelled",
+    origin: "provider" | "north",
+    errorCode: string,
+  ): readonly WireKnownEvent[] {
+    if (this.#phase !== "running" || !this.#modelCallId) return Object.freeze([]);
+    const drafts: WireEventDraft[] = [];
+    for (const item of this.#openItems.values()) {
+      if (item.category === "message") drafts.push({
+        kind: "message.recorded",
+        messageId: item.messageId,
+        modelCallId: this.#modelCallId,
+        stage: "completed",
+        role: "assistant",
+      });
+      else if (item.category === "tool") drafts.push({
+        kind: "tool.terminal",
+        toolCallId: item.toolCallId,
+        status: status === "cancelled" ? "cancelled" : "synthetic_failure",
+        origin: "north",
+        errorCode,
+      });
+    }
+    const snapshot = this.#writer.snapshot()!;
+    drafts.push({
+      kind: "model-call.completed",
+      modelCallId: this.#modelCallId,
+      status,
+      origin,
+      usage: snapshot.usage,
+      usageCoverage: "unavailable",
+      errorCode,
+      evidence: this.#completionEvidence(errorCode),
+    });
+    this.#openItems.clear();
+    this.#phase = "completed";
+    return this.#events(drafts);
+  }
 
   accept(line: string): CodexProtocolResult {
-    if (this.phase === "completed")
+    if (this.#phase === "completed")
       throw new Error("Codex emitted an event after its terminal");
     const event = objectValue(parseStrictJson(line, "Codex exec event", {
       maxBytes: CODEX_JSONL_MAX_LINE_BYTES,
@@ -770,59 +901,198 @@ class CodexExecProtocol {
       const message = boundedProtocolString(
         event.message, "Codex error message", CODEX_JSONL_MAX_LINE_BYTES,
       );
-      throw new Error("Codex emitted an unrecoverable error", {
+      const failure = new Error("Codex emitted an unrecoverable error", {
         cause: new Error(`provider error event: ${message.slice(0, 600)}`),
       });
+      return {
+        events: this.#settle("failed", "provider", "provider_error_event"),
+        failure,
+      };
     }
     if (type === "thread.started") {
-      if (this.phase !== "thread") throw new Error("Codex thread start is out of order");
+      if (this.#phase !== "thread") throw new Error("Codex thread start is out of order");
       exactKeys(event, ["thread_id", "type"], "Codex thread-start event");
-      this.threadId = protocolId(event.thread_id, "Codex thread id");
-      this.phase = "turn";
-      return {};
+      this.#threadId = protocolId(event.thread_id, "Codex thread id");
+      this.#phase = "turn";
+      return { events: Object.freeze([]) };
     }
     if (type === "turn.started") {
-      if (this.phase !== "turn") throw new Error("Codex turn start is out of order");
+      if (this.#phase !== "turn") throw new Error("Codex turn start is out of order");
       exactKeys(event, ["type"], "Codex turn-start event");
-      this.phase = "running";
-      return { activityKind: "provider.codex.turn.started" };
+      const modelCallId = wireModelCallId(`model-call:${crypto.randomUUID()}`);
+      this.#modelCallId = modelCallId;
+      this.#phase = "running";
+      return {
+        events: this.#events([{
+          kind: "model-call.started",
+          modelCallId,
+          model: { ...this.#route.model, provider: "openai" },
+          effort: this.#route.effort,
+          attempt: this.#route.attempt,
+        }]),
+        activityKind: "provider.codex.turn.started",
+      };
     }
     if (type === "turn.failed") {
-      if (this.phase !== "running") throw new Error("Codex turn failure is out of order");
+      if (this.#phase !== "running") throw new Error("Codex turn failure is out of order");
       exactKeys(event, ["error", "type"], "Codex turn-failed event");
       const error = objectValue(event.error, "Codex turn failure");
       exactKeys(error, ["message"], "Codex turn failure");
       const message = boundedProtocolString(
         error.message, "Codex turn failure message", CODEX_JSONL_MAX_LINE_BYTES,
       );
-      throw new Error("Codex turn failed", {
+      const failure = new Error("Codex turn failed", {
         cause: new Error(`provider turn failure: ${message.slice(0, 600)}`),
       });
+      return {
+        events: this.#settle("failed", "provider", "provider_turn_failed"),
+        activityKind: "provider.codex.turn.completed",
+        failure,
+      };
     }
     if (type === "turn.completed") {
-      if (this.phase !== "running") throw new Error("Codex turn terminal is out of order");
+      if (this.#phase !== "running" || !this.#modelCallId) {
+        throw new Error("Codex turn terminal is out of order");
+      }
+      if (this.#openItems.size) throw new Error("Codex turn completed with open item lifecycles");
       exactKeys(event, ["type", "usage"], "Codex turn-completed event");
-      this.usage = exactUsage(event.usage);
-      this.phase = "completed";
+      this.#usage = exactUsage(event.usage);
+      const usage = this.#usageSnapshot(this.#usage);
+      const events = this.#events([
+        { kind: "run.progress", lifecycle: "running", progress: { usage } },
+        {
+          kind: "model-call.completed",
+          modelCallId: this.#modelCallId,
+          status: "succeeded",
+          origin: "provider",
+          usage,
+          usageCoverage: "exact",
+          evidence: this.#completionEvidence(),
+        },
+      ]);
+      this.#phase = "completed";
       return {
-        usage: this.usage,
+        events,
         activityKind: "provider.codex.turn.completed",
       };
     }
     if (type === "item.started" || type === "item.updated" || type === "item.completed") {
-      if (this.phase !== "running") throw new Error("Codex item event is out of order");
+      if (this.#phase !== "running" || !this.#modelCallId) {
+        throw new Error("Codex item event is out of order");
+      }
       exactKeys(event, ["item", "type"], "Codex item event");
       const item = validateCodexItem(event.item);
-      // Same two exclusions as the app-server transport (countsAsToolItem
-      // there): the assistant's own message, and reasoning blocks — reasoning
-      // completes on essentially every turn, tools or not, so counting it
-      // would destroy the only thing this number is for.
-      if (type === "item.completed" && item.type !== "agent_message"
-          && item.type !== "reasoning")
-        this.toolItemCount += 1;
+      const drafts: WireEventDraft[] = [];
+      const admitItem = (emitInitialText: boolean): CodexExecOpenItem => {
+        if (item.type === "agent_message") {
+          const messageId = wireMessageId(`message:${crypto.randomUUID()}`);
+          drafts.push({
+            kind: "message.recorded",
+            messageId,
+            modelCallId: this.#modelCallId!,
+            stage: "started",
+            role: "assistant",
+          });
+          if (emitInitialText && item.text) drafts.push({
+            kind: "message.recorded",
+            messageId,
+            modelCallId: this.#modelCallId!,
+            stage: "delta",
+            role: "assistant",
+            content: item.text,
+          });
+          return {
+            category: "message", type: item.type, messageId,
+            text: emitInitialText ? item.text ?? "" : "",
+          };
+        }
+        if (item.type === "reasoning") return { category: "ignored", type: "reasoning" };
+        const toolCallId = wireToolCallId(`tool:${crypto.randomUUID()}`);
+        drafts.push({
+          kind: "tool.admitted",
+          toolCallId,
+          modelCallId: this.#modelCallId!,
+          name: codexExecToolName(item.type),
+          schema: {
+            status: "unavailable",
+            reason: "tool schema unavailable at normalization boundary",
+          },
+        });
+        return { category: "tool", type: item.type, toolCallId };
+      };
+      if (type === "item.started") {
+        if (this.#openItems.has(item.id) || this.#completedItems.has(item.id)) {
+          throw new Error("Codex item started more than once");
+        }
+        if (item.status !== undefined && item.status !== "in_progress") {
+          throw new Error("Codex started item has a terminal status");
+        }
+        this.#openItems.set(item.id, admitItem(true));
+      } else {
+        if (this.#completedItems.has(item.id)) {
+          throw new Error("Codex item completed more than once");
+        }
+        let open = this.#openItems.get(item.id);
+        if (!open) {
+          if (type === "item.updated") {
+            throw new Error("Codex item update has no open lifecycle");
+          }
+          // Codex intentionally omits item.started for final agent messages,
+          // file changes, warnings, and some other one-shot items. Admit and
+          // settle them atomically so the provider-neutral lifecycle remains exact.
+          open = admitItem(false);
+          this.#openItems.set(item.id, open);
+        }
+        if (open.type !== item.type) throw new Error("Codex item type changed during its lifecycle");
+        if (open.category === "message") {
+          const text = item.text ?? "";
+          if (!text.startsWith(open.text)) {
+            throw new Error("Codex agent message text regressed during its lifecycle");
+          }
+          const delta = text.slice(open.text.length);
+          if (delta) drafts.push({
+            kind: "message.recorded",
+            messageId: open.messageId,
+            modelCallId: this.#modelCallId,
+            stage: "delta",
+            role: "assistant",
+            content: delta,
+          });
+          open.text = text;
+          if (type === "item.completed") drafts.push({
+            kind: "message.recorded",
+            messageId: open.messageId,
+            modelCallId: this.#modelCallId,
+            stage: "completed",
+            role: "assistant",
+          });
+        } else if (open.category === "tool") {
+          if (type === "item.completed" && item.status === "in_progress") {
+            throw new Error("Codex completed item is still in progress");
+          }
+          const failed = item.status === "failed";
+          drafts.push(type === "item.completed" ? {
+            kind: "tool.terminal",
+            toolCallId: open.toolCallId,
+            status: failed ? "failed" : "succeeded",
+            origin: "provider",
+            ...(failed ? { errorCode: "tool_failed" } : {}),
+          } : {
+            kind: "tool.progress",
+            toolCallId: open.toolCallId,
+            progress: { phase: "provider-update" },
+          });
+        }
+        if (type === "item.completed") {
+          this.#openItems.delete(item.id);
+          this.#completedItems.add(item.id);
+          if (item.type !== "agent_message" && item.type !== "reasoning") {
+            this.#toolItemCount += 1;
+          }
+        }
+      }
       return {
-        ...(type === "item.completed" && item.type === "agent_message"
-          ? { text: item.text } : {}),
+        events: this.#events(drafts),
         activityKind: type === "item.started"
           ? "provider.codex.item.started"
           : type === "item.updated"
@@ -834,148 +1104,232 @@ class CodexExecProtocol {
   }
 
   finish(): ExactCodexUsage {
-    if (this.phase !== "completed" || !this.usage)
+    if (this.#phase !== "completed" || !this.#usage)
       throw new Error("Codex closed without one successful terminal");
-    return this.usage;
+    return this.#usage;
   }
 
-  toolActivity(): CodexTurnActivity {
-    // `codex exec` runs exactly one Codex turn per invocation by construction
-    // (one input frame, no live-input support) — that "1" is real, but it is
-    // structurally incapable of ever differing between a 0-tool-call run and
-    // a 200-tool-call run, so it must never be compared to another provider's
-    // per-assistant-turn count. toolItems is the honest activity signal.
-    return { turnUnits: 1, toolItems: this.toolItemCount, comparable: false };
-  }
-
-  providerJoin(): ProviderJoinEvidence {
-    if (this.phase !== "completed" || !this.threadId)
-      throw new Error("Codex closed without one successful provider session");
-    // `codex exec` persists its rollout by default. Its structured stdout does
-    // not expose the turn id, so the session-only join remains explicitly
-    // partial instead of inventing a per-turn identifier.
-    return providerJoinEvidence("openai", {
-      sessionId: this.threadId,
-      sessionPersistence: "persisted",
-    });
+  settleFailure(errorCode: string, cancelled: boolean): readonly WireKnownEvent[] {
+    return this.#settle(
+      cancelled ? "cancelled" : "failed",
+      "north",
+      errorCode,
+    );
   }
 }
 
-function codexUsage(usage: ExactCodexUsage): {
-  usage: TerminalTokenUsage;
-  metadata: AdapterUsageMetadata;
-} {
-  // Codex says cached_input_tokens is a subset of input_tokens and
-  // reasoning_output_tokens is a subset of output_tokens. The adapter owns this
-  // formula so the provider-neutral recorder can never add either subset twice.
+function publicManagedInterruptCode(
+  reason: ManagedCodexInterruptEvidence["reason"],
+): WireCompletionInterruptEvidence["reason"] {
+  if (reason === "turn_deadline") return "north_turn_deadline";
+  if (reason === "post_tool_silence") return "north_post_tool_silence";
+  return "north_in_flight_item_ceiling";
+}
+
+/** Build one privacy-bounded terminal witness from a managed Codex harvest. */
+export function managedCodexHarvestEvidence(
+  error: ManagedCodexHarvestError,
+): WireCompletionEvidence {
+  const harvest = error.harvest;
+  const interrupt = harvest.interrupt;
+  const failureCode = interrupt === undefined
+    ? "provider_execution_failed"
+    : publicManagedInterruptCode(interrupt.reason);
   return {
-    usage,
-    metadata: {
-      provider: "openai",
-      terminal_count: 1,
-      scope: "codex_fresh_invocation_thread_cumulative",
-      total_status: "exact",
-      total_tokens: usage.input_tokens! + usage.output_tokens!,
+    providerJoin: providerJoinEvidence("openai", {
+      sessionId: harvest.threadId,
+      turnIds: harvest.turnIds,
+      sessionPersistence: "ephemeral",
+    }),
+    turns: {
+      unit: "provider-turn",
+      count: 1,
+      ...(harvest.toolItems === undefined ? {} : { toolItems: harvest.toolItems }),
+      comparable: false,
     },
+    failure: {
+      detail: failureCode,
+      landed: {
+        completedTurns: harvest.completedTurns,
+        ...(harvest.toolItems === undefined ? {} : { toolItems: harvest.toolItems }),
+        ...(harvest.mcp.totalCalls === undefined ? {} : { mcpCalls: harvest.mcp.totalCalls }),
+        ...(harvest.nativeCommands.totalCommands === undefined
+          ? {} : { nativeCommands: harvest.nativeCommands.totalCommands }),
+      },
+    },
+    ...(interrupt ? {
+      interrupt: {
+        reason: publicManagedInterruptCode(interrupt.reason),
+        deadlineMs: interrupt.deadlineMs,
+        inactivityThresholdMs: interrupt.inactivityThresholdMs,
+        lastActivityAgeMs: interrupt.lastActivityAgeMs,
+        openItemCount: interrupt.openItemCount,
+        ...(interrupt.openItem === null ? {} : {
+          openItem: {
+            kind: codexExecToolName(interrupt.openItem.kind),
+            ageMs: interrupt.openItem.ageMs,
+          },
+        }),
+        eventCount: interrupt.eventCount,
+      },
+    } : {}),
   };
 }
 
-/**
- * Terminal frames for a managed Codex failure that had already produced work
- * (defect B, 2026-07-26). A lane that wrote real code and then hit a transport
- * defect used to surface as a bare exception: `result=0b`, `delivery=blocked`,
- * no usage, no tool evidence, and no trace of the turn it actually ran.
- *
- * The frames are an ERROR terminal (`subtype: "error_during_execution"`,
- * `is_error: true`) — never a success — so the run stays a loud failure while
- * the text, token usage, and tool-activity survive into the record. A failure
- * Post-thread failures always emit a terminal. Provider-process recovery is
- * owned inside the app-server adapter; once that budget is exhausted, hiding
- * the terminal behind a bare cleanup throw misclassifies a genuine provider
- * exit as an untyped process death.
- */
-export function managedCodexHarvestMessages(error: ManagedCodexHarvestError): any[] {
-  const harvest = error.harvest;
-  const messages: any[] = [];
-  if (harvest.text) messages.push({
-    type: "assistant",
-    message: { role: "assistant", content: [{ type: "text", text: harvest.text }] },
-  });
-  const normalizedUsage = harvest.usage ? codexUsage(harvest.usage) : undefined;
-  messages.push({
-    type: "result", subtype: "error_during_execution", is_error: true,
-    result: harvest.text,
-    num_turns: harvest.completedTurns,
-    ...(normalizedUsage ? {
-      usage: normalizedUsage.usage,
-      _north_usage: normalizedUsage.metadata,
-    } : {}),
-    _north_harvest: {
-      threadId: harvest.threadId,
-      turnIds: harvest.turnIds,
-      completedTurns: harvest.completedTurns,
-      ...(harvest.toolItems !== undefined ? { toolItems: harvest.toolItems } : {}),
-      mcp: harvest.mcp,
-      nativeCommands: harvest.nativeCommands,
-      unsupportedNotifications: harvest.unsupportedNotifications,
-      ...(harvest.respawnCount
-        ? { respawnCount: harvest.respawnCount, respawns: harvest.respawns }
-        : {}),
-      // The FULL nested chain, not the first link. The harness `break`s on this
-      // frame and never observes the throw behind it, so this string is the only
-      // durable witness a dead managed lane leaves (thread 019f9cec); truncating
-      // it at depth 1 reported "Codex completed turn is invalid" and hid the
-      // provider payload underneath.
-      failure: causeChain(error.cause ?? error, 8, 900),
-    },
-    ...(harvest.interrupt ? {
-      _north_interrupt: {
-        ...harvest.interrupt,
-        stderrTail: harvest.stderrTail ?? [],
-      },
-    } : {}),
-  });
-  return messages;
+const MAX_PENDING_CODEX_CONTINUATIONS = 64;
+
+class ManagedInputQueue {
+  #values: string[] = [];
+  #waiters: Array<PromiseWithResolvers<string | undefined>> = [];
+  #closed = false;
+
+  push(value: string): void {
+    if (this.#closed) throw new Error("Codex continuation queue is closed");
+    const waiter = this.#waiters.shift();
+    if (waiter) {
+      waiter.resolve(value);
+      return;
+    }
+    if (this.#values.length >= MAX_PENDING_CODEX_CONTINUATIONS) {
+      throw new Error("Codex continuation queue exceeded its bound");
+    }
+    this.#values.push(value);
+  }
+
+  next(): Promise<string | undefined> {
+    const value = this.#values.shift();
+    if (value !== undefined) return Promise.resolve(value);
+    if (this.#closed) return Promise.resolve(undefined);
+    const waiter = Promise.withResolvers<string | undefined>();
+    this.#waiters.push(waiter);
+    return waiter.promise;
+  }
+
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const waiter of this.#waiters.splice(0)) waiter.resolve(undefined);
+  }
 }
 
-class CodexQuery implements AgentQuery {
-  private readonly activity = createExecutionActivityEmitter();
-  private readonly providerEventListeners = new Set<(event: ProviderExecutionEvent) => void>();
-  private child?: ChildProcessWithoutNullStreams;
-  private managedRun?: ManagedCodexAppServerRun;
-  private interruptPromise?: Promise<void>;
-  private completedMcpActivity?: McpActivityObservation;
-  private completedNativeCommandActivity?: NativeCommandActivityObservation;
-  constructor(
-    private prompt: string | AsyncIterable<any>,
-    private options: any,
-    private target?: RoutingTarget,
-    private admitted = false,
-    private assertManagedHooks: ManagedHooksProbe = assertInstalledManagedCodexHooks,
-    private resolveManagedCommand: ManagedCommandResolver = trustedManagedCodexExecutable,
-    private admittedManagedLaunch?: ManagedCodexLaunchReceipt,
-  ) {}
+type ManagedInputResult =
+  | { source: "frames"; value: string | undefined }
+  | { source: "continuations"; value: string | undefined };
 
-  get executionTransport(): "codex-app-server" | "codex-cli" {
-    return this.options?.northCapabilities !== undefined ? "codex-app-server" : "codex-cli";
+function mergedManagedInput(
+  frames: PromptFrames,
+  continuations: ManagedInputQueue,
+): () => Promise<string | undefined> {
+  let framesOpen = frames.streaming;
+  let continuationsOpen = true;
+  let framePull: Promise<ManagedInputResult> | undefined;
+  let continuationPull: Promise<ManagedInputResult> | undefined;
+  return async () => {
+    while (framesOpen || continuationsOpen) {
+      const candidates: Array<Promise<ManagedInputResult>> = [];
+      if (framesOpen) {
+        framePull ??= frames.next().then((value) => ({ source: "frames", value }));
+        candidates.push(framePull);
+      }
+      if (continuationsOpen) {
+        continuationPull ??= continuations.next()
+          .then((value) => ({ source: "continuations", value }));
+        candidates.push(continuationPull);
+      }
+      const result = await Promise.race(candidates);
+      if (result.source === "frames") {
+        framePull = undefined;
+        if (result.value === undefined) {
+          framesOpen = false;
+          continue;
+        }
+      } else {
+        continuationPull = undefined;
+        if (result.value === undefined) {
+          continuationsOpen = false;
+          continue;
+        }
+      }
+      return result.value;
+    }
+    return undefined;
+  };
+}
+
+class CodexQuery implements WireQuery {
+  readonly #activity = createExecutionActivityEmitter();
+  readonly #providerEventListeners = new Set<(event: WireEvent) => void>();
+  readonly #input: WireQueryInput;
+  readonly #options: Options;
+  readonly #writer: WireEventWriter;
+  readonly #route: WireQueryRoute;
+  readonly #artifacts: WireArtifactSink | undefined;
+  readonly #target?: RoutingTarget;
+  readonly #assertManagedHooks: ManagedHooksProbe;
+  readonly #resolveManagedCommand: ManagedCommandResolver;
+  readonly #createManagedRun: ManagedRunFactory;
+  #admitted: boolean;
+  #admittedManagedLaunch?: ManagedCodexLaunchReceipt;
+  #child?: ChildProcessWithoutNullStreams;
+  #managedRun?: ManagedCodexAppServerRun;
+  #interruptPromise?: Promise<void>;
+  #completedMcpActivity?: McpActivityObservation;
+  #completedNativeCommandActivity?: NativeCommandActivityObservation;
+  #managedEvents: WireKnownEvent[] = [];
+  #managedNormalizer?: OpenAIWireNormalizer;
+  #continuations?: ManagedInputQueue;
+  #iterated = false;
+  #closed = false;
+  #interrupted = false;
+
+  constructor(
+    input: WireQueryInput,
+    options: Options,
+    writer: WireEventWriter,
+    route: WireQueryRoute,
+    artifacts: WireArtifactSink | undefined,
+    target?: RoutingTarget,
+    admitted = false,
+    assertManagedHooks: ManagedHooksProbe = assertInstalledManagedCodexHooks,
+    resolveManagedCommand: ManagedCommandResolver = trustedManagedCodexExecutable,
+    admittedManagedLaunch?: ManagedCodexLaunchReceipt,
+    createManagedRun: ManagedRunFactory = (options) => new ManagedCodexAppServerRun(options),
+  ) {
+    this.#input = input;
+    this.#options = options;
+    this.#writer = writer;
+    this.#route = route;
+    this.#artifacts = artifacts;
+    this.#target = target;
+    this.#admitted = admitted;
+    this.#assertManagedHooks = assertManagedHooks;
+    this.#resolveManagedCommand = resolveManagedCommand;
+    this.#admittedManagedLaunch = admittedManagedLaunch;
+    this.#createManagedRun = createManagedRun;
+  }
+
+  get executionTransport(): "managed-app-server" | "cli-jsonl" {
+    return isManagedOpenAI(this.#options) ? "managed-app-server" : "cli-jsonl";
   }
 
   get executionActivity() {
-    return this.activity.source;
+    return this.#activity.source;
   }
 
-  subscribeProviderEvents(listener: (event: ProviderExecutionEvent) => void): () => void {
-    this.providerEventListeners.add(listener);
-    return () => { this.providerEventListeners.delete(listener); };
+  subscribeProviderEvents(listener: (event: WireEvent) => void): () => void {
+    this.#providerEventListeners.add(listener);
+    return () => { this.#providerEventListeners.delete(listener); };
   }
 
-  private publishProviderEvent(method: string, params: unknown): void {
-    const event: ProviderExecutionEvent = {
-      method,
-      params: JSON.parse(JSON.stringify(params)) as unknown,
-      observedAt: new Date().toISOString(),
-    };
-    for (const listener of this.providerEventListeners) {
+  #publishEvents(events: readonly WireKnownEvent[]): void {
+    for (const event of events) {
+      this.#managedEvents.push(event);
+      this.#notifyEvent(event);
+    }
+  }
+
+  #notifyEvent(event: WireEvent): void {
+    for (const listener of this.#providerEventListeners) {
       try { listener(event); }
       catch { /* Presentation observers cannot change provider execution. */ }
     }
@@ -984,60 +1338,79 @@ class CodexQuery implements AgentQuery {
   supportsInFlightEscalation(): boolean { return false; }
 
   mcpActivity(): McpActivityObservation {
-    return this.managedRun?.mcpActivity() ?? this.completedMcpActivity
-      ?? unknownMcpActivity(this.executionTransport === "codex-cli"
+    return this.#managedRun?.mcpActivity() ?? this.#completedMcpActivity
+      ?? unknownMcpActivity(this.executionTransport === "cli-jsonl"
         ? "codex-cli:structured-mcp-unavailable" : "codex-app-server:unsettled");
   }
 
   nativeCommandActivity(): NativeCommandActivityObservation {
-    return this.managedRun?.nativeCommandActivity() ?? this.completedNativeCommandActivity
-      ?? unknownNativeCommandActivity(this.executionTransport === "codex-cli"
+    return this.#managedRun?.nativeCommandActivity() ?? this.#completedNativeCommandActivity
+      ?? unknownNativeCommandActivity(this.executionTransport === "cli-jsonl"
         ? "codex-cli:structured-command-unavailable" : "codex-app-server:unsettled");
   }
 
   async interruptTurn(): Promise<void> {
-    const managedRun = this.managedRun;
-    if (!managedRun) throw new Error("Codex has no active managed session");
+    const managedRun = this.#managedRun;
+    if (!managedRun) throw new Error("provider_has_no_active_session");
     await managedRun.interruptTurn();
   }
 
   async interrupt(): Promise<void> {
-    if (this.interruptPromise) return this.interruptPromise;
-    const managedRun = this.managedRun;
+    this.#interrupted = true;
+    if (this.#interruptPromise) return this.#interruptPromise;
+    const managedRun = this.#managedRun;
     if (managedRun) {
       const cleanup = managedRun.interrupt();
-      this.interruptPromise = cleanup;
+      this.#interruptPromise = cleanup;
       try { await cleanup; }
       finally {
-        if (this.interruptPromise === cleanup) this.interruptPromise = undefined;
+        if (this.#interruptPromise === cleanup) this.#interruptPromise = undefined;
       }
       return;
     }
-    const child = this.child;
+    const child = this.#child;
     if (!child) return;
     const cleanup = (async () => {
       // Always address the process group, even after the direct child exited.
       await terminateCodexProcessTree(child);
     })();
-    this.interruptPromise = cleanup;
+    this.#interruptPromise = cleanup;
     try { await cleanup; }
     finally {
-      if (this.interruptPromise === cleanup) this.interruptPromise = undefined;
+      if (this.#interruptPromise === cleanup) this.#interruptPromise = undefined;
     }
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<any> {
-    const admitted = this.admitted;
-    this.admitted = false;
-    if (admitted) validateOpenAIHarness(this.options);
+  async continueTurn(input: WireQueryInput): Promise<void> {
+    if (this.executionTransport !== "managed-app-server") {
+      throw new Error("Codex CLI does not retain a continuation thread");
+    }
+    if (this.#closed) throw new Error("Codex query is closed");
+    const text = await initialPrompt(input);
+    (this.#continuations ??= new ManagedInputQueue()).push(text);
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#continuations?.close();
+    await this.interrupt();
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+    if (this.#iterated) throw new Error("Codex query can only be iterated once");
+    this.#iterated = true;
+    const admitted = this.#admitted;
+    this.#admitted = false;
+    if (admitted) validateOpenAIHarness(this.#options);
     else await admitOpenAIWithManagedHooksProbe(
-      this.options, this.target, this.assertManagedHooks, this.resolveManagedCommand,
+      this.#options, this.#target, this.#assertManagedHooks, this.#resolveManagedCommand,
     );
-    const managed = this.options?.northCapabilities !== undefined;
+    const managed = isManagedOpenAI(this.#options);
     const managedLaunch = managed
-      ? this.admittedManagedLaunch ?? takeManagedLaunch(this.options)
+      ? this.#admittedManagedLaunch ?? takeManagedLaunch(this.#options)
       : undefined;
-    this.admittedManagedLaunch = undefined;
+    this.#admittedManagedLaunch = undefined;
     if (managed && !managedLaunch)
       throw new ProviderRetrySafeError("openai_managed_command_receipt_unavailable");
     if (managed) {
@@ -1046,124 +1419,140 @@ class CodexQuery implements AgentQuery {
         // Repeat both root-managed hook and pristine-home proof at the final
         // pre-spawn seam. The prepared home is the exact one admitted before
         // route publication; interactive account config is never consulted.
-        this.assertManagedHooks();
+        this.#assertManagedHooks();
         assertCodexGlobalAgentsForEnvironment(
-          managedLaunch!.home.env, managedDeveloperInstructions(this.options),
+          managedLaunch!.home.env, managedDeveloperInstructions(this.#options),
         );
         const surface = compileProviderAuthoritySurface(
-          "openai", this.options,
+          "openai", this.#options,
         ) as OpenAIAuthoritySurface;
-        const model = modelForCodex(this.options.model);
+        const model = modelForCodex(this.#options.model);
         if (!model)
           throw new ProviderRetrySafeError("openai_exact_model_resolution_missing");
-        const north = this.options.mcpServers.north;
+        const servers = objectValue(this.#options.mcpServers, "OpenAI MCP servers");
+        const north = objectValue(servers.north, "OpenAI North MCP server");
+        const northCommand = boundedProtocolString(north.command, "OpenAI North MCP command", 4_096);
+        if (!Array.isArray(north.args)
+            || !north.args.every((value) => typeof value === "string")) {
+          throw new ProviderRetrySafeError("openai_north_mcp_arguments_invalid");
+        }
+        const northEnvironment = objectValue(
+          north.env,
+          "OpenAI North MCP environment",
+        ) as unknown as NodeJS.ProcessEnv;
         // The launch prompt is the first North frame; later frames (an
         // orchestrator's post-settlement reduction directive, a live message) are
         // consumed as additional turns on the SAME provider thread. A string
         // prompt or a channel that closes after one frame stays single-turn.
-        frames = promptFrames(this.prompt);
+        frames = promptFrames(this.#input);
         const launchPrompt = await frames.first();
-        const run = new ManagedCodexAppServerRun({
+        this.#continuations ??= new ManagedInputQueue();
+        const normalizer = new OpenAIWireNormalizer({
+          writer: this.#writer,
+          route: this.#route,
+          ...(this.#artifacts === undefined ? {} : { artifacts: this.#artifacts }),
+        });
+        this.#managedNormalizer = normalizer;
+        const run = this.#createManagedRun({
           command: managedLaunch!.command,
           env: managedLaunch!.home.env,
-          cwd: this.options.cwd ?? process.cwd(),
+          cwd: this.#options.cwd ?? process.cwd(),
           prompt: launchPrompt,
           model,
-          effort: this.options.effort,
-          developerInstructions: managedDeveloperInstructions(this.options),
+          effort: this.#options.effort,
+          developerInstructions: managedDeveloperInstructions(this.#options),
           surface,
           north: {
-            command: north.command,
-            args: north.args,
-            env: managedNorthMcpEnvironment(north.env),
+            command: northCommand,
+            args: [...north.args],
+            env: managedNorthMcpEnvironment(northEnvironment),
           },
           onActivity: (kind) => {
-            this.activity.record("provider", kind);
-            renewHarnessPresence(this.options);
+            this.#activity.record("provider", kind);
+            renewHarnessPresence(this.#options);
           },
-          onEvent: (method, params) => this.publishProviderEvent(method, params),
+          onEvent: (method, params) => {
+            const normalized = normalizer.normalize(method, params);
+            this.#publishEvents(normalized.events);
+          },
+          onRespawn: () => {
+            if (!normalizer.hasActiveTurn()) return;
+            this.#publishEvents(normalizer.settleProviderRespawn().events);
+          },
         });
-        this.managedRun = run;
-        let turns = 0;
-        let toolItems = 0;
-        for await (const completed of run.session(() => frames!.next())) {
-          turns += 1;
-          toolItems += completed.toolItems;
-          if (completed.text) yield {
-            type: "assistant",
-            message: {
-              role: "assistant",
-              content: [{ type: "text", text: completed.text }],
-            },
-          };
-          const normalizedUsage = codexUsage(completed.usage);
-          yield {
-            type: "result", subtype: "success", result: completed.text,
-            // Deliberately no num_turns. `turns` here counts resolved North
-            // input frames, not assistant turns; one-shot callers still close
-            // after one result while interactive callers may supply later
-            // turn-framed input on this same provider thread (thread 019f9c36).
-            // `toolItems` is the count that DOES vary with the tool loop:
-            // completed work items observed on this session so far, summed
-            // across the turns yielded up to here (thread 019f9cc2).
-            usage: normalizedUsage.usage,
-            _north_usage: normalizedUsage.metadata,
-            _north_provider_join: completed.providerJoin,
-            _north_codex_turn_activity: {
-              turnUnits: turns, toolItems, comparable: false,
-            } satisfies CodexTurnActivity,
-          };
+        this.#managedRun = run;
+        const nextInput = mergedManagedInput(frames, this.#continuations);
+        for await (const completed of run.session(nextInput)) {
+          const terminal = [...this.#managedEvents].reverse().find(
+            (event) => event.kind === "model-call.completed",
+          );
+          const providerUsage = normalizer.lastCompletedProviderUsage();
+          if (!terminal || terminal.kind !== "model-call.completed"
+              || terminal.status !== "succeeded"
+              || providerUsage === undefined
+              || terminal.evidence?.providerDurationMs !== completed.providerDurationMs
+              || terminal.evidence?.turns?.unit !== "provider-turn"
+              || terminal.evidence.turns.toolItems !== completed.toolItems
+              || JSON.stringify(terminal.evidence.providerJoin) !== JSON.stringify(completed.providerJoin)
+              || providerUsage.inputTokens !== completed.usage.input_tokens
+              || providerUsage.outputTokens !== completed.usage.output_tokens
+              || providerUsage.cacheReadTokens !== completed.usage.cached_input_tokens
+              || providerUsage.reasoningTokens !== completed.usage.reasoning_output_tokens) {
+            throw new Error("managed Codex result diverged from normalized terminal evidence");
+          }
+          for (const event of this.#managedEvents.splice(0)) yield event;
         }
         return;
       } catch (error) {
         if (error instanceof ManagedCodexPreThreadError)
           throw new ProviderRetrySafeError(error.message, { cause: error });
-        // HARVEST (defect B, 2026-07-26): a post-thread-start failure that
-        // already produced work is reported as a terminal ERROR result carrying
-        // that work, not as an empty exception. The harness reads this frame as
-        // a provider error (never a success), so the outcome stays loud — but
-        // the lane's text, token usage, and tool-activity survive instead of
-        // being recorded as `result=0b`. A failure with NOTHING landed keeps the
-        // old bare throw, which is what the provider-death retry gate expects.
-        if (error instanceof ManagedCodexHarvestError) {
-          const harvested = managedCodexHarvestMessages(error);
-          if (harvested.length) {
-            const harvest = error.harvest;
-            console.error(
-              `[openai] managed Codex failed after thread start — preserving terminal evidence: `
-              + `${harvest.completedTurns} completed turn(s), `
-              + `${harvest.mcp.totalCalls ?? 0} MCP call(s), `
-              + `${harvest.nativeCommands.totalCommands ?? 0} native command(s)`,
-            );
-          }
-          for (const message of harvested) yield message;
+        const normalizer = this.#managedNormalizer;
+        if (normalizer?.hasActiveTurn()) {
+          const interrupt = error instanceof ManagedCodexHarvestError
+            ? error.harvest.interrupt : undefined;
+          const errorCode = interrupt === undefined
+            ? "provider_execution_failed"
+            : publicManagedInterruptCode(interrupt.reason);
+          const settlement: OpenAIWireTurnSettlementInput = {
+            status: this.#interrupted || interrupt ? "cancelled" : "failed",
+            origin: "north",
+            errorCode,
+            ...(error instanceof ManagedCodexHarvestError
+              ? { evidence: managedCodexHarvestEvidence(error) }
+              : { evidence: { failure: { detail: errorCode } } }),
+          };
+          this.#publishEvents(normalizer.settleTurn(settlement).events);
         }
+        for (const event of this.#managedEvents.splice(0)) yield event;
         throw error;
       } finally {
+        this.#continuations?.close();
         await frames?.close().catch(() => { /* teardown owns the terminal error */ });
-        this.completedMcpActivity = this.managedRun?.mcpActivity();
-        this.completedNativeCommandActivity = this.managedRun?.nativeCommandActivity();
-        this.managedRun = undefined;
+        this.#completedMcpActivity = this.#managedRun?.mcpActivity();
+        this.#completedNativeCommandActivity = this.#managedRun?.nativeCommandActivity();
+        this.#managedRun = undefined;
+        this.#managedNormalizer = undefined;
+        this.#closed = true;
         managedLaunch!.home.dispose();
       }
     }
-    const env = providerEnvironmentForTarget("openai", this.target, { env: this.options.env });
-    const task = await initialPrompt(this.prompt);
-    const prompt = this.options.systemPrompt
-      ? `${this.options.systemPrompt}\n\n## Task\n${task}`
+    const env = providerEnvironmentForTarget("openai", this.#target, { env: this.#options.env });
+    const task = await initialPrompt(this.#input);
+    const prompt = this.#options.systemPrompt
+      ? `${this.#options.systemPrompt}\n\n## Task\n${task}`
       : task;
     const args = [
-      ...codexGlobalArguments(this.options),
-      "exec", ...codexConfigArguments(env), ...codexHarnessArguments(this.options),
+      ...codexGlobalArguments(this.#options),
+      "exec", ...codexConfigArguments(env), ...codexHarnessArguments(this.#options),
       "--json", "--color", "never", "--skip-git-repo-check",
     ];
-    const model = modelForCodex(this.options.model);
+    const model = modelForCodex(this.#options.model);
     if (model) args.push("--model", model);
-    if (this.options.effort) args.push("--config", `model_reasoning_effort=${JSON.stringify(this.options.effort)}`);
-    if (this.options.cwd) args.push("--cd", this.options.cwd);
+    if (this.#options.effort) args.push("--config", `model_reasoning_effort=${JSON.stringify(this.#options.effort)}`);
+    if (this.#options.cwd) args.push("--cd", this.#options.cwd);
     args.push("-");
     const promptTransport = supervisorPromptTransport(prompt);
-    const supervisorStdio: any[] = ["pipe", "pipe", "pipe"];
+    const supervisorStdio: Array<"pipe" | "ignore" | number> = ["pipe", "pipe", "pipe"];
     if (promptTransport.fd4) supervisorStdio.push("ignore", promptTransport.fd4);
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -1176,7 +1565,7 @@ class CodexQuery implements AgentQuery {
           ...args,
         ],
         {
-          cwd: this.options.cwd ?? process.cwd(),
+          cwd: this.#options.cwd ?? process.cwd(),
           env,
           // fd 0 is a liveness lease: kernel EOF means the North host died.
           // POSIX prompt delivery uses the private one-shot spool; Windows fd 4
@@ -1189,21 +1578,17 @@ class CodexQuery implements AgentQuery {
       promptTransport.abort();
       throw error;
     }
-    this.child = child;
+    this.#child = child;
     child.stdin.on("error", () => { /* child process error is classified below */ });
     const supervision = observeSupervisor(child);
     let providerStarted = false;
-    let result = "";
     const frames = new StrictJsonlFrames({
       label: "Codex exec",
       maxLineBytes: CODEX_JSONL_MAX_LINE_BYTES,
       maxTotalBytes: CODEX_JSONL_MAX_TOTAL_BYTES,
       maxFrames: CODEX_JSONL_MAX_EVENTS,
     });
-    const protocol = new CodexExecProtocol();
-    let usage: ExactCodexUsage | undefined;
-    let providerJoin: ProviderJoinEvidence | undefined;
-    let turnActivity: CodexTurnActivity | undefined;
+    const protocol = new CodexExecProtocol(this.#writer, this.#route);
     try {
       // Publish the bounded prompt frame immediately after the supervisor
       // exists. Waiting for the provider's STARTED receipt lets a valid
@@ -1223,22 +1608,14 @@ class CodexQuery implements AgentQuery {
         for (const line of frames.push(chunk)) {
           const accepted = protocol.accept(line);
           if (accepted.activityKind) {
-            this.activity.record("provider", accepted.activityKind);
-            renewHarnessPresence(this.options);
+            this.#activity.record("provider", accepted.activityKind);
+            renewHarnessPresence(this.#options);
           }
-          if (accepted.text !== undefined) {
-            result = accepted.text || result;
-            if (accepted.text) {
-              yield {
-                type: "assistant",
-                message: {
-                  role: "assistant",
-                  content: [{ type: "text", text: accepted.text }],
-                },
-              };
-            }
+          for (const event of accepted.events) {
+            this.#notifyEvent(event);
+            yield event;
           }
-          if (accepted.usage) usage = accepted.usage;
+          if (accepted.failure) throw accepted.failure;
         }
       }
       frames.finish();
@@ -1247,10 +1624,16 @@ class CodexQuery implements AgentQuery {
         throw new Error("openai_provider_execution_failed", {
           cause: new Error(`Codex supervisor exited with status ${supervisorExit}`),
         });
-      usage = protocol.finish();
-      providerJoin = protocol.providerJoin();
-      turnActivity = protocol.toolActivity();
+      protocol.finish();
     } catch (error) {
+      const terminalEvents = protocol.settleFailure(
+        this.#interrupted ? "cancelled" : "provider_execution_failed",
+        this.#interrupted,
+      );
+      for (const event of terminalEvents) {
+        this.#notifyEvent(event);
+        yield event;
+      }
       try { await this.interrupt(); } catch { /* cleanup must not replace the provider error */ }
       try { await supervision.completed; } catch { /* preserve the provider error */ }
       if (error instanceof ProviderRetrySafeError && !providerStarted)
@@ -1268,26 +1651,9 @@ class CodexQuery implements AgentQuery {
     } finally {
       promptTransport.abort();
       destroyCodexPipes(child);
-      this.child = undefined;
+      this.#child = undefined;
+      this.#closed = true;
     }
-    if (!usage || !providerJoin || !turnActivity) throw new Error("openai_provider_execution_failed", {
-      cause: new Error(
-        `Codex legacy turn completed without required evidence (usage=${String(Boolean(usage))}, providerJoin=${String(Boolean(providerJoin))}, turnActivity=${String(Boolean(turnActivity))})`,
-      ),
-    });
-    const normalizedUsage = codexUsage(usage);
-    yield {
-      type: "result", subtype: "success", result,
-      // Deliberately no num_turns here. Codex runs exactly one Codex-turn per
-      // invocation by construction (thread 019f9c36) — a hardcoded 1 read
-      // like a measured Claude-style assistant-turn count and grounded a
-      // false "never runs a tool loop" diagnosis. _north_codex_turn_activity
-      // carries the honest, explicitly-not-comparable replacement.
-      usage: normalizedUsage.usage,
-      _north_usage: normalizedUsage.metadata,
-      _north_provider_join: providerJoin,
-      _north_codex_turn_activity: turnActivity,
-    };
   }
 }
 
@@ -1298,6 +1664,7 @@ class CodexQuery implements AgentQuery {
 export interface InternalOpenAIProviderTestRuntime {
   resolveManagedCommand?: () => string;
   onQueryConstruction?: () => void;
+  createManagedRun?: (options: ManagedCodexAppServerOptions) => ManagedCodexAppServerRun;
 }
 
 export function internalOpenAIProviderWithManagedHooksProbeForTest(
@@ -1311,17 +1678,21 @@ export function internalOpenAIProviderWithManagedHooksProbeForTest(
     probe: probeCodex,
     admit: ({ options, target }) =>
       admitOpenAIWithManagedHooksProbe(options, target, assertManagedHooks, resolveCommand),
-    query: ({ prompt, options, target }) => {
+    query: ({ input, options, target, context }) => {
       runtime.onQueryConstruction?.();
       const admitted = consumeExecutionAdmission("openai", options);
       return new CodexQuery(
-        prompt,
+        input,
         options,
+        context.writer,
+        context.route,
+        context.artifacts,
         target,
         admitted,
         assertManagedHooks,
         resolveCommand,
         admitted ? takeManagedLaunch(options) : undefined,
+        runtime.createManagedRun,
       );
     },
   };

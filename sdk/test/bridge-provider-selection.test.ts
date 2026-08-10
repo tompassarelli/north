@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
 import { parseBridgeLaunchArguments } from "../src/bridge/cli";
-import { parseBridgeRequest } from "../src/bridge/protocol";
+import { parseBridgeRequest, type BridgeLaunchProvider, type BridgeServerMessage } from "../src/bridge/protocol";
 import {
   bridgeRoute, selectBridgeProvider, type BridgeProviderExecution,
 } from "../src/bridge/provider";
@@ -14,6 +14,7 @@ import {
   BOOT_ROUTING_TIMEOUT_MS, refreshProviderRoutingInBackground,
   selectProviderFromCachedState,
 } from "../src/provider-routing";
+import type { RoutingDecision } from "../src/providers/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -41,10 +42,13 @@ test("the wire rejects an unknown provider", () => {
     .toThrow("bridge launch provider must be anthropic or openai");
 });
 
-async function launched(request: object, selectProvider: () => Promise<any>): Promise<any> {
+async function launched(
+  request: object,
+  selectProvider: () => Promise<BridgeLaunchProvider>,
+): Promise<BridgeLaunchProvider | undefined> {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-select-"));
   const socketPath = join(root, "northd.sock");
-  const opened: any[] = [];
+  const opened: BridgeLaunchProvider[] = [];
   const provider: BridgeProviderExecution = {
     async open(context) {
       opened.push(context.provider);
@@ -60,11 +64,11 @@ async function launched(request: object, selectProvider: () => Promise<any>): Pr
   cleanups.push(() => northd.close());
 
   const socket: Socket = connect(socketPath);
-  await new Promise<void>((resolve, reject) => {
-    socket.once("connect", resolve);
-    socket.once("error", reject);
-  });
-  const messages: any[] = [];
+  const connected = Promise.withResolvers<void>();
+  socket.once("connect", () => connected.resolve());
+  socket.once("error", connected.reject);
+  await connected.promise;
+  const messages: BridgeServerMessage[] = [];
   let buffer = "";
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
@@ -72,16 +76,15 @@ async function launched(request: object, selectProvider: () => Promise<any>): Pr
     while (true) {
       const newline = buffer.indexOf("\n");
       if (newline < 0) break;
-      messages.push(JSON.parse(buffer.slice(0, newline)));
+      messages.push(JSON.parse(buffer.slice(0, newline)) as BridgeServerMessage);
       buffer = buffer.slice(newline + 1);
     }
   });
-  const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  const closed = Promise.withResolvers<void>();
+  socket.once("close", () => closed.resolve());
   socket.write(`${JSON.stringify(request)}\n`);
-  await closed;
-  const starting = messages.find((message) =>
-    message.type === "event" && message.record.kind === "provider.starting");
-  return { chosen: opened[0], starting: starting?.record.data };
+  await closed.promise;
+  return opened[0];
 }
 
 test("an unpinned launch takes the headroom selection", async () => {
@@ -89,9 +92,7 @@ test("an unpinned launch takes the headroom selection", async () => {
     { op: "launch", prompt: "go", cwd: "/" },
     async () => "anthropic",
   );
-  expect(result.chosen).toBe("anthropic");
-  expect(result.starting.provider).toBe("anthropic");
-  expect(result.starting.selection).toBe("headroom");
+  expect(result).toBe("anthropic");
 });
 
 test("a pinned launch never consults headroom", async () => {
@@ -100,8 +101,7 @@ test("a pinned launch never consults headroom", async () => {
     { op: "launch", prompt: "go", cwd: "/", provider: "openai" },
     async () => { consulted += 1; return "anthropic"; },
   );
-  expect(result.chosen).toBe("openai");
-  expect(result.starting.selection).toBe("pinned");
+  expect(result).toBe("openai");
   expect(consulted).toBe(0);
 });
 
@@ -195,13 +195,12 @@ test("a cached route opens the session and refreshes behind it", async () => {
   let probed = 0;
   const route = await bridgeRoute({
     BOOT_ROUTING_TIMEOUT_MS,
-    selectProviderFromCachedState: async () => routed as any,
+    selectProviderFromCachedState: async () => routed as RoutingDecision,
     refreshProviderRoutingInBackground: () => { refreshed += 1; return Promise.resolve(); },
     selectProviderForExecution: async () => { probed += 1; throw new Error("boot must not probe"); },
     configuredDefaultTarget: () => undefined,
   }, "anthropic");
 
-  expect(route.id).toBe("claude-a");
   expect(route.target?.id).toBe("claude-a");
   // The route came from disk, and the probe that proves it right runs behind
   // the session rather than in front of it.
@@ -218,12 +217,13 @@ test("a cold machine probes under a boot budget, then takes the configured defau
     refreshProviderRoutingInBackground: () => Promise.resolve(),
     // A probe that answers only when the caller stops waiting: the boot budget
     // is the abort signal, and this is what a dead network looks like.
-    selectProviderForExecution: (_preference, _policy, context) =>
-      new Promise((_resolve, reject) => {
-        context!.signal!.addEventListener(
-          "abort", () => reject(new Error("probe cancelled")), { once: true },
-        );
-      }),
+    selectProviderForExecution: (_preference, _policy, context) => {
+      const result = Promise.withResolvers<never>();
+      context!.signal!.addEventListener(
+        "abort", () => result.reject(new Error("probe cancelled")), { once: true },
+      );
+      return result.promise;
+    },
     configuredDefaultTarget: () => fallback,
   }, "anthropic");
 
@@ -232,7 +232,6 @@ test("a cold machine probes under a boot budget, then takes the configured defau
   // And routed to somebody's account: without a target the adapter falls back to
   // ambient credentials, which are nobody's.
   expect(route.target).toEqual(fallback);
-  expect(route.id).toBe("claude-a");
 });
 
 test("the background refresh collapses, never rejects, and never blocks", async () => {

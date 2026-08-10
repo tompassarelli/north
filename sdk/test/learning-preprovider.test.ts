@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "./support/spawn";
 import { presetRequest } from "./routing-fixtures";
+import type { WireQuery } from "../src/wire";
 
 const priorPolicy = process.env.NORTH_LEARNING_POLICY;
 afterEach(() => {
@@ -12,14 +13,12 @@ test("a failed assignment recorder aborts before provider selection or query", a
   process.env.NORTH_LEARNING_POLICY = "/tmp/north-learning-policy-intentionally-absent.json";
   const events: string[] = [];
   let providerCalls = 0;
-  const queryFn = () => {
+  const queryFn = (): WireQuery => {
     providerCalls++;
     events.push("provider");
     return {
-      async *[Symbol.asyncIterator]() {
-        yield { type: "result", subtype: "success", result: "must-not-run", num_turns: 1 };
-      },
-    } as any;
+      async *[Symbol.asyncIterator]() {},
+    };
   };
 
   await expect(spawn({

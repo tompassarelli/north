@@ -193,6 +193,12 @@ test("raw recursive SDK spawn requires an exact fresh child thread binding befor
       thread: "child-thread",
       loadThreadFacts: () => [{ predicate: "part_of", value: "@other-thread" }],
     })).rejects.toThrow("exactly one child part_of link");
+    process.env.NORTH_RUN_ID = "invalid parent run id";
+    await expect(spawn({
+      ...request,
+      thread: "child-thread",
+      loadThreadFacts: () => [{ predicate: "part_of", value: "@parent-thread" }],
+    })).rejects.toThrow("invalid parent run id");
   } finally {
     if (previous.topology === undefined) delete process.env.AGENT_TOPOLOGY;
     else process.env.AGENT_TOPOLOGY = previous.topology;

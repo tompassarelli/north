@@ -6,6 +6,13 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "../src/bridge/journal";
+import {
+  WireEventWriter,
+  encodeWireJsonlLine,
+  wireMessageId,
+  wireModelCallId,
+  wireRunId,
+} from "../src/wire";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -47,11 +54,72 @@ test("bridge dashboard renders fleet from journal and receipt plus queue from wo
   laneJournal.close();
 
   const journal = new ExecutionJournal(join(state, "bridge/journal"), "journal-fixture");
-  journal.append("execution.accepted", { prompt: "Journal fixture title", cwd: home });
-  journal.append("provider.starting", { adapter: "mock-provider" });
-  journal.append("provider.result", { result: "delivered" });
-  journal.append("execution.completed");
+  journal.append("execution.accepted", {
+    prompt: "Journal fixture title", cwd: home, role: "implementer",
+  });
+  journal.append("session.idle", { wireCursor: 6 });
+  journal.append("execution.terminated", {
+    lifecycle: "completed", reason: "completed", wireCursor: 7,
+  });
   journal.close();
+  const wire = new WireEventWriter({ runId: wireRunId("run:bridge-dashboard-fixture") });
+  const modelCallId = wireModelCallId("model-call:bridge-dashboard-fixture");
+  const messageId = wireMessageId("message:bridge-dashboard-fixture");
+  const wireEvents = wire.appendAll([
+    { kind: "run.started", lifecycle: "running", owner: "bridge:implementer" },
+    {
+      kind: "model-call.started",
+      modelCallId,
+      model: { provider: "openai", capabilityClass: "authoring" },
+      effort: "high",
+      attempt: 1,
+    },
+    {
+      kind: "message.recorded",
+      messageId,
+      modelCallId,
+      stage: "started",
+      role: "assistant",
+    },
+    {
+      kind: "message.recorded",
+      messageId,
+      modelCallId,
+      stage: "delta",
+      role: "assistant",
+      content: "delivered",
+    },
+    {
+      kind: "message.recorded",
+      messageId,
+      modelCallId,
+      stage: "completed",
+      role: "assistant",
+    },
+    {
+      kind: "model-call.completed",
+      modelCallId,
+      status: "succeeded",
+      origin: "provider",
+      usage: {
+        lifetime: {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          reasoningTokens: 0,
+          modelCalls: 1,
+        },
+        context: { tokens: 2 },
+      },
+		usageCoverage: "exact",
+    },
+    { kind: "run.terminated", lifecycle: "completed", reason: { code: "completed" } },
+  ]);
+  writeFileSync(
+    join(state, "bridge/journal/journal-fixture/wire.jsonl"),
+    wireEvents.map((event) => encodeWireJsonlLine(event)).join(""),
+  );
 
   const now = Date.now();
   const board = "THREADS — 1 open thread · 0 active · 1 ready · 0 blocked\n\n"

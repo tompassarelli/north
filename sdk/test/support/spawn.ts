@@ -12,7 +12,8 @@ import { worktreePath } from "../../src/worktree";
 const RUNTIME_FIELDS = new Set([
   "queryFn", "deliveryRuntime", "loadThreadFacts", "threadFactsLoadOptions",
   "childSettlementReader", "feedSubscriber",
-  "registerTermination", "refreshAccountUsages", "refreshCodexEntitlements",
+  "registerTermination", "sessionHardCapRuntime",
+  "refreshAccountUsages", "refreshCodexEntitlements",
   "admitResourceEnvelope", "completeResourceEnvelope",
   "admitDispatchAuthority",
   "worktreeAllocationWriter",

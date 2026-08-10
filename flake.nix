@@ -419,7 +419,7 @@ PY
             ./share/help
             (lib.fileset.difference ./cli ./cli/tests)
             ./sdk/src
-            ./contracts/agent-run-ledger-v1.json
+            ./contracts/agent-run-ledger-v2.json
             ./profiles/tom/hooks/lib/harness-dial.sh
             ./bin/north
             ./bin/north-comms
@@ -576,7 +576,7 @@ EOF
             # bin/north resolves its card + topic pages under $NORTH/share/help;
             # unshipped, the packaged CLI exits 1 on every `north help`.
             cp -r share/help $out/share/help
-            cp contracts/agent-run-ledger-v1.json $out/contracts/
+            cp contracts/agent-run-ledger-v2.json $out/contracts/
             cp profiles/tom/hooks/lib/harness-dial.sh \
               $out/profiles/tom/hooks/lib/
             # bb-verb CLIs (agents/watch/trace/health/dashboard/config/...)

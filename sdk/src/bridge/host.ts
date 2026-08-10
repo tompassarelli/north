@@ -1,43 +1,78 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
-import { dirname, join, resolve } from "node:path";
-import { ExecutionJournal, type JournalRecord, type JournalScan } from "./journal";
+import { dirname, join } from "node:path";
 import {
-  bridgeProvider, selectBridgeProvider, type BridgeProviderExecution,
-  type BridgeProviderSession, type NormalizedProviderEvent,
+  BridgeWireJournal,
+  ExecutionJournal,
+  readBridgeWireJournal,
+  type JournalRecord,
+} from "./journal";
+import {
+  BridgeProviderTeardownTimeoutError,
+  bridgeProvider,
+  selectBridgeProvider,
+  type BridgeProviderExecution,
+  type BridgeProviderSession,
 } from "./provider";
 import {
-  bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole,
+  ProviderEscalationUnsupportedError,
+  ProviderRuntimeError,
+} from "../providers/types";
+import {
+  bridgeJournalRoot,
+  bridgeSocketPath,
+  bridgeSourceIdentity,
+  parseBridgeLaunchRole,
   parseBridgeRequest,
-  type BridgeLaunchProvider, type BridgeLaunchRole, type BridgeRequest,
+  type BridgeLaunchProvider,
+  type BridgeLaunchRole,
+  type BridgeRequest,
+  type BridgeServerMessage,
 } from "./protocol";
+import {
+  encodeWireJsonlLine,
+  isIntermediateProviderSessionReplacement,
+  isProviderNeutralWireErrorCode,
+  WireEventWriter,
+  wireRunId,
+  type WireAbortEvidence,
+  type WireEvent,
+  type WireTerminalLifecycle,
+  type WireTerminationReason,
+} from "../wire";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
-const TERMINAL_KINDS = new Set(["execution.completed", "execution.failed"]);
 const STALE_POLL_MS = 15_000;
+const PROVIDER_TEARDOWN_TIMEOUT_MS = 2_000;
 
-type BridgeMessage =
-  | {
-    type: "hello"; identity?: string; liveExecutions: number;
-    pinningExecutions: number; pid: number;
+class HostProviderTeardownTimeoutError extends Error {
+  constructor() {
+    super("provider session teardown timed out");
+    this.name = "HostProviderTeardownTimeoutError";
   }
-  | { type: "launched"; executionId: string }
-  | { type: "controlled"; executionId: string; control: string; delivery: string }
-  | { type: "event"; record: JournalRecord }
-  | { type: "barrier"; executionId: string; cursor: number; tornTail?: JournalScan["tornTail"] }
-  | { type: "error"; message: string };
+}
+
+class BridgeProviderTurnControlError extends Error {
+  constructor(cause: unknown) {
+    super("bridge provider turn control failed", { cause });
+    this.name = "BridgeProviderTurnControlError";
+  }
+}
 
 export interface NorthdOptions {
   socketPath?: string;
   journalRoot?: string;
   provider?: BridgeProviderExecution;
-  providerAdapter?: string;
   /** Test injection. Production selects by entitlement headroom. */
   selectProvider?: () => Promise<BridgeLaunchProvider>;
   /** Test injection. Production reads this checkout's HEAD. */
   sourceIdentity?: () => string | undefined;
   stalePollMs?: number;
+  /** Test injection. Production bounds provider teardown to two seconds. */
+  providerTeardownTimeoutMs?: number;
+  /** Test injection for control-journal persistence failures. */
+  controlJournal?: (root: string, executionId: string) => ExecutionJournal;
   /** Invoked once when the daemon is stale and idle; owns process teardown. */
   onRetire?: () => void;
 }
@@ -52,13 +87,12 @@ type TurnDisposition = "completed" | "interrupted";
 
 interface ExecutionRuntime {
   executionId: string;
-  /**
-   * Director is the app's own control session — the one an operator abandons by
-   * closing the window. It is the only role whose attachment decides whether it
-   * holds retirement open.
-   */
   role: BridgeLaunchRole;
   journal: ExecutionJournal;
+  wireJournal?: BridgeWireJournal;
+  writer?: WireEventWriter;
+  wireEvents: WireEvent[];
+  wireTail: Promise<void>;
   subscribers: Set<Socket>;
   abort: AbortController;
   pendingInputs: QueuedInput[];
@@ -67,79 +101,143 @@ interface ExecutionRuntime {
   turnDisposition: TurnDisposition;
   terminating: boolean;
   terminal: boolean;
-  /**
-   * The one fact retirement turns on: this daemon owns a provider drive that
-   * has not settled. Derived liveness — a session handle, an active turn, a
-   * missing terminal record — all outlive the provider in some path, and every
-   * one of those paths pinned a corpse daemon against replacement. This is set
-   * exactly once when the drive is dispatched and cleared exactly once when it
-   * settles, success or failure.
-   */
+  replayOnly: boolean;
   live: boolean;
+  finishing?: Promise<void>;
+  teardown?: Promise<void>;
+  teardownFailureRecorded: boolean;
 }
 
-function wire(socket: Socket, message: BridgeMessage): void {
-  if (!socket.destroyed) socket.write(`${JSON.stringify(message)}\n`);
+interface WireIdleProjection {
+  disposition: TurnDisposition;
+  pendingInputs: number;
+  wireCursor: number;
+}
+
+interface WirePersistence {
+  events: WireEvent[];
+  idle: WireIdleProjection[];
+}
+
+function send(socket: Socket, message: BridgeServerMessage): void {
+  if (socket.destroyed || socket.writableEnded || !socket.writable) return;
+  try { socket.write(`${JSON.stringify(message)}\n`); }
+  catch { socket.destroy(); }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Provider preaccept codes are deliberately opaque; without the chain the journal names a stage, not a defect. */
-function failureData(error: unknown): Record<string, unknown> {
-  const causes: string[] = [];
-  let cause: unknown = error instanceof Error ? error.cause : undefined;
-  while (cause !== undefined && causes.length < 8) {
-    causes.push(errorMessage(cause));
-    cause = cause instanceof Error ? cause.cause : undefined;
+function providerFailureClassification(error: unknown): string {
+  if (error instanceof ProviderEscalationUnsupportedError
+    && isProviderNeutralWireErrorCode(error.code)) {
+    return error.code;
   }
-  return { message: errorMessage(error), ...(causes.length ? { causes } : {}) };
+  if (error instanceof ProviderRuntimeError) return "provider_runtime_failure";
+  return "provider_failure";
+}
+
+function teardownFailureClassification(error: unknown): string {
+  return error instanceof HostProviderTeardownTimeoutError
+    || error instanceof BridgeProviderTeardownTimeoutError
+    ? "provider_teardown_timeout"
+    : "provider_teardown_failed";
+}
+
+function adapterFailureEvidence(runtime: ExecutionRuntime): Record<string, unknown> | undefined {
+  const terminal = [...(runtime.writer?.events() ?? [])].reverse().find(
+    (event) => event.kind === "model-call.completed"
+      && event.status !== "succeeded"
+      && !isIntermediateProviderSessionReplacement(event),
+  );
+  if (!terminal || terminal.kind !== "model-call.completed") return undefined;
+  const detail = terminal.evidence?.failure?.detail;
+  return {
+    status: terminal.status,
+    origin: terminal.origin,
+    ...(terminal.errorCode === undefined ? {} : { errorCode: terminal.errorCode }),
+    ...(detail === undefined ? {} : { detail }),
+  };
+}
+
+function failureData(
+  runtime: ExecutionRuntime,
+  code: "provider_error" | "provider_process_died" | "provider_teardown_failed",
+  classification: string,
+): Record<string, unknown> {
+  const evidence = adapterFailureEvidence(runtime);
+  return {
+    code,
+    classification,
+    ...(evidence === undefined ? {} : { evidence }),
+  };
 }
 
 function liveSocket(path: string): Promise<boolean> {
-  return new Promise((resolve, reject) => {
-    // Listeners first, then connect: probing an abandoned socket can fail
-    // during the connect call itself, and the answer to "is anyone there" must
-    // arrive as this promise, never as an uncaught error event.
-    const socket = new Socket();
-    socket.once("connect", () => { socket.destroy(); resolve(true); });
-    socket.once("error", (error: NodeJS.ErrnoException) => {
-      socket.destroy();
-      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") resolve(false);
-      else reject(error);
-    });
-    socket.connect(path);
+  const result = Promise.withResolvers<boolean>();
+  const socket = new Socket();
+  socket.once("connect", () => { socket.destroy(); result.resolve(true); });
+  socket.once("error", (error: NodeJS.ErrnoException) => {
+    socket.destroy();
+    if (error.code === "ECONNREFUSED" || error.code === "ENOENT") result.resolve(false);
+    else result.reject(error);
   });
+  socket.connect(path);
+  return result.promise;
+}
+
+function serverClosed(server: Server): Promise<void> {
+  const result = Promise.withResolvers<void>();
+  server.close((error) => error ? result.reject(error) : result.resolve());
+  return result.promise;
+}
+
+function wireTerminal(event: WireEvent | undefined): boolean {
+  return event?.kind === "run.terminated";
+}
+
+function hasOpenWireLifecycle(runtime: ExecutionRuntime): boolean {
+  const snapshot = runtime.writer?.snapshot();
+  if (!snapshot) return false;
+  return Object.values(snapshot.modelCalls).some((modelCall) => modelCall.status === "running")
+    || Object.values(snapshot.messages).some((message) => message.stage !== "completed")
+    || Object.values(snapshot.toolCalls).some((tool) => tool.status === "pending");
 }
 
 export class Northd {
   readonly socketPath: string;
   readonly journalRoot: string;
-  private readonly provider: BridgeProviderExecution;
-  private readonly providerAdapter: string;
-  private readonly selectProvider: () => Promise<BridgeLaunchProvider>;
-  private readonly server: Server;
-  private readonly runtimes = new Map<string, ExecutionRuntime>();
-  private readonly sockets = new Set<Socket>();
-  private readonly drives = new Set<Promise<void>>();
-  private readonly sourceIdentity: () => string | undefined;
-  private readonly stalePollMs: number;
-  private readonly onRetire: () => void;
-  private loadedIdentity?: string;
-  private staleTimer?: ReturnType<typeof setInterval>;
-  private retiring = false;
+  #provider: BridgeProviderExecution;
+  #selectProvider: () => Promise<BridgeLaunchProvider>;
+  #server: Server;
+  #runtimes = new Map<string, ExecutionRuntime>();
+  #runtimeLoads = new Map<string, Promise<ExecutionRuntime>>();
+  #sockets = new Set<Socket>();
+  #drives = new Set<Promise<void>>();
+  #sourceIdentity: () => string | undefined;
+  #stalePollMs: number;
+  #providerTeardownTimeoutMs: number;
+  #controlJournal: (root: string, executionId: string) => ExecutionJournal;
+  #onRetire: () => void;
+  #loadedIdentity?: string;
+  #staleTimer?: NodeJS.Timeout;
+  #retiring = false;
+  #closePromise?: Promise<void>;
 
   constructor(options: NorthdOptions = {}) {
     this.socketPath = options.socketPath ?? bridgeSocketPath();
     this.journalRoot = options.journalRoot ?? bridgeJournalRoot();
-    this.provider = options.provider ?? bridgeProvider;
-    this.providerAdapter = options.providerAdapter ?? "codex-app-server";
-    this.selectProvider = options.selectProvider ?? selectBridgeProvider;
-    this.sourceIdentity = options.sourceIdentity ?? bridgeSourceIdentity;
-    this.stalePollMs = options.stalePollMs ?? STALE_POLL_MS;
-    this.onRetire = options.onRetire ?? (() => { void this.close(); });
-    this.server = createServer((socket) => this.accept(socket));
+    this.#provider = options.provider ?? bridgeProvider;
+    this.#selectProvider = options.selectProvider ?? selectBridgeProvider;
+    this.#sourceIdentity = options.sourceIdentity ?? bridgeSourceIdentity;
+    this.#stalePollMs = options.stalePollMs ?? STALE_POLL_MS;
+    this.#providerTeardownTimeoutMs = options.providerTeardownTimeoutMs
+      ?? PROVIDER_TEARDOWN_TIMEOUT_MS;
+    this.#controlJournal = options.controlJournal
+      ?? ((root, executionId) => new ExecutionJournal(root, executionId));
+    this.#onRetire = options.onRetire ?? (() => { void this.close(); });
+    this.#server = createServer((socket) => this.#accept(socket));
   }
 
   async listen(): Promise<void> {
@@ -150,142 +248,354 @@ export class Northd {
     if (existsSync(this.socketPath)) {
       const info = lstatSync(this.socketPath);
       if (!info.isSocket()) throw new Error(`refusing to replace non-socket ${this.socketPath}`);
-      if (await liveSocket(this.socketPath)) throw new Error(`northd is already listening at ${this.socketPath}`);
+      if (await liveSocket(this.socketPath)) {
+        throw new Error(`northd is already listening at ${this.socketPath}`);
+      }
       unlinkSync(this.socketPath);
     }
-    // Before the socket accepts anything. Reading the identity costs a
-    // subprocess, and a client that connects inside that window is answered
-    // with a hello carrying no identity — which every client reads as "nothing
-    // to check here". The daemon must know who it is before it can be asked.
-    this.loadedIdentity = this.sourceIdentity();
-    await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => { this.server.off("listening", onListening); reject(error); };
-      const onListening = () => { this.server.off("error", onError); resolve(); };
-      this.server.once("error", onError);
-      this.server.once("listening", onListening);
-      this.server.listen(this.socketPath);
-    });
+    this.#loadedIdentity = this.#sourceIdentity();
+    const listening = Promise.withResolvers<void>();
+    const onError = (error: Error) => {
+      this.#server.off("listening", onListening);
+      listening.reject(error);
+    };
+    const onListening = () => {
+      this.#server.off("error", onError);
+      listening.resolve();
+    };
+    this.#server.once("error", onError);
+    this.#server.once("listening", onListening);
+    this.#server.listen(this.socketPath);
+    await listening.promise;
     chmodSync(this.socketPath, 0o600);
-    if (this.loadedIdentity !== undefined)
-      this.staleTimer = setInterval(() => this.retireWhenStale(), this.stalePollMs);
+    if (this.#loadedIdentity !== undefined) {
+      this.#staleTimer = setInterval(() => this.#retireWhenStale(), this.#stalePollMs);
+    }
   }
 
-  /** Stale means the checkout moved under a live daemon; unknown identity never retires. */
-  private stale(): boolean {
-    if (this.loadedIdentity === undefined) return false;
-    const disk = this.sourceIdentity();
-    return disk !== undefined && disk !== this.loadedIdentity;
+  #stale(): boolean {
+    if (this.#loadedIdentity === undefined) return false;
+    const disk = this.#sourceIdentity();
+    return disk !== undefined && disk !== this.#loadedIdentity;
   }
 
-  /**
-   * `except` is the runtime asking the question. A refused launch counts itself
-   * as live, so reporting the sessions that actually hold retirement open means
-   * excluding the asker.
-   */
-  private liveExecutions(except?: ExecutionRuntime): number {
+  #liveExecutions(except?: ExecutionRuntime): number {
     let live = 0;
-    for (const runtime of this.runtimes.values()) {
-      if (runtime === except) continue;
-      if (runtime.live) live += 1;
+    for (const runtime of this.#runtimes.values()) {
+      if (runtime !== except && runtime.live) live += 1;
     }
     return live;
   }
 
-  /**
-   * Whether an execution holds retirement open. Live is not the same question:
-   * the app's control session outlives the window that opened it, and once
-   * nothing is attached to it there is nobody left for it to drain for — it is
-   * abandoned, and abandoning a session must not cost the operator a daemon
-   * they can never replace. A worker keeps pinning while detached, because
-   * detaching from work in flight is the attach contract, not abandonment.
-   */
-  private pinning(runtime: ExecutionRuntime): boolean {
+  #pinning(runtime: ExecutionRuntime): boolean {
     if (!runtime.live) return false;
     return !(runtime.role === "director" && runtime.subscribers.size === 0);
   }
 
-  private pinningExecutions(except?: ExecutionRuntime): number {
+  #pinningExecutions(except?: ExecutionRuntime): number {
     let pinning = 0;
-    for (const runtime of this.runtimes.values()) {
-      if (runtime === except) continue;
-      if (this.pinning(runtime)) pinning += 1;
+    for (const runtime of this.#runtimes.values()) {
+      if (runtime !== except && this.#pinning(runtime)) pinning += 1;
     }
     return pinning;
   }
 
-  private retireWhenStale(): void {
-    if (this.retiring || this.pinningExecutions() > 0 || !this.stale()) return;
-    this.retiring = true;
-    this.onRetire();
+  #retireWhenStale(): void {
+    if (this.#retiring || this.#pinningExecutions() > 0 || !this.#stale()) return;
+    this.#retiring = true;
+    this.#onRetire();
   }
 
-  async close(): Promise<void> {
-    if (this.staleTimer !== undefined) clearInterval(this.staleTimer);
-    this.staleTimer = undefined;
+  close(): Promise<void> {
+    if (this.#closePromise) return this.#closePromise;
+    this.#closePromise = this.#close();
+    return this.#closePromise;
+  }
+
+  async #close(): Promise<void> {
+    if (this.#staleTimer !== undefined) clearInterval(this.#staleTimer);
+    this.#staleTimer = undefined;
     const terminations: Promise<void>[] = [];
-    for (const runtime of this.runtimes.values()) {
+    for (const runtime of this.#runtimes.values()) {
+      if (runtime.terminal || runtime.replayOnly) continue;
       runtime.terminating = true;
-      runtime.live = false;
       runtime.abort.abort();
-      if (runtime.session) terminations.push(runtime.session.terminateSession());
+      terminations.push((async () => {
+        let teardownFailure: unknown;
+        let evidenceFailure: unknown;
+        let finishFailure: unknown;
+        try {
+          await this.#teardown(runtime);
+        } catch (error) {
+          teardownFailure = error;
+          try { this.#recordTeardownFailure(runtime, error); }
+          catch (failure) { evidenceFailure = failure; }
+        } finally {
+          try {
+            await this.#finish(runtime, teardownFailure === undefined ? {
+              lifecycle: "cancelled",
+              reason: { code: "aborted" },
+              abort: {
+                requestedAt: new Date().toISOString(),
+                source: "runtime",
+                reason: "bridge daemon closed",
+              },
+            } : {
+              lifecycle: "failed",
+              reason: { code: "provider_error" },
+            });
+          } catch (error) {
+            finishFailure = error;
+          }
+        }
+        const failures = [teardownFailure, evidenceFailure, finishFailure]
+          .filter((failure) => failure !== undefined);
+        if (failures.length === 1) throw failures[0];
+        if (failures.length > 1) throw new AggregateError(failures);
+      })());
     }
-    for (const socket of this.sockets) socket.destroy();
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    for (const socket of this.#sockets) socket.destroy();
+    if (this.#server.listening) await serverClosed(this.#server);
     await Promise.allSettled(terminations);
-    await Promise.allSettled([...this.drives]);
-    for (const runtime of this.runtimes.values()) runtime.journal.close();
-    if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) unlinkSync(this.socketPath);
+    for (const runtime of this.#runtimes.values()) {
+      runtime.journal.close();
+      await runtime.wireJournal?.close().catch(() => {});
+    }
+    if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) {
+      unlinkSync(this.socketPath);
+    }
   }
 
-  private runtime(executionId: string): ExecutionRuntime {
-    const existing = this.runtimes.get(executionId);
+  async #runtime(executionId: string): Promise<ExecutionRuntime> {
+    const existing = this.#runtimes.get(executionId);
     if (existing) return existing;
+    const pending = this.#runtimeLoads.get(executionId);
+    if (pending) return pending;
+    const loading = this.#loadRuntime(executionId);
+    this.#runtimeLoads.set(executionId, loading);
+    try { return await loading; }
+    finally {
+      if (this.#runtimeLoads.get(executionId) === loading) {
+        this.#runtimeLoads.delete(executionId);
+      }
+    }
+  }
+
+  async #loadRuntime(executionId: string): Promise<ExecutionRuntime> {
     const journalPath = join(this.journalRoot, executionId, "events.log");
     if (!existsSync(journalPath)) throw new Error(`unknown bridge execution ${executionId}`);
-    const journal = new ExecutionJournal(this.journalRoot, executionId);
-    const scan = journal.scan();
-    const terminal = scan.records.some((record) => TERMINAL_KINDS.has(record.kind));
-    const accepted = scan.records.find((record) => record.kind === "execution.accepted");
-    const runtime: ExecutionRuntime = {
-      executionId,
-      // Replay reads the role back out of the log rather than assuming one, so
-      // a resurrected runtime classifies the same way the launch did.
-      role: parseBridgeLaunchRole(
+    const journal = this.#controlJournal(this.journalRoot, executionId);
+    let wireJournal: BridgeWireJournal | undefined;
+    try {
+      const controls = journal.scan();
+      const accepted = controls.records.find((record) => record.kind === "execution.accepted");
+      const role = parseBridgeLaunchRole(
         typeof accepted?.data.role === "string" ? accepted.data.role : undefined,
-      ),
-      journal,
-      subscribers: new Set<Socket>(),
-      abort: new AbortController(),
-      pendingInputs: [],
-      activeTurn: false,
-      turnDisposition: "completed",
-      terminating: false,
-      terminal,
-      // Replayed from the journal: this daemon drives nothing for it, whatever
-      // the log's last record says.
-      live: false,
-    };
-    this.runtimes.set(executionId, runtime);
-    return runtime;
+      );
+      const replay = await readBridgeWireJournal(this.journalRoot, executionId);
+      let events = [...replay.events];
+      if (wireTerminal(events.at(-1))) {
+        const runtime: ExecutionRuntime = {
+          executionId,
+          role,
+          journal,
+          wireEvents: events,
+          wireTail: Promise.resolve(),
+          subscribers: new Set<Socket>(),
+          abort: new AbortController(),
+          pendingInputs: [],
+          activeTurn: false,
+          turnDisposition: "completed",
+          terminating: false,
+          terminal: true,
+          replayOnly: true,
+          live: false,
+          teardownFailureRecorded: false,
+        };
+        this.#runtimes.set(executionId, runtime);
+        return runtime;
+      }
+
+      // The append-only JSONL writer lock is the recovery serialization point.
+      // Re-read while holding it so a concurrent live writer either wins first
+      // or makes this restart fail closed without a duplicate terminal suffix.
+      wireJournal = await BridgeWireJournal.open(this.journalRoot, executionId);
+      events = [...wireJournal.replay().events];
+      if (wireTerminal(events.at(-1))) {
+        await wireJournal.close();
+        wireJournal = undefined;
+        const runtime: ExecutionRuntime = {
+          executionId,
+          role,
+          journal,
+          wireEvents: events,
+          wireTail: Promise.resolve(),
+          subscribers: new Set<Socket>(),
+          abort: new AbortController(),
+          pendingInputs: [],
+          activeTurn: false,
+          turnDisposition: "completed",
+          terminating: false,
+          terminal: true,
+          replayOnly: true,
+          live: false,
+          teardownFailureRecorded: false,
+        };
+        this.#runtimes.set(executionId, runtime);
+        return runtime;
+      }
+      const writer = WireEventWriter.restore(events);
+      if (writer.runId !== wireRunId(`bridge:${executionId}`)) {
+        throw new Error("bridge wire replay belongs to another run");
+      }
+      const runtime: ExecutionRuntime = {
+        executionId,
+        role,
+        journal,
+        wireJournal,
+        writer,
+        wireEvents: events,
+        wireTail: Promise.resolve(),
+        subscribers: new Set<Socket>(),
+        abort: new AbortController(),
+        pendingInputs: [],
+        activeTurn: false,
+        turnDisposition: "completed",
+        terminating: true,
+        terminal: false,
+        replayOnly: true,
+        live: false,
+        teardownFailureRecorded: false,
+      };
+      await this.#finish(runtime, {
+        lifecycle: "failed",
+        reason: { code: "provider_process_died" },
+      });
+      this.#runtimes.set(executionId, runtime);
+      return runtime;
+    } catch (error) {
+      journal.close();
+      await wireJournal?.close().catch(() => {});
+      throw error;
+    }
   }
 
-  private append(runtime: ExecutionRuntime, kind: string, data: Record<string, unknown>): JournalRecord {
+  #appendControl(
+    runtime: ExecutionRuntime,
+    kind: string,
+    data: Record<string, unknown>,
+  ): JournalRecord {
     const record = runtime.journal.append(kind, data);
-    for (const subscriber of runtime.subscribers) wire(subscriber, { type: "event", record });
+    for (const subscriber of runtime.subscribers) send(subscriber, { type: "event", record });
     return record;
   }
 
-  private attach(socket: Socket, runtime: ExecutionRuntime, cursor: number): void {
-    const scan = runtime.journal.scan();
-    for (const record of scan.records) {
-      if (record.seq > cursor) wire(socket, { type: "event", record });
+  #restoreWriterFromDurablePrefix(runtime: ExecutionRuntime): void {
+    const writer = WireEventWriter.restore(runtime.wireEvents);
+    if (writer.runId !== wireRunId(`bridge:${runtime.executionId}`)) {
+      throw new Error("bridge wire replay belongs to another run");
     }
-    const committedCursor = scan.records.at(-1)?.seq ?? 0;
-    wire(socket, {
-      type: "barrier", executionId: runtime.executionId, cursor: committedCursor,
-      ...(scan.tornTail ? { tornTail: scan.tornTail } : {}),
+    runtime.writer = writer;
+  }
+
+  #persistWire(
+    runtime: ExecutionRuntime,
+    event: WireEvent,
+    allowTerminal = false,
+  ): Promise<WirePersistence> {
+    const append = runtime.wireTail.then(async () => {
+      if (!runtime.wireJournal || !runtime.writer) {
+        throw new Error("bridge wire writer is unavailable");
+      }
+      if (runtime.terminal) throw new Error("bridge run is already terminal");
+      let encoded: string;
+      try { encoded = encodeWireJsonlLine(event); }
+      catch (error) {
+        this.#restoreWriterFromDurablePrefix(runtime);
+        throw error;
+      }
+      const owned = runtime.writer.events()[event.sequence];
+      if (!owned || encodeWireJsonlLine(owned) !== encoded) {
+        this.#restoreWriterFromDurablePrefix(runtime);
+        throw new Error("bridge provider event did not exactly match the shared writer");
+      }
+      if (event.kind === "run.terminated" && !allowTerminal) {
+        this.#restoreWriterFromDurablePrefix(runtime);
+        throw new Error("provider adapter attempted to terminate a Bridge run");
+      }
+      const persistedEvents: WireEvent[] = [];
+      const idle: WireIdleProjection[] = [];
+      if (event.sequence < runtime.wireEvents.length) {
+        const prior = runtime.wireEvents[event.sequence];
+        if (!prior || encodeWireJsonlLine(prior) !== encoded) {
+          this.#restoreWriterFromDurablePrefix(runtime);
+          throw new Error("bridge wire replay diverged from its writer");
+        }
+        return { events: persistedEvents, idle };
+      }
+      while (runtime.wireEvents.length <= event.sequence) {
+        const next = runtime.writer.events()[runtime.wireEvents.length];
+        if (!next) throw new Error("bridge wire writer has a sequence gap");
+        const persisted = await runtime.wireJournal.append(next);
+        if (encodeWireJsonlLine(persisted) !== encodeWireJsonlLine(next)) {
+          throw new Error("bridge wire journal changed a canonical event");
+        }
+        runtime.wireEvents.push(persisted);
+        persistedEvents.push(persisted);
+        if (persisted.kind !== "model-call.completed"
+          || allowTerminal
+          || isIntermediateProviderSessionReplacement(persisted)) continue;
+        const disposition = runtime.turnDisposition;
+        runtime.activeTurn = false;
+        runtime.turnDisposition = "completed";
+        idle.push({
+          disposition,
+          pendingInputs: runtime.pendingInputs.length,
+          wireCursor: persisted.sequence + 1,
+        });
+      }
+      return { events: persistedEvents, idle };
     });
-    if (runtime.terminal || scan.tornTail) {
+    runtime.wireTail = append.then(() => {}, () => {});
+    return append;
+  }
+
+  #projectWire(runtime: ExecutionRuntime, persistence: WirePersistence): void {
+    for (const event of persistence.events) {
+      for (const subscriber of runtime.subscribers) {
+        send(subscriber, { type: "wire", event });
+      }
+    }
+    for (const idle of persistence.idle) {
+      this.#appendControl(runtime, "session.idle", { armed: true, ...idle });
+      void this.#dispatchNext(runtime);
+    }
+  }
+
+  async #appendWire(
+    runtime: ExecutionRuntime,
+    event: WireEvent,
+    allowTerminal = false,
+  ): Promise<void> {
+    this.#projectWire(runtime, await this.#persistWire(runtime, event, allowTerminal));
+  }
+
+  #attach(socket: Socket, runtime: ExecutionRuntime, cursor: number): void {
+    const controls = runtime.journal.scan();
+    for (const record of controls.records) send(socket, { type: "event", record });
+    // Bridge cursors are one-based counts. Wire sequence is zero-based, so a
+    // cursor N resumes with event.sequence >= N and commits as sequence + 1.
+    for (const event of runtime.wireEvents) {
+      if (event.sequence >= cursor) send(socket, { type: "wire", event });
+    }
+    const committedCursor = runtime.wireEvents.length;
+    send(socket, {
+      type: "barrier",
+      executionId: runtime.executionId,
+      cursor: committedCursor,
+      ...(controls.tornTail ? { tornTail: controls.tornTail } : {}),
+    });
+    if (runtime.terminal || runtime.replayOnly || controls.tornTail) {
       socket.end();
       return;
     }
@@ -293,18 +603,123 @@ export class Northd {
     socket.once("close", () => runtime.subscribers.delete(socket));
   }
 
-  private finish(runtime: ExecutionRuntime, kind: "execution.completed" | "execution.failed", data: Record<string, unknown>): void {
-    if (runtime.terminal) return;
-    this.append(runtime, kind, data);
-    runtime.terminal = true;
-    runtime.live = false;
-    runtime.activeTurn = false;
-    runtime.turnDisposition = "completed";
-    for (const subscriber of runtime.subscribers) subscriber.end();
-    runtime.subscribers.clear();
+  #finish(
+    runtime: ExecutionRuntime,
+    input: {
+      lifecycle: WireTerminalLifecycle;
+      reason: WireTerminationReason;
+      abort?: WireAbortEvidence;
+    },
+  ): Promise<void> {
+    if (runtime.finishing) return runtime.finishing;
+    if (runtime.terminal) return Promise.resolve();
+    runtime.finishing = (async () => {
+      if (!runtime.writer) throw new Error("bridge run writer is unavailable");
+      const terminalEvents = runtime.writer.terminate(input);
+      const persistence: WirePersistence = { events: [], idle: [] };
+      for (const event of terminalEvents) {
+        const appended = await this.#persistWire(runtime, event, true);
+        persistence.events.push(...appended.events);
+      }
+      runtime.terminal = true;
+      runtime.live = false;
+      runtime.activeTurn = false;
+      runtime.turnDisposition = "completed";
+      const failures: unknown[] = [];
+      try {
+        try { this.#projectWire(runtime, persistence); }
+        catch (error) { failures.push(error); }
+        try {
+          this.#appendControl(runtime, "execution.terminated", {
+            lifecycle: input.lifecycle,
+            reason: input.reason.code,
+            wireCursor: runtime.wireEvents.length,
+          });
+        } catch (error) { failures.push(error); }
+      } finally {
+        for (const subscriber of runtime.subscribers) {
+          try { subscriber.end(); }
+          catch { subscriber.destroy(); }
+        }
+        runtime.subscribers.clear();
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) throw new AggregateError(failures);
+    })();
+    return runtime.finishing;
   }
 
-  private async dispatchNext(runtime: ExecutionRuntime): Promise<void> {
+  #recordTeardownFailure(runtime: ExecutionRuntime, error: unknown): void {
+    if (runtime.teardownFailureRecorded) return;
+    runtime.teardownFailureRecorded = true;
+    this.#appendControl(runtime, "execution.failure", {
+      ...failureData(
+        runtime,
+        "provider_teardown_failed",
+        teardownFailureClassification(error),
+      ),
+      phase: "provider_teardown",
+    });
+  }
+
+  #teardown(runtime: ExecutionRuntime): Promise<void> {
+    if (runtime.teardown) return runtime.teardown;
+    const session = runtime.session;
+    if (!session) return Promise.resolve();
+    runtime.teardown = (async () => {
+      const timeout = Promise.withResolvers<never>();
+      const timer = setTimeout(
+        () => timeout.reject(new HostProviderTeardownTimeoutError()),
+        this.#providerTeardownTimeoutMs,
+      );
+      try {
+        await Promise.race([
+          Promise.resolve().then(() => session.terminateSession()),
+          timeout.promise,
+        ]);
+      } catch (error) {
+        if (error instanceof HostProviderTeardownTimeoutError) {
+          try { session.forceTerminateSession?.(); }
+          catch (forceError) { throw new AggregateError([error, forceError]); }
+        }
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+    return runtime.teardown;
+  }
+
+  async #fail(
+    runtime: ExecutionRuntime,
+    error: unknown,
+    code: "provider_error" | "provider_process_died" = "provider_error",
+  ): Promise<void> {
+    if (runtime.terminal) return;
+    runtime.live = false;
+    this.#restoreWriterFromDurablePrefix(runtime);
+    const classification = code === "provider_process_died"
+      ? "provider_process_died"
+      : providerFailureClassification(error);
+    const failures: unknown[] = [];
+    try {
+      this.#appendControl(
+        runtime,
+        "execution.failure",
+        failureData(runtime, code, classification),
+      );
+    } catch (failure) { failures.push(failure); }
+    try {
+      await this.#finish(runtime, {
+        lifecycle: "failed",
+        reason: { code },
+      });
+    } catch (failure) { failures.push(failure); }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures);
+  }
+
+  async #dispatchNext(runtime: ExecutionRuntime): Promise<void> {
     if (runtime.terminal || runtime.terminating || runtime.activeTurn || !runtime.session) return;
     const next = runtime.pendingInputs.shift();
     if (!next) return;
@@ -312,30 +727,16 @@ export class Northd {
     runtime.turnDisposition = "completed";
     try {
       await runtime.session.submitInput(next.input);
-      this.append(runtime, "control.input_delivered", {
+      this.#appendControl(runtime, "control.input_delivered", {
         commandSeq: next.commandSeq,
         delivery: next.delivery,
       });
     } catch (error) {
-      this.finish(runtime, "execution.failed", failureData(error));
+      await this.#fail(runtime, error);
     }
   }
 
-  private providerEvent(runtime: ExecutionRuntime, event: NormalizedProviderEvent): void {
-    this.append(runtime, `provider.${event.kind}`, event.data);
-    if (!event.turnTerminal || runtime.terminal) return;
-    const disposition = runtime.turnDisposition;
-    runtime.activeTurn = false;
-    runtime.turnDisposition = "completed";
-    this.append(runtime, "session.idle", {
-      armed: true,
-      disposition,
-      pendingInputs: runtime.pendingInputs.length,
-    });
-    void this.dispatchNext(runtime);
-  }
-
-  private async drive(
+  async #drive(
     runtime: ExecutionRuntime,
     prompt: string,
     cwd: string,
@@ -343,47 +744,69 @@ export class Northd {
     pinned: BridgeLaunchProvider | undefined,
   ): Promise<void> {
     try {
-      const provider = pinned ?? await this.selectProvider();
-      this.append(runtime, "provider.starting", {
-        adapter: this.providerAdapter,
-        provider,
-        selection: pinned ? "pinned" : "headroom",
-      });
-      const session = await this.provider.open({
+      const provider = pinned ?? await this.#selectProvider();
+      const session = await this.#provider.open({
         executionId: runtime.executionId,
         prompt,
         cwd,
         role,
         provider,
         signal: runtime.abort.signal,
+        writer: runtime.writer!,
       });
       runtime.session = session;
       if (runtime.terminating || runtime.terminal) {
-        await session.terminateSession();
+        try { await this.#teardown(runtime); }
+        catch (error) {
+          if (!runtime.terminal) {
+            this.#recordTeardownFailure(runtime, error);
+            await this.#finish(runtime, {
+              lifecycle: "failed",
+              reason: { code: "provider_error" },
+            });
+          }
+        }
         return;
       }
-      for await (const event of session.events()) this.providerEvent(runtime, event);
-      if (!runtime.terminating && !runtime.terminal)
-        this.finish(runtime, "execution.failed", { message: "provider session closed before termination" });
+      for await (const event of session.events()) {
+        if (event.version !== "north:wire:v2" || event.essential !== true) {
+          throw new Error("Bridge provider emitted a noncanonical wire event");
+        }
+        await this.#appendWire(runtime, event);
+      }
+      if (!runtime.terminating && !runtime.terminal) {
+        await this.#fail(runtime, new Error("provider session closed before termination"), "provider_process_died");
+      }
     } catch (error) {
-      if (!runtime.terminating)
-        this.finish(runtime, "execution.failed", failureData(error));
+      if (!runtime.terminating) await this.#fail(runtime, error);
     } finally {
-      // The provider query has terminated — completed, failed, refused before
-      // it ever opened, or torn down under a terminating runtime. Every one of
-      // those is an execution that no longer holds this daemon open, including
-      // the paths above that deliberately write no terminal record.
-      runtime.live = false;
+      if (runtime.terminal || runtime.terminating) runtime.live = false;
       runtime.activeTurn = false;
     }
   }
 
-  private launch(socket: Socket, request: Extract<BridgeRequest, { op: "launch" }>): void {
+  async #launch(
+    socket: Socket,
+    request: Extract<BridgeRequest, { op: "launch" }>,
+  ): Promise<void> {
     const executionId = randomUUID();
+    const journal = this.#controlJournal(this.journalRoot, executionId);
+    const wireJournal = await BridgeWireJournal.open(this.journalRoot, executionId);
+    const writer = new WireEventWriter({ runId: wireRunId(`bridge:${executionId}`) });
+    const started = writer.append({
+      kind: "run.started",
+      lifecycle: "running",
+      owner: `bridge:${request.role}`,
+    });
+    const persisted = await wireJournal.append(started);
     const runtime: ExecutionRuntime = {
       executionId,
       role: request.role,
-      journal: new ExecutionJournal(this.journalRoot, executionId),
+      journal,
+      wireJournal,
+      writer,
+      wireEvents: [persisted],
+      wireTail: Promise.resolve(),
       subscribers: new Set(),
       abort: new AbortController(),
       pendingInputs: [],
@@ -391,56 +814,80 @@ export class Northd {
       turnDisposition: "completed",
       terminating: false,
       terminal: false,
+      replayOnly: false,
       live: true,
+      teardownFailureRecorded: false,
     };
-    this.runtimes.set(executionId, runtime);
+    this.#runtimes.set(executionId, runtime);
     try {
-      this.append(runtime, "execution.accepted", {
-        prompt: request.prompt, cwd: request.cwd, role: request.role,
-        ...(request.provider ? { provider: request.provider } : {}),
+      this.#appendControl(runtime, "execution.accepted", {
+        prompt: request.prompt,
+        cwd: request.cwd,
+        role: request.role,
       });
     } catch (error) {
-      // A launch that cannot even record its acceptance drives nothing. It was
-      // already in the runtime map when the journal refused, and leaving it
-      // there counted a session that never existed against retirement.
       runtime.live = false;
       runtime.activeTurn = false;
-      runtime.terminal = true;
+      runtime.terminating = true;
+      let terminalFailure: unknown;
+      try {
+        await this.#finish(runtime, {
+          lifecycle: "failed",
+          reason: { code: "provider_error" },
+        });
+      } catch (failure) {
+        terminalFailure = failure;
+      }
+      let controlCloseFailure: unknown;
+      let wireCloseFailure: unknown;
+      try { journal.close(); }
+      catch (failure) { controlCloseFailure = failure; }
+      try { await wireJournal.close(); }
+      catch (failure) { wireCloseFailure = failure; }
+      const failures = [error, terminalFailure, controlCloseFailure, wireCloseFailure]
+        .filter((failure) => failure !== undefined);
+      if (failures.length > 1) {
+        throw new AggregateError(
+          failures,
+          "bridge launch control acceptance and terminal persistence failed",
+        );
+      }
       throw error;
     }
-    wire(socket, { type: "launched", executionId });
-    this.attach(socket, runtime, 0);
-    if (this.stale()) {
-      this.finish(runtime, "execution.failed", {
+    send(socket, { type: "launched", executionId });
+    this.#attach(socket, runtime, 0);
+    if (this.#stale()) {
+      this.#appendControl(runtime, "execution.failure", {
         message: "bridge_daemon_source_stale",
-        loaded: this.loadedIdentity,
-        disk: this.sourceIdentity(),
-        // The sessions still holding this daemon open — what a client needs to
-        // say something more useful than the code.
-        live: this.pinningExecutions(runtime),
+        loaded: this.#loadedIdentity,
+        disk: this.#sourceIdentity(),
+        live: this.#pinningExecutions(runtime),
+      });
+      await this.#finish(runtime, {
+        lifecycle: "failed",
+        reason: { code: "provider_error" },
       });
       return;
     }
-    const drive = this.drive(
+    const drive = this.#drive(
       runtime, request.prompt, request.cwd, request.role, request.provider,
     );
-    this.drives.add(drive);
+    this.#drives.add(drive);
     void drive
-      // The drive writes its own terminal record; reaching here means that
-      // write itself failed, so the client's socket is the last place left to
-      // say so. Dropping it silently left an unhandled rejection behind.
-      .catch((error) => wire(socket, { type: "error", message: errorMessage(error) }))
-      .finally(() => this.drives.delete(drive));
+      .catch((error) => send(socket, { type: "error", message: errorMessage(error) }))
+      .finally(() => this.#drives.delete(drive));
   }
 
-  private async control(
+  async #control(
     socket: Socket,
     runtime: ExecutionRuntime,
     request: Exclude<BridgeRequest, { op: "launch" | "attach" }>,
   ): Promise<void> {
-    if (runtime.terminal) throw new Error(`bridge execution ${runtime.executionId} is terminal`);
+    if (runtime.terminal || runtime.replayOnly) {
+      throw new Error(`bridge execution ${runtime.executionId} is terminal`);
+    }
     if (request.op === "submitInput") {
-      const command = this.append(runtime, "control.submit_input", {
+      const command = this.#appendControl(runtime, "control.submit_input", {
         input: request.input,
         delivery: "queued-next-turn",
       });
@@ -449,28 +896,34 @@ export class Northd {
         delivery: "queued-next-turn",
         commandSeq: command.seq,
       });
-      await this.dispatchNext(runtime);
-      wire(socket, {
-        type: "controlled", executionId: runtime.executionId,
-        control: request.op, delivery: "queued-next-turn",
+      await this.#dispatchNext(runtime);
+      send(socket, {
+        type: "controlled",
+        executionId: runtime.executionId,
+        control: request.op,
+        delivery: "queued-next-turn",
       });
     } else if (request.op === "interruptTurn") {
-      this.append(runtime, "control.interrupt_turn", { delivery: "active-turn" });
-      if (!runtime.activeTurn || !runtime.session)
+      this.#appendControl(runtime, "control.interrupt_turn", { delivery: "active-turn" });
+      if (!runtime.activeTurn || !runtime.session) {
         throw new Error(`bridge execution ${runtime.executionId} has no active turn`);
+      }
       runtime.turnDisposition = "interrupted";
       try { await runtime.session.interruptTurn(); }
       catch (error) {
-        if (!runtime.terminal && runtime.turnDisposition === "interrupted")
+        if (!runtime.terminal && runtime.turnDisposition === "interrupted") {
           runtime.turnDisposition = "completed";
-        throw error;
+        }
+        throw new BridgeProviderTurnControlError(error);
       }
-      wire(socket, {
-        type: "controlled", executionId: runtime.executionId,
-        control: request.op, delivery: "active-turn",
+      send(socket, {
+        type: "controlled",
+        executionId: runtime.executionId,
+        control: request.op,
+        delivery: "active-turn",
       });
     } else if (request.op === "redirectNow") {
-      const command = this.append(runtime, "control.redirect_now", {
+      const command = this.#appendControl(runtime, "control.redirect_now", {
         input: request.input,
         delivery: "interrupt-and-redirect",
       });
@@ -489,62 +942,107 @@ export class Northd {
         catch (error) {
           runtime.pendingInputs = runtime.pendingInputs
             .filter((pending) => pending.commandSeq !== command.seq);
-          if (!runtime.terminal && runtime.turnDisposition === "interrupted")
+          if (!runtime.terminal && runtime.turnDisposition === "interrupted") {
             runtime.turnDisposition = "completed";
-          throw error;
+          }
+          throw new BridgeProviderTurnControlError(error);
         }
       } else {
-        await this.dispatchNext(runtime);
+        await this.#dispatchNext(runtime);
       }
-      wire(socket, {
-        type: "controlled", executionId: runtime.executionId,
-        control: request.op, delivery: "interrupt-and-redirect",
+      send(socket, {
+        type: "controlled",
+        executionId: runtime.executionId,
+        control: request.op,
+        delivery: "interrupt-and-redirect",
       });
     } else {
-      this.append(runtime, "control.terminate_session", {});
+      this.#appendControl(runtime, "control.terminate_session", {});
+      const wasActive = runtime.activeTurn;
       runtime.terminating = true;
       runtime.abort.abort();
-      await runtime.session?.terminateSession();
-      this.finish(runtime, "execution.completed", {});
-      wire(socket, {
-        type: "controlled", executionId: runtime.executionId,
-        control: request.op, delivery: "session-terminated",
+      let closeFailure: unknown;
+      let evidenceFailure: unknown;
+      let finishFailure: unknown;
+      try {
+        await this.#teardown(runtime);
+      }
+      catch (error) {
+        closeFailure = error;
+        try { this.#recordTeardownFailure(runtime, error); }
+        catch (failure) { evidenceFailure = failure; }
+      } finally {
+        const hasOpenWork = hasOpenWireLifecycle(runtime);
+        try {
+          await this.#finish(runtime, closeFailure !== undefined ? {
+            lifecycle: "failed",
+            reason: { code: "provider_error" },
+          } : wasActive || hasOpenWork ? {
+            lifecycle: "cancelled",
+            reason: { code: "cancelled" },
+            abort: {
+              requestedAt: new Date().toISOString(),
+              source: "operator",
+              reason: "Bridge session terminated",
+            },
+          } : {
+            lifecycle: "completed",
+            reason: { code: "completed" },
+          });
+        } catch (error) {
+          finishFailure = error;
+        }
+      }
+      if (closeFailure !== undefined || evidenceFailure !== undefined || finishFailure !== undefined) {
+        if (finishFailure !== undefined) throw new Error("bridge terminal persistence failed");
+        if (evidenceFailure !== undefined) {
+          throw new Error("bridge failure evidence persistence failed");
+        }
+        throw new Error(teardownFailureClassification(closeFailure) === "provider_teardown_timeout"
+          ? "provider session teardown timed out"
+          : "provider session teardown failed");
+      }
+      send(socket, {
+        type: "controlled",
+        executionId: runtime.executionId,
+        control: request.op,
+        delivery: "session-terminated",
       });
     }
     socket.end();
   }
 
-  private async dispatch(socket: Socket, request: BridgeRequest): Promise<void> {
+  async #dispatch(socket: Socket, request: BridgeRequest): Promise<void> {
     if (request.op === "retire") {
-      wire(socket, {
-        type: "controlled", executionId: "northd", control: "retire", delivery: "accepted",
+      send(socket, {
+        type: "controlled",
+        executionId: "northd",
+        control: "retire",
+        delivery: "accepted",
       });
       socket.end();
-      // `north bridge restart` is allowed to race the watchdog and itself; the
-      // acknowledgement is owed either way, the teardown runs once.
-      if (this.retiring) return;
-      this.retiring = true;
-      this.onRetire();
+      if (this.#retiring) return;
+      this.#retiring = true;
+      this.#onRetire();
       return;
     }
-    if (request.op === "launch") this.launch(socket, request);
-    else if (request.op === "attach") this.attach(socket, this.runtime(request.executionId), request.cursor);
-    else await this.control(socket, this.runtime(request.executionId), request);
+    if (request.op === "launch") await this.#launch(socket, request);
+    else if (request.op === "attach") {
+      this.#attach(socket, await this.#runtime(request.executionId), request.cursor);
+    } else {
+      await this.#control(socket, await this.#runtime(request.executionId), request);
+    }
   }
 
-  private accept(socket: Socket): void {
-    this.sockets.add(socket);
-    socket.once("close", () => this.sockets.delete(socket));
-    // The freshness contract: every client learns who it reached before asking
-    // anything, so a stale daemon can be detected and replaced at connect.
-    wire(socket, {
+  #accept(socket: Socket): void {
+    this.#sockets.add(socket);
+    socket.once("close", () => this.#sockets.delete(socket));
+    socket.on("error", () => socket.destroy());
+    send(socket, {
       type: "hello",
-      ...(this.loadedIdentity !== undefined ? { identity: this.loadedIdentity } : {}),
-      liveExecutions: this.liveExecutions(),
-      // The count the replacement gate reads. Liveness rides along because it
-      // is what an operator is told; only this one decides whether a stale
-      // daemon may be replaced where it stands.
-      pinningExecutions: this.pinningExecutions(),
+      ...(this.#loadedIdentity !== undefined ? { identity: this.#loadedIdentity } : {}),
+      liveExecutions: this.#liveExecutions(),
+      pinningExecutions: this.#pinningExecutions(),
       pid: process.pid,
     });
     let buffer = "";
@@ -555,7 +1053,7 @@ export class Northd {
       buffer += chunk;
       if (Buffer.byteLength(buffer, "utf8") > MAX_REQUEST_BYTES) {
         handled = true;
-        wire(socket, { type: "error", message: "bridge request is too large" });
+        send(socket, { type: "error", message: "bridge request is too large" });
         socket.end();
         return;
       }
@@ -565,12 +1063,12 @@ export class Northd {
       let request: BridgeRequest;
       try { request = parseBridgeRequest(JSON.parse(buffer.slice(0, newline))); }
       catch (error) {
-        wire(socket, { type: "error", message: errorMessage(error) });
+        send(socket, { type: "error", message: errorMessage(error) });
         socket.end();
         return;
       }
-      void this.dispatch(socket, request).catch((error) => {
-        wire(socket, { type: "error", message: errorMessage(error) });
+      void this.#dispatch(socket, request).catch((error) => {
+        send(socket, { type: "error", message: errorMessage(error) });
         socket.end();
       });
     });

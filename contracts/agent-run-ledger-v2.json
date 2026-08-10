@@ -1,0 +1,40 @@
+{
+  "version": "north-agent-run-ledger:v2",
+  "wireVersion": "north:wire:v2",
+  "digest": {
+    "algorithm": "sha256",
+    "eventInput": "utf8-canonical-wire-event-json",
+    "ledgerInput": "canonical-json-array-of-event-sha256"
+  },
+  "bounds": {
+    "maxEventsPerRun": 16384,
+    "maxCanonicalEventBytes": 2097152,
+    "maxBatchEvents": 16384,
+    "maxProjectionBatchBytes": 201326592,
+    "maxTelemetryProjectionBytes": 16777216
+  },
+  "telemetry": {
+    "estimateRatio": {
+      "scale": 1000000,
+      "rounding": "nearest-half-up",
+      "trailingFractionZeros": "omit"
+    }
+  },
+  "predicates": [
+    "kind",
+    "wire_ledger_version",
+    "wire_version",
+    "wire_run_id",
+    "thread",
+    "agent",
+    "parent_thread",
+    "run_coordinator",
+    "wire_event_id",
+    "wire_event_sequence",
+    "wire_event_at",
+    "wire_event_kind",
+    "wire_event_essential",
+    "wire_event_json",
+    "wire_event_sha256"
+  ]
+}

@@ -1,185 +1,263 @@
+import { markCoordinationOptional } from "../execution-admission";
+import { harnessOptions } from "../harness";
+import { applyOrchestrationStaffing } from "../orchestration-staffing";
+import * as providerRouting from "../provider-routing";
+import { anthropicProvider } from "../providers/anthropic";
+import { openaiProvider } from "../providers/openai";
 import type { RoutingTarget } from "../providers/types";
+import {
+  wireQueryRoute,
+  type WireEvent,
+  type WireEventWriter,
+  type WireQuery,
+} from "../wire";
+import directorPrompt from "./director-prompt.md" with { type: "text" };
+import implementerPrompt from "./implementer-prompt.md" with { type: "text" };
 import type { BridgeLaunchProvider, BridgeLaunchRole } from "./protocol";
-
-export interface NormalizedProviderEvent {
-  kind: string;
-  data: Record<string, unknown>;
-  turnTerminal?: boolean;
-}
 
 export interface BridgeProviderSession {
   submitInput(input: string): Promise<void>;
   interruptTurn(): Promise<void>;
   terminateSession(): Promise<void>;
-  events(): AsyncIterable<NormalizedProviderEvent>;
+  forceTerminateSession?(): void;
+  events(): AsyncIterable<WireEvent>;
+}
+
+export interface BridgeProviderOpenContext {
+  executionId: string;
+  prompt: string;
+  cwd: string;
+  role: BridgeLaunchRole;
+  provider: BridgeLaunchProvider;
+  signal: AbortSignal;
+  /** Shared writer whose run.started event is already durable. */
+  writer: WireEventWriter;
 }
 
 export interface BridgeProviderExecution {
-  open(
-    context: {
-      executionId: string;
-      prompt: string;
-      cwd: string;
-      role: BridgeLaunchRole;
-      provider: BridgeLaunchProvider;
-      signal: AbortSignal;
-    },
-  ): Promise<BridgeProviderSession>;
+  open(context: BridgeProviderOpenContext): Promise<BridgeProviderSession>;
 }
 
 export function bridgeSystemPrompt(role: BridgeLaunchRole): string {
-  return role === "director"
-    ? "You are the North Bridge supervisor. Use the host-provided North MCP spawn and dispatch tools to coordinate the attached operator request; do not run North coordination commands through the sandboxed shell."
-    : "You are a North Bridge implementation worker. Complete the attached operator request in the assigned workspace and report the result; do not spawn or delegate other agents.";
+  return role === "director" ? directorPrompt.trim() : implementerPrompt.trim();
 }
 
-// Codex takes a bare turn; the Claude Agent SDK's streaming input accepts only a
-// user-message envelope and silently produces no turn for anything else.
-type BridgeInput = string | {
-  type: "user";
-  message: { role: "user"; content: string };
-  parent_tool_use_id: null;
-};
+const BRIDGE_QUERY_TEARDOWN_TIMEOUT_MS = 1_000;
 
-function bridgeInput(provider: BridgeLaunchProvider, text: string): BridgeInput {
-  return provider === "anthropic"
-    ? { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null }
-    : text;
+interface BridgeContinuation {
+  settled: PromiseWithResolvers<void>;
+  accepted: boolean;
+  observed: boolean;
+  iterationStarted: boolean;
 }
 
-class InputChannel implements AsyncIterable<BridgeInput> {
-  private values: BridgeInput[] = [];
-  private pulls: Array<(result: IteratorResult<BridgeInput>) => void> = [];
-  private ended = false;
+export class BridgeProviderTeardownTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`provider session teardown timed out after ${timeoutMs}ms`);
+    this.name = "BridgeProviderTeardownTimeoutError";
+  }
+}
 
-  push(value: BridgeInput): void {
-    if (this.ended) throw new Error("provider input channel is closed");
-    const pull = this.pulls.shift();
-    if (pull) pull({ done: false, value });
-    else this.values.push(value);
+async function boundedQueryTeardown(query: WireQuery, timeoutMs: number): Promise<void> {
+  const tasks: Promise<void>[] = [];
+  try {
+    if (query.interrupt) tasks.push(Promise.resolve(query.interrupt()));
+  } catch (error) {
+    tasks.push(Promise.reject(error));
+  }
+  try {
+    if (query.close) tasks.push(Promise.resolve(query.close()));
+  } catch (error) {
+    tasks.push(Promise.reject(error));
+  }
+  if (tasks.length === 0) return;
+
+  const timeout = Promise.withResolvers<never>();
+  const timer = setTimeout(
+    () => timeout.reject(new BridgeProviderTeardownTimeoutError(timeoutMs)),
+    timeoutMs,
+  );
+  try {
+    const results = await Promise.race([
+      Promise.allSettled(tasks),
+      timeout.promise,
+    ]);
+    const failures = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) throw new AggregateError(failures);
+  } catch (error) {
+    if (error instanceof BridgeProviderTeardownTimeoutError) query.forceClose?.();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export class BridgeWireSession implements BridgeProviderSession {
+  #query: WireQuery;
+  #abort: AbortController;
+  #signal: AbortSignal;
+  #signalAbort: () => void;
+  #continuation?: BridgeContinuation;
+  #continuationWaiting?: PromiseWithResolvers<void>;
+  #submitting = false;
+  #eventsConsumed = false;
+  #closed = false;
+  #termination?: Promise<void>;
+
+  constructor(query: WireQuery, abort: AbortController, signal: AbortSignal) {
+    this.#query = query;
+    this.#abort = abort;
+    this.#signal = signal;
+    this.#signalAbort = () => { void this.terminateSession().catch(() => {}); };
+    signal.addEventListener("abort", this.#signalAbort, { once: true });
+    if (signal.aborted) this.#signalAbort();
   }
 
-  close(): void {
-    if (this.ended) return;
-    this.ended = true;
-    for (const pull of this.pulls.splice(0)) pull({ done: true, value: undefined });
+  #wakeContinuationWaiter(): void {
+    const waiting = this.#continuationWaiting;
+    this.#continuationWaiting = undefined;
+    waiting?.resolve();
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<BridgeInput> {
-    return {
-      next: async () => {
-        const value = this.values.shift();
-        if (value !== undefined) return { done: false, value };
-        if (this.ended) return { done: true, value: undefined };
-        return new Promise<IteratorResult<BridgeInput>>((resolve) => this.pulls.push(resolve));
-      },
-      return: async () => {
-        this.close();
-        return { done: true, value: undefined };
-      },
+  async submitInput(input: string): Promise<void> {
+    if (this.#closed) throw new Error("provider session is closed");
+    if (this.#submitting || this.#continuation) {
+      throw new Error("provider session already has a continuation in flight");
+    }
+    if (!this.#query.continueTurn) {
+      throw new Error("provider does not support provider-neutral continuation");
+    }
+    const continuation: BridgeContinuation = {
+      settled: Promise.withResolvers<void>(),
+      accepted: false,
+      observed: false,
+      iterationStarted: false,
     };
-  }
-}
-
-class EventChannel implements AsyncIterable<NormalizedProviderEvent> {
-  private values: NormalizedProviderEvent[] = [];
-  private wake?: () => void;
-  private ended = false;
-  private failure?: unknown;
-  private consumed = false;
-
-  push(value: NormalizedProviderEvent): void {
-    if (this.ended) return;
-    this.values.push(value);
-    this.wake?.();
-    this.wake = undefined;
-  }
-
-  close(): void {
-    this.ended = true;
-    this.wake?.();
-    this.wake = undefined;
+    this.#submitting = true;
+    this.#continuation = continuation;
+    this.#wakeContinuationWaiter();
+    try {
+      await this.#query.continueTurn(input);
+      continuation.accepted = true;
+    } catch (error) {
+      if (this.#continuation === continuation) this.#continuation = undefined;
+      throw error;
+    } finally {
+      this.#submitting = false;
+      continuation.settled.resolve();
+      this.#wakeContinuationWaiter();
+    }
   }
 
-  fail(error: unknown): void {
-    this.failure = error;
-    this.close();
+  async interruptTurn(): Promise<void> {
+    if (!this.#query.interruptTurn) {
+      throw new Error("provider does not support turn interruption");
+    }
+    await this.#query.interruptTurn();
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<NormalizedProviderEvent> {
-    if (this.consumed) throw new Error("provider event stream is single-consumer");
-    this.consumed = true;
-    while (true) {
-      const value = this.values.shift();
-      if (value) {
-        yield value;
+  terminateSession(): Promise<void> {
+    if (this.#termination) return this.#termination;
+    this.#closed = true;
+    this.#signal.removeEventListener("abort", this.#signalAbort);
+    this.#abort.abort();
+    this.#wakeContinuationWaiter();
+    this.#termination = boundedQueryTeardown(this.#query, BRIDGE_QUERY_TEARDOWN_TIMEOUT_MS);
+    return this.#termination;
+  }
+
+  forceTerminateSession(): void {
+    this.#closed = true;
+    this.#signal.removeEventListener("abort", this.#signalAbort);
+    this.#abort.abort();
+    this.#wakeContinuationWaiter();
+    this.#query.forceClose?.();
+  }
+
+  #observeContinuation(): void {
+    const continuation = this.#continuation;
+    if (!continuation) return;
+    continuation.observed = true;
+    this.#continuation = undefined;
+  }
+
+  async #awaitContinuationIterator(): Promise<boolean> {
+    while (!this.#closed) {
+      const continuation = this.#continuation;
+      if (!continuation) {
+        this.#continuationWaiting = Promise.withResolvers<void>();
+        await this.#continuationWaiting.promise;
+        this.#continuationWaiting = undefined;
         continue;
       }
-      if (this.failure) throw this.failure;
-      if (this.ended) return;
-      await new Promise<void>((resolve) => { this.wake = resolve; });
+      await continuation.settled.promise;
+      if (this.#closed) return false;
+      if (!continuation.accepted || continuation.observed) {
+        if (this.#continuation === continuation) this.#continuation = undefined;
+        continue;
+      }
+      if (continuation.iterationStarted) {
+        if (this.#continuation === continuation) this.#continuation = undefined;
+        continue;
+      }
+      continuation.iterationStarted = true;
+      return true;
+    }
+    return false;
+  }
+
+  async *events(): AsyncGenerator<WireEvent, void, unknown> {
+    if (this.#eventsConsumed) throw new Error("provider event stream is single-consumer");
+    this.#eventsConsumed = true;
+    try {
+      let first = true;
+      while (!this.#closed) {
+        if (!first && !await this.#awaitContinuationIterator()) return;
+        first = false;
+        for await (const event of this.#query) {
+          this.#observeContinuation();
+          yield event;
+        }
+      }
+    } finally {
+      this.#signal.removeEventListener("abort", this.#signalAbort);
+      if (!this.#closed) await this.terminateSession();
     }
   }
 }
 
-function jsonData(value: unknown): Record<string, unknown> {
-  const normalized = JSON.parse(JSON.stringify(value)) as unknown;
-  return normalized && typeof normalized === "object" && !Array.isArray(normalized)
-    ? normalized as Record<string, unknown>
-    : { value: normalized };
-}
-
-type ProviderRouting = Pick<typeof import("../provider-routing"),
+type ProviderRouting = Pick<typeof providerRouting,
   "selectProviderFromCachedState" | "refreshProviderRoutingInBackground"
   | "selectProviderForExecution" | "configuredDefaultTarget" | "BOOT_ROUTING_TIMEOUT_MS">;
 
-/**
- * The route, without waiting on the network for it. Opening a session must not
- * block on a live entitlement probe: boot starts on the verdicts a previous
- * session already persisted, refreshes them behind the session, and lets the
- * first real turn catch a credential that died in between — the open error path
- * already re-routes on an auth failure.
- *
- * Without a routed target the adapter falls back to ambient credentials, which
- * are nobody's account: the Claude SDK then fails the turn on an expired OAuth.
- * So a machine with nothing cached still probes — bounded, and falling back to
- * the target the policy configures first rather than to nobody.
- */
+/** Select an authenticated target without making Bridge's open path unbounded. */
 export async function bridgeRoute(
   routing: ProviderRouting,
   provider: BridgeLaunchProvider,
-): Promise<{ target?: RoutingTarget; id: string }> {
+): Promise<{ target?: RoutingTarget }> {
   const cached = await routing.selectProviderFromCachedState({ provider });
   if (cached) {
     void routing.refreshProviderRoutingInBackground({ provider });
-    return { target: cached.routingTargets[cached.target], id: cached.target };
+    return { target: cached.routingTargets[cached.target] };
   }
   try {
     const decision = await routing.selectProviderForExecution({ provider }, undefined, {
       signal: AbortSignal.timeout(routing.BOOT_ROUTING_TIMEOUT_MS),
     });
-    return { target: decision.routingTargets[decision.target], id: decision.target };
+    return { target: decision.routingTargets[decision.target] };
   } catch {
     const fallback = routing.configuredDefaultTarget(provider);
-    return { ...(fallback ? { target: fallback } : {}), id: fallback?.id ?? provider };
+    return fallback ? { target: fallback } : {};
   }
 }
 
 export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
-    const [
-      { harnessOptions }, { applyOrchestrationStaffing }, { openaiProvider }, { anthropicProvider },
-      routing, { markCoordinationOptional },
-    ] = await Promise.all([
-      import("../harness"),
-      import("../orchestration-staffing"),
-      import("../providers/openai"),
-      import("../providers/anthropic"),
-      import("../provider-routing"),
-      import("../execution-admission"),
-    ]);
     const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
-    const route = await bridgeRoute(routing, context.provider);
+    const route = await bridgeRoute(providerRouting, context.provider);
     const target = route.target;
     const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
@@ -196,92 +274,26 @@ export const bridgeProvider: BridgeProviderExecution = {
       systemPrompt: bridgeSystemPrompt(context.role),
       abortController,
     });
-    // Bridge sessions are interactive chat: provider + auth are the only
-    // structural dependencies; the coordinator is telemetry when reachable.
-    // Marked out-of-band — a property write here would invalidate the harness
-    // authority seal, which covers the exact option key set.
     markCoordinationOptional(options);
     await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
-
-    const input = new InputChannel();
-    input.push(bridgeInput(context.provider, context.prompt));
+    const effort = options.effort ?? "high";
     const query = agentProvider.query({
-      prompt: input, options, ...(target ? { target } : {}),
-    });
-    const events = new EventChannel();
-    events.push({
-      kind: "session.config",
-      data: {
-        model: options.model,
-        effort: options.effort,
-        cwd: options.cwd ?? context.cwd,
-        // What the session may do without asking. Derived by the harness from
-        // the capabilities it was sealed with, so it is the session's real
-        // permission and not a preference — which is exactly why the banner
-        // states it rather than leaving the operator to infer it from whether
-        // an edit went through.
-        permissionMode: options.permissionMode,
-        target: route.id,
+      input: context.prompt,
+      options,
+      ...(target ? { target } : {}),
+      context: {
+        writer: context.writer,
+        route: wireQueryRoute({
+          model: {
+            provider: context.provider,
+            capabilityClass: context.role === "director" ? "orchestrator" : "authoring",
+          },
+          effort,
+          attempt: 1,
+        }),
       },
     });
-    let activitySequence = query.executionActivity?.snapshot().sequence ?? 0;
-    const unsubscribe = query.subscribeProviderEvents
-      ? query.subscribeProviderEvents((event) => {
-          events.push({ kind: "codex.event", data: jsonData(event) });
-        })
-      : query.executionActivity?.subscribe(() => {
-          const snapshot = query.executionActivity!.snapshot();
-          if (snapshot.sequence === activitySequence) return;
-          activitySequence = snapshot.sequence;
-          const activity = snapshot.lastProvider ?? snapshot.lastOuter;
-          if (activity) events.push({ kind: "activity", data: jsonData(activity) });
-        });
-    let terminating = false;
-    const terminate = () => { void terminateSession().catch(() => {}); };
-
-    const pump = (async () => {
-      try {
-        for await (const frame of query) {
-          const value = jsonData(frame);
-          const type = typeof value.type === "string" && value.type ? value.type : "event";
-          events.push({ kind: type, data: value, ...(type === "result" ? { turnTerminal: true } : {}) });
-        }
-      } catch (error) {
-        if (!terminating) events.fail(error);
-      } finally {
-        unsubscribe?.();
-        context.signal.removeEventListener("abort", terminate);
-        input.close();
-        try { await query.close?.(); }
-        catch (error) { if (!terminating) events.fail(error); }
-        finally { events.close(); }
-      }
-    })();
-
-    let termination: Promise<void> | undefined;
-    const terminateSession = (): Promise<void> => {
-      if (termination) return termination;
-      terminating = true;
-      input.close();
-      abortController.abort();
-      termination = (async () => {
-        await query.interrupt?.();
-        await pump;
-      })();
-      return termination;
-    };
-    context.signal.addEventListener("abort", terminate, { once: true });
-    if (context.signal.aborted) void terminateSession();
-
-    return {
-      async submitInput(value) { input.push(bridgeInput(context.provider, value)); },
-      async interruptTurn() {
-        if (!query.interruptTurn) throw new Error("provider does not support turn interruption");
-        await query.interruptTurn();
-      },
-      terminateSession,
-      events: () => events,
-    };
+    return new BridgeWireSession(query, abortController, context.signal);
   },
 };
 
@@ -289,32 +301,19 @@ const BRIDGE_PRESSURE_RANK: Record<string, number> = {
   plenty: 4, normal: 3, low: 2, unknown: 1, exhausted: 0,
 };
 
-// Accounts tie at `plenty` most days, so the order this is walked in is the
-// order that actually decides. Anthropic first, because that is the order the
-// providers document has always been grouped in and therefore the provider an
-// unpinned bridge has always opened on; capacity only overrides it when the
-// pressures genuinely differ.
 const BRIDGE_PROVIDER_ORDER: BridgeLaunchProvider[] = ["anthropic", "openai"];
 
-/**
- * Unpinned launches follow capacity: an exhausted entitlement is the one failure
- * a supervisor cannot work around, and it surfaces only as a provider error
- * mid-turn. Capacity is read from the evidence a previous refresh persisted
- * rather than probed for here — this runs before a session opens, with the
- * operator watching an empty screen while it does. Falls back to openai so an
- * unreadable cache never blocks a launch outright.
- */
 export async function selectBridgeProvider(): Promise<BridgeLaunchProvider> {
   try {
-    const { cachedTargetRouting } = await import("../provider-routing");
-    const routing = cachedTargetRouting();
+    const routing = providerRouting.cachedTargetRouting();
     let best: { provider: BridgeLaunchProvider; rank: number } | undefined;
-    for (const provider of BRIDGE_PROVIDER_ORDER)
+    for (const provider of BRIDGE_PROVIDER_ORDER) {
       for (const { target, eligible, headroom } of routing) {
         if (!eligible || target.provider !== provider) continue;
         const rank = BRIDGE_PRESSURE_RANK[headroom] ?? 0;
         if (!best || rank > best.rank) best = { provider, rank };
       }
+    }
     return best?.provider ?? "openai";
   } catch {
     return "openai";

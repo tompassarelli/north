@@ -193,7 +193,10 @@ function agentsegment_label(r) { return r.label; }
 
 function agentsegment_count(r) { return r.count; }
 
-const NORTH_BIN = (() => { const configured = text(process.env.NORTH_BIN); return ((configured === "") ? "north" : configured); })();
+function north_bin() {
+  const configured = text(process.env.NORTH_BIN);
+  return ((configured === "") ? "north" : configured);
+}
 
 const AGENTS_BIN = (() => { const configured = text(process.env.AGENTS_BIN); return ((configured === "") ? "agents" : configured); })();
 
@@ -268,7 +271,7 @@ function stale_daemon_summary(live) {
 }
 
 function failure_summary(data) {
-  const message = text(data.message);
+  const message = text_or(data.message, text_or(data.detail, text_or(data.classification, text(data.code))));
   const causes = data.causes;
   const cause = ((causes && (causes.length > 0)) ? text(causes[0]) : "");
   return (((message.includes("north_coordinator_preflight") || cause.includes("ECONNREFUSED 127.0.0.1:7977"))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number((data.live || 0))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
@@ -1165,7 +1168,7 @@ function forget_control_session_bang(runtime) {
 
 async function restart_daemon_bang(runtime) {
   return (async () => { try {
-    await run_command([NORTH_BIN, "bridge", "restart"]);
+    await run_command([north_bin(), "bridge", "restart"]);
   forget_control_session_bang(runtime);
   publish_line_bang(runtime, "control daemon replaced; session restored");
   return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
@@ -1258,7 +1261,7 @@ if ((key.ctrl && ((name === "c") || (name === "q")))) {
 }
 
 async function refresh_bang(runtime) {
-  const payloads = await Promise.all([run_json([NORTH_BIN, "agents", "--json"]).catch((__) => null), run_json([NORTH_BIN, "json", "board", "--all"]).catch((__) => null), run_json([NORTH_BIN, "json", "done"]).catch((__) => null)]);
+  const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
   const agent_payload = payloads[0];
   const board = payloads[1];
   const done = payloads[2];
@@ -1271,7 +1274,7 @@ async function refresh_bang(runtime) {
   const open_rows = (Array.isArray(board) ? board : []);
   const done_rows = (Array.isArray(done) ? done : []);
   const ids = board_ids(open_rows).concat(board_ids(done_rows));
-  const facts = ((ids.length > 0) ? await run_json([NORTH_BIN, "json", "show-many", ids.join(",")]).catch((__) => []) : []);
+  const facts = ((ids.length > 0) ? await run_json([north_bin(), "json", "show-many", ids.join(",")]).catch((__) => []) : []);
   const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : bridgesnapshot_list(state));
   const prior_terminal = bridgesnapshot_board(state).filter((item) => terminal_condition_p(workitem_condition(item)));
   const terminal_work = (Array.isArray(done) ? normalize_work(done_rows, facts) : prior_terminal);
@@ -1979,7 +1982,7 @@ function help_visible_rows(query) {
   return Math.max(1, Math.min(total, detail_visible_count(total, 0)));
 }
 
-function render_help_panel(runtime) {
+function render_help_panel_bang(runtime) {
   const filtering_p = panel_filtering_p(runtime);
   const query = panel_query(runtime);
   const matched = help_query_rows(query);
@@ -1998,7 +2001,7 @@ if ((index < (rows.length - 1))) {
 }
 
 export function render_detail_panel_bang(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel(runtime) : new StyledText([brightBlack("")]));
+  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel_bang(runtime) : new StyledText([brightBlack("")]));
 }
 
 function segment_chunk(segment, highlighted_p) {
@@ -2048,7 +2051,7 @@ function push_session_identity_bang(chunks, session) {
   return push_chunk_bang(chunks, dim(text_or(session.sessionBranch, "branch pending")));
 }
 
-export function render_view_tabs(frame, state, view_id, session) {
+export function render_view_tabs_bang(frame, state, view_id, session) {
   const chunks = [];
   const threads_p = threads_frame_p(frame);
   const views = view_list(state);
@@ -2193,7 +2196,7 @@ function prefill_outcome_bang(runtime, ui, thread_id) {
 }
 
 async function move_ready_thread_bang(runtime, thread_id, position, anchor_id) {
-  const argv = ((anchor_id === "") ? [NORTH_BIN, "queue", "move", thread_id, position] : [NORTH_BIN, "queue", "move", thread_id, position, anchor_id]);
+  const argv = ((anchor_id === "") ? [north_bin(), "queue", "move", thread_id, position] : [north_bin(), "queue", "move", thread_id, position, anchor_id]);
   const output = await run_command(argv);
   (runtime.workspaceNotice = text(output).trim());
   return await refresh_bang(runtime);
@@ -2345,7 +2348,7 @@ function render_ui_bang(runtime, ui) {
     (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     apply_frame_visibility_bang(runtime, ui);
-    (ui.viewTabsText.content = render_view_tabs(runtime.frame, state, workview_id(current), runtime));
+    (ui.viewTabsText.content = render_view_tabs_bang(runtime.frame, state, workview_id(current), runtime));
     (ui.agentsText.content = roster_text(state, runtime.agentIndex, text(runtime.supervisorId), banner_visible_p(runtime)));
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = (!board_p));
@@ -2413,45 +2416,46 @@ function append_item_delta_bang(runtime, id, kind, title, delta, status) {
   return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? conversationitem_data(existing) : null)));
 }
 
-function assistant_message_text(data) {
-  const message = data.message;
-  const content = (message ? message.content : null);
-  return (Array.isArray(content) ? content.map((part) => text(part.text)).filter((part) => (!(part === ""))).join("\n") : text_or(data.text, text(data.result)));
+function wire_content_text(value) {
+  return (((value == null)) ? "" : ((typeof value === "string")) ? value : (Array.isArray(value)) ? value.map((part) => wire_content_text(part)).filter((part) => (!(part === ""))).join("\n") : safe_json(value));
 }
 
-function adopt_session_metadata_bang(runtime, source) {
-  if (source) {
-    const model = text_or(source.model, text(source.modelName));
-    const effort = text_or(source.reasoningEffort, text(source.effort));
-    const cwd = text_or(source.cwd, text(source.workingDirectory));
-    const permissions = text(source.permissionMode);
-    if ((!(model === ""))) {
-      (runtime.sessionModel = model);
+function adopt_wire_model_bang(runtime, model, effort) {
+  if (model) {
+    const provider = text(model.provider);
+    const tier = text(model.tier);
+    const label = ((((!(provider === "")) && (!(tier === "")))) ? ("".concat(provider, "/", tier)) : ((!(provider === ""))) ? provider : "");
+    if ((!(label === ""))) {
+      (runtime.sessionModel = label);
     }
-    if ((!(effort === ""))) {
-      (runtime.sessionEffort = effort);
-    }
-    if ((!(cwd === ""))) {
-      (runtime.sessionCwd = cwd);
-    }
-    if ((!(permissions === ""))) {
-      return (runtime.sessionPermissions = permissions);
-    }
+  }
+  const effort_label = text(effort);
+  if ((!(effort_label === ""))) {
+    return (runtime.sessionEffort = effort_label);
   }
 }
 
-function handle_codex_event_bang(runtime, stream_state, data) {
-  const method = text(data.method);
-  const params = (data.params || {});
+function intermediate_provider_session_replacement_p(data) {
+  return ((text(data.status) === "failed") && (text(data.origin) === "north") && (text(data.errorCode) === "provider_session_replaced"));
+}
+
+function handle_wire_message_bang(runtime, stream_state, data) {
+  const role = text(data.role);
+  const stage = text(data.stage);
   const execution_id = text(stream_state.executionId);
-  return (((method === "thread/started")) ? adopt_session_metadata_bang(runtime, params.thread) : ((method === "model/safetyBuffering/updated")) ? adopt_session_metadata_bang(runtime, params) : ((method === "turn/started")) ? (() => { adopt_session_metadata_bang(runtime, (params.turn || params));
-set_working_bang(runtime, true, "Codex is working");
-if ((!(execution_id === ""))) {
-  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
-} })() : ((method === "item/started")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return (((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), "", "running", item)) : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), safe_json(item.arguments), "running")) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", "", "running", item)) : null); })() : ((method === "item/commandExecution/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "command", "command", text(params.delta), "running") : ((method === "item/agentMessage/delta")) ? ((!stream_state.booting) ? (() => { return append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "assistant", "", text(params.delta), "running"); })() : null) : (((method === "item/reasoning/summaryTextDelta") || (method === "item/plan/delta"))) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "thought", "", text(params.delta), "running") : ((method === "item/fileChange/outputDelta")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "change", "Editing files", text(params.delta), "running") : ((method === "item/fileChange/patchUpdated")) ? (() => { const id = event_item_id(execution_id, params.itemId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Editing files", (existing ? conversationitem_body(existing) : ""), "running", params)); })() : ((method === "item/mcpToolCall/progress")) ? append_item_delta_bang(runtime, event_item_id(execution_id, params.itemId), "tool", "Tool activity", text(params.message), "running") : ((method === "item/completed")) ? (() => { const item = params.item; const kind = (item ? text(item.type) : ""); const id = event_item_id(execution_id, (item ? item.id : "item")); return (((kind === "commandExecution")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "command", clean_text(item.command), clipped(item.aggregatedOutput, 6000), (((text(item.status) === "completed") && (item.exitCode === 0)) ? "done" : "failed"), item)) : ((kind === "agentMessage")) ? (() => { const body = clean_text(item.text); (runtime.lastAssistantText = body);
-if ((!stream_state.booting)) {
-  return upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", body, "done"));
-} })() : ((kind === "mcpToolCall")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", ("".concat("Called ", text(item.server), ".", text(item.tool))), clipped(safe_json(item.result), 6000), ((text(item.status) === "failed") ? "failed" : "done"))) : ((kind === "fileChange")) ? upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, "change", "Edited files", "", ((text(item.status) === "failed") ? "failed" : "done"), item)) : (((kind === "webSearch") || (kind === "todoList"))) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", kind, clipped(safe_json(item), 3000), "done")) : null); })() : ((method === "turn/completed")) ? (runtime.workingLabel = "Finishing") : null);
+  const id = event_item_id(execution_id, data.messageId);
+  const body = clean_text(wire_content_text(data.content));
+  const existing = conversation_item_by_id(runtime, id);
+  if (((role === "assistant") && (!stream_state.booting))) {
+    return (((stage === "started")) ? upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", "", "running")) : ((stage === "delta")) ? append_item_delta_bang(runtime, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (existing ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
+return upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", completed_body, "done")); })() : null);
+  }
+}
+
+function handle_wire_tool_bang(runtime, stream_state, data, kind) {
+  const id = event_item_id(text(stream_state.executionId), data.toolCallId);
+  const existing = conversation_item_by_id(runtime, id);
+  return (((kind === "tool.admitted")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", text(data.name), clean_text(data.argumentPreview), "running")) : ((kind === "tool.progress")) ? append_item_delta_bang(runtime, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), wire_content_text(data.progress), "running") : ((kind === "tool.terminal")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), text_or(data.resultPreview, (existing ? conversationitem_body(existing) : "")), ((text(data.status) === "succeeded") ? "done" : "failed"))) : null);
 }
 
 function handle_record_bang(runtime, stream_state, record) {
@@ -2460,10 +2464,21 @@ function handle_record_bang(runtime, stream_state, record) {
   const execution_id = text(stream_state.executionId);
   return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); if ((!(cwd === ""))) {
   return (runtime.sessionCwd = cwd);
-} })() : ((kind === "provider.starting")) ? ((!(execution_id === "")) ? (() => { return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : null) : ((kind === "provider.codex.event")) ? handle_codex_event_bang(runtime, stream_state, data) : ((kind === "provider.session.config")) ? adopt_session_metadata_bang(runtime, data) : ((kind === "provider.assistant")) ? (() => { const body = assistant_message_text(data); if (((!stream_state.booting) && (!(body === "")) && (!(body === runtime.lastAssistantText)))) {
-  (runtime.lastAssistantText = body);
-  return upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "assistant"), "assistant", "", body, "done"));
-} })() : ((kind === "provider.result")) ? set_working_bang(runtime, false, "") : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_working_bang(runtime, false, "");
+} })() : ((kind === "model-call.started")) ? (() => { adopt_wire_model_bang(runtime, data.model, data.effort);
+set_working_bang(runtime, true, "Agent is working");
+if ((!(execution_id === ""))) {
+  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
+} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || (kind === "tool.progress") || (kind === "tool.terminal"))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = (data.progress || {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
+if (progress.branch) {
+  (runtime.sessionBranch = text(progress.branch.name));
+}
+if ((lifecycle === "waiting")) {
+  return set_working_bang(runtime, false, "");
+} else {
+  if ((!(action === ""))) {
+    return set_working_bang(runtime, true, action);
+  }
+} })() : ((kind === "artifact.published")) ? upsert_conversation_bang(runtime, conversation_item(event_item_id(execution_id, data.artifactId), "change", text_or(data.label, "Published artifact"), text(data.mediaType), "done")) : ((kind === "model-call.completed")) ? ((!intermediate_provider_session_replacement_p(data)) ? (() => { return set_working_bang(runtime, false, ""); })() : null) : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_working_bang(runtime, false, "");
 if (booting) {
   play_sound_event_bang(runtime, stream_state, "ready");
 } else if ((disposition === "interrupted")) {
@@ -2476,16 +2491,18 @@ if (booting) {
 (stream_state.booting = false);
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "ready");
-} })() : ((kind === "execution.failed")) ? (() => { const execution_id = text(stream_state.executionId); set_working_bang(runtime, false, "");
-play_sound_event_bang(runtime, stream_state, "failed");
-append_error_bang(runtime, failure_summary(data));
+} })() : ((kind === "run.terminated")) ? (() => { set_working_bang(runtime, false, "");
+if (((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked"))) {
+  play_sound_event_bang(runtime, stream_state, "failed");
+  append_error_bang(runtime, failure_summary(data.reason));
+}
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "offline");
-} })() : ((kind.includes("failed") || kind.includes("error"))) ? (() => { set_working_bang(runtime, false, "");
+} })() : ((kind === "execution.failure")) ? (() => { set_working_bang(runtime, false, "");
 return append_error_bang(runtime, ("".concat(kind, ": ", failure_summary(data)))); })() : null);
 }
 
-function parse_bridge_stream_bang(runtime, stream_state, chunk) {
+export function parse_bridge_stream_bang(runtime, stream_state, chunk) {
   const lines = ("".concat(stream_state.buffer, chunk)).split("\n");
   const remainder = lines.pop();
   (stream_state.buffer = remainder);
@@ -2516,7 +2533,7 @@ async function launch_agent_bang(runtime, prompt, role) {
   }
   set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label())));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
-  const exit_code = await stream_command((() => { const flag = supervisor_provider_flag(); const base = [NORTH_BIN, "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")]; return ((flag === "") ? [...base, prompt] : [...[...base, flag], prompt]); })(), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
+  const exit_code = await stream_command((() => { const flag = supervisor_provider_flag(); const base = [north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")]; return ((flag === "") ? [...base, prompt] : [...[...base, flag], prompt]); })(), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
     return append_error_bang(runtime, ("".concat("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : ("".concat("\n", text(stream_state.stderr).trim()))))));
@@ -2529,7 +2546,7 @@ function popout_bang(runtime, view_id) {
   const wezterm = Bun.which("wezterm");
   const foot = Bun.which("foot");
   const xterm = Bun.which("xterm");
-  const argv = ((ghostty) ? [ghostty, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (kitty) ? [kitty, "--detach", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (wezterm) ? [wezterm, "start", "--always-new-process", "--", NORTH_BIN, "bridge", "app", "--view-id", view_id] : (foot) ? [foot, NORTH_BIN, "bridge", "app", "--view-id", view_id] : (xterm) ? [xterm, "-e", NORTH_BIN, "bridge", "app", "--view-id", view_id] : null);
+  const argv = ((ghostty) ? [ghostty, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : (kitty) ? [kitty, "--detach", north_bin(), "bridge", "app", "--view-id", view_id] : (wezterm) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "app", "--view-id", view_id] : (foot) ? [foot, north_bin(), "bridge", "app", "--view-id", view_id] : (xterm) ? [xterm, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : null);
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }
@@ -2556,7 +2573,7 @@ async function capture_thread_bang(runtime, title) {
   if ((title === "")) {
     (() => { throw new Error("capture requires a title"); })();
   }
-  const output = await run_command([NORTH_BIN, "capture", title]);
+  const output = await run_command([north_bin(), "capture", title]);
   publish_line_bang(runtime, text(output).trim());
   return await refresh_bang(runtime);
 }
@@ -2575,7 +2592,7 @@ async function cancel_turn_bang(runtime, ui, target) {
   if ((!runtime.bridgeExecutions.has(target))) {
     (() => { throw new Error("interrupt is available for Bridge-launched executions"); })();
   }
-  await run_command([NORTH_BIN, "bridge", "interrupt", target]);
+  await run_command([north_bin(), "bridge", "interrupt", target]);
   set_working_bang(runtime, false, "");
   append_interrupted_bang(runtime);
   return restore_submitted_text_bang(runtime, ui);
@@ -2602,9 +2619,9 @@ if ((slash_p && (name === "interrupt"))) {
   (runtime.lastSubmitted = message);
   set_working_bang(runtime, true, "Codex is working");
   if (runtime.bridgeExecutions.has(target)) {
-    await run_command([NORTH_BIN, "bridge", "msg", target, message]);
+    await run_command([north_bin(), "bridge", "msg", target, message]);
   } else {
-    await run_command([NORTH_BIN, "msg", target, message]);
+    await run_command([north_bin(), "msg", target, message]);
   }
   return runtime.render();
 } })()));
@@ -2627,8 +2644,8 @@ if ((next_driver === "")) {
   (() => { throw new Error("assign requires a new driver"); })();
 }
 publish_line_bang(runtime, "driver reassignment is a retract-then-tell operation");
-await run_command([NORTH_BIN, "retract", thread_id, "driver", prior]);
-await run_command([NORTH_BIN, "tell", thread_id, "driver", next_driver]);
+await run_command([north_bin(), "retract", thread_id, "driver", prior]);
+await run_command([north_bin(), "tell", thread_id, "driver", next_driver]);
 publish_line_bang(runtime, ("".concat("assigned @", thread_id, " to ", next_driver)));
 return await refresh_bang(runtime); })() : ((name === "outcome")) ? (async () => { const split_at = rest.indexOf(" "); const thread_id = ((split_at < 0) ? "" : bare(rest.slice(0, split_at))); const result = ((split_at < 0) ? "" : rest.slice((split_at + 1)).trim()); if ((thread_id === "")) {
   (() => { throw new Error("outcome requires: /outcome <thread-id> <result>"); })();
@@ -2636,7 +2653,7 @@ return await refresh_bang(runtime); })() : ((name === "outcome")) ? (async () =>
 if ((result === "")) {
   (() => { throw new Error("outcome requires a result"); })();
 }
-await run_command([NORTH_BIN, "tell", thread_id, "outcome", result]);
+await run_command([north_bin(), "tell", thread_id, "outcome", result]);
 (runtime.workspaceNotice = ("".concat("Recorded outcome for @", thread_id, ".")));
 return await refresh_bang(runtime); })() : (() => { throw new Error("unknown thread command; use /help"); })())));
 }

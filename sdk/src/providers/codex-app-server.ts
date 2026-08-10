@@ -38,7 +38,6 @@ import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
 import {
   trustedGitMetadataRoots, trustedGitProjectRoot, trustedManagedCodexExecutable,
 } from "../trusted-runtime";
-import type { TerminalTokenUsage } from "../usage";
 import {
   McpActivityAccumulator, mcpReceiptMetadata, normalizeCodexMcpIdentity, type McpActivityObservation,
 } from "../tool-activity";
@@ -53,7 +52,8 @@ import {
 import {
   formatProviderStderrTail, ProviderStderrRing, STDERR_TAIL_LINES,
 } from "./codex-stderr-tail";
-import { providerJoinEvidence, type ProviderJoinEvidence } from "./provider-join";
+import { providerJoinEvidence } from "./provider-join";
+import type { WireProviderJoinEvidence } from "../wire/events";
 
 const SUPERVISOR = resolve(import.meta.dir, "codex-supervisor.ts");
 const ENGINE = resolve(import.meta.dir, "../../../bin/north");
@@ -103,6 +103,9 @@ const POST_TOOL_QUIET_MS = 5 * 60_000;
 // turn/interrupt is a courtesy, not a contract: bound it so a wedged provider
 // cannot also wedge the settlement of the turn it wedged.
 const TURN_INTERRUPT_MS = 5_000;
+const REPLACEMENT_TURN_INTERRUPT_UNAVAILABLE = "managed_provider_replacement_turn_unavailable";
+const PROVIDER_HAS_NO_ACTIVE_TURN = "provider_has_no_active_turn";
+const PROVIDER_TURN_INTERRUPT_FAILED = "provider_turn_interrupt_failed";
 // Retire-and-respawn budget for ONE lane. A provider process death used to end
 // the lane permanently, because spawn.ts refuses a process-death retry for any
 // authoring-capable lane (it cannot know what the dead turn already wrote; the
@@ -229,6 +232,11 @@ const REVIEWED_DISABLED_PROJECT_CONFIG_KEYS = [
 type JsonObject = Record<string, unknown>;
 type RpcId = number | string;
 
+interface PendingReplacementTurnInterrupt {
+  settlement: PromiseWithResolvers<void>;
+  dispatched: boolean;
+}
+
 export interface ManagedCodexNorthServer {
   command: string;
   args: string[];
@@ -267,17 +275,21 @@ export interface ManagedCodexAppServerOptions {
   onActivity?: (kind: string) => void;
   /** Presentation-only stream emitted after each runtime notification validates. */
   onEvent?: (method: string, params: unknown) => void;
+  /** Adapter-private boundary emitted only after a dead provider attempt earns a respawn. */
+  onRespawn?: () => void;
 }
 
 export interface ManagedCodexResult {
   text: string;
-  usage: TerminalTokenUsage & {
+  usage: {
     input_tokens: number;
     cached_input_tokens: number;
     output_tokens: number;
     reasoning_output_tokens: number;
   };
-  providerJoin: ProviderJoinEvidence;
+  /** Provider-reported duration for this exact Codex turn. */
+  providerDurationMs: number;
+  providerJoin: WireProviderJoinEvidence;
   /**
    * Work items this turn completed, counted from observed `item/completed`
    * notifications: every completed item that is neither the assistant's own
@@ -639,9 +651,15 @@ interface LaunchContract {
   projectRoot: string;
   /** Git metadata roots the workspace-write sandbox may write; [] when read-only. */
   writableRoots: string[];
-  network: ReturnType<typeof managedCodexNetworkPolicy>;
+  network: ManagedCodexNetworkPolicy;
   /** Immutable requirements.toml independently attested hook failures as blocking. */
   installedManagedHookFailureMode?: "block";
+}
+
+interface ManagedCodexNetworkPolicy {
+  networkAccess: boolean;
+  networkProxyEnabled: boolean;
+  domains: Record<string, "allow">;
 }
 
 /**
@@ -848,7 +866,7 @@ export function managedCodexAppServerLaunch(
 
 interface Pending {
   method: string;
-  timer: ReturnType<typeof setTimeout>;
+  timer: NodeJS.Timeout;
   resolve(value: unknown): void;
   reject(error: Error): void;
 }
@@ -1145,21 +1163,21 @@ class AppServerRpc {
     const line = `${JSON.stringify(envelope)}\n`;
     if (Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES)
       throw new Error(`managed Codex ${method} request is oversized`);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const current = this.pending.get(id);
-        if (!current) return;
-        this.pending.delete(id);
-        const error = new Error(`managed Codex ${method} timed out`);
-        current.reject(error);
-        this.fail(error);
-      }, this.timeoutMs);
-      timer.unref?.();
-      this.pending.set(id, { method, timer, resolve, reject });
-      this.writeLine(line, (error) => {
-        if (error) this.fail(new Error(`managed Codex ${method} write failed`));
-      });
+    const deferred = Promise.withResolvers<unknown>();
+    const timer = setTimeout(() => {
+      const current = this.pending.get(id);
+      if (!current) return;
+      this.pending.delete(id);
+      const error = new Error(`managed Codex ${method} timed out`);
+      current.reject(error);
+      this.fail(error);
+    }, this.timeoutMs);
+    timer.unref?.();
+    this.pending.set(id, { method, timer, resolve: deferred.resolve, reject: deferred.reject });
+    this.writeLine(line, (error) => {
+      if (error) this.fail(new Error(`managed Codex ${method} write failed`));
     });
+    return deferred.promise;
   }
 
   notify(method: string, params?: unknown): void {
@@ -1617,6 +1635,7 @@ interface RuntimeNotificationState {
   hookRuns: Set<string>;
   text: string;
   usage?: ManagedCodexResult["usage"];
+  providerDurationMs?: number;
   terminalSeen: boolean;
   /** Completed non-message, non-reasoning items observed in the LIVE turn. */
   toolItems: number;
@@ -1763,7 +1782,7 @@ function completedNativeCommand(
   if (!Number.isSafeInteger(item.durationMs) || (item.durationMs as number) < 0)
     throw new Error("Codex completed command execution duration is invalid");
   if (!state.nativeCommands.observe({
-    id: `${state.turnId}:${id}`,
+    id: `${state.threadId}:${state.turnId}:${id}`,
     command,
     // The OBSERVED directory, not the thread's: the North binary probe is only
     // evidence when it ran at the lane root, and that comparison is dead if we
@@ -1804,7 +1823,7 @@ function startedNativeCommand(item: JsonObject, state: RuntimeNotificationState)
   if (!Array.isArray(item.commandActions) || item.commandActions.length > 256)
     throw new Error("Codex started command actions are invalid");
   for (const action of item.commandActions) validateCommandAction(action);
-  if (!state.nativeCommands.start(`${state.turnId}:${id}`))
+  if (!state.nativeCommands.start(`${state.threadId}:${state.turnId}:${id}`))
     throw new Error("Codex command start lifecycle is invalid");
 }
 
@@ -2057,7 +2076,7 @@ function validateProgressNotification(
     }
     if (method === "item/completed" && item.type === "mcpToolCall") {
       state.mcpActivity.observe(
-        `${state.turnId}:${String(item.id)}`,
+        `${state.threadId}:${state.turnId}:${String(item.id)}`,
         normalizeCodexMcpIdentity(item.server, item.tool),
         mcpReceiptMetadata(item.arguments, item.result,
           started && started.kind === "mcpToolCall" ? (timestamp as number) - started.startedAtMs : undefined),
@@ -2072,6 +2091,8 @@ function validateProgressNotification(
     if (state.terminalSeen) throw new Error("Codex emitted multiple turn terminals");
     if (params.threadId !== state.threadId) throw new Error("Codex turn terminal is for another thread");
     validateNotifiedTurn(params.turn, state.turnId, "completed", "Codex completed turn");
+    const completedTurn = record(params.turn, "Codex completed turn");
+    state.providerDurationMs = completedTurn.durationMs as number;
     if (state.hookRuns.size) throw new Error("Codex turn completed with unfinished managed hooks");
     state.terminalSeen = true;
     return;
@@ -2271,13 +2292,13 @@ function supervisorStatusChannel(
   let closed = false;
   let observedExit: number | undefined;
   let malformedNoted = false;
-  let rejectFailure!: (error: Error) => void;
-  const failure = new Promise<never>((_resolve, reject) => { rejectFailure = reject; });
+  const failureDeferred = Promise.withResolvers<never>();
+  const failure = failureDeferred.promise;
   void failure.catch(() => {});
   const failPreflight = (error: Error) => {
     if (!preflight) return;
     preflight = false;
-    rejectFailure(error);
+    failureDeferred.reject(error);
   };
   const onLine = (line: string) => {
     const statusLine = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
@@ -2345,8 +2366,9 @@ async function closeProcess(
 ): Promise<void> {
   rpc?.markClosing();
   control?.close();
-  const closed = new Promise<boolean>((resolveClose) =>
-    child.once("close", () => resolveClose(true)));
+  const closedDeferred = Promise.withResolvers<boolean>();
+  child.once("close", () => closedDeferred.resolve(true));
+  const closed = closedDeferred.promise;
   try { child.stdin.end(); } catch {}
   // A provider that is ALREADY gone fired `close` before this listener existed,
   // so racing for it burns the whole 3s teardown bound and then reports the
@@ -2362,14 +2384,14 @@ async function closeProcess(
     closed,
     // Supervisor owns 750ms TERM + 750ms KILL + one 750ms pipe-close
     // deadline. Three 10ms poll quanta cover its bounded predicate checks.
-    new Promise<boolean>((resolveExit) => setTimeout(() => resolveExit(false), 2_280)),
+    Bun.sleep(2_280).then(() => false),
   ]);
   let reaped = settled;
   if (!settled) {
     try { child.kill("SIGKILL"); } catch {}
     reaped = await Promise.race([
       closed,
-      new Promise<boolean>((resolveExit) => setTimeout(() => resolveExit(false), 750)),
+      Bun.sleep(750).then(() => false),
     ]);
   }
   for (const stream of [child.stdin, child.stdout, child.stderr]) {
@@ -2380,11 +2402,17 @@ async function closeProcess(
 
 function awaitChildSpawn(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
   if (child.pid !== undefined) return Promise.resolve();
-  return new Promise((resolveSpawn, reject) => {
-    const timer = setTimeout(() => reject(new Error("managed Codex process spawn timed out")), timeoutMs);
-    child.once("spawn", () => { clearTimeout(timer); resolveSpawn(); });
-    child.once("error", () => { clearTimeout(timer); reject(new Error("managed Codex process unavailable")); });
+  const deferred = Promise.withResolvers<void>();
+  const timer = setTimeout(
+    () => deferred.reject(new Error("managed Codex process spawn timed out")),
+    timeoutMs,
+  );
+  child.once("spawn", () => { clearTimeout(timer); deferred.resolve(); });
+  child.once("error", () => {
+    clearTimeout(timer);
+    deferred.reject(new Error("managed Codex process unavailable"));
   });
+  return deferred.promise;
 }
 
 /**
@@ -2432,7 +2460,6 @@ export function managedCodexRecoveredContext(
   brief: string,
   completedTurnTexts: readonly string[],
   harvest: ManagedCodexHarvest,
-  reason: string,
 ): string {
   const parts: string[] = [
     brief,
@@ -2442,8 +2469,7 @@ export function managedCodexRecoveredContext(
     + " Nothing below was re-executed: it is a record of work YOUR OWN earlier"
     + " turns already performed in this same working tree. Verify it on disk"
     + " before redoing it, then continue the brief above from there.",
-    `retired provider thread: ${harvest.threadId ?? "(never started)"}`,
-    `retired after: ${clip(reason, 512)}`,
+    "recovery cause: provider_process_died",
     `completed turns before the crash: ${completedTurnTexts.length}`,
   ];
   completedTurnTexts.forEach((text, index) => {
@@ -2505,15 +2531,13 @@ export class ManagedCodexAppServerRun {
   private attemptFailure?: Error;
   private interrupted = false;
   private activeTurnInterrupt?: () => Promise<void>;
+  #replacementTurnPending = false;
+  #pendingReplacementTurnInterrupt?: PendingReplacementTurnInterrupt;
 
   constructor(private options: ManagedCodexAppServerOptions) {}
 
   mcpActivity() { return this.mcp.snapshot(); }
   nativeCommandActivity(): NativeCommandActivityObservation {
-    // Per-SESSION, not per-lane: a respawn starts a fresh accumulator because a
-    // retired session's commands may still be open, and `complete()` on an open
-    // command is a lifecycle defect. The retired session's command evidence goes
-    // into the respawn record and the recovered-context recap instead.
     return this.nativeCommands?.snapshot()
       ?? unknownNativeCommandActivity("codex-app-server:not-started");
   }
@@ -2575,14 +2599,57 @@ export class ManagedCodexAppServerRun {
     // Also closes the respawn window: a caller that interrupted between two
     // provider sessions must not get a third one started behind its back.
     this.interrupted = true;
+    this.#rejectPendingReplacementTurnInterrupt();
     if (this.child) await closeProcess(this.child, this.rpc, this.control);
   }
 
   /** Interrupt the active turn without closing its app-server session. */
-  async interruptTurn(): Promise<void> {
+  interruptTurn(): Promise<void> {
+    const pending = this.#pendingReplacementTurnInterrupt;
+    if (pending) return pending.settlement.promise;
     const interrupt = this.activeTurnInterrupt;
-    if (!interrupt) throw new Error("Codex has no active turn to interrupt");
-    await interrupt();
+    if (interrupt) return interrupt().catch((cause) => {
+      throw new Error(PROVIDER_TURN_INTERRUPT_FAILED, { cause });
+    });
+    if (!this.#replacementTurnPending)
+      return Promise.reject(new Error(PROVIDER_HAS_NO_ACTIVE_TURN));
+    const settlement = Promise.withResolvers<void>();
+    void settlement.promise.catch(() => {});
+    this.#pendingReplacementTurnInterrupt = { settlement, dispatched: false };
+    return settlement.promise;
+  }
+
+  #beginReplacementTurn(): void {
+    this.#replacementTurnPending = true;
+  }
+
+  #dispatchPendingReplacementTurnInterrupt(interrupt: () => Promise<void>): void {
+    this.#replacementTurnPending = false;
+    const pending = this.#pendingReplacementTurnInterrupt;
+    if (!pending || pending.dispatched) return;
+    pending.dispatched = true;
+    void interrupt().then(
+      () => this.#resolvePendingReplacementTurnInterrupt(pending),
+      (cause) => this.#rejectPendingReplacementTurnInterrupt(
+        new Error(PROVIDER_TURN_INTERRUPT_FAILED, { cause }), pending,
+      ),
+    );
+  }
+
+  #resolvePendingReplacementTurnInterrupt(pending: PendingReplacementTurnInterrupt): void {
+    if (this.#pendingReplacementTurnInterrupt !== pending) return;
+    this.#pendingReplacementTurnInterrupt = undefined;
+    pending.settlement.resolve();
+  }
+
+  #rejectPendingReplacementTurnInterrupt(
+    error: unknown = new Error(REPLACEMENT_TURN_INTERRUPT_UNAVAILABLE),
+    pending = this.#pendingReplacementTurnInterrupt,
+  ): void {
+    this.#replacementTurnPending = false;
+    if (!pending || this.#pendingReplacementTurnInterrupt !== pending) return;
+    this.#pendingReplacementTurnInterrupt = undefined;
+    pending.settlement.reject(error);
   }
 
   // Single-turn entry point: run exactly one turn on a fresh thread and tear the
@@ -2636,39 +2703,57 @@ export class ManagedCodexAppServerRun {
     // and it dies with the process.
     const completedTurnTexts: string[] = [];
     let launchPrompt = this.options.prompt;
-    while (true) {
-      try {
-        for await (const result of this.attempt(nextInput, launchPrompt)) {
-          this.laneCompletedTurns += 1;
-          completedTurnTexts.push(result.text);
-          yield result;
+    try {
+      while (true) {
+        try {
+          for await (const result of this.attempt(nextInput, launchPrompt)) {
+            this.laneCompletedTurns += 1;
+            completedTurnTexts.push(result.text);
+            yield result;
+          }
+          return;
+        } catch (error) {
+          const death = this.takeAttemptDeath(error);
+          if (!death || this.interrupted || this.respawns.length >= maxRespawns) throw error;
+          const harvest = (error as ManagedCodexHarvestError).harvest;
+          this.respawns.push({
+            attempt: this.respawns.length + 1,
+            reason: death.reason,
+            ...(harvest.threadId ? { threadId: harvest.threadId } : {}),
+            completedTurns: harvest.completedTurns,
+            ...(death.diagnostics.stderrTail.length
+              ? { stderrTail: [...death.diagnostics.stderrTail] } : {}),
+            ...(death.diagnostics.exitCode === undefined
+              ? {} : { exitCode: death.diagnostics.exitCode }),
+            ...(death.diagnostics.exitSignal === undefined
+              ? {} : { exitSignal: death.diagnostics.exitSignal }),
+          });
+          // Both accumulators are lane-scoped. Keep every completed receipt, drop
+          // only the dead session's open native lifecycles, and make the missing
+          // provider terminal a permanent partial-coverage taint.
+          this.mcp.retireSession();
+          this.nativeCommands?.retireSession();
+          // The dead attempt's turn never emits turn/completed. Close its public
+          // lifecycle before the replacement process can start another turn.
+          // Mark the replacement gap first: a control subscriber may request a
+          // turn interrupt synchronously while observing this settlement.
+          this.#beginReplacementTurn();
+          this.options.onRespawn?.();
+          // A full interrupt from that callback closes the logical turn. Do not
+          // start a replacement process after the catch gate already ran.
+          if (this.interrupted) throw error;
+          launchPrompt = managedCodexRecoveredContext(
+            this.options.prompt, completedTurnTexts, harvest,
+          );
+          console.error(
+            `[codex] managed provider session died (${death.reason}) — respawning `
+            + `${this.respawns.length}/${maxRespawns} with ${completedTurnTexts.length} `
+            + `completed turn(s) of recovered context`,
+          );
         }
-        return;
-      } catch (error) {
-        const death = this.takeAttemptDeath(error);
-        if (!death || this.interrupted || this.respawns.length >= maxRespawns) throw error;
-        const harvest = (error as ManagedCodexHarvestError).harvest;
-        this.respawns.push({
-          attempt: this.respawns.length + 1,
-          reason: death.reason,
-          ...(harvest.threadId ? { threadId: harvest.threadId } : {}),
-          completedTurns: harvest.completedTurns,
-          ...(death.diagnostics.stderrTail.length
-            ? { stderrTail: [...death.diagnostics.stderrTail] } : {}),
-          ...(death.diagnostics.exitCode === undefined
-            ? {} : { exitCode: death.diagnostics.exitCode }),
-          ...(death.diagnostics.exitSignal === undefined
-            ? {} : { exitSignal: death.diagnostics.exitSignal }),
-        });
-        launchPrompt = managedCodexRecoveredContext(
-          this.options.prompt, completedTurnTexts, harvest, death.reason,
-        );
-        console.error(
-          `[codex] managed provider session died (${death.reason}) — respawning `
-          + `${this.respawns.length}/${maxRespawns} with ${completedTurnTexts.length} `
-          + `completed turn(s) of recovered context`,
-        );
       }
+    } finally {
+      this.#rejectPendingReplacementTurnInterrupt();
     }
   }
 
@@ -2694,7 +2779,7 @@ export class ManagedCodexAppServerRun {
         turnIds: [], completedTurns: 0, text: "", unsupportedNotifications: {},
       }), { cause: failure });
     }
-    this.nativeCommands = new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
+    this.nativeCommands ??= new NativeCommandActivityAccumulator(contract.cwd, ENGINE);
     // Every inventory read, startup notification, and tool-approval request is
     // proven against the sealed North MCP grant for this session.
     const inventory = expectedMcpInventory(this.options.surface);
@@ -2733,15 +2818,13 @@ export class ManagedCodexAppServerRun {
     let runtimeState: RuntimeNotificationState | undefined;
     const approvedServerRequests = new Set<RpcId>();
     const queuedNotifications: Array<{ method: string; value: unknown }> = [];
-    let terminalResolve!: () => void;
-    let terminalReject!: (error: Error) => void;
+    let terminalDeferred = Promise.withResolvers<void>();
+    let terminalResolve = terminalDeferred.resolve;
+    let terminalReject = terminalDeferred.reject;
     // Reassigned per turn: each continuation turn installs a fresh terminal
     // barrier while `terminalResolve`/`terminalReject` (captured by the
     // notification closures below by reference) always point at the live turn.
-    let terminal = new Promise<void>((resolveTerminal, rejectTerminal) => {
-      terminalResolve = resolveTerminal;
-      terminalReject = rejectTerminal;
-    });
+    let terminal = terminalDeferred.promise;
     // Authority preflight can fail before the turn waiter is reached. Attach a
     // handler immediately so that the same error is observed by the main flow,
     // never as a detached unhandled rejection.
@@ -2764,8 +2847,8 @@ export class ManagedCodexAppServerRun {
     const postToolQuietMs = boundedMs(
       "NORTH_CODEX_POST_TOOL_QUIET_MS", POST_TOOL_QUIET_MS, this.options.postToolQuietMs,
     );
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-    let quietTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: NodeJS.Timeout | undefined;
+    let quietTimer: NodeJS.Timeout | undefined;
     let watchdogReason: Error | undefined;
     let interruptEvidence: ManagedCodexInterruptEvidence | undefined;
     let turnStartedAt = 0;
@@ -2862,11 +2945,8 @@ export class ManagedCodexAppServerRun {
       if (!threadId || !turnId) throw new Error("Codex has no active turn to interrupt");
       record(await Promise.race([
         rpc.request("turn/interrupt", { threadId, turnId }),
-        new Promise((_resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error("turn/interrupt timed out")), TURN_INTERRUPT_MS,
-          );
-          timer.unref?.();
+        Bun.sleep(TURN_INTERRUPT_MS).then(() => {
+          throw new Error("turn/interrupt timed out");
         }),
       ]), "Codex turn/interrupt response");
     };
@@ -3020,7 +3100,10 @@ export class ManagedCodexAppServerRun {
       }
     };
     const onNotification = (method: string, value: unknown) => {
-      if (validateConnectionNotification(method, value)) return;
+      if (validateConnectionNotification(method, value)) {
+        this.options.onEvent?.(method, value);
+        return;
+      }
       const entry = { method, value };
       if (!runtimeState || (!runtimeState.turnId && !canProcessWithoutTurn(entry))) {
         if (queuedNotifications.length >= MAX_QUEUED_NOTIFICATIONS)
@@ -3078,7 +3161,7 @@ export class ManagedCodexAppServerRun {
     const supervisor: SupervisorStatusChannel = supervised
       ? supervisorStatusChannel(child)
       : {
-        failure: new Promise<never>(() => {}),
+        failure: Promise.withResolvers<never>().promise,
         settled() {}, stderrTail() { return []; }, exitCode() { return undefined; }, close() {},
       };
     // Whichever pipe this launch owns, the diagnostics read the same way.
@@ -3191,6 +3274,7 @@ export class ManagedCodexAppServerRun {
         // steers every subsequent notification at this turn.
         runtimeState.text = "";
         runtimeState.usage = undefined;
+        runtimeState.providerDurationMs = undefined;
         runtimeState.turnId = undefined;
         runtimeState.terminalSeen = false;
         runtimeState.toolItems = 0;
@@ -3200,10 +3284,10 @@ export class ManagedCodexAppServerRun {
         lastTurnActivityAt = 0;
         turnEventCount = 0;
         turnEventCounts = {};
-        terminal = new Promise<void>((resolveTerminal, rejectTerminal) => {
-          terminalResolve = resolveTerminal;
-          terminalReject = rejectTerminal;
-        });
+        terminalDeferred = Promise.withResolvers<void>();
+        terminalResolve = terminalDeferred.resolve;
+        terminalReject = terminalDeferred.reject;
+        terminal = terminalDeferred.promise;
         void terminal.catch(() => {});
         protocolSucceeded = false;
 
@@ -3215,6 +3299,7 @@ export class ManagedCodexAppServerRun {
         turnId = validateStartedTurn(turnStart);
         runtimeState.turnId = turnId;
         this.activeTurnInterrupt = interruptTurn;
+        this.#dispatchPendingReplacementTurnInterrupt(interruptTurn);
         turnStartedAt = Date.now();
         lastTurnActivityAt = turnStartedAt;
         armTurnDeadline();
@@ -3228,7 +3313,8 @@ export class ManagedCodexAppServerRun {
           if (this.activeTurnInterrupt === interruptTurn) this.activeTurnInterrupt = undefined;
         }
         clearWatchdogs();
-        if (!runtimeState.terminalSeen || !runtimeState.usage || runtimeState.hookRuns.size
+        if (!runtimeState.terminalSeen || !runtimeState.usage
+            || runtimeState.providerDurationMs === undefined || runtimeState.hookRuns.size
             || queuedNotifications.length)
           throw new Error("Codex closed without exact terminal usage and lifecycle");
         // NARROWED TERMINAL (2026-07-26): the checks above are RESULT integrity
@@ -3260,6 +3346,7 @@ export class ManagedCodexAppServerRun {
         yield {
           text: runtimeState.text,
           usage: runtimeState.usage,
+          providerDurationMs: runtimeState.providerDurationMs,
           toolItems: runtimeState.toolItems,
           providerJoin: providerJoinEvidence("openai", {
             sessionId: threadId,
@@ -3313,6 +3400,11 @@ export class ManagedCodexAppServerRun {
           diagnostics,
         };
         this.attemptFailure = failure;
+        // The active handler was cleared as the failed turn unwound. Mark the
+        // logical replacement gap before teardown awaits process close, so an
+        // interrupt arriving anywhere in that observable interval queues.
+        // Successive dead pre-turn replacements preserve the same deferred.
+        this.#beginReplacementTurn();
       }
       throw failure;
     } finally {

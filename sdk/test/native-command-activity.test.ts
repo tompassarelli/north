@@ -54,6 +54,30 @@ test("unfinished continuation cannot preserve an earlier passing probe", () => {
   });
 });
 
+test("a retired session counts open commands in its harvest but does not carry them forward", () => {
+  const activity = new NativeCommandActivityAccumulator(cwd, north);
+  expect(activity.start("thread-1:turn-1:command-open")).toBe(true);
+  expect(activity.harvest()).toMatchObject({
+    coverage: "partial",
+    totalCommands: 1,
+    successfulCommands: 0,
+    failedCommands: 0,
+    declinedCommands: 0,
+    openCommands: 1,
+  });
+
+  activity.retireSession();
+  expect(activity.start("thread-2:turn-1:command-1")).toBe(true);
+  expect(activity.observe(completion("thread-2:turn-1:command-1"))).toBe(true);
+  expect(activity.complete()).toBe(true);
+  expect(activity.snapshot()).toMatchObject({
+    coverage: "partial",
+    totalCommands: 1,
+    successfulCommands: 1,
+  });
+  expect(activity.snapshot()).not.toHaveProperty("openCommands");
+});
+
 test("native command evidence stays bounded and partial on overflow", () => {
   const activity = new NativeCommandActivityAccumulator(cwd, north);
   for (let index = 0; index < 33; index++) {

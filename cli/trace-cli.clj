@@ -30,13 +30,12 @@
 (def max-trace-query-rows 4096)
 (def trace-agent-predicates north.lifecycle-projection/trace-agent-predicates)
 (def forensic-run-header-predicates
-  ["kind" "thread" "agent" "at" "outcome" "provider" "provider_target"
-   "model" "effort" "agent_run_ledger_version" "run_event_status"
-   "parent_run" "parent_thread" "run_coordinator" "prompt_composition_version"
-   "prompt_composition_sha256" "capability_class" "run_event_count"
-   "run_event_first_sequence" "run_event_last_sequence"
-   "run_event_terminal_sequence" "run_event_ledger_sha256"
-   "run_observation_coverage"])
+  ["kind" "wire_run_id" "thread" "agent" "at" "outcome" "effort" "model_tier"
+   "wire_ledger_version" "wire_version" "wire_ledger_status"
+   "parent_run" "parent_thread" "run_coordinator" "capability_class"
+   "wire_event_count" "wire_event_first_sequence" "wire_event_last_sequence"
+   "wire_terminal_event_id" "wire_ledger_sha256" "wire_run_lifecycle"
+   "wire_termination_code"])
 
 (def use-color? (some? (System/console)))
 (defn c [code s] (if use-color? (str "\033[" code "m" s "\033[0m") (str s)))
@@ -94,16 +93,15 @@
                     (when (= 1 (count values)) [predicate (first values)]))))
           predicates)))
 
-(defn run-event-entries [run-id]
-  (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
-        response (north.coord/bounded-query-in-domain
+(defn run-event-entries [wire-run]
+  (let [response (north.coord/bounded-query-in-domain
                   PORT
                   :telemetry
                   {:find "forensic_run_event"
                    :rules [{:head {:rel "forensic_run_event" :args [{:var "e"}]}
-                            :body [{:rel "triple" :args [{:var "e"} "run" canonical-run]}
-                                   {:rel "triple" :args [{:var "e"} "kind" "run_event"]}]}]}
-                  512)]
+                            :body [{:rel "triple" :args [{:var "e"} "wire_run_id" wire-run]}
+                                   {:rel "triple" :args [{:var "e"} "kind" "wire_event"]}]}]}
+                  north.run-ledger/max-events)]
     (let [subjects (mapv first (:rows response))
           shown (shown-values :telemetry subjects)]
       (mapv
@@ -129,52 +127,52 @@
     (->> (:rows response) (map first) distinct sort vec)))
 
 (defn forensic-run [run-id header events]
-  (north.run-ledger/timeline run-id header events))
+  (assoc (north.run-ledger/timeline
+          (or (get header "wire_run_id") (str/replace run-id #"^@" ""))
+          events)
+         :header header))
 
 (defn unknown-label [value source]
   (or value (str "unknown (source coverage " (or source "unavailable") ")")))
 
-(defn render-forensic-run [{:keys [run thread agent parent-run parent-thread coordinator
-                                   observations valid-order? finalized?
-                                   header-count-valid? header-digest-valid?]}]
-  (let [lineage-source (when (or parent-run parent-thread coordinator) "partial")]
+(defn render-forensic-run [{:keys [run thread agent parent-thread coordinator
+                                   events valid-order? finalized? digest header]}]
+  (let [lineage-source (when (or parent-thread coordinator) "exact")
+        header-digest (get header "wire_ledger_sha256")]
     (str/join
      "\n"
      (concat
       [(str "run " run)
        (str "  thread: " (unknown-label thread nil))
        (str "  agent: " (unknown-label agent nil))
-       (str "  parent run: " (unknown-label parent-run lineage-source))
        (str "  parent thread: " (unknown-label parent-thread lineage-source))
        (str "  coordinator: " (unknown-label coordinator lineage-source))
        (str "  ledger order: " (if valid-order? "exact" "invalid"))
-       (str "  ledger finalization: " (if finalized? "exact" "unknown (source coverage unavailable)"))
-       (str "  header event count: " (if header-count-valid? "consistent" "invalid"))
-       (str "  header digest: " (if header-digest-valid? "consistent" "invalid"))]
-      (mapcat
-       (fn [{:keys [type status coverage source events]}]
-         (if (= :unknown status)
-           [(format "  %-22s unknown (source coverage unavailable)" type)]
-           (map (fn [event]
-                  (format "  %08d %-22s observed coverage=%s source=%s at=%s"
-                          (get event "sequence") type coverage source
-                          (get event "observedAt")))
-                events)))
-       observations)))))
+       (str "  ledger finalization: " (if finalized? "exact" "incomplete"))
+       (str "  header digest: " (cond
+                                  (nil? header-digest) "unavailable"
+                                  (= header-digest digest) "consistent"
+                                  :else "invalid"))]
+      (map (fn [event]
+             (format "  %08d %-22s essential=%s at=%s id=%s"
+                     (get event "sequence") (get event "kind")
+                     (get event "essential") (get event "at") (get event "id")))
+           events)))))
 
 (defn live-forensic-run [run-id]
   (let [canonical-run (north.run-ledger/canonical-entity run-id "run")
-        header (point-facts :telemetry canonical-run forensic-run-header-predicates)]
-    (forensic-run canonical-run header (run-event-entries canonical-run))))
+        header (point-facts :telemetry canonical-run forensic-run-header-predicates)
+        wire-run (or (get header "wire_run_id") (subs canonical-run 1))]
+    (forensic-run canonical-run header (run-event-entries wire-run))))
 
 (defn forensic-main! [kind selector]
   (let [run-ids (if (= kind :run) [selector] (thread-run-ids selector))]
-    (println (str (bold "north trace ") selector "  ·  AgentRun ledger v1"))
+    (println (str (bold "north trace ") selector "  ·  Wire ledger v2"))
     (if (seq run-ids)
       (doseq [run-id run-ids]
         (println)
         (println (render-forensic-run (live-forensic-run run-id))))
-      (println "no committed runs observed; all run observations unknown (source coverage unavailable)"))))
+      (println "no durable wire events observed"))))
 
 (defn owned-concerns [id]
   (let [subjects (->> (q ["e"] [{:rel "triple" :args [{:var "e"} "kind" "concern"]}

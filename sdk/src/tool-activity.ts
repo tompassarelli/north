@@ -1,4 +1,4 @@
-import type { ObservationCoverage } from "./run-ledger";
+import type { ObservationCoverage } from "./observation";
 
 export interface McpToolActivityCount {
   server: string;
@@ -145,6 +145,12 @@ export class McpActivityAccumulator {
   complete(): void { this.terminal = true; }
 
   reopen(): void { this.terminal = false; }
+
+  /** A dead provider session makes exact lane-wide MCP coverage impossible. */
+  retireSession(): void {
+    this.identityLoss = true;
+    this.terminal = false;
+  }
 
   /**
    * What was observed when a turn DIED mid-flight. Coverage is always "partial":

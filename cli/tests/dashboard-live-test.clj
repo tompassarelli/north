@@ -12,6 +12,9 @@
             :let [body (.getBytes (cheshire.core/generate-string record) "UTF-8")]]
       (.writeInt out (alength body))
       (.write out body))))
+(defn write-wire! [file events]
+  (.mkdirs (.getParentFile file))
+  (spit file (apply str (map #(str (cheshire.core/generate-string %) "\n") events))))
 (let [root (.toFile (java.nio.file.Files/createTempDirectory "north-dashboard-live" (make-array java.nio.file.attribute.FileAttribute 0)))
       state-root (io/file root "state") agents (io/file state-root "agents") threads (io/file state-root "threads")
       pid (str/trim (:out (p/sh "bash" "-c" "echo $PPID")))]
@@ -37,13 +40,40 @@
       (write-journal!
         (io/file state-root "bridge" "journal" "journal-fixture" "events.log")
         [{:version 1 :executionId "journal-fixture" :seq 1 :at at
-          :kind "execution.accepted" :data {:prompt "Journal fixture title" :cwd (.getPath root)}}
+          :kind "execution.accepted" :data {:prompt "Journal fixture title" :cwd (.getPath root)
+                                             :role "implementer"}}
          {:version 1 :executionId "journal-fixture" :seq 2 :at at
-          :kind "provider.starting" :data {:adapter "mock-provider"}}
+          :kind "session.idle" :data {:wireCursor 6}}
          {:version 1 :executionId "journal-fixture" :seq 3 :at at
-          :kind "provider.result" :data {:result "delivered"}}
-         {:version 1 :executionId "journal-fixture" :seq 4 :at at
-          :kind "execution.completed" :data {}}]))
+          :kind "execution.terminated" :data {:lifecycle "completed" :reason "completed"
+                                               :wireCursor 7}}])
+      (write-wire!
+        (io/file state-root "bridge" "journal" "journal-fixture" "wire.jsonl")
+        [{:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-0" :runId "run-journal-fixture"
+          :sequence 0 :at at :kind "run.started" :essential true :lifecycle "running"}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-1" :runId "run-journal-fixture"
+          :sequence 1 :at at :kind "model-call.started" :essential true
+          :modelCallId "model-1" :model {:provider "openai" :capabilityClass "authoring"}
+          :effort "high" :attempt 1}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-2" :runId "run-journal-fixture"
+          :sequence 2 :at at :kind "message.recorded" :essential true
+          :messageId "message-1" :modelCallId "model-1" :stage "started" :role "assistant"}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-3" :runId "run-journal-fixture"
+          :sequence 3 :at at :kind "message.recorded" :essential true
+          :messageId "message-1" :modelCallId "model-1" :stage "delta"
+          :role "assistant" :content "delivered"}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-4" :runId "run-journal-fixture"
+          :sequence 4 :at at :kind "message.recorded" :essential true
+          :messageId "message-1" :modelCallId "model-1" :stage "completed" :role "assistant"}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-5" :runId "run-journal-fixture"
+          :sequence 5 :at at :kind "model-call.completed" :essential true
+          :modelCallId "model-1" :status "succeeded" :origin "provider"
+          :usage {:lifetime {:inputTokens 1 :outputTokens 1 :cacheReadTokens 0
+                             :cacheWriteTokens 0 :reasoningTokens 0 :modelCalls 1}
+                  :context {:tokens 2}}}
+         {:version "north:wire:v2" :requiredSemantics ["north.event-order.v1" "north.tool-terminal.v1" "north.usage-split.v1"] :id "wire-6" :runId "run-journal-fixture"
+          :sequence 6 :at at :kind "run.terminated" :essential true
+          :lifecycle "completed" :reason {:code "completed"}}]))
     (with-redefs [north.dashboard.collectors/state-dir (.getPath state-root)
                   north.dashboard.state/cache-dir (constantly (.getPath root))]
       (reset! north.dashboard.collectors/log-sizes {})
@@ -67,7 +97,7 @@
         (check (and (= "senior" (get-in by-id ["mutation" :role])) (= "high" (get-in by-id ["mutation" :effort]))) "mutation spawn metadata was not found on line two")
         (check (= "finished" (get-in by-id ["journal-fixture" :status])) "journal terminal state was not authoritative")
         (check (= "delivered" (get-in by-id ["journal-fixture" :work])) "journal result was not delivered work")
-        (check (= "mock-provider" (get-in by-id ["journal-fixture" :provider])) "journal provider was not projected"))
+        (check (= "openai" (get-in by-id ["journal-fixture" :provider])) "wire provider was not projected"))
       (spit (io/file agents "lane-test2.log") "dead but growing\n")
       (check (= "advancing" (get-in (into {} (map (juxt :id identity) (:lanes (north.dashboard.collectors/lanes)))) ["test2" :status])) "second grown observation was not advancing")
       (let [started (.toString (java.time.Instant/ofEpochMilli (- (System/currentTimeMillis) 720000)))

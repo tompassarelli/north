@@ -62,3 +62,47 @@ export function framCoordinatorChildTimeout(timeoutMs?: number): number {
     Math.floor(timeoutMs),
   );
 }
+
+export interface FramCoordinatorChild {
+  readonly exited: Promise<number>;
+  kill(signal: "SIGTERM" | "SIGKILL"): unknown;
+}
+
+export interface FramCoordinatorSettlementOptions {
+  readonly termGraceMs?: number;
+  readonly killGraceMs?: number;
+  readonly sleep?: (milliseconds: number) => Promise<unknown>;
+}
+
+export type FramCoordinatorChildOutcome =
+  | Readonly<{ timedOut: false; exitCode: number }>
+  | Readonly<{ timedOut: true }>;
+
+/** Bound timeout escalation and reaping even when a child ignores both signals. */
+export async function settleFramCoordinatorChild(
+  child: FramCoordinatorChild,
+  timeoutMs?: number,
+  options: FramCoordinatorSettlementOptions = {},
+): Promise<FramCoordinatorChildOutcome> {
+  const sleep = options.sleep ?? Bun.sleep;
+  const exited = child.exited.then((exitCode) => ({ exitCode }));
+  const initial = await Promise.race([
+    exited,
+    sleep(framCoordinatorChildTimeout(timeoutMs)).then(() => undefined),
+  ]);
+  if (initial !== undefined) return { timedOut: false, exitCode: initial.exitCode };
+
+  try { child.kill("SIGTERM"); } catch { /* bounded escalation remains authoritative */ }
+  const terminated = await Promise.race([
+    exited.then(() => true),
+    sleep(options.termGraceMs ?? 500).then(() => false),
+  ]);
+  if (!terminated) {
+    try { child.kill("SIGKILL"); } catch { /* bounded reap remains authoritative */ }
+    await Promise.race([
+      exited,
+      sleep(options.killGraceMs ?? 500),
+    ]);
+  }
+  return { timedOut: true };
+}

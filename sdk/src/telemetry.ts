@@ -1,1070 +1,361 @@
-// Telemetry auto-capture — write each agent run's tuple as facts so the system
-// has a queryable feedback loop (calibrate estimates against actuals, see who ran
-// what and with how many observed tokens). Records to a dedicated
-// `run:<agent>-<uuid>` subject that has
-// NO title, so runs never show up as threads on the board — they're queryable via
-// fram, invisible to the work views. Terminal publication is bounded and
-// non-throwing: callers wait for its settlement before waking a coordinator,
-// but an unavailable telemetry sink never replaces the provider outcome.
-import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
-import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
-import type { RoutingRequest } from "./routing-metadata";
-import type { NormalizedTokenUsage } from "./usage";
-import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
-import type { HarnessCompositionEvidence } from "./harness";
-import { ORCHESTRATION_CAPABILITIES } from "./orchestration-capabilities";
-import type { DeliveryProof } from "./delivery-verification";
-import {
-  DEADLINE_EXCEEDED_DETAIL_MAX_LEN, PROVIDER_ERROR_DETAIL_MAX_LEN,
-} from "./execution-outcome";
-import type { ProviderAuthoritySurface } from "./providers";
-import { providerBilling, settleSpend } from "./spend-guard";
-import {
-  parseJudgmentGrade,
-  type JudgmentGradeSnapshot,
-} from "./judgment-grade";
-import {
-  STRUGGLE_DETECTOR_POLICY_VERSION,
-  STRUGGLE_THRESHOLD_MAX,
-  type StruggleObservation,
-} from "./struggle";
-import type { ProviderModelAdmissionReceipt } from "./provider-model-observation-store";
-import { canonicalWriteModel } from "./providers/catalog";
-import type { ProviderId } from "./providers/types";
-import {
-  PROVIDER_JOIN_KEY_VERSION, type ProviderJoinEvidence,
-} from "./providers/provider-join";
-import type { McpActivityObservation } from "./tool-activity";
-import type { NativeCommandActivityObservation } from "./native-command-activity";
-import { NATIVE_COMMAND_SHAPES } from "./native-command-activity";
-import type {
-  RoutingAdmissionReceipt, RoutingAssessment, RoutingPinEvidence,
-} from "./routing-economics";
-import {
-  AGENT_RUN_LEDGER_VERSION,
-  type AgentRunLedgerSummary,
-} from "./run-ledger";
-import type { WatchdogAbortEvidence } from "./watchdog";
-import {
-  learningAssignmentFacts, type LearningAssignment,
-} from "./learning-regime";
-import type {
-  EnvironmentReceipt, PromptReceipt, RunEnvelopeReceipt,
-} from "./composition-receipt";
+import * as path from "node:path";
 
-const REPO = resolve(import.meta.dir, "../..");
-const internalWriter = resolve(REPO, "cli/run-fact-internal.clj");
-const STRUGGLE_TRIGGER_VALUES: ReadonlySet<string> = new Set([
-  "consecutive_errors", "tool_loop", "no_progress",
-]);
-const LEDGER_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,127}$/;
-const LEDGER_ENTITY = /^@?[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
-const LEDGER_COVERAGE: ReadonlySet<string> = new Set(["exact", "partial", "unknown"]);
-const RECURRING_CANARY_PIN_DETAIL_PREFIX = "recurring-cross-provider-canary:@";
+import {
+	framBabashkaArguments,
+	framEngineEnvironment,
+	settleFramCoordinatorChild,
+} from "./fram-engine";
+import {
+	AGENT_RUN_LEDGER_CONTRACT,
+	AGENT_RUN_LEDGER_VERSION,
+	isWireRunLedgerSummary,
+	wireRunLedgerIdentity,
+	type WireLedgerPublicationStatus,
+	type WireRunLedgerIdentity,
+	type WireRunLedgerSummary,
+} from "./run-ledger";
+import {
+	wireRunProvenanceFacts,
+	type WireRunProvenance,
+} from "./run-provenance";
+import { tokenTotalLiteral } from "./usage";
+import { foldProviderJoinEvidence } from "./providers/provider-join";
+import {
+	WIRE_PROVIDER_JOIN_VERSION,
+	WIRE_VERSION,
+	type WireAbortActivityEvidence,
+	type WireRunLifecycle,
+} from "./wire/events";
+import { wireRunId, type WireRunId } from "./wire/ids";
+import type { WireModelCallSnapshot, WireRunSnapshot } from "./wire/reducer";
+
+const REPO = path.resolve(import.meta.dir, "../..");
+const INTERNAL_WRITER = path.resolve(REPO, "cli/run-fact-internal.clj");
 const TERMINAL_COORDINATOR_READ_TIMEOUT_MS = 70_000;
+const RUN_WRITE_TIMEOUT_MS = (() => {
+	const raw = Number(process.env.NORTH_RUN_WRITE_TIMEOUT_MS);
+	return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
+})();
+
+export type RunPublicationStatus = WireLedgerPublicationStatus;
+
+export interface RecordedWireRunLedger {
+	readonly status: "recorded";
+	readonly summary: WireRunLedgerSummary;
+}
+
+export interface WireRunTelemetryProjection {
+	readonly subject: string;
+	readonly facts: readonly (readonly [string, string])[];
+}
+
+export type WireRunTelemetryWriter = (
+	projection: WireRunTelemetryProjection,
+	timeoutMs: number,
+) => Promise<RunPublicationStatus>;
 
 /** Keep an explicit caller deadline authoritative for terminal publication. */
 export function applyTerminalCoordinatorReadTimeout(
-  env: NodeJS.ProcessEnv = process.env,
+	env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (env.NORTH_COORD_READ_TIMEOUT_MS === undefined)
-    env.NORTH_COORD_READ_TIMEOUT_MS = String(TERMINAL_COORDINATOR_READ_TIMEOUT_MS);
+	if (env.NORTH_COORD_READ_TIMEOUT_MS === undefined) {
+		env.NORTH_COORD_READ_TIMEOUT_MS = String(TERMINAL_COORDINATOR_READ_TIMEOUT_MS);
+	}
 }
 
-// A recurring canary is a reliability sample, not a forensic replay. Keep the
-// identity, terminal result, and pin that makes it queryable, while avoiding
-// the full admission/prompt/authority duplicate on every scheduled sample.
-// The complete run projection is still used for every ordinary managed run.
-const CANARY_FACT_PREDICATES: ReadonlySet<string> = new Set([
-  "kind", "thread", "agent", "agent_run_ledger_version", "run_event_status",
-  "duration_ms", "estimate_hours", "estimate_delta_ms", "estimate_ratio",
-  "estimate_classification", "posture", "outcome", "at", "process_outcome",
-  "provider", "provider_target", "delivery_outcome", "delivery_reason",
-  "delivery_evidence", "delivery_evidence_sha256",
-  "routing_pin_reason_code", "routing_pin_detail",
-]);
-
-function isRecurringCanary(rec: RunRecord): boolean {
-  const pin = rec.routingPinEvidence;
-  return pin?.reasonCode === "calibration-experiment"
-    && pin.detail.startsWith(RECURRING_CANARY_PIN_DETAIL_PREFIX);
+function durationMs(snapshot: WireRunSnapshot): number {
+	const duration = Date.parse(snapshot.updatedAt) - Date.parse(snapshot.startedAt);
+	if (!Number.isSafeInteger(duration) || duration < 0) {
+		throw new TypeError("wire run snapshot has an invalid duration");
+	}
+	return duration;
 }
 
-function retainedTelemetryFacts(rec: RunRecord, facts: Array<[string, string]>): Array<[string, string]> {
-  if (!isRecurringCanary(rec)) return facts;
-  // The run writer requires the terminal payload to repeat the exact immutable
-  // assignment already committed before provider execution.
-  const predicates = new Set(CANARY_FACT_PREDICATES);
-  if (rec.learningAssignment) {
-    for (const [predicate] of learningAssignmentFacts(rec.learningAssignment))
-      predicates.add(predicate);
-  }
-  return facts.filter(([predicate]) => predicates.has(predicate));
+function outcome(lifecycle: WireRunLifecycle, terminationCode: string | undefined): string {
+	if (lifecycle === "completed") return "ran";
+	if (lifecycle === "cancelled") return terminationCode ?? "cancelled";
+	if (lifecycle === "blocked") return terminationCode ?? "blocked";
+	if (lifecycle === "failed") return terminationCode ?? "failed";
+	throw new TypeError("wire run telemetry requires a terminal snapshot");
 }
 
-export interface RunRecord {
-  thread: string; // the thread driven, or "(ad-hoc)" for a bare spawn
-  agent: string; // agent id / handle
-  /** Exact managed lineage. Absence is rendered as unknown, never inferred. */
-  parentRun?: string;
-  parentThread?: string;
-  coordinator?: string;
-  tokens?: number; // legacy exact total for producers without structured terminal usage
-  tokenUsage?: NormalizedTokenUsage; // observed components plus terminal scope/status
-  durationMs: number; // North-observed wall-clock duration
-  /** Exact thread estimate_hours captured and validated before dispatch side effects. */
-  estimateHours?: string;
-  providerDurationMs?: number; // provider-reported duration when available
-  posture: string; // unplanned | atomic | composite | spawn
-  // Effective admitted route, denormalized onto @run so dial analytics need no
-  // @run.agent -> @agent:<id> join. Pre-side-effect fallback may change these
-  // values before execution; the route is immutable once side effects begin.
-  model?: string; // opus | sonnet | haiku
-  effort?: string; // low | medium | high | xhigh | max
-  role?: string; // executor | implementer | integrator | designer | researcher | ...
-  provider?: string; // anthropic | openai
-  providerTarget?: string; // exact account/target that executed the final route
-  providerReason?: string; // explainable auto/explicit routing decision
-  /** Exact target/model supportedModels evidence admitted for the final route. */
-  modelAvailability?: ProviderModelAdmissionReceipt;
-  requestedProvider?: string;
-  requestedTarget?: string;
-  requestedTier?: string;
-  requestedModel?: string;
-  requestedEffort?: string;
-  routingMetadata?: RoutingRequest;
-  routingAssessment?: RoutingAssessment;
-  routingAdmissionReceipt?: RoutingAdmissionReceipt;
-  routingPinEvidence?: RoutingPinEvidence;
-  /** Explicit execution-ledger provenance. Missing on legacy rows means unknown. */
-  executionSource?: "north-managed" | "provider-native";
-  executionTransport?: "anthropic-agent-sdk" | "codex-app-server" | "codex-cli" | "provider-hook";
-  providerSessionPersistence?: "persisted" | "ephemeral" | "unknown";
-  /** Privacy-bounded exact provider session/turn identity; contains no raw IDs. */
-  providerJoin?: ProviderJoinEvidence;
-  northSessionId?: string;
-  threadProvenance?: "exact" | "ad-hoc" | "unknown";
-  turnProvenance?: "provider-terminal" | "pre-provider" | "unknown";
-  /** Redacted identifiers proving which operational prompt/tool contracts were applied. */
-  promptComposition?: HarnessCompositionEvidence;
-  /** Privacy-bounded prompt construction identity; never prompt text. */
-  promptCompositionVersion?: string;
-  promptCompositionDigest?: string;
-  /** Deterministic episode assignment durably published before provider effects. */
-  learningAssignment?: LearningAssignment;
-  /** Content-addressed construction receipts; never raw prompt or secret values. */
-  promptReceipt?: PromptReceipt;
-  environmentReceipt?: EnvironmentReceipt;
-  runEnvelopeReceipt?: RunEnvelopeReceipt;
-  capabilityClass?: string;
-  /** Finalized append-only observation ledger summary. */
-  runLedger?: AgentRunLedgerSummary;
-  mcpActivity?: McpActivityObservation;
-  nativeCommandActivity?: NativeCommandActivityObservation;
-  /** Exact provider-executable authority from the final admitted route. */
-  effectiveAuthority?: ProviderAuthoritySurface;
-  allocationMode?: string;
-  entitlementPressure?: string;
-  allocationEvidence?: Record<string, AllocationEvidence>;
-  fallbackCount?: number;
-  fallbackPath?: string[];
-  fallbackTargetPath?: string[];
-  fallbackReasons?: RoutingFallbackReason[];
-  envelopeScopes?: string[];
-  envelopeRetries?: number;
-  envelopeAdvisories?: string[];
-  outcome: string; // "ran" | "error" | "resource_envelope_exceeded" | ...
-  processOutcome?: string;
-  /** Full nested-cause chain for a blocked_preflight (or other retry-safe) death — the
-   * real underlying failure a bare processOutcome code otherwise swallows (thread 019f8300). */
-  preflightCause?: string;
-  /** Bounded, credential-free provider error payload behind a `provider_error`
-   * terminal — the classification alone names nothing (thread 019f9cec). */
-  providerErrorDetail?: string;
-  /** Structured North-owned deadline interrupt evidence. */
-  deadlineExceededDetail?: string;
-  /** North-owned abort cause and last authenticated execution evidence. */
-  watchdogAbort?: WatchdogAbortEvidence;
-  deliveryOutcome?: string;
-  deliveryReason?: string;
-  deliveryProof?: DeliveryProof;
-  numTurns?: number; // SDKResultMessage.num_turns (was dropped before). Real
-  // assistant-turn count on providers that report it honestly (Claude SDK).
-  // The openai/codex provider never populates this — see codexTurnActivity.
-  /** Codex-only turn/tool-activity telemetry (thread 019f9c36). Explicitly
-   * NOT the same quantity as numTurns and never written to the num_turns
-   * fact; joining the two across providers is the exact mistake that
-   * grounded a false "Codex never runs a tool loop" quarantine. */
-  codexTurnActivity?: { turnUnits: number; toolItems?: number; comparable: false };
-  compactions?: number; // count of SDK compact_boundary events observed this run (audit fix 4)
-  /** Immutable admission-time dispatcher judgment; required by recordRun. */
-  judgmentGrade?: JudgmentGradeSnapshot;
-  /** Provider-neutral observer result; required by recordRun. */
-  struggleObservation?: StruggleObservation;
-  // Spend guard (build-order step 2). Present only on an API-billed run that
-  // carried a reservation from admission. No producer sets these until the first
-  // API adapter lands (step 4) and threads the reservation from admission through
-  // to the terminal record; the settlement below is dormant until then. The
-  // reaper's dead-lane settlement is a separate step-3 seam. Micro-USD integers.
-  spendTarget?: string;
-  spendPeriod?: string;
-  spendReservationMicrousd?: number;
-  /** Bounded auto-retry provenance (thread 019f8f81): set only on a retry run,
-   * naming the original provider-process-death run it followed. The original
-   * run's own facts are never rewritten — this is an additive forward link. */
-  retryOfRun?: string;
-  /** 1-based attempt number; 1 on the (sole, bounded) retry. */
-  retryAttempt?: number;
+function countTools(snapshot: WireRunSnapshot, status?: string): number {
+	const tools = Object.values(snapshot.toolCalls);
+	return status === undefined ? tools.length : tools.filter((tool) => tool.status === status).length;
 }
 
-export type AuthoringAuthoritySurface = "text" | "none" | "unknown";
-export type AuthoringAuthoritySurfaceCoverage = "exact" | "unknown";
-
-/** Classify admitted authoring authority, not observed authoring behavior. */
-export function authoringAuthoritySurfaceEvidence(
-  rec: Pick<RunRecord, "executionSource" | "effectiveAuthority">,
-): { surface: AuthoringAuthoritySurface; coverage: AuthoringAuthoritySurfaceCoverage } | undefined {
-  if (!rec.executionSource) return undefined;
-  if (rec.executionSource !== "north-managed" || !rec.effectiveAuthority)
-    return { surface: "unknown", coverage: "unknown" };
-  const capabilities = rec.effectiveAuthority.capabilities;
-  if (capabilities.includes("filesystem.write") || capabilities.includes("shell"))
-    return { surface: "text", coverage: "exact" };
-  return { surface: "none", coverage: "exact" };
+function completedModelCalls(snapshot: WireRunSnapshot): readonly WireModelCallSnapshot[] {
+	return Object.values(snapshot.modelCalls)
+		.filter((modelCall) => modelCall.status !== "running");
 }
 
-export type RunEstimateClassification = "under" | "on" | "over";
-
-export interface RunEstimateSnapshot {
-  hours: string;
-  durationMs: number;
+function safeEvidenceSum(values: readonly number[]): number | undefined {
+	let total = 0;
+	for (const value of values) {
+		total += value;
+		if (!Number.isSafeInteger(total)) return undefined;
+	}
+	return total;
 }
 
-export class InvalidRunEstimateError extends Error {
-  readonly code = "NORTH_INVALID_RUN_ESTIMATE";
-  readonly preSideEffect = true;
-
-  constructor(readonly reason: "duplicate" | "not-positive-finite-hours") {
-    super(`invalid thread estimate_hours: ${reason}`);
-    this.name = "InvalidRunEstimateError";
-  }
+function wireCompletionEvidenceFacts(
+	snapshot: WireRunSnapshot,
+): readonly (readonly [string, string])[] {
+	const modelCalls = Object.values(snapshot.modelCalls);
+	const completed = completedModelCalls(snapshot);
+	const providerCompleted = completed.filter((modelCall) => modelCall.origin === "provider");
+	const joinEvidence = completed.flatMap((modelCall) => {
+		const evidence = modelCall.evidence?.providerJoin;
+		return evidence === undefined ? [] : [evidence];
+	});
+	const foldedJoin = foldProviderJoinEvidence(joinEvidence);
+	const join = foldedJoin !== undefined
+		&& joinEvidence.length < completed.length
+		&& foldedJoin.coverage === "exact"
+		? Object.freeze({ ...foldedJoin, coverage: "partial" as const })
+		: foldedJoin;
+	const providers = new Set(providerCompleted.map((modelCall) => modelCall.model.provider));
+	if (providers.size > 1) {
+		throw new TypeError("provider terminal evidence conflicts within one Wire run");
+	}
+	const facts: Array<readonly [string, string]> = [
+		["provider_session_persistence", join?.sessionPersistence ?? "unknown"],
+	];
+	if (join !== undefined) {
+		facts.push(["provider_join_key_version", WIRE_PROVIDER_JOIN_VERSION]);
+		facts.push(["provider_join_coverage", join.coverage]);
+		if (join.sessionKey !== undefined) facts.push(["provider_session_key", join.sessionKey]);
+		for (const key of join.turnKeys) facts.push(["provider_turn_key", key]);
+	}
+	const allProviderTerminal = modelCalls.length > 0
+		&& modelCalls.every((modelCall) => modelCall.status !== "running"
+			&& modelCall.origin === "provider");
+	if (allProviderTerminal
+		&& modelCalls.every((modelCall) => modelCall.evidence?.providerDurationMs !== undefined)) {
+		const providerDurationMs = safeEvidenceSum(
+			modelCalls.map((modelCall) => modelCall.evidence!.providerDurationMs!),
+		);
+		if (providerDurationMs !== undefined) {
+			facts.push(["provider_duration_ms", String(providerDurationMs)]);
+		}
+	}
+	const turnEvidence = providerCompleted.flatMap((modelCall) => {
+		const turns = modelCall.evidence?.turns;
+		return turns === undefined ? [] : [turns];
+	});
+	const turnUnits = new Set(turnEvidence.map((turns) => turns.unit));
+	if (turnUnits.size > 1) {
+		throw new TypeError("provider turn evidence uses incompatible units within one Wire run");
+	}
+	const witnessedTurns = allProviderTerminal && turnEvidence.length === modelCalls.length;
+	const turnCount = witnessedTurns
+		? safeEvidenceSum(turnEvidence.map((turns) => turns.count)) : undefined;
+	const exactTurns = witnessedTurns && turnCount !== undefined;
+	if (!exactTurns) {
+		const preProvider = snapshot.lifecycle === "blocked"
+			&& modelCalls.length === 0;
+		facts.push(["turn_provenance", preProvider ? "pre-provider" : "unknown"]);
+		if (preProvider) facts.push(["num_turns", "0"]);
+		return facts;
+	}
+	facts.push(["turn_provenance", "provider-terminal"]);
+	if (turnEvidence[0]?.unit === "assistant-turn") {
+		facts.push(["num_turns", String(turnCount)]);
+	} else if (turnEvidence[0]?.unit === "provider-turn") {
+		facts.push(["provider_turn_units", String(turnCount)]);
+		if (turnEvidence.every((turns) => turns.unit === "provider-turn"
+			&& turns.toolItems !== undefined)) {
+			const toolItems = safeEvidenceSum(
+				turnEvidence.map((turns) => turns.unit === "provider-turn" ? turns.toolItems! : 0),
+			);
+			if (toolItems !== undefined) facts.push(["provider_tool_items", String(toolItems)]);
+		}
+		facts.push(["provider_turn_metric_comparable", "false"]);
+	}
+	return facts;
 }
 
-const ESTIMATE_HOURS_NUMBER = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
-const MS_PER_HOUR = 60 * 60 * 1_000;
-
-function estimateDurationMs(hours: string): number {
-  if (!ESTIMATE_HOURS_NUMBER.test(hours))
-    throw new InvalidRunEstimateError("not-positive-finite-hours");
-  const parsed = Number(hours);
-  const durationMs = Math.round(parsed * MS_PER_HOUR);
-  if (!Number.isFinite(parsed) || parsed <= 0
-      || !Number.isSafeInteger(durationMs) || durationMs < 1)
-    throw new InvalidRunEstimateError("not-positive-finite-hours");
-  return durationMs;
+function wireWatchdogFacts(
+	snapshot: WireRunSnapshot,
+): readonly (readonly [string, string])[] {
+	const watchdog = snapshot.abort?.watchdog;
+	if (watchdog === undefined) return [];
+	const activity = <Origin extends "outer" | "provider">(
+		value: WireAbortActivityEvidence<Origin> | undefined,
+	): string => value === undefined ? "none" : JSON.stringify(value);
+	return [
+		["watchdog_reason", snapshot.abort!.reason],
+		["watchdog_silence_ms", String(watchdog.silenceMs)],
+		["watchdog_last_outer_activity", activity(watchdog.lastOuter)],
+		["watchdog_last_provider_activity", activity(watchdog.lastProvider)],
+	];
 }
 
-/** Capture the sole thread estimate before dispatch; absence is valid legacy input. */
-export function runEstimateFromThreadFacts(
-  facts: readonly { predicate: string; value: string }[],
-): RunEstimateSnapshot | undefined {
-  const estimates = facts.filter(({ predicate }) => predicate === "estimate_hours");
-  if (estimates.length === 0) return undefined;
-  if (estimates.length !== 1) throw new InvalidRunEstimateError("duplicate");
-  const hours = estimates[0]!.value;
-  return { hours, durationMs: estimateDurationMs(hours) };
+function sha256(value: string): string {
+	return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
 
-function estimateRatio(actualMs: number, estimatedMs: number): string {
-  return (actualMs / estimatedMs).toFixed(6).replace(/\.?0+$/, "") || "0";
+function wireRunSubject(runId: WireRunId): string {
+	if (/^run:[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(runId)) return `@${runId}`;
+	return `@run:wire-summary-${sha256(`north-wire-run-summary-subject:v2\0${runId}`)}`;
 }
 
-export function classifyTurnProvenance(
-  resultTerminal: unknown,
-  processOutcome: string | undefined,
-): NonNullable<RunRecord["turnProvenance"]> {
-  if (resultTerminal && typeof resultTerminal === "object") return "provider-terminal";
-  if (processOutcome === "blocked_preflight" || processOutcome === "blocked_spend_guard")
-    return "pre-provider";
-  return "unknown";
+function assertLedgerMatchesSnapshot(
+	snapshot: WireRunSnapshot,
+	ledger: RecordedWireRunLedger,
+): void {
+	if (!isWireRunLedgerSummary(ledger.summary)
+		|| ledger.summary.runId !== snapshot.runId
+		|| ledger.summary.lastSequence !== snapshot.lastSequence
+		|| ledger.summary.terminalEventId !== snapshot.lastEventId
+		|| ledger.summary.eventCount !== snapshot.lastSequence + 1) {
+		throw new TypeError("recorded wire ledger summary does not match the run snapshot");
+	}
+	if (!["completed", "failed", "cancelled", "blocked"].includes(snapshot.lifecycle)
+		|| snapshot.termination === undefined) {
+		throw new TypeError("wire run telemetry requires a terminated snapshot");
+	}
 }
 
-/**
- * Pull the openai/codex-only turn-activity marker off a provider result
- * terminal, if present. Returns undefined for every other provider result —
- * in particular, a Claude SDK result never carries this field, so this can
- * never be confused with (or joined against) num_turns.
- */
-export function codexTurnActivityFromResult(
-  resultTerminal: unknown,
-): RunRecord["codexTurnActivity"] {
-  if (!resultTerminal || typeof resultTerminal !== "object") return undefined;
-  const activity = (resultTerminal as { _north_codex_turn_activity?: unknown })
-    ._north_codex_turn_activity;
-  if (!activity || typeof activity !== "object") return undefined;
-  const { turnUnits, toolItems, comparable } = activity as Record<string, unknown>;
-  if (typeof turnUnits !== "number" || comparable !== false) return undefined;
-  return {
-    turnUnits,
-    ...(typeof toolItems === "number" ? { toolItems } : {}),
-    comparable: false,
-  };
+export function wireRunTelemetryFacts(
+	identity: WireRunLedgerIdentity,
+	snapshot: WireRunSnapshot,
+	ledger: RecordedWireRunLedger,
+	provenance: WireRunProvenance,
+): WireRunTelemetryProjection {
+	const context = wireRunLedgerIdentity(identity);
+	assertLedgerMatchesSnapshot(snapshot, ledger);
+	if (provenance.provider !== undefined && snapshot.model?.provider !== undefined
+		&& provenance.provider !== snapshot.model.provider) {
+		throw new TypeError("run provenance provider differs from the reduced wire snapshot");
+	}
+	const actualDurationMs = durationMs(snapshot);
+	const usage = snapshot.usage;
+	const exactTokenTotal = tokenTotalLiteral(snapshot);
+	const facts: Array<readonly [string, string]> = [
+		["kind", "run"],
+		["wire_run_id", snapshot.runId],
+		["thread", context.thread],
+		["thread_provenance", context.thread === "(ad-hoc)" ? "ad-hoc" : "exact"],
+		["agent", context.agent],
+		["wire_ledger_version", AGENT_RUN_LEDGER_VERSION],
+		["wire_version", WIRE_VERSION],
+		["wire_ledger_status", "complete"],
+		["wire_event_count", String(ledger.summary.eventCount)],
+		["wire_event_first_sequence", String(ledger.summary.firstSequence)],
+		["wire_event_last_sequence", String(ledger.summary.lastSequence)],
+		["wire_terminal_event_id", ledger.summary.terminalEventId],
+		["wire_ledger_sha256", ledger.summary.digest],
+		["wire_run_lifecycle", snapshot.lifecycle],
+		["wire_termination_code", snapshot.termination!.code],
+		["outcome", outcome(snapshot.lifecycle, snapshot.termination?.code)],
+		["at", snapshot.updatedAt],
+		["started_at", snapshot.startedAt],
+		["duration_ms", String(actualDurationMs)],
+		["lifetime_input_tokens", String(usage.lifetime.inputTokens)],
+		["lifetime_output_tokens", String(usage.lifetime.outputTokens)],
+		["lifetime_cache_read_tokens", String(usage.lifetime.cacheReadTokens)],
+		["lifetime_cache_write_tokens", String(usage.lifetime.cacheWriteTokens)],
+		["lifetime_reasoning_tokens", String(usage.lifetime.reasoningTokens)],
+		["model_call_count", String(usage.lifetime.modelCalls)],
+		["usage_terminal_count", String(snapshot.usageCoverage.providerTerminalCount)],
+		["usage_scope", snapshot.usageCoverage.scope],
+		["usage_total_status", snapshot.usageCoverage.totalStatus],
+		["context_tokens", String(usage.context.tokens)],
+		["compaction_count", String(snapshot.compactions)],
+		["tool_admitted_count", String(countTools(snapshot))],
+		["tool_succeeded_count", String(countTools(snapshot, "succeeded"))],
+		["tool_failed_count", String(countTools(snapshot, "failed"))],
+		["tool_cancelled_count", String(countTools(snapshot, "cancelled"))],
+		["tool_synthetic_failure_count", String(countTools(snapshot, "synthetic_failure"))],
+		...wireCompletionEvidenceFacts(snapshot),
+		...wireWatchdogFacts(snapshot),
+	];
+	if (exactTokenTotal !== undefined) facts.push(["tokens", exactTokenTotal]);
+	if (usage.context.window !== undefined) {
+		facts.push(["context_window_tokens", String(usage.context.window)]);
+	}
+	if (snapshot.parentRunId !== undefined) {
+		facts.push(["parent_run", wireRunSubject(snapshot.parentRunId)]);
+	}
+	if (context.parentThread !== undefined) facts.push(["parent_thread", context.parentThread]);
+	if (context.coordinator !== undefined) facts.push(["run_coordinator", context.coordinator]);
+	if (snapshot.owner !== undefined) facts.push(["run_owner", snapshot.owner]);
+	if (snapshot.model?.tier !== undefined) facts.push(["model_tier", snapshot.model.tier]);
+	if (snapshot.model?.capabilityClass !== undefined) {
+		facts.push(["capability_class", snapshot.model.capabilityClass]);
+	}
+	if (snapshot.effort !== undefined) facts.push(["effort", snapshot.effort]);
+	const provenanceFacts = wireRunProvenanceFacts(provenance, actualDurationMs);
+	for (const [predicate, value] of provenanceFacts) {
+		if (predicate === "provider" && snapshot.model?.provider !== undefined) continue;
+		if (predicate === "prompt_capability_class"
+			&& snapshot.model?.capabilityClass !== undefined
+			&& value !== snapshot.model.capabilityClass) {
+			throw new TypeError("prompt capability class differs from the reduced wire snapshot");
+		}
+		facts.push([predicate, value]);
+	}
+	if (snapshot.model?.provider !== undefined) facts.push(["provider", snapshot.model.provider]);
+	return Object.freeze({
+		subject: wireRunSubject(snapshot.runId),
+		facts: Object.freeze(facts),
+	});
 }
 
-/**
- * Human-readable turn description for terminal-signal logging. Never mixes
- * the two quantities: a Claude-style num_turns renders as "<n> turns"; a
- * Codex result renders its activity explicitly labeled not-comparable;
- * anything else renders as "unknown turns".
- */
-export function describeObservedTurns(resultTerminal: unknown): string {
-  const numTurns = (resultTerminal as { num_turns?: unknown } | null | undefined)?.num_turns;
-  if (typeof numTurns === "number") return `${numTurns} turns`;
-  const codex = codexTurnActivityFromResult(resultTerminal);
-  if (codex) {
-    const items = typeof codex.toolItems === "number" ? `, ${codex.toolItems} tool items` : "";
-    return `${codex.turnUnits} codex turn-unit(s)${items} (not comparable to num_turns)`;
-  }
-  return "unknown turns";
-}
-
-export type ObservedRunRecord = RunRecord & Required<
-  Pick<RunRecord, "judgmentGrade" | "struggleObservation">
->;
-
-export type RunPublicationStatus = "recorded" | "unavailable";
-
-export function runFacts(rec: RunRecord, at = new Date().toISOString()): Array<[string, string]> {
-  // base36 ms suffix keeps the id unique per agent without a clock dependency the
-  // board cares about; this is runtime code, not a workflow script, so Date is fine.
-  const facts: Array<[string, string]> = [
-    ["kind", "run"],
-    ["thread", rec.thread],
-    ["agent", rec.agent],
-    ["agent_run_ledger_version", AGENT_RUN_LEDGER_VERSION],
-    ["run_event_status", rec.runLedger ? "complete" : "unavailable"],
-  ];
-  if (rec.parentRun) {
-    if (!/^@?run:[A-Za-z0-9_.:-]+$/.test(rec.parentRun))
-      throw new Error("invalid run ledger parent run identity");
-    facts.push(["parent_run", rec.parentRun.startsWith("@") ? rec.parentRun : `@${rec.parentRun}`]);
-  }
-  if (rec.parentThread) {
-    if (!LEDGER_ENTITY.test(rec.parentThread))
-      throw new Error("invalid run ledger parent thread identity");
-    facts.push(["parent_thread", rec.parentThread.startsWith("@")
-      ? rec.parentThread : `@${rec.parentThread}`]);
-  }
-  if (rec.retryOfRun) {
-    if (!/^@?run:[A-Za-z0-9_.:-]+$/.test(rec.retryOfRun))
-      throw new Error("invalid retry-of-run identity");
-    facts.push(["retry_of_run", rec.retryOfRun.startsWith("@") ? rec.retryOfRun : `@${rec.retryOfRun}`]);
-  }
-  if (rec.retryAttempt !== undefined) {
-    if (!Number.isSafeInteger(rec.retryAttempt) || rec.retryAttempt < 1)
-      throw new Error("invalid retry attempt number");
-    facts.push(["retry_attempt", String(rec.retryAttempt)]);
-  }
-  if (rec.coordinator) {
-    const coordinator = rec.coordinator.replace(/^@agent:/, "");
-    if (!LEDGER_IDENTIFIER.test(coordinator)) throw new Error("invalid run ledger coordinator");
-    facts.push(["run_coordinator", coordinator]);
-  }
-  if (rec.promptCompositionVersion && !rec.promptComposition?.promptEconomics)
-    if (LEDGER_IDENTIFIER.test(rec.promptCompositionVersion))
-      facts.push(["prompt_composition_version", rec.promptCompositionVersion]);
-    else throw new Error("invalid prompt composition version");
-  if (rec.promptCompositionDigest && !rec.promptComposition?.promptEconomics) {
-    if (!/^[a-f0-9]{64}$/.test(rec.promptCompositionDigest))
-      throw new Error("invalid prompt composition digest");
-    facts.push(["prompt_composition_sha256", rec.promptCompositionDigest]);
-  }
-  if (rec.learningAssignment) facts.push(...learningAssignmentFacts(rec.learningAssignment));
-  const authoringSurface = authoringAuthoritySurfaceEvidence(rec);
-  if (authoringSurface) {
-    facts.push(["authoring_authority_surface", authoringSurface.surface]);
-    facts.push(["authoring_authority_surface_coverage", authoringSurface.coverage]);
-  }
-  if (rec.promptReceipt) {
-    facts.push(["prompt_receipt_version", rec.promptReceipt.version]);
-    facts.push(["prompt_receipt_sha256", rec.promptReceipt.manifestSha256]);
-    facts.push(["prompt_wire_sha256", rec.promptReceipt.wireBytesSha256]);
-    facts.push(["prompt_receipt_coverage", rec.promptReceipt.coverage]);
-  }
-  if (rec.environmentReceipt) {
-    facts.push(["environment_receipt_version", rec.environmentReceipt.version]);
-    facts.push(["environment_receipt_sha256", rec.environmentReceipt.manifestSha256]);
-    facts.push(["environment_receipt_coverage", rec.environmentReceipt.coverage]);
-    facts.push(["available_skill_catalog_sha256", rec.environmentReceipt.availableSkillCatalogSha256]);
-    facts.push(["activated_resource_closure_sha256", rec.environmentReceipt.activatedResourceClosureSha256]);
-  }
-  if (rec.runEnvelopeReceipt) {
-    facts.push(["run_envelope_version", rec.runEnvelopeReceipt.version]);
-    facts.push(["run_envelope_sha256", rec.runEnvelopeReceipt.manifestSha256]);
-  }
-  if (rec.capabilityClass && !rec.promptComposition?.promptEconomics) {
-    if (!LEDGER_IDENTIFIER.test(rec.capabilityClass)) throw new Error("invalid capability class");
-    facts.push(["capability_class", rec.capabilityClass]);
-  }
-  if (rec.runLedger) {
-    const ledger = rec.runLedger;
-    if (ledger.version !== AGENT_RUN_LEDGER_VERSION
-        || !Number.isSafeInteger(ledger.eventCount) || ledger.eventCount < 1
-        || ledger.firstSequence !== 0
-        || ledger.lastSequence !== ledger.eventCount - 1
-        || ledger.terminalSequence !== ledger.lastSequence
-        || !/^[a-f0-9]{64}$/.test(ledger.digest)
-        || ledger.coverage.some(({ source, coverage }) =>
-          !LEDGER_IDENTIFIER.test(source) || !LEDGER_COVERAGE.has(coverage))) {
-      throw new Error("invalid finalized run ledger summary");
-    }
-    facts.push(["run_event_count", String(ledger.eventCount)]);
-    facts.push(["run_event_first_sequence", String(ledger.firstSequence)]);
-    facts.push(["run_event_last_sequence", String(ledger.lastSequence)]);
-    facts.push(["run_event_terminal_sequence", String(ledger.terminalSequence)]);
-    facts.push(["run_event_ledger_sha256", ledger.digest]);
-    for (const observation of ledger.coverage) {
-      facts.push(["run_observation_coverage", JSON.stringify(observation)]);
-    }
-  }
-  if (rec.mcpActivity) {
-    const activity = rec.mcpActivity;
-    if (activity.operationReceipts.length > 512 || activity.operationAggregates.length > 512
-        || activity.operationReceipts.some((receipt) => !/^[A-Za-z0-9][A-Za-z0-9_.:\/-]{0,255}$/.test(receipt.tool)
-          || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(receipt.operation)
-          || !Number.isSafeInteger(receipt.durationMs) || receipt.durationMs < 0
-          || !Number.isSafeInteger(receipt.resultSize) || receipt.resultSize < 0
-          || (receipt.batchSize !== undefined && (!Number.isSafeInteger(receipt.batchSize) || receipt.batchSize < 0))
-          || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(receipt.outcome)))
-      throw new Error("invalid MCP operation receipt");
-    const derived = new Map<string, { count: number; totalDurationMs: number; failureCount: number }>();
-    for (const receipt of activity.operationReceipts) {
-      const entry = derived.get(receipt.operation) ?? { count: 0, totalDurationMs: 0, failureCount: 0 };
-      entry.count++; entry.totalDurationMs += receipt.durationMs;
-      if (receipt.outcome !== "ok") entry.failureCount++;
-      derived.set(receipt.operation, entry);
-    }
-    if (activity.operationAggregates.length !== derived.size || activity.operationAggregates.some((aggregate) => {
-      const expected = derived.get(aggregate.operation);
-      return !expected || aggregate.count !== expected.count || aggregate.totalDurationMs !== expected.totalDurationMs
-        || aggregate.failureCount !== expected.failureCount || aggregate.meanDurationMs !== expected.totalDurationMs / expected.count;
-    })) throw new Error("MCP operation aggregates do not reconcile");
-    facts.push(["mcp_activity_source", activity.source]);
-    facts.push(["mcp_activity_coverage", activity.coverage]);
-    if (activity.totalCalls !== undefined)
-      facts.push(["mcp_actual_calls", String(activity.totalCalls)]);
-    for (const tool of activity.tools) facts.push(["mcp_actual_tool", JSON.stringify(tool)]);
-    for (const receipt of activity.operationReceipts) facts.push(["mcp_operation_receipt", JSON.stringify(receipt)]);
-    for (const aggregate of activity.operationAggregates) facts.push(["mcp_operation_aggregate", JSON.stringify(aggregate)]);
-  }
-  if (rec.nativeCommandActivity) {
-    const activity = rec.nativeCommandActivity;
-    if (!LEDGER_IDENTIFIER.test(activity.source)
-        || !LEDGER_COVERAGE.has(activity.coverage)
-        || !["passed", "failed", "not_observed"].includes(activity.northBinaryProbe)
-        || activity.completions.length > 32)
-      throw new Error("invalid native command activity observation");
-    const counts = [
-      activity.totalCommands, activity.successfulCommands, activity.failedCommands,
-      activity.declinedCommands, activity.truncatedCommands, activity.readCommands, activity.editCommands,
-    ];
-    if (counts.some((value) => value !== undefined
-      && (!Number.isSafeInteger(value) || (value as number) < 0)))
-      throw new Error("invalid native command activity count");
-    if (activity.coverage === "unknown"
-        && (activity.totalCommands !== undefined || activity.completions.length
-          || activity.northBinaryProbe !== "not_observed"))
-      throw new Error("unknown native command activity carries terminal evidence");
-    if (activity.totalCommands !== undefined
-        && (activity.successfulCommands ?? 0) + (activity.failedCommands ?? 0)
-          + (activity.declinedCommands ?? 0) !== activity.totalCommands)
-      throw new Error("native command activity counts do not reconcile");
-    facts.push(["native_command_activity_source", activity.source]);
-    facts.push(["native_command_activity_coverage", activity.coverage]);
-    facts.push(["native_north_binary_probe", activity.northBinaryProbe]);
-    for (const [predicate, value] of [
-      ["native_command_total", activity.totalCommands],
-      ["native_command_successful", activity.successfulCommands],
-      ["native_command_failed", activity.failedCommands],
-      ["native_command_declined", activity.declinedCommands],
-      ["native_command_truncated", activity.truncatedCommands],
-      ["native_command_read", activity.readCommands],
-      ["native_command_edit", activity.editCommands],
-    ] as const) if (value !== undefined) facts.push([predicate, String(value)]);
-    for (const completion of activity.completions) {
-      if (!/^[a-f0-9]{64}$/.test(completion.commandSha256)
-          || !/^[a-f0-9]{64}$/.test(completion.outputSha256)
-          || !["completed", "failed", "declined"].includes(completion.status)
-          || !NATIVE_COMMAND_SHAPES.includes(completion.shape)
-          || !Number.isSafeInteger(completion.durationMs) || completion.durationMs < 0
-          || !Number.isSafeInteger(completion.exitCode)
-          || completion.exitCode < -2_147_483_648 || completion.exitCode > 2_147_483_647)
-        throw new Error("invalid native command completion evidence");
-      facts.push(["native_command_completion", JSON.stringify(completion)]);
-    }
-  }
-  // Structured usage owns the aggregate whenever it is present. This prevents a
-  // caller from reintroducing zero/summed guesses alongside an unknown terminal
-  // status, or from drifting away from an adapter-computed exact total.
-  const exactTokens = rec.tokenUsage
-    ? rec.tokenUsage.totalStatus === "exact" ? rec.tokenUsage.total : undefined
-    : rec.tokens;
-  if (exactTokens != null) facts.push(["tokens", String(Math.round(exactTokens))]);
-  const durationMs = Math.round(rec.durationMs);
-  facts.push(
-    ["duration_ms", String(durationMs)],
-    ["posture", rec.posture],
-    ["outcome", rec.outcome],
-    ["at", at],
-  );
-  if (rec.estimateHours !== undefined) {
-    if (!Number.isSafeInteger(durationMs) || durationMs < 0)
-      throw new Error("invalid North-observed run duration for estimate comparison");
-    const estimatedMs = estimateDurationMs(rec.estimateHours);
-    const deltaMs = durationMs - estimatedMs;
-    const classification: RunEstimateClassification =
-      deltaMs < 0 ? "under" : deltaMs > 0 ? "over" : "on";
-    facts.push(
-      ["estimate_hours", rec.estimateHours],
-      ["estimate_delta_ms", String(deltaMs)],
-      ["estimate_ratio", estimateRatio(durationMs, estimatedMs)],
-      ["estimate_classification", classification],
-    );
-  }
-  if (rec.providerDurationMs != null)
-    facts.push(["provider_duration_ms", String(Math.round(rec.providerDurationMs))]);
-  if (rec.processOutcome) facts.push(["process_outcome", rec.processOutcome]);
-  if (rec.preflightCause) facts.push(["preflight_cause", rec.preflightCause]);
-  if (rec.providerErrorDetail)
-    facts.push(["provider_error_detail",
-      rec.providerErrorDetail.replace(/\s+/g, " ").trim().slice(0, PROVIDER_ERROR_DETAIL_MAX_LEN)]);
-  if (rec.deadlineExceededDetail)
-    facts.push(["deadline_exceeded_detail",
-      rec.deadlineExceededDetail.replace(/\s+/g, " ").trim()
-        .slice(0, DEADLINE_EXCEEDED_DETAIL_MAX_LEN)]);
-  if (rec.watchdogAbort) {
-    const watchdog = rec.watchdogAbort;
-    if (watchdog.reason !== "north_watchdog_execution_inactivity"
-        || !Number.isSafeInteger(watchdog.silenceMs) || watchdog.silenceMs <= 0)
-      throw new Error("invalid watchdog abort evidence");
-    const validActivity = (
-      value: WatchdogAbortEvidence["lastOuter"] | WatchdogAbortEvidence["lastProvider"],
-      origin: "outer" | "provider",
-    ) => !value || (value.origin === origin
-      && /^[a-z][a-z0-9._/-]{0,127}$/.test(value.kind)
-      && Number.isFinite(Date.parse(value.observedAt)));
-    if (!validActivity(watchdog.lastOuter, "outer")
-        || !validActivity(watchdog.lastProvider, "provider"))
-      throw new Error("invalid watchdog activity evidence");
-    facts.push(
-      ["watchdog_reason", watchdog.reason],
-      ["watchdog_silence_ms", String(watchdog.silenceMs)],
-      ["watchdog_last_outer_activity",
-        watchdog.lastOuter ? JSON.stringify(watchdog.lastOuter) : "none"],
-      ["watchdog_last_provider_activity",
-        watchdog.lastProvider ? JSON.stringify(watchdog.lastProvider) : "none"],
-    );
-  }
-  if (rec.deliveryOutcome) facts.push(["delivery_outcome", rec.deliveryOutcome]);
-  if (rec.deliveryReason) facts.push(["delivery_reason", rec.deliveryReason]);
-  if (rec.deliveryProof?.deliveryEvidence)
-    facts.push(["delivery_evidence", rec.deliveryProof.deliveryEvidence]);
-  if (rec.deliveryProof?.deliveryEvidenceSha256)
-    facts.push(["delivery_evidence_sha256", rec.deliveryProof.deliveryEvidenceSha256]);
-  if (rec.deliveryProof?.deliveryAttestation)
-    facts.push(["delivery_attestation", rec.deliveryProof.deliveryAttestation]);
-  if (rec.deliveryProof?.deliveryAttestationSha256)
-    facts.push(["delivery_attestation_sha256", rec.deliveryProof.deliveryAttestationSha256]);
-  // Canonicalize AT WRITE: every caller (spawn/dispatch admission, fallback,
-  // legacy env-fallback) funnels through the one shared alias map (Orchestration
-  // catalogs' modelAliases, see providers/catalog.ts) so a `model` fact is
-  // never a bare family alias (opus/sonnet/fable/haiku/...), and a model that
-  // does not belong to the executed provider (fallback-death lag) writes no
-  // model rather than a phantom cross-provider one.
-  const model = canonicalWriteModel(rec.provider as ProviderId | undefined, rec.model);
-  if (model) facts.push(["model", model]);
-  if (rec.effort) facts.push(["effort", rec.effort]);
-  if (rec.role) facts.push(["role", rec.role]);
-  if (rec.provider) facts.push(["provider", rec.provider]);
-  if (rec.providerTarget) facts.push(["provider_target", rec.providerTarget]);
-  if (rec.providerReason) facts.push(["provider_reason", rec.providerReason]);
-  if (rec.modelAvailability) {
-    const evidence = rec.modelAvailability;
-    if (rec.provider !== evidence.provider
-        || rec.providerTarget !== evidence.targetId
-        || model !== evidence.model) {
-      throw new Error("model availability evidence does not match the final provider route");
-    }
-    facts.push(["model_availability_target", evidence.targetId]);
-    facts.push(["model_availability_source", evidence.source]);
-    facts.push(["model_availability_observed_at", evidence.observedAt]);
-    facts.push(["model_availability_model", evidence.model]);
-    facts.push(["model_availability_digest", evidence.observationDigest]);
-  }
-  const authority = rec.effectiveAuthority;
-  if (authority) {
-    if (rec.provider && authority.provider !== rec.provider) {
-      throw new Error(
-        `effective authority provider ${authority.provider} does not match final provider ${rec.provider}`,
-      );
-    }
-    facts.push(["effective_authority_provider", authority.provider]);
-    facts.push(["effective_native_multi_agent", authority.nativeMultiAgent]);
-    facts.push(["effective_live_input", authority.liveInput]);
-    facts.push(["effective_authoring_hooks", authority.authoringHooks]);
-    for (const capability of authority.capabilities)
-      facts.push(["effective_authority_capability", capability]);
-    for (const tool of authority.northEnabledTools)
-      facts.push(["effective_north_enabled_tool", tool]);
-    if (authority.provider === "openai") {
-      facts.push(["effective_sandbox", authority.sandbox]);
-      facts.push(["effective_web", authority.web]);
-    } else {
-      facts.push(["effective_web", authority.web]);
-      for (const tool of authority.builtins) facts.push(["effective_builtin", tool]);
-      for (const tool of authority.managedTools) facts.push(["effective_mcp_tool", tool]);
-    }
-  }
-  if (rec.requestedProvider) facts.push(["requested_provider", rec.requestedProvider]);
-  if (rec.requestedTarget) facts.push(["requested_target", rec.requestedTarget]);
-  if (rec.requestedTier) facts.push(["requested_tier", rec.requestedTier]);
-  if (rec.requestedModel) facts.push(["requested_model", rec.requestedModel]);
-  if (rec.requestedEffort) facts.push(["requested_effort", rec.requestedEffort]);
-  if (rec.executionSource) facts.push(["execution_source", rec.executionSource]);
-  if (rec.executionTransport) facts.push(["execution_transport", rec.executionTransport]);
-  const providerSessionPersistence = rec.providerJoin?.sessionPersistence
-    ?? rec.providerSessionPersistence;
-  if (rec.providerJoin && rec.providerSessionPersistence
-      && rec.providerJoin.sessionPersistence !== rec.providerSessionPersistence)
-    throw new Error("provider join persistence disagrees with run provenance");
-  if (providerSessionPersistence)
-    facts.push(["provider_session_persistence", providerSessionPersistence]);
-  if (rec.providerJoin) {
-    const join = rec.providerJoin;
-    const sha256 = /^[a-f0-9]{64}$/;
-    if (join.version !== PROVIDER_JOIN_KEY_VERSION
-        || (join.sessionKey !== undefined && !sha256.test(join.sessionKey))
-        || !Array.isArray(join.turnKeys)
-        || join.turnKeys.some((key) => !sha256.test(key))
-        || new Set(join.turnKeys).size !== join.turnKeys.length
-        || !LEDGER_COVERAGE.has(join.coverage))
-      throw new Error("invalid privacy-bounded provider join evidence");
-    facts.push(["provider_join_key_version", join.version]);
-    facts.push(["provider_join_coverage", join.coverage]);
-    if (join.sessionKey) facts.push(["provider_session_key", join.sessionKey]);
-    for (const key of join.turnKeys) facts.push(["provider_turn_key", key]);
-  }
-  if (rec.northSessionId) facts.push(["north_session_id", rec.northSessionId]);
-  if (rec.threadProvenance) facts.push(["thread_provenance", rec.threadProvenance]);
-  if (rec.turnProvenance) facts.push(["turn_provenance", rec.turnProvenance]);
-  if (rec.allocationMode) facts.push(["allocation_mode", rec.allocationMode]);
-  if (rec.entitlementPressure) facts.push(["entitlement_pressure", rec.entitlementPressure]);
-  for (const [target, evidence] of Object.entries(rec.allocationEvidence ?? {}))
-    facts.push(["allocation_evidence", JSON.stringify({ target, ...evidence })]);
-  if (rec.tokenUsage?.inputTokens != null)
-    facts.push(["input_tokens", String(rec.tokenUsage.inputTokens)]);
-  if (rec.tokenUsage?.outputTokens != null)
-    facts.push(["output_tokens", String(rec.tokenUsage.outputTokens)]);
-  if (rec.tokenUsage?.cacheCreateTokens != null)
-    facts.push(["cache_create_tokens", String(rec.tokenUsage.cacheCreateTokens)]);
-  if (rec.tokenUsage?.cacheReadTokens != null)
-    facts.push(["cache_read_tokens", String(rec.tokenUsage.cacheReadTokens)]);
-  if (rec.tokenUsage?.cachedInputTokens != null)
-    facts.push(["cached_input_tokens", String(rec.tokenUsage.cachedInputTokens)]);
-  if (rec.tokenUsage?.reasoningOutputTokens != null)
-    facts.push(["reasoning_output_tokens", String(rec.tokenUsage.reasoningOutputTokens)]);
-  if (rec.tokenUsage) {
-    facts.push(["usage_terminal_count", String(rec.tokenUsage.terminalCount)]);
-    if (rec.tokenUsage.terminalScope) facts.push(["usage_scope", rec.tokenUsage.terminalScope]);
-    facts.push(["usage_total_status", rec.tokenUsage.totalStatus]);
-  }
-  if (rec.fallbackCount != null) facts.push(["fallback_count", String(rec.fallbackCount)]);
-  if (rec.fallbackPath?.length) facts.push(["fallback_path", rec.fallbackPath.join(" -> ")]);
-  if (rec.fallbackTargetPath?.length) facts.push(["fallback_target_path", rec.fallbackTargetPath.join(" -> ")]);
-  for (const reason of rec.fallbackReasons ?? []) facts.push(["fallback_reason", JSON.stringify(reason)]);
-  for (const scope of rec.envelopeScopes ?? []) facts.push(["envelope_scope", scope]);
-  if (rec.envelopeRetries != null) facts.push(["envelope_retries", String(rec.envelopeRetries)]);
-  for (const advisory of rec.envelopeAdvisories ?? []) facts.push(["envelope_advisory", advisory]);
-  const metadata = rec.routingMetadata;
-  if (metadata?.role) facts.push(["requested_role", metadata.role]);
-  if (metadata?.tier) facts.push(["routing_tier", metadata.tier]);
-  if (metadata?.reasoning) facts.push(["requested_reasoning", metadata.reasoning]);
-  if (metadata?.posture) facts.push(["routing_posture", metadata.posture]);
-  if (metadata?.taskGrade) facts.push(["task_grade", metadata.taskGrade]);
-  if (metadata?.topology) facts.push(["topology", metadata.topology]);
-  for (const domain of metadata?.domainRequirements ?? []) facts.push(["domain_requirement", domain]);
-  if (metadata?.composition) {
-    facts.push(["composition_kind", metadata.composition.kind]);
-    facts.push(["composition_id", metadata.composition.id]);
-    if (metadata.composition.kind === "preset") {
-      for (const field of metadata.composition.overrides) facts.push(["composition_override", field]);
-      if (metadata.composition.overrideReason)
-        facts.push(["composition_override_reason", metadata.composition.overrideReason]);
-    } else {
-      if (metadata.composition.nearestPreset)
-        facts.push(["nearest_preset", metadata.composition.nearestPreset]);
-      facts.push(["bespoke_reason", metadata.composition.bespokeReason]);
-      facts.push(["promotion_candidate", String(metadata.composition.promotionCandidate)]);
-    }
-  }
-  const assessment = rec.routingAssessment;
-  const receipt = rec.routingAdmissionReceipt;
-  if (receipt) {
-    facts.push(["routing_admission_receipt_version", String(receipt.version)]);
-    facts.push(["routing_request_sha256", receipt.routingRequestSha256]);
-    // Catalog-FILE digests exist only in file mode (§3.1(6)); graph mode names
-    // the graph state via the catalog pin facts below instead.
-    if (receipt.staffingCatalogSha256)
-      facts.push(["staffing_catalog_sha256", receipt.staffingCatalogSha256]);
-    if (receipt.providerCatalogsSha256)
-      facts.push(["provider_catalogs_sha256", receipt.providerCatalogsSha256]);
-    facts.push(["routing_policy_sha256", receipt.routingPolicySha256]);
-    if (receipt.orchestrationPolicyPinSha256)
-      facts.push(["orchestration_policy_pin_sha256", receipt.orchestrationPolicyPinSha256]);
-    if (receipt.orchestrationCatalogDigestSha256)
-      facts.push(["orchestration_catalog_digest_sha256", receipt.orchestrationCatalogDigestSha256]);
-    if (receipt.orchestrationCatalogVersion !== undefined)
-      facts.push(["orchestration_catalog_version", String(receipt.orchestrationCatalogVersion)]);
-    if (receipt.orchestrationCatalogTxVersion !== undefined)
-      facts.push(["orchestration_catalog_tx_version", String(receipt.orchestrationCatalogTxVersion)]);
-    facts.push(["routing_assessment_status", assessment ? "recorded" : "unavailable"]);
-    if (receipt.routingAssessmentSha256)
-      facts.push(["routing_assessment_sha256", receipt.routingAssessmentSha256]);
-    facts.push(["routing_pin_evidence_status", receipt.pinEvidenceStatus]);
-    if (receipt.pinEvidenceSha256)
-      facts.push(["routing_pin_evidence_sha256", receipt.pinEvidenceSha256]);
-    facts.push(["routing_override_evidence_status", receipt.overrideEvidence.status]);
-    if (receipt.overrideEvidence.exceptionCode)
-      facts.push(["routing_override_exception_code", receipt.overrideEvidence.exceptionCode]);
-    for (const field of receipt.overrideEvidence.changedAxes)
-      facts.push(["routing_receipt_override", field]);
-    for (const [axis, value] of Object.entries(receipt.appliedAxes))
-      facts.push([`routing_applied_${axis}`, value]);
-    for (const [axis, value] of Object.entries(receipt.stockAxes ?? {}))
-      facts.push([`routing_stock_${axis}`, value]);
-  }
-  if (assessment) {
-    facts.push(["routing_assessment_policy", assessment.version]);
-    for (const [signal, value] of Object.entries(assessment.signals))
-      facts.push([`routing_signal_${signal}`, value]);
-    facts.push(["routing_derived_tier", assessment.derived.minimumTier]);
-    facts.push(["routing_derived_reasoning", assessment.derived.minimumReasoning]);
-    for (const code of assessment.derived.ruleCodes)
-      facts.push(["routing_rule_code", code]);
-    facts.push(["routing_selected_tier", assessment.selected.tier]);
-    facts.push(["routing_selected_reasoning", assessment.selected.reasoning]);
-    if (assessment.exception) {
-      facts.push(["routing_exception_code", assessment.exception.code]);
-      facts.push(["routing_exception_detail", assessment.exception.detail]);
-    }
-    if (assessment.exceptionalDeliberation)
-      facts.push(["routing_exceptional_deliberation", assessment.exceptionalDeliberation]);
-  }
-  if (rec.routingPinEvidence) {
-    const pin = rec.routingPinEvidence;
-    facts.push(["routing_pin_policy", pin.policyVersion]);
-    facts.push(["routing_pin_issued_at", pin.issuedAt]);
-    facts.push(["routing_pin_expires_at", pin.expiresAt]);
-    facts.push(["routing_pin_reason_code", pin.reasonCode]);
-    facts.push(["routing_pin_detail", pin.detail]);
-    for (const item of pin.pins)
-      facts.push(["routing_pin", JSON.stringify(item)]);
-  }
-  const applied = rec.promptComposition;
-  if (applied) {
-    facts.push(["prompt_composition_applied", "true"]);
-    if (applied.roleKind && applied.roleId)
-      facts.push(["applied_role_contract", `${applied.roleKind}:${applied.roleId}`]);
-    if (applied.bespokeContractHash)
-      facts.push(["applied_bespoke_contract_sha256", applied.bespokeContractHash]);
-    if (applied.bespokeContractFingerprintVersion)
-      facts.push(["applied_bespoke_contract_fingerprint_version", applied.bespokeContractFingerprintVersion]);
-    if (applied.bespokeContractFingerprintDomain)
-      facts.push(["applied_bespoke_contract_fingerprint_domain", applied.bespokeContractFingerprintDomain]);
-    for (const field of applied.presetOverrides ?? []) facts.push(["applied_preset_override", field]);
-    if (applied.presetOverrideReasonHash)
-      facts.push(["applied_preset_override_reason_sha256", applied.presetOverrideReasonHash]);
-    const capabilityOrder = new Map(ORCHESTRATION_CAPABILITIES.map((capability, index) => [capability, index]));
-    for (const capability of [...(applied.capabilities ?? [])]
-      .sort((left, right) => capabilityOrder.get(left)! - capabilityOrder.get(right)!))
-      facts.push(["applied_capability", capability]);
-    if (applied.commsContractHash)
-      facts.push(["applied_comms_contract_sha256", applied.commsContractHash]);
-    if (applied.taskGrade) facts.push(["applied_task_grade", applied.taskGrade]);
-    if (applied.topology) facts.push(["applied_topology", applied.topology]);
-    if (applied.tier) facts.push(["applied_routing_tier", applied.tier]);
-    if (applied.reasoning) facts.push(["applied_reasoning", applied.reasoning]);
-    if (applied.posture) facts.push(["applied_posture", applied.posture]);
-    for (const domain of applied.domainRequirements ?? []) facts.push(["applied_domain_requirement", domain]);
-    // Zero is evidence: an explicitly empty applied domain axis must remain
-    // distinguishable from historical telemetry that never recorded the axis.
-    facts.push(["applied_domain_requirement_count", String(applied.domainRequirements?.length ?? 0)]);
-    const delta = applied.modelDelta;
-    if (delta) {
-      if (delta.provider) facts.push(["model_delta_provider", delta.provider]);
-      if (delta.model) facts.push(["model_delta_model", delta.model]);
-      facts.push(["model_delta_kind", delta.kind]);
-      if (delta.path) facts.push(["model_delta_path", delta.path]);
-      if (delta.reason) facts.push(["model_delta_reason", delta.reason]);
-    }
-    const economics = applied.promptEconomics;
-    if (economics) {
-      const counts = [
-        ["prompt_stable_prefix_bytes", economics.stablePrefixBytes],
-        ["prompt_unique_tail_bytes", economics.uniqueTailBytes],
-        ["prompt_total_bytes", economics.totalBytes],
-        ["prompt_capability_count", economics.capabilityCount],
-        ["prompt_stable_prefix_tokens", economics.stablePrefixTokens],
-        ["prompt_unique_tail_tokens", economics.uniqueTailTokens],
-        ["prompt_total_composition_tokens", economics.totalCompositionTokens],
-        ["provider_context_window_tokens", economics.providerContextWindowTokens],
-        ["effective_context_budget_tokens", economics.effectiveContextBudgetTokens],
-      ] as const;
-      if (economics.stablePrefixBytes + economics.uniqueTailBytes !== economics.totalBytes)
-        throw new Error("prompt byte measurements do not sum to total");
-      facts.push(["prompt_composition_version", economics.compositionVersion]);
-      facts.push(["prompt_composition_sha256", economics.compositionDigest]);
-      facts.push(["capability_class", economics.capabilityClass]);
-      facts.push(["prompt_byte_measurement_source", economics.byteMeasurementSource]);
-      facts.push(["prompt_token_measurement_status", economics.tokenMeasurementStatus]);
-      facts.push(["prompt_token_measurement_source", economics.tokenMeasurementSource]);
-      facts.push(["context_window_status", economics.contextWindowStatus]);
-      facts.push(["context_window_source", economics.contextWindowSource]);
-      facts.push(["context_budget_status", economics.contextBudgetStatus]);
-      facts.push(["context_budget_source", economics.contextBudgetSource]);
-      facts.push(["compaction_policy", economics.compactionPolicy]);
-      facts.push(["compaction_policy_version", economics.compactionPolicyVersion]);
-      if (economics.contextWindowEffectiveFrom)
-        facts.push(["context_window_effective_from", economics.contextWindowEffectiveFrom]);
-      for (const [predicate, value] of counts) {
-        if (value !== undefined) facts.push([predicate, String(value)]);
-      }
-    }
-  }
-  if (rec.spendTarget && rec.spendReservationMicrousd != null) {
-    // spend_evidence mirrors the settlement rule: exact terminal token usage
-    // will settle DOWN; anything else keeps the worst-case reservation.
-    const exactSpend = rec.tokenUsage?.totalStatus === "exact";
-    facts.push(["spend_target", rec.spendTarget]);
-    facts.push(["spend_envelope_microusd", String(rec.spendReservationMicrousd)]);
-    facts.push(["spend_reserved_microusd", String(rec.spendReservationMicrousd)]);
-    facts.push(["spend_evidence", exactSpend ? "exact" : "reserved-worst-case"]);
-  }
-  if (rec.numTurns != null) facts.push(["num_turns", String(rec.numTurns)]);
-  if (rec.codexTurnActivity) {
-    // Distinct predicate names, never "num_turns" — see codexTurnActivity's
-    // doc comment. `codex_turn_metric_comparable` is written explicitly
-    // "false" so a report joining on num_turns finds nothing here, and a
-    // human reading the facts directly still sees the disclaimer inline.
-    facts.push(["codex_turn_units", String(rec.codexTurnActivity.turnUnits)]);
-    if (rec.codexTurnActivity.toolItems != null) {
-      facts.push(["codex_tool_items", String(rec.codexTurnActivity.toolItems)]);
-    }
-    facts.push(["codex_turn_metric_comparable", "false"]);
-  }
-  if (rec.compactions != null) {
-    facts.push(["compactions", String(rec.compactions)]);
-    facts.push(["compaction_count", String(rec.compactions)]);
-    facts.push(["compaction_evidence", "sdk-compact-boundary"]);
-  }
-  if (rec.judgmentGrade) {
-    const snapshot = rec.judgmentGrade;
-    const validGrade = parseJudgmentGrade(snapshot.grade);
-    const valid = snapshot.status === "valid"
-      && snapshot.source === "thread"
-      && validGrade === snapshot.grade;
-    const unavailable = snapshot.status === "unavailable"
-      && snapshot.grade === undefined
-      && (snapshot.source === "thread" || snapshot.source === "ad-hoc");
-    const invalid = snapshot.status === "invalid"
-      && snapshot.grade === undefined
-      && snapshot.source === "thread";
-    if (!valid && !unavailable && !invalid) {
-      throw new Error("invalid run-local judgment_grade snapshot");
-    }
-    if (validGrade) facts.push(["judgment_grade", validGrade]);
-    facts.push(["judgment_grade_status", snapshot.status]);
-    facts.push(["judgment_grade_source", snapshot.source]);
-  }
-  if (rec.struggleObservation) {
-    const observation = rec.struggleObservation;
-    if (observation.policyVersion !== STRUGGLE_DETECTOR_POLICY_VERSION) {
-      throw new Error("unsupported struggle detector policy version");
-    }
-    if (observation.topology !== "worker" && observation.topology !== "orchestrator") {
-      throw new Error("invalid struggle topology");
-    }
-    for (const [name, value] of [
-      ["error-streak", observation.errorStreakThreshold],
-      ["loop-repeat", observation.loopRepeatThreshold],
-      ["loop-window", observation.loopWindow],
-      ["no-progress", observation.noProgressTurnThreshold],
-    ] as const) {
-      if (!Number.isSafeInteger(value) || value < 1 || value > STRUGGLE_THRESHOLD_MAX) {
-        throw new Error(`invalid struggle ${name} threshold`);
-      }
-    }
-    if (observation.loopRepeatThreshold > observation.loopWindow) {
-      throw new Error("struggle loop-repeat threshold exceeds loop window");
-    }
-    if (!Number.isSafeInteger(observation.errorCount) || observation.errorCount < 0) {
-      throw new Error("invalid struggle error count");
-    }
-    if (new Set(observation.triggers).size !== observation.triggers.length
-        || observation.triggers.some((trigger) => !STRUGGLE_TRIGGER_VALUES.has(trigger))) {
-      throw new Error("invalid struggle trigger observation");
-    }
-    facts.push(["error_count", String(observation.errorCount)]);
-    facts.push(["struggle_detector_policy_version", observation.policyVersion]);
-    facts.push(["struggle_topology", observation.topology]);
-    facts.push(["struggle_error_streak_threshold", String(observation.errorStreakThreshold)]);
-    facts.push(["struggle_loop_repeat_threshold", String(observation.loopRepeatThreshold)]);
-    facts.push(["struggle_loop_window", String(observation.loopWindow)]);
-    facts.push([
-      "struggle_no_progress_turn_threshold",
-      String(observation.noProgressTurnThreshold),
-    ]);
-    for (const reason of observation.triggers) facts.push(["struggle", reason]);
-  }
-  return retainedTelemetryFacts(rec, facts);
-}
-
-// Terminal telemetry budget. The writer issues ONE coordinator round-trip per
-// fact and a run record carries ~150 of them, so a 10s budget allowed ~67ms per
-// write — unmeetable whenever the coordinator is under write churn. execFile
-// then SIGTERMs the writer, and a killed process emits no stderr, which is why
-// 170 of 765 runs over 2026-07-22..25 recorded "died" with no cause. This is a
-// bounded background write with no interactive consumer, so give it room; the
-// coordinator's own serialization still bounds real concurrency.
-const RUN_WRITE_TIMEOUT_MS = (() => {
-  const raw = Number(process.env.NORTH_RUN_WRITE_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 120_000;
-})();
-
-export function recordRun(
-  rec: ObservedRunRecord,
-  id = newRunId(rec.agent),
-  timeoutMs = RUN_WRITE_TIMEOUT_MS,
+async function runTelemetryWriter(
+	projection: WireRunTelemetryProjection,
+	timeoutMs: number,
+	environment: NodeJS.ProcessEnv,
 ): Promise<RunPublicationStatus> {
-  let facts: Array<[string, string]>;
-  try {
-    facts = runFacts(rec);
-  } catch (error) {
-    console.error(
-      `[telemetry] @${id} unavailable: ${
-        error instanceof Error ? error.message : "run fact serialization failed"
-      }`,
-    );
-    return Promise.resolve("unavailable");
-  }
-  // Terminal settlement of an API-billed reservation (spend-guard step 3).
-  // Dormant until the spend fields are set; subscription runs never reach the
-  // CAS. Never fails a run.
-  if (rec.spendTarget && rec.spendPeriod && rec.spendReservationMicrousd != null
-      && rec.provider && providerBilling(rec.provider) === "api-billed") {
-    try {
-      settleSpend({
-        target: rec.spendTarget,
-        period: rec.spendPeriod,
-        reservedMicrousd: rec.spendReservationMicrousd,
-        status: rec.tokenUsage?.totalStatus === "exact" ? "exact" : "unknown",
-        inputTokens: rec.tokenUsage?.inputTokens,
-        outputTokens: rec.tokenUsage?.outputTokens,
-      });
-    } catch { /* never fail a run on settlement */ }
-  }
-  return new Promise((resolvePublication) => {
-    let resolved = false;
-    const settle = (status: RunPublicationStatus) => {
-      if (resolved) return;
-      resolved = true;
-      resolvePublication(status);
-    };
-    // Hermetic capture engines intentionally retain the ordinary fact-verb shape.
-    if (process.env.NORTH_IDENTITY_TEST_REDIRECT === "1") {
-      let remaining = facts.length;
-      let committed = true;
-      if (remaining === 0) {
-        settle("recorded");
-        return;
-      }
-      const factSettled = (error: Error | null) => {
-        if (error) committed = false;
-        remaining--;
-        if (remaining === 0) settle(committed ? "recorded" : "unavailable");
-      };
-      for (const [predicate, value] of facts) {
-        try {
-          execFile(
-            process.env.NORTH_BIN ?? "north",
-            ["tell", id, predicate, value],
-            { timeout: Math.max(1, Math.floor(timeoutMs)) },
-            (error) => factSettled(error),
-          );
-        } catch {
-          factSettled(new Error("run telemetry process unavailable"));
-        }
-      }
-      return;
-    }
-    try {
-      execFile("bb", framBabashkaArguments([
-        internalWriter,
-        process.env.NORTH_PORT ?? "7977",
-        id,
-        JSON.stringify(facts),
-      ]), {
-        env: framEngineEnvironment((() => {
-          const env = { ...process.env };
-          applyTerminalCoordinatorReadTimeout(env);
-          return env;
-        })()),
-        timeout: framCoordinatorChildTimeout(timeoutMs),
-      }, (error, _stdout, stderr) => {
-        // Bounded and non-throwing, but NOT silent: a swallowed writer rejection
-        // hid a 3-day telemetry outage (2026-07-17). A failed terminal write
-        // leaves the run's tokens/outcome/duration unrecorded, so leave a loud
-        // stderr breadcrumb — never a throw; the run's real result stands.
-        if (error) {
-          // A timeout-killed writer produces NO stderr, so error.message alone
-          // ("Command failed: bb …") is indistinguishable from a coordinator
-          // rejection. Name the kill explicitly: the 2026-07 telemetry outage
-          // was undiagnosable for days precisely because these two collapsed
-          // into one opaque string.
-          const killed = (error as any).killed === true;
-          const signal = (error as any).signal ?? null;
-          const code = (error as any).code ?? null;
-          const cause = killed
-            ? `writer exceeded ${Math.floor(timeoutMs)}ms budget and was killed`
-              + (signal ? ` (${signal})` : "")
-              + `; ${facts.length} payload facts via one atomic-batch publication`
-            : (stderr && String(stderr).trim())
-              || `${error.message}${code === null ? "" : ` (exit ${code})`}`;
-          process.stderr.write(
-            "[telemetry] recordRun write FAILED for " + id + ": " + cause + "\n",
-          );
-        }
-        settle(error ? "unavailable" : "recorded");
-      });
-    } catch (error) {
-      // execFile can throw synchronously (e.g. bb missing) before the callback.
-      process.stderr.write(
-        "[telemetry] recordRun could not spawn writer for " + id + ": " + String(error) + "\n",
-      );
-      settle("unavailable");
-    }
-  });
+	const env = framEngineEnvironment(environment);
+	applyTerminalCoordinatorReadTimeout(env);
+	const payload = JSON.stringify(projection.facts);
+	if (new TextEncoder().encode(payload).byteLength
+		> AGENT_RUN_LEDGER_CONTRACT.bounds.maxTelemetryProjectionBytes) {
+		throw new RangeError("wire run telemetry projection exceeds its byte bound");
+	}
+	const child = Bun.spawn([
+		"bb",
+		...framBabashkaArguments([
+			INTERNAL_WRITER,
+			environment.NORTH_PORT ?? "7977",
+			projection.subject,
+		], environment),
+	], { env, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+	child.stdin.write(payload);
+	child.stdin.end();
+	const result = await settleFramCoordinatorChild(child, timeoutMs);
+	return !result.timedOut && result.exitCode === 0 ? "recorded" : "unavailable";
 }
 
-export function newRunId(agent: string): string {
-  // Keep run ids in the same colon-delimited subject family as session, mine,
-  // and guard-denial ids. Body facts precede the terminal `kind run` marker, so
-  // the id itself must remain an unambiguous run-scoped identity.
-  return `run:${agent}-${randomUUID()}`;
+export async function recordWireRunTelemetryProjection(
+	projection: WireRunTelemetryProjection,
+	timeoutMs = RUN_WRITE_TIMEOUT_MS,
+	env: NodeJS.ProcessEnv = process.env,
+): Promise<RunPublicationStatus> {
+	try {
+		return await runTelemetryWriter(projection, timeoutMs, env);
+	} catch {
+		return "unavailable";
+	}
+}
+
+export async function recordWireRunTelemetry(
+	identity: WireRunLedgerIdentity,
+	snapshot: WireRunSnapshot,
+	ledger: RecordedWireRunLedger,
+	provenance: WireRunProvenance,
+	timeoutMs = RUN_WRITE_TIMEOUT_MS,
+	writer: WireRunTelemetryWriter = recordWireRunTelemetryProjection,
+): Promise<RunPublicationStatus> {
+	const projection = wireRunTelemetryFacts(identity, snapshot, ledger, provenance);
+	return writer(projection, timeoutMs);
+}
+
+export function newRunId(agent: string): WireRunId {
+	if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(agent)) {
+		throw new TypeError("invalid run agent identity");
+	}
+	return wireRunId(`run:${agent}-${crypto.randomUUID()}`);
 }

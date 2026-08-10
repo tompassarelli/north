@@ -4,19 +4,62 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import type { Options, Query } from "@anthropic-ai/claude-agent-sdk";
 import {
   createAnthropicProcessLifecycle, settleAnthropicProcessOwner,
 } from "../src/providers/anthropic-process";
 import {
-  createAnthropicQuery, disposeAnthropicSdkQuery,
+	createAnthropicQuery,
+	disposeAnthropicSdkQuery,
+	type AnthropicQueryRuntime,
 } from "../src/providers/anthropic";
+import type { AnthropicObservedStream } from "../src/providers/anthropic-observations";
 import { HostTerminationCoordinator } from "../src/host-termination";
 import { ManagedQueryTermination } from "../src/query-lifecycle";
+import type { AgentProviderQuery } from "../src/providers/types";
+import { WireEventWriter, wireEventId, wireRunId } from "../src/wire";
 
 const fixture = join(import.meta.dir, "fixtures", "anthropic-process-tree.mjs");
 const temporary: string[] = [];
 const groups = new Set<number>();
 const directPids = new Set<number>();
+
+function providerQueryArgs(label: string, options: Options = {}): AgentProviderQuery {
+	const writer = new WireEventWriter({
+		runId: wireRunId(`run:anthropic-process:${label}`),
+		eventId: (sequence) => wireEventId(`event:anthropic-process:${label}:${sequence}`),
+		now: () => "2026-08-10T00:00:00.000Z",
+	});
+	writer.append({ kind: "run.started", lifecycle: "running", owner: "test" });
+	return {
+		input: "x",
+		options,
+		context: {
+			writer,
+			route: {
+				model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+				effort: "high",
+				attempt: 1,
+				contextWindow: 200_000,
+			},
+		},
+	};
+}
+
+function observedStream(source: AsyncIterable<unknown>): AnthropicObservedStream {
+	return {
+		mcpActivity: () => ({
+			source: "test",
+			coverage: "unknown",
+			tools: [],
+			operationReceipts: [],
+			operationAggregates: [],
+		}),
+		async *[Symbol.asyncIterator]() {
+			for await (const frame of source) yield { frame };
+		},
+	};
+}
 
 function code(error: unknown): string | undefined {
   return typeof error === "object" && error !== null && "code" in error
@@ -295,19 +338,20 @@ test("Anthropic construction and observer failures abort, dispose, and settle be
       applyFlagSettings: async () => {},
       async *[Symbol.asyncIterator]() {},
     };
-    const managed = createAnthropicQuery({ prompt: "x", options: {} as any }, true, {
-      query: (({ options }: any) => {
-        queryCalls++;
-        capturedAbort = options.abortController;
-        if (failure === "construction") throw new Error("construction failed");
-        return raw;
-      }) as any,
-      observe: ((source: any) => {
-        if (failure === "observer") throw new Error("observer failed");
-        return source;
-      }) as any,
-      createLifecycle: (() => lifecycle) as any,
-    });
+		const runtime = {
+			query: (({ options }: { options?: Options }) => {
+				queryCalls++;
+				capturedAbort = options?.abortController;
+				if (failure === "construction") throw new Error("construction failed");
+				return raw as unknown as Query;
+			}),
+			observe: ((source: AsyncIterable<unknown>) => {
+				if (failure === "observer") throw new Error("observer failed");
+				return observedStream(source);
+			}),
+			createLifecycle: () => lifecycle,
+		} as unknown as AnthropicQueryRuntime;
+		const managed = createAnthropicQuery(providerQueryArgs(`failure-${failure}`), true, runtime);
     await expect(async () => {
       for await (const _ of managed) { /* no events */ }
     }).toThrow("anthropic_provider_execution_failed");
@@ -321,14 +365,15 @@ test("Anthropic construction and observer failures abort, dispose, and settle be
 test("closing an uninitialized Anthropic lazy query constructs no SDK process", async () => {
   let queryCalls = 0;
   let lifecycleCalls = 0;
-  const managed = createAnthropicQuery({ prompt: "x", options: {} as any }, true, {
-    query: (() => { queryCalls++; throw new Error("must not construct"); }) as any,
-    observe: ((source: any) => source) as any,
-    createLifecycle: (() => {
-      lifecycleCalls++;
-      throw new Error("must not create lifecycle");
-    }) as any,
-  });
+	const runtime = {
+		query: () => { queryCalls++; throw new Error("must not construct"); },
+		observe: observedStream,
+		createLifecycle: (() => {
+			lifecycleCalls++;
+			throw new Error("must not create lifecycle");
+		}),
+	} as unknown as AnthropicQueryRuntime;
+	const managed = createAnthropicQuery(providerQueryArgs("lazy-close"), true, runtime);
   await managed.close?.();
   const events: unknown[] = [];
   for await (const event of managed) events.push(event);
@@ -338,27 +383,26 @@ test("closing an uninitialized Anthropic lazy query constructs no SDK process", 
 });
 
 test("close during slow Anthropic admission prevents late lifecycle and Query construction", async () => {
-  let admitStarted!: () => void;
-  const started = new Promise<void>((resolve) => { admitStarted = resolve; });
-  let releaseAdmission!: () => void;
-  const admission = new Promise<void>((resolve) => { releaseAdmission = resolve; });
+	const started = Promise.withResolvers<void>();
+	const admission = Promise.withResolvers<void>();
   let queryCalls = 0;
   let lifecycleCalls = 0;
-  const managed = createAnthropicQuery({ prompt: "x", options: {} as any }, false, {
-    admit: async () => { admitStarted(); await admission; },
-    query: (() => { queryCalls++; throw new Error("must not construct"); }) as any,
-    observe: ((source: any) => source) as any,
-    createLifecycle: (() => {
-      lifecycleCalls++;
-      throw new Error("must not create lifecycle");
-    }) as any,
-  });
+	const runtime = {
+		admit: async () => { started.resolve(); await admission.promise; },
+		query: () => { queryCalls++; throw new Error("must not construct"); },
+		observe: observedStream,
+		createLifecycle: (() => {
+			lifecycleCalls++;
+			throw new Error("must not create lifecycle");
+		}),
+	} as unknown as AnthropicQueryRuntime;
+	const managed = createAnthropicQuery(providerQueryArgs("slow-admission"), false, runtime);
   const iteration = (async () => {
     for await (const _ of managed) { /* no events */ }
   })();
-  await started;
-  const close = managed.close!();
-  releaseAdmission();
+	await started.promise;
+	const close = managed.close!();
+	admission.resolve();
   await Promise.all([iteration, close]);
   expect(queryCalls).toBe(0);
   expect(lifecycleCalls).toBe(0);
@@ -366,55 +410,75 @@ test("close during slow Anthropic admission prevents late lifecycle and Query co
 
 test("caller abort during slow Anthropic admission prevents a provider turn", async () => {
   const callerAbort = new AbortController();
-  let admitStarted!: () => void;
-  const started = new Promise<void>((resolve) => { admitStarted = resolve; });
-  let releaseAdmission!: () => void;
-  const admission = new Promise<void>((resolve) => { releaseAdmission = resolve; });
+	const started = Promise.withResolvers<void>();
+	const admission = Promise.withResolvers<void>();
   let queryCalls = 0;
   let lifecycleCalls = 0;
-  const managed = createAnthropicQuery({
-    prompt: "x",
-    options: { abortController: callerAbort } as any,
-  }, false, {
-    admit: async () => { admitStarted(); await admission; },
-    query: (() => { queryCalls++; throw new Error("must not construct"); }) as any,
-    observe: ((source: any) => source) as any,
-    createLifecycle: (() => {
-      lifecycleCalls++;
-      throw new Error("must not create lifecycle");
-    }) as any,
-  });
+	const runtime = {
+		admit: async () => { started.resolve(); await admission.promise; },
+		query: () => { queryCalls++; throw new Error("must not construct"); },
+		observe: observedStream,
+		createLifecycle: (() => {
+			lifecycleCalls++;
+			throw new Error("must not create lifecycle");
+		}),
+	} as unknown as AnthropicQueryRuntime;
+	const managed = createAnthropicQuery(
+		providerQueryArgs("caller-abort", { abortController: callerAbort }),
+		false,
+		runtime,
+	);
   const iteration = (async () => {
     for await (const _ of managed) { /* no events */ }
   })();
-  await started;
-  callerAbort.abort(new Error("host terminated"));
-  releaseAdmission();
+	await started.promise;
+	callerAbort.abort(new Error("host terminated"));
+	admission.resolve();
   await iteration;
   expect(queryCalls).toBe(0);
   expect(lifecycleCalls).toBe(0);
 });
 
-test("initialized Anthropic close propagates source cleanup and reap failure", async () => {
-  const raw = {
+test("Anthropic turn cleanup maps process reap failure without exposing diagnostics", async () => {
+	const raw = {
     interrupt: async () => {},
     return: async () => ({ done: true, value: undefined }),
     setModel: async () => {},
     applyFlagSettings: async () => {},
-    async *[Symbol.asyncIterator]() {},
-  };
-  const managed = createAnthropicQuery({ prompt: "x", options: {} as any }, true, {
-    query: (() => raw) as any,
-    observe: ((source: any) => source) as any,
-    createLifecycle: (() => ({
+		async *[Symbol.asyncIterator]() {
+			yield {
+				type: "result",
+				subtype: "success",
+				uuid: "result-reap-failure",
+				session_id: "session-reap-failure",
+				is_error: false,
+				duration_ms: 10,
+				num_turns: 1,
+				result: "done",
+				usage: {
+					input_tokens: 1,
+					output_tokens: 1,
+					cache_creation_input_tokens: 0,
+					cache_read_input_tokens: 0,
+				},
+			};
+		},
+	};
+	const runtime = {
+		query: () => raw as unknown as Query,
+		observe: observedStream,
+		createLifecycle: (() => ({
       spawnClaudeCodeProcess: () => { throw new Error("not used"); },
       settle: async () => { throw new Error("owned process reap failed"); },
       forceKill: () => {},
       started: () => false,
-    })) as any,
-  });
-  for await (const _ of managed) { /* initialize */ }
-  await expect(managed.close!()).rejects.toThrow("anthropic_provider_execution_failed");
+		})),
+	} as unknown as AnthropicQueryRuntime;
+	const managed = createAnthropicQuery(providerQueryArgs("reap-failure"), true, runtime);
+	await expect(async () => {
+		for await (const _ of managed) { /* consume normalized events */ }
+	}).toThrow("anthropic_provider_execution_failed");
+	await expect(managed.close!()).rejects.toThrow("anthropic_provider_execution_failed");
 });
 
 function fakeHost() {

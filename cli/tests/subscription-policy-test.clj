@@ -16,32 +16,11 @@
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
-(defn read-source [path] (slurp (io/file root path)))
 
-(let [listener (read-source "cli/north-listen.clj")
-      predicates (read-source "cli/pred-cli.clj")
-      presence (read-source "cli/presence-cli.clj")
-      reconcile (read-source "cli/north-reconcile.clj")
-      retired [(str "budget" "_total") (str "cost" "_usd") "NORTH_BUDGET" "BUDGET SPENT"]]
-  (check "listener has no retired dollar gate and fails closed peer child operations"
-         (and (not-any? #(str/includes? listener %) retired)
-              (str/includes? listener "peer spawn is unsupported")
-              (str/includes? listener "peer dispatch is unsupported")))
-  (check "predicate registry omits retired policy facts"
-         (and (not-any? #(str/includes? predicates %) retired)
-              (str/includes? predicates "[\"tokens\"")))
-  (check "presence has no standalone cost command and stamps run kind"
-         (and (nil? (re-find #"(?m)^\s*\"cost\"" presence))
-              (str/includes? presence "(put! port re \"kind\" \"run\")")))
-  (check "reconciliation is usage-only and keeps exact operational columns"
-         (and (not-any? #(str/includes? reconcile %) retired)
-              (every? #(str/includes? reconcile %)
-                      ["\"tokens\"" "\"duration_ms\"" "\"num_turns\"" "\"fallback_count\""
-                       "\"usage_terminal_count\"" "\"usage_scope\"" "\"usage_total_status\""
-                       "\"cached_input_tokens\"" "\"reasoning_output_tokens\""]))))
+(when-not (.exists (io/file fram "out"))
+  (check (str "compiled Fram test dependency is required at " fram "/out") false))
 
-;; Exercise the report against a throwaway coordinator when Fram's compiled daemon is
-;; available. The static checks above still run in source-only environments.
+;; Exercise the public report against a throwaway coordinator.
 (when (.exists (io/file fram "out"))
   (defn port-free? [port]
     (try (with-open [s (java.net.Socket.)]
@@ -78,18 +57,79 @@
       (when-not started?
         (throw (ex-info "throwaway Fram server did not start"
                         {:result (deref daemon 1000 nil)}))))
-    (doseq [[p r] [["kind" "run"] ["agent" "worker-a"] ["tokens" "350"]
-                   ["duration_ms" "1250"] ["num_turns" "3"] ["fallback_count" "1"]
-                   ["fallback_path" "anthropic -> openai"]
-                   ["provider" "openai"] ["model" "terra"] ["effort" "medium"]
-                   ["at" "2026-07-16T00:00:00Z"]]]
-      (fact! "@run-current" p r))
-    (doseq [[p r] [["kind" "run"] ["agent" "worker-unknown"]
-                   ["usage_terminal_count" "0"] ["usage_scope" "anthropic_result_terminal"]
-                   ["usage_total_status" "unknown_no_terminal"]
-                   ["provider" "anthropic"] ["model" "opus"] ["effort" "high"]
-                   ["at" "2026-07-16T00:01:00Z"]]]
-      (fact! "@run-unknown" p r))
+    (let [runs
+          {"@run-exact-anthropic"
+           [["kind" "run"] ["agent" "worker-a"] ["tokens" "350"]
+            ["lifetime_input_tokens" "200"] ["lifetime_output_tokens" "50"]
+            ["lifetime_cache_read_tokens" "80"] ["lifetime_cache_write_tokens" "20"]
+            ["lifetime_reasoning_tokens" "0"] ["model_call_count" "1"]
+            ["usage_terminal_count" "1"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "exact"] ["duration_ms" "1250"]
+            ["num_turns" "3"] ["fallback_count" "1"]
+            ["fallback_path" "anthropic -> openai"] ["provider" "anthropic"]
+            ["model_tier" "frontier"] ["effort" "high"]
+            ["at" "2026-07-16T00:00:00Z"]]
+           "@run-exact-openai"
+           [["kind" "run"] ["agent" "worker-b"] ["tokens" "120"]
+            ["lifetime_input_tokens" "100"] ["lifetime_output_tokens" "20"]
+            ["lifetime_cache_read_tokens" "60"] ["lifetime_cache_write_tokens" "0"]
+            ["lifetime_reasoning_tokens" "7"] ["model_call_count" "1"]
+            ["usage_terminal_count" "1"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "exact"] ["duration_ms" "800"]
+            ["provider_turn_units" "2"] ["provider_tool_items" "5"]
+            ["provider_turn_metric_comparable" "false"]
+            ["provider" "openai"] ["model_tier" "senior"] ["effort" "medium"]
+            ["at" "2026-07-16T00:01:00Z"]]
+           "@run-exact-zero"
+           [["kind" "run"] ["agent" "worker-zero"] ["tokens" "0"]
+            ["lifetime_input_tokens" "0"] ["lifetime_output_tokens" "0"]
+            ["lifetime_cache_read_tokens" "0"] ["lifetime_cache_write_tokens" "0"]
+            ["lifetime_reasoning_tokens" "0"] ["model_call_count" "1"]
+            ["usage_terminal_count" "1"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "exact"] ["provider" "openai"]
+            ["model_tier" "standard"] ["effort" "low"]
+            ["at" "2026-07-16T00:02:00Z"]]
+           "@run-partial"
+           [["kind" "run"] ["agent" "worker-partial"]
+            ["lifetime_input_tokens" "100"] ["lifetime_output_tokens" "20"]
+            ["lifetime_cache_read_tokens" "60"] ["lifetime_cache_write_tokens" "0"]
+            ["lifetime_reasoning_tokens" "7"] ["model_call_count" "1"]
+            ["usage_terminal_count" "0"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "partial"] ["provider" "openai"]
+            ["model_tier" "senior"] ["effort" "medium"]
+            ["at" "2026-07-16T00:03:00Z"]]
+           "@run-incomplete-terminal"
+           [["kind" "run"] ["agent" "worker-incomplete"]
+            ["lifetime_input_tokens" "0"] ["lifetime_output_tokens" "0"]
+            ["lifetime_cache_read_tokens" "0"] ["lifetime_cache_write_tokens" "0"]
+            ["lifetime_reasoning_tokens" "0"] ["model_call_count" "1"]
+            ["usage_terminal_count" "1"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "unknown_incomplete_terminal"] ["provider" "openai"]
+            ["model_tier" "senior"] ["effort" "medium"]
+            ["at" "2026-07-16T00:04:00Z"]]
+           "@run-no-terminal"
+           [["kind" "run"] ["agent" "worker-no-terminal"]
+            ["lifetime_input_tokens" "0"] ["lifetime_output_tokens" "0"]
+            ["lifetime_cache_read_tokens" "0"] ["lifetime_cache_write_tokens" "0"]
+            ["lifetime_reasoning_tokens" "0"] ["model_call_count" "1"]
+            ["usage_terminal_count" "0"] ["usage_scope" "wire_run_cumulative"]
+            ["usage_total_status" "unknown_no_terminal"] ["provider" "anthropic"]
+            ["model_tier" "frontier"] ["effort" "high"]
+            ["at" "2026-07-16T00:05:00Z"]]
+           "@run-legacy-exact"
+           [["kind" "run"] ["agent" "worker-historical"] ["tokens" "7"]
+            ["model_tier" "standard"] ["at" "2026-07-16T00:06:00Z"]]
+           "@run-exact-bigint"
+           [["kind" "run"] ["agent" "worker-bigint"] ["tokens" "9007199254740992"]
+            ["lifetime_input_tokens" "9007199254740991"]
+            ["lifetime_output_tokens" "1"] ["lifetime_cache_read_tokens" "0"]
+            ["lifetime_cache_write_tokens" "0"] ["lifetime_reasoning_tokens" "0"]
+            ["model_call_count" "1"] ["usage_terminal_count" "1"]
+            ["usage_scope" "wire_run_cumulative"] ["usage_total_status" "exact"]
+            ["provider" "openai"] ["model_tier" "frontier"] ["effort" "high"]
+            ["at" "2026-07-16T00:07:00Z"]]}]
+      (doseq [[run facts] runs [p r] facts]
+        (fact! run p r)))
     ;; A historical dollar-only row remains readable in the graph but is not a run
     ;; identity and therefore cannot enter the report or influence a decision.
     (fact! "@run-historical" (str "cost" "_usd") "99.99")
@@ -109,17 +149,21 @@
         (println "full reconciliation diagnostic:" (pr-str full))
         (println "recent reconciliation diagnostic:" (pr-str recent)))
       (check "usage reconciliation exits successfully" (and (zero? (:exit full)) (zero? (:exit recent))))
-      (check "summary reports exact tokens, duration, turns, and fallbacks"
+      (check "summary separates exact aggregate, partial lower bound, and both unknown states"
              (every? #(re-find % (:out full))
-                     [#"total tokens\s+350\b" #"total duration ms\s+1250\b"
+                     [#"exact token subtotal\s+9007199254741469\s+\(5/8 exact runs\)"
+                      #"partial lower bound\s+>=120\s+\(1 partial runs"
+                      #"unknown terminals\s+1\b" #"no usage terminal\s+1\b"
                       #"total turns\s+3\b" #"provider fallbacks\s+1\b"]))
-      (check "unknown usage remains unreported rather than becoming a zero-token run"
-             (and (re-find #"1/2 runs reported" (:out full))
-                  (str/includes? (:out recent) "@run-unknown")))
-      (check "recent report exposes provider/model/effort and ignores historical dollar row"
-             (and (str/includes? (:out recent) "openai/terra/medium")
+      (check "recent report distinguishes exact zero, partial, incomplete terminal, and no terminal"
+             (every? #(str/includes? (:out recent) %)
+                     ["@run-exact-zero" ">=120 partial" "unknown-terminal" "no-terminal"
+                      "2pt/5it"]))
+      (check "report groups by semantic tier, keeps cache/reasoning subsets non-additive, and ignores dollar row"
+             (and (str/includes? (:out full) "MODEL_TIER")
+                  (str/includes? (:out recent) "openai/senior/medium")
                   (str/includes? (:out recent) "1:anthropic -> openai")
-                  (str/includes? (:out recent) "@run-current")
+                  (str/includes? (:out recent) "@run-exact-openai")
                   (not (str/includes? (:out recent) "@run-historical"))
                   (not (str/includes? (:out recent) "$")))))
     (finally

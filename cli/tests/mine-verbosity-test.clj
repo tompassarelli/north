@@ -62,6 +62,24 @@
 (chk "parse-ms parses ISO, nils garbage"
      (and (= 0 (parse-ms "1970-01-01T00:00:00.000Z")) (nil? (parse-ms "not-a-time"))
           (nil? (parse-ms nil))))
+(let [raw "raw-claude-session-canary"
+      key (mine-session-key raw "fallback-stem")]
+  (chk "mine session identity is deterministic, domain-separated, and redacted"
+       (and (= key (mine-session-key raw "fallback-stem"))
+            (str/starts-with? key (str MINE-SESSION-KEY-VERSION ":"))
+            (re-matches #"north:mine-session:v1:[0-9a-f]{64}" key)
+            (not (str/includes? key raw)))))
+(let [captured (atom [])
+      raw "raw-claude-session-canary"]
+  (with-redefs [publish-actions! (fn [_ actions] (reset! captured (vec actions)) {:ok 1})]
+    (emit-facts! 0 {:stem "mine-fixture" :session-id raw :error-count 0
+                    :votes {} :input-val {} :rejects {} :retries {}
+                    :guards {} :rereads {}}))
+  (let [session-facts (filter #(= "north_session_id" (:predicate %)) @captured)]
+    (chk "mine publication emits only the redacted North session key"
+         (and (= 1 (count session-facts))
+              (not-any? #(= "session_id" (:predicate %)) @captured)
+              (not (str/includes? (pr-str @captured) raw))))))
 
 ;; ==========================================================================
 ;; 2. empty + trivial scans

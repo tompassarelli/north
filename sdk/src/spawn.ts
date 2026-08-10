@@ -13,6 +13,10 @@ function terminalCause(value: unknown): string {
   return detail.replace(/\s+/g, " ").trim() || "unknown";
 }
 
+function latestTurnEvidence(state: ExecutionFoldSnapshot): WireTurnEvidence | undefined {
+  return state.turnEvidence[state.turnEvidence.length - 1];
+}
+
 export function appendSpawnTerminalLine(kind: string, cause?: unknown): void {
   if (spawnTerminalLineWritten) return;
   spawnTerminalLineWritten = true;
@@ -73,14 +77,10 @@ import {
   type ProvisionedWorktree, type WorktreeAllocationWriter, type WorktreeHarvest,
   type WorktreeTerminalFailure,
 } from "./worktree";
-import { normalizeUsage } from "./usage";
 import {
-  classifyTurnProvenance, codexTurnActivityFromResult, describeObservedTurns,
-  newRunId, recordRun,
+  newRunId, recordWireRunTelemetry,
 } from "./telemetry";
-import { collectProviderJoinEvidence } from "./providers/provider-join";
-import { publishRunLifecycleLedger } from "./run-ledger";
-import { unknownMcpActivity } from "./tool-activity";
+import { publishWireEvents, wireLedgerSummary } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import {
   inputChannel,
@@ -93,7 +93,7 @@ import {
 } from "./identity";
 import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespoke-contract";
 import {
-  makeStruggleObserver, resolveStrugglePolicy,
+  resolveStrugglePolicy,
   assertExpectedStrugglePolicy,
   type StrugglePolicy,
 } from "./struggle";
@@ -101,8 +101,7 @@ import {
   describeWatchdogAbortEvidence, withStallWatchdog, stallMs, notifyStall, notifyTurnCap,
   type WatchdogAbortEvidence,
 } from "./watchdog";
-import { outerExecutionActivityKind } from "./providers/outer-activity";
-import { makeBgTracker, bgContinuationMessage, maxBgContinuations } from "./bgtasks";
+import { bgContinuationMessage, maxBgContinuations } from "./bgtasks";
 import {
   assessChildFinalization, childContinuationMessage, childDispatchMessage, childReductionMessage,
   continuationRaceOutcome, decideChildTurnEnd, initialChildContinuationState, notifyEarlyExitChildren,
@@ -112,10 +111,9 @@ import {
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
   selectProviderForExecution,
-  ProviderRetrySafeError,
-  type ProviderAuthoritySurface, type ProviderPreference,
+  providerRetrySafeTerminalDetail, ProviderRetrySafeError,
+  type ProviderAuthoritySurface, type ProviderPreference, type RoutedQueryArguments,
 } from "./providers";
-import type { AgentQuery } from "./providers/types";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
@@ -135,10 +133,25 @@ import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
 import {
-  classifyExecutionTerminal, describeDeadlineExceededTerminal, describeProviderErrorTerminal,
+  classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, PROVIDER_PROCESS_DEATH_OUTCOME,
+  wireTerminalDecision,
 } from "./execution-outcome";
+import {
+  makeExecutionFold,
+  type ExecutionFoldSnapshot,
+} from "./execution-fold";
+import {
+  encodeWireJsonlLine,
+  isIntermediateProviderSessionReplacement,
+  WireEventWriter,
+  wireRunId,
+  type WireEvent,
+  type WireQuery,
+  type WireRunId,
+  type WireTurnEvidence,
+} from "./wire";
 import { ManagedLiveInputRoute } from "./live-input-route";
 import {
   admitRoutingEconomics, type AdmittedRoutingEconomics,
@@ -163,6 +176,7 @@ import {
 } from "./judgment-grade";
 import {
   ManagedQueryTermination, type HostTerminationRegistrar,
+  type ManagedSessionHardCapOptions,
 } from "./query-lifecycle";
 import { decideManagedLearning } from "./managed-learning";
 import type { LearningAssignment } from "./learning-regime";
@@ -171,6 +185,12 @@ import {
   type LearningAssignmentPublicationStatus,
 } from "./learning-assignment-writer";
 import { buildRunEnvelope, sha256Bytes } from "./composition-receipt";
+import { unknownMcpActivity } from "./tool-activity";
+import { unknownNativeCommandActivity } from "./native-command-activity";
+import {
+  wireModelAvailabilityReceipt,
+  type WireRunProvenance,
+} from "./run-provenance";
 import { bridgeJournalRoot } from "./bridge/protocol";
 import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "./bridge/journal";
 
@@ -203,7 +223,7 @@ export interface SpawnOptions {
 }
 
 interface SpawnRuntime {
-  queryFn?: (args: any) => AgentQuery;
+  queryFn?: (args: RoutedQueryArguments) => WireQuery;
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
@@ -218,6 +238,11 @@ interface SpawnRuntime {
   childSettlementReader?: (agentId: string) => ChildSettlement;
   feedSubscriber?: typeof subscribeFeed;
   registerTermination?: HostTerminationRegistrar;
+  sessionHardCapRuntime?: Pick<
+    ManagedSessionHardCapOptions,
+    "hardCapMs" | "schedule" | "cancel" | "writeHandoff" | "replayHandoffs"
+      | "stateDirectory" | "now"
+  >;
   refreshAccountUsages?: typeof refreshAccountUsages;
   admitResourceEnvelope?: typeof admitResourceEnvelope;
   completeResourceEnvelope?: typeof completeResourceEnvelope;
@@ -267,7 +292,7 @@ interface ManagedWorktreeLease extends ProvisionedWorktree {
 // 2026-07-23 gen-1018 cluster: 4x openai_provider_execution_failed, zero retry).
 // Constant-in-code, deliberately not env-tunable — a single fresh-run retry,
 // never a loop. Terminal truthfulness: if the retry also dies, BOTH runs are
-// recorded and the original death fact is never rewritten (see recordRun's
+// recorded and the original death fact is never rewritten (see the terminal
 // retryOfRun/retryAttempt provenance below).
 const PROVIDER_PROCESS_DEATH_MAX_RETRIES = 1;
 
@@ -399,13 +424,13 @@ async function runSpawn(
   worktreeLease?: ManagedWorktreeLease,
   retryContext?: RetryContext,
   retryTarget?: string,
+  parentRunId?: WireRunId,
   learningAssignment?: LearningAssignment,
   lifecycleJournal?: ExecutionJournal,
 ): Promise<{
   result: string; outcome: string; runId: string; providerErrorDetail?: string;
   numTurns?: number; provider: ProviderPreference; siblingTarget?: string;
 }> {
-  const runStartedAt = process.hrtime.bigint();
   // Composition is deliberately complete before admission and stays immutable
   // through routing, identity, provider execution, and terminal telemetry.
   const routingMetadata = opts.routingMetadata;
@@ -423,9 +448,12 @@ async function runSpawn(
   // a provider, so a failed recorder cannot move the arm after side effects.
   const assignmentWriter = injected.publishLearningAssignment
     ?? (injected.queryFn ? async () => "recorded" as const : publishLearningAssignment);
-  await assignmentWriter(runId, learningAssignment);
-  let publishedLearningAssignment: LearningAssignment | undefined
-    = learningAssignment;
+  const publishAssignmentForRun = async (assignmentRunId: string): Promise<void> => {
+    if (await assignmentWriter(assignmentRunId, learningAssignment) !== "recorded") {
+      throw new Error("managed North spawn requires a durable pre-provider learning assignment");
+    }
+  };
+  await publishAssignmentForRun(runId);
   // ONE thread resolution, used by both the delivery reservation here and the
   // run ledger at terminal. They disagreed: the reservation read opts.thread
   // while the ledger also accepted AGENT_THREAD, and `north spawn --thread`
@@ -449,7 +477,6 @@ async function runSpawn(
     });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
-  const stream = new StreamWriter(agentId);
   const requestedTier = opts.tier;
   const requestedReasoning = opts.effort;
   const providerPreference = opts.provider ?? "auto";
@@ -587,42 +614,103 @@ async function runSpawn(
   const refreshIdentityRoute = (required = false) => {
     liveInputRoute.refresh(activeRoute(), required);
   };
-  const struggle = makeStruggleObserver(strugglePolicy);
+  const executionFold = makeExecutionFold(strugglePolicy);
+  let wireWriter: WireEventWriter | undefined;
+  let stream: StreamWriter | undefined;
+  let nextObservedSequence = 0;
+  let nextPersistedSequence = 0;
+  let announcedCompactions = 0;
+  const flushWireEvents = async (): Promise<void> => {
+    if (!wireWriter || !stream) return;
+    const events = wireWriter.events();
+    while (nextPersistedSequence < events.length) {
+      const event = events[nextPersistedSequence]!;
+      if (event.sequence !== nextPersistedSequence) {
+        throw new Error("wire writer persistence sequence diverged");
+      }
+      await stream.writeWireEvent(event);
+      nextPersistedSequence += 1;
+    }
+  };
+  const observeWireEvent = async (event: WireEvent) => {
+    if (!wireWriter) throw new Error("wire event observed before run admission");
+    const canonical = wireWriter.events()[nextObservedSequence];
+    let matchesCanonical = canonical === event;
+    if (!matchesCanonical && canonical) {
+      try {
+        matchesCanonical = encodeWireJsonlLine(canonical) === encodeWireJsonlLine(event);
+      } catch { /* An invalid yielded event cannot equal the writer-owned event. */ }
+    }
+    if (!canonical || !matchesCanonical) {
+      throw new Error("provider yielded an event that differs from its shared writer canonical event");
+    }
+    const observation = executionFold.observe(canonical);
+    nextObservedSequence += 1;
+    await flushWireEvents();
+    return observation;
+  };
+  const observeCommittedWireEvents = async (): Promise<void> => {
+    if (!wireWriter) return;
+    const events = wireWriter.events();
+    while (nextObservedSequence < events.length) {
+      executionFold.observe(events[nextObservedSequence]!);
+      nextObservedSequence += 1;
+    }
+    await flushWireEvents();
+  };
+  const startWireRun = async (): Promise<WireEventWriter> => {
+    if (wireWriter) return wireWriter;
+    const opened = await StreamWriter.open(agentId);
+    const writer = new WireEventWriter({ runId: wireRunId(runId) });
+    stream = opened;
+    wireWriter = writer;
+    const started = writer.append({
+      kind: "run.started",
+      lifecycle: "running",
+      owner: agentId,
+      ...(parentRunId === undefined ? {} : { parentRunId }),
+    });
+    await observeWireEvent(started);
+    return writer;
+  };
 
-  let result = "", resultMsg: any = null, outcome = "ran";
-  // Full nested-cause chain for a blocked_preflight (or other retry-safe) death,
-  // set alongside `outcome` in the catch below and carried onto @run so the
-  // real underlying failure survives past the banner-only stdout log.
-  let preflightCause: string | undefined;
+  let result = "", outcome = "ran";
+  // Public wire detail is North-owned and bounded. Recursive provider causes
+  // remain only in local diagnostics below.
+  let preflightDetail: string | undefined;
   // Same discipline for a provider_error terminal: the error payload the frame
   // carried, rendered once and carried onto @run (thread 019f9cec).
   let providerErrorDetail: string | undefined;
   let deadlineExceededDetail: string | undefined;
   let worktreeTerminalFailure: WorktreeTerminalFailure | undefined;
-  const terminalMessages: any[] = [];
   const end = (oc: string) => { outcome = oc; try { ch.end(); } catch { /* already closed */ } };
 
-  let injectedCompositionEvidence: HarnessCompositionEvidence | undefined;
+  let initialComposition: HarnessCompositionEvidence | undefined;
   let admittedRoute: {
-    provider: ProviderAuthoritySurface["provider"];
-    evidence: HarnessCompositionEvidence | undefined;
-    authority: ProviderAuthoritySurface;
+    provider: "anthropic" | "openai";
+    evidence?: HarnessCompositionEvidence;
+    authority?: ProviderAuthoritySurface;
   } | undefined;
-  const queryFn = injected.queryFn ?? ((args: any) => routedQuery(
+  const queryFn = injected.queryFn ?? ((args: RoutedQueryArguments) => routedQuery(
     routing, args, requestedTier, async (transition) => {
       await liveInputRoute.beforeFallback(
         transition,
         () => reserveResourceEnvelopeRetry(envelopeAdmission),
       );
     },
-    async (_decision, evidence, authority) => {
-      if (!authority) return;
-      await liveInputRoute.activate({
-        ...activeRoute(),
-        liveInput: authority.liveInput,
-      });
-      admittedRoute = { provider: authority.provider, evidence, authority };
-      console.log(`[spawn] effective authority: ${formatProviderAuthoritySurface(authority)}`);
+    async (decision, evidence, authority) => {
+      admittedRoute = {
+        provider: decision.provider,
+        ...(evidence === undefined ? {} : { evidence }),
+        ...(authority === undefined ? {} : { authority }),
+      };
+      if (authority) {
+        await liveInputRoute.activate({
+          ...activeRoute(),
+          liveInput: authority.liveInput,
+        });
+        console.log(`[spawn] effective authority: ${formatProviderAuthoritySurface(authority)}`);
+      }
     },
     (decision) => {
       if (wt) {
@@ -638,11 +726,10 @@ async function runSpawn(
   // process death because no provider query has been created or accepted.
   let providerQueryConstructionStarted = false;
   let queryCloseError: unknown;
-  let activeExecutionQuery: AgentQuery | undefined;
 
   // Error boundary (thread 019f2800): the SDK runs the turn in a subprocess; if it dies
   // (OOM SIGKILL / parent SIGTERM / idle Transport-closed) readMessages() THROWS exitError
-  // here. Without this try/catch the throw escaped -> recordRun skipped, no death signal,
+  // here. Without this try/catch the throw escaped -> publication skipped, no death signal,
   // channel leaked. Now: catch -> outcome "died" + durable death fact; finally
   // -> ALWAYS end the channel + record the run; return the PARTIAL result (supervision, not
   // fail-fast) so one worker's death never rejects a spawnParallel Promise.all batch.
@@ -664,7 +751,6 @@ async function runSpawn(
   // auto-continues the model on task settlement, but only if we keep the loop alive
   // instead of breaking on the first `result`. Track the live set; bgContinuations
   // counts CONSECUTIVE no-progress refusals (reset on settlement) for the stuck-lane cap.
-  const bgTracker = makeBgTracker();
   let bgContinuations = 0;
   const orchestrator = routingMetadata.topology === "orchestrator";
   const readChildSettlement = injected.childSettlementReader ?? settleChildren;
@@ -677,19 +763,12 @@ async function runSpawn(
   // empty terminal (the continuation raced the Anthropic session's teardown),
   // this drives an explicit blocked outcome instead of a ran_empty masquerade.
   let pendingContinuation: OrchestratorContinuationKind | undefined;
-  // Anthropic streaming input races session teardown after the model's final
-  // result (thread 019f8ec5): a continuation injected into the live channel then
-  // lands on a closing stream. For a streaming-input provider an orchestrator
-  // continuation instead ends the turn and opens a fresh RESUMED turn once a
-  // session id has been observed. Codex (frame-based, liveInput=unsupported)
-  // re-opens a turn per frame already and keeps the injection path untouched.
-  // `sessionId` is the last session id the provider published; `pendingResume`
-  // is the continuation message to carry into the next resumed turn.
+  // Streaming providers own private continuation identity. North asks the
+  // same semantic query for another turn without observing a raw session id.
   const resumeContinuations = orchestrator
     && providerLiveInput(routing.provider) === "streaming";
-  let sessionId: string | undefined;
-  let pendingResume: string | undefined;
-  let compactions = 0; // SDK auto-compaction events observed across the run (audit fix 4)
+  let activeQuery: WireQuery | undefined;
+  try {
   try {
   termination.throwIfTerminated();
   console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
@@ -719,15 +798,13 @@ async function runSpawn(
       if (!deliveryReservationReady) {
         const attemptedRunId = runId;
         runId = newRunId(agentId);
-        publishedLearningAssignment = undefined;
         if (wt) recordWorktreeRunRotation(wt.allocation, runId);
         console.error(
           `[delivery] @${attemptedRunId} reservation unavailable; rotating blocked telemetry `
           + `to fresh non-reservation @${runId}: `
           + `${(error as Error)?.message ?? String(error)}`,
         );
-        await assignmentWriter(runId, learningAssignment);
-        publishedLearningAssignment = learningAssignment;
+        await publishAssignmentForRun(runId);
         throw error;
       }
     }
@@ -756,80 +833,81 @@ async function runSpawn(
     cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
   });
-  injectedCompositionEvidence = harnessCompositionEvidence(agentOptions);
+  initialComposition = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
     await liveInputRoute.activate(activeRoute());
   termination.throwIfTerminated();
   providerQueryConstructionStarted = true;
-  turnLoop: while (true) {
-  const resumeMessage = pendingResume;
-  pendingResume = undefined;
-  // Turn 1 (and every non-resumed provider) reads the managed streaming channel
-  // so live messaging and background-task continuations keep working unchanged.
-  // A resumed continuation turn reads a fresh single-message channel carrying
-  // the continuation and asks the adapter to resume the observed session.
-  const turnChannel = resumeMessage === undefined ? ch : inputChannel(resumeMessage);
-  const activeQuery = queryFn({
-    prompt: turnChannel.stream(),
+  const writer = await startWireRun();
+  activeQuery = queryFn({
+    input: ch.stream(),
     options: agentOptions,
-    ...(resumeMessage === undefined ? {} : { resume: sessionId }),
+    writer,
   });
-  activeExecutionQuery = activeQuery;
   termination.attachQuery(activeQuery);
   stopProviderActivity();
   stopProviderActivity = forwardExecutionActivity(
     activeQuery.executionActivity,
     executionActivity,
   );
-  const watched = withStallWatchdog((activeQuery as AsyncIterable<any>)[Symbol.asyncIterator](), {
+  turnLoop: while (true) {
+  let privateContinuation: string | undefined;
+  const watched = withStallWatchdog(activeQuery[Symbol.asyncIterator](), {
     stallMs: window,
     onStall: (mins) => notifyStall(agentId, mins, { coordinator: coordHandle }),
     onAbort: (evidence) => { watchdogAbort = evidence; },
     activitySources: [executionActivity.source],
   });
-  let openResumeTurn = false;
-  for await (const message of watched) {
-    const msg = message as any;
-    if (typeof msg.session_id === "string") sessionId = msg.session_id;
-    const outerActivity = outerExecutionActivityKind(msg);
-    if (outerActivity) {
-      executionActivity.record("outer", outerActivity);
+  for await (const event of watched) {
+    const observation = await observeWireEvent(event);
+    if (observation.activityKind) {
+      executionActivity.record("outer", observation.activityKind);
       renewHarnessPresence(agentOptions);
     }
     // routedQuery mutates the decision before the first fallback-provider event.
     // Refresh from that structured decision before the event is exposed.
     refreshIdentityRoute();
-    stream.writeSDKMessage(msg);
-    if (msg.type === "system" && msg.subtype === "compact_boundary") {
-      compactions++;
-      console.error(`[harness] @agent:${agentId} context compaction #${compactions} (compact_boundary)`);
+    if (observation.state.compactions > announcedCompactions) {
+      announcedCompactions = observation.state.compactions;
+      console.error(
+        `[harness] @agent:${agentId} context compaction #${announcedCompactions}`,
+      );
     }
-    if (bgTracker.observe(msg) === "settled") bgContinuations = 0; // forward progress refreshes the cap
+    if (observation.backgroundTask?.kind === "settled") bgContinuations = 0;
 
-    // Struggle sensors are OBSERVE-ONLY now: fold the message, and on the first
+    // Struggle sensors are OBSERVE-ONLY now: fold the event, and on the first
     // occurrence of each trigger leave a stderr breadcrumb. The run does NOT change
     // route or terminate — the accumulated triggers become terminal `struggle` run
     // facts below, feeding D2's execution-axis diagnosis without any in-flight swap.
-    const trigger = struggle.observe(msg);
+    const trigger = observation.struggleTrigger;
     if (trigger) {
-      console.error(`[struggle] @agent:${agentId} sensor fired: ${trigger} (turn ${struggle.state.turn}, ${struggle.state.totalErrors} tool error(s)) — recorded as execution-axis evidence, no in-flight change`);
+      console.error(
+        `[struggle] @agent:${agentId} sensor fired: ${trigger} `
+        + `(model calls ${observation.state.run.usage.lifetime.modelCalls}, `
+        + `${observation.state.struggle.errorCount} tool error(s)) `
+        + "— recorded as execution-axis evidence, no in-flight change",
+      );
     }
 
-    if (msg.type === "result") {
-      terminalMessages.push(msg);
-      if (typeof msg.result === "string") result = msg.result;
-      resultMsg = msg;
+    if (event.essential && event.kind === "model-call.completed") {
+      const turnResult = observation.state.lastCompletedAssistantOutput ?? "";
+      const turnEvidence = event.evidence?.turns;
       lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.turnBoundary, {
-        subtype: typeof msg.subtype === "string" ? msg.subtype : null,
-        isError: msg.is_error === true,
-        numTurns: typeof msg.num_turns === "number" ? msg.num_turns : null,
-        resultBytes: typeof msg.result === "string" ? Buffer.byteLength(msg.result) : 0,
+        status: event.status,
+        errorCode: event.errorCode ?? null,
+        turnUnit: turnEvidence?.unit ?? null,
+        turnCount: turnEvidence?.count ?? null,
+        resultBytes: Buffer.byteLength(turnResult),
       });
-      const cap = typeof msg.subtype === "string" && msg.subtype.startsWith("error_max")
-        ? msg.subtype
-        : null;
-      if (cap) {
-        end(cap === "error_max_turns" ? "max_turns" : "capped");
+      if (isIntermediateProviderSessionReplacement(event)) continue;
+      result = turnResult;
+      const cap = event.errorCode === "provider_max_turns"
+        ? "provider_max_turns"
+        : event.errorCode === "provider_budget_exhausted"
+          || event.errorCode === "provider_structured_output_retries_exhausted"
+          ? event.errorCode : undefined;
+      if (cap !== undefined) {
+        end(cap === "provider_max_turns" ? "max_turns" : "capped");
         const partial = result.trim() ? `partial: ${result.trim().slice(0, 200)}` : "no partial result";
         const detail = `${cap} — ${partial}`;
         terminalSignal = { subject: "TURN CAP", detail };
@@ -838,7 +916,7 @@ async function runSpawn(
         );
         break;
       }
-      deadlineExceededDetail = describeDeadlineExceededTerminal(msg);
+      deadlineExceededDetail = observation.state.deadlineExceededDetail;
       if (deadlineExceededDetail) {
         end("deadline_exceeded");
         console.error(
@@ -847,22 +925,15 @@ async function runSpawn(
         terminalSignal = { subject: "DEADLINE EXCEEDED", detail: deadlineExceededDetail };
         break;
       }
-      const providerError = msg.subtype !== "success"
-        || msg.is_error === true
-        || (Array.isArray(msg.errors) && msg.errors.length > 0);
-      if (providerError) {
+      if (event.status !== "succeeded") {
         end("provider_error");
-        // `break` discards this frame AND the adapter throw still pending behind
-        // it, so the payload must be rendered HERE or it is gone (thread 019f9cec).
-        providerErrorDetail = describeProviderErrorTerminal(msg);
+        providerErrorDetail = observation.state.providerErrorDetail
+          ?? "model-call terminal failed without diagnostic evidence";
         console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
         terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
         break;
       }
-      if (turnChannel.pending() === 0) {
-        // A resumed continuation turn reads its own fresh channel, so gate
-        // turn-end on that turn's channel; for turn 1 turnChannel IS ch, so
-        // non-orchestrator and codex lanes keep byte-identical behavior.
+      if (ch.pending() === 0) {
         // Orchestrator continuation race (thread 019f8ec5): a continuation
         // injected at a prior turn-end asks the provider for ANOTHER genuine
         // turn, but the Anthropic session may already be tearing down after its
@@ -889,15 +960,20 @@ async function runSpawn(
         // (default 5 consecutive no-progress refusals) prevents infinite-looping a stuck
         // lane — it then falls through to finalize, and the after-loop early-exit check
         // makes the abandoned work loud.
-        if (bgTracker.size() > 0 && bgContinuations < maxBgContinuations()) {
+        if (observation.state.pendingBackgroundTasks.length > 0
+            && bgContinuations < maxBgContinuations()) {
           bgContinuations++;
-          const live = bgTracker.live();
+          const live = observation.state.pendingBackgroundTasks;
           console.error(`[harness] @agent:${agentId} refusing turn-end exit — ${live.length} live background task(s): ${live.join(", ")} (continuation ${bgContinuations}/${maxBgContinuations()})`);
-          turnChannel.push(bgContinuationMessage(live));
+          const continuation = bgContinuationMessage(live);
+          if (resumeContinuations) privateContinuation = continuation;
+          else ch.push(continuation);
           continue; // do NOT finalize; keep the query loop alive
         }
-        if (bgTracker.size() > 0) {
-          console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${bgTracker.size()} task(s) still live — finalizing anyway`);
+        if (observation.state.pendingBackgroundTasks.length > 0) {
+          console.error(`[harness] @agent:${agentId} continuation cap (${maxBgContinuations()}) reached with ${observation.state.pendingBackgroundTasks.length} task(s) still live — blocking terminal`);
+          end("background_tasks_incomplete");
+          break;
         }
         if (orchestrator) {
           const decision = decideChildTurnEnd(
@@ -928,19 +1004,18 @@ async function runSpawn(
             // on the next turn (a closing-stream race) blocks explicitly rather
             // than falsely discharging the continuation.
             pendingContinuation = decision.reason;
-            if (resumeContinuations && sessionId !== undefined) {
-              // Streaming provider + an observed session: do NOT push into the
-              // closing stream. End this turn and open a fresh resumed turn
-              // carrying the continuation (thread 019f8ec5 prevention). A resume
-              // that still comes back empty is caught by the empty-terminal guard
-              // above / the final child gate — recorded as the obligation-specific
-              // blocked outcome, never a ran_empty masquerade.
+            if (resumeContinuations) {
+              if (!activeQuery.continueTurn) {
+                end("provider_error");
+                providerErrorDetail = "active provider cannot retain a private continuation turn";
+                terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
+                break;
+              }
               console.error(
-                `[harness] @agent:${agentId} opening a resumed continuation turn on session ${sessionId} instead of injecting into the closing stream`,
+                `[harness] @agent:${agentId} opening a provider-neutral resumed continuation turn`,
               );
-              pendingResume = continuation;
-              openResumeTurn = true;
-              break;
+              privateContinuation = continuation;
+              continue;
             }
             ch.push(continuation);
             continue;
@@ -972,27 +1047,33 @@ async function runSpawn(
       }
     }
   }
-  // Turn complete. A resume-based continuation ended this turn cleanly so no
-  // continuation was pushed into its closing stream; close the finished query
-  // and loop to open the resumed turn. Any other terminal is final for the run.
-  if (turnChannel !== ch) { try { turnChannel.end(); } catch { /* fresh resume channel */ } }
-  stopProviderActivity();
-  stopProviderActivity = () => {};
-  if (!openResumeTurn) break turnLoop;
-  try { await activeQuery.close?.(); }
-  catch (error) { queryCloseError = error; }
+  if (privateContinuation !== undefined) {
+    if (!activeQuery.continueTurn) {
+      end("provider_error");
+      providerErrorDetail = "active provider cannot retain a private continuation turn";
+      terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
+      break turnLoop;
+    }
+    await activeQuery.continueTurn(privateContinuation);
+    continue turnLoop;
   }
-  if (!resultMsg && outcome === "ran" && !watchdogAbort) {
+  break;
+  }
+  await observeCommittedWireEvents();
+  const providerState = executionFold.snapshot();
+  if (providerState?.latestModelCallTerminal?.status !== "succeeded"
+      && outcome === "ran" && !watchdogAbort) {
     // A clean iterator close is transport completion, not provider success.
     // Only an explicit terminal result may establish process=ran.
     outcome = "provider_error";
     // A close-time failure is a DEATH below (it overrides this outcome) and is
-    // rendered there; this detail names only the silence itself.
-    providerErrorDetail = NO_PROVIDER_TERMINAL_DETAIL;
+    // rendered there; otherwise retain the latest typed model failure.
+    providerErrorDetail = providerState?.providerErrorDetail ?? NO_PROVIDER_TERMINAL_DETAIL;
     console.error(`[provider_error] @agent:${agentId} ${providerErrorDetail}`);
     terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
   }
-  if (!watchdogAbort && isEmptyResultTerminal(outcome, result)) {
+  if (!watchdogAbort && outcome === "ran" && providerState
+      && isEmptyResultTerminal(providerState.run)) {
     // A provider success terminal with empty result (0b) is a DEGENERATE
     // completion, not a delivery (thread 019f8300): opus-high extended-thinking
     // turns that hit the output-token ceiling truncate before committing any
@@ -1002,7 +1083,7 @@ async function runSpawn(
     // distinct LOUD terminal so a zero-deliverable lane never masquerades as
     // AGENT COMPLETE.
     outcome = EMPTY_RESULT_OUTCOME;
-    const turns = describeObservedTurns(resultMsg);
+    const turns = latestTurnEvidence(providerState)?.count ?? "unknown turn count";
     terminalSignal = {
       subject: "AGENT EMPTY RESULT",
       detail: `provider success terminal with empty result (0b) after ${turns} — no deliverable text committed (likely output-token ceiling hit mid extended-thinking/tool_use)`,
@@ -1021,7 +1102,7 @@ async function runSpawn(
     terminalAuxiliaryWrites.push((timeoutMs) =>
       notifyDeath(agentId, err, { thread: undefined }, timeoutMs)
     );
-    try { await termination.close(); }
+    try { await termination.closeQuery(activeQuery); }
     catch (error) { queryCloseError = error; }
   }
   } catch (err) {
@@ -1047,16 +1128,18 @@ async function runSpawn(
         code: "provider_preflight_refused",
         phase: "provider_admission",
       };
-      preflightCause = causeChain(err);
-      console.error(`[${outcome}] @agent:${agentId} ${preflightCause}`);
+      preflightDetail = providerRetrySafeTerminalDetail(err);
+      console.error(`[${outcome}] @agent:${agentId} ${causeChain(err)}`);
     } else if (!providerQueryConstructionStarted) {
       outcome = "blocked_preflight";
       worktreeTerminalFailure = {
         code: "spawn_pre_provider_setup_failed",
         phase: "provider_preflight",
       };
-      preflightCause = `spawn_pre_provider_setup_failed: ${causeChain(err)}`;
-      console.error(`[blocked_preflight] @agent:${agentId} ${preflightCause}`);
+      preflightDetail = "spawn failed during North pre-provider setup";
+      console.error(
+        `[blocked_preflight] @agent:${agentId} spawn_pre_provider_setup_failed: ${causeChain(err)}`,
+      );
     } else {
       outcome = "died";
       terminalSignal = { subject: "AGENT DEATH", detail: deathReason(err) };
@@ -1066,6 +1149,8 @@ async function runSpawn(
     }
   } finally {
     stopProviderActivity();
+    try { await observeCommittedWireEvents(); }
+    catch (error) { queryCloseError ??= error; }
     try {
       await liveInputRoute.freezeAndUnbind();
     } catch (error) {
@@ -1075,8 +1160,10 @@ async function runSpawn(
     // A terminal SDK result does not guarantee the provider subprocess has
     // exited while streaming input remains open. Interrupt exactly once after
     // closing input so a completed lane cannot retain its Bun/CLI process tree.
-    try { await termination.close(); }
+    try { await termination.closeQuery(activeQuery); }
     catch (error) { queryCloseError = error; }
+    try { await observeCommittedWireEvents(); }
+    catch (error) { queryCloseError ??= error; }
   }
 
   // Snapshot BEFORE any cleanup-only failure below can touch outcome: this is
@@ -1194,6 +1281,15 @@ async function runSpawn(
     );
   }
 
+  const executionBeforeCleanup = executionFold.snapshot();
+  if (outcome === "ran" && executionBeforeCleanup?.pendingBackgroundTasks.length) {
+    outcome = "background_tasks_incomplete";
+    terminalSignal = {
+      subject: "AGENT BLOCKED",
+      detail: `${executionBeforeCleanup.pendingBackgroundTasks.length} background task(s) remained open`,
+    };
+  }
+
   // Salvage-gated worktree cleanup (only if this spawn provisioned one): remove
   // on a clean ran, KEEP + surface a worktree_orphaned fact on any
   // crash/cap/dirty tail. Fail-open.
@@ -1214,7 +1310,6 @@ async function runSpawn(
         deliveryReason: "delivery_reservation_unavailable_at_finalize",
       };
     } else {
-      const reservedRunId = runId;
       // A busy coordinator used to be indistinguishable from a bad reservation:
       // the reader timed out, the state collapsed to invalid, and a lane whose
       // evidence was intact on the graph finalized unverified (thread 019f9cc1).
@@ -1229,26 +1324,16 @@ async function runSpawn(
         ? undefined
         : resolution.state;
       if (!runState?.reservationValid) {
-        runId = newRunId(agentId);
-        publishedLearningAssignment = undefined;
-        if (wt) {
-          try { recordWorktreeRunRotation(wt.allocation, runId); }
-          catch (error) {
-            console.error(
-              `[worktree] ${wt.allocation.subject} could not record terminal run rotation: ${String(error)}`,
-            );
-          }
-        }
         deliveryReservationReady = false;
         // Loud + diagnosable (thread 019f9063): a load failure and a load that
         // simply found no valid reservation both used to read identically.
         console.error(
-          `[delivery] @${reservedRunId} `
+          `[delivery] @${runId} `
           + (resolution.transientFailure
             ? `reservation unreadable at finalize after ${resolution.attempts} attempt(s) `
               + `(${resolution.transientFailure})`
             : "reservation invalid at finalize")
-          + `; rotating telemetry to @${runId} and leaving delivery unverified`,
+          + "; retaining the wire run identity and leaving delivery unverified",
         );
         delivery = {
           deliveryOutcome: "unverified",
@@ -1293,8 +1378,21 @@ async function runSpawn(
     }
   }
   const terminal = classifyExecutionTerminal(outcome, delivery);
-  const numTurns = typeof resultMsg?.num_turns === "number"
-    ? resultMsg.num_turns
+  const terminalDetail = terminalSignal.detail ?? deadlineExceededDetail
+    ?? providerErrorDetail ?? preflightDetail ?? outcome;
+  const finalWriter = await startWireRun();
+  const wireTerminal = wireTerminalDecision(outcome, terminalDetail, watchdogAbort);
+  const wireTerminalEvents = finalWriter.terminate(wireTerminal);
+  for (const event of wireTerminalEvents) await observeWireEvent(event);
+  await flushWireEvents();
+  const finalExecution = executionFold.snapshot();
+  if (!finalExecution || finalExecution.run.lifecycle === "running"
+      || finalExecution.run.lifecycle === "waiting") {
+    throw new Error("wire run did not reach its outer terminal");
+  }
+  const finalTurn = latestTurnEvidence(finalExecution);
+  const numTurns = finalTurn?.unit === "assistant-turn"
+    ? finalTurn.count
     // A retry-safe preflight block proves the provider accepted no turn. This
     // zero is North-observed; every other missing provider value stays absent.
     : terminal.processOutcome === "blocked_preflight"
@@ -1339,109 +1437,116 @@ async function runSpawn(
     );
   }
 
-  const tokenUsage = normalizeUsage(terminalMessages, routing.provider);
-  const providerJoin = collectProviderJoinEvidence(terminalMessages);
-  const finalRoute = activeRoute();
-  const promptComposition = admittedRoute?.evidence ?? injectedCompositionEvidence;
-  const promptReceipt = promptComposition?.promptReceipt;
-  const environmentReceipt = promptComposition?.environmentReceipt;
-  const runEnvelopeReceipt = promptReceipt && environmentReceipt && publishedLearningAssignment
-    ? buildRunEnvelope({
-      promptReceipt,
-      environmentReceipt,
-      assignmentSha256: publishedLearningAssignment.manifestSha256,
-      tier: routingMetadata.tier,
-      effort: finalRoute.effort ?? routingMetadata.reasoning,
-      ...(finalRoute.model ? { model: finalRoute.model } : {}),
-      providerAdapterVersion: "north-managed-adapter:v1",
-      providerRuntimeVersion: `bun-${Bun.version}`,
-    }) : undefined;
-  const mcpActivity = activeExecutionQuery?.mcpActivity?.()
-    ?? unknownMcpActivity("provider-activity-unavailable");
-  const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.();
   // Thread attribution. The CLI refuses a managed spawn that names neither a
   // thread nor --ad-hoc, so by the time we get here the choice was deliberate —
   // but a direct SDK caller can still omit both, and the honest record of that
   // is "(ad-hoc)" WITH its provenance, never a silent default that looks bound.
   const boundThread = boundThreadId ?? "(ad-hoc)";
-  const threadProvenance: "exact" | "ad-hoc" =
-    boundThreadId ? "exact" : "ad-hoc";
-
-  const runLedger = await publishRunLifecycleLedger({
-    run: runId,
-    thread: boundThread,
-    agent: agentId,
-    ...(process.env.NORTH_RUN_ID ? { parentRun: process.env.NORTH_RUN_ID } : {}),
-    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
-    ...(coordHandle ? { coordinator: coordHandle } : {}),
-  }, {
-    promptEconomics: promptComposition?.promptEconomics,
-    tokenUsage,
-    compactions,
-    outcome,
+  const wireEvents = finalWriter.events();
+  const finalRoute = activeRoute();
+  const finalAdmittedRoute = admittedRoute?.provider === routing.provider
+    ? admittedRoute : undefined;
+  const promptComposition = finalAdmittedRoute?.evidence
+    ?? (routing.fallbackCount === 0 ? initialComposition : undefined);
+  const promptReceipt = promptComposition?.promptReceipt;
+  const environmentReceipt = promptComposition?.environmentReceipt;
+  const finalEffort = finalRoute.effort ?? routingMetadata.reasoning;
+  const runEnvelopeReceipt = promptReceipt && environmentReceipt
+      && routingMetadata.tier && finalEffort
+    ? buildRunEnvelope({
+        promptReceipt,
+        environmentReceipt,
+        assignmentSha256: learningAssignment.manifestSha256,
+        tier: routingMetadata.tier,
+        effort: finalEffort,
+        providerAdapterVersion: "north-managed-adapter:v1",
+        providerRuntimeVersion: `bun-${Bun.version}`,
+      })
+    : undefined;
+  const mcpActivity = activeQuery?.mcpActivity?.()
+    ?? unknownMcpActivity("provider-activity-unavailable");
+  const nativeCommandActivity = activeQuery?.nativeCommandActivity?.()
+    ?? unknownNativeCommandActivity("provider-activity-unavailable");
+  const provenance: WireRunProvenance = {
+    posture: "spawn",
+    ...(routingMetadata.role === undefined ? {} : { role: routingMetadata.role }),
+    provider: routing.provider,
+    providerTarget: routing.target,
+    providerReason: routing.selectionReason,
+    ...(routing.modelAvailabilityReceipts?.[routing.target] === undefined
+      ? {} : {
+          modelAvailability: wireModelAvailabilityReceipt(
+            routing.modelAvailabilityReceipts[routing.target],
+          ),
+        }),
+    requestedProvider: routing.requestedProvider,
+    ...(requested.target === undefined ? {} : { requestedTarget: requested.target }),
+    ...(requested.tier === undefined ? {} : { requestedTier: requested.tier }),
+    ...(requested.effort === undefined ? {} : { requestedEffort: requested.effort }),
+    routingMetadata,
+    ...(opts.routingEconomics.assessment === undefined
+      ? {} : { routingAssessment: opts.routingEconomics.assessment }),
+    routingAdmissionReceipt: opts.routingEconomics.receipt,
+    ...(opts.routingEconomics.pinEvidence === undefined
+      ? {} : { routingPinEvidence: opts.routingEconomics.pinEvidence }),
+    ...(promptComposition === undefined ? {} : { promptComposition }),
+    learningAssignment,
+    ...(promptReceipt === undefined ? {} : { promptReceipt }),
+    ...(environmentReceipt === undefined ? {} : { environmentReceipt }),
+    ...(runEnvelopeReceipt === undefined ? {} : { runEnvelopeReceipt }),
     mcpActivity,
-  }, publicationBudget.publicationTimeout(2)).catch(() => undefined);
-  const codexTurnActivity = codexTurnActivityFromResult(resultMsg);
-  const runPublication = await recordRun({
-    thread: boundThread, agent: agentId, posture: "spawn",
-    // Effective FINAL dial; env-fallback mirrors the identity write so a bare
-    // AGENT_MODEL spawn is still attributed.
-    model: finalRoute.model,
-    effort: finalRoute.effort,
-    role: routingMetadata.role,
-    provider: routing.provider, providerTarget: routing.target, providerReason: routing.selectionReason,
-    modelAvailability: routing.modelAvailabilityReceipts?.[routing.target],
-    requestedProvider: routing.requestedProvider, requestedTarget: requested.target, requestedTier: requested.tier,
-    requestedModel: requested.model, requestedEffort: requested.effort,
-    allocationMode: routing.allocationMode, entitlementPressure: routing.entitlementPressure,
-    allocationEvidence: routing.allocationEvidenceByTarget,
-    fallbackCount: routing.fallbackCount, fallbackPath: routing.fallbackPath,
+    nativeCommandActivity,
+    executionSource: "north-managed",
+    ...(activeQuery?.executionTransport === undefined
+      ? {} : { executionTransport: activeQuery.executionTransport }),
+    ...(finalAdmittedRoute?.authority === undefined
+      ? {} : { effectiveAuthority: finalAdmittedRoute.authority }),
+    allocationMode: routing.allocationMode,
+    entitlementPressure: routing.entitlementPressure,
+    ...(routing.allocationEvidenceByTarget === undefined
+      ? {} : { allocationEvidence: routing.allocationEvidenceByTarget }),
+    fallbackCount: routing.fallbackCount,
+    fallbackPath: routing.fallbackPath,
     fallbackTargetPath: routing.fallbackTargetPath,
     fallbackReasons: routing.fallbackReasons,
-    envelopeScopes: envelopeAdmission?.scopes.map(({ id }) => id),
-    envelopeRetries: envelopeAdmission?.retries,
-    envelopeAdvisories: envelopeAdmission?.advisories,
-    routingMetadata,
-    routingAssessment: opts.routingEconomics.assessment,
-    routingAdmissionReceipt: opts.routingEconomics.receipt,
-    routingPinEvidence: opts.routingEconomics.pinEvidence,
-    executionSource: "north-managed",
-    executionTransport: activeExecutionQuery?.executionTransport
-      ?? (routing.provider === "anthropic" ? "anthropic-agent-sdk" : undefined),
-    mcpActivity, nativeCommandActivity,
-    providerSessionPersistence: providerJoin?.sessionPersistence ?? "unknown",
-    providerJoin,
-    northSessionId: opts.sessionId,
-    threadProvenance,
-    turnProvenance: classifyTurnProvenance(resultMsg, terminal.processOutcome),
-    promptComposition,
-    learningAssignment: publishedLearningAssignment,
-    promptReceipt,
-    environmentReceipt,
-    runEnvelopeReceipt,
-    promptCompositionVersion: promptComposition?.promptEconomics?.compositionVersion,
-    promptCompositionDigest: promptComposition?.promptEconomics?.compositionDigest,
-    capabilityClass: promptComposition?.promptEconomics?.capabilityClass,
-    runLedger,
-    effectiveAuthority: admittedRoute?.authority,
-    tokenUsage,
-    durationMs: Number(process.hrtime.bigint() - runStartedAt) / 1_000_000,
-    providerDurationMs: typeof resultMsg?.duration_ms === "number" ? resultMsg.duration_ms : undefined,
-    outcome, processOutcome: terminal.processOutcome,
-    deliveryOutcome: terminal.deliveryOutcome, deliveryReason: terminal.deliveryReason,
-    deliveryProof: terminal.deliveryProof,
-    numTurns,
-    codexTurnActivity,
-    compactions,
+    ...(envelopeAdmission === undefined ? {} : {
+      envelopeScopes: envelopeAdmission.scopes.map(({ id }) => id),
+      envelopeRetries: envelopeAdmission.retries,
+      envelopeAdvisories: envelopeAdmission.advisories,
+    }),
+    processOutcome: terminal.processOutcome,
+    deliveryOutcome: terminal.deliveryOutcome,
+    ...(terminal.deliveryReason === undefined ? {} : { deliveryReason: terminal.deliveryReason }),
+    ...(terminal.deliveryProof === undefined ? {} : { deliveryProof: terminal.deliveryProof }),
+    ...(retryContext === undefined ? {} : {
+      retryOfRun: retryContext.retryOfRun,
+      retryAttempt: retryContext.retryAttempt,
+    }),
     judgmentGrade,
-    struggleObservation: struggle.snapshot(),
-    preflightCause,
-    providerErrorDetail,
-    deadlineExceededDetail,
-    watchdogAbort,
-    retryOfRun: retryContext?.retryOfRun,
-    retryAttempt: retryContext?.retryAttempt,
-  }, runId, publicationBudget.publicationTimeout(1));
+    struggleObservation: finalExecution.struggle,
+  };
+  const wireIdentity = {
+    thread: boundThread,
+    agent: agentId,
+    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
+    ...(coordHandle ? { coordinator: coordHandle } : {}),
+  };
+  const wireLedgerStatus = await publishWireEvents(
+    wireIdentity,
+    wireEvents,
+    publicationBudget.publicationTimeout(2),
+  ).catch(() => "unavailable" as const);
+  const runLedger = wireLedgerStatus === "recorded"
+    ? wireLedgerSummary(wireEvents) : undefined;
+  const runPublication = runLedger === undefined
+    ? "unavailable" as const
+    : await recordWireRunTelemetry(
+        wireIdentity,
+        finalExecution.run,
+        { status: "recorded", summary: runLedger },
+        provenance,
+        publicationBudget.publicationTimeout(1),
+      );
   notifyTerminalSettlement(
     agentId,
     coordHandle,
@@ -1455,7 +1560,7 @@ async function runSpawn(
     publicationBudget.notificationTimeout(),
   );
   if (terminalJournalError) throw terminalJournalError;
-  const struggleSnapshot = struggle.snapshot();
+  const struggleSnapshot = finalExecution.struggle;
   // Include turns + result size on the completion line. The banner-only stdout
   // .log is the artifact operators skim; without a work signal here a lane that
   // ran dozens of turns reads as identical to a zero-turn no-op (the 2026-07-21
@@ -1463,8 +1568,8 @@ async function runSpawn(
   // as dead because their work lives in the .stream.jsonl transcript, not stdout).
   const turnsLabel = numTurns != null
     ? `${numTurns}`
-    : codexTurnActivity
-      ? `${codexTurnActivity.turnUnits}cx${codexTurnActivity.toolItems != null ? `/${codexTurnActivity.toolItems}items` : ""}`
+    : finalTurn?.unit === "provider-turn"
+      ? `${finalTurn.count} provider turn(s)${finalTurn.toolItems != null ? `/${finalTurn.toolItems} items` : ""}`
       : "?";
   console.log(`[spawn] @agent:${agentId} complete (process=${outcome}, delivery=${terminal.deliveryOutcome}` +
     `, turns=${turnsLabel}, result=${result.length}b` +
@@ -1473,6 +1578,9 @@ async function runSpawn(
     routing.routingTargets[target]?.provider === routing.provider,
   );
   return { result, outcome, runId, providerErrorDetail, numTurns, provider: routing.provider, siblingTarget };
+  } finally {
+    await stream?.close();
+  }
 }
 
 // TRUE only in the import.meta.main adapter bootstrap below: that process runs
@@ -1496,14 +1604,22 @@ function assertRecursiveChildBinding(
   composed: SpawnOptions,
   callerTopology: string | undefined,
   loadThreadFacts: typeof getThreadFacts,
-): void {
-  if (callerTopology !== "orchestrator") return;
+): WireRunId | undefined {
+  if (callerTopology !== "orchestrator") return undefined;
   const parentThread = process.env.NORTH_THREAD_ID;
   const parentRun = process.env.NORTH_RUN_ID;
   const parentCapability = process.env.NORTH_RUN_CAPABILITY;
   if (!parentThread || !parentRun || !parentCapability || !composed.thread) {
     throw new RecursiveChildBindingError(
       "recursive SDK spawn requires an exact managed parent run and a fresh child thread",
+    );
+  }
+  let parentRunId: WireRunId;
+  try {
+    parentRunId = wireRunId(parentRun);
+  } catch {
+    throw new RecursiveChildBindingError(
+      "recursive SDK spawn received an invalid parent run id",
     );
   }
   let child: string;
@@ -1536,6 +1652,7 @@ function assertRecursiveChildBinding(
       "recursive SDK spawn requires exactly one child part_of link to its immediate parent thread",
     );
   }
+  return parentRunId;
 }
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
@@ -1545,8 +1662,9 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(admitted);
+  let parentRunId: WireRunId | undefined;
   if (!bootstrapAuthorityGranted) {
-    assertRecursiveChildBinding(
+    parentRunId = assertRecursiveChildBinding(
       composed, callerTopology, injected.loadThreadFacts ?? getThreadFacts,
     );
   }
@@ -1634,7 +1752,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     } catch (error) {
       throw new Error(
         `[spawn] @agent:${agentId} explicit worktree provisioning failed; `
-        + `spawn aborted before provider execution: ${(error as any)?.message ?? error}`,
+        + `spawn aborted before provider execution: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }
@@ -1642,6 +1760,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const termination = new ManagedQueryTermination(
     injected?.registerTermination,
     {
+      ...injected.sessionHardCapRuntime,
       agentId,
       threadId: composed.thread,
       goal: goalFromPrompt(composed.prompt),
@@ -1690,7 +1809,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     let attempt = await runSpawn(
       { ...composed }, judgmentGrade, strugglePolicy,
       admission, injected, termination, worktreeLease,
-      undefined, undefined, learning.assignment, lifecycleJournal,
+      undefined, undefined, parentRunId, learning.assignment, lifecycleJournal,
     );
     let retries = 0;
     // The lane whose identity is terminal-committed by the attempt that just
@@ -1723,7 +1842,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       attempt = await runSpawn(
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease,
-        { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget,
+        { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget, parentRunId,
         learning.assignment, lifecycleJournal,
       );
       deadAgentId = retryAgentId;

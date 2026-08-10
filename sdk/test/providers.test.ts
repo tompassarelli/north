@@ -3,28 +3,25 @@ import {
   compileProviderAuthoritySurface, ProviderRetrySafeError, ProviderSelectionError,
   selectProvider, selectProviderFromAvailability,
 } from "../src/providers";
-import { routedQueryWithRegistry } from "../src/providers/internal-router";
 import { balancedAllocationEstimates } from "../src/provider-routing";
 import { RATE_LIMIT_WARNING_TTL_MS } from "../src/resource-policy";
-import { consumeExecutionAdmission, markExecutionAdmission } from "../src/execution-admission";
-import type { AgentProvider, ProviderAvailability, ProviderId, ResourcePolicy } from "../src/providers/types";
+import { markExecutionAdmission } from "../src/execution-admission";
+import type {
+  ProviderAvailability, ResourcePolicy, RoutingTarget,
+} from "../src/providers/types";
 import { ProviderCatalogFileCache, resolveTier } from "../src/providers/catalog";
-import { anthropicProvider, normalizeAnthropicQueryDiagnostics } from "../src/providers/anthropic";
-import { codexHarnessArguments, openaiProvider } from "../src/providers/openai";
-import {
-  MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
-} from "../src/providers/codex-app-server";
+import { anthropicProvider } from "../src/providers/anthropic";
 import {
   READONLY_SHELL_SERVER, READONLY_SHELL_TOOL,
 } from "../src/readonly-shell";
-import { harnessOptions, type HarnessCompositionEvidence } from "../src/harness";
-import { applyOrchestrationStaffing, orchestrationCapabilities } from "../src/orchestration-staffing";
-import { agentRouteFacts } from "../src/identity";
-import { OfflineProviderSimulator } from "./support/provider-simulator";
+import { harnessOptions } from "../src/harness";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createExecutionActivityEmitter } from "../src/execution-activity";
 import { providerCapabilityRejectionCode } from "../src/orchestration-capabilities";
+import {
+  WireEventWriter, wireEventId, wireRunId, type WireEvent, type WireQueryContext,
+} from "../src/wire";
 
 const MANAGED_ENV = [
   "NORTH_DISABLE_ANTHROPIC", "NORTH_DISABLE_OPENAI", "NORTH_PROVIDER_ORDER",
@@ -54,11 +51,6 @@ const policy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => ({
   pressures: { anthropic: "normal", openai: "normal" },
   ...overrides,
 });
-const managedCodexPreview = [
-  ...MANAGED_CODEX_ENABLED_FEATURES.flatMap((name) => ["--enable", name]),
-  "--disable", "network_proxy",
-  ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
-];
 const accountPolicy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => policy({
   targets: [
     { id: "claude-personal", provider: "anthropic", authMode: "ambient" },
@@ -69,7 +61,7 @@ const accountPolicy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy 
   targetPressures: { "claude-personal": "normal", "claude-work": "normal", "codex-personal": "normal" },
   ...overrides,
 });
-function fableModelEvidence(target: import("../src/providers/types").RoutingTarget) {
+function fableModelEvidence(target: RoutingTarget) {
   const observedAt = new Date();
   return {
     now: observedAt,
@@ -747,228 +739,32 @@ test("Anthropic frontier follows Orchestration's static route without a hidden t
     .toThrow("model claude-fable-5 does not support reasoning max at semantic tier frontier");
 });
 
-function fakeProvider(id: ProviderId, query: AgentProvider["query"]): AgentProvider {
+let anthropicContextSequence = 0;
+
+function anthropicTestContext(): WireQueryContext {
+  const sequence = anthropicContextSequence++;
+  const writer = new WireEventWriter({
+    runId: wireRunId(`run:anthropic-admission:${sequence}`),
+    eventId: (eventSequence) => wireEventId(
+      `event:anthropic-admission:${sequence}:${eventSequence}`,
+    ),
+  });
+  writer.append({ kind: "run.started", lifecycle: "running", owner: "test" });
   return {
-    id,
-    liveInput: id === "anthropic" ? "streaming" : "unsupported",
-    probe: () => ({ provider: id, available: true, reason: "ready" }),
-    query,
+    writer,
+    route: {
+      model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
+      effort: "high",
+      attempt: 1,
+    },
   };
 }
 
-async function eventsOf(query: AsyncIterable<any>): Promise<any[]> {
-  const events: any[] = [];
+async function wireEvents(query: AsyncIterable<WireEvent>): Promise<WireEvent[]> {
+  const events: WireEvent[] = [];
   for await (const event of query) events.push(event);
   return events;
 }
-
-test("routed provider admission runs once while direct adapter defense remains armed", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
-  let admissions = 0;
-  const provider: AgentProvider = {
-    ...fakeProvider("anthropic", ({ options }) => {
-      if (!consumeExecutionAdmission("anthropic", options)) admissions++;
-      return { async *[Symbol.asyncIterator]() { yield { type: "result", result: "ok" }; } };
-    }),
-    admit: async () => { admissions++; },
-  };
-  const registry = {
-    anthropic: provider,
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
-  };
-
-  await eventsOf(routedQueryWithRegistry(
-    decision,
-    { prompt: "managed", options: {} as any },
-    "standard",
-    registry,
-  ));
-  expect(admissions).toBe(1);
-
-  const direct = provider.query({ prompt: "direct", options: {} as any });
-  await eventsOf(direct as AsyncIterable<any>);
-  expect(admissions).toBe(2);
-});
-
-async function assertReadonlyCrossProviderFallback(
-  initial: ProviderId,
-  fallback: ProviderId,
-): Promise<void> {
-  const metadata = applyOrchestrationStaffing({ role: "designer" });
-  const capabilities = orchestrationCapabilities(metadata);
-  const decision = selectProviderFromAvailability(
-    "auto",
-    available,
-    policy({ providerOrder: [initial, fallback] }),
-    "frontier",
-    `readonly-${initial}-to-${fallback}`,
-    "xhigh",
-    undefined,
-    capabilities,
-  );
-  const initialRoute = resolveTier(initial, "frontier", undefined, "xhigh");
-  const fallbackRoute = resolveTier(fallback, "frontier", undefined, "xhigh");
-  const baseOptions = harnessOptions({
-    self: `readonly-${initial}-to-${fallback}`,
-    provider: initial,
-    model: initialRoute.model,
-    effort: "xhigh",
-    modelAvailability: { exactModelPinned: false, targetId: decision.target },
-    routingMetadata: metadata,
-    presenceRegistrar: false,
-  }) as any;
-
-  // The precompiled envelope is safe for either provider. A provider seal is
-  // intentionally not cross-usable until applyHarnessRoute rebinds it.
-  expect(baseOptions.allowedTools).toContain(READONLY_SHELL_TOOL);
-  expect(baseOptions.allowedTools).not.toContain("Bash");
-  expect(baseOptions.disallowedTools).toContain("Bash");
-  expect(baseOptions.mcpServers[READONLY_SHELL_SERVER]).toBeDefined();
-  if (initial === "openai") {
-    expect(codexHarnessArguments(baseOptions)).toEqual(managedCodexPreview);
-  } else {
-    expect(() => codexHarnessArguments(baseOptions))
-      .toThrow("openai_harness_authority_seal_missing");
-  }
-
-  const admissions: Record<ProviderId, number> = { anthropic: 0, openai: 0 };
-  const duplicateAdmissions: Record<ProviderId, number> = { anthropic: 0, openai: 0 };
-  const attempts: Array<{ provider: ProviderId; options: any }> = [];
-  const routeEvidence: Array<{
-    provider: ProviderId;
-    model?: string;
-    evidence?: HarnessCompositionEvidence;
-    authorityProvider?: ProviderId;
-  }> = [];
-  const provider = (id: ProviderId): AgentProvider => ({
-    ...fakeProvider(id, ({ options }) => {
-      if (!consumeExecutionAdmission(id, options)) duplicateAdmissions[id]++;
-      attempts.push({ provider: id, options });
-      return {
-        async *[Symbol.asyncIterator]() {
-          if (id === initial)
-            throw provedUnsent(`${id}_retry_safe_before_acceptance`);
-          yield { type: "result", result: "ok" };
-        },
-      };
-    }),
-    admit: async (args) => {
-      admissions[id]++;
-      const authority = compileProviderAuthoritySurface(id, args.options);
-      expect(authority.provider).toBe(id);
-    },
-  });
-
-  expect(await eventsOf(routedQueryWithRegistry(
-    decision,
-    { prompt: "inspect without writing", options: baseOptions },
-    "frontier",
-    { anthropic: provider("anthropic"), openai: provider("openai") },
-    undefined,
-    (route, evidence, authority) => routeEvidence.push({
-      provider: route.provider,
-      model: route.resolvedModel,
-      evidence,
-      authorityProvider: authority?.provider,
-    }),
-  ))).toEqual([{ type: "result", result: "ok" }]);
-
-  expect(attempts.map(({ provider }) => provider)).toEqual([initial, fallback]);
-  expect(attempts[0].options.model).toBe(initialRoute.model);
-  expect(attempts[1].options.model).toBe(fallbackRoute.model);
-  for (const { provider: attemptProvider, options } of attempts) {
-    expect(options.allowedTools).toContain(READONLY_SHELL_TOOL);
-    expect(options.allowedTools).not.toContain("Bash");
-    expect(options.disallowedTools).toContain("Bash");
-    expect(options.mcpServers[READONLY_SHELL_SERVER]).toBeDefined();
-    if (attemptProvider === "openai") {
-      expect(codexHarnessArguments(options)).toEqual(managedCodexPreview);
-    }
-  }
-  expect(admissions).toEqual({ [initial]: 1, [fallback]: 1 });
-  expect(duplicateAdmissions).toEqual({ anthropic: 0, openai: 0 });
-  expect(routeEvidence.map(({ provider, model }) => ({ provider, model }))).toEqual([
-    { provider: initial, model: initialRoute.model },
-    { provider: fallback, model: fallbackRoute.model },
-  ]);
-  expect(routeEvidence.map(({ authorityProvider }) => authorityProvider))
-    .toEqual([initial, fallback]);
-  expect(routeEvidence[0].evidence?.modelDelta).toMatchObject({
-    provider: initial, model: initialRoute.model,
-  });
-  expect(routeEvidence[1].evidence?.modelDelta).toMatchObject({
-    provider: fallback, model: fallbackRoute.model,
-  });
-  expect(decision.fallbackPath).toEqual([initial, fallback]);
-}
-
-test("OpenAI read-only fallback to Anthropic preserves minimum authority and exact route", async () => {
-  await assertReadonlyCrossProviderFallback("openai", "anthropic");
-});
-
-test("Anthropic read-only fallback to OpenAI preserves minimum authority and exact route", async () => {
-  await assertReadonlyCrossProviderFallback("anthropic", "openai");
-});
-
-test("Anthropic adapter diagnostics redact SDK failures across stream and controls", async () => {
-  const canary = "ANTHROPIC_SDK_CANARY_DO_NOT_EXPOSE";
-  const diagnosticEvents = await eventsOf(normalizeAnthropicQueryDiagnostics({ async *[Symbol.asyncIterator]() {
-    yield { type: "result", subtype: "error_during_execution", errors: [canary] };
-    yield { type: "assistant", error: "server_error", message: { content: [{ type: "text", text: canary }] } };
-    yield { type: "auth_status", output: [canary], error: canary };
-    yield { type: "system", subtype: "mirror_error", error: canary };
-    yield { type: "system", subtype: "status", compact_error: canary };
-  }}));
-  expect(JSON.stringify(diagnosticEvents)).not.toContain(canary);
-  expect(diagnosticEvents[0].errors).toEqual(["anthropic_provider_execution_failed"]);
-  expect(diagnosticEvents[1].message.content).toEqual([]);
-  expect(diagnosticEvents[2]).toMatchObject({ output: [], error: "anthropic_provider_authentication_failed" });
-  expect(diagnosticEvents[3].error).toBe("anthropic_provider_execution_failed");
-  expect(diagnosticEvents[4].compact_error).toBe("anthropic_provider_execution_failed");
-
-  for (const apiKeySource of ["user", "project", "org", "temporary", "unknown", undefined]) {
-    const nonSubscription = normalizeAnthropicQueryDiagnostics({ async *[Symbol.asyncIterator]() {
-      yield { type: "system", subtype: "init", apiKeySource };
-    }});
-    try {
-      await eventsOf(nonSubscription);
-      throw new Error(`expected ${String(apiKeySource)} to be rejected`);
-    } catch (error) {
-      expect(error).not.toBeInstanceOf(ProviderRetrySafeError);
-      expect((error as Error).message).toBe("anthropic_provider_execution_failed");
-    }
-  }
-  for (const apiKeySource of ["oauth", "none"]) {
-    expect(await eventsOf(normalizeAnthropicQueryDiagnostics({ async *[Symbol.asyncIterator]() {
-      yield { type: "system", subtype: "init", apiKeySource };
-    }}))).toEqual([{ type: "system", subtype: "init", apiKeySource }]);
-  }
-
-  const source = {
-    interrupt: async () => { throw new Error(canary); },
-    close: async () => { throw new Error(canary); },
-    setModel: async () => { throw new Error(canary); },
-    applyFlagSettings: async () => { throw new Error(canary); },
-    supportsInFlightEscalation: () => { throw new Error(canary); },
-    async *[Symbol.asyncIterator]() { throw new Error(canary); },
-  };
-  const query = normalizeAnthropicQueryDiagnostics(source);
-  await expect(eventsOf(query)).rejects.toThrow("anthropic_provider_execution_failed");
-  await expect(query.interrupt!()).rejects.toThrow("anthropic_provider_execution_failed");
-  await expect(query.close!()).rejects.toThrow("anthropic_provider_execution_failed");
-  await expect(query.setModel!("opus")).rejects.toThrow("anthropic_provider_execution_failed");
-  await expect(query.applyFlagSettings!({ effortLevel: "high" })).rejects.toThrow("anthropic_provider_execution_failed");
-  expect(() => query.supportsInFlightEscalation!()).toThrow("anthropic_provider_execution_failed");
-  for (const action of [
-    () => eventsOf(query),
-    () => query.interrupt!(),
-    () => query.close!(),
-    () => query.setModel!("opus"),
-    () => query.applyFlagSettings!({ effortLevel: "high" }),
-  ]) {
-    try { await action(); } catch (error) { expect(String(error)).not.toContain(canary); }
-  }
-});
 
 test("Anthropic managed admission rejects every omitted authority boundary before SDK side effects", async () => {
   let sequence = 0;
@@ -1101,471 +897,23 @@ test("Anthropic managed admission rejects every omitted authority boundary befor
     expect(caught).toBeInstanceOf(ProviderRetrySafeError);
     expect((caught as Error).message).toBe("anthropic_harness_authority_seal_missing");
   }
-  await expect(eventsOf(anthropicProvider.query({
-    prompt: "must not reach Claude",
+  await expect(wireEvents(anthropicProvider.query({
+    input: "must not reach Claude",
     options: cases[0][0],
-  }) as AsyncIterable<any>)).rejects.toThrow("anthropic_harness_authority_seal_missing");
+    context: anthropicTestContext(),
+  }))).rejects.toThrow("anthropic_harness_authority_seal_missing");
   const base = makeBase();
   expect(compileProviderAuthoritySurface("anthropic", base).provider).toBe("anthropic");
 
   markExecutionAdmission("anthropic", base);
   const admitted = anthropicProvider.query({
-    prompt: "must still not reach Claude", options: base,
+    input: "must still not reach Claude",
+    options: base,
+    context: anthropicTestContext(),
   });
   base.disallowedTools = base.disallowedTools.filter(
     (toolName: string) => toolName !== "Agent",
   );
-  await expect(eventsOf(admitted as AsyncIterable<any>))
+  await expect(wireEvents(admitted))
     .rejects.toThrow("anthropic_harness_authority_seal_missing");
-});
-
-test("unsafe Anthropic init is redacted and never manufactures retry-safe fallback", async () => {
-  const decision = selectProviderFromAvailability("auto", accountAvailability, accountPolicy(), "standard");
-  let anthropicCalls = 0;
-  let openAiCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => {
-      anthropicCalls++;
-      return normalizeAnthropicQueryDiagnostics({ async *[Symbol.asyncIterator]() {
-        yield { type: "system", subtype: "init", apiKeySource: "user" };
-      }});
-    }),
-    openai: fakeProvider("openai", () => {
-      openAiCalls++;
-      return { async *[Symbol.asyncIterator]() { yield { type: "result", result: "must not run" }; } };
-    }),
-  };
-
-  try {
-    await eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: {} as any }, "standard", registry));
-    throw new Error("expected unsafe init rejection");
-  } catch (error) {
-    expect(error).not.toBeInstanceOf(ProviderRetrySafeError);
-    expect((error as Error).message).toBe("anthropic_provider_execution_failed");
-  }
-  expect(anthropicCalls).toBe(1);
-  expect(openAiCalls).toBe(0);
-  expect(decision.fallbackCount).toBe(0);
-  expect(decision.fallbackTargetPath).toEqual(["claude-personal"]);
-  expect(decision.fallbackReasons).toEqual([]);
-});
-
-test("concurrent auto routes accept CLI-owned subscription init with honest identity and provenance", async () => {
-  const decisions = Array.from({ length: 4 }, (_, index) =>
-    selectProviderFromAvailability("auto", accountAvailability, accountPolicy(), "standard", `lane-${index}`));
-  const activated: string[][] = decisions.map(() => []);
-  let openAiCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", (args) => normalizeAnthropicQueryDiagnostics({
-      async *[Symbol.asyncIterator]() {
-        await Promise.resolve();
-        yield { type: "system", subtype: "init", apiKeySource: "none" };
-        yield { type: "result", subtype: "success", result: args.target?.id };
-      },
-    })),
-    openai: fakeProvider("openai", () => {
-      openAiCalls++;
-      return { async *[Symbol.asyncIterator]() { yield { type: "result", result: "must not run" }; } };
-    }),
-  };
-
-  const results = await Promise.all(decisions.map((decision, index) => eventsOf(routedQueryWithRegistry(
-    decision,
-    { prompt: `task-${index}`, options: { model: "sonnet", effort: "medium" } as any },
-    "standard",
-    registry,
-    undefined,
-    (route) => activated[index].push(`${route.target}/${route.provider}`),
-  ))));
-
-  expect(results).toEqual(Array.from({ length: 4 }, () => [
-    { type: "system", subtype: "init", apiKeySource: "none" },
-    { type: "result", subtype: "success", result: "claude-personal" },
-  ]));
-  expect(openAiCalls).toBe(0);
-  for (const [index, decision] of decisions.entries()) {
-    expect(decision).toMatchObject({
-      target: "claude-personal", provider: "anthropic", resolvedModel: "sonnet", resolvedEffort: "medium",
-      fallbackCount: 0, fallbackTargetPath: ["claude-personal"], fallbackReasons: [],
-    });
-    expect(decision.selectionReason).toBe(
-      "mode=preferential; target=claude-personal; pressure=normal; "
-      + "order=claude-personal -> claude-work -> codex-personal",
-    );
-    expect(decision.reason).toBe(decision.selectionReason);
-    expect(activated[index]).toEqual(["claude-personal/anthropic"]);
-    const identity = Object.fromEntries(agentRouteFacts(`lane-${index}`, {
-      kind: "lane", role: "implementer", provider: decision.provider, providerTarget: decision.target,
-      model: decision.resolvedModel, effort: decision.resolvedEffort,
-      compositionKind: "preset", compositionId: "implementer", compositionOverrides: [], goal: `task-${index}`,
-    }));
-    expect(identity).toMatchObject({ provider: "anthropic", provider_target: "claude-personal" });
-    expect(identity.display_name).toContain("anthropic:claude-personal · sonnet · medium · orchestration:implementer");
-  }
-});
-
-test("an explicitly retry-safe synthetic Anthropic failure re-resolves the tier on OpenAI", async () => {
-  const decision = selectProviderFromAvailability("auto", available, policy(), "frontier");
-  const initialReason = decision.selectionReason;
-  const prompt = "preserve this prompt";
-  const activated: string[] = [];
-  const simulator = new OfflineProviderSimulator({
-    anthropic: { kind: "preaccept_failure", reason: "synthetic_unsent_preaccept" },
-    openai: { kind: "response", messages: [{ type: "result", result: "ok" }] },
-  });
-
-  expect(await eventsOf(routedQueryWithRegistry(decision, {
-    prompt, options: {
-      model: "fable", effort: "xhigh", systemPrompt: "keep system",
-      env: {
-        NORTH_RUN_ID: "run-provider-fallback",
-        NORTH_THREAD_ID: "thread-provider-fallback",
-        NORTH_RUN_CAPABILITY: "e".repeat(64),
-      },
-    } as any,
-  }, "frontier", simulator.registry(), undefined,
-  (route) => activated.push(`${route.provider}/${route.resolvedModel}/${route.resolvedEffort}`))))
-    .toEqual([{ type: "result", result: "ok" }]);
-  expect(simulator.requests.map((request) => request.provider)).toEqual(["openai"]);
-  expect(simulator.requests[0]!.prompt).toEqual([prompt]);
-  expect((simulator.requests[0]!.options as any).systemPrompt).toBe("keep system");
-  expect((simulator.requests[0]!.options as any).model).toBe("gpt-5.6-sol");
-  expect((simulator.requests[0]!.options as any).effort).toBe("xhigh");
-  expect((simulator.requests[0]!.options as any).env).toEqual({
-    NORTH_RUN_ID: "run-provider-fallback",
-    NORTH_THREAD_ID: "thread-provider-fallback",
-    NORTH_RUN_CAPABILITY: "e".repeat(64),
-  });
-  expect(decision.provider).toBe("openai");
-  expect(decision.fallbackCount).toBe(1);
-  expect(decision.fallbackPath).toEqual(["anthropic", "openai"]);
-  expect(decision.fallbackTargetPath).toEqual(["anthropic", "openai"]);
-  expect(decision.reason).toBe(initialReason);
-  expect(decision.selectionReason).toBe(initialReason);
-  expect(() => { (decision as any).reason = "rewritten"; }).toThrow();
-  expect(decision.reason).toBe(initialReason);
-  expect(initialReason).toContain("mode=preferential");
-  expect(initialReason).toContain("pressure=normal");
-  expect(initialReason).toContain("order=anthropic -> openai");
-  expect(decision.fallbackReasons).toEqual([expect.objectContaining({
-    sequence: 1,
-    reason: "provider_retry_safe_before_acceptance",
-    fromTarget: "anthropic", fromProvider: "anthropic",
-    toTarget: "openai", toProvider: "openai",
-    phase: "preaccept", replay: "proved_unsent",
-  })]);
-  expect(JSON.stringify(decision.fallbackReasons)).not.toContain("secret-must-not-leak");
-  expect(decision.resolvedModel).toBe((simulator.requests[0]!.options as any).model);
-  expect(decision.resolvedEffort).toBe((simulator.requests[0]!.options as any).effort);
-  expect(activated).toEqual(["anthropic/fable/xhigh", "openai/gpt-5.6-sol/xhigh"]);
-  expect(simulator.closes).toEqual(["anthropic"]);
-});
-
-test("closing a routed query before first next is sticky and constructs no provider", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
-  let constructions = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => {
-      constructions++;
-      return { async *[Symbol.asyncIterator]() { yield { type: "result" }; } };
-    }),
-    openai: fakeProvider("openai", () => { throw new Error("must not construct fallback"); }),
-  };
-  const routed = routedQueryWithRegistry(
-    decision, { prompt: "x", options: {} as any }, "standard", registry,
-  );
-  await routed.close?.();
-  expect(await eventsOf(routed)).toEqual([]);
-  expect(constructions).toBe(0);
-});
-
-test("routed query exposes a stable provider activity source before selecting its active provider", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
-  const providerActivity = createExecutionActivityEmitter();
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({
-      executionActivity: providerActivity.source,
-      async *[Symbol.asyncIterator]() {
-        providerActivity.record("provider", "provider.anthropic.tool.completed");
-        yield { type: "result", result: "ok" };
-      },
-    })),
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
-  };
-  const query = routedQueryWithRegistry(
-    decision, { prompt: "x", options: {} as any }, "standard", registry,
-  );
-  const activity = query.executionActivity;
-  expect(activity).toBeDefined();
-  expect(activity!.snapshot().sequence).toBe(0);
-  let pulses = 0;
-  const unsubscribe = activity!.subscribe(() => { pulses++; });
-  expect(await eventsOf(query)).toEqual([{ type: "result", result: "ok" }]);
-  unsubscribe();
-  expect(pulses).toBe(1);
-  expect(activity!.snapshot()).toMatchObject({
-    sequence: 1,
-    lastProvider: {
-      origin: "provider",
-      kind: "provider.anthropic.tool.completed",
-    },
-  });
-});
-
-test("provider-pinned retry-safe failure advances to a sibling target only", async () => {
-  const decision = selectProviderFromAvailability("anthropic", accountAvailability, accountPolicy(), "senior");
-  let calls = 0;
-  const routes: string[] = [];
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      calls++;
-      if (calls === 1) throw provedUnsent("account unavailable before acceptance");
-      yield { type: "result", result: "ok" };
-    }})),
-    openai: fakeProvider("openai", () => { throw new Error("cross-provider fallback must remain filtered"); }),
-  };
-  expect(await eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: { model: "opus", effort: "high" } as any },
-    "senior", registry, undefined, (route) => routes.push(`${route.target}/${route.provider}`))))
-    .toEqual([{ type: "result", result: "ok" }]);
-  expect(routes).toEqual(["claude-personal/anthropic", "claude-work/anthropic"]);
-  expect(decision.fallbackTargetPath).toEqual(["claude-personal", "claude-work"]);
-  expect(decision.fallbackPath).toEqual(["anthropic", "anthropic"]);
-  expect(decision.target).toBe("claude-work");
-  expect(decision.fallbackTargets).toEqual([]);
-});
-
-test("multiple retry-safe fallbacks append redacted structured provenance", async () => {
-  const decision = selectProviderFromAvailability("auto", accountAvailability, accountPolicy(), "standard");
-  const selected = decision.selectionReason;
-  const registry = {
-    anthropic: fakeProvider("anthropic", (args) => ({ async *[Symbol.asyncIterator]() {
-      throw provedUnsent(`private failure for ${args.target?.id}`);
-    }})),
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {
-      yield { type: "result", result: "ok" };
-    }})),
-  };
-
-  expect(await eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: {} as any },
-    "standard", registry))).toEqual([{ type: "result", result: "ok" }]);
-  expect(decision.selectionReason).toBe(selected);
-  expect(decision.fallbackTargetPath).toEqual(["claude-personal", "claude-work", "codex-personal"]);
-  expect(decision.fallbackPath).toEqual(["anthropic", "anthropic", "openai"]);
-  expect(decision.fallbackReasons).toEqual([
-    expect.objectContaining({ sequence: 1, reason: "provider_retry_safe_before_acceptance",
-      fromTarget: "claude-personal", fromProvider: "anthropic",
-      toTarget: "claude-work", toProvider: "anthropic",
-      phase: "preaccept", replay: "proved_unsent" }),
-    expect.objectContaining({ sequence: 2, reason: "provider_retry_safe_before_acceptance",
-      fromTarget: "claude-work", fromProvider: "anthropic",
-      toTarget: "codex-personal", toProvider: "openai",
-      phase: "preaccept", replay: "proved_unsent" }),
-  ]);
-  expect(JSON.stringify(decision.fallbackReasons)).not.toContain("private failure");
-});
-
-test("retry-safe execution failure on an exact target pin still does not fall back", async () => {
-  const decision = selectProviderFromAvailability({ target: "claude-personal" }, accountAvailability, accountPolicy(), "standard");
-  let calls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      calls++;
-      throw provedUnsent("target unavailable before acceptance");
-    }})),
-    openai: fakeProvider("openai", () => { throw new Error("must not be called"); }),
-  };
-  await expect(eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: {} as any }, "standard", registry)))
-    .rejects.toThrow("target unavailable");
-  expect(calls).toBe(1);
-  expect(decision.fallbackCount).toBe(0);
-  expect(decision.fallbackTargetPath).toEqual(["claude-personal"]);
-});
-
-test("automatic fallback re-resolves the provider while preserving requested reasoning", async () => {
-  const decision = selectProviderFromAvailability("auto", available,
-    policy({ providerOrder: ["openai", "anthropic"] }), "senior", "fallback", "high");
-  let fallbackArgs: any;
-  const registry = {
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {
-      throw provedUnsent("authentication required before acceptance");
-    }})),
-    anthropic: fakeProvider("anthropic", (args) => ({ async *[Symbol.asyncIterator]() {
-      fallbackArgs = args;
-      yield { type: "result", result: "ok" };
-    }})),
-  };
-
-  await eventsOf(routedQueryWithRegistry(decision, {
-    prompt: "x", options: { model: "gpt-5.6-sol", effort: "high", systemPrompt: "system" } as any,
-  }, "senior", registry));
-  expect(fallbackArgs.options.model).toBe("claude-opus-5");
-  expect(fallbackArgs.options.effort).toBe("high");
-  expect(fallbackArgs.options.systemPrompt).toBe("system");
-  expect(decision.fallbackPath).toEqual(["openai", "anthropic"]);
-});
-
-test("routed query preserves both live controls and records only successful changes", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "senior");
-  const changes: string[] = [];
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({
-      setModel: async (model) => { changes.push(`model:${model}`); },
-      applyFlagSettings: async ({ effortLevel }) => { changes.push(`effort:${effortLevel}`); },
-      async *[Symbol.asyncIterator]() { yield { type: "result", result: "ok" }; },
-    })),
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
-  };
-  const query = routedQueryWithRegistry(decision, {
-    prompt: "x", options: { model: "opus", effort: "high" } as any,
-  }, "senior", registry);
-
-  await eventsOf(query);
-  expect(query.supportsInFlightEscalation?.()).toBe(true);
-  await query.setModel?.("claude-opus-4-8");
-  await query.applyFlagSettings?.({ effortLevel: "xhigh" });
-
-  expect(changes).toEqual(["model:claude-opus-4-8", "effort:xhigh"]);
-  expect(decision.resolvedModel).toBe("claude-opus-4-8");
-  expect(decision.resolvedEffort).toBe("xhigh");
-});
-
-test("routed query leaves a resolved dial unchanged when its live control fails", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "senior");
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({
-      setModel: async () => { throw new Error("model control failed"); },
-      applyFlagSettings: async () => { throw new Error("effort control failed"); },
-      async *[Symbol.asyncIterator]() { yield { type: "result", result: "ok" }; },
-    })),
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
-  };
-  const query = routedQueryWithRegistry(decision, {
-    prompt: "x", options: { model: "opus", effort: "high" } as any,
-  }, "senior", registry);
-
-  await eventsOf(query);
-  await expect(query.setModel!("claude-opus-4-8")).rejects.toThrow("model control failed");
-  expect(decision.resolvedModel).toBe("opus");
-  await expect(query.applyFlagSettings!({ effortLevel: "xhigh" })).rejects.toThrow("effort control failed");
-  expect(decision.resolvedEffort).toBe("high");
-});
-
-test("routed query preserves an applied model when the following effort control fails", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "senior");
-  const effortFailure = new Error("effort control rejected");
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({
-      setModel: async () => {},
-      applyFlagSettings: async () => { throw effortFailure; },
-      async *[Symbol.asyncIterator]() { yield { type: "result", result: "ok" }; },
-    })),
-    openai: fakeProvider("openai", () => ({ async *[Symbol.asyncIterator]() {} })),
-  };
-  const query = routedQueryWithRegistry(decision, {
-    prompt: "x", options: { model: "opus", effort: "high" } as any,
-  }, "senior", registry);
-
-  await eventsOf(query);
-  await query.setModel!("claude-opus-4-8");
-  await expect(query.applyFlagSettings!({ effortLevel: "xhigh" })).rejects.toBe(effortFailure);
-  expect(decision.resolvedModel).toBe("claude-opus-4-8");
-  expect(decision.resolvedEffort).toBe("high");
-});
-
-test("fallback replays a streaming prompt consumed by the failed provider", async () => {
-  const decision = selectProviderFromAvailability("auto", available, policy(), "standard");
-  const received: Record<string, string[]> = { anthropic: [], openai: [] };
-  const consumeOne = async (provider: ProviderId, prompt: string | AsyncIterable<any>) => {
-    if (typeof prompt === "string") return prompt;
-    const item = await prompt[Symbol.asyncIterator]().next();
-    received[provider].push(item.value.message.content);
-  };
-  const registry = {
-    anthropic: fakeProvider("anthropic", (args) => ({ async *[Symbol.asyncIterator]() {
-      await consumeOne("anthropic", args.prompt);
-      throw provedUnsent("capacity unavailable before acceptance", 12);
-    }})),
-    openai: fakeProvider("openai", (args) => ({ async *[Symbol.asyncIterator]() {
-      await consumeOne("openai", args.prompt);
-      yield { type: "result", result: "ok" };
-    }})),
-  };
-  const prompt = { async *[Symbol.asyncIterator]() {
-    yield { type: "user", message: { content: "same payload" } };
-  }};
-
-  await eventsOf(routedQueryWithRegistry(decision, { prompt, options: {} as any }, "standard", registry));
-  expect(received).toEqual({ anthropic: ["same payload"], openai: ["same payload"] });
-});
-
-test("automatic routing never retries after the first emitted event", async () => {
-  const decision = selectProviderFromAvailability("auto", available, policy(), "standard");
-  let fallbackCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      yield { type: "assistant", text: "observable" };
-      throw new Error("capacity exhausted");
-    }})),
-    openai: fakeProvider("openai", () => { fallbackCalls++; return { async *[Symbol.asyncIterator]() {} }; }),
-  };
-
-  const seen: any[] = [];
-  await expect(async () => {
-    for await (const event of routedQueryWithRegistry(decision, { prompt: "x", options: {} as any }, "standard", registry)) seen.push(event);
-  }).toThrow("capacity exhausted");
-  expect(seen).toHaveLength(1);
-  expect(fallbackCalls).toBe(0);
-  expect(decision.fallbackCount).toBe(0);
-  expect(decision.fallbackPath).toEqual(["anthropic"]);
-});
-
-test("automatic routing never infers retry safety from matching error prose", async () => {
-  const decision = selectProviderFromAvailability("auto", available, policy(), "standard");
-  let fallbackCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      throw new Error("authentication required: capacity unavailable");
-    }})),
-    openai: fakeProvider("openai", () => { fallbackCalls++; return { async *[Symbol.asyncIterator]() {} }; }),
-  };
-  await expect(eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: {} as any }, "standard", registry)))
-    .rejects.toThrow("authentication required");
-  expect(fallbackCalls).toBe(0);
-  expect(decision.fallbackCount).toBe(0);
-});
-
-test("an explicit provider never receives a fallback route", async () => {
-  const decision = selectProviderFromAvailability("anthropic", available, policy(), "standard");
-  let fallbackCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      throw new Error("rate limit reached");
-    }})),
-    openai: fakeProvider("openai", () => { fallbackCalls++; return { async *[Symbol.asyncIterator]() {} }; }),
-  };
-
-  expect(decision.fallbackProviders).toEqual([]);
-  await expect(eventsOf(routedQueryWithRegistry(decision, { prompt: "x", options: {} as any }, "standard", registry)))
-    .rejects.toThrow("rate limit reached");
-  expect(fallbackCalls).toBe(0);
-  expect(decision.fallbackCount).toBe(0);
-  expect(decision.fallbackPath).toEqual(["anthropic"]);
-});
-
-test("fallback admission runs before the fallback provider has side effects", async () => {
-  const decision = selectProviderFromAvailability("auto", available, policy(), "standard");
-  let fallbackCalls = 0;
-  const registry = {
-    anthropic: fakeProvider("anthropic", () => ({ async *[Symbol.asyncIterator]() {
-      throw provedUnsent("capacity unavailable before acceptance");
-    }})),
-    openai: fakeProvider("openai", () => { fallbackCalls++; return { async *[Symbol.asyncIterator]() {} }; }),
-  };
-  await expect(eventsOf(routedQueryWithRegistry(
-    decision, { prompt: "x", options: {} as any }, "standard", registry,
-    async () => { throw new Error("resource envelope month:2026-07 exhausted: retries 1/1"); },
-  ))).rejects.toThrow("retries 1/1");
-  expect(fallbackCalls).toBe(0);
-  expect(decision.fallbackCount).toBe(0);
-  expect(decision.fallbackPath).toEqual(["anthropic"]);
 });

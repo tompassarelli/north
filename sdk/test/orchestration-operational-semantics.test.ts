@@ -7,7 +7,6 @@ import {
 } from "../src/harness";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import type { RoutingMetadata } from "../src/routing-metadata";
-import { runFacts } from "../src/telemetry";
 import { codexGlobalArguments, codexHarnessArguments } from "../src/providers/openai";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES,
@@ -329,27 +328,19 @@ test("nested North MCP attribution pins the immediate agent and drops inherited 
   expect(options.env.NORTH_DISPATCH_DRIVER_PRECLAIMED).toBeUndefined();
 });
 
-test("telemetry proves bespoke composition without exposing contract text", () => {
+test("composition evidence proves a bespoke contract without exposing its text", () => {
   const composed = orchestrationAppendix(bespoke, north);
   const canary = bespoke.composition?.kind === "bespoke" ? bespoke.composition.contract.responsibility : "";
-  const facts = runFacts({
-    thread: "thread", agent: "lane", durationMs: 1, posture: "spawn", outcome: "ran",
-    routingMetadata: bespoke, promptComposition: composed.evidence,
+  expect(composed.evidence).toMatchObject({
+    roleKind: "bespoke",
+    roleId: "migration-forensics",
+    bespokeContractFingerprintVersion: "v1",
+    bespokeContractFingerprintDomain: "north:bespoke-contract:v1",
+    capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
   });
-  expect(facts).toContainEqual(["applied_role_contract", "bespoke:migration-forensics"]);
-  expect(facts.some(([predicate]) => predicate === "applied_bespoke_contract_sha256")).toBe(true);
-  expect(facts).toContainEqual(["applied_bespoke_contract_fingerprint_version", "v1"]);
-  expect(facts).toContainEqual([
-    "applied_bespoke_contract_fingerprint_domain", "north:bespoke-contract:v1",
-  ]);
-  expect(facts.filter(([predicate]) => predicate === "applied_capability")).toEqual([
-    ["applied_capability", "filesystem.read"],
-    ["applied_capability", "filesystem.search"],
-    ["applied_capability", "shell.readonly"],
-  ]);
-  expect(facts.find(([predicate]) => predicate === "applied_comms_contract_sha256")?.[1])
-    .toMatch(/^[0-9a-f]{64}$/);
-  expect(JSON.stringify(facts)).not.toContain(canary);
+  expect(composed.evidence.bespokeContractHash).toMatch(/^[0-9a-f]{64}$/);
+  expect(composed.evidence.commsContractHash).toMatch(/^[0-9a-f]{64}$/);
+  expect(JSON.stringify(composed.evidence)).not.toContain(canary);
 });
 
 test("preset override rationale is preserved as requested audit and hashed applied evidence", () => {
@@ -363,15 +354,10 @@ test("preset override rationale is preserved as requested audit and hashed appli
     },
   });
   const composed = orchestrationAppendix(metadata, north);
-  const facts = runFacts({
-    thread: "thread", agent: "lane", durationMs: 1, posture: "spawn", outcome: "ran",
-    routingMetadata: metadata, promptComposition: composed.evidence,
+  expect(metadata.composition).toMatchObject({
+    overrides: ["tier", "reasoning"],
+    overrideReason: "this integrator owns the cross-seam reduction",
   });
-  expect(facts).toContainEqual(["composition_override", "tier"]);
-  expect(facts).toContainEqual(["composition_override", "reasoning"]);
-  expect(facts).toContainEqual(["composition_override_reason", "this integrator owns the cross-seam reduction"]);
-  expect(facts).toContainEqual(["applied_preset_override", "tier"]);
-  expect(facts).toContainEqual(["applied_preset_override", "reasoning"]);
-  expect(facts.find(([predicate]) => predicate === "applied_preset_override_reason_sha256")?.[1])
-    .toMatch(/^[a-f0-9]{64}$/);
+  expect(composed.evidence.presetOverrides).toEqual(["tier", "reasoning"]);
+  expect(composed.evidence.presetOverrideReasonHash).toMatch(/^[a-f0-9]{64}$/);
 });

@@ -15,7 +15,11 @@ import {
   ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
   managedCodexAppServerLaunch,
 } from "../src/providers/codex-app-server";
-import { managedCodexHarvestMessages } from "../src/providers/openai";
+import { managedCodexHarvestEvidence } from "../src/providers/openai";
+import { OpenAIWireNormalizer } from "../src/providers/openai-wire";
+import {
+  WireEventWriter, wireEventId, wireRunId,
+} from "../src/wire";
 import { causeChain } from "../src/death";
 import { expectedManagedCodexHooks } from "../src/providers/codex-managed-hooks";
 import {
@@ -321,6 +325,9 @@ function setup(mode = "ok") {
   // Every turn/start input text the lane sent, across all attempts: how a test
   // proves the recovered context actually reached the new provider session.
   const turnInputs: string[] = [];
+  const replacementPreflightEntered = Promise.withResolvers<void>();
+  const replacementPreflightRelease = Promise.withResolvers<void>();
+  let replacementPreflightHeld = false;
   const spawnProcess = (() => {
     const attempt = ++attempts;
     const child = new EventEmitter() as ChildProcessWithoutNullStreams & {
@@ -353,7 +360,19 @@ function setup(mode = "ok") {
       if (mode === "notification-envelope-extra") envelope.futureEnvelope = true;
       send(envelope);
     };
-    const threadId = "019f7abc-0000-7000-8000-000000000001";
+    const respawningMode = mode === "respawn-after-third-item"
+      || mode === "respawn-interrupt-gap"
+      || mode === "respawn-interrupt-multigap"
+      || mode === "provider-death-mid-turn"
+      || mode === "respawn-exhausted";
+    const respawnThreadIds = [
+      "019f7abc-0000-7000-8000-000000000001",
+      "019f7abc-0000-7000-8000-000000000005",
+      "019f7abc-0000-7000-8000-000000000009",
+    ];
+    const threadId = respawningMode
+      ? respawnThreadIds[Math.min(attempt - 1, respawnThreadIds.length - 1)]!
+      : respawnThreadIds[0]!;
     const turnIds = [
       "019f7abc-0000-7000-8000-000000000002",
       "019f7abc-0000-7000-8000-000000000003",
@@ -382,8 +401,35 @@ function setup(mode = "ok") {
       completedItems += 1;
       // Exactly the shape a managed write-lane dies in: real work landed, then
       // the app-server is gone. Only the FIRST provider process dies here.
-      if ((mode === "respawn-after-third-item" || mode === "respawn-preflight-broken")
+      if ((mode === "respawn-after-third-item" || mode === "respawn-interrupt-gap"
+          || mode === "respawn-interrupt-multigap"
+          || mode === "respawn-preflight-broken")
           && attempt === 1 && completedItems === 3) {
+        if (mode === "respawn-after-third-item" || mode === "respawn-interrupt-gap"
+            || mode === "respawn-interrupt-multigap") {
+          notify("item/started", {
+            threadId,
+            turnId,
+            startedAtMs: 16,
+            item: item("command-open-before-respawn", "commandExecution", {
+              command: "printf unfinished",
+              cwd,
+              processId: null,
+              source: "agent",
+              status: "inProgress",
+              commandActions: [{ type: "unknown", command: "printf unfinished" }],
+              aggregatedOutput: null,
+              exitCode: null,
+              durationMs: null,
+              pluginId: null,
+              scriptPath: null,
+            }),
+          });
+          notify("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: { total: {
+            totalTokens: 100, inputTokens: 80, cachedInputTokens: 30,
+            outputTokens: 20, reasoningOutputTokens: 5,
+          } } });
+        }
         // The managed account disappearing between provider sessions is the
         // cheapest way to make the RE-preflight fail the way a real one would.
         if (mode === "respawn-preflight-broken")
@@ -513,6 +559,11 @@ function setup(mode = "ok") {
       if (mode === "turn-id-mismatch-notification")
         startedTurn.id = "019f7abc-0000-7000-8000-000000000099";
       notify("turn/started", { threadId, turn: startedTurn });
+      // Leave the replacement turn live until the queued control request is
+      // delivered. The first provider attempt still follows the ordinary work
+      // path below and dies after its third completed item.
+      if ((mode === "respawn-interrupt-gap" && attempt > 1)
+          || (mode === "respawn-interrupt-multigap" && attempt > 2)) return;
       // Every provider process this lane gets dies the moment it has a turn:
       // the respawn budget is spent and the lane still fails.
       if (mode === "respawn-exhausted") {
@@ -700,11 +751,16 @@ function setup(mode = "ok") {
           ? `managed answer after recovery\n${turnInputs.at(-1) ?? ""}`
           : "managed answer",
       });
-      notify("item/agentMessage/delta", {
-        threadId, turnId, itemId: answer.id,
-        delta: mode === "large-agent-message-delta" ? "x".repeat(1024 * 1024 + 1) : "managed answer",
-      });
-      lifecycle("completed", answer, 18);
+      if (mode === "respawn-after-third-item" && attempt > 1) {
+        lifecycle("started", answer, 18);
+        lifecycle("completed", answer, 19);
+      } else {
+        notify("item/agentMessage/delta", {
+          threadId, turnId, itemId: answer.id,
+          delta: mode === "large-agent-message-delta" ? "x".repeat(1024 * 1024 + 1) : "managed answer",
+        });
+        lifecycle("completed", answer, 18);
+      }
       emitHook("postToolUse", mode === "hook-posttool-stopped" ? "stopped"
         : mode === "hook-posttool-failed" ? "failed" : "completed", "hook-post");
       notify("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: { total: {
@@ -787,8 +843,24 @@ function setup(mode = "ok") {
         return;
       }
       if (request.method === "account/read") {
-        result(request, { account: { type: "chatgpt", email: "fixture@example.test", planType: "pro" },
-          requiresOpenaiAuth: true });
+        const respond = () => result(request, {
+          account: { type: "chatgpt", email: "fixture@example.test", planType: "pro" },
+          requiresOpenaiAuth: true,
+        });
+        if ((mode === "respawn-interrupt-gap" || mode === "respawn-interrupt-multigap")
+            && attempt === 2 && !replacementPreflightHeld) {
+          replacementPreflightHeld = true;
+          replacementPreflightEntered.resolve();
+          void replacementPreflightRelease.promise.then(() => {
+            if (mode === "respawn-interrupt-multigap") {
+              die(8, "codex: replacement died before thread authority");
+              return;
+            }
+            respond();
+          });
+          return;
+        }
+        respond();
         return;
       }
       if (request.method === "config/read") {
@@ -945,13 +1017,18 @@ function setup(mode = "ok") {
         // A wedged-but-reachable provider still answers its control plane.
         if (mode === "turn-interrupt-refused") { fail(request); return; }
         result(request, {});
-        if (mode === "external-turn-interrupt") {
+        const settleInterruptedTurn = () => {
           notify("thread/tokenUsage/updated", { threadId, turnId, tokenUsage: { total: {
             totalTokens: 1, inputTokens: 1, cachedInputTokens: 0,
             outputTokens: 0, reasoningOutputTokens: 0,
           } } });
           notify("turn/completed", { threadId, turn: turn(turnId, "completed") });
-        }
+        };
+        if (mode === "external-turn-interrupt") settleInterruptedTurn();
+        // turn/start already queued its public start notification. Preserve that
+        // observable ordering before the replacement interrupt terminal lands.
+        if (mode === "respawn-interrupt-gap" || mode === "respawn-interrupt-multigap")
+          queueMicrotask(settleInterruptedTurn);
         return;
       }
       fail(request);
@@ -1008,6 +1085,8 @@ function setup(mode = "ok") {
   return {
     root, codexHome, executable, requests, options,
     turnInputs, attempts: () => attempts,
+    replacementPreflightEntered: replacementPreflightEntered.promise,
+    releaseReplacementPreflight: () => replacementPreflightRelease.resolve(),
   };
 }
 
@@ -1017,6 +1096,7 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   const result = await run.execute();
   expect(result).toEqual({
     text: "managed answer",
+    providerDurationMs: 1,
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
     // Counted from the observed item/completed stream this turn emitted:
     // commandExecution + fileChange + mcpToolCall. The agentMessage and the
@@ -1345,6 +1425,7 @@ test("a later North frame drives a same-thread continuation turn under re-proven
   }
   const expected = (turnId: string) => ({
     text: "managed answer",
+    providerDurationMs: 1,
     usage: { input_tokens: 9, cached_input_tokens: 4, output_tokens: 3, reasoning_output_tokens: 1 },
     // Per-TURN work-item count, reset at each turn start — never cumulative
     // here; the adapter sums it across turns for the run record.
@@ -1415,6 +1496,20 @@ test("public turn interruption retains the provider thread for a later turn", as
     "019f7abc-0000-7000-8000-000000000001",
     "019f7abc-0000-7000-8000-000000000001",
   ]);
+});
+
+test("public turn interruption maps a provider refusal to a stable generic error", async () => {
+  const { options, requests } = setup("turn-interrupt-refused");
+  const run = new ManagedCodexAppServerRun(options);
+  const execution = run.execute();
+  void execution.catch(() => {});
+  const deadline = Date.now() + 2_000;
+  while (!requests.some(({ method }) => method === "turn/start") && Date.now() < deadline)
+    await Bun.sleep(5);
+  expect(requests.some(({ method }) => method === "turn/start")).toBe(true);
+  await expect(run.interruptTurn()).rejects.toThrow("provider_turn_interrupt_failed");
+  await run.interrupt();
+  await expect(execution).rejects.toBeInstanceOf(ManagedCodexHarvestError);
 });
 
 test("an admitted continuation makes MCP coverage unknown until its terminal succeeds", async () => {
@@ -2345,17 +2440,22 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
   expect(harvest.mcp).toMatchObject({ totalCalls: 1 });
   expect(harvest.nativeCommands).toMatchObject({ totalCommands: 1 });
 
-  const messages = managedCodexHarvestMessages(caught as ManagedCodexHarvestError);
-  expect(messages).toHaveLength(2);
-  expect(messages[0]).toMatchObject({ type: "assistant" });
-  // Loud failure, not a fake success — and the work is in the record.
-  expect(messages[1]).toMatchObject({
-    type: "result", subtype: "error_during_execution", is_error: true, result: "managed answer",
+  const evidence = managedCodexHarvestEvidence(caught as ManagedCodexHarvestError);
+  expect(evidence.turns).toEqual({
+    unit: "provider-turn", count: 1, toolItems: 3, comparable: false,
   });
-  expect(messages[1]._north_harvest).toMatchObject({
-    threadId: "019f7abc-0000-7000-8000-000000000001", completedTurns: 0, toolItems: 3,
+  expect(evidence.failure).toEqual({
+    detail: "provider_execution_failed",
+    landed: { completedTurns: 0, toolItems: 3, mcpCalls: 1, nativeCommands: 1 },
   });
-  expect(messages[1].usage).toMatchObject({ input_tokens: 9 });
+  expect(evidence.providerJoin).toEqual({
+    version: "north-provider-join:v1",
+    sessionKey: providerSessionKey("019f7abc-0000-7000-8000-000000000001"),
+    turnKeys: [providerTurnKey("openai", "019f7abc-0000-7000-8000-000000000002")],
+    sessionPersistence: "ephemeral",
+    coverage: "exact",
+  });
+  expect(JSON.stringify(evidence)).not.toContain("019f7abc");
 
   const unobserved = new ManagedCodexHarvestError({
     turnIds: [], completedTurns: 0, text: "partial answer", landedWork: true,
@@ -2365,8 +2465,9 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
     },
     unsupportedNotifications: {},
   });
-  expect(managedCodexHarvestMessages(unobserved)[1]._north_harvest)
-    .not.toHaveProperty("toolItems");
+  const unobservedEvidence = managedCodexHarvestEvidence(unobserved);
+  expect(unobservedEvidence.turns).not.toHaveProperty("toolItems");
+  expect(unobservedEvidence.failure?.landed).not.toHaveProperty("toolItems");
 });
 
 test("a pre-thread failure harvests nothing, preserving the provider-death retry gate", async () => {
@@ -2574,10 +2675,10 @@ test("a silent open item expires at its own ceiling with item evidence", async (
     openItem: { id: "command-1", kind: "commandExecution" },
   });
   expect(interrupt!.openItem!.ageMs).toBeGreaterThanOrEqual(150);
-  expect(managedCodexHarvestMessages(caught as ManagedCodexHarvestError).at(-1)!._north_interrupt)
+  expect(managedCodexHarvestEvidence(caught as ManagedCodexHarvestError).interrupt)
     .toMatchObject({
-      reason: "in_flight_item_ceiling", openItemCount: 1,
-      openItem: { id: "command-1", kind: "commandExecution" },
+      reason: "north_in_flight_item_ceiling", openItemCount: 1,
+      openItem: { kind: "command" },
     });
 });
 
@@ -2622,13 +2723,12 @@ test("a turn silent past both deadline and inactivity threshold carries structur
     openItemCount: 0, openItem: null, eventCount: 1,
   });
   expect(harvest.interrupt!.lastActivityAgeMs).toBeGreaterThanOrEqual(100);
-  const terminal = managedCodexHarvestMessages(caught as ManagedCodexHarvestError).at(-1)!;
-  expect(terminal._north_interrupt).toMatchObject({
-    reason: "turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
-    openItemCount: 0, openItem: null, eventCount: 1,
-    eventCounts: { "provider.codex.turn.started": 1 },
-    stderrTail: [],
+  const evidence = managedCodexHarvestEvidence(caught as ManagedCodexHarvestError);
+  expect(evidence.interrupt).toMatchObject({
+    reason: "north_turn_deadline", deadlineMs: 150, inactivityThresholdMs: 150,
+    openItemCount: 0, eventCount: 1,
   });
+  expect(evidence.interrupt).not.toHaveProperty("openItem");
 });
 
 // ---------------------------------------------------------------------------
@@ -2640,9 +2740,175 @@ test("a turn silent past both deadline and inactivity threshold carries structur
 // because its provider thread is the only transcript there ever was.
 // ---------------------------------------------------------------------------
 
+test("a turn interrupt waits through replacement preflight and dispatches exactly once", async () => {
+  const fixture = setup("respawn-interrupt-gap");
+  const writer = new WireEventWriter({
+    runId: wireRunId("run:managed-codex-respawn-interrupt-wire"),
+    eventId: (sequence) => wireEventId(`event:managed-codex-respawn-interrupt-wire:${sequence}`),
+  });
+  writer.append({ kind: "run.started", lifecycle: "running" });
+  const normalizer = new OpenAIWireNormalizer({
+    writer,
+    route: {
+      model: { provider: "openai", capabilityClass: "authoring" },
+      effort: "high",
+      attempt: 1,
+    },
+  });
+  const run = new ManagedCodexAppServerRun({
+    ...fixture.options,
+    onEvent(method, params) { normalizer.normalize(method, params); },
+    onRespawn() {
+      if (normalizer.hasActiveTurn()) normalizer.settleProviderRespawn();
+    },
+  });
+  const execution = run.execute();
+  await Promise.race([
+    fixture.replacementPreflightEntered,
+    Bun.sleep(2_000).then(() => { throw new Error("replacement preflight gate was not reached"); }),
+  ]);
+
+  const firstInterrupt = run.interruptTurn();
+  const duplicateInterrupt = run.interruptTurn();
+  expect(duplicateInterrupt).toBe(firstInterrupt);
+  let interruptSettled = false;
+  void firstInterrupt.then(
+    () => { interruptSettled = true; },
+    () => { interruptSettled = true; },
+  );
+  await Bun.sleep(0);
+  expect(interruptSettled).toBe(false);
+
+  fixture.releaseReplacementPreflight();
+  await expect(firstInterrupt).resolves.toBeUndefined();
+  await expect(duplicateInterrupt).resolves.toBeUndefined();
+  const result = await execution;
+  expect(result.text).toBe("");
+  expect(fixture.attempts()).toBe(2);
+  expect(fixture.requests.filter(({ method }) => method === "initialize")).toHaveLength(2);
+  expect(fixture.requests.filter(({ method }) => method === "thread/start")).toHaveLength(2);
+  expect(fixture.requests.filter(({ method }) => method === "turn/start")).toHaveLength(2);
+  expect(fixture.requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+
+  const modelStarts = writer.events().filter((event) => event.kind === "model-call.started");
+  const modelTerminals = writer.events().filter((event) => event.kind === "model-call.completed");
+  expect(modelStarts).toHaveLength(2);
+  expect(modelTerminals).toHaveLength(2);
+  expect(modelTerminals[0]).toMatchObject({
+    status: "failed", origin: "north", errorCode: "provider_session_replaced",
+  });
+  expect(modelTerminals[1]).toMatchObject({ status: "succeeded", origin: "provider" });
+  expect(modelStarts.every((start) => modelTerminals
+    .filter((terminal) => terminal.modelCallId === start.modelCallId).length === 1)).toBe(true);
+  const toolAdmissions = writer.events().filter((event) => event.kind === "tool.admitted");
+  const toolTerminals = writer.events().filter((event) => event.kind === "tool.terminal");
+  expect(toolAdmissions.length).toBeGreaterThan(0);
+  expect(toolTerminals).toHaveLength(toolAdmissions.length);
+  expect(toolAdmissions.every((admission) => toolTerminals
+    .filter((terminal) => terminal.toolCallId === admission.toolCallId).length === 1)).toBe(true);
+
+  writer.append({
+    kind: "run.terminated", lifecycle: "completed", reason: { code: "completed" },
+  });
+  const snapshot = writer.snapshot()!;
+  expect(snapshot.lifecycle).toBe("completed");
+  expect(Object.values(snapshot.modelCalls).some((call) => call.status === "running")).toBe(false);
+  expect(Object.values(snapshot.toolCalls).some((call) => call.status === "pending")).toBe(false);
+  expect(Object.values(snapshot.messages).some((message) => message.stage !== "completed")).toBe(false);
+
+  const serializedWire = JSON.stringify(writer.events());
+  for (const privateMaterial of [
+    "019f7abc-0000-7000-8000-000000000001",
+    "019f7abc-0000-7000-8000-000000000005",
+    "019f7abc-0000-7000-8000-000000000002",
+    "gpt-fixture-exact",
+    "fixture@example.test",
+    "CANARY-private-argument",
+    "CANARY-private-result",
+  ]) expect(serializedWire).not.toContain(privateMaterial);
+});
+
+test("a queued turn interrupt survives an eligible replacement that dies before its turn", async () => {
+  const fixture = setup("respawn-interrupt-multigap");
+  const run = new ManagedCodexAppServerRun(fixture.options);
+  const execution = run.execute();
+  await Promise.race([
+    fixture.replacementPreflightEntered,
+    Bun.sleep(2_000).then(() => { throw new Error("replacement preflight gate was not reached"); }),
+  ]);
+  const pendingInterrupt = run.interruptTurn();
+  fixture.releaseReplacementPreflight();
+  await Promise.race([
+    pendingInterrupt,
+    Bun.sleep(2_000).then(() => { throw new Error("replacement interrupt did not settle"); }),
+  ]);
+  await expect(pendingInterrupt).resolves.toBeUndefined();
+  await expect(execution).resolves.toMatchObject({ text: "" });
+  expect(fixture.attempts()).toBe(3);
+  expect(run.respawnRecord().respawnCount).toBe(2);
+  expect(fixture.requests.filter(({ method }) => method === "initialize")).toHaveLength(3);
+  expect(fixture.requests.filter(({ method }) => method === "thread/start")).toHaveLength(2);
+  expect(fixture.requests.filter(({ method }) => method === "turn/start")).toHaveLength(2);
+  expect(fixture.requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+});
+
+test("a queued replacement interrupt rejects generically when preflight never reaches a turn", async () => {
+  const fixture = setup("respawn-preflight-broken");
+  let pendingInterrupt: Promise<void> | undefined;
+  let run!: ManagedCodexAppServerRun;
+  run = new ManagedCodexAppServerRun({
+    ...fixture.options,
+    onRespawn() { pendingInterrupt = run.interruptTurn(); },
+  });
+  await expect(run.execute()).rejects.toBeInstanceOf(ManagedCodexHarvestError);
+  expect(pendingInterrupt).toBeDefined();
+  await expect(pendingInterrupt!).rejects.toThrow("managed_provider_replacement_turn_unavailable");
+  expect(fixture.attempts()).toBe(1);
+});
+
+test("a full interrupt from respawn settlement cancels the queued turn and prevents attempt two", async () => {
+  const fixture = setup("respawn-after-third-item");
+  let pendingInterrupt: Promise<void> | undefined;
+  let fullInterrupt: Promise<void> | undefined;
+  let run!: ManagedCodexAppServerRun;
+  run = new ManagedCodexAppServerRun({
+    ...fixture.options,
+    onRespawn() {
+      pendingInterrupt = run.interruptTurn();
+      fullInterrupt = run.interrupt();
+    },
+  });
+  await expect(run.execute()).rejects.toBeInstanceOf(ManagedCodexHarvestError);
+  await expect(fullInterrupt!).resolves.toBeUndefined();
+  await expect(pendingInterrupt!).rejects.toThrow("managed_provider_replacement_turn_unavailable");
+  expect(fixture.attempts()).toBe(1);
+  expect(fixture.requests.filter(({ method }) => method === "thread/start")).toHaveLength(1);
+  expect(fixture.requests.filter(({ method }) => method === "turn/start")).toHaveLength(1);
+  await expect(run.interruptTurn()).rejects.toThrow("provider_has_no_active_turn");
+});
+
 test("a provider death after landed work respawns the lane with recovered context", async () => {
   const { options, turnInputs, attempts } = setup("respawn-after-third-item");
-  const run = new ManagedCodexAppServerRun(options);
+  const writer = new WireEventWriter({
+    runId: wireRunId("run:managed-codex-respawn-wire"),
+    eventId: (sequence) => wireEventId(`event:managed-codex-respawn-wire:${sequence}`),
+  });
+  writer.append({ kind: "run.started", lifecycle: "running" });
+  const normalizer = new OpenAIWireNormalizer({
+    writer,
+    route: {
+      model: { provider: "openai", capabilityClass: "authoring" },
+      effort: "high",
+      attempt: 1,
+    },
+  });
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    onEvent(method, params) { normalizer.normalize(method, params); },
+    onRespawn() {
+      if (normalizer.hasActiveTurn()) normalizer.settleProviderRespawn();
+    },
+  });
   const result = await run.execute();
 
   // Two provider processes, one lane, one delivered result.
@@ -2667,13 +2933,124 @@ test("a provider death after landed work respawns the lane with recovered contex
   const recovered = turnInputs[1]!;
   expect(recovered).toContain("perform managed work");
   expect(recovered).toContain("=== recovered context from a crashed provider session ===");
-  expect(recovered).toContain("retired provider thread: 019f7abc-0000-7000-8000-000000000001");
-  expect(recovered).toContain("1 native command(s)");
+  expect(recovered).toContain("recovery cause: provider_process_died");
+  expect(recovered).not.toContain("019f7abc-0000-7000-8000-000000000001");
+  expect(recovered).not.toContain("019f7abc-0000-7000-8000-000000000005");
+  expect(recovered).not.toContain("019f7abc-0000-7000-8000-000000000002");
+  expect(recovered).not.toContain("gpt-fixture-exact");
+  expect(recovered).not.toContain(record.respawns[0]!.reason);
+  expect(recovered).toContain("2 native command(s)");
   expect(recovered).toContain("north/tell");
   // The pre-crash work reaches the model, and the delivered result is the NEW
   // session's — the lane completed instead of dying.
   expect(result.text).toContain("managed answer after recovery");
   expect(result.text).toContain("recovered context from a crashed provider session");
+  expect(result.text).not.toContain("019f7abc-0000-7000-8000-000000000001");
+  expect(result.text).not.toContain(record.respawns[0]!.reason);
+  expect(result.usage).toEqual({
+    input_tokens: 9,
+    cached_input_tokens: 4,
+    output_tokens: 3,
+    reasoning_output_tokens: 1,
+  });
+
+  const modelStarts = writer.events().filter((event) => event.kind === "model-call.started");
+  const modelTerminals = writer.events().filter((event) => event.kind === "model-call.completed");
+  expect(modelStarts).toHaveLength(2);
+  expect(modelTerminals).toHaveLength(2);
+  expect(modelTerminals[0]).toMatchObject({
+    kind: "model-call.completed",
+    status: "failed",
+    origin: "north",
+    usageCoverage: "unavailable",
+    errorCode: "provider_session_replaced",
+    usage: {
+      lifetime: {
+        inputTokens: 80,
+        outputTokens: 20,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 0,
+        reasoningTokens: 5,
+        modelCalls: 1,
+      },
+      context: { tokens: 0 },
+    },
+  });
+  expect(modelTerminals[1]).toMatchObject({
+    kind: "model-call.completed",
+    status: "succeeded",
+    origin: "provider",
+    usageCoverage: "exact",
+    usage: {
+      lifetime: {
+        inputTokens: 89,
+        outputTokens: 23,
+        cacheReadTokens: 34,
+        cacheWriteTokens: 0,
+        reasoningTokens: 6,
+        modelCalls: 2,
+      },
+      context: { tokens: 0 },
+    },
+  });
+  expect(modelStarts[0]!.sequence).toBeLessThan(modelTerminals[0]!.sequence);
+  expect(modelTerminals[0]!.sequence).toBeLessThan(modelStarts[1]!.sequence);
+  expect(modelStarts[1]!.sequence).toBeLessThan(modelTerminals[1]!.sequence);
+  const toolAdmissions = writer.events().filter((event) => event.kind === "tool.admitted");
+  const toolTerminals = writer.events().filter((event) => event.kind === "tool.terminal");
+  expect(toolAdmissions).toHaveLength(7);
+  expect(toolTerminals).toHaveLength(7);
+  expect(new Set(toolTerminals.map((event) => event.toolCallId)).size).toBe(7);
+  expect(modelStarts.every((start) => modelTerminals
+    .filter((terminal) => terminal.modelCallId === start.modelCallId).length === 1)).toBe(true);
+
+  expect(run.mcpActivity()).toMatchObject({
+    coverage: "partial",
+    totalCalls: 2,
+    tools: [{ server: "north", tool: "tell", count: 2 }],
+  });
+  expect(run.mcpActivity().operationReceipts).toHaveLength(2);
+  expect(run.nativeCommandActivity()).toMatchObject({
+    coverage: "partial",
+    totalCommands: 2,
+    successfulCommands: 2,
+    failedCommands: 0,
+    declinedCommands: 0,
+    northBinaryProbe: "failed",
+  });
+  expect(run.nativeCommandActivity()).not.toHaveProperty("openCommands");
+  expect(run.nativeCommandActivity().completions).toHaveLength(2);
+
+  expect(writer.snapshot()).toMatchObject({
+    lifecycle: "running",
+    usage: {
+      lifetime: {
+        inputTokens: 89,
+        outputTokens: 23,
+        cacheReadTokens: 34,
+        cacheWriteTokens: 0,
+        reasoningTokens: 6,
+        modelCalls: 2,
+      },
+      context: { tokens: 0 },
+    },
+    usageCoverage: {
+      providerTerminalCount: 1,
+      scope: "wire_run_cumulative",
+      totalStatus: "partial",
+    },
+  });
+  expect(writer.events()).toContainEqual(expect.objectContaining({
+    kind: "message.recorded",
+    stage: "completed",
+    content: expect.stringContaining("recovered context from a crashed provider session"),
+  }));
+  const serializedWire = JSON.stringify(writer.events());
+  expect(serializedWire).not.toContain("019f7abc-0000-7000-8000-000000000001");
+  expect(serializedWire).not.toContain("019f7abc-0000-7000-8000-000000000005");
+  expect(serializedWire).not.toContain("019f7abc-0000-7000-8000-000000000002");
+  expect(serializedWire).not.toContain("gpt-fixture-exact");
+  expect(serializedWire).not.toContain(record.respawns[0]!.reason);
 
 });
 
@@ -2699,8 +3076,12 @@ test("an exhausted respawn budget fails exactly as before, with every attempt's 
   expect(harvest.exitCode).toBe(7);
   expect(harvest.stderrTail)
     .toContain("codex: fatal: provider session 3 refused to start work");
-  const messages = managedCodexHarvestMessages(caught as ManagedCodexHarvestError);
-  expect(messages.at(-1)?._north_harvest).toMatchObject({ respawnCount: 2 });
+  const evidence = managedCodexHarvestEvidence(caught as ManagedCodexHarvestError);
+  expect(evidence.failure).toMatchObject({
+    detail: "provider_execution_failed",
+    landed: { completedTurns: 0 },
+  });
+  expect(JSON.stringify(evidence)).not.toContain("respawnCount");
 
   // Budget 0 restores the pre-respawn behavior exactly: one process, one death.
   const disabled = setup("respawn-exhausted");
@@ -2712,12 +3093,9 @@ test("an exhausted respawn budget fails exactly as before, with every attempt's 
   expect(bare).toBeInstanceOf(ManagedCodexHarvestError);
   expect((bare as ManagedCodexHarvestError).harvest.respawnCount).toBeUndefined();
   expect((bare as ManagedCodexHarvestError).harvest.landedWork).toBe(false);
-  const providerExit = managedCodexHarvestMessages(bare as ManagedCodexHarvestError);
-  expect(providerExit).toHaveLength(1);
-  expect(providerExit[0]).toMatchObject({
-    type: "result", subtype: "error_during_execution", is_error: true,
-  });
-  expect(providerExit[0]).not.toHaveProperty("_north_interrupt");
+  const providerExit = managedCodexHarvestEvidence(bare as ManagedCodexHarvestError);
+  expect(providerExit.failure?.detail).toBe("provider_execution_failed");
+  expect(providerExit.interrupt).toBeUndefined();
 });
 
 test("a respawn whose preflight fails is a harvest, never a retry-safe pre-thread failure", async () => {

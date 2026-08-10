@@ -5,11 +5,11 @@
 // acknowledged only after this host admits it into the active input channel.
 // Process/feed crashes therefore replay instead of silently losing a message.
 import { spawn as procSpawn, type ChildProcess } from "node:child_process";
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
 import { trustedNorthBabashkaExecutable } from "./trusted-runtime";
 import { framBabashkaArguments, framEngineEnvironment } from "./fram-engine";
+import type { WireUserInputFrame } from "./wire/query";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const LIVE_FEED = `${REPO}/cli/north-live-feed.clj`;
@@ -197,14 +197,8 @@ function peerBabashkaExecutable(injected: string | undefined): string {
   }
 }
 
-function userMsg(text: string): SDKUserMessage {
-  // priority 'now' = urgent: jump the queue so a real-time ping is seen ASAP.
-  return {
-    type: "user",
-    message: { role: "user", content: text },
-    parent_tool_use_id: null,
-    priority: "now",
-  };
+function userInputFrame(text: string): WireUserInputFrame {
+  return Object.freeze({ kind: "user.input", text });
 }
 
 // A controllable input channel. `push` is the durable admission boundary: its
@@ -212,12 +206,12 @@ function userMsg(text: string): SDKUserMessage {
 // turn. Closing or cancelling first resolves false so graph mail can replay.
 export function inputChannel(initial: string) {
   interface QueuedInput {
-    message: SDKUserMessage;
+    message: WireUserInputFrame;
     state: "queued" | "consumed" | "cancelled";
     settle?: (consumed: boolean) => void;
   }
   const queue: QueuedInput[] = [{
-    message: userMsg(initial),
+    message: userInputFrame(initial),
     state: "queued",
   }];
   let wake: (() => void) | null = null;
@@ -236,12 +230,9 @@ export function inputChannel(initial: string) {
           cancel: () => {},
         };
       }
-      let settle!: (consumed: boolean) => void;
-      const consumed = new Promise<boolean>((resolveConsumed) => {
-        settle = resolveConsumed;
-      });
+      const { promise: consumed, resolve: settle } = Promise.withResolvers<boolean>();
       const entry: QueuedInput = {
-        message: userMsg(text),
+        message: userInputFrame(text),
         state: "queued",
         settle,
       };
@@ -269,7 +260,7 @@ export function inputChannel(initial: string) {
       );
     },
     liveMessagesReceived() { return liveMessagesReceived; },
-    async *stream(): AsyncGenerator<SDKUserMessage> {
+    async *stream(): AsyncGenerator<WireUserInputFrame> {
       while (true) {
         while (queue.length) {
           const entry = queue.shift()!;
@@ -282,7 +273,9 @@ export function inputChannel(initial: string) {
           yield entry.message;
         }
         if (closed) return;
-        await new Promise<void>((resolveWake) => { wake = resolveWake; });
+        const waiting = Promise.withResolvers<void>();
+        wake = waiting.resolve;
+        await waiting.promise;
       }
     },
   };
@@ -503,28 +496,28 @@ function awaitAdmission(
   schedule: (callback: () => void, delayMs: number) => unknown,
   cancelTimer: (timer: unknown) => void,
 ): Promise<boolean> {
-  return new Promise<boolean>((resolveAdmission) => {
-    let settled = false;
-    let timer: unknown = null;
-    const finish = (consumed: boolean) => {
-      if (settled) return;
-      settled = true;
-      if (timer !== null) {
-        cancelTimer(timer);
-        timer = null;
-      }
-      resolveAdmission(consumed);
-    };
-    timer = schedule(() => {
+  const settlement = Promise.withResolvers<boolean>();
+  let settled = false;
+  let timer: unknown = null;
+  const finish = (consumed: boolean) => {
+    if (settled) return;
+    settled = true;
+    if (timer !== null) {
+      cancelTimer(timer);
       timer = null;
-      admission.cancel();
-      finish(false);
-    }, timeoutMs);
-    admission.consumed.then(
-      (consumed) => finish(consumed),
-      () => finish(false),
-    );
-  });
+    }
+    settlement.resolve(consumed);
+  };
+  timer = schedule(() => {
+    timer = null;
+    admission.cancel();
+    finish(false);
+  }, timeoutMs);
+  admission.consumed.then(
+    (consumed) => finish(consumed),
+    () => finish(false),
+  );
+  return settlement.promise;
 }
 
 // Subscribe one managed lane to its durable North mail feed. The callback is an
@@ -546,7 +539,7 @@ function subscribeFeedMode(
   const schedule = runtime.schedule
     ?? ((callback: () => void, delayMs: number) => setTimeout(callback, delayMs));
   const cancel = runtime.cancel
-    ?? ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+    ?? ((timer: unknown) => clearTimeout(timer as NodeJS.Timeout));
   const now = runtime.now ?? Date.now;
   const initialBackoffMs = positiveInteger(runtime.initialBackoffMs ?? 250, "initialBackoffMs");
   const maxBackoffMs = positiveInteger(runtime.maxBackoffMs ?? 5_000, "maxBackoffMs");
@@ -597,30 +590,24 @@ function subscribeFeedMode(
   let drainEpoch: string | null = null;
   let drainSettled = false;
   let drainTimer: unknown = null;
-  let resolveDrain!: () => void;
-  let rejectDrain!: (error: Error) => void;
-  const drained = new Promise<void>((resolve, reject) => {
-    resolveDrain = resolve;
-    rejectDrain = reject;
-  });
+  const drainSettlement = Promise.withResolvers<void>();
+  const drained = drainSettlement.promise;
+  const resolveDrain = drainSettlement.resolve;
+  const rejectDrain = drainSettlement.reject;
   void drained.catch(() => {});
   let readinessSettled = false;
-  let resolveReadiness!: () => void;
-  let rejectReadiness!: (error: Error) => void;
-  const readiness = new Promise<void>((resolveReady, rejectReady) => {
-    resolveReadiness = resolveReady;
-    rejectReadiness = rejectReady;
-  });
+  const readinessSettlement = Promise.withResolvers<void>();
+  const readiness = readinessSettlement.promise;
+  const resolveReadiness = readinessSettlement.resolve;
+  const rejectReadiness = readinessSettlement.reject;
   // Existing stop-only callers need not install a rejection handler. Awaiters
   // still observe the original promise's typed stop-before-ready rejection.
   void readiness.catch(() => {});
   let stopSettled = false;
-  let resolveStop!: () => void;
-  let rejectStop!: (error: Error) => void;
-  const stopSettlement = new Promise<void>((resolve, reject) => {
-    resolveStop = resolve;
-    rejectStop = reject;
-  });
+  const stopping = Promise.withResolvers<void>();
+  const stopSettlement = stopping.promise;
+  const resolveStop = stopping.resolve;
+  const rejectStop = stopping.reject;
   // Automatic startup-timeout termination has no caller waiting on stop().
   // A later explicit stop still receives this original settlement promise.
   void stopSettlement.catch(() => {});
@@ -680,10 +667,9 @@ function subscribeFeedMode(
     }
     current = child;
     let childSettled = false;
-    let resolveChildSettlement!: () => void;
-    const childSettlement = new Promise<void>((resolve) => {
-      resolveChildSettlement = resolve;
-    });
+    const childStopping = Promise.withResolvers<void>();
+    const childSettlement = childStopping.promise;
+    const resolveChildSettlement = childStopping.resolve;
     currentSettlement = childSettlement;
     child.stdin?.on("error", () => { /* close/replay is the recovery path */ });
     const lines = new LiveFeedLines(maxFrameBytes);

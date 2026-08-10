@@ -11,7 +11,6 @@ import {
 import { orchestrationAppendix } from "../src/harness";
 import { agentIdentityFacts } from "../src/identity";
 import { validateRoutingMetadata } from "../src/routing-metadata";
-import { runFacts } from "../src/telemetry";
 
 const north = resolve(import.meta.dir, "../..");
 const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
@@ -117,23 +116,14 @@ test("routing and harness consume the same canonical contract and fingerprint", 
     repo: "~/code/north",
     goal: "prove identity/application integrity",
   }, "2026-07-17T00:00:00.000Z"));
-  const applied = Object.fromEntries(runFacts({
-    thread: "thread-proof",
-    agent: "lane-proof",
-    durationMs: 1,
-    posture: "spawn",
-    outcome: "ran",
-    routingMetadata: metadata,
-    promptComposition: composed.evidence,
-  }));
   expect([
     identity.composition_contract_sha256,
     identity.composition_contract_fingerprint_version,
     identity.composition_contract_fingerprint_domain,
   ]).toEqual([
-    applied.applied_bespoke_contract_sha256,
-    applied.applied_bespoke_contract_fingerprint_version,
-    applied.applied_bespoke_contract_fingerprint_domain,
+    composed.evidence.bespokeContractHash,
+    composed.evidence.bespokeContractFingerprintVersion,
+    composed.evidence.bespokeContractFingerprintDomain,
   ]);
 });
 

@@ -1,5 +1,5 @@
 ;; north-reconcile.clj — telemetry reconciliation: reads kind=run facts and surfaces
-;; exact usage, estimate-vs-actual drift, and model/provider patterns. This is the
+;; exact usage, partial lower bounds, estimate drift, and tier/provider patterns. This is the
 ;; consumer that closes the feedback loop — without it, run telemetry is inert.
 ;;
 ;; usage:
@@ -8,7 +8,8 @@
 ;;   bb north-reconcile.clj <port> drift               — estimate vs actual, sorted by overshoot
 ;;   bb north-reconcile.clj <port> recent [N]           — last N runs (default 20)
 ;;   bb north-reconcile.clj <port> agent <uuid>         — runs for one agent
-(require '[clojure.java.io :as io])
+(require '[clojure.java.io :as io]
+         '[clojure.string :as str])
 
 ;; Shared FRAMRPC coordination facade.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
@@ -23,12 +24,15 @@
        sort))
 
 (def run-predicates
-  ["agent" "tokens" "input_tokens" "output_tokens" "cache_read_tokens"
-   "cache_create_tokens" "cached_input_tokens" "reasoning_output_tokens"
+  ["agent" "tokens" "lifetime_input_tokens" "lifetime_output_tokens"
+   "lifetime_cache_read_tokens" "lifetime_cache_write_tokens"
+   "lifetime_reasoning_tokens" "model_call_count"
    "usage_terminal_count" "usage_scope" "usage_total_status"
-   "duration_ms" "num_turns" "codex_turn_units" "codex_tool_items" "stop_reason" "model"
-   "provider" "effort" "wall_s" "estimate_output_tokens"
-   "confidence" "fallback_count" "fallback_path" "outcome" "ended_at" "at"])
+   "duration_ms" "provider_duration_ms" "num_turns" "provider_turn_units"
+   "provider_tool_items" "provider_turn_metric_comparable"
+   "provider" "model_tier" "effort"
+   "estimate_hours" "estimate_delta_ms" "estimate_ratio" "estimate_classification"
+   "fallback_count" "fallback_path" "outcome" "at"])
 
 (defn run-meta [port re]
   (let [wanted (set run-predicates)
@@ -54,10 +58,38 @@
      run-predicates)))
 
 (defn parse-num [s] (when s (try (parse-double s) (catch Exception _ nil))))
+(defn parse-count [s] (when s (try (bigint s) (catch Exception _ nil))))
 
-(defn drift-ratio [est act]
-  (when (and est act (pos? est))
-    (/ (double act) (double est))))
+(defn usage-status [run]
+  ;; Historical rows with an already exact aggregate remain readable. No old
+  ;; component or model aliases are accepted.
+  (or (:usage_total_status run) (when (:tokens run) "exact")))
+
+(defn exact-token-count [run]
+  (when (= "exact" (usage-status run))
+    (parse-count (:tokens run))))
+
+(defn partial-token-lower-bound [run]
+  (when (= "partial" (usage-status run))
+    (let [input (parse-count (:lifetime_input_tokens run))
+          output (parse-count (:lifetime_output_tokens run))
+          cache-read (parse-count (:lifetime_cache_read_tokens run))
+          cache-write (parse-count (:lifetime_cache_write_tokens run))]
+      (when (every? some? [input output cache-read cache-write])
+        (case (:provider run)
+          "anthropic" (+ input output cache-read cache-write)
+          "openai" (+ input output)
+          nil)))))
+
+(defn usage-cell [run]
+  (case (usage-status run)
+    "exact" (or (:tokens run) "invalid-exact")
+    "partial" (if-let [lower (partial-token-lower-bound run)]
+                (str ">=" lower " partial")
+                "partial")
+    "unknown_incomplete_terminal" "unknown-terminal"
+    "unknown_no_terminal" "no-terminal"
+    "unknown"))
 
 (defn fmt-drift [ratio]
   (when ratio
@@ -69,61 +101,66 @@
             :else       (format "%d%%" pct)))))
 
 (defn print-summary [runs]
-  (let [tokens (keep #(parse-num (:tokens %)) runs)
+  (let [tokens (keep exact-token-count runs)
+        partials (keep partial-token-lower-bound runs)
+        incomplete-terminals (count (filter #(= "unknown_incomplete_terminal"
+                                                (usage-status %)) runs))
+        no-terminals (count (filter #(= "unknown_no_terminal" (usage-status %)) runs))
         durations (keep #(parse-num (:duration_ms %)) runs)
         turns (keep #(parse-num (:num_turns %)) runs)
         fallbacks (keep #(parse-num (:fallback_count %)) runs)
-        drifts (keep (fn [r]
-                       (let [est (parse-num (:estimate_output_tokens r))
-                             act (parse-num (:output_tokens r))]
-                         (drift-ratio est act)))
-                     runs)
-        confs (keep #(parse-num (:confidence %)) runs)]
+        drifts (keep #(parse-num (:estimate_ratio %)) runs)]
     (println (format "%-20s %d" "total runs" (count runs)))
     (when (seq tokens)
-      (println (format "%-20s %d (%d/%d runs reported)" "total tokens"
-                       (long (reduce + tokens)) (count tokens) (count runs)))
-      (println (format "%-20s %d" "avg tokens/run"
-                       (long (/ (reduce + tokens) (count tokens))))))
+      (println (format "%-20s %s (%d/%d exact runs)" "exact token subtotal"
+                       (str (reduce + tokens)) (count tokens) (count runs)))
+      (println (format "%-20s %s" "avg tokens/exact"
+                       (str (quot (reduce + tokens) (count tokens))))))
+    (when (seq partials)
+      (println (format "%-20s >=%s (%d partial runs with known formula)"
+                       "partial lower bound" (str (reduce + partials)) (count partials))))
+    (when (pos? incomplete-terminals)
+      (println (format "%-20s %d" "unknown terminals" incomplete-terminals)))
+    (when (pos? no-terminals)
+      (println (format "%-20s %d" "no usage terminal" no-terminals)))
     (when (seq durations)
       (println (format "%-20s %d" "total duration ms" (long (reduce + durations)))))
     (when (seq turns)
-      ;; num_turns is only ever written for providers that report a real
-      ;; assistant-turn count (Claude SDK). openai/codex runs never carry it
-      ;; (see codex_turn_units, a different, non-comparable quantity) and are
-      ;; therefore already excluded from this sum by construction — thread
-      ;; 019f9c36 (a fabricated codex num_turns=1 grounded a false provider
-      ;; quarantine).
+      ;; Opaque provider-turn units use separate predicates and never enter the
+      ;; assistant-turn sum.
       (println (format "%-20s %d (num_turns-reporting providers only)" "total turns" (long (reduce + turns)))))
     (when (seq fallbacks)
       (println (format "%-20s %d" "provider fallbacks" (long (reduce + fallbacks)))))
     (when (seq drifts)
       (let [avg-drift (/ (reduce + drifts) (count drifts))]
         (println (format "%-20s %.1fx (1.0 = perfect)" "avg estimate drift" avg-drift))
-        (println (format "%-20s %.1fx" "worst overshoot" (apply max drifts)))))
-    (when (seq confs)
-      (println (format "%-20s %.1f / 5" "avg confidence" (/ (reduce + confs) (count confs)))))))
+        (println (format "%-20s %.1fx" "worst overshoot" (apply max drifts)))))))
+
+(defn usage-group-cell [runs]
+  (let [exact (keep exact-token-count runs)
+        partial (keep partial-token-lower-bound runs)
+        unknown (count (filter #(#{"unknown_incomplete_terminal" "unknown_no_terminal"}
+                                  (usage-status %)) runs))
+        parts (cond-> []
+                (seq exact) (conj (str (reduce + exact) " exact"))
+                (seq partial) (conj (str ">=" (reduce + partial) " partial"))
+                (pos? unknown) (conj (str unknown " unknown")))]
+    (if (seq parts) (str/join "+" parts) "?")))
 
 (defn print-by-model [runs]
-  ;; TURNS here is num_turns only (grouped by model, so an openai/codex model
-  ;; row sums to 0 — codex never writes num_turns; see codex_turn_units,
-  ;; which is a different, non-comparable per-invocation quantity, thread
-  ;; 019f9c36). Never eyeball this column across a codex vs. claude model row.
-  (let [groups (group-by #(or (:model %) "unknown") runs)]
-    (println (format "%-16s %5s %12s %12s %8s %9s %10s"
-                     "MODEL" "RUNS" "TOKENS" "DURATION_MS" "TURNS*" "FALLBACKS" "AVG_DRIFT"))
-    (doseq [[model rs] (sort groups)]
-      (let [tokens (keep #(parse-num (:tokens %)) rs)
-            durations (keep #(parse-num (:duration_ms %)) rs)
+  ;; TURNS here is num_turns only. Opaque provider-turn units are a separate,
+  ;; non-comparable measurement and never enter this aggregate.
+  (let [groups (group-by #(or (:model_tier %) "unknown") runs)]
+    (println (format "%-16s %5s %26s %12s %8s %9s %10s"
+                     "MODEL_TIER" "RUNS" "USAGE" "DURATION_MS" "TURNS*" "FALLBACKS" "AVG_DRIFT"))
+    (doseq [[model-tier rs] (sort groups)]
+      (let [durations (keep #(parse-num (:duration_ms %)) rs)
             turns (keep #(parse-num (:num_turns %)) rs)
             fallbacks (keep #(parse-num (:fallback_count %)) rs)
-            drifts (keep (fn [r]
-                           (drift-ratio (parse-num (:estimate_output_tokens r))
-                                        (parse-num (:output_tokens r))))
-                         rs)]
-        (println (format "%-16s %5d %12s %12d %8d %9d %10s"
-                         model (count rs)
-                         (if (seq tokens) (str (long (reduce + tokens))) "?")
+            drifts (keep #(parse-num (:estimate_ratio %)) rs)]
+        (println (format "%-16s %5d %26s %12d %8d %9d %10s"
+                         model-tier (count rs)
+                         (usage-group-cell rs)
                          (long (reduce + 0 durations))
                          (long (reduce + 0 turns))
                          (long (reduce + 0 fallbacks))
@@ -132,45 +169,43 @@
 (defn print-drift [runs]
   (let [with-drift (->> runs
                         (keep (fn [r]
-                                (let [est (parse-num (:estimate_output_tokens r))
-                                      act (parse-num (:output_tokens r))
-                                      d (drift-ratio est act)]
+                                (let [d (parse-num (:estimate_ratio r))]
                                   (when d (assoc r ::drift d)))))
                         (sort-by ::drift >))]
-    (println (format "%-36s %6s %6s %8s %10s %s" "RUN" "EST" "ACTUAL" "DRIFT" "TOKENS" "MODEL"))
+    (println (format "%-36s %10s %10s %8s %18s %s"
+                     "RUN" "EST_HOURS" "ACTUAL_MS" "DRIFT" "USAGE" "MODEL_TIER"))
     (doseq [r with-drift]
-      (println (format "%-36s %6s %6s %8s %10s %s"
+      (println (format "%-36s %10s %10s %8s %18s %s"
                        (subs (str (:entity r)) 0 (min 36 (count (str (:entity r)))))
-                       (or (:estimate_output_tokens r) "?")
-                       (or (:output_tokens r) "?")
+                       (or (:estimate_hours r) "?")
+                       (or (:duration_ms r) "?")
                        (or (fmt-drift (::drift r)) "?")
-                       (or (:tokens r) "?")
-                       (or (:model r) "?"))))))
+                       (usage-cell r)
+                       (or (:model_tier r) "?"))))))
 
 (defn turns-cell [r]
-  ;; num_turns (real assistant turns, Claude SDK) and codex_turn_units (Codex
-  ;; per-invocation turn count, tool calls nested inside) are DIFFERENT
-  ;; quantities (thread 019f9c36) — the "cx" suffix keeps that visible even
-  ;; in a single narrow column, so nobody eyeballs this as one comparable
-  ;; series across providers.
+  ;; The "pt" suffix keeps opaque provider-turn units visibly distinct from
+  ;; assistant-turn counts in the same narrow display column.
   (cond
     (:num_turns r) (str (:num_turns r))
-    (:codex_turn_units r) (str (:codex_turn_units r) "cx"
-                               (when (:codex_tool_items r) (str "/" (:codex_tool_items r) "it")))
+    (and (:provider_turn_units r)
+         (= "false" (:provider_turn_metric_comparable r)))
+    (str (:provider_turn_units r) "pt"
+         (when (:provider_tool_items r) (str "/" (:provider_tool_items r) "it")))
     :else "?"))
 
 (defn print-recent [runs n]
-  (let [recent (take-last n (sort-by #(or (:at %) (:ended_at %) "") runs))]
-    (println (format "%-36s %10s %12s %9s %-28s %s"
-                     "RUN" "TOKENS" "DURATION_MS" "TURNS*" "FALLBACKS/PATH" "PROVIDER/MODEL/EFFORT"))
+  (let [recent (take-last n (sort-by #(or (:at %) "") runs))]
+    (println (format "%-36s %18s %12s %9s %-28s %s"
+                     "RUN" "USAGE" "DURATION_MS" "TURNS*" "FALLBACKS/PATH" "PROVIDER/TIER/EFFORT"))
     (doseq [r recent]
-      (println (format "%-36s %10s %12s %9s %-28s %s"
+      (println (format "%-36s %18s %12s %9s %-28s %s"
                        (subs (str (:entity r)) 0 (min 36 (count (str (:entity r)))))
-                       (or (:tokens r) "?")
+                       (usage-cell r)
                        (or (:duration_ms r) "?")
                        (turns-cell r)
                        (str (or (:fallback_count r) "0") ":" (or (:fallback_path r) "-"))
-                       (str (or (:provider r) "?") "/" (or (:model r) "?") "/"
+                       (str (or (:provider r) "?") "/" (or (:model_tier r) "?") "/"
                             (or (:effort r) "?")))))))
 
 (let [[port-s verb & args] *command-line-args*

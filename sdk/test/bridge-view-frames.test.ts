@@ -10,7 +10,7 @@ import {
   palette_options as paletteOptions,
   palette_enter_action as paletteEnterAction,
   render_detail_panel_bang as renderDetailPanel,
-  render_view_tabs as renderViewTabs,
+  render_view_tabs_bang as renderViewTabs,
   restore_submitted_text_bang as restoreSubmittedText,
   tab_swap_frame as tabSwapFrame,
   thread_view_command_p as threadViewCommand,
