@@ -99,8 +99,6 @@ provider at North's personal profile.
 Current contents:
 
 ```text
-rebuild-coordination=on
-rebuild-window=3600s
 dispatch=auto
 guards=on
 ```

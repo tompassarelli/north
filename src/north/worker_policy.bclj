@@ -15,10 +15,6 @@
    sleep-ms: Int
    next-backoff-ms: Int])
 
-(defrecord RebuildWakeDecision
-  [action: Keyword
-   observed-version: Int])
-
 (defn bounded-double
   [value: Int
    maximum: Int] -> Int
@@ -61,24 +57,6 @@
 
     :else
     (->WorkerDecision :sleep attention-interval-ms attention-interval-ms)))
-
-(defn rebuild-wake-decision
-  [observed-version: Int
-   incoming-version: Int
-   semantic-changed: Bool
-   open-requests: Bool] -> RebuildWakeDecision
-  (cond
-    (<= incoming-version observed-version)
-    (->RebuildWakeDecision :ignore observed-version)
-
-    (not semantic-changed)
-    (->RebuildWakeDecision :advance incoming-version)
-
-    open-requests
-    (->RebuildWakeDecision :wake incoming-version)
-
-    :else
-    (->RebuildWakeDecision :advance incoming-version)))
 
 (defn scheduled-task? [task: Keyword] -> Bool
   (or (= task :stale-concerns)

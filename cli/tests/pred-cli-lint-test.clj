@@ -23,7 +23,7 @@
   (let [d (java.nio.file.Files/createTempDirectory
            "pred-lint-" (into-array java.nio.file.attribute.FileAttribute []))
         dir (.toFile d)]
-    (doseq [f ["cli/pred-cli.clj" "cli/coord.clj"]]
+    (doseq [f ["cli/pred-cli.clj" "cli/coord.clj" "cli/framrpc-client.clj"]]
       (io/copy (src f) (io/file dir (.getName (io/file f)))))
     dir))
 

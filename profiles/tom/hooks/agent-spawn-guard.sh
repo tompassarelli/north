@@ -573,8 +573,6 @@ def north_config_mutation(args):
         ("dispatch", "--guard-action"),
         ("dispatch", "--managed-admission"),
         ("coord",),
-        ("rebuild-coordination",),
-        ("rebuild-window",),
         ("beagle",), ("beagle", "list"),
         ("guards",),
         ("hooks",), ("hooks", "list"),

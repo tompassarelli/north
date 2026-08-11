@@ -199,15 +199,9 @@ relative links. `~/.agents` is the composed live projection. Claude Code and
 Codex configuration are thin adapters to that projection, never additional
 policy sources. Edit a file in its owning repository and commit it there.
 Firn owns the NixOS wiring and application step.
-**Agents QUEUE rebuilds, never fire them.** `north rebuild request --why
-"<reason>"` records one durable ask and returns; `--urgent "<why>"` is counted
-and never refused. The Nix rebuild worker watches the durable request queue,
-coalesces every open ask into one rebuild, and closes each request against the generation that landed.
-Direct `firn rebuild` and `firn-rebuild-coordinated` are DENIED for agent tool
-calls (deliberate owner escape: `north config guards off`); `firn update` and
-raw nixos-rebuild/nh stay the USER's. A rebuild still builds a COMMIT SNAPSHOT
-(`rev=HEAD`), never the working tree — so your one gate is unchanged: commit
-YOUR OWN changes before the window fires or they won't be in the build.
+Agents run `firn rebuild` directly after committing their own changes. It builds
+a COMMIT SNAPSHOT (`rev=HEAD`), never the working tree. `firn update` and raw
+nixos-rebuild/nh stay the USER's.
 Build-only verify: `nix build --no-link`.
 Dev environments activate via direnv (`use flake` in `.envrc`) — never bare
 `nix develop` / `nix shell`.
@@ -229,16 +223,9 @@ publication, or rollback invariant.
 north, fram, and beagle deliver code through their own channels — live
 checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
 workers, timers), sealed `north-enforcement-promote` (guards, deliberately
-slow). A rebuild whose purpose is adopting hot-loop code is a DEFECT: tag
-the ask `--why "code-adoption: …"`, capture a thread naming the coupling,
-and fix the channel instead. The target is zero code-adoption rebuild asks;
-rebuilds are for system config only.
-
-The Nix rebuild queue is Fram data, never a process. Exactly one Nix rebuild
-worker consumes it synchronously. A change to that worker's own unit or
-privilege seam is a bootstrap change: land it, quiesce the worker, and hand the
-owner one explicit activation command; never make a broken consumer deploy its
-own repair through its queue. Firn owns the detailed house rules linked above.
+slow). Do not rebuild solely to adopt hot-loop code; fix its delivery channel.
+Rebuilds are for system configuration. Firn owns the detailed house rules
+linked above.
 
 ## Paths — full and `~`-anchored, always
 <!-- north-section: paths · bucket: core -->

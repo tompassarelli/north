@@ -54,30 +54,6 @@
                 (north.worker-policy/attention-reconciliation-decision
                  1 200000 true))))
 
-(check "old rebuild event is ignored"
-       (= {:action :ignore :observed-version 12}
-          (into {}
-                (north.worker-policy/rebuild-wake-decision
-                 12 11 true true))))
-
-(check "new semantically identical rebuild event advances the cursor"
-       (= {:action :advance :observed-version 13}
-          (into {}
-                (north.worker-policy/rebuild-wake-decision
-                 12 13 false true))))
-
-(check "new empty rebuild queue advances without waking"
-       (= {:action :advance :observed-version 13}
-          (into {}
-                (north.worker-policy/rebuild-wake-decision
-                 12 13 true false))))
-
-(check "new changed rebuild queue wakes its sole worker"
-       (= {:action :wake :observed-version 13}
-          (into {}
-                (north.worker-policy/rebuild-wake-decision
-                 12 13 true true))))
-
 (let [tasks [:stale-concerns :stale-lanes :worktrees :agent-logs :spend-guard]]
   (check "only the five independently scheduled tasks are admitted"
          (and (every? north.worker-policy/scheduled-task? tasks)

@@ -91,7 +91,7 @@
     (let [{:keys [requirements runtime hooks]} (:managedCodexHooks probe)
           paths (concat runtime hooks)
           broken (remove #(#{"nix" "sealed"} (:supply %)) paths)
-          fix "north rebuild request --why \"managed Codex hook fell out of the verified closure\""]
+          fix "firn rebuild"]
       (into
        [(if (:ok requirements)
           (row "closure" "closure.requirements" :pass

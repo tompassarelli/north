@@ -49,7 +49,7 @@ what could not be verified from source.
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
 | **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`orchestration/docs/task-grades.md`); not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
-| **coordination workers** | independently supervised processes for rebuild coordination, durable reconciliation, projection, and bounded scheduled maintenance |
+| **coordination workers** | independently supervised processes for durable reconciliation, projection, and bounded scheduled maintenance |
 
 **The two writer origins.** Port `:7978` was once a stranded coordination
 writer, which caused the historical §3 F7 incident. It is now deliberately the

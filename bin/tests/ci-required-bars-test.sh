@@ -62,8 +62,6 @@ clojure_bars=(
   cli/tests/json-show-indexed-test.clj
   cli/tests/json-children-indexed-test.clj
   cli/tests/dashboard-doctor-exit-test.clj
-  cli/tests/rebuild-request-window-test.clj
-  cli/tests/nix-rebuild-worker-test.clj
   cli/tests/wip-cli-test.clj
   cli/tests/live-feed-integration-test.clj
   cli/tests/message-routing-test.clj

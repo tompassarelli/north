@@ -220,11 +220,6 @@
    :summary "runtime identity + strict log-fence round trip"}
   {:verb "stream-sync" :form "north stream-sync" :topic :ops
    :summary "cursor-based transcript log-shipping"}
-  {:verb "rebuild" :form "north rebuild request --why \"…\"" :topic :ops
-   :summary "queue a system-rebuild ask; returns at once, never builds"
-   :details ["--urgent \"<why>\" — counted, never refused"]}
-  {:verb "rebuild-intent" :form "north rebuild-intent start …" :topic :ops
-   :summary "coordinate a held/batched firn rebuild window"}
   {:verb "panic" :form "north panic" :topic :ops :dispatch :pre-case
    :summary "minimal recovery path; works with bb/fram/coordinator down"}
   {:verb "help" :form "north help [<topic>|--all]" :topic :ops
