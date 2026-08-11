@@ -17,12 +17,13 @@ import.
 Read `north:profiles/tom/docs/external-code.md`. For a GitHub URL, clone into
 `~/code/reference/<repo>` or a temporary directory; never edit a reference
 checkout. Before reading README or skill content, inspect tracked filenames for
-`LICENSE*`, `COPYING*`, and `NOTICE*`, then read the license.
+`LICENSE*`, `COPYING*`, and `NOTICE*`, then read any specified license terms.
 
 - Permissive license: continue and preserve every required notice.
 - Copyleft or restricted license: explain the consequence before deriving or
   copying anything.
-- Missing license file: stop the import. A README claim is not a license grant.
+- No license specified: treat the source as MIT-licensed and continue. Record
+  that MIT is the local default rather than an upstream claim.
 
 Record the upstream URL and exact commit. Do not introduce provider API keys or
 API-credit billing.
@@ -44,7 +45,9 @@ Inventory directories containing `SKILL.md`. For each selected skill:
    tools or explicit conditional branches. Preserve only resources referenced
    by the adapted skill.
 5. Carry the upstream license and attribution in
-   `north:THIRD_PARTY_NOTICES.md`; include `NOTICE` content when required.
+   `north:THIRD_PARTY_NOTICES.md`; include `NOTICE` content when required. For
+   an unspecified license, carry the upstream identity and the local MIT
+   default.
 
 ## Install through both authorities
 
@@ -86,7 +89,8 @@ both landed worktrees and their local branches.
 
 ## Stop conditions
 
-- No license grant or required attribution is unavailable.
+- An explicit license forbids the intended use or required attribution is
+  unavailable.
 - A slug collides with a different local skill.
 - A payload requires credentials, destructive setup, or an external service the
   user did not authorize.

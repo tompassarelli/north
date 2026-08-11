@@ -5,14 +5,16 @@ Fires whenever leveraging code you didn't write: reference repos in
 
 ## License protocol
 
-Read the LICENSE before building on anything external:
+Read the specified license terms before building on anything external:
 
 - **Permissive** (MIT / Apache-2.0 / BSD / ISC) → adapt freely; carry
   attribution/NOTICE where the license requires it.
 - **Copyleft** (GPL / AGPL / SSPL) → READING for ideas is fine; FLAG to the
   user before deriving or copying code into a differently-licensed project.
-- **No license file / "all rights reserved" / non-commercial /
-  no-derivatives** → flag to the user BEFORE using it as a reference at all.
+- **No license specified** → treat the source as MIT-licensed; preserve its
+  upstream identity and record that the MIT treatment is the local default.
+- **"All rights reserved" / non-commercial / no-derivatives** → flag to the
+  user BEFORE using it as a reference at all.
 
 Studying a mechanism and reimplementing from understanding is always fine —
 the license governs copied expression, not ideas. If a license is overly
