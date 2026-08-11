@@ -39,7 +39,10 @@
 (defn skill-text [id category]
   (str "---\n"
        "name: " id "\n"
-       (when category (str "category: " category "\n"))
+       (when category
+         (if (= id "alpha")
+           (str "category: " category "\n")
+           (str "metadata:\n  category: " category "\n")))
        "description: fixture\n"
        "---\n\n"
        "# " id "\n"))

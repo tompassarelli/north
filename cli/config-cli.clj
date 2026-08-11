@@ -856,18 +856,38 @@
     (when-not end
       (throw (ex-info (str "skill has unterminated YAML frontmatter: " skill-file)
                       {:path (str skill-file)})))
-    ;; Only unindented scalar keys belong to the metadata contract. Folded
-    ;; description text and document body prose can never manufacture a
-    ;; category.
-    (reduce
-     (fn [metadata line]
-       (if-let [[_ key value]
-                (and (not (re-find #"^\s" line))
-                     (re-matches #"([A-Za-z][A-Za-z0-9_-]*):\s*(.*)" line))]
-         (assoc metadata key (str/trim value))
-         metadata))
-     {}
-     (subvec lines 1 end))))
+    (let [frontmatter (subvec lines 1 end)
+          ;; Only unindented scalar keys belong to the root contract. Folded
+          ;; description text and document body prose cannot manufacture one.
+          root (reduce
+                (fn [metadata line]
+                  (if-let [[_ key value]
+                           (and (not (re-find #"^\s" line))
+                                (re-matches
+                                 #"([A-Za-z][A-Za-z0-9_-]*):\s*(.*)"
+                                 line))]
+                    (assoc metadata key (str/trim value))
+                    metadata))
+                {}
+                frontmatter)
+          metadata-index (first
+                          (keep-indexed
+                           (fn [index line]
+                             (when (re-matches #"metadata:\s*" line) index))
+                           frontmatter))
+          nested-category
+          (when metadata-index
+            (some
+             (fn [line]
+               (some-> (re-matches #"\s+category:\s*(.*)" line) second str/trim))
+             (take-while
+              #(or (str/blank? %) (re-find #"^\s" %))
+              (drop (inc metadata-index) frontmatter))))]
+      (when (and nested-category (contains? root "category"))
+        (throw (ex-info (str "skill declares category twice: " skill-file)
+                        {:path (str skill-file)})))
+      (cond-> root
+        nested-category (assoc "category" nested-category)))))
 
 (defn- skill-inventory []
   (let [root (io/file SKILLS-PROFILE)]
