@@ -30,3 +30,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Three.js Skills
+
+North vendors skill documentation from `CloudAI-X/threejs-skills` under
+`profiles/tom/skills/threejs-*`.
+
+Upstream project: <https://github.com/CloudAI-X/threejs-skills>
+
+Upstream commit: `b1c623076c661fc9b03dac19292e825a5d106823`
+
+The upstream README labels the collection “MIT License” but the tracked tree at
+this commit contains no standalone license or copyright notice. North treats
+the imported material as MIT-licensed under its local default.
