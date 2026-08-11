@@ -107,8 +107,5 @@ OPS — daemons, health, deployment
   north coord-ready                             cheap exact runtime identity for every active writer
   north coord-safety                            runtime identity + strict log-fence round trip
   north stream-sync                             cursor-based transcript log-shipping
-  north rebuild request --why "…"               queue a system-rebuild ask; returns at once, never builds
-                                                --urgent "<why>" — counted, never refused
-  north rebuild-intent start …                  coordinate a held/batched firn rebuild window
   north panic                                   minimal recovery path; works with bb/fram/coordinator down
   north help [<topic>|--all]                    the card; a topic page; or the complete reference

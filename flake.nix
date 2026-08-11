@@ -430,7 +430,6 @@ PY
             ./bin/north-on-stop
             ./bin/north-on-tooluse
             ./bin/north-succession
-            ./bin/firn-rebuild-coordinated
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
             ./bin/docctl
@@ -590,7 +589,7 @@ EOF
             ln -s ${sdkRuntimeDependencies}/node_modules $out/sdk/node_modules
             cp bin/north bin/north-comms bin/north-mcp bin/north-actor-key \
               bin/north-mark-delegated bin/north-on-spawn bin/north-on-stop \
-              bin/north-on-tooluse bin/firn-rebuild-coordinated \
+              bin/north-on-tooluse \
               bin/north-stream-sync bin/north-stream-sync-all \
               bin/north-succession \
               bin/docctl bin/concern bin/ensure-private-docs \
@@ -649,10 +648,6 @@ EOF
 
             wrapProgram $out/bin/docctl \
               --prefix PATH : ${runtimePath}
-
-            wrapProgram $out/bin/firn-rebuild-coordinated \
-              --prefix PATH : ${runtimePath} \
-              --set NORTH_BIN $out/bin/north
 
             wrapProgram $out/bin/concern \
               --prefix PATH : ${runtimePath} \
@@ -753,8 +748,6 @@ EOF
               FRAM_OUT="$FRAM_OUT" NORTH_FRAMRPC_OUT="$NORTH_FRAMRPC_OUT" \
               $out/bin/.north-wrapped help > "$smoke/help.out"
             grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
-            test -x "$out/bin/firn-rebuild-coordinated"
-
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= \
               $out/bin/ensure-private-docs "$client_repo"

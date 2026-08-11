@@ -78,19 +78,6 @@
   (check "a selector that names no revision is malformed, never promoted"
          (and (false? (:promoted? result)) (some? (:malformed result)))))
 
-(let [open [{:why "code-adoption: maintenance worker fix" :requester "a"}
-            {:why "  Code-Adoption: doctor gauge  " :requester "b"}
-            {:why "new kernel module" :requester "c"}
-            {:why "adopt code-adoption: not at the start" :requester "d"}
-            {:why nil :requester "e"}]
-      adoption (code-adoption-asks open)]
-  (check "the gauge counts only asks tagged at the start of --why"
-         (= 2 (count adoption)))
-  (check "the tag match ignores case and surrounding space"
-         (= ["a" "b"] (mapv :requester adoption)))
-  (check "an untagged queue gauges zero"
-         (= [] (code-adoption-asks [{:why "system config"}]))))
-
 (let [failed (remove second @checks)]
   (println (str "dashboard promoted runtime: "
                 (- (count @checks) (count failed))

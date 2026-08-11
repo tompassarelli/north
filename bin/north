@@ -422,15 +422,6 @@ case "${1:-}" in
     # Coordinator-facing done_when grooming: the one-step recovery the delivery
     # reserve error points at when a thread accumulates past the bar limit.
     exec "${NORTH_BARS[@]}" "${@:2}" ;;
-  rebuild-intent)
-    # Rebuild coordination is a fact + finite live-roster broadcast protocol.
-    # The Clojure module owns its CAS-closed hold/response/all-clear state.
-    exec "$BB" "$NORTH/cli/rebuild-intent-cli.clj" "${@:2}" ;;
-  rebuild)
-    # The QUEUE in front of that protocol: `request` records a durable ask and
-    # returns immediately — an agent never fires a rebuild itself. The Nix
-    # rebuild worker is the only queue consumer.
-    exec "$BB" "$NORTH/cli/rebuild-request-cli.clj" "${@:2}" ;;
   linear)
     # Zero-turn Linear adapter over Codex app-server MCP. `sync` defaults to a
     # read-only plan; only an explicit `sync <thread> --apply` writes remotely.

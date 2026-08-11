@@ -95,16 +95,6 @@
    ["watchdog_silence_ms" "single" "literal" "observed execution-inactivity window that caused a watchdog abort"]
    ["watchdog_last_outer_activity" "single" "literal" "last outer execution activity observed before watchdog abort, or none"]
    ["watchdog_last_provider_activity" "single" "literal" "last provider activity observed before watchdog abort, or none"]
-   ;; --- rebuild intent protocol ---
-   ["rebuild_intent" "single" "literal" "canonical request and bounded coordination window for one rebuild"]
-   ["rebuild_response" "multi" "literal" "append-only participant batch or hold response to a rebuild intent"]
-   ["all_clear" "single" "literal" "marker that the rebuild intent response window reached all-clear"]
-   ["rebuild_started" "single" "literal" "marker that the rebuild began"]
-   ["rebuild_outcome" "single" "literal" "terminal deployment-verified or failed rebuild report"]
-   ["rebuild_request_satisfied" "single" "literal" "terminal satisfaction projection for one rebuild request"]
-   ["window_action" "single" "literal" "current lifecycle action of one rebuild request window"]
-   ["window_intent" "single" "literal" "rebuild intent fulfilled by one rebuild request window"]
-   ["window_generation" "single" "literal" "Nix generation produced by one fired rebuild request window"]
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]

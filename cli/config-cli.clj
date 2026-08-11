@@ -1680,35 +1680,6 @@
     :else
     (die "usage: north config coord [north|linear|both]")))
 
-(defn cmd-rebuild-coordination [[sub]]
-  (cond
-    (#{"on" "off"} sub)
-    (do
-      (put' "rebuild-coordination" sub)
-      (println (str "rebuild-coordination → " sub)))
-    (nil? sub)
-    (let [r (get' "rebuild-coordination" "off")]
-      (println (str "rebuild-coordination = " r
-                    "   (default off; north config rebuild-coordination on|off)")))
-    :else
-    (die "usage: north config rebuild-coordination [on|off]")))
-
-;; This horizon bounds activation-health telemetry only. Admission is immediate
-;; whenever the serialized rebuild owner is idle.
-(defn cmd-rebuild-window [[sub]]
-  (cond
-    (nil? sub)
-    (let [r (get' "rebuild-window" "3600s")]
-      (println (str "rebuild-window = " r
-                    "   (reporting horizon only; admission is immediate)")))
-    (re-matches #"(?i)[1-9][0-9]*(s|m|h)?" (str sub))
-    (do
-      (put' "rebuild-window" sub)
-      (println (str "rebuild-window → " sub
-                    "   (reporting horizon only; admission is immediate)")))
-    :else
-    (die "usage: north config rebuild-window [<n>[s|m|h]]")))
-
 (def hooks-usage
   "usage: north config hooks [list|explain <hook-id>|on|off <hook-id> [--until ISO]|category on|off <category> [--until ISO]|all on|off [--until ISO]]")
 
@@ -1842,8 +1813,6 @@
         ("status") (status)
         "dispatch" (cmd-dispatch rest)
         "coord"    (cmd-coord rest)
-        "rebuild-coordination" (cmd-rebuild-coordination rest)
-        "rebuild-window" (cmd-rebuild-window rest)
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
         "context"  (cmd-context rest)
@@ -1853,7 +1822,7 @@
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|rebuild-coordination|rebuild-window|guards|hooks|context|skills|mcp|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|context|skills|mcp|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

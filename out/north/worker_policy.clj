@@ -18,12 +18,6 @@
 
 (defn workerdecision-next-backoff-ms [r] (:next-backoff-ms r))
 
-(defrecord RebuildWakeDecision [action observed-version])
-
-(defn rebuildwakedecision-action [r] (:action r))
-
-(defn rebuildwakedecision-observed-version [r] (:observed-version r))
-
 (defn bounded-double [value maximum]
   (let [doubled (* value 2)]
   (if (> doubled maximum) maximum doubled)))
@@ -40,13 +34,6 @@
   (not (= exit-code 0)) (->WorkerDecision :sleep backoff-ms (bounded-double backoff-ms attention-maximum-backoff-ms))
   more-work (->WorkerDecision :run 0 attention-interval-ms)
   :else (->WorkerDecision :sleep attention-interval-ms attention-interval-ms)))
-
-(defn ^RebuildWakeDecision rebuild-wake-decision [observed-version incoming-version ^Boolean semantic-changed ^Boolean open-requests]
-  (cond
-  (<= incoming-version observed-version) (->RebuildWakeDecision :ignore observed-version)
-  (not semantic-changed) (->RebuildWakeDecision :advance incoming-version)
-  open-requests (->RebuildWakeDecision :wake incoming-version)
-  :else (->RebuildWakeDecision :advance incoming-version)))
 
 (defn ^Boolean scheduled-task? [task]
   (or (= task :stale-concerns) (or (= task :stale-lanes) (or (= task :worktrees) (or (= task :agent-logs) (= task :spend-guard))))))
