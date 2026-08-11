@@ -11,7 +11,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function rollout(name: string, ageSeconds: number, records: unknown[]): string {
+function rollout(name: string, ageSeconds: number, records: unknown[], finalNewline = true): string {
   const root = roots[0] ?? (() => {
     const created = mkdtempSync(join(tmpdir(), "north-openai-activity-"));
     roots.push(created);
@@ -20,7 +20,7 @@ function rollout(name: string, ageSeconds: number, records: unknown[]): string {
   const directory = join(root, "sessions", "2026", "08", "02");
   mkdirSync(directory, { recursive: true });
   const path = join(directory, `rollout-${name}.jsonl`);
-  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+  writeFileSync(path, `${records.map((record) => JSON.stringify(record)).join("\n")}${finalNewline ? "\n" : ""}`);
   const modified = new Date(now.getTime() - ageSeconds * 1_000);
   utimesSync(path, modified, modified);
   return root;
@@ -36,6 +36,19 @@ test("sums only the last total_token_usage entry in each rollout", async () => {
 
   expect(await readOpenAISessionActivity({ accountRoot: root, now })).toMatchObject({
     hours: 24, sessions: 2, live: 0, outputTokens: 32,
+  });
+});
+
+test("finds the newest valid usage before large trailing records", async () => {
+  const root = rollout("reverse", 300, [
+    usage(10),
+    usage(25),
+    { payload: "x".repeat(128 * 1024) },
+    { note: "invalid total_token_usage marker" },
+  ], false);
+
+  expect(await readOpenAISessionActivity({ accountRoot: root, now })).toMatchObject({
+    sessions: 1, outputTokens: 25,
   });
 });
 

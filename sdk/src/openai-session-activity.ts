@@ -1,9 +1,11 @@
-import { createReadStream, readdirSync, statSync } from "node:fs";
-import { createInterface } from "node:readline";
+import { readdirSync, statSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { join } from "node:path";
 
 export const DEFAULT_SESSION_ACTIVITY_HOURS = 24;
 export const LIVE_SESSION_MTIME_MS = 120_000;
+// Rollouts can be hundreds of megabytes, while each usage record is cumulative.
+const REVERSE_READ_CHUNK_BYTES = 64 * 1024;
 
 export interface OpenAISessionActivity {
   hours: number;
@@ -52,20 +54,40 @@ function totalTokenUsage(line: string): Record<string, unknown> | undefined {
 }
 
 async function lastOutputTokens(path: string): Promise<number> {
-  let lastUsage: Record<string, unknown> | undefined;
+  let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    const lines = createInterface({ input: createReadStream(path), crlfDelay: Infinity });
-    for await (const line of lines) {
-      const usage = totalTokenUsage(line);
-      if (usage) lastUsage = usage;
+    file = await open(path, "r");
+    let position = (await file.stat()).size;
+    let suffix = Buffer.alloc(0);
+    while (position > 0) {
+      const length = Math.min(position, REVERSE_READ_CHUNK_BYTES);
+      position -= length;
+      const chunk = Buffer.allocUnsafe(length);
+      const { bytesRead } = await file.read(chunk, 0, length, position);
+      if (bytesRead <= 0) break;
+      const contents = suffix.length
+        ? Buffer.concat([chunk.subarray(0, bytesRead), suffix])
+        : chunk.subarray(0, bytesRead);
+      let lineEnd = contents.length;
+      while (lineEnd > 0) {
+        const newline = contents.lastIndexOf(0x0a, lineEnd - 1);
+        if (newline < 0) break;
+        const usage = totalTokenUsage(contents.subarray(newline + 1, lineEnd).toString("utf8"));
+        const outputTokens = usage?.output_tokens;
+        if (typeof outputTokens === "number" && Number.isFinite(outputTokens)) return outputTokens;
+        lineEnd = newline;
+      }
+      suffix = Buffer.from(contents.subarray(0, lineEnd));
     }
+    const outputTokens = totalTokenUsage(suffix.toString("utf8"))?.output_tokens;
+    return typeof outputTokens === "number" && Number.isFinite(outputTokens)
+      ? outputTokens
+      : 0;
   } catch {
     return 0;
+  } finally {
+    await file?.close().catch(() => {});
   }
-  const outputTokens = lastUsage?.output_tokens;
-  return typeof outputTokens === "number" && Number.isFinite(outputTokens)
-    ? outputTokens
-    : 0;
 }
 
 export async function readOpenAISessionActivity(
