@@ -1,0 +1,4 @@
+interface:
+  display_name: "Importing Skills"
+  short_description: "Import skills across every local harness"
+  default_prompt: "Use $importing-skills to import the skills from this GitHub repository into my shared North environment."
