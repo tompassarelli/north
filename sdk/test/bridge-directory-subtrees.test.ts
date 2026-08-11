@@ -408,12 +408,12 @@ test("closing the memories keeps the instruction file, indentation and all", asy
 test("/config carries the subtrees inside their nodes, sections intact", async () => {
   const lines = await frameOf("all", MANIFEST, 0, 26, [], ["global", "code"]);
   const frame = lines.join("\n");
-  for (const header of ["MODULE SETS", "SKILLS", "PLUGINS"]) {
+  for (const header of ["SETS", "SKILLS", "PLUGINS"]) {
     expect(frame).toContain(header);
   }
   // The node's own files read FIRST inside it, before everything it turns on:
   // what the directory says, then what happens to be in force there.
-  expect(frame.indexOf("AGENTS.md")).toBeLessThan(frame.indexOf("MODULE SETS"));
+  expect(frame.indexOf("AGENTS.md")).toBeLessThan(frame.indexOf("SETS"));
   expect(lines).toContain("      report-style-recommendations: on");
 });
 

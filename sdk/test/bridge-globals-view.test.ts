@@ -141,7 +141,7 @@ test("MODULES is a subsection of SKILLS, and the headings say so", () => {
   expect(configSectionTitle("dir")).toBe("");
   expect(configHeaderRoles("dir")).toEqual([]);
   // The stack inside a node, in the order it reads.
-  expect(configSectionTitle("moduleset")).toBe("MODULE SETS");
+  expect(configSectionTitle("moduleset")).toBe("SETS");
   expect(configSectionTitle("module")).toBe("MODULES");
   expect(configSectionTitle("skill")).toBe("SKILLS");
   expect(configSectionTitle("hook")).toBe("HOOKS");
@@ -162,7 +162,7 @@ test("MODULES is a subsection of SKILLS, and the headings say so", () => {
 });
 
 test("the heading budget covers what a view can print", () => {
-  // The six headings a node can carry: MODULE SETS, SKILLS, its MODULES
+  // The six headings a node can carry: SETS, SKILLS, its MODULES
   // subsection, HOOKS, PLUGINS, OTHER. Directories head nothing.
   expect(configSectionRows("all")).toBe(6);
   // /globals is the root node without plugins.
@@ -256,7 +256,7 @@ test("/globals is the root node, expanded, with everything scoped to it", async 
   const frame = await frameOf("globals");
   expect(frame).toContain("globals");
   expect(frame).toContain("▾ GLOBAL");
-  expect(frame).toContain("MODULE SETS");
+  expect(frame).toContain("SETS");
   expect(frame).toContain("SKILLS");
   expect(frame).toContain("MODULES");
   expect(frame).toContain("HOOKS");
@@ -287,7 +287,7 @@ test("/agentsmd is every node and the files it carries", async () => {
   expect(frame).toContain("on ");
   expect(frame).toContain("off ");
   // Nothing a node turns on belongs in this view.
-  for (const header of ["SKILLS", "HOOKS", "MODULE SETS", "PLUGINS", "OTHER"]) {
+  for (const header of ["SKILLS", "HOOKS", "SETS", "PLUGINS", "OTHER"]) {
     expect(frame).not.toContain(header);
   }
   expect(frame).not.toContain("statusline-script");
@@ -300,12 +300,12 @@ test("/config opens as a list of directories, and expands into the stack", async
   expect(folded).not.toContain("DIRECTORY");
   expect(folded).toContain("▸ GLOBAL");
   expect(folded).toContain("▸ /tmp/switchboard-fixture/code");
-  for (const header of ["MODULE SETS", "SKILLS", "HOOKS", "PLUGINS", "OTHER"]) {
+  for (const header of ["SETS", "SKILLS", "HOOKS", "PLUGINS", "OTHER"]) {
     expect(folded).not.toContain(header);
   }
 
   const open = await frameOf("all", MANIFEST, ["global"]);
-  const order = ["MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS",
+  const order = ["SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS",
                  "OTHER"];
   const seen = order.map((header) => {
     const at = open.indexOf(header);
@@ -320,11 +320,11 @@ test("/config opens as a list of directories, and expands into the stack", async
   expect(open).not.toContain("DIRECTORY");
 });
 
-test("/modules narrows to the module sets, under the node that holds them", async () => {
+test("/modules narrows to the sets, under the node that holds them", async () => {
   const frame = await frameOf("module");
   expect(frame).toContain("modules");
   expect(frame).toContain("orchestration");
-  expect(frame).toContain("MODULE SETS");
+  expect(frame).toContain("SETS");
   // A narrow view carries the node its rows are in and no other kind's rows.
   expect(frame).toContain("▾ GLOBAL");
   expect(frame).not.toContain("firn-guard");

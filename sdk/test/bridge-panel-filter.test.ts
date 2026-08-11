@@ -305,7 +305,7 @@ test("a filtered switchboard shows the query, the matches, and the headings that
   const before = await frameOf(configRuntime(MANIFEST, "all", 0, null, ["global"]));
   expect(before[0]).toBe(
     "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
-  for (const heading of ["MODULE SETS", "SKILLS", "MODULES", "HOOKS", "OTHER"]) {
+  for (const heading of ["SETS", "SKILLS", "MODULES", "HOOKS", "OTHER"]) {
     expect(before.some((l) => l.trim() === heading)).toBe(true);
   }
   // Directories are the root level, under nothing.
@@ -324,7 +324,7 @@ test("a filtered switchboard shows the query, the matches, and the headings that
   ]);
   // Every heading with nothing left prints nothing: headings go with the rows
   // they head.
-  for (const heading of ["MODULE SETS", "OTHER", "PLUGINS"]) {
+  for (const heading of ["SETS", "OTHER", "PLUGINS"]) {
     expect(after.some((l) => l.trim() === heading)).toBe(false);
   }
 });

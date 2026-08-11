@@ -206,10 +206,10 @@ async function frameOf(view: string, entries: Row[] = MANIFEST,
   return frame;
 }
 
-test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGINS, OTHER", async () => {
+test("the stack inside a node reads SETS, SKILLS > MODULES, HOOKS, PLUGINS, OTHER", async () => {
   const frame = await frameOf("all", MANIFEST, ["global"]);
   const order = [
-    "MODULE SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS", "OTHER",
+    "SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS", "OTHER",
   ];
   const seen = order.map((header) => {
     const at = frame.indexOf(header);
@@ -222,7 +222,7 @@ test("the stack inside a node reads MODULE SETS, SKILLS > MODULES, HOOKS, PLUGIN
   // over the directories themselves.
   expect(frame).not.toContain("DIRECTORY");
   expect(frame.indexOf("▾ GLOBAL")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
-  expect(frame.indexOf("MODULE SETS")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
+  expect(frame.indexOf("SETS")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
 });
 
 test("each of the hook states renders as itself, whatever kind it follows", async () => {

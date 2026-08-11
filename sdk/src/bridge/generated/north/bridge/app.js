@@ -1694,7 +1694,7 @@ function visible_notice(notice) {
 }
 
 export function config_section_title(role) {
-  return (((role === "moduleset")) ? "MODULE SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
+  return (((role === "moduleset")) ? "SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
 }
 
 export function config_header_roles(role) {

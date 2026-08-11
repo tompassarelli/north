@@ -1,7 +1,7 @@
 # Coordination modules
 
 Coordination is the shared-ledger half of North's optional orchestration
-surface. It is a nested module set with three members:
+surface. It is a nested set with three members:
 
 | Member | Responsibility |
 |---|---|
@@ -9,7 +9,7 @@ surface. It is a nested module set with three members:
 | `threads` | intentions, facts, dependencies, queue state, outcomes |
 | `assignments` | the actor-to-thread ownership binding |
 
-The module-set instructions are in `guide.md`; each member's consumer entry
+The set instructions are in `guide.md`; each member's consumer entry
 point is its `SKILL.md`. The switchboard definition lives in
 `nixos-config:dotfiles/agents/modules.d/coordination.json`, and the outer
 `orchestration` set contains this set. That containment is deliberate: the
