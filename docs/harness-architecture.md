@@ -46,7 +46,7 @@ and North-owned support surfaces into provider discovery locations.
 ## How `~/.agents` is composed
 
 [Observed] `nixos-config:dotfiles/agents/AGENTS.md` is the durable global policy
-source. `agents apply` appends instructions only for active module sets and
+source. `agents apply` appends instructions only for active sets and
 writes the provider-neutral targets under `~/.config/agents/`. Static provider
 hook adapters consume `activity.conf`, a derived projection rather than a
 second policy source.
@@ -181,7 +181,7 @@ The profile registry currently contains these classes:
 
 The `north-session-lifecycle` hook module contains `north-on-spawn`,
 `north-on-stop`, and `north-mark-delegated`; the `assignments` skill claims it,
-so the coordination and orchestration module-set gates apply to it too.
+so the coordination and orchestration set gates apply to it too.
 
 Consequences:
 

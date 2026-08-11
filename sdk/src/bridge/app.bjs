@@ -3159,7 +3159,7 @@
 (js/export
  (defn config-section-title [role: String] -> String
   (cond
-    (identical? role "moduleset") "MODULE SETS"
+    (identical? role "moduleset") "SETS"
     (identical? role "module") "MODULES"
     (identical? role "skill") "SKILLS"
     (identical? role "hook") "HOOKS"
@@ -3578,7 +3578,7 @@
 (def DETAIL-CHROME-ROWS: Int 3)
 
 ;; Headings are content the panel inserts between rows, so the layout budgets
-;; for them: inside a node, MODULE SETS, SKILLS, its MODULES subsection, HOOKS,
+;; for them: inside a node, SETS, SKILLS, its MODULES subsection, HOOKS,
 ;; PLUGINS and OTHER. Six, because only the root node carries kind sections
 ;; today — the day a project carries its own skills, a window spanning two nodes
 ;; can print more, and this ceiling is where that is paid for. Directories head

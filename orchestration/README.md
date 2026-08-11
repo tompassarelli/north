@@ -20,9 +20,9 @@ payload (role, grade, topology, posture, comms, provider family block, exact
 model delta) for any provider, so custom-surface lanes never launch on a bare
 task prompt.
 
-In a switchboard installation, Orchestration is a module set rather than one
+In a switchboard installation, Orchestration is a set rather than one
 consumer skill. The set injects `doctrine.md` and contains the `staffing`
-module; it also contains the nested `coordination` module set, whose messages,
+module; it also contains the nested `coordination` set, whose messages,
 threads, and assignments remain separate responsibilities. Turning off the
 outer set therefore removes the complete runtime surface without changing the
 members' remembered switches.
@@ -130,8 +130,8 @@ ln -s "$PWD/agents"/*.md    ~/.claude/agents/
 ```
 
 The `staffing` skill registers the role-profile boundary and declares the
-template library. A host that supports module sets should inject `doctrine.md`
-as the outer Orchestration set's instructions; a host without module sets must
+template library. A host that supports sets should inject `doctrine.md`
+as the outer Orchestration set's instructions; a host without sets must
 load that doctrine through its own context mechanism before routing. The linked
 agent files register the template library, so spawn a template worker directly via the Agent tool
 (`subagent_type: "implementer"` — the plain template name; Claude Code rejects a
@@ -147,7 +147,7 @@ for anyone still running the marketplace install
 (`/plugin marketplace add tompassarelli/orchestration`). It is no longer the
 supported path: the plugin installs an unversioned *copy* of the doctrine and
 agents into the plugin cache, and it injected the doctrine digest into every
-session whether or not the session ever delegated. The switchboard module set
+session whether or not the session ever delegated. The switchboard set
 replaces that SessionStart injection with the one canonical file, and the agent
 symlinks replace the copied templates. Under the plugin the templates were
 namespaced `orchestration:<role>`; installed as agent files they are the plain
