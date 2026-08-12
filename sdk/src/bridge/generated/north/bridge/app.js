@@ -1438,7 +1438,7 @@ export function reconcile_agent_selection_bang(runtime, prior_id) {
   return selected;
 }
 
-async function refresh_bang(runtime) {
+export async function refresh_bang(runtime) {
   const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
   const agent_payload = payloads[0];
   const board = payloads[1];
@@ -3048,7 +3048,7 @@ function complete_palette_bang(runtime, ui, commands) {
   }
 }
 
-function submit_input_bang(runtime, ui, input) {
+export function submit_input_bang(runtime, ui, input) {
   if ((!(input === ""))) {
     (ui.composerInput.value = "");
     (runtime.paletteIndex = 0);
