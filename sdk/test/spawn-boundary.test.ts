@@ -34,6 +34,8 @@ let log: string;
 function readySubscription(stop: () => void = () => {}) {
   return Object.assign(stop, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => {},
     isArmed: () => true,
   });
@@ -48,6 +50,8 @@ function reapTimeoutSubscription(counter: { stops: number }) {
     return settlement;
   }, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => {},
     isArmed: () => true,
   });
@@ -466,6 +470,8 @@ test("a terminal live-feed drain failure AFTER a completed provider turn preserv
   writeFileSync(log, "");
   const failingDrainSubscription = () => Object.assign(() => {}, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => { throw new Error("settlement feed drain timed out"); },
     isArmed: () => true,
   });
@@ -572,6 +578,8 @@ test("a terminal live-feed drain failure with NO completed provider result stays
   writeFileSync(log, "");
   const failingDrainSubscription = () => Object.assign(() => {}, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => { throw new Error("settlement feed drain timed out"); },
     isArmed: () => true,
   });

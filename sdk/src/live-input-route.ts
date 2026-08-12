@@ -6,6 +6,7 @@ import {
   subscribeSettlementFeed,
   type FeedSubscription,
   type InputAdmission,
+  type SubscriptionRuntime,
 } from "./coordination";
 import {
   updateAgentRoute,
@@ -27,6 +28,11 @@ export interface ManagedRouteAxes {
   effort?: string;
 }
 
+export interface ManagedContinuationGate {
+  readonly signal: AbortSignal;
+  throwIfTerminated(): void;
+}
+
 type ManagedRouteIdentityBase = Omit<
   AgentIdentity,
   | "provider"
@@ -41,6 +47,7 @@ type ManagedRouteIdentityBase = Omit<
 type FeedSubscriber = (
   recipient: string,
   onMessage: (message: string) => InputAdmission,
+  runtime?: SubscriptionRuntime,
 ) => FeedSubscription;
 
 type RouteWriter = (
@@ -54,7 +61,28 @@ interface PublishedRoute extends ManagedRouteAxes {
 }
 
 function initialState(capability: LiveInputCapability): LiveInputState {
-  return capability === "streaming" ? "pending" : "frozen";
+  return capability === "unsupported" ? "frozen" : "pending";
+}
+
+function rejectedAdmission(): InputAdmission {
+  return {
+    consumed: Promise.resolve(false),
+    cancel: () => {},
+  };
+}
+
+function waitForAbort(signal: AbortSignal): {
+  promise: Promise<false>;
+  detach: () => void;
+} {
+  const settlement = Promise.withResolvers<false>();
+  const abort = () => settlement.resolve(false);
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  return {
+    promise: settlement.promise,
+    detach: () => signal.removeEventListener("abort", abort),
+  };
 }
 
 function semanticKey(route: ManagedRouteAxes, state: LiveInputState): string {
@@ -95,6 +123,48 @@ export class ManagedLiveInputRoute {
   private settlementRequired = false;
   private unbindSettlement: Promise<void> = Promise.resolve();
   private readonly settlementFeedSubscriber: FeedSubscriber;
+  #followUpState: "open" | "queued" | "consumed" = "open";
+  #followUpOwner: object | undefined;
+  #followUpQueued = Promise.withResolvers<void>();
+
+  #resetFollowUpSlot(owner: object): void {
+    if (this.#followUpOwner !== owner || this.#followUpState !== "queued") return;
+    this.#followUpOwner = undefined;
+    this.#followUpState = "open";
+    this.#followUpQueued = Promise.withResolvers<void>();
+  }
+
+  #admitMessage = (message: string): InputAdmission => {
+    if (this.published.liveInput !== "turn-framed") return this.pushMessage(message);
+    if (this.#followUpState !== "open") return rejectedAdmission();
+
+    const owner = {};
+    const admission = this.pushMessage(message);
+    this.#followUpOwner = owner;
+    this.#followUpState = "queued";
+    this.#followUpQueued.resolve();
+    const consumed = Promise.resolve(admission.consumed).then(
+      (value) => {
+        if (value === true) {
+          if (this.#followUpOwner === owner) {
+            this.#followUpOwner = undefined;
+            this.#followUpState = "consumed";
+          }
+          return true;
+        }
+        this.#resetFollowUpSlot(owner);
+        return false;
+      },
+      () => {
+        this.#resetFollowUpSlot(owner);
+        return false;
+      },
+    );
+    return {
+      consumed,
+      cancel: () => admission.cancel(),
+    };
+  };
 
   constructor(
     private readonly agentId: string,
@@ -224,16 +294,35 @@ export class ManagedLiveInputRoute {
     }
   }
 
+  async #bindFeed(deferredStart = false): Promise<FeedSubscription> {
+    const subscription = this.feedSubscriber(
+      this.agentId,
+      this.#admitMessage,
+      deferredStart ? { deferredStart: true } : undefined,
+    );
+    try {
+      await readinessProof(subscription);
+      return subscription;
+    } catch (error) {
+      await subscription();
+      throw error;
+    }
+  }
+
   /**
-   * Called only after provider admission and before provider.query. Streaming
+   * Called only after provider admission and before provider.query. Supported
    * candidates are published only after the feed proves ready.
    */
-  async activate(route: ManagedRouteAxes): Promise<void> {
-    // Turn-framed control is owned by a persistent interactive-session host.
-    // A one-shot lane has no post-terminal session to receive another frame,
-    // so publishing the capability must not arm its streaming feed.
-    if (route.liveInput !== "streaming") {
+  async activate(
+    route: ManagedRouteAxes,
+    terminalFollowUpCapable = false,
+  ): Promise<void> {
+    if (route.liveInput === "unsupported") {
       this.publish(route, "frozen", true);
+      return;
+    }
+    if (route.liveInput === "turn-framed" && !terminalFollowUpCapable) {
+      this.publish(route, "pending", true);
       return;
     }
     if (this.subscription) {
@@ -255,10 +344,8 @@ export class ManagedLiveInputRoute {
     }
     let subscription: FeedSubscription | undefined;
     try {
-      subscription = this.feedSubscriber(this.agentId, this.pushMessage);
-      await readinessProof(subscription);
+      subscription = await this.#bindFeed(route.liveInput === "turn-framed");
     } catch (error) {
-      if (subscription) await subscription();
       if (
         error instanceof LiveFeedStoppedBeforeReadyError
         || error instanceof LiveFeedStartupTimeoutError
@@ -278,6 +365,45 @@ export class ManagedLiveInputRoute {
     } catch (error) {
       await subscription();
       throw error;
+    }
+  }
+
+  /**
+   * Re-poll the durable inbox at the first successful terminal. Turn-framed input
+   * is passive: the deferred feed has established its coordinator cursor but has
+   * claimed no graph mail until this boundary. The provider cannot acknowledge the
+   * admitted frame until its retained session asks the channel for a later turn.
+   */
+  async prepareTerminalFollowUp(signal: AbortSignal): Promise<boolean> {
+    if (
+      this.published.liveInput !== "turn-framed"
+      || this.published.liveInputState !== "armed"
+      || signal.aborted
+    ) return false;
+    if (this.#followUpState === "queued") return true;
+    const subscription = this.subscription;
+    if (!subscription) return false;
+    const replayAbort = waitForAbort(signal);
+    try {
+      if (
+        typeof subscription.replay !== "function"
+        || !subscription.caughtUp
+        || typeof subscription.caughtUp.then !== "function"
+      ) throw new Error("North turn-framed feed did not expose a replay barrier");
+      if (this.#followUpState === "consumed") {
+        return await Promise.race([
+          subscription.caughtUp.then(() => false as const),
+          replayAbort.promise,
+        ]);
+      }
+      const queued = this.#followUpQueued.promise.then(() => true as const);
+      const replayed = subscription.replay().then(() => false as const);
+      return await Promise.race([queued, replayed, replayAbort.promise]);
+    } catch {
+      await this.unbind().catch(() => {});
+      return false;
+    } finally {
+      replayAbort.detach();
     }
   }
 
@@ -326,4 +452,19 @@ export class ManagedLiveInputRoute {
     }
     await this.drainAndUnbind();
   }
+}
+
+/**
+ * The single admission seam shared by spawn and dispatch. The first proof keeps
+ * an already-latched token target or deadline from claiming mail; the second
+ * closes a deadline/host-signal race while durable replay was in progress.
+ */
+export async function prepareManagedTerminalFollowUp(
+  route: ManagedLiveInputRoute,
+  gate: ManagedContinuationGate,
+): Promise<boolean> {
+  gate.throwIfTerminated();
+  const queued = await route.prepareTerminalFollowUp(gate.signal);
+  gate.throwIfTerminated();
+  return queued;
 }

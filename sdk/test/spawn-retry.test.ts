@@ -21,6 +21,8 @@ let log: string;
 function readySubscription() {
   return Object.assign(() => {}, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => {},
     isArmed: () => true,
   });

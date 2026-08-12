@@ -26,6 +26,7 @@ import { presetRequest } from "./routing-fixtures";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { HostTerminationCoordinator } from "../src/host-termination";
 import { createExecutionActivityEmitter } from "../src/execution-activity";
+import type { FeedSubscription, InputAdmission } from "../src/coordination";
 import { LANE_LIFECYCLE_KINDS, scanJournalFile } from "../src/bridge/journal";
 import {
   decodeWireEvent,
@@ -2109,6 +2110,113 @@ test("the managed token tripwire publishes once before an orchestrator continuat
   expect(notifications[0]).toContain(
     '{"reason":"managed_run_token_budget_limited","target":15,"observed":15,"overshoot":0,"coverage":"exact"}',
   );
+});
+
+test("one late turn-framed follow-up runs exactly once on the retained provider query", async () => {
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  process.env.NORTH_STAFFING_SOURCE = "file";
+  try {
+    writeFileSync(log, "");
+    const seenInputs: string[] = [];
+    const ownership: string[] = [];
+    let queryConstructions = 0;
+    let feedConstructions = 0;
+    let replayCalls = 0;
+    let providerAcks = 0;
+    let rejectedExtras = 0;
+
+    const queryFn = (args: RoutedQueryArguments): WireQuery => {
+      queryConstructions++;
+      const query = wireTurnSequenceQuery(args, [
+        { output: "first terminal", provider: "openai", turns: 1 },
+        { output: "follow-up answered", provider: "openai", turns: 2 },
+      ], {
+        onInput: (text, turn) => {
+          if (turn === 1) ownership.push(`provider-dequeue:${providerAcks}`);
+          seenInputs.push(text);
+        },
+      });
+      return Object.assign(query, {
+        executionTransport: "managed-app-server" as const,
+        close: async () => {},
+      });
+    };
+
+    const feedSubscriber = (
+      _agentId: string,
+      onMail: (message: string) => InputAdmission,
+      runtime?: { deferredStart?: boolean },
+    ): FeedSubscription => {
+      feedConstructions++;
+      expect(runtime).toMatchObject({ deferredStart: true });
+      const caughtUp = Promise.withResolvers<void>();
+      let first: InputAdmission | undefined;
+      const stop = async () => {
+        first?.cancel();
+        caughtUp.resolve();
+      };
+      return Object.assign(stop, {
+        ready: Promise.resolve(),
+        caughtUp: caughtUp.promise,
+        replay: () => {
+          replayCalls++;
+          ownership.push("terminal-replay");
+          first = onMail("late follow-up from coordinator");
+          void first.consumed.then((consumed) => {
+            if (consumed) {
+              providerAcks++;
+              ownership.push("provider-ack");
+              caughtUp.resolve();
+            }
+          });
+          const extra = onMail("second follow-up must remain replayable");
+          void extra.consumed.then((consumed) => {
+            if (!consumed) rejectedExtras++;
+          });
+          return caughtUp.promise;
+        },
+        drain: async () => {},
+        isArmed: () => true,
+      });
+    };
+
+    const result = await spawnUnderTest({
+      prompt: "answer, then accept one late follow-up",
+      agentId: "test-turn-framed-follow-up",
+      role: "integrator",
+      routingMetadata: presetRequest("integrator"),
+      provider: "openai",
+      pinEvidence: pinEvidence("openai"),
+      coordinator: TEST_COORDINATOR,
+      queryFn,
+      feedSubscriber,
+    });
+
+    expect(result).toBe("follow-up answered");
+    expect(queryConstructions).toBe(1);
+    expect(feedConstructions).toBe(1);
+    expect(replayCalls).toBe(1);
+    expect(providerAcks).toBe(1);
+    expect(rejectedExtras).toBe(1);
+    expect(seenInputs).toEqual([
+      "answer, then accept one late follow-up",
+      "late follow-up from coordinator",
+    ]);
+    expect(ownership).toEqual([
+      "terminal-replay",
+      "provider-ack",
+      "provider-dequeue:1",
+    ]);
+
+    const replay = await readWireJsonl(
+      join(dir, "agent-test-turn-framed-follow-up.stream.jsonl"),
+    );
+    expect(replay.events.filter((event) => event.kind === "model-call.completed"))
+      .toHaveLength(2);
+  } finally {
+    if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+    else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+  }
 });
 
 test("dispatch uses the same token tripwire before its orchestrator continuation", async () => {

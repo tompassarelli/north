@@ -87,8 +87,16 @@ export class LiveFeedReapTimeoutError extends Error {
 export interface FeedSubscription {
   /** Stop once and resolve only after the direct feed child is reaped. */
   (): Promise<void>;
-  /** Resolves only after the coordinator subscription is armed and start is admitted. */
+  /** Resolves after the coordinator cursor is armed; deferred feeds have not replayed yet. */
   readonly ready: Promise<void>;
+  /**
+   * Resolves after the armed feed has completed its first durable pending-mail
+   * replay attempt. An admitted message keeps this barrier open through provider
+   * dequeue and the resulting durable graph acknowledgement.
+   */
+  readonly caughtUp: Promise<void>;
+  /** Begin durable replay for a deferred feed and await its first empty scan. */
+  readonly replay: () => Promise<void>;
   /**
    * Freeze-side barrier. Resolves only after the still-bound feed has observed
    * the frozen route and terminally settled every producer-admitted message that
@@ -125,6 +133,8 @@ export interface SubscriptionRuntime {
   stopKillMs?: number;
   stopReapMs?: number;
   dedupeIds?: number;
+  /** Arm the coordinator cursor now, but leave graph mail unclaimed until replay(). */
+  deferredStart?: boolean;
 }
 
 interface ReadyFrame {
@@ -132,6 +142,12 @@ interface ReadyFrame {
   type: "ready";
   recipient: string;
   cursor: number;
+}
+
+interface CaughtUpFrame {
+  protocol: typeof LIVE_FEED_PROTOCOL;
+  type: "caught_up";
+  recipient: string;
 }
 
 interface MailFrame {
@@ -167,6 +183,7 @@ interface ErrorFrame {
 
 type FeedFrame =
   | ReadyFrame
+  | CaughtUpFrame
   | MailFrame
   | DrainProgressFrame
   | DrainedFrame
@@ -368,6 +385,13 @@ function feedFrame(line: string, maxFrameBytes: number): FeedFrame {
         || (frame.cursor as number) < 0)
       throw new Error("North live-feed ready frame is malformed");
     return frame as unknown as ReadyFrame;
+  }
+
+  if (frame.type === "caught_up") {
+    if (!exactKeys(frame, ["protocol", "type", "recipient"])
+        || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/))
+      throw new Error("North live-feed caught-up frame is malformed");
+    return frame as unknown as CaughtUpFrame;
   }
 
   if (frame.type === "mail") {
@@ -574,6 +598,7 @@ function subscribeFeedMode(
   if (stopReapMs <= stopKillMs)
     throw new Error("stopReapMs must be greater than stopKillMs");
   const admittedIds = new BoundedRememberedIds(runtime.dedupeIds ?? DEFAULT_DEDUPE_IDS);
+  const deferredStart = runtime.deferredStart === true;
   let stopped = false;
   let current: ChildProcess | null = null;
   let currentSettlement: Promise<void> | null = null;
@@ -586,6 +611,7 @@ function subscribeFeedMode(
   let requestCurrentDrain: (() => void) | null = null;
   let rapidFailures = 0;
   let armed = false;
+  let replayRequested = !deferredStart;
   let drainRequested = false;
   let drainEpoch: string | null = null;
   let drainSettled = false;
@@ -603,6 +629,12 @@ function subscribeFeedMode(
   // Existing stop-only callers need not install a rejection handler. Awaiters
   // still observe the original promise's typed stop-before-ready rejection.
   void readiness.catch(() => {});
+  let caughtUpSettled = false;
+  const caughtUpSettlement = Promise.withResolvers<void>();
+  const caughtUp = caughtUpSettlement.promise;
+  const resolveCaughtUp = caughtUpSettlement.resolve;
+  const rejectCaughtUp = caughtUpSettlement.reject;
+  void caughtUp.catch(() => {});
   let stopSettled = false;
   const stopping = Promise.withResolvers<void>();
   const stopSettlement = stopping.promise;
@@ -653,6 +685,7 @@ function subscribeFeedMode(
         "--ack-timeout-ms",
         String(LIVE_FEED_ACK_TIMEOUT_MS),
         ...(settlementOnly ? ["--settlement-only", "true"] : []),
+        ...(deferredStart ? ["--deferred-start", "true"] : []),
       ], childEnv), {
         env: childEnv,
         stdio: ["pipe", "pipe", "ignore"],
@@ -736,7 +769,7 @@ function subscribeFeedMode(
           throw new Error("North live-feed readiness is contradictory");
         ready = true;
         clearReadyTimer();
-        if (!writeControl(child, controlFrame("start")))
+        if (replayRequested && !writeControl(child, controlFrame("start")))
           throw new Error("North live-feed start acknowledgement failed");
         armed = true;
         if (!readinessSettled) {
@@ -751,6 +784,15 @@ function subscribeFeedMode(
         return;
       }
       if (!ready) throw new Error("North live-feed delivered before readiness");
+      if (frame.type === "caught_up") {
+        if (!deferredStart || !replayRequested || frame.recipient !== self)
+          throw new Error("North live-feed caught-up state is contradictory");
+        if (!caughtUpSettled) {
+          caughtUpSettled = true;
+          resolveCaughtUp();
+        }
+        return;
+      }
       if (frame.type === "drain_progress") {
         if (
           frame.recipient !== self
@@ -918,6 +960,10 @@ function subscribeFeedMode(
       readinessSettled = true;
       rejectReadiness(readinessError);
     }
+    if (!caughtUpSettled) {
+      caughtUpSettled = true;
+      rejectCaughtUp(readinessError);
+    }
     if (startupTimer !== null) {
       cancel(startupTimer);
       startupTimer = null;
@@ -964,6 +1010,17 @@ function subscribeFeedMode(
     return stopSettlement;
   };
   const stop = (() => terminate(new LiveFeedStoppedBeforeReadyError())) as FeedSubscription;
+  const replay = (): Promise<void> => {
+    if (stopped) return Promise.reject(new Error("North live feed is already stopped"));
+    if (!replayRequested) {
+      replayRequested = true;
+      const child = current;
+      if (armed && child && !writeControl(child, controlFrame("start"))) {
+        try { child.kill("SIGKILL"); } catch { /* close/replay is the recovery path */ }
+      }
+    }
+    return caughtUp;
+  };
   const drain = (frozenRouteEpoch: string) => {
     if (drainRequested) {
       return frozenRouteEpoch === drainEpoch
@@ -982,6 +1039,8 @@ function subscribeFeedMode(
   };
   Object.defineProperties(stop, {
     ready: { value: readiness, enumerable: true },
+    caughtUp: { value: caughtUp, enumerable: true },
+    replay: { value: replay, enumerable: true },
     drain: { value: drain, enumerable: true },
     isArmed: { value: () => armed, enumerable: true },
   });

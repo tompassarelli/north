@@ -157,7 +157,10 @@ import {
   type WireRunId,
   type WireTurnEvidence,
 } from "./wire";
-import { ManagedLiveInputRoute } from "./live-input-route";
+import {
+  ManagedLiveInputRoute,
+  prepareManagedTerminalFollowUp,
+} from "./live-input-route";
 import {
   admitRoutingEconomics, type AdmittedRoutingEconomics,
   type RoutingAssessment, type RoutingPinEvidence,
@@ -706,7 +709,7 @@ async function runSpawn(
         await liveInputRoute.activate({
           ...activeRoute(),
           liveInput: authority.liveInput,
-        });
+        }, authority.liveInput === "turn-framed");
         console.log(`[spawn] effective authority: ${formatProviderAuthoritySurface(authority)}`);
       }
     },
@@ -849,6 +852,8 @@ async function runSpawn(
     artifacts,
   });
   termination.attachQuery(activeQuery);
+  if (activeQuery.executionTransport === "managed-app-server")
+    await liveInputRoute.activate(activeRoute(), true);
   stopProviderActivity();
   stopProviderActivity = forwardExecutionActivity(
     activeQuery.executionActivity,
@@ -946,6 +951,9 @@ async function runSpawn(
         terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
         break;
       }
+      // The usage observation above latches L5's token tripwire. The shared gate
+      // checks it with the durable hard deadline before and after inbox replay.
+      await prepareManagedTerminalFollowUp(liveInputRoute, termination);
       if (ch.pending() === 0) {
         // Orchestrator continuation race (thread 019f8ec5): a continuation
         // injected at a prior turn-end asks the provider for ANOTHER genuine

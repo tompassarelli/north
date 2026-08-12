@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
 import {
+  inputChannel,
   LiveFeedReapTimeoutError,
   LiveFeedStartupTimeoutError,
   type FeedSubscription,
+  type InputAdmission,
 } from "../src/coordination";
-import { ManagedLiveInputRoute, type ManagedRouteAxes } from "../src/live-input-route";
+import {
+  ManagedLiveInputRoute,
+  prepareManagedTerminalFollowUp,
+  type ManagedRouteAxes,
+} from "../src/live-input-route";
 import { ProviderRetrySafeError } from "../src/providers/types";
 
 function deferred<T = void>() {
@@ -21,10 +27,14 @@ function subscription(
   ready: Promise<void>,
   stop: () => void | Promise<void> = () => {},
   drain: (frozenRouteEpoch: string) => Promise<void> = async () => {},
+  caughtUp: Promise<void> = Promise.resolve(),
+  replay: () => Promise<void> = () => caughtUp,
 ): FeedSubscription {
   const settle = async () => { await stop(); };
   return Object.assign(settle, {
     ready,
+    caughtUp,
+    replay,
     drain,
     isArmed: () => true,
   });
@@ -38,10 +48,209 @@ const initialRoute: ManagedRouteAxes = {
   effort: "xhigh",
 };
 
+const turnFramedRoute: ManagedRouteAxes = {
+  ...initialRoute,
+  provider: "openai",
+  providerTarget: "codex-personal",
+  liveInput: "turn-framed",
+  model: "gpt-5.6-sol",
+};
+
 const inputAdmission = {
   consumed: Promise.resolve(true),
   cancel: () => {},
 };
+
+test("turn-framed terminal replay delivers one late follow-up and keeps ownership until dequeue", async () => {
+  const replayStarted = deferred();
+  const replayCaughtUp = deferred();
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: string) => InputAdmission) | undefined;
+  let feeds = 0;
+  const writes: string[] = [];
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-framed-follow-up",
+    { kind: "lane" },
+    turnFramedRoute,
+    (message) => channel.push(message),
+    (_agentId, onMessage, runtime) => {
+      feeds++;
+      deliver = onMessage;
+      expect(runtime).toMatchObject({ deferredStart: true });
+      return subscription(
+        Promise.resolve(),
+        () => channel.end(),
+        async () => {},
+        replayCaughtUp.promise,
+        () => {
+          replayStarted.resolve();
+          return replayCaughtUp.promise;
+        },
+      );
+    },
+    (_agentId, facts) => { writes.push(facts.liveInputState!); },
+  );
+
+  expect(route.initialProjection().liveInputState).toBe("pending");
+  await route.activate(turnFramedRoute);
+  expect(feeds).toBe(0);
+  await route.activate(turnFramedRoute, true);
+  expect(feeds).toBe(1);
+  expect(writes).toEqual(["armed"]);
+
+  const terminal = route.prepareTerminalFollowUp(new AbortController().signal);
+  await replayStarted.promise;
+  let terminalSettled = false;
+  void terminal.then(() => { terminalSettled = true; });
+  await Promise.resolve();
+  expect(terminalSettled).toBe(false);
+
+  const first = deliver!("late follow-up");
+  expect(await terminal).toBe(true);
+  expect(channel.pending()).toBe(1);
+  let acknowledged = false;
+  void first.consumed.then((value) => { acknowledged = value; });
+  await Promise.resolve();
+  expect(acknowledged).toBe(false);
+
+  const second = deliver!("must remain replayable");
+  expect(await second.consumed).toBe(false);
+  expect((await stream.next()).value?.text).toBe("late follow-up");
+  expect(await first.consumed).toBe(true);
+  expect(channel.liveMessagesReceived()).toBe(1);
+  const durableAck = route.prepareTerminalFollowUp(new AbortController().signal);
+  let durableAckSettled = false;
+  void durableAck.then(() => { durableAckSettled = true; });
+  await Promise.resolve();
+  expect(durableAckSettled).toBe(false);
+  replayCaughtUp.resolve();
+  expect(await durableAck).toBe(false);
+  await route.freezeAndUnbind();
+  expect(writes).toEqual(["armed", "frozen"]);
+});
+
+test("turn-framed terminal replay leaves a claimed follow-up unconsumed on abort", async () => {
+  const replayStarted = deferred();
+  const replayCaughtUp = deferred();
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: string) => InputAdmission) | undefined;
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-framed-abort",
+    { kind: "lane" },
+    turnFramedRoute,
+    (message) => channel.push(message),
+    (_agentId, onMessage) => {
+      deliver = onMessage;
+      return subscription(
+        Promise.resolve(),
+        () => channel.end(),
+        async () => {},
+        replayCaughtUp.promise,
+        () => {
+          replayStarted.resolve();
+          return replayCaughtUp.promise;
+        },
+      );
+    },
+    () => {},
+  );
+  await route.activate(turnFramedRoute, true);
+
+  const abort = new AbortController();
+  const terminal = route.prepareTerminalFollowUp(abort.signal);
+  await replayStarted.promise;
+  abort.abort();
+  expect(await terminal).toBe(false);
+  const admission = deliver!("retain after abort");
+  await route.freezeAndUnbind();
+  expect(await admission.consumed).toBe(false);
+  expect(channel.liveMessagesReceived()).toBe(0);
+});
+
+test("the token tripwire runs before a turn-framed feed may claim follow-up mail", async () => {
+  let replays = 0;
+  const neverCaughtUp = deferred();
+  const neverReplayed = deferred();
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-framed-token-gate",
+    { kind: "lane" },
+    turnFramedRoute,
+    () => inputAdmission,
+    () => subscription(
+      Promise.resolve(),
+      () => {},
+      async () => {},
+      neverCaughtUp.promise,
+      () => {
+        replays++;
+        return neverReplayed.promise;
+      },
+    ),
+    () => {},
+  );
+  await route.activate(turnFramedRoute, true);
+
+  const error = await prepareManagedTerminalFollowUp(route, {
+    signal: new AbortController().signal,
+    throwIfTerminated: () => { throw new Error("managed token tripwire blocked"); },
+  }).catch((cause) => cause);
+
+  expect((error as Error).message).toBe("managed token tripwire blocked");
+  expect(replays).toBe(0);
+  await route.freezeAndUnbind();
+});
+
+test("a hard deadline crossing terminal replay preserves provider queue ownership", async () => {
+  const replayStarted = deferred();
+  const replayCaughtUp = deferred();
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: string) => InputAdmission) | undefined;
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-framed-deadline-gate",
+    { kind: "lane" },
+    turnFramedRoute,
+    (message) => channel.push(message),
+    (_agentId, onMessage) => {
+      deliver = onMessage;
+      return subscription(
+        Promise.resolve(),
+        () => channel.end(),
+        async () => {},
+        replayCaughtUp.promise,
+        () => {
+          replayStarted.resolve();
+          return replayCaughtUp.promise;
+        },
+      );
+    },
+    () => {},
+  );
+  await route.activate(turnFramedRoute, true);
+
+  let gateChecks = 0;
+  const terminal = prepareManagedTerminalFollowUp(route, {
+    signal: new AbortController().signal,
+    throwIfTerminated: () => {
+      gateChecks++;
+      if (gateChecks === 2) throw new Error("managed hard deadline crossed");
+    },
+  });
+  await replayStarted.promise;
+  const admission = deliver!("deadline-owned follow-up");
+  const error = await terminal.catch((cause) => cause);
+
+  expect((error as Error).message).toBe("managed hard deadline crossed");
+  expect(gateChecks).toBe(2);
+  expect(channel.liveMessagesReceived()).toBe(0);
+  await route.freezeAndUnbind();
+  expect(await admission.consumed).toBe(false);
+});
 
 // Resumed continuation turn (thread 019f8ec5): a streaming orchestrator that
 // ends its turn to open a fresh RESUMED provider turn re-enters provider
