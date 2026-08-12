@@ -471,6 +471,29 @@ test("an attached control session still pins a stale daemon", async () => {
   expect(out).toBe("");
 });
 
+test("opening the control app replaces an attached stale control session", async () => {
+  let session: IdleSession | undefined;
+  const hosted = await hostedDaemon(async (context) => {
+    session = new IdleSession(context);
+    return session;
+  });
+  const control = await launch("supervisor", "director");
+  await waitFor(() => started(control), "the control session");
+  revision(REV_C);
+
+  const { value: fresh, out, err } = await saying(() =>
+    verifiedSocket(socketPath, undefined, { replacePinned: true }));
+  expect(hosted.retireCount()).toBe(1);
+  await waitFor(() => session?.terminated === true, "the stale control session to stop");
+  if (fresh.hello === null) throw new Error("fresh daemon hello missing");
+  cleanups.push(() => fresh.socket.destroy());
+  reap(fresh.hello.pid);
+  expect(fresh.hello.identity).toBe(REV_C);
+  expect(fresh.hello.pid).not.toBe(process.pid);
+  expect(out).toContain("starting fresh");
+  expect(err).toBe("");
+});
+
 // Detaching from work in flight is the attach contract, not abandonment: a
 // worker holds the daemon whether or not anyone is watching it.
 test("a detached worker still pins a stale daemon", async () => {
