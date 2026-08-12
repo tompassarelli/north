@@ -9,6 +9,7 @@
    "AGENT_ROUTING_ASSESSMENT" "NORTH_ROUTING_PIN_EVIDENCE"
    "AGENT_MODEL" "AGENT_TARGET" "AGENT_PROVIDER" "AGENT_COORDINATOR"
    "NORTH_DISPATCH_DRIVER_PRECLAIMED"
+   "NORTH_RUN_TOKEN_TARGET"
    ;; One-shot adapter/runtime parity witness; every child gets its own value.
    "NORTH_STRUGGLE_POLICY_EXPECTED"
    ;; Adapter-only bootstrap input. The CLI re-adds it explicitly for a

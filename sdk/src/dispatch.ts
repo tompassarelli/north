@@ -63,7 +63,8 @@ import {
 import {
   classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
-  isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, wireTerminalDecision,
+  isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, RUN_TOKEN_BUDGET_LIMITED_OUTCOME,
+  wireTerminalDecision,
 } from "./execution-outcome";
 import {
   makeExecutionFold,
@@ -101,7 +102,8 @@ import {
   type JudgmentGradeSnapshot,
 } from "./judgment-grade";
 import {
-  ManagedQueryTermination, type HostTerminationRegistrar,
+  managedRunTokenBudgetHandoff, managedRunTokenTarget, ManagedQueryTermination,
+  type HostTerminationRegistrar,
 } from "./query-lifecycle";
 import {
   admitRoutingEconomics, type AdmittedRoutingEconomics,
@@ -142,6 +144,8 @@ export interface DispatchDependencies {
   pinEvidence?: RoutingPinEvidence;
   /** Explicit child identity for a programmatic handoff; never inferred from a parent. */
   agentId?: string;
+  /** Exact-accounted inter-call tripwire; a completing call may overshoot it. */
+  tokenTarget?: number;
 }
 
 interface DispatchRuntime {
@@ -180,7 +184,7 @@ interface DispatchDriverClaim {
 }
 
 const DISPATCH_DEPENDENCY_FIELDS = new Set([
-  "routingMetadata", "routingAssessment", "pinEvidence", "agentId",
+  "routingMetadata", "routingAssessment", "pinEvidence", "agentId", "tokenTarget",
 ]);
 
 let bootstrapLegacyPinCompatibilityGranted = false;
@@ -653,6 +657,15 @@ async function runDispatch(
       if (event.essential && event.kind === "model-call.completed") {
         if (isIntermediateProviderSessionReplacement(event)) continue;
         result = observation.state.lastCompletedAssistantOutput ?? "";
+        const tokenBudget = termination.observeCompletedCallUsage(observation.state.run);
+        if (tokenBudget?.state === "budget_limited") {
+          outcome = RUN_TOKEN_BUDGET_LIMITED_OUTCOME;
+          terminalSignal = {
+            subject: "TOKEN TARGET",
+            detail: JSON.stringify(managedRunTokenBudgetHandoff(tokenBudget)),
+          };
+          break;
+        }
         const cap = event.errorCode === "provider_max_turns"
           ? "provider_max_turns"
           : event.errorCode === "provider_budget_exhausted"
@@ -1113,6 +1126,10 @@ async function runDispatch(
     ?? unknownMcpActivity("provider-activity-unavailable");
   const nativeCommandActivity = activeExecutionQuery?.nativeCommandActivity?.()
     ?? unknownNativeCommandActivity("provider-activity-unavailable");
+  const observedTokenBudget = termination.tokenBudgetStatus();
+  const tokenBudget = observedTokenBudget?.state === "budget_limited"
+    ? observedTokenBudget
+    : termination.observeCompletedCallUsage(finalExecution.run);
   const provenance: WireRunProvenance = {
     posture: postureLabel,
     role,
@@ -1162,6 +1179,7 @@ async function runDispatch(
       envelopeAdvisories: envelopeAdmission.advisories,
     }),
     processOutcome: terminal.processOutcome,
+    ...(tokenBudget === undefined ? {} : { tokenBudget }),
     deliveryOutcome: terminal.deliveryOutcome,
     ...(terminal.deliveryReason === undefined ? {} : { deliveryReason: terminal.deliveryReason }),
     ...(terminal.deliveryProof === undefined ? {} : { deliveryProof: terminal.deliveryProof }),
@@ -1219,6 +1237,7 @@ export async function dispatch(
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
   (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedDispatchDependencies(dependencies);
+  managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
     assertCoordinationAuthority("dispatch", callerTopology);
@@ -1308,6 +1327,7 @@ export async function dispatch(
       threadId,
       goal: preflight.title,
       repo: workingDirectory,
+      tokenTarget: admitted.tokenTarget,
     },
   );
   let driver: DispatchDriverClaim | undefined;
@@ -1394,6 +1414,10 @@ if (import.meta.main) {
       ? JSON.parse(process.env.AGENT_ROUTING_ASSESSMENT) : undefined,
     pinEvidence: process.env.NORTH_ROUTING_PIN_EVIDENCE
       ? JSON.parse(process.env.NORTH_ROUTING_PIN_EVIDENCE) : undefined,
+    tokenTarget: managedRunTokenTarget(
+      process.env.NORTH_RUN_TOKEN_TARGET === undefined
+        ? undefined : Number(process.env.NORTH_RUN_TOKEN_TARGET),
+    ),
   })
     .then((result) => {
       console.log(JSON.stringify(result, null, 2));

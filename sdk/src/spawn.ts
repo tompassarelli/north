@@ -136,6 +136,7 @@ import {
   classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
   isEmptyResultTerminal, NO_PROVIDER_TERMINAL_DETAIL, PROVIDER_PROCESS_DEATH_OUTCOME,
+  RUN_TOKEN_BUDGET_LIMITED_OUTCOME,
   wireTerminalDecision,
 } from "./execution-outcome";
 import {
@@ -175,7 +176,8 @@ import {
   type JudgmentGradeSnapshot,
 } from "./judgment-grade";
 import {
-  ManagedQueryTermination, type HostTerminationRegistrar,
+  managedRunTokenBudgetHandoff, managedRunTokenTarget, ManagedQueryTermination,
+  type HostTerminationRegistrar,
   type ManagedSessionHardCapOptions,
 } from "./query-lifecycle";
 import { decideManagedLearning } from "./managed-learning";
@@ -220,6 +222,8 @@ export interface SpawnOptions {
   sessionId?: string;
   worktree?: boolean; // explicit lane isolation choice; mutation-capable compositions default ON
   setupCmd?: string; // optional repo-setup hook run in the fresh worktree (e.g. `bun install`); repo-specific, never baked into north
+  /** Exact-accounted inter-call tripwire; a completing call may overshoot it. */
+  tokenTarget?: number;
 }
 
 interface SpawnRuntime {
@@ -261,7 +265,7 @@ const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "effort", "tools", "systemPrompt", "maxTurns",
   "role", "posture", "thread", "concern", "coordinator", "provider",
   "target", "tier", "routingMetadata", "project", "sessionId", "worktree", "setupCmd",
-  "routingAssessment", "pinEvidence",
+  "routingAssessment", "pinEvidence", "tokenTarget",
 ]);
 
 function allowlistedSpawnOptions(value: SpawnOptions): SpawnOptions {
@@ -901,6 +905,15 @@ async function runSpawn(
       });
       if (isIntermediateProviderSessionReplacement(event)) continue;
       result = turnResult;
+      const tokenBudget = termination.observeCompletedCallUsage(observation.state.run);
+      if (tokenBudget?.state === "budget_limited") {
+        end(RUN_TOKEN_BUDGET_LIMITED_OUTCOME);
+        terminalSignal = {
+          subject: "TOKEN TARGET",
+          detail: JSON.stringify(managedRunTokenBudgetHandoff(tokenBudget)),
+        };
+        break;
+      }
       const cap = event.errorCode === "provider_max_turns"
         ? "provider_max_turns"
         : event.errorCode === "provider_budget_exhausted"
@@ -1467,6 +1480,10 @@ async function runSpawn(
     ?? unknownMcpActivity("provider-activity-unavailable");
   const nativeCommandActivity = activeQuery?.nativeCommandActivity?.()
     ?? unknownNativeCommandActivity("provider-activity-unavailable");
+  const observedTokenBudget = termination.tokenBudgetStatus();
+  const tokenBudget = observedTokenBudget?.state === "budget_limited"
+    ? observedTokenBudget
+    : termination.observeCompletedCallUsage(finalExecution.run);
   const provenance: WireRunProvenance = {
     posture: "spawn",
     ...(routingMetadata.role === undefined ? {} : { role: routingMetadata.role }),
@@ -1515,6 +1532,7 @@ async function runSpawn(
       envelopeAdvisories: envelopeAdmission.advisories,
     }),
     processOutcome: terminal.processOutcome,
+    ...(tokenBudget === undefined ? {} : { tokenBudget }),
     deliveryOutcome: terminal.deliveryOutcome,
     ...(terminal.deliveryReason === undefined ? {} : { deliveryReason: terminal.deliveryReason }),
     ...(terminal.deliveryProof === undefined ? {} : { deliveryProof: terminal.deliveryProof }),
@@ -1659,6 +1677,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
   (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedSpawnOptions(opts);
+  managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(admitted);
@@ -1767,6 +1786,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       repo: process.cwd(),
       worktree: worktreeLease?.path,
       branch: worktreeLease?.branch,
+      tokenTarget: composed.tokenTarget,
     },
   );
   const lifecycleRoot = injected.journalRoot
@@ -1820,6 +1840,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     // option here, only a fresh mint linked back by provenance.
     let deadAgentId = agentId;
     while (retries < PROVIDER_PROCESS_DEATH_MAX_RETRIES) {
+      if (!termination.continuationAllowed()) break;
       const processDeathRetry = eligibleForProviderProcessDeathRetry(
         attempt.outcome, composed.routingMetadata.topology, requestedCapabilities,
       );
@@ -1958,6 +1979,10 @@ if (import.meta.main) {
       ? JSON.parse(process.env.AGENT_ROUTING_ASSESSMENT) : undefined,
     pinEvidence: process.env.NORTH_ROUTING_PIN_EVIDENCE
       ? JSON.parse(process.env.NORTH_ROUTING_PIN_EVIDENCE) : undefined,
+    tokenTarget: managedRunTokenTarget(
+      process.env.NORTH_RUN_TOKEN_TARGET === undefined
+        ? undefined : Number(process.env.NORTH_RUN_TOKEN_TARGET),
+    ),
   })
     .then((result) => console.log(result))
     .catch((err) => {

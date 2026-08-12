@@ -21,6 +21,10 @@ import type { RoutingRequest } from "./routing-metadata";
 import type { McpActivityObservation } from "./tool-activity";
 import type { WireExecutionTransport } from "./wire/query";
 import {
+	managedRunTokenBudgetHandoff,
+	type ManagedRunTokenBudgetStatus,
+} from "./query-lifecycle";
+import {
 	STRUGGLE_DETECTOR_POLICY_VERSION,
 	STRUGGLE_THRESHOLD_MAX,
 	type StruggleObservation,
@@ -92,6 +96,7 @@ export interface WireRunProvenance {
 	readonly runEstimate?: RunEstimateSnapshot;
 	readonly judgmentGrade?: JudgmentGradeSnapshot;
 	readonly struggleObservation?: StruggleObservation;
+	readonly tokenBudget?: ManagedRunTokenBudgetStatus;
 }
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$/;
@@ -632,6 +637,47 @@ export function wireRunProvenanceFacts(
 		facts.push(["envelope_advisory", advisory]);
 	}
 	if (context.processOutcome) facts.push(["process_outcome", context.processOutcome]);
+	if (context.tokenBudget) {
+		const budget = context.tokenBudget;
+		if (!Number.isSafeInteger(budget.targetTokens) || budget.targetTokens <= 0) {
+			throw new TypeError("invalid managed run token target");
+		}
+		const exactWithinTarget = budget.state === "within_target"
+			&& budget.coverage === "exact"
+			&& budget.observedTokens !== undefined
+			&& Number.isSafeInteger(budget.observedTokens)
+			&& budget.observedTokens >= 0
+			&& budget.observedTokens < budget.targetTokens
+			&& budget.overshootTokens === undefined;
+		const exactLimited = budget.state === "budget_limited"
+			&& budget.coverage === "exact"
+			&& budget.observedTokens !== undefined
+			&& Number.isSafeInteger(budget.observedTokens)
+			&& budget.observedTokens >= budget.targetTokens
+			&& budget.overshootTokens === budget.observedTokens - budget.targetTokens;
+		const unenforceable = budget.state === "unenforceable"
+			&& budget.coverage !== "exact"
+			&& budget.observedTokens === undefined
+			&& budget.overshootTokens === undefined;
+		if (!exactWithinTarget && !exactLimited && !unenforceable) {
+			throw new TypeError("invalid managed run token budget evidence");
+		}
+		facts.push(["run_token_target", String(budget.targetTokens)]);
+		facts.push(["run_token_budget_status", budget.state]);
+		facts.push(["run_token_budget_coverage", budget.coverage]);
+		if (budget.observedTokens !== undefined) {
+			facts.push(["run_token_observed", String(budget.observedTokens)]);
+		}
+		if (budget.overshootTokens !== undefined) {
+			facts.push(["run_token_overshoot", String(budget.overshootTokens)]);
+		}
+		if (exactLimited) {
+			facts.push([
+				"run_token_budget_handoff",
+				JSON.stringify(managedRunTokenBudgetHandoff(budget)),
+			]);
+		}
+	}
 	if (context.deliveryOutcome) facts.push(["delivery_outcome", context.deliveryOutcome]);
 	if (context.deliveryReason) facts.push(["delivery_reason", context.deliveryReason]);
 	if (context.deliveryProof?.deliveryEvidence) {

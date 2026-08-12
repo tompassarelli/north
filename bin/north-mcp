@@ -387,6 +387,7 @@
                           :effort {:type "string" :enum reasoning-values :description "Compatibility alias for reasoning"}
                           :provider {:type "string" :enum ["auto" "anthropic" "openai"] :description "Omit or use auto for automatic routing. Selecting anthropic/openai requires fresh pinEvidence with an exact matching provider pin."}
                           :target {:type "string" :minLength 1 :description "Exact configured routing target/account selector. Omit for automatic routing; supplying it requires fresh pinEvidence with an exact matching account pin and never falls back."}
+                          :tokenTarget {:type "integer" :minimum 1 :maximum 9007199254740991 :description "Optional exact-accounted run token target. Enforced between completed model calls; one call may overshoot it."}
                           :coordinator {:type "string" :minLength 1 :description "Caller's north id; the lane pings it on done/death + records a `coordinator` fact. Omit to inherit from AGENT_ID/NORTH_AGENT_ID env; pass explicitly from an interactive session."})
              :required ["id" "role" "taskGrade" "domainRequirements" "topology"
                         "tier" "reasoning" "posture" "composition"]
@@ -415,6 +416,7 @@
                           :caveman {:type "string" :enum ["off" "lite" "full"] :description "Managed response-compression strategy (default off until savings are proven)"}
                           :worktree {:type "boolean" :description "OPT-IN: run this lane in an isolated per-lane git worktree (own index+tree). Default off."}
                           :setupCmd {:type "string" :minLength 1 :description "Optional repo-setup command run in the fresh worktree (e.g. 'bun install'); only with worktree=true"}
+                          :tokenTarget {:type "integer" :minimum 1 :maximum 9007199254740991 :description "Optional exact-accounted run token target. Enforced between completed model calls; one call may overshoot it."}
                           :coordinator {:type "string" :minLength 1 :description "Caller's north id; see dispatch.coordinator"})
              :required ["prompt" "role" "taskGrade" "domainRequirements" "topology"
                         "tier" "reasoning" "posture" "composition"]
@@ -602,10 +604,10 @@
 (def sdk-argument-keys
   {"dispatch" #{"id" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
                  "coordinator" "taskGrade" "domainRequirements" "topology" "composition"
-                 "routingAssessment" "pinEvidence" "caveman"}
+                 "routingAssessment" "pinEvidence" "caveman" "tokenTarget"}
    "spawn" #{"prompt" "model" "effort" "reasoning" "role" "posture" "provider" "target" "tier"
               "caveman" "coordinator" "taskGrade" "domainRequirements" "topology" "composition"
-              "routingAssessment" "pinEvidence"}})
+              "routingAssessment" "pinEvidence" "tokenTarget"}})
 
 (def routing-override-fields
   #{"taskGrade" "domainRequirements" "tier" "reasoning" "posture"})
@@ -690,6 +692,7 @@
         reasoning (get args "reasoning") effort (get args "effort") effective-reasoning reasoning
         tier (get args "tier") posture (get args "posture") provider (get args "provider")
         target (get args "target") model (get args "model") coordinator (get args "coordinator")
+        token-target (get args "tokenTarget")
         explicit-selector? (or (and (contains? args "provider") (not= provider "auto"))
                                (contains? args "target")
                                (contains? args "model"))
@@ -743,6 +746,11 @@
       (str "North " nm " requires role selecting a canonical Orchestration preset or a complete bespoke composition")
       (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
       (and (some? coordinator) (not (non-empty-string? coordinator))) "coordinator must be a non-empty string"
+      (and (some? token-target)
+           (or (not (integer? token-target))
+               (not (pos? token-target))
+               (> token-target 9007199254740991)))
+      "tokenTarget must be a positive safe integer"
       (and (some? caveman) (not (some #{caveman} ["off" "lite" "full"]))) "invalid caveman mode"
       (and role (or (not (string? role)) (str/blank? role))) "role must be a non-empty string"
       (and role (not (safe-role-id? role))) "role must be a lowercase kebab-case Orchestration role id"
@@ -908,6 +916,7 @@
             composition (get args "composition")
             routing-assessment (get args "routingAssessment")
             pin-evidence (get args "pinEvidence")
+            token-target (get args "tokenTarget")
             caveman (get args "caveman")
             agent-id (create-mcp-agent-id id)
             cmd-env (cond-> (assoc env
@@ -927,6 +936,7 @@
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))
                       pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence))
+                      token-target (assoc "NORTH_RUN_TOKEN_TARGET" (str token-target))
                       caveman     (assoc "AGENT_CAVEMAN" caveman "NORTH_CAVEMAN_SOURCE" "request")
                       coordinator (assoc "AGENT_COORDINATOR" coordinator))]
         (if-let [problem (claim-driver-problem id agent-id)]
@@ -970,6 +980,7 @@
             composition (get args "composition")
             routing-assessment (get args "routingAssessment")
             pin-evidence (get args "pinEvidence")
+            token-target (get args "tokenTarget")
             caveman (get args "caveman")
             worktree (get args "worktree")
             setup-cmd (get args "setupCmd")
@@ -990,6 +1001,7 @@
                       composition (assoc "AGENT_COMPOSITION" (json/generate-string composition))
                       routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))
                       pin-evidence (assoc "NORTH_ROUTING_PIN_EVIDENCE" (json/generate-string pin-evidence))
+                      token-target (assoc "NORTH_RUN_TOKEN_TARGET" (str token-target))
                       caveman     (assoc "AGENT_CAVEMAN" caveman "NORTH_CAVEMAN_SOURCE" "request")
                       worktree    (assoc "AGENT_WORKTREE" "1")
                       setup-cmd   (assoc "AGENT_SETUP_CMD" setup-cmd)
