@@ -63,9 +63,9 @@
 #      `ssh box 'cat > f' < f` already moves, so a destination allowlist would
 #      only tax the honest path.
 #   5. Destructive system ops: mkfs*, dd of=/dev/* (except null/stdout/stderr),
-#      shutdown/reboot/poweroff/halt, systemctl (system, not --user)
-#      stop/disable/mask of non-north* units + power subcommands,
-#      chmod -R 000, chown -R root.
+#      shutdown/reboot/poweroff/halt, systemctl power subcommands,
+#      chmod -R 000, chown -R root. Service lifecycle operations are allowed;
+#      authorization for them belongs to the task, not this lexical guard.
 #
 # Design constraints honored:
 #   - pure bash + coreutils; jq only on the slow path for correct JSON string
@@ -848,12 +848,11 @@ handle_scp_rsync() {
 
 handle_systemctl() {
   local user=0 sub="" t
-  local -a units=()
   for t in "$@"; do
     case "$t" in
       --user) user=1 ;;
       -*) ;;
-      *) if [ -z "$sub" ]; then sub="$t"; else units+=("$t"); fi ;;
+      *) [ -n "$sub" ] || sub="$t" ;;
     esac
   done
   [ "$user" = 1 ] && return 0
@@ -861,17 +860,8 @@ handle_systemctl() {
     poweroff | reboot | halt | kexec | suspend | hibernate)
       deny "systemctl $sub — system power ops are manual"
       ;;
-    stop | disable | mask) ;;
     *) return 0 ;;
   esac
-  [ "${#units[@]}" -gt 0 ] || return 0
-  for t in "${units[@]}"; do
-    strip_g "$t"
-    case "$S" in
-      north*) ;;
-      *) deny "systemctl $sub $S — stopping/disabling system units is manual (north* only)" ;;
-    esac
-  done
 }
 
 handle_dd() {
