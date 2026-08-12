@@ -204,6 +204,16 @@ export interface BridgeConnection {
   hello: BridgeHello | null;
 }
 
+export interface BridgeConnectionOutput {
+  info(message: string): void;
+  error(message: string): void;
+}
+
+const consoleBridgeConnectionOutput: BridgeConnectionOutput = {
+  info: (message) => console.log(message),
+  error: (message) => console.error(message),
+};
+
 function shortIdentity(identity: string | undefined): string {
   return identity ? identity.slice(0, 8) : "unknown";
 }
@@ -216,7 +226,10 @@ function shortIdentity(identity: string | undefined): string {
  * that genuinely hold it open (attached control, or a worker with work in
  * flight) turn that into a refusal they have to answer.
  */
-export async function verifiedSocket(path: string): Promise<BridgeConnection> {
+export async function verifiedSocket(
+  path: string,
+  output: BridgeConnectionOutput = consoleBridgeConnectionOutput,
+): Promise<BridgeConnection> {
   let replacedFrom: string | undefined;
   let replaced = false;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -229,13 +242,13 @@ export async function verifiedSocket(path: string): Promise<BridgeConnection> {
       // One calm line, on the stream the app reads as a system note: what
       // happened, which checkout won, and that the session is starting now.
       if (replaced)
-        console.log(`northd: control daemon was stale — replaced (${shortIdentity(replacedFrom)}`
+        output.info(`northd: control daemon was stale — replaced (${shortIdentity(replacedFrom)}`
           + ` → ${shortIdentity(hello.identity)}); starting fresh`);
       return { socket, hello };
     }
     const pinning = hello === null ? 0 : pinningExecutions(hello);
     if (pinning > 0) {
-      console.error(`north bridge: northd is stale with ${pinning} live session(s);`
+      output.error(`north bridge: northd is stale with ${pinning} live session(s);`
         + " run 'north bridge restart' to replace it now, or new launches are refused"
         + " until it drains");
       return { socket, hello };
@@ -248,7 +261,7 @@ export async function verifiedSocket(path: string): Promise<BridgeConnection> {
     } else {
       socket.destroy();
       try { unlinkSync(path); } catch { /* replaced concurrently */ }
-      console.error("north bridge: replacing a northd that predates the identity handshake;"
+      output.error("north bridge: replacing a northd that predates the identity handshake;"
         + " reap the orphan with: pkill -f bridge/northd");
     }
     await Bun.sleep(50);
