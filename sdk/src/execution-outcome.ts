@@ -20,6 +20,7 @@ export interface ExecutionTerminal {
 
 export const EMPTY_RESULT_OUTCOME = "ran_empty";
 export const PROVIDER_PROCESS_DEATH_OUTCOME = "died";
+export const RUN_TOKEN_BUDGET_LIMITED_OUTCOME = "token_budget_limited";
 export const PROVIDER_ERROR_DETAIL_MAX_LEN = 1200;
 export const NO_PROVIDER_TERMINAL_DETAIL =
 	"provider stream closed without a model-call terminal";
@@ -96,6 +97,9 @@ export function wireTerminalDecision(
 	}
 	if (outcome === "deadline_exceeded" || outcome === "session_hard_cap") {
 		return { lifecycle: "failed", reason: reason("timed_out") };
+	}
+	if (outcome === RUN_TOKEN_BUDGET_LIMITED_OUTCOME) {
+		return { lifecycle: "blocked", reason: reason("blocked") };
 	}
 	if (outcome === "provider_error" || outcome === "max_turns" || outcome === "capped") {
 		return { lifecycle: "failed", reason: reason("provider_error") };
@@ -220,6 +224,7 @@ const BLOCKED_REASON: Readonly<Record<string, string>> = {
 	stalled: "provider_process_stalled",
 	watchdog_aborted: "north_watchdog_execution_inactivity",
 	session_hard_cap: "north_managed_session_hard_cap",
+	token_budget_limited: "north_managed_run_token_budget_limited",
 	max_turns: "provider_turn_cap",
 	capped: "provider_cap",
 	resource_envelope_exceeded: "resource_envelope_exceeded",

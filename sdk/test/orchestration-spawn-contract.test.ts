@@ -142,6 +142,12 @@ test("North MCP advertises the complete composition contract", () => {
     expect(spawn.inputSchema.properties[field]).toBeDefined();
   const dispatch = response.result.tools.find((tool: any) => tool.name === "dispatch");
   expect(dispatch.inputSchema.properties.target).toBeDefined();
+  expect(spawn.inputSchema.properties.tokenTarget).toMatchObject({
+    type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER,
+  });
+  expect(dispatch.inputSchema.properties.tokenTarget).toMatchObject({
+    type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER,
+  });
   expect(spawn.inputSchema.required).toEqual([
     "prompt", "role", "taskGrade", "domainRequirements", "topology",
     "tier", "reasoning", "posture", "composition",

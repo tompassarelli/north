@@ -7,6 +7,8 @@ import {
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import type { WireQuery } from "./wire/query";
+import type { WireRunSnapshot } from "./wire/reducer";
+import { normalizeUsage, tokensOf, type TokenTotalStatus } from "./usage";
 import {
   registerHostTerminationParticipant,
   type HostTerminationParticipant,
@@ -61,6 +63,8 @@ export interface ManagedSessionHardCapOptions extends SessionHardCapContext {
   stateDirectory?: string;
   /** Test seam for deterministic restart/recovery deadlines. */
   now?: () => Date;
+  /** Caller-supplied inter-call target; this is not a no-overshoot ceiling. */
+  tokenTarget?: number;
 }
 
 export interface SessionHardCapStatus {
@@ -68,6 +72,51 @@ export interface SessionHardCapStatus {
   handoffPath?: string;
   indexed: boolean;
   spooled: boolean;
+}
+
+export type ManagedRunTokenBudgetState =
+  | "within_target"
+  | "budget_limited"
+  | "unenforceable";
+
+export interface ManagedRunTokenBudgetStatus {
+  targetTokens: number;
+  coverage: TokenTotalStatus;
+  state: ManagedRunTokenBudgetState;
+  observedTokens?: number;
+  overshootTokens?: number;
+}
+
+export interface ManagedRunTokenBudgetHandoff {
+  reason: "managed_run_token_budget_limited";
+  target: number;
+  observed: number;
+  overshoot: number;
+  coverage: "exact";
+}
+
+export function managedRunTokenBudgetHandoff(
+  status: ManagedRunTokenBudgetStatus,
+): ManagedRunTokenBudgetHandoff {
+  if (status.state !== "budget_limited" || status.coverage !== "exact"
+      || status.observedTokens === undefined || status.overshootTokens === undefined) {
+    throw new Error("managed run token budget handoff requires exact limited usage");
+  }
+  return Object.freeze({
+    reason: "managed_run_token_budget_limited",
+    target: status.targetTokens,
+    observed: status.observedTokens,
+    overshoot: status.overshootTokens,
+    coverage: status.coverage,
+  });
+}
+
+export function managedRunTokenTarget(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new Error("managed run token target must be a positive safe integer");
+  }
+  return value as number;
 }
 
 interface SessionHardCapIndexRecord {
@@ -552,6 +601,18 @@ export class SessionHardCapError extends Error {
   }
 }
 
+export class ManagedRunTokenBudgetError extends Error {
+  readonly code = "NORTH_MANAGED_RUN_TOKEN_BUDGET_LIMITED";
+
+  constructor(readonly status: ManagedRunTokenBudgetStatus) {
+    super(
+      `managed run reached its ${status.targetTokens}-token target at `
+      + `${status.observedTokens} tokens (${status.overshootTokens} overshoot)`,
+    );
+    this.name = "ManagedRunTokenBudgetError";
+  }
+}
+
 export type HostTerminationRegistrar = (
   options: HostTerminationParticipantOptions,
 ) => HostTerminationParticipant;
@@ -584,6 +645,7 @@ export class ManagedQueryTermination {
   private hardCapFrozen = false;
   private hardCapReached: SessionHardCapStatus | undefined;
   private hardCapError: SessionHardCapError | undefined;
+  #tokenBudget: ManagedRunTokenBudgetStatus | undefined;
   private released = false;
 
   constructor(
@@ -595,6 +657,7 @@ export class ManagedQueryTermination {
         ?? DEFAULT_MANAGED_SESSION_HARD_CAP_MS;
       if (!Number.isSafeInteger(hardCapMs) || hardCapMs <= 0)
         throw new Error("managed session hard cap must be a positive safe integer");
+      managedRunTokenTarget(hardCapOptions.tokenTarget);
     }
     this.participant = register({
       onSignal: (signal) => {
@@ -653,7 +716,60 @@ export class ManagedQueryTermination {
     return this.hardCapReached;
   }
 
+  tokenBudgetStatus(): ManagedRunTokenBudgetStatus | undefined {
+    return this.#tokenBudget;
+  }
+
+  observeCompletedCallUsage(snapshot: WireRunSnapshot): ManagedRunTokenBudgetStatus | undefined {
+    const targetTokens = this.hardCapOptions?.tokenTarget;
+    if (targetTokens === undefined) return undefined;
+    if (this.#tokenBudget?.state === "budget_limited") return this.#tokenBudget;
+
+    const observedTokens = tokensOf(snapshot);
+    const coverage = normalizeUsage(snapshot).totalStatus;
+    if (coverage !== "exact" || observedTokens === undefined) {
+      this.#tokenBudget = Object.freeze({
+        targetTokens,
+        coverage,
+        state: "unenforceable",
+      });
+      return this.#tokenBudget;
+    }
+
+    if (observedTokens < targetTokens) {
+      this.#tokenBudget = Object.freeze({
+        targetTokens,
+        observedTokens,
+        coverage,
+        state: "within_target",
+      });
+      return this.#tokenBudget;
+    }
+
+    this.#tokenBudget = Object.freeze({
+      targetTokens,
+      observedTokens,
+      overshootTokens: observedTokens - targetTokens,
+      coverage,
+      state: "budget_limited",
+    });
+    this.cancelSessionHardCap();
+    this.closeInputSafely();
+    return this.#tokenBudget;
+  }
+
+  continuationAllowed(): boolean {
+    return this.#tokenBudget?.state !== "budget_limited";
+  }
+
+  throwIfContinuationBlocked(): void {
+    if (this.#tokenBudget?.state === "budget_limited") {
+      throw new ManagedRunTokenBudgetError(this.#tokenBudget);
+    }
+  }
+
   throwIfTerminated(): void {
+    this.throwIfContinuationBlocked();
     if (this.hardCapError) throw this.hardCapError;
     const signal = this.hostSignal();
     if (signal) throw new HostTerminationError(signal);
@@ -661,7 +777,9 @@ export class ManagedQueryTermination {
 
   attachInput(close: () => void): void {
     this.closeInput = close;
-    if (this.hardCapFrozen || this.hostSignal()) this.closeInputSafely();
+    if (this.hardCapFrozen || !this.continuationAllowed() || this.hostSignal()) {
+      this.closeInputSafely();
+    }
   }
 
   attachQuery(query: WireQuery): void {
@@ -676,6 +794,10 @@ export class ManagedQueryTermination {
     if (this.hardCapError) {
       query.forceClose?.();
       throw this.hardCapError;
+    }
+    if (!this.continuationAllowed()) {
+      query.forceClose?.();
+      this.throwIfContinuationBlocked();
     }
     const signalledBeforeAttach = this.hostSignal();
     if (signalledBeforeAttach) {

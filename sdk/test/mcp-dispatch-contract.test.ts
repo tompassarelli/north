@@ -770,6 +770,7 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     ["dispatch", { id: "019f6c5e-61d0-7880-98a0-f8999eac7b03" }, "North dispatch requires the complete eight-field Orchestration request; missing: role, taskGrade, domainRequirements, topology, tier, reasoning, posture, composition (recover the valid payload shape: north show @contract:dispatch)"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), model: 42 }, "model must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), coordinator: { raw: "value" } }, "coordinator must be a non-empty string"],
+    ["spawn", { prompt: "probe", ...presetRequest("verifier"), tokenTarget: 0 }, "tokenTarget must be a positive safe integer"],
   ] as const) {
     const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
       input: `${JSON.stringify({ jsonrpc: "2.0", id: 0, method: "tools/call",

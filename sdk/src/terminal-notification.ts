@@ -80,6 +80,7 @@ function defaultSubject(outcome: string, terminal: ExecutionTerminal): string {
   if (outcome === "died" || outcome === "stalled" || outcome === "watchdog_aborted")
     return "AGENT DEATH";
   if (outcome === "max_turns" || outcome === "capped") return "TURN CAP";
+  if (outcome === "token_budget_limited") return "TOKEN TARGET";
   if (outcome === "ran_empty") return "AGENT EMPTY RESULT";
   return terminal.deliveryOutcome === "blocked" ? "AGENT BLOCKED" : "AGENT COMPLETE";
 }

@@ -1731,6 +1731,165 @@ test("a spawn orchestrator consumes two model terminals from one streaming query
   });
 });
 
+test("the managed token tripwire publishes once before an orchestrator continuation", async () => {
+  writeFileSync(log, "");
+  let queryConstructions = 0;
+  let iteratorCount = 0;
+  let continuationCalls = 0;
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return {
+      async continueTurn(): Promise<void> { continuationCalls++; },
+      async close(): Promise<void> {},
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        iteratorCount++;
+        return wireTurnEvents(args, {
+          output: "children coordinated",
+          provider: "anthropic",
+          turns: 1,
+          usage: {
+            lifetime: {
+              inputTokens: 10,
+              outputTokens: 5,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              reasoningTokens: 0,
+              modelCalls: 1,
+            },
+            context: { tokens: 15, window: 200_000 },
+          },
+        });
+      },
+    };
+  };
+
+  const result = await spawnUnderTest({
+    prompt: "coordinate then reduce",
+    agentId: "test-spawn-token-budget",
+    role: "director",
+    routingMetadata: presetRequest("director"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    coordinator: TEST_COORDINATOR,
+    tokenTarget: 15,
+    queryFn,
+    childSettlementReader: () => ({
+      kind: "settled" as const,
+      children: ["@agent:child-a", "@agent:child-b"],
+    }),
+  });
+
+  expect(result).toBe("children coordinated");
+  expect(queryConstructions).toBe(1);
+  expect(iteratorCount).toBe(1);
+  expect(continuationCalls).toBe(0);
+
+  const replay = await readWireJsonl(
+    join(dir, "agent-test-spawn-token-budget.stream.jsonl"),
+  );
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(1);
+  expect(replay.events.filter((event) => event.kind === "run.terminated")).toHaveLength(1);
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated",
+    lifecycle: "blocked",
+    reason: { code: "blocked", detail: "blocked" },
+  });
+
+  const lines = await settledRunLines("test-spawn-token-budget");
+  for (const fact of [
+    "process_outcome token_budget_limited",
+    "run_token_target 15",
+    "run_token_budget_status budget_limited",
+    "run_token_budget_coverage exact",
+    "run_token_observed 15",
+    "run_token_overshoot 0",
+    'run_token_budget_handoff {"reason":"managed_run_token_budget_limited","target":15,"observed":15,"overshoot":0,"coverage":"exact"}',
+  ]) {
+    expect(lines.some((line) => line.endsWith(` ${fact}`)), fact).toBe(true);
+  }
+  const notifications = readFileSync(log, "utf8").split("\n")
+    .filter((line) => line.includes("TOKEN TARGET"));
+  expect(notifications).toHaveLength(1);
+  expect(notifications[0]).toContain(
+    '{"reason":"managed_run_token_budget_limited","target":15,"observed":15,"overshoot":0,"coverage":"exact"}',
+  );
+});
+
+test("dispatch uses the same token tripwire before its orchestrator continuation", async () => {
+  writeFileSync(log, "");
+  let queryConstructions = 0;
+  let iteratorCount = 0;
+  let continuationCalls = 0;
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return {
+      async continueTurn(): Promise<void> { continuationCalls++; },
+      async close(): Promise<void> {},
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        iteratorCount++;
+        return wireTurnEvents(args, {
+          output: "children coordinated",
+          turns: 1,
+          usage: {
+            lifetime: {
+              inputTokens: 10,
+              outputTokens: 5,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              reasoningTokens: 0,
+              modelCalls: 1,
+            },
+            context: { tokens: 15, window: 200_000 },
+          },
+        });
+      },
+    };
+  };
+
+  const result = await dispatchUnderTest("test-dispatch-token-budget-thread", {
+    agentId: "test-dispatch-token-budget",
+    routingMetadata: presetRequest("director"),
+    tokenTarget: 15,
+    queryFn,
+    claimDriver: () => ({ release: () => true }),
+    loadThreadFacts: () => [
+      { predicate: "title", value: "Coordinate then reduce" },
+      { predicate: "planned", value: "true" },
+    ],
+    loadChildren: () => ["@agent:child-a", "@agent:child-b"],
+    childSettlementReader: () => ({
+      kind: "settled" as const,
+      children: ["@agent:child-a", "@agent:child-b"],
+    }),
+  });
+
+  expect(result.result).toBe("children coordinated");
+  expect(queryConstructions).toBe(1);
+  expect(iteratorCount).toBe(1);
+  expect(continuationCalls).toBe(0);
+
+  const replay = await readWireJsonl(
+    join(dir, "agent-test-dispatch-token-budget.stream.jsonl"),
+  );
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(1);
+  expect(replay.events.filter((event) => event.kind === "run.terminated")).toHaveLength(1);
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated",
+    lifecycle: "blocked",
+    reason: { code: "blocked", detail: "blocked" },
+  });
+
+  const lines = await settledRunLines("test-dispatch-token-budget");
+  expect(lines.some((line) => line.endsWith(" process_outcome token_budget_limited"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" run_token_budget_coverage exact"))).toBe(true);
+  const notifications = readFileSync(log, "utf8").split("\n")
+    .filter((line) => line.includes("TOKEN TARGET"));
+  expect(notifications).toHaveLength(1);
+  expect(notifications[0]).toContain(
+    '{"reason":"managed_run_token_budget_limited","target":15,"observed":15,"overshoot":0,"coverage":"exact"}',
+  );
+});
+
 test("provider preaccept causes stay out of public spawn and dispatch wire terminals", async () => {
   writeFileSync(log, "");
   const canary = "RAW_PROVIDER_CAUSE_CANARY_64bde4b8";
