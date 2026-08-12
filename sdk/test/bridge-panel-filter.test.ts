@@ -131,7 +131,7 @@ test("a match brings its ancestors, and a match brings its children", () => {
 
 test("filter mode is a state, and the ladder gives the query back before the panel", () => {
   const rung = (filtering: boolean, panel: boolean) =>
-    escapeRung(false, filtering, panel, false, false, false, true);
+    escapeRung(false, filtering, panel, false, false, false);
   expect(rung(true, true)).toBe("clear-filter");
   expect(rung(false, true)).toBe("close-detail");
   // A filter with no panel under it cannot happen, and if it did the query is

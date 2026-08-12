@@ -246,9 +246,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents from the Threads view", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents from the Threads view", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -464,8 +464,12 @@ function command(input) {
   return ((split_at < 0) ? ParsedCommand(normalized.toLowerCase(), "") : ParsedCommand(normalized.slice(0, split_at).toLowerCase(), normalized.slice((split_at + 1)).trim()));
 }
 
+export function quit_command_p(name) {
+  return ((name === "q") || (name === "exit"));
+}
+
 function escape_command_p(name) {
-  return ((name === "q") || (name === "exit") || (name === "close") || (name === "esc"));
+  return ((name === "close") || (name === "esc"));
 }
 
 const BOOT_FRAME = "agents";
@@ -478,8 +482,8 @@ export function threads_frame_p(frame) {
   return (text(frame) === "threads");
 }
 
-export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p, from_key_p) {
-  return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : ((from_key_p && working_p)) ? "cancel-turn" : (from_key_p) ? "" : "quit");
+export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p) {
+  return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : (working_p) ? "cancel-turn" : "");
 }
 
 export function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
@@ -1320,7 +1324,8 @@ return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCa
 }
 return true; })() : (thread_view_command_p(name)) ? (() => { show_thread_view_bang(runtime, ui, name);
 return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime, ui);
-return true; })() : (escape_command_p(name)) ? (() => { escape_step_bang(runtime, ui, false);
+return true; })() : (quit_command_p(name)) ? (() => { destroy_bang(runtime);
+return true; })() : (escape_command_p(name)) ? (() => { escape_step_bang(runtime, ui);
 return true; })() : false);
   }
 }
@@ -1412,7 +1417,7 @@ function install_global_exit_bang(runtime) {
   return runtime.renderer.keyInput.on("keypress", (key) => { const name = text(key.name);
 return (((key.ctrl && (name === "z"))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return suspend_runtime_bang(runtime, text(process.platform), process); })() : ((key.ctrl && ((name === "c") || (name === "q")))) ? (() => { key.preventDefault();
+return suspend_runtime_bang(runtime, text(process.platform), process); })() : ((key.ctrl && (name === "q"))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return destroy_bang(runtime); })() : null); });
 }
@@ -2204,7 +2209,7 @@ function helprow_keys(r) { return r.keys; }
 
 function helprow_meaning(r) { return r.meaning; }
 
-const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads; folds in the switchboard"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc / Ctrl-C", "cancel the turn; the message comes back"), HelpRow("/q /close /esc /exit", "escape — innermost first; at root, quits"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
+const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads; folds in the switchboard"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
 
 const HELP_KEY_WIDTH = 22;
 
@@ -3225,9 +3230,9 @@ function install_mouse_bang(runtime, ui) {
 } });
 }
 
-function escape_step_bang(runtime, ui, from_key_p) {
+function escape_step_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
-  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (runtime.stripFocused ? true : false), threads_frame_p(runtime.frame), (runtime.working ? true : false), from_key_p);
+  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (runtime.stripFocused ? true : false), threads_frame_p(runtime.frame), (runtime.working ? true : false));
   return (((action === "close-palette")) ? (() => { (active_input(runtime, ui).value = "");
 render_minibuffer_bang(runtime, ui);
 return true; })() : ((action === "clear-filter")) ? (() => { clear_panel_filter_bang(runtime);
@@ -3241,7 +3246,6 @@ return true; })() : ((action === "show-agents")) ? (() => { show_frame_bang(runt
 return true; })() : ((action === "cancel-turn")) ? (() => { const target = text(runtime.supervisorId); if ((!(target === ""))) {
   report_promise_bang(runtime, cancel_turn_bang(runtime, ui, target));
 }
-return true; })() : ((action === "quit")) ? (() => { destroy_bang(runtime);
 return true; })() : false);
 }
 
@@ -3318,7 +3322,7 @@ function install_keys_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
   const plain_view_arrow = (threads_frame_p(runtime.frame) && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  return ((((name === "escape") || (name === "esc"))) ? (escape_step_bang(runtime, ui, true) ? (() => { key.preventDefault();
+  return ((((name === "escape") || (name === "esc"))) ? (escape_step_bang(runtime, ui) ? (() => { key.preventDefault();
 return key.stopPropagation(); })() : null) : ((detail_open_p(runtime) && (!panel_focused_p(runtime)) && (!palette_open) && ctrl_down_key_p(name, key))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);

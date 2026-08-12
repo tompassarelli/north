@@ -9,6 +9,7 @@ import {
   handle_local_command_bang as handleLocalCommand,
   palette_options as paletteOptions,
   palette_enter_action as paletteEnterAction,
+  quit_command_p as quitCommand,
   render_detail_panel_bang as renderDetailPanel,
   render_view_tabs_bang as renderViewTabs,
   restore_submitted_text_bang as restoreSubmittedText,
@@ -95,21 +96,20 @@ test("naming a thread view shows the Threads view holding it", () => {
   expect(activeViewId(snapshot(runtime.model))).toBe("graph");
 });
 
-// One escape verb, four spellings, one rung per invocation. Quit lives on the
-// last rung and nowhere else, so it is always reachable by repetition and never
-// by accident.
-test("the escape family climbs one rung at a time and only quits at the root", () => {
+test("quit is unconditional while escape aliases navigate one rung", () => {
+  expect(quitCommand("q")).toBe(true);
+  expect(quitCommand("exit")).toBe(true);
+  expect(quitCommand("close")).toBe(false);
+  expect(quitCommand("esc")).toBe(false);
+
   const runtime = runtimeAt("threads");
 
-  // From Threads with nothing open: back to Agents, not out.
-  expect(handleLocalCommand(runtime, ui, "/q")).toBe(true);
+  // Escape aliases navigate back from Threads instead of quitting.
+  expect(handleLocalCommand(runtime, ui, "/close")).toBe(true);
   expect(runtime.frame).toBe("agents");
   expect(runtime.destroyed).toBe(false);
 
-  // Every spelling is the same verb, and each one climbs the same rung.
-  // (The root rung calls process.exit, so it is asserted on the pure ladder
-  // below rather than driven through a live runtime here.)
-  for (const spelling of ["/close", "/esc", "/exit"]) {
+  for (const spelling of ["/close", "/esc"]) {
     const r = runtimeAt("threads");
     expect(handleLocalCommand(r, ui, spelling)).toBe(true);
     expect(r.frame).toBe("agents");
@@ -119,7 +119,7 @@ test("the escape family climbs one rung at a time and only quits at the root", (
   // A panel is an inner rung: it closes before the view does.
   const panelled = runtimeAt("threads");
   panelled.detailView = "config";
-  expect(handleLocalCommand(panelled, ui, "/q")).toBe(true);
+  expect(handleLocalCommand(panelled, ui, "/esc")).toBe(true);
   expect(panelled.detailView).toBe("");
   expect(panelled.frame).toBe("threads");
 });
@@ -140,6 +140,11 @@ test("both command sets are discoverable, and /view is in neither", () => {
   // /q in both, /view in neither, /split gone with the panes.
   expect(named("agents", "/q")).toEqual(["/q"]);
   expect(named("threads", "/q")).toEqual(["/q"]);
+  expect(named("agents", "/exit")).toEqual([]);
+  const quit = paletteOptions("agents", "/q") as Array<{
+    name: string; description: string;
+  }>;
+  expect(quit).toMatchObject([{ name: "/q", description: "quit Northbridge" }]);
   for (const frame of ["agents", "threads"]) {
     expect(named(frame, "/view")).toEqual([]);
     expect(named(frame, "/split")).toEqual([]);
@@ -159,35 +164,28 @@ test("the composer hint says what to type and nothing about which frame", () => 
 
 // The ladder, as a matrix. The physical key climbs rungs one to five and stops
 // there: a key you hit reflexively must never be the key that ends the session.
-test("the escape ladder is innermost-first, and the key stops short of quitting", () => {
+test("the escape ladder is innermost-first and never quits", () => {
   const rung = (
     palette: boolean, filtering: boolean, panel: boolean, strip: boolean,
-    threads: boolean, working: boolean, fromKey: boolean,
-  ) => escapeRung(palette, filtering, panel, strip, threads, working, fromKey);
+    threads: boolean, working: boolean,
+  ) => escapeRung(palette, filtering, panel, strip, threads, working);
 
-  for (const fromKey of [true, false]) {
-    // Rung 1 outranks everything below it, including all of it at once.
-    expect(rung(true, true, true, true, true, true, fromKey)).toBe("close-palette");
+  // Rung 1 outranks everything below it, including all of it at once.
+  expect(rung(true, true, true, true, true, true)).toBe("close-palette");
     // Rung 2: a live filter is inside the panel that carries it, so the query
     // goes back before the panel does — clearing a search must not cost you the
     // switchboard you were searching.
-    expect(rung(false, true, true, true, true, true, fromKey)).toBe("clear-filter");
+  expect(rung(false, true, true, true, true, true)).toBe("clear-filter");
     // Rung 3.
-    expect(rung(false, false, true, true, true, true, fromKey)).toBe("close-detail");
+  expect(rung(false, false, true, true, true, true)).toBe("close-detail");
     // Rung 4.
-    expect(rung(false, false, false, true, true, true, fromKey)).toBe("focus-composer");
+  expect(rung(false, false, false, true, true, true)).toBe("focus-composer");
     // Rung 5.
-    expect(rung(false, false, false, false, true, true, fromKey)).toBe("show-agents");
-  }
+  expect(rung(false, false, false, false, true, true)).toBe("show-agents");
 
-  // Rung 6 is the command's alone: from the empty root the verb quits.
-  expect(rung(false, false, false, false, false, false, false)).toBe("quit");
-  expect(rung(false, false, false, false, false, true, false)).toBe("quit");
-
-  // The key never reaches it. At the root it spends itself on the turn in
-  // flight, or on nothing at all.
-  expect(rung(false, false, false, false, false, true, true)).toBe("cancel-turn");
-  expect(rung(false, false, false, false, false, false, true)).toBe("");
+  // At the root escape spends itself on the turn in flight or does nothing.
+  expect(rung(false, false, false, false, false, true)).toBe("cancel-turn");
+  expect(rung(false, false, false, false, false, false)).toBe("");
 });
 
 // Help used to print itself into the transcript with no way to dismiss it.
@@ -215,8 +213,9 @@ test("/help opens the docked panel and escape closes it", async () => {
 
   expect(frame).toContain("Northbridge keys");
   expect(frame).toContain("esc closes");
-  // The escape family reads as one entry, not two contradicting ones.
-  expect(frame).toContain("/q /close /esc /exit");
+  expect(frame).toContain("Esc /close /esc");
+  expect(frame).toContain("Ctrl-C /interrupt");
+  expect(frame).toContain("/q /exit / Ctrl-Q");
   expect(frame).not.toContain("back, then quit");
 
   // Rung two: the panel it opened is the first thing escape takes back, and the

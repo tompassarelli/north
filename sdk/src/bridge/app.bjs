@@ -296,8 +296,7 @@
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
-   (->SlashCommand "/q" "back to Agents from the Threads view" false "" false)
-   (->SlashCommand "/exit" "close Northbridge" false "" false)
+   (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
 (def THREAD-COMMANDS: (Vec SlashCommand)
@@ -327,8 +326,7 @@
    (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
    (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
    (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
-   (->SlashCommand "/q" "back to Agents from the Threads view" false "" false)
-   (->SlashCommand "/exit" "close Northbridge" false "" false)
+   (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show thread commands" false "" false)])
 
 (defn text [value: Any] -> String
@@ -622,12 +620,15 @@
       (->ParsedCommand (.toLowerCase (.slice normalized 0 split-at))
                        (.trim (.slice normalized (+ split-at 1)))))))
 
-;; One escape verb, four spellings, no difference between them. Whichever you
-;; type, it climbs exactly one rung out of wherever you are.
-(defn escape-command? [name: String] -> Bool
+;; Quit and escape are separate verbs. `/exit` is accepted as an alias without
+;; taking another completion row; `/close` and `/esc` mirror the Escape key.
+(js/export
+ (defn quit-command? [name: String] -> Bool
   (or (identical? name "q")
-      (identical? name "exit")
-      (identical? name "close")
+      (identical? name "exit"))))
+
+(defn escape-command? [name: String] -> Bool
+  (or (identical? name "close")
       (identical? name "esc")))
 
 ;; One view is on screen at a time, full width, and Northbridge opens on Agents.
@@ -641,14 +642,8 @@
   (identical? (text frame) "threads")))
 
 ;; Pure: the escape ladder. One rung per invocation, innermost first, so
-;; nothing is ever closed that you could not see was open. Quit lives on the
-;; last rung and nowhere else: from the empty root, with no surface left to
-;; leave, escaping means leaving Northbridge — always reachable by repeating
-;; the same verb, never reachable by accident.
-;;
-;; The physical escape key climbs rungs one to four and stops. A key you hit
-;; reflexively to dismiss something must not be the key that ends the session,
-;; so at the root it spends itself on the turn in flight, or on nothing.
+;; nothing is ever closed that you could not see was open. Escape never quits;
+;; at the root it spends itself on the turn in flight, or on nothing.
 ;; A live filter is a rung of its own, inside the panel that carries it: the
 ;; query is the innermost thing you opened, so it is the first thing escape
 ;; takes back, and the panel underneath survives one more press. Anything else
@@ -660,17 +655,15 @@
    detail-open?: Bool
    strip-focused?: Bool
    threads?: Bool
-   working?: Bool
-   from-key?: Bool] -> String
+   working?: Bool] -> String
   (cond
     palette-open? "close-palette"
     filtering? "clear-filter"
     detail-open? "close-detail"
     strip-focused? "focus-composer"
     threads? "show-agents"
-    (and from-key? working?) "cancel-turn"
-    from-key? ""
-    :else "quit")))
+    working? "cancel-turn"
+    :else "")))
 
 ;; Pure: which surface holds the keyboard. Exactly one, always — that is the
 ;; whole content of a focus model, and it is what lets one key carry a different
@@ -2419,10 +2412,13 @@
           (identical? name "help")
           (do (toggle-help! runtime ui) true)
 
-          ;; `:q` and its three synonyms: one rung of the escape ladder each,
-          ;; typed instead of pressed. Only the root rung quits.
+          ;; Quit is unconditional. Escape aliases navigate the same ladder as
+          ;; the physical key and therefore never terminate Northbridge.
+          (quit-command? name)
+          (do (destroy! runtime) true)
+
           (escape-command? name)
-          (do (escape-step! runtime ui false) true)
+          (do (escape-step! runtime ui) true)
 
           :else false))))))
 
@@ -2518,8 +2514,7 @@
                  (.stopPropagation key)
                  (suspend-runtime! runtime (text (.-platform process)) process))
 
-             (and (.-ctrl key)
-                  (or (identical? name "c") (identical? name "q")))
+             (and (.-ctrl key) (identical? name "q"))
              (do (.preventDefault key)
                  (.stopPropagation key)
                  (destroy! runtime))
@@ -4090,8 +4085,9 @@
   [(->HelpRow "Tab" "swap Agents/Threads; folds in the switchboard")
    (->HelpRow "←/→" "switch thread view")
    (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
-   (->HelpRow "Esc / Ctrl-C" "cancel the turn; the message comes back")
-   (->HelpRow "/q /close /esc /exit" "escape — innermost first; at root, quits")
+   (->HelpRow "Esc /close /esc" "back or dismiss; cancels a turn at root")
+   (->HelpRow "Ctrl-C /interrupt" "cancel the turn; the message comes back")
+   (->HelpRow "/q /exit / Ctrl-Q" "quit Northbridge")
    (->HelpRow "/help" "this panel")
    (->HelpRow "/glyph <one>|reset" "prompt glyph")
    (->HelpRow "/emoji <query>" "picker")
@@ -5794,22 +5790,20 @@
                     (show-frame! runtime ui "threads")
                     (show-thread-view! runtime ui tab)))))))))
 
-;; Climb one rung, whoever asked. The key and the four spellings of the command
-;; share this, so "what does escape do here" has exactly one answer. Returns
+;; Climb one rung, whoever asked. The key and its command spellings share this,
+;; so "what does escape do here" has exactly one answer. Returns
 ;; whether anything was claimed, which is what tells the key handler to swallow
 ;; the keystroke and the command handler that it was a command.
 (defn escape-step!
   [runtime: Any
-   ui: Any
-   from-key?: Bool] -> Bool
+   ui: Any] -> Bool
   (let [palette (active-palette-options runtime ui)
         action (escape-rung (> (.-length palette) 0)
                             (panel-filtering? runtime)
                             (detail-open? runtime)
                             (if (.-stripFocused runtime) true false)
                             (threads-frame? (.-frame runtime))
-                            (if (.-working runtime) true false)
-                            from-key?)]
+                            (if (.-working runtime) true false))]
     (cond
       (identical? action "close-palette")
       (do (set! (.-value (active-input runtime ui)) "")
@@ -5836,9 +5830,6 @@
         (when (not (identical? target ""))
           (report-promise! runtime (cancel-turn! runtime ui target)))
         true)
-
-      (identical? action "quit")
-      (do (destroy! runtime) true)
 
       :else false)))
 
@@ -6017,7 +6008,7 @@
              ;; Escape is the ladder and nothing else: one rung per press, and
              ;; whatever rung it lands on, no other branch below gets a say.
              (or (identical? name "escape") (identical? name "esc"))
-             (when (escape-step! runtime ui true)
+             (when (escape-step! runtime ui)
                (.preventDefault key)
                (.stopPropagation key))
 
