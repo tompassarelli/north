@@ -559,6 +559,15 @@ function setup(mode = "ok") {
       if (mode === "turn-id-mismatch-notification")
         startedTurn.id = "019f7abc-0000-7000-8000-000000000099";
       notify("turn/started", { threadId, turn: startedTurn });
+      if (mode === "passive-items") {
+        for (const passive of [
+          item("user-message-1", "userMessage"),
+          item("hook-prompt-1", "hookPrompt"),
+        ]) {
+          lifecycle("started", passive, 1);
+          lifecycle("completed", passive, 2);
+        }
+      }
       // Leave the replacement turn live until the queued control request is
       // delivered. The first provider attempt still follows the ordinary work
       // path below and dies after its third completed item.
@@ -1183,6 +1192,12 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(NORTH_BINARY_PROBE_SCRIPT);
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(options.env.NORTH_BIN);
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
+});
+
+test("provider input and hook prompts do not inflate managed tool accounting", async () => {
+  const { options } = setup("passive-items");
+  const result = await new ManagedCodexAppServerRun(options).execute();
+  expect(result.toolItems).toBe(3);
 });
 
 test("notification processing waits for the event durability callback before advancing", async () => {
