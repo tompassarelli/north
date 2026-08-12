@@ -11,6 +11,13 @@ import type { Readable } from "node:stream";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 1_048_576;
+const PROCESS_GROUP_REAP_MS = 1_500;
+const PROCESS_GROUP_POLL_MS = 20;
+export const READONLY_SHELL_SUMMARY_MAX_BYTES = 16 * 1024;
+const SUMMARY_MARKER_RESERVE_BYTES = 256;
+const SUMMARY_CONTENT_BYTES = READONLY_SHELL_SUMMARY_MAX_BYTES - SUMMARY_MARKER_RESERVE_BYTES;
+const SUMMARY_HEAD_BYTES = Math.floor(SUMMARY_CONTENT_BYTES / 2);
+const SUMMARY_TAIL_BYTES = SUMMARY_CONTENT_BYTES - SUMMARY_HEAD_BYTES;
 export const MAX_READONLY_COMMAND_BYTES = 64 * 1024;
 export const READONLY_SHELL_SERVER = "north-readonly-shell";
 export const READONLY_SHELL_TOOL = `mcp__${READONLY_SHELL_SERVER}__run`;
@@ -30,9 +37,18 @@ export interface ReadonlyShellResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   timedOut: boolean;
+  cancelled: boolean;
   outputLimitExceeded: boolean;
   stdout: string;
   stderr: string;
+  stdoutBytes: ReadonlyShellOutputBytes;
+  stderrBytes: ReadonlyShellOutputBytes;
+}
+
+export interface ReadonlyShellOutputBytes {
+  totalBytes: number;
+  capturedBytes: number;
+  omittedBytes: number;
 }
 
 export class ReadonlyShellUnavailableError extends Error {
@@ -273,20 +289,118 @@ export function preflightReadonlyShell(
   return prerequisites;
 }
 
-function appendBounded(
-  chunks: Buffer[],
-  chunk: Buffer,
-  remaining: { bytes: number },
-): boolean {
-  if (remaining.bytes <= 0) return false;
-  if (chunk.length <= remaining.bytes) {
-    chunks.push(chunk);
-    remaining.bytes -= chunk.length;
-    return true;
+function trailingUtf8Boundary(buffer: Buffer): number {
+  if (buffer.length === 0) return 0;
+  let sequenceStart = buffer.length - 1;
+  while (sequenceStart >= 0 && (buffer[sequenceStart] & 0xc0) === 0x80)
+    sequenceStart--;
+  if (sequenceStart < 0) return 0;
+  const lead = buffer[sequenceStart];
+  const expected = lead <= 0x7f ? 1
+    : lead >= 0xc2 && lead <= 0xdf ? 2
+      : lead >= 0xe0 && lead <= 0xef ? 3
+        : lead >= 0xf0 && lead <= 0xf4 ? 4 : 1;
+  return buffer.length - sequenceStart < expected ? sequenceStart : buffer.length;
+}
+
+function leadingUtf8Boundary(buffer: Buffer): number {
+  let offset = 0;
+  while (offset < buffer.length && (buffer[offset] & 0xc0) === 0x80) offset++;
+  return offset;
+}
+
+interface StreamSummary {
+  text: string;
+  bytes: ReadonlyShellOutputBytes;
+}
+
+class StreamSummaryCollector {
+  #totalBytes = 0;
+  #head = Buffer.alloc(0);
+  #tail = Buffer.alloc(0);
+
+  push(chunk: Buffer): void {
+    this.#totalBytes += chunk.length;
+    if (this.#head.length < SUMMARY_CONTENT_BYTES) {
+      const remaining = SUMMARY_CONTENT_BYTES - this.#head.length;
+      this.#head = Buffer.concat([
+        this.#head,
+        Buffer.from(chunk.subarray(0, remaining)),
+      ]);
+    }
+    if (chunk.length >= SUMMARY_TAIL_BYTES) {
+      this.#tail = Buffer.from(chunk.subarray(chunk.length - SUMMARY_TAIL_BYTES));
+      return;
+    }
+    const combined = Buffer.concat([this.#tail, chunk]);
+    this.#tail = combined.length <= SUMMARY_TAIL_BYTES
+      ? combined
+      : Buffer.from(combined.subarray(combined.length - SUMMARY_TAIL_BYTES));
   }
-  chunks.push(chunk.subarray(0, remaining.bytes));
-  remaining.bytes = 0;
-  return false;
+
+  finish(): StreamSummary {
+    if (this.#totalBytes <= SUMMARY_CONTENT_BYTES) {
+      return {
+        text: this.#head.toString("utf8"),
+        bytes: {
+          totalBytes: this.#totalBytes,
+          capturedBytes: this.#totalBytes,
+          omittedBytes: 0,
+        },
+      };
+    }
+    const rawHead = this.#head.subarray(0, SUMMARY_HEAD_BYTES);
+    const head = rawHead.subarray(0, trailingUtf8Boundary(rawHead));
+    const tail = this.#tail.subarray(leadingUtf8Boundary(this.#tail));
+    const capturedBytes = head.length + tail.length;
+    const omittedBytes = this.#totalBytes - capturedBytes;
+    const marker = `\n[north: ${omittedBytes} bytes omitted; captured ${capturedBytes} of ${this.#totalBytes} bytes]\n`;
+    return {
+      text: `${head.toString("utf8")}${marker}${tail.toString("utf8")}`,
+      bytes: { totalBytes: this.#totalBytes, capturedBytes, omittedBytes },
+    };
+  }
+}
+
+function cancelledResult(): ReadonlyShellResult {
+  const bytes = { totalBytes: 0, capturedBytes: 0, omittedBytes: 0 };
+  return {
+    ok: false,
+    exitCode: null,
+    signal: null,
+    timedOut: false,
+    cancelled: true,
+    outputLimitExceeded: false,
+    stdout: "",
+    stderr: "",
+    stdoutBytes: bytes,
+    stderrBytes: { ...bytes },
+  };
+}
+
+function systemCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+}
+
+function processGroupExists(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    return systemCode(error) !== "ESRCH";
+  }
+}
+
+async function waitForProcessGroupGone(pgid: number): Promise<boolean> {
+  const deadline = Date.now() + PROCESS_GROUP_REAP_MS;
+  while (processGroupExists(pgid)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+    await Bun.sleep(Math.min(PROCESS_GROUP_POLL_MS, remaining));
+  }
+  return true;
 }
 
 export async function runReadonlyShell(
@@ -294,6 +408,7 @@ export async function runReadonlyShell(
   cwd: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   environment: NodeJS.ProcessEnv = process.env,
+  abortSignal?: AbortSignal,
 ): Promise<ReadonlyShellResult> {
   if (!command.trim()) throw new Error("readonly shell command must be nonblank");
   if (Buffer.byteLength(command, "utf8") > MAX_READONLY_COMMAND_BYTES)
@@ -301,7 +416,9 @@ export async function runReadonlyShell(
   if (!Number.isFinite(timeoutMs))
     throw new Error("readonly shell timeout must be finite");
   const boundedTimeout = Math.max(100, Math.min(MAX_TIMEOUT_MS, Math.trunc(timeoutMs)));
+  if (abortSignal?.aborted) return cancelledResult();
   const prerequisites = preflightReadonlyShell(cwd, environment);
+  if (abortSignal?.aborted) return cancelledResult();
   let child: ChildProcessByStdio<null, Readable, Readable>;
   try {
     child = spawn(prerequisites.bash, seccompLaunchArguments(prerequisites, [
@@ -316,37 +433,10 @@ export async function runReadonlyShell(
   } catch (cause) {
     throw new ReadonlyShellUnavailableError("readonly_shell_process_unavailable", { cause });
   }
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  const remaining = { bytes: MAX_OUTPUT_BYTES };
-  let timedOut = false;
-  let outputLimitExceeded = false;
-  const terminate = () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
-    try {
-      if (child.pid) process.kill(-child.pid, "SIGKILL");
-      else child.kill("SIGKILL");
-    } catch {
-      child.kill("SIGKILL");
-    }
-  };
-  const timer = setTimeout(() => {
-    timedOut = true;
-    terminate();
-  }, boundedTimeout);
-  child.stdout.on("data", (value: Buffer) => {
-    if (!appendBounded(stdout, value, remaining)) {
-      outputLimitExceeded = true;
-      terminate();
-    }
-  });
-  child.stderr.on("data", (value: Buffer) => {
-    if (!appendBounded(stderr, value, remaining)) {
-      outputLimitExceeded = true;
-      terminate();
-    }
-  });
-  const terminal = await new Promise<{
+  // Node reports some launch failures asynchronously. Observe both terminal
+  // paths before validating ownership so even an invalid/missing PID cannot
+  // leave an unhandled child-process error behind.
+  const terminalPromise = new Promise<{
     exitCode: number | null;
     signal: NodeJS.Signals | null;
     spawnError?: Error;
@@ -356,19 +446,81 @@ export async function runReadonlyShell(
     }));
     child.once("close", (exitCode, signal) => resolveTerminal({ exitCode, signal }));
   });
+  const pgid = child.pid;
+  if (!Number.isSafeInteger(pgid) || pgid === undefined || pgid <= 1
+      || pgid === process.pid || pgid === process.ppid) {
+    try { child.kill("SIGKILL"); } catch { /* invalid process ownership */ }
+    throw new ReadonlyShellUnavailableError("readonly_shell_process_group_invalid");
+  }
+  const stdout = new StreamSummaryCollector();
+  const stderr = new StreamSummaryCollector();
+  let totalOutputBytes = 0;
+  let timedOut = false;
+  let cancelled = false;
+  let outputLimitExceeded = false;
+  const terminate = () => {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch (error) {
+      if (systemCode(error) !== "ESRCH") {
+        try { child.kill("SIGKILL"); } catch { /* reap proof remains authoritative */ }
+      }
+    }
+  };
+  const onAbort = () => {
+    cancelled = true;
+    terminate();
+  };
+  const timer = setTimeout(() => {
+    timedOut = true;
+    terminate();
+  }, boundedTimeout);
+  child.stdout.on("data", (value: Buffer) => {
+    stdout.push(value);
+    totalOutputBytes += value.length;
+    if (totalOutputBytes > MAX_OUTPUT_BYTES && !outputLimitExceeded) {
+      outputLimitExceeded = true;
+      terminate();
+    }
+  });
+  child.stderr.on("data", (value: Buffer) => {
+    stderr.push(value);
+    totalOutputBytes += value.length;
+    if (totalOutputBytes > MAX_OUTPUT_BYTES && !outputLimitExceeded) {
+      outputLimitExceeded = true;
+      terminate();
+    }
+  });
+  child.once("exit", () => {
+    if (processGroupExists(pgid)) terminate();
+  });
+  if (abortSignal) {
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    if (abortSignal.aborted) onAbort();
+  }
+  const terminal = await terminalPromise;
   clearTimeout(timer);
+  if (abortSignal) abortSignal.removeEventListener("abort", onAbort);
+  if (processGroupExists(pgid)) terminate();
+  if (!await waitForProcessGroupGone(pgid))
+    throw new ReadonlyShellUnavailableError("readonly_shell_process_group_reap_failed");
   if (terminal.spawnError) {
     throw new ReadonlyShellUnavailableError("readonly_shell_process_unavailable", {
       cause: terminal.spawnError,
     });
   }
+  const stdoutSummary = stdout.finish();
+  const stderrSummary = stderr.finish();
   return {
-    ok: terminal.exitCode === 0 && !timedOut && !outputLimitExceeded,
+    ok: terminal.exitCode === 0 && !timedOut && !cancelled && !outputLimitExceeded,
     exitCode: terminal.exitCode,
     signal: terminal.signal,
     timedOut,
+    cancelled,
     outputLimitExceeded,
-    stdout: Buffer.concat(stdout).toString("utf8"),
-    stderr: Buffer.concat(stderr).toString("utf8"),
+    stdout: stdoutSummary.text,
+    stderr: stderrSummary.text,
+    stdoutBytes: stdoutSummary.bytes,
+    stderrBytes: stderrSummary.bytes,
   };
 }

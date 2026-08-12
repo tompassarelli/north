@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { delimiter, join, resolve } from "node:path";
 import {
-  MAX_READONLY_COMMAND_BYTES, preflightReadonlyShell, readonlyShellSeccompProgram,
-  runReadonlyShell,
+  MAX_READONLY_COMMAND_BYTES, preflightReadonlyShell, READONLY_SHELL_SUMMARY_MAX_BYTES,
+  readonlyShellSeccompProgram, runReadonlyShell,
 } from "../src/readonly-shell";
 
 const repo = resolve(import.meta.dir, "../..");
@@ -37,8 +37,15 @@ gatedTest("user-namespace", "read-only shell preflight proves checkout denial an
     ok: true,
     exitCode: 0,
     timedOut: false,
+    cancelled: false,
     outputLimitExceeded: false,
     stdout: "read-oktmp-ok",
+    stdoutBytes: { totalBytes: 13, capturedBytes: 13, omittedBytes: 0 },
+  });
+  expect(result.stderrBytes).toEqual({
+    totalBytes: Buffer.byteLength(result.stderr),
+    capturedBytes: Buffer.byteLength(result.stderr),
+    omittedBytes: 0,
   });
   expect(existsSync(forbidden)).toBe(false);
 });
@@ -213,22 +220,125 @@ gatedTest("user-namespace", "timeout kills the entire sandbox process group, inc
     150,
   );
   expect(result.timedOut).toBe(true);
+  expect(result.cancelled).toBe(false);
   expect(result.ok).toBe(false);
-  await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   const processes = spawnSync("ps", ["-eo", "args="], { encoding: "utf8" }).stdout;
   expect(processes.split("\n").some((line) => line.includes(marker))).toBe(false);
 });
 
-gatedTest("user-namespace", "combined output is bounded and overflow terminates the sandbox", async () => {
+test("a pre-aborted read-only command returns cancellation without sandbox preflight", async () => {
+  const abort = new AbortController();
+  abort.abort();
   const result = await runReadonlyShell(
-    "yes x | head -c 1100000",
+    "printf must-not-run",
+    "/definitely-missing-north-readonly-cwd",
+    5_000,
+    process.env,
+    abort.signal,
+  );
+  expect(result).toEqual({
+    ok: false,
+    exitCode: null,
+    signal: null,
+    timedOut: false,
+    cancelled: true,
+    outputLimitExceeded: false,
+    stdout: "",
+    stderr: "",
+    stdoutBytes: { totalBytes: 0, capturedBytes: 0, omittedBytes: 0 },
+    stderrBytes: { totalBytes: 0, capturedBytes: 0, omittedBytes: 0 },
+  });
+});
+
+gatedTest("user-namespace", "cancellation returns only after the sandbox descendant is gone", async () => {
+  const marker = `north-ro-cancelled-child-${randomUUID()}`;
+  const abort = new AbortController();
+  const pending = runReadonlyShell(
+    `bash --noprofile --norc -c 'sleep 60; wait' ${marker} & wait`,
+    checkout(),
+    5_000,
+    process.env,
+    abort.signal,
+  );
+  await Bun.sleep(100);
+  abort.abort();
+  const result = await pending;
+  expect(result).toMatchObject({
+    ok: false,
+    timedOut: false,
+    cancelled: true,
+    outputLimitExceeded: false,
+  });
+  const processes = spawnSync("ps", ["-eo", "args="], { encoding: "utf8" }).stdout;
+  expect(processes.split("\n").some((line) => line.includes(marker))).toBe(false);
+});
+
+gatedTest("user-namespace", "large stdout keeps a bounded head, tail, and exact omission counts", async () => {
+  const result = await runReadonlyShell(
+    "printf 'stdout-head|'; head -c 40000 /dev/zero | tr '\\0' x; printf '|stdout-tail'",
+    checkout(),
+    5_000,
+  );
+  expect(result.ok).toBe(true);
+  expect(result.stdout.startsWith("stdout-head|xxx")).toBe(true);
+  expect(result.stdout.endsWith("xxx|stdout-tail")).toBe(true);
+  expect(result.stdout).toContain(
+    `[north: ${result.stdoutBytes.omittedBytes} bytes omitted; `
+      + `captured ${result.stdoutBytes.capturedBytes} of ${result.stdoutBytes.totalBytes} bytes]`,
+  );
+  expect(result.stdoutBytes).toEqual({
+    totalBytes: 40_024,
+    capturedBytes: 16_128,
+    omittedBytes: 23_896,
+  });
+  expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(READONLY_SHELL_SUMMARY_MAX_BYTES);
+});
+
+gatedTest("user-namespace", "split multibyte output remains valid across summary boundaries", async () => {
+  const result = await runReadonlyShell(
+    "printf 'x\\360\\237'; sleep 0.05; printf '\\231\\202'; "
+      + "perl -e 'binmode STDOUT; print pack(\"C*\", 0xf0, 0x9f, 0x99, 0x82) x 4999'",
+    checkout(),
+    5_000,
+  );
+  expect(result.ok).toBe(true);
+  expect(result.stdoutBytes.totalBytes).toBe(20_001);
+  expect(result.stdoutBytes.capturedBytes + result.stdoutBytes.omittedBytes).toBe(20_001);
+  expect(result.stdout.startsWith("x🙂")).toBe(true);
+  expect(result.stdout.endsWith("🙂")).toBe(true);
+  expect(result.stdout).not.toContain("�");
+  expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(READONLY_SHELL_SUMMARY_MAX_BYTES);
+});
+
+gatedTest("user-namespace", "stderr retains its own summary when stdout is noisy", async () => {
+  const result = await runReadonlyShell(
+    "head -c 30000 /dev/zero | tr '\\0' x; printf 'important-stderr' >&2",
+    checkout(),
+    5_000,
+  );
+  expect(result.ok).toBe(true);
+  expect(result.stdoutBytes.omittedBytes).toBeGreaterThan(0);
+  expect(result.stderr).toBe("important-stderr");
+  expect(result.stderrBytes).toEqual({
+    totalBytes: 16,
+    capturedBytes: 16,
+    omittedBytes: 0,
+  });
+});
+
+gatedTest("user-namespace", "combined hard-cap overflow reaps the sandbox process group", async () => {
+  const marker = `north-ro-overflow-child-${randomUUID()}`;
+  const result = await runReadonlyShell(
+    `bash --noprofile --norc -c 'sleep 60; wait' ${marker} & yes x | head -c 1100000; wait`,
     checkout(),
     5_000,
   );
   expect(result.outputLimitExceeded).toBe(true);
   expect(result.ok).toBe(false);
   expect(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr))
-    .toBeLessThanOrEqual(1_048_576);
+    .toBeLessThanOrEqual(READONLY_SHELL_SUMMARY_MAX_BYTES * 2);
+  const processes = spawnSync("ps", ["-eo", "args="], { encoding: "utf8" }).stdout;
+  expect(processes.split("\n").some((line) => line.includes(marker))).toBe(false);
 });
 
 test("oversized commands and non-finite timeouts fail before sandbox spawn", async () => {
