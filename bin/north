@@ -389,6 +389,9 @@ case "${1:-}" in
     exec "$BB" "$NORTH/cli/config-cli.clj" "${@:2}" ;;
   providers)
     exec "$BUN" run "$NORTH/sdk/src/providers-cli.ts" "${@:2}" ;;
+  learning)
+    # Read-only deterministic comparison over immutable learning/run facts.
+    exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/learning-compare.clj" "${@:2}" ;;
   account)
     # Isolated Claude Code / Codex subscription account homes. The TypeScript
     # CLI owns path validation, allowlisted config links, and normalized auth.

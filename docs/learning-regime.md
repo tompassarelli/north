@@ -84,10 +84,11 @@ offline comparison cohort only when all of the following are exact:
 - the run envelope ties those receipts to the assignment and admitted route;
 - at least one done bar exists and every done bar has observed evidence.
 
-Unknown evidence is never converted to zero. Any future evaluation projection
-must retain excluded rows and name every exclusion reason. Eligible observations
-are grouped by exact task-signature digest, changed axis, and arm; no live
-operator command currently turns those observations into a causal verdict.
+Unknown evidence is never converted to zero. `north learning compare
+<experiment-id> [--json]` retains excluded attempts and names every exclusion
+reason. It deduplicates explicit retry chains, then groups eligible observations
+by exact task-signature digest, changed axis, and arm. Its observed summaries
+are descriptive only; the command does not produce a causal verdict.
 
 ## Content-addressed construction evidence
 

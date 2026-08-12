@@ -1,17 +1,21 @@
 north help routing — providers, accounts, dispatch posture
 
-  north config                      every posture setting + routing policy, one report
-                                    north config dispatch <mode> — native · managed · auto
-                                    north config guards on|off — value-aware kill-switch for authoring guards
-                                    north config routing — allocation detail inside auto: provider order, pressure, reserves, envelopes
-                                    north config learning — frozen known-best or learning bounded experimental assignment
-  north providers [--json]          provider readiness and the auto-route decision
-  north account <sub>               isolated provider subscription accounts
-                                    add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts
-  north failover check|fire         classify active rungs; compose/launch a provider-recovery lead
-                                    fire --thread ID --brief PATH [--dry-run] — only fire may launch
-  north spend status|init|override  API-billing budget: cap, reserved, settled, headroom
-  north ccr prepare|retrieve        default-off structured-output CCR canary
-  north handoff                     legacy — renamed — use north failover
+  north config                                  every posture setting + routing policy, one report
+                                                north config dispatch <mode> — native · managed · auto
+                                                north config guards on|off — value-aware kill-switch for authoring guards
+                                                north config routing — allocation detail inside auto: provider order, pressure, reserves, envelopes
+                                                north config learning — frozen known-best or learning bounded experimental assignment
+  north providers [--json]                      provider readiness and the auto-route decision
+  north learning compare <experiment-id> [--json]
+                                                descriptive exact-task cohorts from immutable learning facts
+                                                retains excluded attempts, retry lineage, propensities, and unknown measurements
+                                                observed cohort summaries are descriptive only, never causal effects
+  north account <sub>                           isolated provider subscription accounts
+                                                add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts
+  north failover check|fire                     classify active rungs; compose/launch a provider-recovery lead
+                                                fire --thread ID --brief PATH [--dry-run] — only fire may launch
+  north spend status|init|override              API-billing budget: cap, reserved, settled, headroom
+  north ccr prepare|retrieve                    default-off structured-output CCR canary
+  north handoff                                 legacy — renamed — use north failover
 
   north help --all — the complete reference · bare `north` — the daily card

@@ -155,6 +155,10 @@
           :text "posture: dispatch surface, guards, routing"}}
   {:verb "providers" :form "north providers [--json]" :topic :routing
    :summary "provider readiness and the auto-route decision"}
+  {:verb "learning" :form "north learning compare <experiment-id> [--json]" :topic :routing
+   :summary "descriptive exact-task cohorts from immutable learning facts"
+   :details ["retains excluded attempts, retry lineage, propensities, and unknown measurements"
+             "observed cohort summaries are descriptive only, never causal effects"]}
   {:verb "account" :form "north account <sub>" :topic :routing
    :summary "isolated provider subscription accounts"
    :details ["add|login|status|list|usage|availability — homes under ~/.local/state/north/accounts"]}
