@@ -53,7 +53,7 @@ import {
   formatProviderStderrTail, ProviderStderrRing, STDERR_TAIL_LINES,
 } from "./codex-stderr-tail";
 import {
-  openAIWireCountsAsToolItem, openAIWireToolIdentity,
+  openAIWireCountsAsToolItem, openAIWireItemIsPassive, openAIWireToolIdentity,
   type OpenAIWireSemanticToolKind, type OpenAIWireToolIdentity,
 } from "./openai-wire";
 import { providerJoinEvidence } from "./provider-join";
@@ -2198,7 +2198,7 @@ function validateProgressNotification(
     if (method === "item/started") {
       let pending: OpenAIWireToolIdentity | { readonly kind: "unknown"; readonly name: "provider-item" }
         | undefined;
-      if (itemType !== "agentMessage" && itemType !== "reasoning" && itemType !== "plan") {
+      if (!openAIWireItemIsPassive(itemType)) {
         try {
           pending = openAIWireToolIdentity(item)
             ?? Object.freeze({ kind: "unknown" as const, name: "provider-item" as const });

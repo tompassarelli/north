@@ -176,9 +176,16 @@ interface OpenToolItem {
 	latestArtifactDigest?: string;
 }
 
+export type OpenAIWirePassiveItemKind =
+	| "agentMessage"
+	| "reasoning"
+	| "plan"
+	| "userMessage"
+	| "hookPrompt";
+
 interface IgnoredItem {
 	category: "ignored";
-	kind: "reasoning" | "plan" | "userMessage" | "hookPrompt";
+	kind: Exclude<OpenAIWirePassiveItemKind, "agentMessage">;
 }
 
 type OpenItem = OpenMessageItem | OpenToolItem | IgnoredItem;
@@ -304,6 +311,11 @@ function semanticToolKind(value: string): OpenAIWireSemanticToolKind | undefined
 
 export function openAIWireCountsAsToolItem(itemType: string): boolean {
 	return semanticToolKind(itemType) !== undefined;
+}
+
+export function openAIWireItemIsPassive(itemType: string): itemType is OpenAIWirePassiveItemKind {
+	return itemType === "agentMessage" || itemType === "reasoning" || itemType === "plan"
+		|| itemType === "userMessage" || itemType === "hookPrompt";
 }
 
 function openAIWireArgumentDigest(
@@ -726,8 +738,7 @@ export class OpenAIWireNormalizer {
 			this.#messageSequence += 1;
 			return eventResult(events);
 		}
-		if (kind === "reasoning" || kind === "plan"
-			|| kind === "userMessage" || kind === "hookPrompt") {
+		if (openAIWireItemIsPassive(kind) && kind !== "agentMessage") {
 			turn.items.set(itemId, { category: "ignored", kind });
 			return eventResult([]);
 		}
