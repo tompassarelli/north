@@ -14,6 +14,7 @@ const RUNTIME_FIELDS = new Set([
   "admitResourceEnvelope", "completeResourceEnvelope",
   "releaseDriver", "admitDispatchAuthority",
   "publishLearningAssignment",
+  "loadShadowReviewerConfig", "shadowReviewRunner", "publishShadowReviewerNote",
 ]);
 
 // Dispatch-side twin of the pin in ./spawn.ts — same subprocess, same stubbed PATH.

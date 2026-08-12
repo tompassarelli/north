@@ -24,6 +24,7 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_"))
     delete process.env[key];
 }
+delete process.env.NORTH_SHADOW_REVIEWER;
 if (explicitTestHooksDir) process.env.AGENT_HOOKS_DIR = explicitTestHooksDir;
 
 // Same leak, orchestration side: an installed `north` wrapper (or a managed

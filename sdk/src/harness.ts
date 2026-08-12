@@ -404,6 +404,10 @@ export interface HarnessOpts {
   availableSkills?: readonly EnvironmentArtifact[];
   /** Sealed zero-tool execution for data transforms whose input carries no authority. */
   dataOnly?: boolean;
+  /** Provider-native structured output contract sealed with the managed lane. */
+  outputFormat?: Options["outputFormat"];
+  /** Explicit session-persistence policy sealed with the managed lane. */
+  persistSession?: boolean;
 }
 
 // Auto-connect every SDK-spawned agent to north coordination — the SDK twin of
@@ -2048,6 +2052,8 @@ export function harnessOptions(o: HarnessOpts): Options {
     } : {}),
     ...(metadata ? { northRoutingRequest: metadata } : {}),
     ...(o.dataOnly ? { northDataOnly: true } : {}),
+    ...(o.outputFormat ? { outputFormat: o.outputFormat } : {}),
+    ...(o.persistSession === undefined ? {} : { persistSession: o.persistSession }),
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),

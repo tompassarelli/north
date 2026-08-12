@@ -209,6 +209,9 @@
                (get facts "live_input_epoch"))
       (fail! "managed SDK identity has invalid live_input_epoch"
              {:live-input-epoch (get facts "live_input_epoch")}))
+    (when-let [digest (get facts "shadow_reviewer_note_capability_sha256")]
+      (when-not (re-matches #"^[0-9a-f]{64}$" digest)
+        (fail! "managed SDK identity has invalid shadow reviewer note capability digest" {})))
     (when (and (= "unsupported" (get facts "live_input"))
                (not= "frozen" (get facts "live_input_state")))
       (fail! "unsupported live_input must remain frozen"

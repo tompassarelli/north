@@ -30,7 +30,8 @@
 (def route-guard-predicates
   (-> (set/union (set north.terminal-projection/terminal-projection-predicates)
                  #{identity-marker-predicate terminal-marker-predicate
-                   "live_input" "live_input_state" "live_input_epoch"})
+                   "live_input" "live_input_state" "live_input_epoch"
+                   "shadow_reviewer_note_capability_sha256"})
       sort
       vec))
 

@@ -193,6 +193,23 @@ import {
   publishLearningAssignment,
   type LearningAssignmentPublicationStatus,
 } from "./learning-assignment-writer";
+import { runAnthropicShadowReview } from "./providers/shadow-reviewer";
+import {
+  mintShadowReviewerNoteCapability,
+  publishShadowReviewerNote,
+} from "./shadow-reviewer-note";
+import {
+  SHADOW_REVIEWER_ARM,
+  ShadowReviewer,
+  ShadowReviewerInterruptGate,
+  assignedShadowReviewerTarget,
+  inactiveShadowReviewerSummary,
+  shadowReviewerConfig,
+  shadowReviewerTaskSignature,
+  type ShadowReviewRunner,
+  type ShadowReviewerConfig,
+  type ShadowReviewerSummary,
+} from "./shadow-reviewer";
 import { buildRunEnvelope, sha256Bytes } from "./composition-receipt";
 import { unknownMcpActivity } from "./tool-activity";
 import { unknownNativeCommandActivity } from "./native-command-activity";
@@ -264,6 +281,9 @@ interface SpawnRuntime {
   publishLearningAssignment?: (
     runId: string, assignment: LearningAssignment,
   ) => Promise<LearningAssignmentPublicationStatus>;
+  loadShadowReviewerConfig?: () => ShadowReviewerConfig | undefined;
+  shadowReviewRunner?: ShadowReviewRunner;
+  publishShadowReviewerNote?: typeof publishShadowReviewerNote;
   /** Hermetic lifecycle journal root. Injected providers perform no journal writes unless set. */
   journalRoot?: string;
 }
@@ -437,6 +457,7 @@ async function runSpawn(
   retryTarget?: string,
   parentRunId?: WireRunId,
   learningAssignment?: LearningAssignment,
+  shadowConfig?: ShadowReviewerConfig,
   lifecycleJournal?: ExecutionJournal,
 ): Promise<{
   result: string; outcome: string; runId: string; providerErrorDetail?: string;
@@ -521,6 +542,13 @@ async function runSpawn(
     }
   }
   termination.throwIfTerminated();
+  const shadowTarget = assignedShadowReviewerTarget(
+    shadowConfig,
+    learningAssignment,
+    routing.routingTargets,
+  );
+  const shadowNoteCapability = shadowTarget
+    ? mintShadowReviewerNoteCapability() : undefined;
   if (wt && injected.queryFn) {
     // An injected provider owns its boundary and never enters routedQuery's
     // attempt hook, so publish its selected authority at the same pre-query seam.
@@ -567,6 +595,7 @@ async function runSpawn(
     worktree: wt?.path,
     branch: wt?.branch,
     retryOfAgent: retryContext?.retryOfAgent,
+    shadowReviewerNoteCapabilitySha256: shadowNoteCapability?.sha256,
   };
   const initialLiveInput = providerLiveInput(routing.provider);
   const ch = inputChannel(opts.prompt); // streaming input keeps the managed live-messaging route open
@@ -626,6 +655,10 @@ async function runSpawn(
     liveInputRoute.refresh(activeRoute(), required);
   };
   const executionFold = makeExecutionFold(strugglePolicy);
+  let shadowReviewer: ShadowReviewer | undefined;
+  let shadowReviewerSummary: ShadowReviewerSummary | undefined = shadowConfig
+    ? inactiveShadowReviewerSummary(shadowConfig) : undefined;
+  const shadowReviewerInterruptGate = new ShadowReviewerInterruptGate();
   let wireWriter: WireEventWriter | undefined;
   let stream: StreamWriter | undefined;
   let wireCommitter: SerializedWireEventCommitter | undefined;
@@ -645,6 +678,8 @@ async function runSpawn(
     }
     await wireCommitter.commitThrough(canonical);
     const observation = executionFold.observe(canonical);
+    shadowReviewerInterruptGate.observe(canonical);
+    shadowReviewer?.observe(canonical);
     nextObservedSequence += 1;
     return observation;
   };
@@ -652,10 +687,7 @@ async function runSpawn(
     if (!wireWriter || !wireCommitter) return;
     const events = wireWriter.events();
     while (nextObservedSequence < events.length) {
-      const event = events[nextObservedSequence]!;
-      await wireCommitter.commitThrough(event);
-      executionFold.observe(event);
-      nextObservedSequence += 1;
+      await observeWireEvent(events[nextObservedSequence]!);
     }
   };
   const startWireRun = async (): Promise<WireEventWriter> => {
@@ -813,6 +845,35 @@ async function runSpawn(
     }
   }
   const artifacts = new RunArtifactStore(runId);
+  if (shadowTarget) {
+    const reviewRunner = injected.shadowReviewRunner ?? ((update, signal) =>
+      runAnthropicShadowReview({
+        update,
+        target: shadowTarget,
+        sourceAgentId: agentId,
+        thread: boundThreadId ?? "(ad-hoc)",
+        ...(process.env.NORTH_THREAD_ID === undefined
+          ? {} : { parentThread: process.env.NORTH_THREAD_ID }),
+        ...(opts.coordinator === undefined ? {} : { coordinator: opts.coordinator }),
+        signal,
+      }));
+    const notePublisher = injected.publishShadowReviewerNote ?? publishShadowReviewerNote;
+    shadowReviewer = new ShadowReviewer(
+      shadowConfig!,
+      wireRunId(runId),
+      reviewRunner,
+      async (note, signal) => {
+        await notePublisher(agentId, note, shadowNoteCapability!, signal);
+        if (note.severity !== "blocker") return;
+        await shadowReviewerInterruptGate.interruptIfArmed(
+          liveInputRoute.isArmed(),
+          signal,
+          activeQuery?.interruptTurn,
+        );
+      },
+      { signal: termination.signal, home: process.env.HOME },
+    );
+  }
   const agentOptions = harnessOptions({
     self: agentId,
     extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
@@ -899,6 +960,8 @@ async function runSpawn(
     }
 
     if (event.essential && event.kind === "model-call.completed") {
+      const reviewerCancelledThisCall = shadowReviewerInterruptGate
+        .consumeReviewerCancellation(event);
       const turnResult = observation.state.lastCompletedAssistantOutput ?? "";
       const turnEvidence = event.evidence?.turns;
       lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.turnBoundary, {
@@ -944,6 +1007,11 @@ async function runSpawn(
         break;
       }
       if (event.status !== "succeeded") {
+        if (reviewerCancelledThisCall
+            && !termination.signal.aborted) {
+          await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+          if (ch.pending() > 0) continue;
+        }
         end("provider_error");
         providerErrorDetail = observation.state.providerErrorDetail
           ?? "model-call terminal failed without diagnostic evidence";
@@ -954,6 +1022,10 @@ async function runSpawn(
       // The usage observation above latches L5's token tripwire. The shared gate
       // checks it with the durable hard deadline before and after inbox replay.
       await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+      if (ch.pending() === 0 && shadowReviewer) {
+        await shadowReviewer.settleEligibleUpdates();
+        await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+      }
       if (ch.pending() === 0) {
         // Orchestrator continuation race (thread 019f8ec5): a continuation
         // injected at a prior turn-end asks the provider for ANOTHER genuine
@@ -1220,6 +1292,8 @@ async function runSpawn(
     stopProviderActivity();
     try { await observeCommittedWireEvents(); }
     catch (error) { queryCloseError ??= error; }
+    shadowReviewerInterruptGate.disarm();
+    if (shadowReviewer) shadowReviewerSummary = await shadowReviewer.close();
     try {
       await liveInputRoute.freezeAndUnbind();
     } catch (error) {
@@ -1564,6 +1638,7 @@ async function runSpawn(
       ? {} : { routingPinEvidence: opts.routingEconomics.pinEvidence }),
     ...(promptComposition === undefined ? {} : { promptComposition }),
     learningAssignment,
+    ...(shadowReviewerSummary === undefined ? {} : { shadowReviewerSummary }),
     ...(promptReceipt === undefined ? {} : { promptReceipt }),
     ...(environmentReceipt === undefined ? {} : { environmentReceipt }),
     ...(runEnvelopeReceipt === undefined ? {} : { runEnvelopeReceipt }),
@@ -1733,6 +1808,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
   (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedSpawnOptions(opts);
+  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
   managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
@@ -1780,11 +1856,13 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
       taskGrade: composed.routingMetadata.taskGrade,
       topology: composed.routingMetadata.topology,
       domains: [...composed.routingMetadata.domainRequirements].sort(),
+      shadowReviewer: shadowReviewerTaskSignature(shadowConfig),
     },
     taskSignatureCoverage: "exact",
     routingMetadata: composed.routingMetadata,
     routingAssessment: composed.routingEconomics.assessment,
     pinEvidence: composed.routingEconomics.pinEvidence,
+    ...(shadowConfig ? { authoringArms: [SHADOW_REVIEWER_ARM] } : {}),
   });
   composed.routingMetadata = learning.routingMetadata;
   composed.routingAssessment = learning.routingAssessment;
@@ -1885,7 +1963,8 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     let attempt = await runSpawn(
       { ...composed }, judgmentGrade, strugglePolicy,
       admission, injected, termination, worktreeLease,
-      undefined, undefined, parentRunId, learning.assignment, lifecycleJournal,
+      undefined, undefined, parentRunId, learning.assignment, shadowConfig,
+      lifecycleJournal,
     );
     let retries = 0;
     // The lane whose identity is terminal-committed by the attempt that just
@@ -1920,7 +1999,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
         { ...composed, agentId: retryAgentId }, judgmentGrade, strugglePolicy,
         admission, injected, termination, worktreeLease,
         { retryOfRun: deadRunId, retryAttempt: retries, retryOfAgent: deadAgentId }, retryTarget, parentRunId,
-        learning.assignment, lifecycleJournal,
+        learning.assignment, shadowConfig, lifecycleJournal,
       );
       deadAgentId = retryAgentId;
     }

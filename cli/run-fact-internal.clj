@@ -122,7 +122,17 @@
     "learning_risk" "learning_arm" "learning_axis" "learning_arm_id"
     "learning_propensity" "learning_explore_propensity"
     "learning_narrowing_reason" "learning_baseline_sha256"
-    "learning_options_sha256" "learning_assignment_sha256"})
+    "learning_options_sha256" "learning_assignment_sha256"
+    "shadow_reviewer_version" "shadow_reviewer_target"
+    "shadow_reviewer_status" "shadow_reviewer_eligible_updates"
+    "shadow_reviewer_reviewed_updates" "shadow_reviewer_dropped_updates"
+    "shadow_reviewer_emitted_notes" "shadow_reviewer_quarantined_outputs"
+    "shadow_reviewer_failed_reviews" "shadow_reviewer_usage_status"
+    "shadow_reviewer_tokens" "shadow_reviewer_duration_ms"
+    "shadow_reviewer_source_run" "shadow_reviewer_source_from_sequence"
+    "shadow_reviewer_source_through_sequence"
+    "shadow_reviewer_privacy_omitted_events"
+    "shadow_reviewer_capacity_omitted_events" "shadow_reviewer_input_sha256"})
 
 (def multi-predicates
   #{"allocation_evidence" "fallback_reason" "envelope_scope" "envelope_advisory"
@@ -168,7 +178,14 @@
     "struggle_loop_repeat_threshold" "struggle_loop_window"
     "struggle_no_progress_turn_threshold" "usage_terminal_count"
     "provider_duration_ms" "num_turns"
-    "provider_turn_units" "provider_tool_items" "watchdog_silence_ms"})
+    "provider_turn_units" "provider_tool_items" "watchdog_silence_ms"
+    "shadow_reviewer_eligible_updates" "shadow_reviewer_reviewed_updates"
+    "shadow_reviewer_dropped_updates" "shadow_reviewer_emitted_notes"
+    "shadow_reviewer_quarantined_outputs" "shadow_reviewer_failed_reviews"
+    "shadow_reviewer_tokens" "shadow_reviewer_duration_ms"
+    "shadow_reviewer_source_from_sequence" "shadow_reviewer_source_through_sequence"
+    "shadow_reviewer_privacy_omitted_events"
+    "shadow_reviewer_capacity_omitted_events"})
 
 (def learning-keys
   #{"learning_assignment_version" "learning_policy_version"
@@ -624,6 +641,138 @@
         (when-not (and (= (count triggers) (count (set triggers)))
                        (every? struggle-trigger-values triggers))
           (fail! "invalid struggle trigger observation" {}))))))
+
+(def shadow-reviewer-common-predicates
+  #{"shadow_reviewer_version" "shadow_reviewer_target"})
+(def shadow-reviewer-summary-required-predicates
+  (set/union
+   shadow-reviewer-common-predicates
+   #{"shadow_reviewer_status" "shadow_reviewer_eligible_updates"
+     "shadow_reviewer_reviewed_updates" "shadow_reviewer_dropped_updates"
+     "shadow_reviewer_emitted_notes" "shadow_reviewer_quarantined_outputs"
+     "shadow_reviewer_failed_reviews" "shadow_reviewer_usage_status"
+     "shadow_reviewer_duration_ms"}))
+(def shadow-reviewer-execution-predicates
+  (set/union
+   shadow-reviewer-common-predicates
+   #{"shadow_reviewer_source_run" "shadow_reviewer_source_from_sequence"
+     "shadow_reviewer_source_through_sequence"
+     "shadow_reviewer_privacy_omitted_events"
+     "shadow_reviewer_capacity_omitted_events" "shadow_reviewer_input_sha256"}))
+(def shadow-reviewer-predicates
+  (set/union shadow-reviewer-summary-required-predicates
+             shadow-reviewer-execution-predicates
+             #{"shadow_reviewer_tokens"}))
+(def shadow-reviewer-target-pattern #"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+(def shadow-reviewer-wire-id-pattern #"^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$")
+(def shadow-reviewer-statuses #{"not_assigned" "completed" "partial" "aborted"})
+(def shadow-reviewer-usage-statuses
+  #{"exact" "partial" "unknown_incomplete_terminal" "unknown_no_terminal"
+    "unknown_provider" "unknown_overflow"})
+
+(defn validate-shadow-reviewer-summary! [scalar present]
+  (let [status (get scalar "shadow_reviewer_status")
+        usage-status (get scalar "shadow_reviewer_usage_status")
+        exact-usage? (= "exact" usage-status)
+        expected (cond-> shadow-reviewer-summary-required-predicates
+                   exact-usage? (conj "shadow_reviewer_tokens"))]
+    (when-not (= expected present)
+      (fail! "shadow reviewer summary requires its exact fact set" {:fields present}))
+    (when-not (and (shadow-reviewer-statuses status)
+                   (shadow-reviewer-usage-statuses usage-status))
+      (fail! "invalid shadow reviewer summary status" {}))
+    (let [eligible (nonnegative-count! "shadow_reviewer_eligible_updates"
+                                       (get scalar "shadow_reviewer_eligible_updates"))
+          reviewed (nonnegative-count! "shadow_reviewer_reviewed_updates"
+                                       (get scalar "shadow_reviewer_reviewed_updates"))
+          dropped (nonnegative-count! "shadow_reviewer_dropped_updates"
+                                      (get scalar "shadow_reviewer_dropped_updates"))
+          emitted (nonnegative-count! "shadow_reviewer_emitted_notes"
+                                      (get scalar "shadow_reviewer_emitted_notes"))
+          quarantined (nonnegative-count! "shadow_reviewer_quarantined_outputs"
+                                          (get scalar "shadow_reviewer_quarantined_outputs"))
+          failed (nonnegative-count! "shadow_reviewer_failed_reviews"
+                                     (get scalar "shadow_reviewer_failed_reviews"))
+          duration (nonnegative-count! "shadow_reviewer_duration_ms"
+                                       (get scalar "shadow_reviewer_duration_ms"))
+          tokens (when exact-usage?
+                   (nonnegative-count! "shadow_reviewer_tokens"
+                                       (get scalar "shadow_reviewer_tokens")))
+          handled (+ reviewed dropped)
+          surfaced (+ emitted quarantined)
+          all-zero? (every? zero? [eligible reviewed dropped emitted quarantined
+                                   failed duration (or tokens 0)])]
+      (when-not (and (<= handled 9007199254740991) (<= handled eligible)
+                     (<= surfaced 9007199254740991) (<= surfaced reviewed)
+                     (<= failed eligible))
+        (fail! "shadow reviewer summary counts do not reconcile" {}))
+      (when (and (= "not_assigned" status) (not (and exact-usage? all-zero?)))
+        (fail! "inactive shadow reviewer summary carries activity" {}))
+      (when (and (= "completed" status)
+                 (not (and exact-usage? (= reviewed eligible) (zero? dropped)
+                           (zero? quarantined) (zero? failed))))
+        (fail! "completed shadow reviewer summary carries incomplete work" {}))
+      (when (and (= "partial" status) exact-usage? (zero? dropped)
+                 (zero? quarantined) (zero? failed))
+        (fail! "partial shadow reviewer summary lacks partial evidence" {})))))
+
+(defn validate-shadow-reviewer-execution! [scalar present grouped]
+  (when-not (= shadow-reviewer-execution-predicates present)
+    (fail! "shadow reviewer execution requires its exact fact set" {:fields present}))
+  (let [source-run (get scalar "shadow_reviewer_source_run")
+        from-sequence (nonnegative-count! "shadow_reviewer_source_from_sequence"
+                                          (get scalar "shadow_reviewer_source_from_sequence"))
+        through-sequence (nonnegative-count! "shadow_reviewer_source_through_sequence"
+                                             (get scalar "shadow_reviewer_source_through_sequence"))
+        learning-fields (set/intersection learning-keys (set (keys grouped)))]
+    (when-not (and (re-matches shadow-reviewer-wire-id-pattern (or source-run ""))
+                   (<= from-sequence through-sequence)
+                   (re-matches digest-pattern
+                               (or (get scalar "shadow_reviewer_input_sha256") "")))
+      (fail! "invalid shadow reviewer source evidence" {}))
+    (when-not (= (get scalar "parent_run")
+                 (north.run-ledger/run-summary-subject source-run))
+      (fail! "shadow reviewer execution is not linked to its source run" {}))
+    (when-not (= "shadow-reviewer" (get scalar "role"))
+      (fail! "shadow reviewer execution requires its isolated role" {}))
+    (when (seq learning-fields)
+      (fail! "shadow reviewer execution cannot carry a learning assignment"
+             {:fields learning-fields}))
+    (let [admitted (nonnegative-count! "tool_admitted_count"
+                                       (get scalar "tool_admitted_count"))
+          succeeded (nonnegative-count! "tool_succeeded_count"
+                                        (get scalar "tool_succeeded_count"))
+          failed (nonnegative-count! "tool_failed_count"
+                                     (get scalar "tool_failed_count"))
+          cancelled (nonnegative-count! "tool_cancelled_count"
+                                        (get scalar "tool_cancelled_count"))
+          synthetic (nonnegative-count! "tool_synthetic_failure_count"
+                                        (get scalar "tool_synthetic_failure_count"))
+          zero-tools? (every? zero? [admitted succeeded failed cancelled synthetic])
+          truthful-violation? (and (pos? admitted)
+                                   (= admitted synthetic)
+                                   (every? zero? [succeeded failed cancelled])
+                                   (= "failed" (get scalar "wire_run_lifecycle")))]
+      (when-not (or zero-tools? truthful-violation?)
+        (fail! "shadow reviewer tool evidence is not a truthful data-only failure" {})))))
+
+(defn validate-shadow-reviewer! [scalar grouped]
+  (let [present (set/intersection shadow-reviewer-predicates (set (keys grouped)))]
+    (when (seq present)
+      (when-not (and (= "north-shadow-reviewer:v1"
+                        (get scalar "shadow_reviewer_version"))
+                     (re-matches shadow-reviewer-target-pattern
+                                 (or (get scalar "shadow_reviewer_target") "")))
+        (fail! "invalid shadow reviewer identity" {}))
+      (cond
+        (contains? present "shadow_reviewer_status")
+        (validate-shadow-reviewer-summary! scalar present)
+
+        (contains? present "shadow_reviewer_source_run")
+        (validate-shadow-reviewer-execution! scalar present grouped)
+
+        :else
+        (fail! "shadow reviewer evidence is incomplete" {:fields present})))))
 
 (def provider-join-predicates
   #{"provider_join_key_version" "provider_join_coverage"
@@ -1124,6 +1273,7 @@
     (validate-estimate! scalar grouped)
     (validate-judgment-grade! scalar grouped)
     (validate-struggle! scalar grouped)
+    (validate-shadow-reviewer! scalar grouped)
     ;; Every authority check, including the fixed event reducer, precedes even
     ;; the summary lease acquisition so a rejected projection has zero mutation.
     (validate-context! (facts-of port subject) true)

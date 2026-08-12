@@ -196,6 +196,11 @@ export class ManagedLiveInputRoute {
     };
   }
 
+  /** Read-only host gate for an already durable blocker; it grants no route mutation. */
+  isArmed(): boolean {
+    return this.published.liveInputState === "armed";
+  }
+
   private publish(
     route: ManagedRouteAxes,
     state: LiveInputState,

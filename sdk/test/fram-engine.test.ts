@@ -78,3 +78,24 @@ test("coordinator child timeout escalates and returns after a bounded reap", asy
   expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
   expect(sleeps).toEqual([45_000, 200, 300]);
 });
+
+test("coordinator child abort immediately escalates and reaps", async () => {
+  const neverExits = Promise.withResolvers<number>();
+  const signals: string[] = [];
+  const sleeps: number[] = [];
+  const abort = new AbortController();
+  abort.abort(new Error("host stopped"));
+  const outcome = await settleFramCoordinatorChild({
+    exited: neverExits.promise,
+    kill: (signal) => { signals.push(signal); },
+  }, 45_000, {
+    signal: abort.signal,
+    termGraceMs: 200,
+    killGraceMs: 300,
+    sleep: async (milliseconds) => { sleeps.push(milliseconds); },
+  });
+
+  expect(outcome).toEqual({ timedOut: true });
+  expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+  expect(sleeps).toEqual([45_000, 200, 300]);
+});

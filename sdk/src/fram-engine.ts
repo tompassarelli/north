@@ -72,6 +72,7 @@ export interface FramCoordinatorSettlementOptions {
   readonly termGraceMs?: number;
   readonly killGraceMs?: number;
   readonly sleep?: (milliseconds: number) => Promise<unknown>;
+  readonly signal?: AbortSignal;
 }
 
 export type FramCoordinatorChildOutcome =
@@ -85,12 +86,18 @@ export async function settleFramCoordinatorChild(
   options: FramCoordinatorSettlementOptions = {},
 ): Promise<FramCoordinatorChildOutcome> {
   const sleep = options.sleep ?? Bun.sleep;
-  const exited = child.exited.then((exitCode) => ({ exitCode }));
+  const exited = child.exited.then((exitCode) => ({ kind: "exited" as const, exitCode }));
+  const aborted = Promise.withResolvers<{ readonly kind: "aborted" }>();
+  const abort = () => aborted.resolve({ kind: "aborted" });
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
   const initial = await Promise.race([
     exited,
-    sleep(framCoordinatorChildTimeout(timeoutMs)).then(() => undefined),
+    sleep(framCoordinatorChildTimeout(timeoutMs)).then(() => ({ kind: "timeout" as const })),
+    aborted.promise,
   ]);
-  if (initial !== undefined) return { timedOut: false, exitCode: initial.exitCode };
+  options.signal?.removeEventListener("abort", abort);
+  if (initial.kind === "exited") return { timedOut: false, exitCode: initial.exitCode };
 
   try { child.kill("SIGTERM"); } catch { /* bounded escalation remains authoritative */ }
   const terminated = await Promise.race([

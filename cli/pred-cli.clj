@@ -108,6 +108,7 @@
    ["live_input" "single" "literal" "resolved adapter live-input capability (streaming|turn-framed|unsupported)"]
    ["live_input_state" "single" "literal" "current managed live-input route state (pending|armed|frozen)"]
    ["live_input_epoch" "single" "literal" "opaque UUIDv4 generation for one exact managed route publication"]
+   ["shadow_reviewer_note_capability_sha256" "single" "literal" "SHA-256 of the unpersisted host-only shadow-reviewer note capability"]
    ["target_identity_manifest_sha256" "single" "literal" "exact committed managed-route manifest against which a msg was admitted"]
    ["delivery_rejection" "multi" "literal" "bounded canonical evidence for a permanently impossible recipient delivery"]
    ["delivery_rejected_by" "multi" "literal" "recipient whose permanently impossible delivery was terminally rejected, never acknowledged"]

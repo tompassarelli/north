@@ -150,7 +150,9 @@
        (str "target live input is not armed"
             (when (string? live-input-state)
               (str " (state " live-input-state ")")))))
-    {:identity-manifest (get facts "identity_manifest_sha256")}))
+    {:identity-manifest (get facts "identity_manifest_sha256")
+     :shadow-reviewer-capability
+     (get facts "shadow_reviewer_note_capability_sha256")}))
 
 (def fresh-id north.message-id/fresh-id)
 
@@ -254,18 +256,42 @@
       (reject-message! (str subject " publication rejected: " (:reject result))))
     result))
 
-(defn publish-message!
+(defn publish-message-with-authority!
   "Publish one complete human-message envelope. EXTRA-FRONT-FACTS are committed
    in the same atomic batch as the ordinary envelope and therefore precede the
    final `to` delivery trigger. Existing send/msg/broadcast behavior remains
    on this one publication seam."
-  [port dead-drop? from requested-to subj body extra-front-facts]
+  [port dead-drop? from requested-to subj body extra-front-facts msg-authority]
   (validate-message-input! from requested-to subj body)
   (let [to (admitted-message-recipient! port requested-to dead-drop?)
         msg? (= "msg" (some-> subj str str/trim str/lower-case))
+        authority-kind (if (map? msg-authority)
+                         (:kind msg-authority)
+                         msg-authority)
+        expected-review-capability (when (map? msg-authority)
+                                     (:capability-sha256 msg-authority))
         msg-admission (when msg?
+                        (case authority-kind
+                          :coordination
                           (north.topology-authority/require-coordination! "msg")
-                          (require-live-msg! port to))
+
+                          :shadow-reviewer
+                          (do
+                            (north.topology-authority/require-self-agent!
+                             "shadow reviewer msg" requested-to)
+                            (when-not (and (string? expected-review-capability)
+                                           (re-matches #"^[a-f0-9]{64}$"
+                                                       expected-review-capability))
+                              (reject-msg! "shadow reviewer capability is required")))
+
+                          (reject-msg! "unknown producer authority"))
+                        (let [admission (require-live-msg! port to)]
+                          (when (and expected-review-capability
+                                     (not= expected-review-capability
+                                           (:shadow-reviewer-capability admission)))
+                            (reject-msg!
+                             "review capability does not match the exact source lane"))
+                          admission))
         e (str "@msg:" (fresh-id from))
         ;; Canonicalize the managed control type. Ordinary subjects retain their
         ;; original spelling; every producer-admitted control message is exactly "msg".
@@ -310,7 +336,10 @@
                        stored (one port e target-identity-manifest-predicate)]
                    (when-not (and (= admitted-manifest stored)
                                   (= admitted-manifest
-                                     (:identity-manifest current)))
+                                     (:identity-manifest current))
+                                  (or (nil? expected-review-capability)
+                                      (= expected-review-capability
+                                         (:shadow-reviewer-capability current))))
                      (reject-msg!
                       "target route changed during message admission"))
                    true)))]
@@ -325,6 +354,52 @@
                       (str " (" (count broadcast-audience)
                            " snapshotted recipients; sender excluded)"))))
       e)))
+
+(defn publish-message!
+  [port dead-drop? from requested-to subj body extra-front-facts]
+  (publish-message-with-authority!
+   port dead-drop? from requested-to subj body extra-front-facts :coordination))
+
+(def shadow-reviewer-sender-pattern
+  #"^[A-Za-z0-9_.:-]+\.shadow-reviewer\.[a-f0-9]{12}$")
+(def shadow-reviewer-body-pattern #"^\[(?:nit|blocker)\] \S[\s\S]*$")
+(def shadow-reviewer-capability-pattern #"^[a-f0-9]{64}$")
+
+(defn shadow-reviewer-agent-id [source-agent-id]
+  (let [digest (subs (north.terminal-projection/sha256 source-agent-id) 0 12)
+        sanitized (str/replace source-agent-id #"[^A-Za-z0-9_.:-]+" "-")
+        prefix (subs sanitized 0 (min 96 (count sanitized)))
+        prefix (if (str/blank? prefix) "lane" prefix)]
+    (str prefix ".shadow-reviewer." digest)))
+
+(defn read-shadow-reviewer-capability! []
+  (let [reader ^java.io.Reader *in*
+        value (loop [buffer (StringBuilder.)]
+                (let [unit (.read reader)]
+                  (cond
+                    (neg? unit) (str buffer)
+                    (= 64 (.length buffer))
+                    (reject-message! "review requires a sealed host capability")
+                    :else (do (.append buffer (char unit))
+                              (recur buffer)))))]
+    (when-not (re-matches shadow-reviewer-capability-pattern value)
+      (reject-message! "review requires a sealed host capability"))
+    value))
+
+(defn publish-shadow-reviewer-message!
+  "Narrow host-owned self-follow-up producer. Its sealed capability is bound to
+   one exact source lane and grants no peer target authority."
+  [port from requested-to body capability]
+  (when-not (and (re-matches shadow-reviewer-sender-pattern (or from ""))
+                 (re-matches shadow-reviewer-body-pattern (or body "")))
+    (reject-message!
+     "review requires a canonical reviewer sender and bounded nit/blocker body"))
+  (when-not (= from (shadow-reviewer-agent-id requested-to))
+    (reject-message! "review sender does not match the exact source lane"))
+  (publish-message-with-authority!
+   port false from requested-to "msg" body []
+   {:kind :shadow-reviewer
+    :capability-sha256 (north.terminal-projection/sha256 capability)}))
 
 (def about-ref-pattern #"^@[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
@@ -404,6 +479,14 @@
  (let [[port verb & args] *command-line-args*
       port (Integer/parseInt port)]
   (case verb
+    "review"      ; <reviewer-from> <self> "[nit|blocker] <body>" — self-only managed follow-up
+    (let [[from requested-to body] args
+          _ (when-not (= 3 (count args))
+              (reject-message!
+               "review requires exactly reviewer-from, self, and body"))
+          capability (read-shadow-reviewer-capability!)]
+      (publish-shadow-reviewer-message! port from requested-to body capability))
+
     "send"        ; [--dead-drop] <from> <to> "<subject>" "<body>"  — human mail
     (let [dead-drop? (= "--dead-drop" (first args))
           args (if dead-drop? (vec (rest args)) args)
