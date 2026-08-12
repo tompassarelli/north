@@ -12,7 +12,13 @@ import { tmpdir } from "node:os";
 import { presetRequest } from "./routing-fixtures";
 import { LiveFeedReapTimeoutError } from "../src/coordination";
 import type { RoutedQueryArguments } from "../src/providers";
-import { readWireJsonl, type WireEvent, type WireQuery } from "../src/wire";
+import { readRunArtifactPage, RunArtifactStore } from "../src/run-artifacts";
+import {
+  readWireJsonl,
+  wireArtifactId,
+  type WireEvent,
+  type WireQuery,
+} from "../src/wire";
 import {
   wireInputIterator,
   wireManagedCodexRespawnQuery,
@@ -353,6 +359,100 @@ test("public dispatch consumes a managed Codex respawn settlement before replace
     { status: "succeeded", origin: "provider", errorCode: undefined },
   ]);
   expect(replay.snapshot?.lifecycle).toBe("completed");
+});
+
+test("public spawn activates one durable run artifact store for its managed North MCP", async () => {
+  const artifactId = wireArtifactId("artifact:test:production-spawn");
+  const content = "spawn retained command output\nsecond line";
+  const digest = new Bun.CryptoHasher("sha256").update(content).digest("hex");
+  let artifactDirectory = "";
+
+  const result = await spawnUnderTest({
+    prompt: "retain one spawn artifact",
+    agentId: "test-spawn-run-artifacts",
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    routingMetadata: presetRequest("integrator"),
+    queryFn: (args: RoutedQueryArguments) => {
+      expect(args.artifacts).toBeInstanceOf(RunArtifactStore);
+      if (!(args.artifacts instanceof RunArtifactStore))
+        throw new Error("production spawn omitted its run artifact store");
+      artifactDirectory = args.options.mcpServers?.north?.env?.NORTH_RUN_ARTIFACT_DIR ?? "";
+      expect(artifactDirectory).toBe(args.artifacts.directory);
+      expect(args.artifacts.persist({
+        artifactId,
+        mediaType: "text/plain; charset=utf-8",
+        content,
+        digest,
+        label: "spawn production boundary",
+      })).toEqual({ artifactId, digest });
+      return wireTurnQuery(args, {
+        output: "spawn artifact retained",
+        provider: "anthropic",
+      });
+    },
+  });
+
+  expect(result).toBe("spawn artifact retained");
+  expect(readRunArtifactPage(artifactDirectory, { artifactId })).toMatchObject({
+    artifactId,
+    snapshot: digest,
+    content,
+    complete: true,
+  });
+});
+
+test("public dispatch activates one durable run artifact store for its managed North MCP", async () => {
+  const artifactId = wireArtifactId("artifact:test:production-dispatch");
+  const content = '{"result":"dispatch retained tool result"}';
+  const digest = new Bun.CryptoHasher("sha256").update(content).digest("hex");
+  const previousProvider = process.env.AGENT_PROVIDER;
+  let artifactDirectory = "";
+  process.env.AGENT_PROVIDER = "anthropic";
+  try {
+    const result = await dispatchUnderTest("thread-test-dispatch-run-artifacts", {
+      agentId: "test-dispatch-run-artifacts",
+      routingMetadata: presetRequest("integrator"),
+      pinEvidence: pinEvidence("anthropic"),
+      claimDriver: () => ({ release: () => true }),
+      queryFn: (args: RoutedQueryArguments) => {
+        expect(args.artifacts).toBeInstanceOf(RunArtifactStore);
+        if (!(args.artifacts instanceof RunArtifactStore))
+          throw new Error("production dispatch omitted its run artifact store");
+        artifactDirectory = args.options.mcpServers?.north?.env?.NORTH_RUN_ARTIFACT_DIR ?? "";
+        expect(artifactDirectory).toBe(args.artifacts.directory);
+        expect(args.artifacts.persist({
+          artifactId,
+          mediaType: "application/json",
+          content,
+          digest,
+          label: "dispatch production boundary",
+        })).toEqual({ artifactId, digest });
+        return wireTurnQuery(args, {
+          output: "dispatch artifact retained",
+          provider: "anthropic",
+        });
+      },
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Dispatch retained artifact" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+        { predicate: "judgment_grade", value: "s" },
+      ],
+      loadChildren: () => [],
+    });
+    expect(result.result).toBe("dispatch artifact retained");
+  } finally {
+    if (previousProvider === undefined) delete process.env.AGENT_PROVIDER;
+    else process.env.AGENT_PROVIDER = previousProvider;
+  }
+
+  expect(readRunArtifactPage(artifactDirectory, { artifactId })).toMatchObject({
+    artifactId,
+    snapshot: digest,
+    content,
+    complete: true,
+  });
 });
 
 // Reproduces + fixes: a lane whose provider turn already completed (a real

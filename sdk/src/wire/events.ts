@@ -326,6 +326,7 @@ export interface WireToolTerminalEvent extends WireKnownEventEnvelope<"tool.term
 	origin: "provider" | "north";
 	resultPreview?: string;
 	resultArtifactId?: WireArtifactId;
+	resultArtifactDigest?: string;
 	errorCode?: string;
 }
 

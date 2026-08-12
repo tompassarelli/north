@@ -18,6 +18,13 @@ import {
 	type WireQueryRoute,
 } from "../wire";
 import { providerJoinEvidence } from "./provider-join";
+import {
+	isArtifactReadToolName,
+	persistRetainedProviderMaterial,
+	retainedProviderMaterial,
+	retainedProviderPreview,
+	type RetainedProviderMaterial,
+} from "./retained-artifact";
 
 const MAX_PROVIDER_ID_BYTES = 512;
 const MAX_PROVIDER_TEXT_BYTES = 1_048_576;
@@ -165,6 +172,7 @@ interface OpenToolItem {
 	toolCallId: WireToolCallId;
 	name: string;
 	latestArtifactId?: WireArtifactId;
+	latestArtifactDigest?: string;
 }
 
 interface IgnoredItem {
@@ -908,8 +916,70 @@ export class OpenAIWireNormalizer {
 			},
 		]);
 		item.latestArtifactId = artifactId;
+		item.latestArtifactDigest = digest;
 		this.#artifactSequence += 1;
 		return eventResult(events);
+	}
+
+	#retainedTerminalMaterial(
+		turn: ActiveTurn,
+		itemId: string,
+		item: OpenToolItem,
+		providerItem: UnknownRecord,
+	): { material?: RetainedProviderMaterial; preview?: string } {
+		let value: unknown;
+		let kind: string;
+		let label: string;
+		if (item.kind === "commandExecution") {
+			value = providerItem.aggregatedOutput;
+			if (value === undefined || value === null) return {};
+			if (typeof value !== "string") {
+				return normalizationError(
+					"malformed_notification",
+					"Codex command aggregate output is invalid",
+				);
+			}
+			kind = "command-output";
+			label = "command output";
+		} else if (item.kind === "mcpToolCall") {
+			if (isArtifactReadToolName("openai", item.name)) return {};
+			value = providerItem.result;
+			if (value === undefined) return {};
+			kind = "mcp-tool-result";
+			label = "MCP tool result";
+		} else return {};
+		let material: RetainedProviderMaterial;
+		try {
+			material = retainedProviderMaterial({
+				runId: this.#writer.runId,
+				provider: "openai",
+				kind,
+				identity: `${this.#providerThreadId ?? ""}\0${turn.providerTurnId}\0${itemId}`,
+				value,
+				label,
+			});
+		} catch (cause) {
+			return normalizationError(
+				"malformed_notification",
+				"Codex tool result is not retainable",
+				cause,
+			);
+		}
+		if (this.#artifacts) {
+			try {
+				persistRetainedProviderMaterial(this.#artifacts, material);
+			} catch (cause) {
+				return normalizationError(
+					"artifact_persistence_failed",
+					"Codex tool result artifact could not be persisted",
+					cause,
+				);
+			}
+		}
+		return {
+			...(this.#artifacts === undefined ? {} : { material }),
+			preview: retainedProviderPreview(value),
+		};
 	}
 
 	#itemCompleted(params: unknown): OpenAIWireNotificationResult {
@@ -934,15 +1004,31 @@ export class OpenAIWireNormalizer {
 			}]);
 		} else if (item.category === "tool") {
 			const terminal = terminalToolStatus(providerItem);
-			events = this.#writer.appendAll([{
+			const retained = this.#retainedTerminalMaterial(turn, itemId, item, providerItem);
+			const resultArtifactId = retained.material?.artifactId ?? item.latestArtifactId;
+			const resultArtifactDigest = retained.material?.digest ?? item.latestArtifactDigest;
+			const drafts: WireEventDraft[] = [];
+			if (retained.material) {
+				drafts.push({
+					kind: "artifact.published",
+					artifactId: retained.material.artifactId,
+					mediaType: retained.material.mediaType,
+					bytes: retained.material.bytes,
+					digest: retained.material.digest,
+					label: retained.material.label,
+				});
+			}
+			drafts.push({
 				kind: "tool.terminal",
 				toolCallId: item.toolCallId,
 				status: terminal.status,
 				origin: "provider",
-				...(item.latestArtifactId === undefined
-					? {} : { resultArtifactId: item.latestArtifactId }),
+				...(retained.preview === undefined ? {} : { resultPreview: retained.preview }),
+				...(resultArtifactId === undefined ? {} : { resultArtifactId }),
+				...(resultArtifactDigest === undefined ? {} : { resultArtifactDigest }),
 				...(terminal.errorCode === undefined ? {} : { errorCode: terminal.errorCode }),
-			}]);
+			});
+			events = this.#writer.appendAll(drafts);
 		} else events = Object.freeze([]);
 		turn.items.delete(itemId);
 		turn.completedItemIds.add(itemId);

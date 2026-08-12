@@ -46,6 +46,7 @@ const envKeys = [
   "FRAM_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
+  "NORTH_RUN_ARTIFACT_DIR",
 ] as const;
 const inheritedEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 
@@ -103,7 +104,8 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   const workerSurface = compileProviderAuthoritySurface("openai", openaiWorker);
   expect(workerSurface.liveInput).toBe("turn-framed");
   expect(workerSurface.northEnabledTools).toEqual([
-    "capture", "tell", "evidence_record", "show", "search", "ready", "next", "board", "plate",
+    "capture", "tell", "evidence_record", "show", "search", "artifact_read",
+    "ready", "next", "board", "plate",
   ]);
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([
@@ -261,6 +263,52 @@ test("managed-lane marker is explicit, sealed, and never inherited or sent to No
 
   const laundered = { ...options, env: { ...options.env, NORTH_MANAGED_LANE: "0" } };
   expect(hasCanonicalHarnessAuthority(laundered, "openai")).toBe(false);
+});
+
+test("run artifact authority enters only the sealed North MCP boundary", () => {
+  process.env.NORTH_RUN_ARTIFACT_DIR = "/tmp/ambient-artifact-forgery";
+  const artifactDirectory = `/tmp/north-artifacts/run-artifacts/run-${"a".repeat(64)}`;
+  for (const provider of ["anthropic", "openai"] as const) {
+    const options = harnessOptions({
+      self: `${provider}-run-artifact-boundary`,
+      provider,
+      cwd: north,
+      presenceRegistrar: false,
+      routingMetadata: applyOrchestrationStaffing({ role: "designer" }),
+      artifactDirectory,
+    }) as any;
+    expect(options.mcpServers.north.env.NORTH_RUN_ARTIFACT_DIR)
+      .toBe(artifactDirectory);
+    expect(options.env).not.toHaveProperty("NORTH_RUN_ARTIFACT_DIR");
+    expect(hasCanonicalHarnessAuthority(options, provider)).toBe(true);
+    expect(() => validateManagedExecutionEnvelope(
+      provider,
+      options.northCapabilities,
+      options,
+    )).not.toThrow();
+  }
+
+  const withoutStore = designer("openai", "openai-no-run-artifact-store");
+  expect(withoutStore.mcpServers.north.env).not.toHaveProperty("NORTH_RUN_ARTIFACT_DIR");
+
+  const forged = {
+    ...withoutStore,
+    mcpServers: {
+      ...withoutStore.mcpServers,
+      north: {
+        ...withoutStore.mcpServers.north,
+        env: {
+          ...withoutStore.mcpServers.north.env,
+          NORTH_RUN_ARTIFACT_DIR: "/tmp/ambient-artifact-forgery",
+        },
+      },
+    },
+  };
+  expect(() => validateManagedExecutionEnvelope(
+    "openai",
+    forged.northCapabilities,
+    forged,
+  )).toThrow("openai_managed_run_artifact_contract_invalid");
 });
 
 test("managed provider shells resolve North from the admitted package before ambient system paths", () => {

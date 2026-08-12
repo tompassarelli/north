@@ -4,6 +4,7 @@ import {
 } from "./north-client";
 import { deriveManagedDispatchPosture, buildPrompt } from "./posture";
 import { SerializedWireEventCommitter, StreamWriter } from "./stream-writer";
+import { RunArtifactStore } from "./run-artifacts";
 import {
   harnessCompositionEvidence, harnessOptions, renewHarnessPresence, DEFAULT_SYSTEM_PROMPT,
   type Effort, type HarnessCompositionEvidence,
@@ -540,6 +541,7 @@ async function runDispatch(
         + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
       );
     }
+    const artifacts = new RunArtifactStore(runId);
     const agentOptions = harnessOptions({
       self: agentId,
       extraTools: postureTools,
@@ -556,6 +558,7 @@ async function runDispatch(
       posture: routingMetadata.posture,
       cwd: workingDirectory,
       deliveryRun: deliveryReservationReady ? runContext : undefined,
+      artifactDirectory: artifacts.directory,
       systemPrompt: `You are a north agent executing thread @${threadId}. ${DEFAULT_SYSTEM_PROMPT}`,
       abortController: termination.abortController,
     });
@@ -572,6 +575,7 @@ async function runDispatch(
       options: agentOptions,
       writer,
       eventCommitter: wireCommitter,
+      artifacts,
     };
     termination.throwIfTerminated();
     const q = queryFn

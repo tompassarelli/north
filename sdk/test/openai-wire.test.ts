@@ -18,6 +18,7 @@ import {
 	type WireArtifactMaterial,
 	type WireArtifactSink,
 } from "../src/wire";
+import { RETAINED_PROVIDER_MATERIAL_MAX_BYTES } from "../src/providers/retained-artifact";
 
 const RUN_ID = wireRunId("run:openai-wire-test");
 
@@ -152,7 +153,7 @@ describe("OpenAIWireNormalizer", () => {
 				result: "CANARY-FILE-RESULT",
 			},
 		});
-		normalizer.normalize("item/completed", {
+			normalizer.normalize("item/completed", {
 			threadId: "provider-thread-private",
 			turnId: "provider-turn-1",
 			completedAtMs: 4,
@@ -254,6 +255,10 @@ describe("OpenAIWireNormalizer", () => {
 			context: { tokens: 30, window: 200_000 },
 		});
 		expect(snapshot?.toolCalls[wireToolCallId("tool:test:0")]?.status).toBe("succeeded");
+		expect(snapshot?.toolCalls[wireToolCallId("tool:test:0")]?.resultPreview)
+			.toBe("CANARY-MCP-RESULT");
+		expect(snapshot?.toolCalls[wireToolCallId("tool:test:0")]?.resultArtifactId)
+			.toStartWith("artifact:openai:retained:");
 		expect(snapshot?.toolCalls[wireToolCallId("tool:test:1")]?.resultArtifactId)
 			.toBe(wireArtifactId("artifact:test:0"));
 		expect(snapshot?.messages[wireMessageId("message:test:0")]?.contents).toEqual([
@@ -280,7 +285,6 @@ describe("OpenAIWireNormalizer", () => {
 			"CANARY-PROVIDER-PROGRESS",
 			"CANARY-PRIVATE-PATCH",
 			"CANARY-FILE-RESULT",
-			"CANARY-MCP-RESULT",
 			"item/started",
 			"thread/tokenUsage/updated",
 		]) expect(serialized).not.toContain(providerPrivate);
@@ -293,6 +297,197 @@ describe("OpenAIWireNormalizer", () => {
 		if (!Array.isArray(persisted)) throw new Error("wire fixture must encode an event array");
 		const replayed = reduceWireEvents(decodeWireEvents(persisted as readonly unknown[]));
 		expect(replayed).toEqual(writer.snapshot());
+	});
+
+	test("durably retains bounded command and MCP terminal material before referencing it", () => {
+		const { normalizer, artifacts } = harness();
+		startTurn(normalizer);
+		const commandOutput = `HEAD-${"x".repeat(RETAINED_PROVIDER_MATERIAL_MAX_BYTES + 128)}-TAIL`;
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 1,
+			item: { id: "command-output-private", type: "commandExecution", command: "run" },
+		});
+		const command = normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 2,
+			item: {
+				id: "command-output-private",
+				type: "commandExecution",
+				status: "completed",
+				exitCode: 0,
+				aggregatedOutput: commandOutput,
+			},
+		});
+		expect(command.events.map((event) => event.kind)).toEqual([
+			"artifact.published", "tool.terminal",
+		]);
+		const commandTerminal = command.events[1];
+		if (commandTerminal?.kind !== "tool.terminal") throw new Error("missing command terminal");
+		expect(commandTerminal.resultArtifactId).toStartWith("artifact:openai:retained:");
+		expect(commandTerminal.resultArtifactId).not.toContain("command-output-private");
+		expect(commandTerminal.resultArtifactDigest).toMatch(/^[a-f0-9]{64}$/);
+		expect(new TextEncoder().encode(commandTerminal.resultPreview).byteLength)
+			.toBeLessThanOrEqual(2_048);
+		expect(commandTerminal.resultPreview).not.toContain("-TAIL");
+		const retainedCommand = artifacts.get(commandTerminal.resultArtifactId!);
+		expect(retainedCommand).toBeDefined();
+		if (!retainedCommand) throw new Error("missing retained command output");
+		expect(new TextEncoder().encode(retainedCommand.content).byteLength)
+			.toBeLessThanOrEqual(RETAINED_PROVIDER_MATERIAL_MAX_BYTES);
+		expect(retainedCommand.content).toContain("HEAD-");
+		expect(retainedCommand.content).toContain("north retained output truncated from");
+		expect(retainedCommand.content).toEndWith("-TAIL");
+		expect(retainedCommand.digest).toBe(
+			new Bun.CryptoHasher("sha256").update(retainedCommand.content).digest("hex"),
+		);
+		expect(commandTerminal.resultArtifactDigest).toBe(retainedCommand.digest);
+
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 3,
+			item: { id: "mcp-result-private", type: "mcpToolCall", server: "north", tool: "show" },
+		});
+		const mcp = normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 4,
+			item: {
+				id: "mcp-result-private",
+				type: "mcpToolCall",
+				status: "completed",
+				result: { ok: true, items: ["one", "two"] },
+			},
+		});
+		expect(mcp.events.map((event) => event.kind)).toEqual([
+			"artifact.published", "tool.terminal",
+		]);
+		const mcpTerminal = mcp.events[1];
+		if (mcpTerminal?.kind !== "tool.terminal") throw new Error("missing MCP terminal");
+		const retainedMcp = artifacts.get(mcpTerminal.resultArtifactId!);
+		expect(retainedMcp).toMatchObject({
+			mediaType: "application/json",
+			content: '{"ok":true,"items":["one","two"]}',
+			digest: mcpTerminal.resultArtifactDigest,
+		});
+		expect(mcpTerminal.resultPreview).toBe('{"ok":true,"items":["one","two"]}');
+
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 5,
+			item: {
+				id: "artifact-read-private",
+				type: "mcpToolCall",
+				server: "north",
+				tool: "artifact_read",
+			},
+		});
+		const artifactCount = artifacts.size;
+		const read = normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 6,
+			item: {
+				id: "artifact-read-private",
+				type: "mcpToolCall",
+				status: "completed",
+				result: { protocol: "north.page", artifactId: retainedMcp?.artifactId },
+			},
+		});
+		expect(read.events.map((event) => event.kind)).toEqual(["tool.terminal"]);
+		expect(read.events[0]).not.toHaveProperty("resultArtifactId");
+		expect(artifacts.size).toBe(artifactCount);
+	});
+
+	test("keeps a concise terminal preview without inventing an artifact when no sink exists", () => {
+		const { writer, normalizer } = harness(null);
+		startTurn(normalizer);
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 1,
+			item: { id: "command-1", type: "commandExecution", command: "printf ok" },
+		});
+		const result = normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 2,
+			item: {
+				id: "command-1",
+				type: "commandExecution",
+				status: "completed",
+				exitCode: 0,
+				aggregatedOutput: "ok\tready\u001b[31m",
+			},
+		});
+		expect(result.events).toHaveLength(1);
+		expect(result.events[0]).toMatchObject({
+			kind: "tool.terminal",
+			resultPreview: "ok  ready\ufffd[31m",
+		});
+		expect(result.events[0]).not.toHaveProperty("resultArtifactId");
+		expect(writer.snapshot()?.artifacts).toEqual({});
+	});
+
+	test("does not publish or reference terminal material when persistence fails", () => {
+		const { writer, normalizer } = harness({
+			persist() {
+				throw new Error("artifact store unavailable");
+			},
+		});
+		startTurn(normalizer);
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 1,
+			item: { id: "command-1", type: "commandExecution", command: "printf output" },
+		});
+		const before = writer.events();
+		expectNormalizationError(() => normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 2,
+			item: {
+				id: "command-1",
+				type: "commandExecution",
+				status: "completed",
+				exitCode: 0,
+				aggregatedOutput: "not durable",
+			},
+		}), "artifact_persistence_failed");
+		expect(writer.events()).toEqual(before);
+		expect(writer.snapshot()?.artifacts).toEqual({});
+	});
+
+	test("rejects pathological structured terminal material before persistence", () => {
+		const { writer, normalizer, artifacts } = harness();
+		startTurn(normalizer);
+		normalizer.normalize("item/started", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			startedAtMs: 1,
+			item: { id: "mcp-1", type: "mcpToolCall", server: "north", tool: "show" },
+		});
+		const cyclic: Record<string, unknown> = {};
+		cyclic.self = cyclic;
+		const before = writer.events();
+		expectNormalizationError(() => normalizer.normalize("item/completed", {
+			threadId: "provider-thread-private",
+			turnId: "provider-turn-1",
+			completedAtMs: 2,
+			item: {
+				id: "mcp-1",
+				type: "mcpToolCall",
+				status: "completed",
+				result: cyclic,
+			},
+		}), "malformed_notification");
+		expect(writer.events()).toEqual(before);
+		expect(artifacts.size).toBe(0);
 	});
 
 	test("accepts every validated app-server notification without leaking raw progress", () => {

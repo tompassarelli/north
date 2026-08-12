@@ -324,7 +324,11 @@ export function createAnthropicQuery(
     admit: admitAnthropic,
 	},
 ): WireQuery {
-	const normalizer = new AnthropicWireNormalizer(args.context.writer, args.context.route);
+	const normalizer = new AnthropicWireNormalizer(
+		args.context.writer,
+		args.context.route,
+		args.context.artifacts,
+	);
 	const activity = createExecutionActivityEmitter();
 	const mcp = new McpActivityAccumulator("anthropic-agent-sdk:assistant-tool-use");
 	const listeners = new Set<WireEventListener>();

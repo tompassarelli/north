@@ -63,6 +63,7 @@ function writeLaneMeta(agentId: string, meta: Record<string, unknown>): void {
   }
 }
 import { SerializedWireEventCommitter, StreamWriter } from "./stream-writer";
+import { RunArtifactStore } from "./run-artifacts";
 import {
   DEFAULT_SYSTEM_PROMPT, harnessCompositionEvidence, harnessOptions, renewHarnessPresence,
   type Effort, type HarnessCompositionEvidence,
@@ -803,6 +804,7 @@ async function runSpawn(
       }
     }
   }
+  const artifacts = new RunArtifactStore(runId);
   const agentOptions = harnessOptions({
     self: agentId,
     extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
@@ -826,6 +828,7 @@ async function runSpawn(
     role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
+    artifactDirectory: artifacts.directory,
   });
   initialComposition = harnessCompositionEvidence(agentOptions);
   if (injected.queryFn && injected.feedSubscriber)
@@ -838,6 +841,7 @@ async function runSpawn(
     options: agentOptions,
     writer,
     eventCommitter: wireCommitter,
+    artifacts,
   });
   termination.attachQuery(activeQuery);
   stopProviderActivity();

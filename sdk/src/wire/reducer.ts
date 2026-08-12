@@ -387,6 +387,7 @@ export interface WireToolCallSnapshot {
 	origin?: "provider" | "north";
 	resultPreview?: string;
 	resultArtifactId?: WireArtifactId;
+	resultArtifactDigest?: string;
 	errorCode?: string;
 	progress?: JsonValue;
 	outputArtifactId?: WireArtifactId;
@@ -667,10 +668,13 @@ function requireArtifact(
 	event: WireEvent,
 	artifactId: WireArtifactId | undefined,
 	label: string,
-): void {
-	if (artifactId !== undefined && !recordValue(snapshot.artifacts, artifactId)) {
+): WireArtifactSnapshot | undefined {
+	if (artifactId === undefined) return undefined;
+	const artifact = recordValue(snapshot.artifacts, artifactId);
+	if (!artifact) {
 		reductionError(event, "state_violation", `${label} references unpublished artifact ${artifactId}`);
 	}
+	return artifact;
 }
 
 function assertUsageMonotone(previous: WireUsageSnapshot, next: WireUsageSnapshot, event: WireEvent): void {
@@ -1097,7 +1101,15 @@ function reduceKnown(snapshot: WireRunSnapshot, event: WireKnownEvent): WireRunS
 			if (current.status !== "pending") {
 				return reductionError(event, "state_violation", `tool call ${event.toolCallId} has more than one terminal`);
 			}
-			requireArtifact(snapshot, event, event.resultArtifactId, "tool result");
+			const resultArtifact = requireArtifact(snapshot, event, event.resultArtifactId, "tool result");
+			if (event.resultArtifactDigest !== undefined
+				&& resultArtifact?.digest !== event.resultArtifactDigest) {
+				return reductionError(
+					event,
+					"state_violation",
+					`tool result digest does not match published artifact ${event.resultArtifactId}`,
+				);
+			}
 			const terminal: WireToolCallSnapshot = Object.freeze({
 				...current,
 				status: event.status,
@@ -1105,6 +1117,7 @@ function reduceKnown(snapshot: WireRunSnapshot, event: WireKnownEvent): WireRunS
 				origin: event.origin,
 				...optional("resultPreview", event.resultPreview),
 				...optional("resultArtifactId", event.resultArtifactId),
+				...optional("resultArtifactDigest", event.resultArtifactDigest),
 				...optional("errorCode", event.errorCode),
 			});
 			const recent = Object.freeze([

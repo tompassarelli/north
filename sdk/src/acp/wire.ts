@@ -73,6 +73,9 @@ export function projectWireEvent(event: WireEvent): readonly SessionUpdate[] {
         ...(event.resultArtifactId === undefined
           ? {}
           : { resultArtifactId: event.resultArtifactId }),
+        ...(event.resultArtifactDigest === undefined
+          ? {}
+          : { resultArtifactDigest: event.resultArtifactDigest }),
         ...(event.errorCode === undefined ? {} : { errorCode: event.errorCode }),
       },
     }];

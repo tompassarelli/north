@@ -11,7 +11,7 @@ import type {
   BridgeProviderOpenContext,
   BridgeProviderSession,
 } from "../src/bridge/provider";
-import { wireToolCallId } from "../src/wire";
+import { wireArtifactId, wireToolCallId } from "../src/wire";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -296,12 +296,23 @@ test("ACP load replays the exact deterministic Wire projection before returning"
       toolCallId,
       progress: { phase: "running" },
     });
+    const resultArtifactId = wireArtifactId(`artifact:acp:${sessionId}`);
+    const resultArtifactDigest = "a".repeat(64);
+    session.publish({
+      kind: "artifact.published",
+      artifactId: resultArtifactId,
+      mediaType: "text/plain",
+      bytes: 14,
+      digest: resultArtifactDigest,
+    });
     session.publish({
       kind: "tool.terminal",
       toolCallId,
       status: "succeeded",
       origin: "provider",
       resultPreview: "durable output",
+      resultArtifactId,
+      resultArtifactDigest,
     });
     session.complete();
     expect(await prompt).toEqual({ stopReason: "end_turn" });
@@ -335,7 +346,12 @@ test("ACP load replays the exact deterministic Wire projection before returning"
         type: "content",
         content: { type: "text", text: "durable output" },
       }],
-      rawOutput: { status: "succeeded", preview: "durable output" },
+      rawOutput: {
+        status: "succeeded",
+        preview: "durable output",
+        resultArtifactId: wireArtifactId(`artifact:acp:${sessionId}`),
+        resultArtifactDigest: "a".repeat(64),
+      },
     },
   ]);
 

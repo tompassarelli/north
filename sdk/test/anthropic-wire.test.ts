@@ -8,6 +8,8 @@ import {
 	WireEventWriter,
 	wireEventId,
 	wireRunId,
+	type WireArtifactMaterial,
+	type WireArtifactSink,
 	type WireKnownEvent,
 } from "../src/wire";
 
@@ -18,7 +20,7 @@ const RESULT_USAGE = {
 	cache_read_input_tokens: 3,
 } as const;
 
-function setup(label: string, contextWindow = 200_000): {
+function setup(label: string, contextWindow = 200_000, artifacts?: WireArtifactSink): {
 	writer: WireEventWriter;
 	normalizer: AnthropicWireNormalizer;
 } {
@@ -39,8 +41,24 @@ function setup(label: string, contextWindow = 200_000): {
 			effort: "high",
 			attempt: 1,
 			contextWindow,
-		}),
+		}, artifacts),
 	};
+}
+
+function setupWithArtifacts(label: string, sink?: WireArtifactSink): {
+	writer: WireEventWriter;
+	normalizer: AnthropicWireNormalizer;
+	artifacts: Map<string, Readonly<WireArtifactMaterial>>;
+} {
+	const artifacts = new Map<string, Readonly<WireArtifactMaterial>>();
+	const harness = setup(label, 200_000, sink ?? {
+		persist(artifact) {
+			if (artifacts.has(artifact.artifactId)) throw new Error("duplicate artifact id");
+			artifacts.set(artifact.artifactId, artifact);
+			return { artifactId: artifact.artifactId, digest: artifact.digest };
+		},
+	});
+	return { ...harness, artifacts };
 }
 
 function assistantWithTool(toolId = "provider-tool-secret"): Record<string, unknown> {
@@ -171,6 +189,140 @@ describe("Anthropic wire-v2 normalization", () => {
 		expect(encoded).not.toContain("provider-assistant-secret");
 		expect(encoded).not.toContain("provider-model-secret");
 		expect(encoded).not.toContain("\u001b");
+	});
+
+	test("retains tool and background results before terminal references with exact digests", () => {
+		const { writer, normalizer, artifacts } = setupWithArtifacts("retained-tool-results");
+		const admission = normalizer.accept(assistantWithTool());
+		const admitted = admission.events.find((event) => event.kind === "tool.admitted");
+		if (admitted?.kind !== "tool.admitted") throw new Error("missing tool admission");
+		const resultText = `HEAD-${"x".repeat(1_048_700)}-TAIL`;
+		const accepted = normalizer.accept({
+			type: "user",
+			uuid: "provider-user-secret",
+			parent_tool_use_id: null,
+			message: {
+				role: "user",
+				content: [{
+					type: "tool_result",
+					tool_use_id: "provider-tool-secret",
+					content: resultText,
+					is_error: false,
+				}],
+			},
+		});
+		expect(kinds(accepted.events)).toEqual([
+			"message.recorded", "message.recorded", "artifact.published", "tool.terminal",
+		]);
+		const published = accepted.events[2];
+		const terminal = accepted.events[3];
+		if (published?.kind !== "artifact.published" || terminal?.kind !== "tool.terminal") {
+			throw new Error("missing retained tool result events");
+		}
+		expect(terminal.toolCallId).toBe(admitted.toolCallId);
+		expect(terminal.resultArtifactId).toBe(published.artifactId);
+		expect(terminal.resultArtifactDigest).toBe(published.digest);
+		expect(terminal.resultArtifactId).not.toContain("provider-tool-secret");
+		expect(new TextEncoder().encode(terminal.resultPreview).byteLength)
+			.toBeLessThanOrEqual(2_048);
+		const retained = artifacts.get(published.artifactId);
+		if (!retained) throw new Error("missing retained tool result");
+		expect(new TextEncoder().encode(retained.content).byteLength).toBeLessThanOrEqual(1_048_576);
+		expect(retained.content).toStartWith("HEAD-");
+		expect(retained.content).toContain("north retained output truncated from");
+		expect(retained.content).toEndWith("-TAIL");
+		expect(retained.digest).toBe(
+			new Bun.CryptoHasher("sha256").update(retained.content).digest("hex"),
+		);
+
+		normalizer.accept({
+			type: "system",
+			subtype: "task_started",
+			task_id: "background-result-private",
+			description: "bounded background work",
+		});
+		const background = normalizer.accept({
+			type: "system",
+			subtype: "task_notification",
+			task_id: "background-result-private",
+			status: "completed",
+			summary: "background retained result",
+		});
+		expect(kinds(background.events)).toEqual(["artifact.published", "tool.terminal"]);
+		const backgroundTerminal = background.events[1];
+		if (backgroundTerminal?.kind !== "tool.terminal") throw new Error("missing background terminal");
+		expect(artifacts.get(backgroundTerminal.resultArtifactId!)).toMatchObject({
+			content: "background retained result",
+			digest: backgroundTerminal.resultArtifactDigest,
+		});
+		expect(writer.snapshot()?.toolCalls[backgroundTerminal.toolCallId]).toMatchObject({
+			resultArtifactId: backgroundTerminal.resultArtifactId,
+			resultArtifactDigest: backgroundTerminal.resultArtifactDigest,
+		});
+	});
+
+	test("does not recursively retain artifact_read pages", () => {
+		const { normalizer, artifacts } = setupWithArtifacts("artifact-read-result");
+		const pageReader = normalizer.accept({
+			type: "assistant",
+			uuid: "artifact-read-admission",
+			parent_tool_use_id: null,
+			message: {
+				role: "assistant",
+				model: "provider-model-secret",
+				content: [{
+					type: "tool_use",
+					id: "artifact-read-provider-id",
+					name: "mcp__north__artifact_read",
+					input: { artifactId: "artifact:source" },
+				}],
+			},
+		});
+		expect(pageReader.events.some((event) => event.kind === "tool.admitted")).toBe(true);
+		const before = artifacts.size;
+		const result = normalizer.accept({
+			type: "user",
+			uuid: "artifact-read-result",
+			parent_tool_use_id: null,
+			message: {
+				role: "user",
+				content: [{
+					type: "tool_result",
+					tool_use_id: "artifact-read-provider-id",
+					content: '{"protocol":"north.page","content":"bounded"}',
+				}],
+			},
+		});
+		expect(result.events.map((event) => event.kind)).toEqual([
+			"message.recorded", "message.recorded", "tool.terminal",
+		]);
+		expect(result.events.at(-1)).not.toHaveProperty("resultArtifactId");
+		expect(artifacts.size).toBe(before);
+	});
+
+	test("does not publish or reference tool material when durable persistence fails", () => {
+		const { writer, normalizer } = setupWithArtifacts("artifact-persistence-failure", {
+			persist() {
+				throw new Error("artifact store unavailable");
+			},
+		});
+		normalizer.accept(assistantWithTool());
+		const before = writer.events();
+		expectContractError(() => normalizer.accept({
+			type: "user",
+			uuid: "provider-user-secret",
+			parent_tool_use_id: null,
+			message: {
+				role: "user",
+				content: [{
+					type: "tool_result",
+					tool_use_id: "provider-tool-secret",
+					content: "not durable",
+				}],
+			},
+		}), "state_violation");
+		expect(writer.events()).toEqual(before);
+		expect(writer.snapshot()?.artifacts).toEqual({});
 	});
 
 	test("returns a successful model-call terminal with split usage and bounded completion evidence", () => {
