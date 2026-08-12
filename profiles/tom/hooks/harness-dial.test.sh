@@ -46,6 +46,7 @@ unset AGENT_NO_AUTHORING_HOOKS CLAUDE_NO_AUTHORING_HOOKS
 scratch="$(mktemp -d)"
 trap 'rm -rf "${scratch:?}"' EXIT
 export NORTH_HARNESS_STATE="$scratch/harness.conf"
+export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/missing-switchboard-activity.sh"
 
 reload() {
   __NORTH_DIAL_LOADED=0
@@ -78,6 +79,32 @@ expect_hook firn-guard              off "sibling-verdict-unchanged"
 
 printf 'hooks.cat.coordination=off\n' >"$NORTH_HARNESS_STATE"
 expect_hook north-session-end       off "coordination-off-when-named"
+
+# --- static Codex hooks obey the switchboard's effective projection --------
+cat >"$scratch/switchboard-activity.sh" <<'SH'
+agents_switchboard_active() {
+  local wanted_kind="$1" wanted_name="$2" kind name state rest
+  [ -r "$AGENTS_ACTIVITY_FILE" ] || return 0
+  while read -r kind name state rest; do
+    if [ "$kind" = "$wanted_kind" ] && [ "$name" = "$wanted_name" ]; then
+      [ "$state" = on ]
+      return
+    fi
+  done <"$AGENTS_ACTIVITY_FILE"
+  return 1
+}
+SH
+export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/switchboard-activity.sh"
+export AGENTS_ACTIVITY_FILE="$scratch/activity.conf"
+printf 'hook tripwire-guard off\nhook firn-guard on\n' >"$AGENTS_ACTIVITY_FILE"
+printf 'guards=on\n' >"$NORTH_HARNESS_STATE"
+expect_hook tripwire-guard          off "switchboard-off-beats-live-dial"
+expect_hook firn-guard              on  "switchboard-on-keeps-live-dial"
+expect_hook agent-spawn-guard       off "switchboard-missing-row-is-off"
+rm -f "$AGENTS_ACTIVITY_FILE"
+expect_hook tripwire-guard          on  "missing-projection-preserves-installed-hook"
+unset AGENTS_ACTIVITY_FILE
+export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/missing-switchboard-activity.sh"
 
 # --- the env var must not reach across categories --------------------------
 printf '' >"$NORTH_HARNESS_STATE"
