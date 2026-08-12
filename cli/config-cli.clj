@@ -111,9 +111,13 @@
 (def CODEX-CONFIG (or (System/getenv "NORTH_CODEX_CONFIG")
                       (str (or (System/getenv "CODEX_HOME") (str home "/.codex"))
                            "/config.toml")))
+(def CONFIG-DRIFT-AUDIT
+  (str (or (System/getenv "NORTH_HOME")
+           (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+       "/cli/config-drift-audit.py"))
 
 (def mcp-usage
-  "usage: north config mcp [list|add <name> <url>|add <name> -- <command> [args...]|remove <name>]\nMCP declarations are applied to both Claude (user scope) and Codex.")
+  "usage: north config mcp [list [--json]|add <name> <url>|add <name> -- <command> [args...]|remove <name>]\nMCP declarations are applied to both Claude (user scope) and Codex.")
 
 (declare print-provider-readouts)
 
@@ -124,11 +128,22 @@
                            (str/trim (if (str/blank? err) out err))) {})))
     out))
 
+(defn- run-config-drift-audit! [& argv]
+  (let [{:keys [exit out err]}
+        (apply shell/sh "python3" CONFIG-DRIFT-AUDIT argv)]
+    (when-not (str/blank? out) (print out))
+    (when-not (str/blank? err) (binding [*out* *err*] (print err)))
+    (when-not (zero? exit) (System/exit exit))))
+
 (defn cmd-mcp [args]
   (let [[verb name target & extra] args]
     (case (or verb "list")
-      "list" (do (when (or name target (seq extra)) (die mcp-usage))
-                 (print-provider-readouts))
+      "list" (do
+               (when (or target (seq extra) (and name (not= name "--json")))
+                 (die mcp-usage))
+               (apply run-config-drift-audit!
+                      (cond-> ["--section" "mcp"]
+                        (= name "--json") (conj "--json"))))
       "add" (do
               (when (or (str/blank? name) (str/blank? target))
                 (die mcp-usage))
@@ -1230,7 +1245,9 @@
       (do
         (when (seq xs) (die skills-usage))
         (with-skills-lock
-          #(print-skills (skill-inventory))))
+          #(print-skills (skill-inventory)))
+        (println)
+        (run-config-drift-audit! "--section" "skills"))
 
       ("on" "off")
       (let [[id & extra] xs]
@@ -1619,6 +1636,13 @@
    can read and its exact provider inverse command. These are provider-owned;
    run `north config` again after changing them.
 
+ 12 CONFIG DRIFT — read-only effective capability audit.
+   `north config audit [--json]` inventories enabled shared/provider/plugin
+   skill roots with canonical provenance and collision uncertainty, then
+   compares parsed Claude/Codex MCP declarations for alignment, same-name
+   drift, and equivalent aliases. Environment and header values are never
+   printed; only their key sets and deterministic digests are exposed.
+
  9 LEARNING — bounded experimentation during ordinary managed work.
    frozen    use the current best-known control policy consistently; continue
              telemetry and content-addressed prompt/environment receipts.
@@ -1806,6 +1830,11 @@
           (println (str "  " (wired g) " " g))))
     :else (die "usage: north config guards [on|off]")))
 
+(defn cmd-audit [args]
+  (when-not (or (empty? args) (= ["--json"] (vec args)))
+    (die "usage: north config audit [--json]"))
+  (apply run-config-drift-audit! args))
+
 (defn -main [& args]
   (try
     (let [[verb & rest] args]
@@ -1818,11 +1847,12 @@
         "context"  (cmd-context rest)
         "skills"   (cmd-skills rest)
         "mcp"      (cmd-mcp rest)
+        "audit"    (cmd-audit rest)
         "comms"    (cmd-comms rest)
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|guards|hooks|context|skills|mcp|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|context|skills|mcp|audit|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 
