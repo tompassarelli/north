@@ -1,5 +1,6 @@
 import { markCoordinationOptional } from "../execution-admission";
 import { harnessOptions } from "../harness";
+import type { ProviderModelAdmissionReceipt } from "../provider-model-observation-store";
 import { applyOrchestrationStaffing } from "../orchestration-staffing";
 import * as providerRouting from "../provider-routing";
 import { anthropicProvider } from "../providers/anthropic";
@@ -237,18 +238,34 @@ type ProviderRouting = Pick<typeof providerRouting,
 export async function bridgeRoute(
   routing: ProviderRouting,
   provider: BridgeLaunchProvider,
-): Promise<{ target?: RoutingTarget }> {
-  const cached = await routing.selectProviderFromCachedState({ provider });
+  model?: string,
+): Promise<{ target?: RoutingTarget; receipt?: ProviderModelAdmissionReceipt }> {
+  const context = model ? { model } : {};
+  const cached = await routing.selectProviderFromCachedState({ provider }, undefined, context);
   if (cached) {
     void routing.refreshProviderRoutingInBackground({ provider });
-    return { target: cached.routingTargets[cached.target] };
+    return {
+      target: cached.routingTargets[cached.target],
+      ...(cached.modelAvailabilityReceipts?.[cached.target]
+        ? { receipt: cached.modelAvailabilityReceipts[cached.target] }
+        : {}),
+    };
   }
   try {
     const decision = await routing.selectProviderForExecution({ provider }, undefined, {
+      ...context,
       signal: AbortSignal.timeout(routing.BOOT_ROUTING_TIMEOUT_MS),
     });
-    return { target: decision.routingTargets[decision.target] };
+    return {
+      target: decision.routingTargets[decision.target],
+      ...(decision.modelAvailabilityReceipts?.[decision.target]
+        ? { receipt: decision.modelAvailabilityReceipts[decision.target] }
+        : {}),
+    };
   } catch {
+    // An explicit model is exact authority. A static account default cannot
+    // prove it and must not reach an adapter without a receipt.
+    if (model) return {};
     const fallback = routing.configuredDefaultTarget(provider);
     return fallback ? { target: fallback } : {};
   }
@@ -257,8 +274,11 @@ export async function bridgeRoute(
 export const bridgeProvider: BridgeProviderExecution = {
   async open(context): Promise<BridgeProviderSession> {
     const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
-    const route = await bridgeRoute(providerRouting, context.provider);
+    const model = process.env.NORTH_BRIDGE_MODEL;
+    const route = await bridgeRoute(providerRouting, context.provider, model);
     const target = route.target;
+    if (model && !target)
+      throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
     const routingMetadata = applyOrchestrationStaffing({ role: context.role });
     const abortController = new AbortController();
     const options = harnessOptions({
@@ -268,7 +288,14 @@ export const bridgeProvider: BridgeProviderExecution = {
       role: routingMetadata.role,
       posture: routingMetadata.posture,
       cwd: context.cwd,
-      model: process.env.NORTH_BRIDGE_MODEL,
+      model,
+      ...(model && target ? {
+        modelAvailability: {
+          exactModelPinned: true,
+          targetId: target.id,
+          receipt: route.receipt,
+        },
+      } : {}),
       presenceRegistrar: false,
       presenceRenewer: false,
       systemPrompt: bridgeSystemPrompt(context.role),

@@ -79,6 +79,24 @@ function fableModelEvidence(target: RoutingTarget) {
     },
   };
 }
+function codexModelEvidence(target: RoutingTarget) {
+  const observedAt = new Date();
+  return {
+    now: observedAt,
+    store: {
+      version: 1 as const,
+      observations: [{
+        provider: "openai" as const,
+        targetId: target.id,
+        authMode: target.authMode ?? "ambient" as const,
+        ...(target.profile ? { profile: target.profile } : {}),
+        observedAt: observedAt.toISOString(),
+        source: "codex-app-server:model-list" as const,
+        models: ["gpt-5.6-sol"],
+      }],
+    },
+  };
+}
 beforeEach(() => {
   for (const key of MANAGED_ENV) delete process.env[key];
   process.env.NORTH_ROUTING_POLICY = join(tmpdir(), `north-test-absent-policy-${process.pid}.json`);
@@ -517,9 +535,11 @@ test("explicit models constrain provider compatibility before observed-window pr
   });
   expect(selectProviderFromAvailability(
     "auto", accountAvailability, withWindows, "senior", "openai-model", "high", "gpt-5.6-sol",
+    undefined, codexModelEvidence(accountPolicy().targets![2]),
   ).provider).toBe("openai");
   expect(selectProviderFromAvailability(
     "openai", accountAvailability, withWindows, "senior", "openai-pin", "high", "gpt-5.6-sol",
+    undefined, codexModelEvidence(accountPolicy().targets![2]),
   ).provider).toBe("openai");
 });
 

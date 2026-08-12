@@ -3112,6 +3112,25 @@ test("a respawn whose preflight fails is a harvest, never a retry-safe pre-threa
   expect(causeChain(caught as Error, 8, 4_000)).toContain("openai_codex_state_root_unresolvable");
 });
 
+test("every respawn revalidates adapter authority before a replacement process launches", async () => {
+  const fixture = setup("respawn-after-third-item");
+  let validations = 0;
+  const run = new ManagedCodexAppServerRun({
+    ...fixture.options,
+    async beforeLaunch() {
+      validations++;
+      if (validations === 2) throw new Error("model receipt revoked");
+    },
+  });
+  let caught: unknown;
+  try { await run.execute(); } catch (error) { caught = error; }
+  expect(validations).toBe(2);
+  expect(fixture.attempts()).toBe(1);
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  expect(caught).not.toBeInstanceOf(ManagedCodexPreThreadError);
+  expect(causeChain(caught as Error)).toContain("model receipt revoked");
+});
+
 test("a watchdog-interrupted turn settles WITHOUT respawning a live provider", async () => {
   const { options, requests, attempts } = setup("turn-silent-after-tool");
   const run = new ManagedCodexAppServerRun({

@@ -8,7 +8,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
-  ProviderRetrySafeError, type AgentProvider, type ProviderAvailability,
+  providerPreacceptError, ProviderRetrySafeError,
+  type AgentProvider, type ProviderAvailability,
 } from "./types";
 import type { RoutingTarget } from "./types";
 import { probeOpenAI } from "../provider-routing";
@@ -23,9 +24,11 @@ import {
   managedNorthMcpEnvironment, validateManagedExecutionEnvelope,
 } from "../execution-admission";
 import {
-  canonicalGlobalAgents, GLOBAL_AGENTS_MAX_BYTES, hasCanonicalHarnessAuthority,
+  canonicalGlobalAgents, canonicalHarnessModelAvailability, GLOBAL_AGENTS_MAX_BYTES,
+  hasCanonicalHarnessAuthority,
   renewHarnessPresence,
 } from "../harness";
+import { validateModelAdmissionReceipt } from "../provider-model-observation-store";
 import { createExecutionActivityEmitter } from "../execution-activity";
 import {
   CODEX_WORKER_NORTH_ENABLED_TOOLS, compileProviderAuthoritySurface,
@@ -301,6 +304,27 @@ function validateOpenAIHarness(options: Options): OrchestrationCapability[] | un
   return capabilities;
 }
 
+async function validateOpenAIModelAdmission(
+  options: Options,
+  target: RoutingTarget | undefined,
+): Promise<void> {
+  const modelAvailability = canonicalHarnessModelAvailability(options, "openai");
+  if (!modelAvailability)
+    throw providerPreacceptError("openai_model_availability_authority_missing");
+  if (!modelAvailability.required) return;
+  if (!target || modelAvailability.targetId !== target.id
+      || modelAvailability.model !== options.model
+      || typeof options.model !== "string"
+      || !await validateModelAdmissionReceipt(
+        modelAvailability.receipt,
+        target,
+        options.model,
+        modelAvailability.observationPath,
+      )) {
+    throw providerPreacceptError("openai_model_availability_unproven");
+  }
+}
+
 type ManagedHooksProbe = () => void;
 
 async function admitOpenAIWithManagedHooksProbe(
@@ -319,6 +343,7 @@ async function admitOpenAIWithManagedHooksProbe(
   const resolvedCommand = resolveManagedCommand(resolveCommand);
   const prepared = managedCodexTargetEnvironment(options, target);
   try {
+    await validateOpenAIModelAdmission(options, target);
     await admitExecution("openai", capabilities, options?.cwd ?? process.cwd(), options, target);
     recordManagedLaunch(options, { command: resolvedCommand, home: prepared });
   } catch (error) {
@@ -1453,6 +1478,10 @@ class CodexQuery implements WireQuery {
           ...(this.#artifacts === undefined ? {} : { artifacts: this.#artifacts }),
         });
         this.#managedNormalizer = normalizer;
+        // Admission can precede query construction and prompt acquisition.
+        // Re-read the selected target's receipt at the final pre-launch seam so
+        // a newer empty or failed model/list result cannot race into execution.
+        await validateOpenAIModelAdmission(this.#options, this.#target);
         const run = this.#createManagedRun({
           command: managedLaunch!.command,
           env: managedLaunch!.home.env,
@@ -1467,6 +1496,7 @@ class CodexQuery implements WireQuery {
             args: [...north.args],
             env: managedNorthMcpEnvironment(northEnvironment),
           },
+          beforeLaunch: () => validateOpenAIModelAdmission(this.#options, this.#target),
           onActivity: (kind) => {
             this.#activity.record("provider", kind);
             renewHarnessPresence(this.#options);

@@ -13,6 +13,7 @@ import {
   modelAdmissionReceipt,
   PROVIDER_MODEL_OBSERVATION_TTL_MS,
   readProviderModelObservations,
+  validateModelAdmissionReceipt,
   writeProviderModelObservation,
 } from "../src/provider-model-observation-store";
 import { ProviderRefreshCancelledError } from "../src/provider-cancellation";
@@ -25,6 +26,7 @@ import {
 } from "../src/providers/catalog";
 import { agentRouteFacts } from "../src/identity";
 import { normalizeAnthropicSupportedModels } from "../src/providers/anthropic-models";
+import { normalizeCodexSupportedModels } from "../src/providers/codex-models";
 import { anthropicProvider } from "../src/providers/anthropic";
 import {
   canonicalHarnessModelAvailability,
@@ -52,6 +54,9 @@ const isolated: RoutingTarget = {
 const openai: RoutingTarget = {
   id: "codex-personal", provider: "openai", authMode: "ambient",
 };
+const openaiWork: RoutingTarget = {
+  id: "codex-work", provider: "openai", authMode: "isolated", profile: "work",
+};
 const availability: ProviderAvailability[] = [
   { targetId: anthropic.id, provider: "anthropic", available: true, reason: "ready" },
   { targetId: isolated.id, provider: "anthropic", available: true, reason: "ready" },
@@ -70,7 +75,9 @@ function policy(targets: RoutingTarget[] = [anthropic, openai]): ResourcePolicy 
 }
 
 function observed(target: RoutingTarget, values: string[]) {
-  return normalizeAnthropicSupportedModels(values.map((value) => ({ value })), target, now);
+  return target.provider === "anthropic"
+    ? normalizeAnthropicSupportedModels(values.map((value) => ({ value })), target, now)
+    : normalizeCodexSupportedModels(values, target, now);
 }
 
 function usageResponse() {
@@ -225,6 +232,66 @@ test("explicit Fable selection needs fresh target-scoped positive membership", (
   expect(Object.isFrozen(decision.routingTargets)).toBe(true);
   expect(() => (decision as any).modelAvailabilityRequiredTargets = []).toThrow();
   expect(() => delete (decision.modelAvailabilityReceipts as any)[anthropic.id]).toThrow();
+});
+
+test("explicit Codex pins need fresh selected-target membership while unpinned defaults stay static", () => {
+  const onlyOpenAI = policy([openai]);
+  expect(selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-default", "xhigh",
+  )).toMatchObject({ provider: "openai", target: openai.id });
+  expect(() => selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-pin-missing", "xhigh", "gpt-5.6-sol",
+  )).toThrow("lacks fresh positive exact-model availability evidence");
+
+  const positive = observed(openai, ["gpt-5.6-sol"]);
+  const decision = selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-pin", "xhigh", "gpt-5.6-sol", undefined,
+    { store: { version: 1, observations: [positive] }, now },
+  );
+  expect(decision.modelAvailabilityReceipts?.[openai.id]).toMatchObject({
+    provider: "openai",
+    targetId: openai.id,
+    model: "gpt-5.6-sol",
+    source: "codex-app-server:model-list",
+  });
+  expect(() => selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-wrong-profile", "xhigh", "gpt-5.6-sol", undefined,
+    { store: { version: 1, observations: [observed(openaiWork, ["gpt-5.6-sol"])] }, now },
+  )).toThrow("lacks fresh positive exact-model availability evidence");
+  expect(() => selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-empty", "xhigh", "gpt-5.6-sol", undefined,
+    { store: { version: 1, observations: [observed(openai, [])] }, now },
+  )).toThrow("lacks fresh positive exact-model availability evidence");
+  const staleAt = new Date(now.getTime() - PROVIDER_MODEL_OBSERVATION_TTL_MS - 1);
+  expect(() => selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-stale", "xhigh", "gpt-5.6-sol", undefined,
+    {
+      store: { version: 1, observations: [
+        normalizeCodexSupportedModels(["gpt-5.6-sol"], openai, staleAt),
+      ] },
+      now,
+    },
+  )).toThrow("lacks fresh positive exact-model availability evidence");
+  expect(() => selectProviderFromAvailability(
+    { target: openai.id }, availability, onlyOpenAI,
+    "frontier", "codex-failed", "xhigh", "gpt-5.6-sol", undefined,
+    {
+      store: { version: 1, observations: [positive] },
+      currentAttempts: [{
+        status: "unavailable",
+        targetId: openai.id,
+        attemptedAt: now.toISOString(),
+        reason: "codex_models_refresh_unavailable",
+      }],
+      now,
+    },
+  )).toThrow("lacks fresh positive exact-model availability evidence");
 });
 
 test("fresh empty, wrong target/auth, and usage windows never prove exact-model availability", () => {
@@ -428,6 +495,71 @@ test("fresh model collection failure blocks without probe storms and retries aft
   expect(counters).toMatchObject({ startups: 2, queries: 2, usage: 2, models: 2 });
 });
 
+test("account refresh persists Codex model authority and a later failure revokes it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "north-codex-model-refresh-"));
+  roots.push(root);
+  const usagePath = join(root, "usage.json");
+  const modelPath = join(root, "models.json");
+  const positive = observed(openai, ["gpt-5.6-sol"]);
+  const usageObservation = {
+    targetId: openai.id,
+    provider: "openai" as const,
+    source: "codex-app-server:account-rate-limits" as const,
+    observedAt: now.toISOString(),
+    state: "normal" as const,
+  };
+  const [first] = await refreshAccountUsages({
+    accounts: [openai],
+    observeCodexModels: true,
+    modelObservationTargetIds: [openai.id],
+    force: true,
+    now,
+    storePath: usagePath,
+    modelStorePath: modelPath,
+    readCodexControl: async () => ({
+      observation: usageObservation,
+      models: { ok: true, observation: positive },
+    }),
+  });
+  expect(first.modelAvailabilityAttempt).toEqual({
+    status: "persisted", observation: positive,
+  });
+  const receipt = modelAdmissionReceipt(positive, openai, "gpt-5.6-sol", now)!;
+  expect(await validateModelAdmissionReceipt(
+    receipt, openai, "gpt-5.6-sol", modelPath, now,
+  )).toBe(true);
+
+  const failedAt = new Date(now.getTime() + 1_000);
+  const [second] = await refreshAccountUsages({
+    accounts: [openai],
+    observeCodexModels: true,
+    modelObservationTargetIds: [openai.id],
+    force: true,
+    now: failedAt,
+    storePath: usagePath,
+    modelStorePath: modelPath,
+    readCodexControl: async () => ({
+      observation: { ...usageObservation, observedAt: failedAt.toISOString() },
+      models: {
+        ok: false,
+        attemptedAt: failedAt.toISOString(),
+        reason: "codex_models_probe_failed",
+      },
+    }),
+  });
+  expect(second.modelAvailabilityAttempt).toMatchObject({
+    status: "persisted",
+    observation: {
+      targetId: openai.id,
+      models: [],
+      collectionFailure: { reason: "codex_models_probe_failed" },
+    },
+  });
+  expect(await validateModelAdmissionReceipt(
+    receipt, openai, "gpt-5.6-sol", modelPath, failedAt,
+  )).toBe(false);
+});
+
 test("execution selector owns exactly one OpenAI account refresh", async () => {
   let refreshes = 0;
   let refreshedAccounts: unknown;
@@ -449,6 +581,64 @@ test("execution selector owns exactly one OpenAI account refresh", async () => {
   expect(decision).toMatchObject({ provider: "openai", target: openai.id });
   expect(refreshes).toBe(1);
   expect(refreshedAccounts).toEqual([openai]);
+});
+
+test("execution selector collects exact-model evidence only for the selected OpenAI target", async () => {
+  let refreshOptions: Parameters<typeof refreshAccountUsages>[0] | undefined;
+  const decision = await selectProviderForExecution(
+    "openai",
+    policy([openai, openaiWork]),
+    {
+      tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol",
+      stableKey: "selected-codex-model-list",
+    },
+    {
+      probeOpenAI: (target) => ({
+        targetId: target?.id,
+        provider: "openai",
+        available: true,
+        reason: "ready",
+      }),
+      refreshAccountUsages: async (options) => {
+        refreshOptions = options;
+        const observedAt = new Date();
+        const modelObservation = normalizeCodexSupportedModels(
+          ["gpt-5.6-sol"], openai, observedAt,
+        );
+        return [{
+          accountId: openai.id,
+          provider: "openai",
+          source: "codex-app-server:account-rate-limits",
+          observedAt: observedAt.toISOString(),
+          status: "observed",
+          cached: false,
+          observation: {
+            targetId: openai.id,
+            provider: "openai",
+            source: "codex-app-server:account-rate-limits",
+            observedAt: observedAt.toISOString(),
+            state: "normal",
+          },
+          unavailableComponents: [],
+          modelAvailabilityAttempt: { status: "persisted", observation: modelObservation },
+        }];
+      },
+    },
+  );
+  expect(refreshOptions).toMatchObject({
+    accounts: [openai, openaiWork],
+    observeAnthropicModels: false,
+    observeCodexModels: true,
+    modelObservationTargetIds: [openai.id],
+  });
+  expect(decision).toMatchObject({
+    provider: "openai",
+    target: openai.id,
+    modelAvailabilityRequiredTargets: [openai.id, openaiWork.id],
+    modelAvailabilityReceipts: {
+      [openai.id]: { model: "gpt-5.6-sol" },
+    },
+  });
 });
 
 test("selector cancellation is pre-side-effect and cannot return a fallback route", async () => {

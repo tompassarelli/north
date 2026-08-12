@@ -277,6 +277,8 @@ export interface ManagedCodexAppServerOptions {
   onEvent?: (method: string, params: unknown) => void;
   /** Adapter-private boundary emitted only after a dead provider attempt earns a respawn. */
   onRespawn?: () => void;
+  /** Adapter-private authority revalidation immediately before every process launch. */
+  beforeLaunch?: () => Promise<void>;
 }
 
 export interface ManagedCodexResult {
@@ -2765,7 +2767,10 @@ export class ManagedCodexAppServerRun {
     launchPrompt: string,
   ): AsyncGenerator<ManagedCodexResult> {
     let contract: LaunchContract;
-    try { contract = managedCodexAppServerLaunch(this.options); }
+    try {
+      await this.options.beforeLaunch?.();
+      contract = managedCodexAppServerLaunch(this.options);
+    }
     catch (error) {
       const failure = error instanceof ManagedCodexPreThreadError
         ? error

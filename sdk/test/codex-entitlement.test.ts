@@ -9,6 +9,7 @@ import { PassThrough } from "node:stream";
 import {
   CODEX_OBSERVATION_TTL_MS, CODEX_USAGE_PROBE_TIMEOUT_MS,
   normalizeCodexRateLimits, observeCodexEntitlement,
+  readCodexControlObservation,
   readCodexEntitlementObservation, refreshCodexEntitlementIfStale,
   refreshCodexEntitlementsIfStale, shouldRefreshCodexEntitlement,
 } from "../src/codex-entitlement";
@@ -75,6 +76,27 @@ function observe(payload = responses(), timeoutMs = 1_000) {
   });
 }
 
+function codexModel(model: string, hidden = false) {
+  return {
+    id: `picker-${model}`,
+    model,
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: "PRIVATE DISPLAY CANARY",
+    description: "PRIVATE DESCRIPTION CANARY",
+    hidden,
+    supportedReasoningEfforts: [],
+    defaultReasoningEffort: "high",
+    inputModalities: ["text"],
+    supportsPersonality: false,
+    additionalSpeedTiers: [],
+    serviceTiers: [],
+    defaultServiceTier: null,
+    isDefault: false,
+  };
+}
+
 test("reads only authenticated ChatGPT subscription windows without a model turn", async () => {
   const observation = await observe();
   expect(observation).toEqual({
@@ -85,6 +107,79 @@ test("reads only authenticated ChatGPT subscription windows without a model turn
       { limitId: "codex:secondary", usedPercent: 81, resetsAt: "2027-01-16T08:00:00.000Z" },
     ],
   });
+});
+
+test("reads every authenticated model/list page from the same target and projects only declared IDs", async () => {
+  const payload = responses() as Record<string, unknown>;
+  payload["model/list"] = {
+    $pages: {
+      "": {
+        data: [codexModel("gpt-5.6-sol"), codexModel("future-provider-model")],
+        nextCursor: "opaque-next",
+      },
+      "opaque-next": {
+        data: [codexModel("gpt-5.6-terra"), codexModel("gpt-5.6-luna", true)],
+        nextCursor: null,
+      },
+    },
+  };
+  process.env.FAKE_CODEX_RESPONSES = JSON.stringify(payload);
+  const observed = await readCodexControlObservation({
+    command: process.execPath,
+    commandArgs: [fixture],
+    timeoutMs: 1_000,
+    target: { id: "codex-primary", provider: "openai", authMode: "ambient" },
+    now: new Date("2026-07-16T12:00:00Z"),
+    observeModels: true,
+  });
+  expect(observed.models).toMatchObject({
+    ok: true,
+    observation: {
+      provider: "openai",
+      targetId: "codex-primary",
+      source: "codex-app-server:model-list",
+      models: ["gpt-5.6-sol", "gpt-5.6-terra"],
+    },
+  });
+  expect(JSON.stringify(observed.models)).not.toContain("future-provider-model");
+  expect(JSON.stringify(observed.models)).not.toContain("PRIVATE");
+});
+
+test("model/list pagination beyond the bounded target authority becomes fresh negative evidence", async () => {
+  const payload = responses() as Record<string, unknown>;
+  payload["model/list"] = {
+    data: Array.from({ length: 129 }, (_, index) => codexModel(`future-provider-model-${index}`)),
+    nextCursor: null,
+  };
+  process.env.FAKE_CODEX_RESPONSES = JSON.stringify(payload);
+  const observed = await readCodexControlObservation({
+    command: process.execPath,
+    commandArgs: [fixture],
+    timeoutMs: 1_000,
+    target: { id: "codex-primary", provider: "openai", authMode: "ambient" },
+    now: new Date("2026-07-16T12:00:00Z"),
+    observeModels: true,
+  });
+  expect(observed.models).toEqual({
+    ok: false,
+    attemptedAt: "2026-07-16T12:00:00.000Z",
+    reason: "codex_models_pagination_invalid",
+  });
+  expect(observed.observation.windows?.[0]?.usedPercent).toBe(61);
+});
+
+test("transport death during model/list terminates the whole control read", async () => {
+  const payload = responses() as Record<string, unknown>;
+  payload["model/list"] = "exit";
+  process.env.FAKE_CODEX_RESPONSES = JSON.stringify(payload);
+  await expect(readCodexControlObservation({
+    command: process.execPath,
+    commandArgs: [fixture],
+    timeoutMs: 1_000,
+    target: { id: "codex-primary", provider: "openai", authMode: "ambient" },
+    now: new Date("2026-07-16T12:00:00Z"),
+    observeModels: true,
+  })).rejects.toThrow("codex_usage_transport_failed");
 });
 
 test("atomically updates the shared observation store", async () => {

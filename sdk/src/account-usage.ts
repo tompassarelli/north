@@ -6,7 +6,9 @@ import {
 import {
   CodexUsageUnavailableError,
   CODEX_USAGE_SOURCE,
+  readCodexControlObservation,
   readCodexEntitlementObservation,
+  type CodexControlObservation,
   type CodexUsageUnavailableReason,
 } from "./codex-entitlement";
 import { withFileLease } from "./file-lease";
@@ -93,6 +95,7 @@ export type AccountModelAvailabilityAttempt =
 
 type ReadAnthropic = typeof readAnthropicSubscriptionUsage;
 type ReadCodex = typeof readCodexEntitlementObservation;
+type ReadCodexControl = typeof readCodexControlObservation;
 
 export interface RefreshAccountUsageOptions {
   /** Exact routing targets to observe. ProviderAccount[] remains structurally compatible. */
@@ -109,11 +112,16 @@ export interface RefreshAccountUsageOptions {
   signal?: AbortSignal;
   /** Collect target-scoped supportedModels beside usage through one warm control Query. */
   observeAnthropicModels?: boolean;
+  /** Collect target-scoped model/list beside usage through one Codex app-server. */
+  observeCodexModels?: boolean;
+  /** Restrict model collection to these selected target IDs. */
+  modelObservationTargetIds?: readonly string[];
   modelStorePath?: string;
   startAnthropicControl?: StartAnthropicControl;
   createAnthropicControlLifecycle?: () => AnthropicProcessLifecycle;
   readAnthropic?: ReadAnthropic;
   readCodex?: ReadCodex;
+  readCodexControl?: ReadCodexControl;
   /** Fixture seam for the post-sample, cached-evidence failover warning hook. */
   failoverObserver?: (runtime: { env: NodeJS.ProcessEnv }) => unknown;
 }
@@ -276,7 +284,7 @@ async function freshModelEvidence(
   options: RefreshAccountUsageOptions,
   now: Date,
 ): Promise<boolean> {
-  if (!options.observeAnthropicModels || account.provider !== "anthropic") return true;
+  if (!shouldObserveModels(account, options)) return true;
   try {
     const target = targetFor(account);
     const path = options.modelStorePath ?? providerModelObservationPath(options.env ?? options.context?.env);
@@ -287,6 +295,17 @@ async function freshModelEvidence(
   } catch {
     return false;
   }
+}
+
+function shouldObserveModels(
+  account: AccountUsageTarget,
+  options: RefreshAccountUsageOptions,
+): boolean {
+  if (options.modelObservationTargetIds
+      && !options.modelObservationTargetIds.includes(account.id)) return false;
+  return account.provider === "anthropic"
+    ? options.observeAnthropicModels === true
+    : options.observeCodexModels === true;
 }
 
 async function persistFailedModelAttempt(
@@ -309,7 +328,10 @@ async function persistFailedModelAttempt(
       throw new ProviderRefreshCancelledError();
     return {
       status: "unavailable", targetId: target.id,
-      attemptedAt, reason: "anthropic_models_observation_store_unavailable",
+      attemptedAt,
+      reason: target.provider === "anthropic"
+        ? "anthropic_models_observation_store_unavailable"
+        : "codex_models_observation_store_unavailable",
     };
   }
 }
@@ -347,7 +369,7 @@ async function refreshOne(
         if (account.provider === "anthropic") {
           const target = targetFor(account);
           let result: AnthropicUsageResult;
-          if (options.observeAnthropicModels && !options.readAnthropic) {
+          if (shouldObserveModels(account, options) && !options.readAnthropic) {
             const modelStorePath = options.modelStorePath
               ?? providerModelObservationPath(options.env ?? options.context?.env);
             const control = await readAnthropicControlObservation({
@@ -405,10 +427,34 @@ async function refreshOne(
           observation = result.observation;
           unavailableComponents = result.unavailableComponents;
         } else {
-          observation = await (options.readCodex ?? readCodexEntitlementObservation)({
-            target: targetFor(account), env: options.env ?? options.context?.env,
-            now, timeoutMs: options.timeoutMs, signal: options.signal,
-          });
+          const target = targetFor(account);
+          if (shouldObserveModels(account, options)) {
+            const control: CodexControlObservation = await (
+              options.readCodexControl ?? readCodexControlObservation
+            )({
+              target, env: options.env ?? options.context?.env,
+              now, timeoutMs: options.timeoutMs, signal: options.signal,
+              observeModels: true,
+            });
+            observation = control.observation;
+            const modelStorePath = options.modelStorePath
+              ?? providerModelObservationPath(options.env ?? options.context?.env);
+            const modelObservation = control.models?.ok
+              ? control.models.observation
+              : failedProviderModelObservation(target, control.models?.reason
+                ?? "codex_models_probe_failed", control.models
+                ? new Date(control.models.attemptedAt) : now);
+            await writeProviderModelObservation(
+              modelObservation, modelStorePath, new Date(modelObservation.observedAt),
+              { signal: options.signal },
+            );
+            modelAvailabilityAttempt = { status: "persisted", observation: modelObservation };
+          } else {
+            observation = await (options.readCodex ?? readCodexEntitlementObservation)({
+              target, env: options.env ?? options.context?.env,
+              now, timeoutMs: options.timeoutMs, signal: options.signal,
+            });
+          }
         }
         throwIfProviderRefreshCancelled(options.signal);
         validateObservationForAccount(account, observation);
@@ -419,14 +465,16 @@ async function refreshOne(
       } catch (error) {
         if (error instanceof ProviderRefreshCancelledError || options.signal?.aborted)
           throw new ProviderRefreshCancelledError();
-        if (!modelAvailabilityAttempt && options.observeAnthropicModels
-            && account.provider === "anthropic" && !options.readAnthropic) {
+        if (!modelAvailabilityAttempt && shouldObserveModels(account, options)
+            && (account.provider !== "anthropic" || !options.readAnthropic)) {
           modelAvailabilityAttempt = await persistFailedModelAttempt(
             targetFor(account),
             options.modelStorePath
               ?? providerModelObservationPath(options.env ?? options.context?.env),
             now.toISOString(),
-            "anthropic_models_probe_failed",
+            account.provider === "anthropic"
+              ? "anthropic_models_probe_failed"
+              : "codex_models_probe_failed",
             options.signal,
           );
         }
@@ -481,13 +529,14 @@ async function refreshOne(
           observedAt: now.toISOString(),
           state: "unknown",
         };
-    if (!modelAvailabilityAttempt && options.observeAnthropicModels
-        && account.provider === "anthropic") {
+    if (!modelAvailabilityAttempt && shouldObserveModels(account, options)) {
       modelAvailabilityAttempt = {
         status: "unavailable",
         targetId: account.id,
         attemptedAt: now.toISOString(),
-        reason: "anthropic_models_refresh_unavailable",
+        reason: account.provider === "anthropic"
+          ? "anthropic_models_refresh_unavailable"
+          : "codex_models_refresh_unavailable",
       };
     }
     return unavailableReport(
