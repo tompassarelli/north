@@ -52,6 +52,9 @@ import {
 import {
   formatProviderStderrTail, ProviderStderrRing, STDERR_TAIL_LINES,
 } from "./codex-stderr-tail";
+import {
+  openAIWireToolIdentity, type OpenAIWireSemanticToolKind, type OpenAIWireToolIdentity,
+} from "./openai-wire";
 import { providerJoinEvidence } from "./provider-join";
 import type { WireProviderJoinEvidence } from "../wire/events";
 
@@ -68,6 +71,7 @@ const MAX_LINE_BYTES = 8 * 1024 * 1024;
 // cumulative ceiling remains higher than the per-frame limit.
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
 const MAX_FRAMES = 20_000;
+const MAX_PENDING_RPC_FRAMES = 256;
 const MAX_INVENTORY_PAGES = 32;
 const MAX_MCP_SERVERS = 64;
 const MAX_ID_BYTES = 512;
@@ -118,6 +122,7 @@ const MAX_RESPAWNS = 2;
 // room to work.
 const MAX_RECOVERED_TEXT_BYTES = 8 * 1024;
 const MAX_RECOVERED_CONTEXT_BYTES = 96 * 1024;
+const MAX_PENDING_ITEM_SUMMARIES = 16;
 const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
 const CODEX_SHELL_PREFLIGHT_TIMEOUT_MS = 5_000;
 const CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES = 4_096;
@@ -274,9 +279,9 @@ export interface ManagedCodexAppServerOptions {
   maxRespawns?: number;
   onActivity?: (kind: string) => void;
   /** Presentation-only stream emitted after each runtime notification validates. */
-  onEvent?: (method: string, params: unknown) => void;
+  onEvent?: (method: string, params: unknown) => Promise<void> | void;
   /** Adapter-private boundary emitted only after a dead provider attempt earns a respawn. */
-  onRespawn?: () => void;
+  onRespawn?: () => Promise<void> | void;
   /** Adapter-private authority revalidation immediately before every process launch. */
   beforeLaunch?: () => Promise<void>;
 }
@@ -384,6 +389,10 @@ export interface ManagedCodexHarvest {
   text: string;
   /** Tool work completed before the failure, when the failing turn was observed. */
   toolItems?: number;
+  /** Provider items whose completion North did not observe before process death. */
+  pendingItemCount?: number;
+  /** Privacy-safe normalized groups; bounded independently from pendingItemCount. */
+  pendingItems?: readonly ManagedCodexPendingItemSummary[];
   usage?: ManagedCodexResult["usage"];
   mcp: McpActivityObservation;
   nativeCommands: NativeCommandActivityObservation;
@@ -402,6 +411,14 @@ export interface ManagedCodexHarvest {
   respawns?: ManagedCodexRespawnAttempt[];
   /** North-owned turn interruption; never a provider-side failure. */
   interrupt?: ManagedCodexInterruptEvidence;
+}
+
+export type ManagedCodexPendingItemKind = OpenAIWireSemanticToolKind | "unknown";
+
+export interface ManagedCodexPendingItemSummary {
+  readonly kind: ManagedCodexPendingItemKind;
+  readonly name: string;
+  readonly count: number;
 }
 
 export interface ManagedCodexInterruptEvidence {
@@ -983,11 +1000,16 @@ class AppServerRpc {
   // Direct (unsupervised) launches own the provider's stderr, so the ring lives
   // here; under the supervisor the ring lives there and its tail is forwarded.
   private stderr = new ProviderStderrRing();
+  private inboundQueue: string[] = [];
+  private inboundDraining = false;
+  private inboundIdle?: PromiseWithResolvers<void>;
+  private deferredInboundFailure?: { error: Error; processDeath: boolean };
+  private stdoutEnded = false;
 
   constructor(
     private child: ChildProcessWithoutNullStreams,
     private timeoutMs: number,
-    private onNotification: (method: string, params: unknown) => void,
+    private onNotification: (method: string, params: unknown) => Promise<void> | void,
     private onServerRequest: AppServerRequestHandler,
     private writeLine: AppServerWriter = (line, callback) => {
       child.stdin.write(line, callback);
@@ -996,12 +1018,18 @@ class AppServerRpc {
   ) {
     child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
     child.stdout.on("end", () => {
+      this.stdoutEnded = true;
       try { this.frames.finish(); }
       catch (cause) {
-        this.failFromDeath(new Error("managed Codex closed with a partial frame", { cause }));
+        this.queueInboundFailure(
+          new Error("managed Codex closed with a partial frame", { cause }), true,
+        );
       }
+      if (this.deferredInboundFailure) this.startInboundDrain();
     });
-    child.stdout.on("error", () => this.failFromDeath(new Error("managed Codex stdout failed")));
+    child.stdout.on("error", () => this.failFromDeath(
+      new Error("managed Codex stdout failed"),
+    ));
     if (this.ownsStderr) {
       // Was `resume()` — the provider's account of its own death, discarded.
       child.stderr.on("data", (chunk: Buffer | string) => {
@@ -1011,11 +1039,17 @@ class AppServerRpc {
       child.stderr.on("end", () => { try { this.stderr.finish(); } catch {} });
       child.stderr.on("error", () => {});
     }
-    child.stdin.on("error", () => this.failFromDeath(new Error("managed Codex stdin failed")));
-    child.on("error", () => this.failFromDeath(new Error("managed Codex supervisor failed")));
+    child.stdin.on("error", () => this.failFromDeath(
+      new Error("managed Codex stdin failed"),
+    ));
+    child.on("error", () => this.failFromDeath(
+      new Error("managed Codex supervisor failed"),
+    ));
     child.on("exit", () => {
       if (!this.closed)
-        this.failFromDeath(new Error("managed Codex app-server exited unexpectedly"));
+        this.queueInboundFailure(
+          new Error("managed Codex app-server exited unexpectedly"), true,
+        );
     });
   }
 
@@ -1056,13 +1090,64 @@ class AppServerRpc {
 
   private onData(chunk: Buffer): void {
     try {
-      for (const line of this.frames.push(chunk)) this.onLine(line);
+      const lines = [...this.frames.push(chunk)];
+      if (this.inboundQueue.length + lines.length > MAX_PENDING_RPC_FRAMES) {
+        this.queueInboundFailure(new Error("managed Codex inbound frame queue exceeded its bound"), false);
+        return;
+      }
+      this.inboundQueue.push(...lines);
+      if (lines.length > 0) this.startInboundDrain();
     } catch (cause) {
-      this.fail(new Error("managed Codex emitted invalid JSONL", { cause }));
+      this.queueInboundFailure(new Error("managed Codex emitted invalid JSONL", { cause }), false);
     }
   }
 
-  private onLine(line: string): void {
+  private startInboundDrain(): void {
+    if (this.inboundDraining || this.terminal) return;
+    this.inboundDraining = true;
+    this.inboundIdle ??= Promise.withResolvers<void>();
+    this.child.stdout.pause();
+    void (async () => {
+      while (!this.terminal && this.inboundQueue.length > 0) {
+        await this.onLine(this.inboundQueue.shift()!);
+      }
+      if (!this.terminal && this.deferredInboundFailure) {
+        const failure = this.deferredInboundFailure;
+        if (!failure.processDeath || this.stdoutEnded) {
+          this.deferredInboundFailure = undefined;
+          if (failure.processDeath) this.failFromDeath(failure.error);
+          else this.fail(failure.error);
+        }
+      }
+    })().catch((error) => {
+      this.fail(error instanceof Error ? error : new Error("managed Codex inbound processing failed"));
+    }).finally(() => {
+      this.inboundDraining = false;
+      if (!this.terminal && (this.inboundQueue.length > 0
+          || (this.deferredInboundFailure && (!this.deferredInboundFailure.processDeath
+            || this.stdoutEnded)))) {
+        this.startInboundDrain();
+        return;
+      }
+      this.inboundQueue.length = 0;
+      if (!this.terminal) this.child.stdout.resume();
+      const idle = this.inboundIdle;
+      this.inboundIdle = undefined;
+      idle?.resolve();
+    });
+  }
+
+  private queueInboundFailure(error: Error, processDeath: boolean): void {
+    if (this.terminal || this.deferredInboundFailure) return;
+    this.deferredInboundFailure = { error, processDeath };
+    if (!processDeath || this.stdoutEnded) this.startInboundDrain();
+  }
+
+  async drainInbound(): Promise<void> {
+    await this.inboundIdle?.promise;
+  }
+
+  private async onLine(line: string): Promise<void> {
     let value: unknown;
     try { value = parseStrictJson(line, "managed Codex JSONL", { maxBytes: MAX_LINE_BYTES }); }
     catch (cause) { this.fail(new Error("managed Codex emitted malformed JSONL", { cause })); return; }
@@ -1122,7 +1207,7 @@ class AppServerRpc {
           console.error(`[codex] ignoring unsupported managed notification ${message.method}`);
         return;
       }
-      try { this.onNotification(message.method, message.params); }
+      try { await this.onNotification(message.method, message.params); }
       catch (error) { this.fail(error instanceof Error ? error : new Error("managed Codex notification invalid")); }
       return;
     }
@@ -1642,7 +1727,15 @@ interface RuntimeNotificationState {
   /** Completed non-message, non-reasoning items observed in the LIVE turn. */
   toolItems: number;
   /** Provider items observed started but not yet completed, by lifecycle id. */
-  openItems: Map<string, { kind: string; observedAtMs: number; startedAtMs: number }>;
+  openItems: Map<string, {
+    kind: string;
+    observedAtMs: number;
+    startedAtMs: number;
+    pending?: OpenAIWireToolIdentity | {
+      readonly kind: "unknown";
+      readonly name: "provider-item";
+    };
+  }>;
   mcpActivity: McpActivityAccumulator;
   nativeCommands: NativeCommandActivityAccumulator;
   /** Names of the MCP servers this session's sealed authority actually grants. */
@@ -1658,6 +1751,52 @@ interface RuntimeNotificationState {
  */
 function countsAsToolItem(itemType: string): boolean {
   return itemType !== "agentMessage" && itemType !== "reasoning";
+}
+
+function pendingItemSnapshot(state: RuntimeNotificationState): {
+  pendingItemCount: number;
+  pendingItems: readonly ManagedCodexPendingItemSummary[];
+} {
+  const groups = new Map<string, ManagedCodexPendingItemSummary>();
+  for (const { pending } of state.openItems.values()) {
+    if (!pending) continue;
+    const key = `${pending.kind}\0${pending.name}`;
+    const current = groups.get(key);
+    groups.set(key, Object.freeze({
+      kind: pending.kind,
+      name: pending.name,
+      count: (current?.count ?? 0) + 1,
+    }));
+  }
+  const pendingItems = [...groups.values()]
+    .sort((left, right) => left.kind === right.kind
+      ? (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+      : (left.kind < right.kind ? -1 : 1))
+    .slice(0, MAX_PENDING_ITEM_SUMMARIES);
+  const pendingItemCount = [...groups.values()]
+    .reduce((total, item) => total + item.count, 0);
+  return { pendingItemCount, pendingItems: Object.freeze(pendingItems) };
+}
+
+function mergePendingItems(
+  left: readonly ManagedCodexPendingItemSummary[],
+  right: readonly ManagedCodexPendingItemSummary[],
+): readonly ManagedCodexPendingItemSummary[] {
+  const groups = new Map<string, ManagedCodexPendingItemSummary>();
+  for (const pending of [...left, ...right]) {
+    const key = `${pending.kind}\0${pending.name}`;
+    const current = groups.get(key);
+    groups.set(key, Object.freeze({
+      kind: pending.kind,
+      name: pending.name,
+      count: (current?.count ?? 0) + pending.count,
+    }));
+  }
+  return Object.freeze([...groups.values()]
+    .sort((a, b) => a.kind === b.kind
+      ? (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+      : (a.kind < b.kind ? -1 : 1))
+    .slice(0, MAX_PENDING_ITEM_SUMMARIES));
 }
 
 function commandText(value: unknown, label: string, maxBytes = MAX_LINE_BYTES): string {
@@ -2025,7 +2164,7 @@ function validateProgressNotification(
   method: string,
   value: unknown,
   state: RuntimeNotificationState,
-): void {
+): string | undefined {
   const params = record(value, `Codex ${method} notification`);
   if (method === "thread/started") {
     onlyKeys(params, ["thread"], "Codex thread/started notification");
@@ -2066,9 +2205,27 @@ function validateProgressNotification(
     const itemId = protocolId(item.id, `Codex ${method} item id`);
     const itemType = boundedString(item.type, `Codex ${method} item type`, 128);
     const started = method === "item/started" ? undefined : state.openItems.get(itemId);
-    if (method === "item/started")
-      state.openItems.set(itemId, { kind: itemType, observedAtMs: Date.now(), startedAtMs: timestamp as number });
-    else state.openItems.delete(itemId);
+    if (method === "item/started") {
+      let pending: OpenAIWireToolIdentity | { readonly kind: "unknown"; readonly name: "provider-item" }
+        | undefined;
+      if (itemType !== "agentMessage" && itemType !== "reasoning" && itemType !== "plan") {
+        try {
+          pending = openAIWireToolIdentity(item)
+            ?? Object.freeze({ kind: "unknown" as const, name: "provider-item" as const });
+        }
+        catch {
+          pending = Object.freeze({ kind: "unknown" as const, name: "provider-item" as const });
+        }
+      }
+      state.openItems.set(itemId, {
+        kind: itemType,
+        observedAtMs: Date.now(),
+        startedAtMs: timestamp as number,
+        ...(pending === undefined ? {} : { pending }),
+      });
+    } else if (started && started.kind !== itemType) {
+      throw new Error("Codex item completion changed its started kind");
+    }
     if (method === "item/completed" && countsAsToolItem(itemType)) state.toolItems += 1;
     if (method === "item/started" && item.type === "commandExecution")
       startedNativeCommand(item, state);
@@ -2086,7 +2243,7 @@ function validateProgressNotification(
     }
     if (method === "item/completed" && item.type === "commandExecution")
       completedNativeCommand(item, state);
-    return;
+    return method === "item/completed" ? itemId : undefined;
   }
   if (method === "turn/completed") {
     onlyKeys(params, ["threadId", "turn"], "Codex turn completion");
@@ -2366,6 +2523,7 @@ async function closeProcess(
   rpc?: AppServerRpc,
   control?: SupervisorControl,
 ): Promise<void> {
+  await rpc?.drainInbound();
   rpc?.markClosing();
   control?.close();
   const closedDeferred = Promise.withResolvers<boolean>();
@@ -2494,6 +2652,24 @@ export function managedCodexRecoveredContext(
   if (harvest.toolItems) tools.push(`${harvest.toolItems} completed work item(s)`);
   parts.push("--- tool work observed before the crash ---",
     tools.length ? tools.join("; ") : "none observed");
+  if ((harvest.pendingItemCount ?? 0) > 0) {
+    const summaries = (harvest.pendingItems ?? [])
+      .map((item) => `${item.kind}/${item.name}×${item.count}`)
+      .join(", ");
+    const summarizedCount = (harvest.pendingItems ?? [])
+      .reduce((total, item) => total + item.count, 0);
+    const omitted = harvest.pendingItemCount! - summarizedCount;
+    parts.push(
+      "--- provider items with no observed completion ---",
+      `${harvest.pendingItemCount} item(s) were open when the provider process died. `
+        + "North did not observe their completion, so success is unknown; they may have "
+        + "completed before the crash.",
+      summaries
+        ? `normalized kinds: ${summaries}${omitted > 0 ? `; ${omitted} other item(s)` : ""}`
+        : `${harvest.pendingItemCount} item(s) omitted from the bounded summary`,
+      "Inspect current state before deciding whether to retry any of this work.",
+    );
+  }
   parts.push("=== end recovered context ===");
   return clip(parts.join("\n"), MAX_RECOVERED_CONTEXT_BYTES);
 }
@@ -2525,6 +2701,8 @@ export class ManagedCodexAppServerRun {
   private readonly mcp = new McpActivityAccumulator("codex-app-server:item-completed");
   private nativeCommands?: NativeCommandActivityAccumulator;
   private readonly respawns: ManagedCodexRespawnAttempt[] = [];
+  #retainedPendingItemCount = 0;
+  #retainedPendingItems: readonly ManagedCodexPendingItemSummary[] = [];
   /** Turns settled across every provider session this lane has used. */
   private laneCompletedTurns = 0;
   /** Set by an attempt that died of PROVIDER DEATH; the respawn gate reads it. */
@@ -2578,8 +2756,17 @@ export class ManagedCodexAppServerRun {
     const mcp = this.mcp.harvest();
     const nativeCommands = this.nativeCommands?.harvest()
       ?? unknownNativeCommandActivity("codex-app-server:not-started");
+    const observedPending = partial.pendingItemCount !== undefined
+      || this.#retainedPendingItemCount > 0;
+    const pendingItemCount = this.#retainedPendingItemCount
+      + (partial.pendingItemCount ?? 0);
+    const pendingItems = mergePendingItems(
+      this.#retainedPendingItems,
+      partial.pendingItems ?? [],
+    );
     return {
       ...partial,
+      ...(observedPending ? { pendingItemCount, pendingItems } : {}),
       mcp,
       nativeCommands,
       // Work landed on a RETIRED session counts too: the lane wrote it, and a
@@ -2589,6 +2776,7 @@ export class ManagedCodexAppServerRun {
         || this.laneCompletedTurns > 0
         || this.respawns.length > 0
         || partial.text.trim() !== ""
+        || pendingItemCount > 0
         || (mcp.totalCalls ?? 0) > 0
         || (nativeCommands.totalCommands ?? 0) > 0,
       ...(this.respawns.length
@@ -2718,6 +2906,8 @@ export class ManagedCodexAppServerRun {
           const death = this.takeAttemptDeath(error);
           if (!death || this.interrupted || this.respawns.length >= maxRespawns) throw error;
           const harvest = (error as ManagedCodexHarvestError).harvest;
+          this.#retainedPendingItemCount = harvest.pendingItemCount ?? 0;
+          this.#retainedPendingItems = harvest.pendingItems ?? [];
           this.respawns.push({
             attempt: this.respawns.length + 1,
             reason: death.reason,
@@ -2740,7 +2930,7 @@ export class ManagedCodexAppServerRun {
           // Mark the replacement gap first: a control subscriber may request a
           // turn interrupt synchronously while observing this settlement.
           this.#beginReplacementTurn();
-          this.options.onRespawn?.();
+          await this.options.onRespawn?.();
           // A full interrupt from that callback closes the logical turn. Do not
           // start a replacement process after the catch gate already ran.
           if (this.interrupted) throw error;
@@ -3078,12 +3268,17 @@ export class ManagedCodexAppServerRun {
       }
       return false;
     };
-    const processRuntime = (entry: { method: string; value: unknown }): void => {
+    const processRuntime = async (
+      entry: { method: string; value: unknown },
+    ): Promise<void> => {
       if (!runtimeState) throw new Error("Codex runtime notification preceded thread authority");
       const wasTerminal = runtimeState.terminalSeen;
       const toolItemsBefore = runtimeState.toolItems;
-      validateProgressNotification(entry.method, entry.value, runtimeState);
-      this.options.onEvent?.(entry.method, entry.value);
+      const completedItemId = validateProgressNotification(
+        entry.method, entry.value, runtimeState,
+      );
+      await this.options.onEvent?.(entry.method, entry.value);
+      if (completedItemId !== undefined) runtimeState.openItems.delete(completedItemId);
       const activity = providerExecutionActivityKind(entry.method, entry.value);
       if (activity) {
         recordTurnActivity(activity);
@@ -3096,17 +3291,17 @@ export class ManagedCodexAppServerRun {
       else clearQuietWatchdog();
       if (!wasTerminal && runtimeState.terminalSeen) terminalResolve();
     };
-    const drainQueued = (withTurn: boolean): void => {
+    const drainQueued = async (withTurn: boolean): Promise<void> => {
       for (let index = 0; index < queuedNotifications.length;) {
         const entry = queuedNotifications[index]!;
         if (!withTurn && !canProcessWithoutTurn(entry)) { index += 1; continue; }
         queuedNotifications.splice(index, 1);
-        processRuntime(entry);
+        await processRuntime(entry);
       }
     };
-    const onNotification = (method: string, value: unknown) => {
+    const onNotification = async (method: string, value: unknown): Promise<void> => {
       if (validateConnectionNotification(method, value)) {
-        this.options.onEvent?.(method, value);
+        await this.options.onEvent?.(method, value);
         return;
       }
       const entry = { method, value };
@@ -3116,7 +3311,7 @@ export class ManagedCodexAppServerRun {
         queuedNotifications.push(entry);
         return;
       }
-      processRuntime(entry);
+      await processRuntime(entry);
     };
     const onServerRequest: AppServerRequestHandler = (id, method, value) => {
       if (method !== "item/tool/requestUserInput") return undefined;
@@ -3254,7 +3449,7 @@ export class ManagedCodexAppServerRun {
         nativeCommands: this.nativeCommands,
         mcpServerNames,
       };
-      drainQueued(false);
+      await drainQueued(false);
       if (runtimeState.hookRuns.size || queuedNotifications.length)
         throw new Error("Codex thread/start left unresolved lifecycle notifications");
 
@@ -3308,7 +3503,7 @@ export class ManagedCodexAppServerRun {
         turnStartedAt = Date.now();
         lastTurnActivityAt = turnStartedAt;
         armTurnDeadline();
-        drainQueued(true);
+        await drainQueued(true);
         try { await terminal; }
         catch (error) {
           // Once a watchdog has fired, ITS reason is the reason: an RPC-level
@@ -3386,6 +3581,7 @@ export class ManagedCodexAppServerRun {
           completedTurns,
           text: runtimeState?.text ?? "",
           ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
+          ...(runtimeState ? pendingItemSnapshot(runtimeState) : {}),
           usage: runtimeState?.usage,
           unsupportedNotifications: rpc.unsupportedNotifications(),
           ...(interruptEvidence ? { interrupt: interruptEvidence } : {}),

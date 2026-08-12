@@ -13,7 +13,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   MANAGED_CODEX_DISABLED_FEATURES, MANAGED_CODEX_ENABLED_FEATURES, MANAGED_CODEX_VERSION,
   ManagedCodexAppServerRun, ManagedCodexHarvestError, ManagedCodexPreThreadError,
-  managedCodexAppServerLaunch,
+  managedCodexAppServerLaunch, managedCodexRecoveredContext,
 } from "../src/providers/codex-app-server";
 import { managedCodexHarvestEvidence } from "../src/providers/openai";
 import { OpenAIWireNormalizer } from "../src/providers/openai-wire";
@@ -646,6 +646,28 @@ function setup(mode = "ok") {
         queueMicrotask(() => exit(9, null));
         return;
       }
+      if (mode === "pending-summary-bound-death") {
+        for (let index = 0; index < 18; index += 1) {
+          lifecycle("started", item(`mcp-private-${index}`, "mcpToolCall", {
+            server: "north",
+            tool: `pending_${String(index).padStart(2, "0")}`,
+            arguments: { message: `CANARY-private-pending-${index}` },
+          }), 20 + index);
+        }
+        die(9, "codex: bounded pending summary fixture died");
+        return;
+      }
+      if (mode === "pending-side-effect-death") {
+        lifecycle("started", item("reasoning-private-id", "reasoning"), 20);
+        lifecycle("started", item("message-private-id", "agentMessage"), 21);
+        lifecycle("started", item("mcp-private-id", "mcpToolCall", {
+          server: "north",
+          tool: "tell",
+          arguments: { message: "CANARY-private-pending-argument" },
+        }), 22);
+        die(9, "codex: pending side effect lost its terminal");
+        return;
+      }
       // One completed tool item, then silence: the post-tool quiet watchdog's
       // exact shape (a wedged tool loop that never speaks again).
       if (mode === "turn-silent-after-tool") return;
@@ -1161,6 +1183,39 @@ test("one app-server proves authority and executes realistic shell/file/MCP traf
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(NORTH_BINARY_PROBE_SCRIPT);
   expect(JSON.stringify(run.nativeCommandActivity())).not.toContain(options.env.NORTH_BIN);
   expect(JSON.stringify(run.mcpActivity())).not.toContain("CANARY");
+});
+
+test("notification processing waits for the event durability callback before advancing", async () => {
+  const { options } = setup();
+  const admitted = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const observed: string[] = [];
+  const run = new ManagedCodexAppServerRun({
+    ...options,
+    async onEvent(method, params) {
+      const item = (params as { item?: { type?: unknown } }).item;
+      if (item?.type !== "mcpToolCall") return;
+      observed.push(method);
+      if (method === "item/started") {
+        admitted.resolve();
+        await release.promise;
+      }
+    },
+  });
+  let settled = false;
+  const execution = run.execute();
+  void execution.then(() => { settled = true; }, () => { settled = true; });
+
+  await admitted.promise;
+  await Promise.resolve();
+  expect(observed).toEqual(["item/started"]);
+  expect(run.mcpActivity().totalCalls ?? 0).toBe(0);
+  expect(settled).toBe(false);
+
+  release.resolve();
+  await expect(execution).resolves.toMatchObject({ text: "managed answer" });
+  expect(observed).toEqual(["item/started", "item/completed"]);
+  expect(run.mcpActivity().totalCalls).toBe(1);
 });
 
 test("only validated turn, item, command, and MCP execution frames emit liveness", async () => {
@@ -2436,6 +2491,8 @@ test("a failure after landed work carries a harvest instead of erasing the turn"
   expect(harvest.threadId).toBe("019f7abc-0000-7000-8000-000000000001");
   expect(harvest.turnIds).toEqual(["019f7abc-0000-7000-8000-000000000002"]);
   expect(harvest.toolItems).toBe(3);
+  expect(harvest.pendingItemCount).toBe(0);
+  expect(harvest.pendingItems).toEqual([]);
   expect(harvest.usage).toMatchObject({ input_tokens: 9, output_tokens: 3 });
   expect(harvest.mcp).toMatchObject({ totalCalls: 1 });
   expect(harvest.nativeCommands).toMatchObject({ totalCommands: 1 });
@@ -2850,6 +2907,12 @@ test("a queued turn interrupt survives an eligible replacement that dies before 
   expect(fixture.requests.filter(({ method }) => method === "thread/start")).toHaveLength(2);
   expect(fixture.requests.filter(({ method }) => method === "turn/start")).toHaveLength(2);
   expect(fixture.requests.filter(({ method }) => method === "turn/interrupt")).toHaveLength(1);
+  const recovered = fixture.turnInputs.at(-1)!;
+  expect(recovered).toContain("1 item(s) were open");
+  expect(recovered).toContain("commandExecution/command×1");
+  expect(recovered).toContain("success is unknown");
+  expect(recovered).not.toContain("command-open-before-respawn");
+  expect(recovered).not.toContain("printf unfinished");
 });
 
 test("a queued replacement interrupt rejects generically when preflight never reaches a turn", async () => {
@@ -2941,6 +3004,14 @@ test("a provider death after landed work respawns the lane with recovered contex
   expect(recovered).not.toContain(record.respawns[0]!.reason);
   expect(recovered).toContain("2 native command(s)");
   expect(recovered).toContain("north/tell");
+  expect(recovered).toContain("1 item(s) were open");
+  expect(recovered).toContain("commandExecution/command×1");
+  expect(recovered).toContain("success is unknown");
+  expect(recovered).toContain("Inspect current state before deciding whether to retry");
+  expect(recovered).not.toContain("command-open-before-respawn");
+  expect(recovered).not.toContain("printf unfinished");
+  expect(recovered).not.toContain("CANARY-private-argument");
+  expect(recovered).not.toContain("CANARY-private-result");
   // The pre-crash work reaches the model, and the delivered result is the NEW
   // session's — the lane completed instead of dying.
   expect(result.text).toContain("managed answer after recovery");
@@ -3052,6 +3123,68 @@ test("a provider death after landed work respawns the lane with recovered contex
   expect(serializedWire).not.toContain("gpt-fixture-exact");
   expect(serializedWire).not.toContain(record.respawns[0]!.reason);
 
+});
+
+test("a dead turn harvests bounded normalized pending items without private payloads", async () => {
+  const { options } = setup("respawn-after-third-item");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({ ...options, maxRespawns: 0 }).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.pendingItemCount).toBe(1);
+  expect(harvest.pendingItems).toEqual([{
+    kind: "commandExecution", name: "command", count: 1,
+  }]);
+  const serialized = JSON.stringify(harvest.pendingItems);
+  expect(serialized).not.toContain("command-open-before-respawn");
+  expect(serialized).not.toContain("printf unfinished");
+  expect(serialized).not.toContain(options.cwd);
+  expect(serialized).not.toContain("CANARY-private-argument");
+  expect(serialized).not.toContain("CANARY-private-result");
+});
+
+test("pending harvest reuses Wire tool identity and excludes open reasoning and messages", async () => {
+  const { options } = setup("pending-side-effect-death");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({ ...options, maxRespawns: 0 }).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.pendingItemCount).toBe(1);
+  expect(harvest.pendingItems).toEqual([{
+    kind: "mcpToolCall", name: "mcp:north/tell", count: 1,
+  }]);
+  const serialized = JSON.stringify(harvest.pendingItems);
+  expect(serialized).not.toContain("reasoning-private-id");
+  expect(serialized).not.toContain("message-private-id");
+  expect(serialized).not.toContain("mcp-private-id");
+  expect(serialized).not.toContain("CANARY-private-pending-argument");
+});
+
+test("pending harvest bounds normalized summaries while retaining the exact count", async () => {
+  const { options } = setup("pending-summary-bound-death");
+  const caught = await new ManagedCodexAppServerRun({ ...options, maxRespawns: 0 }).execute()
+    .then(() => undefined, (error: Error) => error);
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.pendingItemCount).toBe(18);
+  expect(harvest.pendingItems).toHaveLength(16);
+  expect(harvest.pendingItems?.every((item) => item.kind === "mcpToolCall"
+    && item.name.startsWith("mcp:north/pending_") && item.count === 1)).toBe(true);
+  const recovered = managedCodexRecoveredContext("brief", [], harvest);
+  expect(recovered).toContain("18 item(s)");
+  expect(recovered).toContain("2 other item(s)");
+  expect(recovered).toContain("success is unknown");
+  const serialized = JSON.stringify({ pendingItems: harvest.pendingItems, recovered });
+  expect(serialized).not.toContain("mcp-private-");
+  expect(serialized).not.toContain("CANARY-private-pending-");
 });
 
 test("an exhausted respawn budget fails exactly as before, with every attempt's diagnostics", async () => {

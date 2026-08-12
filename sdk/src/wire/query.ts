@@ -83,10 +83,16 @@ export interface WireArtifactSink {
 	persist(artifact: Readonly<WireArtifactMaterial>): WireArtifactReceipt;
 }
 
+export interface WireEventCommitBarrier {
+	/** Resolves only after the exact canonical prefix through event is durable. */
+	commitThrough(event: WireEvent): Promise<void>;
+}
+
 export interface WireQueryContext {
 	readonly writer: WireEventWriter;
 	readonly route: WireQueryRoute;
 	readonly artifacts?: WireArtifactSink;
+	readonly eventCommitter?: WireEventCommitBarrier;
 }
 
 export type WireExecutionTransport =

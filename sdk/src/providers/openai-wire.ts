@@ -147,16 +147,21 @@ interface OpenMessageItem {
 	hasDelta: boolean;
 }
 
-type SemanticToolKind =
+export type OpenAIWireSemanticToolKind =
 	| "commandExecution"
 	| "mcpToolCall"
 	| "fileChange"
 	| "webSearch"
 	| "todoList";
 
+export interface OpenAIWireToolIdentity {
+	readonly kind: OpenAIWireSemanticToolKind;
+	readonly name: string;
+}
+
 interface OpenToolItem {
 	category: "tool";
-	kind: SemanticToolKind;
+	kind: OpenAIWireSemanticToolKind;
 	toolCallId: WireToolCallId;
 	name: string;
 	latestArtifactId?: WireArtifactId;
@@ -266,7 +271,7 @@ function defaultIds(): OpenAIWireIdFactory {
 	};
 }
 
-function toolName(item: UnknownRecord, kind: SemanticToolKind): string {
+function toolName(item: UnknownRecord, kind: OpenAIWireSemanticToolKind): string {
 	if (kind === "mcpToolCall") {
 		const server = boundedText(item.server, "Codex MCP server", MAX_TOOL_COMPONENT_BYTES);
 		const tool = boundedText(item.tool, "Codex MCP tool", MAX_TOOL_COMPONENT_BYTES);
@@ -282,10 +287,19 @@ function toolName(item: UnknownRecord, kind: SemanticToolKind): string {
 	return "todo-list";
 }
 
-function semanticToolKind(value: string): SemanticToolKind | undefined {
+function semanticToolKind(value: string): OpenAIWireSemanticToolKind | undefined {
 	if (value === "commandExecution" || value === "mcpToolCall" || value === "fileChange"
 		|| value === "webSearch" || value === "todoList") return value;
 	return undefined;
+}
+
+/** One privacy-bounded semantic identity shared by Wire projection and crash harvest. */
+export function openAIWireToolIdentity(
+	item: Readonly<Record<string, unknown>>,
+): OpenAIWireToolIdentity | undefined {
+	const kind = semanticToolKind(boundedText(item.type, "Codex item type", 128));
+	if (!kind) return undefined;
+	return Object.freeze({ kind, name: toolName(item, kind) });
 }
 
 function terminalToolStatus(item: UnknownRecord): {
@@ -675,23 +689,24 @@ export class OpenAIWireNormalizer {
 			turn.items.set(itemId, { category: "ignored", kind });
 			return eventResult([]);
 		}
-		const toolKind = semanticToolKind(kind);
-		if (!toolKind) {
+		const tool = openAIWireToolIdentity(item);
+		if (!tool) {
 			return normalizationError("unsupported_notification", "Codex item type has no wire-v2 semantic mapping");
 		}
 		const toolCallId = this.#ids.toolCall(this.#toolCallSequence);
-		const name = toolName(item, toolKind);
 		const events = this.#writer.appendAll([{
 			kind: "tool.admitted",
 			toolCallId,
 			modelCallId: turn.modelCallId,
-			name,
+			name: tool.name,
 			schema: {
 				status: "unavailable",
 				reason: "tool schema unavailable at normalization boundary",
 			},
 		}]);
-		turn.items.set(itemId, { category: "tool", kind: toolKind, toolCallId, name });
+		turn.items.set(itemId, {
+			category: "tool", kind: tool.kind, toolCallId, name: tool.name,
+		});
 		this.#toolCallSequence += 1;
 		return eventResult(events);
 	}
@@ -769,7 +784,10 @@ export class OpenAIWireNormalizer {
 
 	#toolProgress(
 		params: unknown,
-		expectedKind: Extract<SemanticToolKind, "mcpToolCall" | "commandExecution" | "fileChange">,
+		expectedKind: Extract<
+			OpenAIWireSemanticToolKind,
+			"mcpToolCall" | "commandExecution" | "fileChange"
+		>,
 		phase: "running" | "streaming-output",
 	): OpenAIWireNotificationResult {
 		const { source, turn } = this.#runtime(params);

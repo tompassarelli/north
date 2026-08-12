@@ -4,7 +4,10 @@ import * as path from "node:path";
 import {
 	openWireJsonlWriter,
 	readWireJsonl,
+	encodeWireJsonlLine,
 	type WireEvent,
+	type WireEventCommitBarrier,
+	type WireEventWriter,
 	type WireJsonlWriter,
 } from "./wire";
 
@@ -194,5 +197,58 @@ export class StreamWriter {
 
 	async [Symbol.asyncDispose](): Promise<void> {
 		await this.close();
+	}
+}
+
+/** Serializes exact canonical-prefix persistence and makes fsync the publication barrier. */
+export class SerializedWireEventCommitter implements WireEventCommitBarrier {
+	readonly #canonical: WireEventWriter;
+	readonly #stream: StreamWriter;
+	#nextSequence = 0;
+	#tail: Promise<void> = Promise.resolve();
+
+	constructor(canonical: WireEventWriter, stream: StreamWriter) {
+		this.#canonical = canonical;
+		this.#stream = stream;
+	}
+
+	commitThrough(event: WireEvent): Promise<void> {
+		const targetSequence = event.sequence;
+		this.#assertCanonical(event);
+		const commit = this.#tail.then(async () => {
+			this.#assertCanonical(event);
+			while (this.#nextSequence <= targetSequence) {
+				const canonical = this.#canonical.events()[this.#nextSequence];
+				if (!canonical || canonical.sequence !== this.#nextSequence) {
+					throw new Error("wire writer persistence sequence diverged");
+				}
+				await this.#stream.writeWireEvent(canonical);
+				this.#nextSequence += 1;
+			}
+		});
+		// A failed append poisons the queue. Later callers observe the same failure;
+		// no uncertain write is retried behind a fabricated terminal.
+		this.#tail = commit;
+		void commit.catch(() => {});
+		return commit;
+	}
+
+	async commitAll(): Promise<void> {
+		const events = this.#canonical.events();
+		const last = events.at(-1);
+		if (last) await this.commitThrough(last);
+		else await this.#tail;
+	}
+
+	#assertCanonical(event: WireEvent): void {
+		const canonical = this.#canonical.events()[event.sequence];
+		let matches = canonical === event;
+		if (!matches && canonical) {
+			try { matches = encodeWireJsonlLine(canonical) === encodeWireJsonlLine(event); }
+			catch { /* Invalid values cannot equal the writer-owned canonical event. */ }
+		}
+		if (!canonical || !matches) {
+			throw new Error("wire persistence target differs from its shared writer canonical event");
+		}
 	}
 }
