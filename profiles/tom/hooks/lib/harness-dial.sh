@@ -134,6 +134,22 @@ north_dial_raw() {
   return 0
 }
 
+# Codex requirements are machine-wide and therefore static, while the agents
+# switchboard decides which installed hooks are active. Claude composes only
+# active hooks into settings, so it never needs this extra gate. In the managed
+# Codex closure the sibling helper is installed by Firn; outside that closure a
+# missing helper preserves the pre-switchboard behavior.
+north_switchboard_hook_active() {
+  local __id="$1"
+  local __activity_lib="${AGENTS_SWITCHBOARD_ACTIVITY_LIB:-${BASH_SOURCE[0]%/*}/switchboard-activity.sh}"
+  [[ -r $__activity_lib ]] || return 0
+  if ! type agents_switchboard_active >/dev/null 2>&1; then
+    # shellcheck disable=SC1090
+    builtin source "$__activity_lib" 2>/dev/null || return 0
+  fi
+  agents_switchboard_active hook "$__id"
+}
+
 # Category of a hook id, from the registry beside this lib. Unknown ids get
 # no category, which means they answer to the `all` sweep only.
 north_dial_hook_category() {
@@ -152,6 +168,7 @@ north_dial_hook_category() {
 # Is this hook live right now? The one question every hook asks at line ~1.
 north_hook_enabled() {
   local __id="$1" __cat __all __catraw __itemraw __env __verdict
+  north_switchboard_hook_active "$__id" || return 1
   north_dial_hook_category __cat "$__id"
   north_dial_authoring_env __env
   # The env kill-switch speaks only for authoring guards; it must not reach
