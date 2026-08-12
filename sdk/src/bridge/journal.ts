@@ -4,7 +4,7 @@ import {
 import { join } from "node:path";
 import {
   openWireJsonlWriter, readWireJsonl,
-  type WireJsonlReplay, type WireJsonlWriter,
+  type WireJsonlOptions, type WireJsonlReplay, type WireJsonlWriter,
 } from "../wire/jsonl";
 import type { WireEvent } from "../wire/events";
 
@@ -221,6 +221,7 @@ export class BridgeWireJournal {
 export async function readBridgeWireJournal(
   root: string,
   executionId: string,
+  options: WireJsonlOptions = {},
 ): Promise<WireJsonlReplay> {
-  return readWireJsonl(bridgeWirePath(root, executionId));
+  return readWireJsonl(bridgeWirePath(root, executionId), options);
 }

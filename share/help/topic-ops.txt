@@ -8,6 +8,10 @@ north help ops — daemons, health, deployment
                                                 accept — run the two-session reconnect/control/journal acceptance demo
                                                 msg <id> <text> — queue input for the next turn on the same provider thread
                                                 interrupt <id> — interrupt the active turn without terminating its session
+  north run-share export <bridge-uuid> --out <new-directory>
+                                                export a redacted encrypted Wire replay with a local read-only viewer
+                                                creates private run.northshare and viewer.html files without overwriting
+                                                prints one file URL whose fragment contains the decryption key
   north doctor                                  is everything healthy: fact server, daemons, rev skew, env, hooks
   north health                                  coordination rollup: lanes ran/died, stale concerns, zombies
   north hotspots                                where time goes and what fails, ranked from live telemetry

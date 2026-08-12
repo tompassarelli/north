@@ -78,6 +78,13 @@ if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi
 
+# Export is a local, read-only projection over immutable Bridge Wire journals.
+# Keep it independent of Fram and the coordinator so archived runs remain usable
+# during an engine outage; the URL fragment key is emitted only by this process.
+if [ "${1:-}" = "run-share" ]; then
+  exec "${NORTH_BUN:-bun}" run "$NORTH/sdk/src/run-share-cli.ts" "${@:2}"
+fi
+
 # The PreToolUse dispatch guard needs these two policy answers before every
 # shell call. Keep this read-only probe independent of Fram so a missing or
 # restarting engine cannot disable the harness itself. Full `north config`

@@ -210,6 +210,11 @@
              "accept — run the two-session reconnect/control/journal acceptance demo"
              "msg <id> <text> — queue input for the next turn on the same provider thread"
              "interrupt <id> — interrupt the active turn without terminating its session"]}
+  {:verb "run-share" :form "north run-share export <bridge-uuid> --out <new-directory>" :topic :ops
+   :dispatch :pre-case
+   :summary "export a redacted encrypted Wire replay with a local read-only viewer"
+   :details ["creates private run.northshare and viewer.html files without overwriting"
+             "prints one file URL whose fragment contains the decryption key"]}
   {:verb "doctor" :form "north doctor" :topic :ops
    :summary "is everything healthy: fact server, daemons, rev skew, env, hooks"
    :card {:section :system :form "north doctor"
