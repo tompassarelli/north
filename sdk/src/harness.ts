@@ -313,7 +313,11 @@ export function managedToolPolicy(
   };
 }
 
-function readonlyShellServer(cwd: string, environment: NodeJS.ProcessEnv) {
+function readonlyShellServer(
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  abortSignal?: AbortSignal,
+) {
   return createSdkMcpServer({
     name: READONLY_SHELL_SERVER,
     version: "0.1.0",
@@ -330,7 +334,9 @@ function readonlyShellServer(cwd: string, environment: NodeJS.ProcessEnv) {
         },
         async ({ command, timeoutMs }) => {
           try {
-            const result = await runReadonlyShell(command, cwd, timeoutMs, environment);
+            const result = await runReadonlyShell(
+              command, cwd, timeoutMs, environment, abortSignal,
+            );
             return {
               content: [{ type: "text", text: JSON.stringify(result) }],
               ...(!result.ok ? { isError: true } : {}),
@@ -1933,7 +1939,9 @@ export function harnessOptions(o: HarnessOpts): Options {
     // enforces --sandbox read-only; an Anthropic fallback must still inherit
     // denied native Bash plus North's isolated read-only shell.
     ...(readonlyShell
-      ? { [READONLY_SHELL_SERVER]: Object.freeze(readonlyShellServer(cwd, childEnv)) }
+      ? { [READONLY_SHELL_SERVER]: Object.freeze(
+        readonlyShellServer(cwd, childEnv, o.abortController?.signal),
+      ) }
       : {}),
   });
   const sealedTools = policy
