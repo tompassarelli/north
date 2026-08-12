@@ -4,7 +4,7 @@ let closing = false;
 const close = () => {
   if (closing) return;
   closing = true;
-  void northd.close().finally(() => process.exit(0));
+  void northd.close().then(() => process.exit(0), () => process.exit(1));
 };
 const northd = new Northd({ onRetire: close });
 await northd.listen();

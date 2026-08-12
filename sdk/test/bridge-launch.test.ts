@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import { spawn } from "node:child_process";
 import {
   chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
-import { Socket } from "node:net";
+import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readHello, runBridgeRestart, verifiedSocket } from "../src/bridge/cli";
@@ -228,6 +229,17 @@ class IdleSession extends BridgeWireTestSession implements BridgeProviderSession
   }
 }
 
+class BlockingIdleSession extends IdleSession {
+  readonly terminationStarted = Promise.withResolvers<void>();
+  readonly releaseTermination = Promise.withResolvers<void>();
+
+  async terminateSession(): Promise<void> {
+    this.terminationStarted.resolve();
+    await this.releaseTermination.promise;
+    await super.terminateSession();
+  }
+}
+
 /**
  * A daemon on the same socket the real one uses, with a provider under test
  * control. The identity still comes from disk, so it goes stale exactly the way
@@ -271,6 +283,55 @@ test("a first connect spawns a real northd and reaches a fresh identity", async 
 
   // A second connect is the same daemon: freshness is not a reason to respawn.
   expect((await connectVerified()).pid).toBe(daemon.pid);
+});
+
+test("a hello wait ends when its peer closes without answering", async () => {
+  const path = join(root, "no-hello.sock");
+  const server = createServer((socket) => { void Bun.sleep(10).then(() => socket.end()); });
+  cleanups.push(() => {
+    if (!server.listening) return;
+    const closed = Promise.withResolvers<void>();
+    server.close((error) => error ? closed.reject(error) : closed.resolve());
+    return closed.promise;
+  });
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(path, listening.resolve);
+  await listening.promise;
+  const peer = new Socket();
+  const connected = Promise.withResolvers<void>();
+  peer.once("connect", connected.resolve);
+  peer.once("error", connected.reject);
+  peer.connect(path);
+  await connected.promise;
+
+  const outcome = await Promise.race([
+    readHello(peer, 2_000),
+    Bun.sleep(250).then(() => "still-waiting" as const),
+  ]);
+  expect(outcome).toBeNull();
+  peer.destroy();
+  const closed = Promise.withResolvers<void>();
+  server.close((error) => error ? closed.reject(error) : closed.resolve());
+  await closed.promise;
+});
+
+test("socket disappearance does not outrun retirement of its owning process", async () => {
+  revision(REV_B);
+  const fixture = join(import.meta.dir, "fixtures/bridge-retiring-northd.ts");
+  const child = spawn(process.execPath, [fixture], {
+    env: { ...process.env, NORTH_BRIDGE_RETIRE_DELAY_MS: "2200" },
+    stdio: "ignore",
+  });
+  if (child.pid === undefined) throw new Error("retiring daemon fixture did not start");
+  reap(child.pid);
+  await waitFor(() => existsSync(socketPath), "fixture listener");
+
+  const startedAt = Date.now();
+  const fresh = await connectVerified();
+  expect(Date.now() - startedAt).toBeGreaterThanOrEqual(2_000);
+  expect(fresh.identity).toBe(REV_B);
+  expect(fresh.pid).not.toBe(child.pid);
 });
 
 test("source movement replaces an idle daemon at the next connect", async () => {
@@ -344,6 +405,57 @@ test("an abandoned control session is replaced in place, with one calm line", as
   const answered = wired(fresh.socket);
   fresh.socket.write(`${JSON.stringify({ op: "attach", executionId: "missing", cursor: 0 })}\n`);
   await waitFor(() => answered.messages.some((message) => message.type === "error"), "a live successor");
+});
+
+test("concurrent clients wait for stale-daemon teardown before sharing its successor", async () => {
+  let session: BlockingIdleSession | undefined;
+  const hosted = await hostedDaemon(async (context) => {
+    session = new BlockingIdleSession(context);
+    return session;
+  });
+  const control = await launch("supervisor", "director");
+  await waitFor(() => started(control), "the control session");
+  control.socket.destroy();
+  await probeUntil((state) => state.pinning === 0, "the abandoned control session");
+  if (!session) throw new Error("provider session missing");
+  cleanups.push(() => session?.releaseTermination.resolve());
+
+  revision(REV_B);
+  const info: string[] = [];
+  const errors: string[] = [];
+  const output = {
+    info(message: string) { info.push(message); },
+    error(message: string) { errors.push(message); },
+  };
+  let firstResolved = false;
+  let secondResolved = false;
+  const first = verifiedSocket(socketPath, output).then((connection) => {
+    firstResolved = true;
+    return connection;
+  });
+  await session.terminationStarted.promise;
+  const second = verifiedSocket(socketPath, output).then((connection) => {
+    secondResolved = true;
+    return connection;
+  });
+  await Bun.sleep(50);
+  expect(firstResolved).toBe(false);
+  expect(secondResolved).toBe(false);
+
+  session.releaseTermination.resolve();
+  const [one, two] = await Promise.all([first, second]);
+  cleanups.push(() => one.socket.destroy());
+  cleanups.push(() => two.socket.destroy());
+  if (one.hello === null || two.hello === null) throw new Error("fresh hello missing");
+  reap(one.hello.pid);
+  reap(two.hello.pid);
+  expect(one.hello.identity).toBe(REV_B);
+  expect(two.hello.identity).toBe(REV_B);
+  expect(one.hello.pid).toBe(two.hello.pid);
+  expect(hosted.retireCount()).toBe(1);
+  expect(errors).toEqual([]);
+  expect(info).toHaveLength(2);
+  expect(info.every((message) => message.includes("starting fresh"))).toBe(true);
 });
 
 test("an attached control session still pins a stale daemon", async () => {

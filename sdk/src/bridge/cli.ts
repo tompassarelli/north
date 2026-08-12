@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { unlinkSync } from "node:fs";
 import { Socket } from "node:net";
 import { resolve } from "node:path";
+import { acquireFileLease } from "../file-lease";
 import { run_northbridge_app_bang } from "./generated/north/bridge/app.js";
 import { runBridgeAcceptance } from "./accept";
 import type { WireEvent } from "../wire/events";
@@ -153,7 +153,13 @@ function openSocket(path: string): Promise<Socket> {
 
 async function connectedSocket(path: string): Promise<Socket> {
   try { return await openSocket(path); }
-  catch {
+  catch { /* one client starts the shared daemon below */ }
+  const lease = await acquireFileLease(`${path}.launch.lock`);
+  try {
+    // A concurrent client may have started the daemon while this client waited
+    // for launch ownership. Recheck before creating another detached process.
+    try { return await openSocket(path); }
+    catch { /* this client owns the launch */ }
     const northd = resolve(import.meta.dir, "northd.ts");
     const child = spawn(process.execPath, [northd], {
       detached: true,
@@ -161,23 +167,32 @@ async function connectedSocket(path: string): Promise<Socket> {
       env: process.env,
     });
     child.unref();
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try { return await openSocket(path); }
+      catch (error) { lastError = error; await Bun.sleep(20); }
+    }
+    throw new Error(`northd did not open ${path}`, { cause: lastError });
+  } finally {
+    await lease.release();
   }
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try { return await openSocket(path); }
-    catch (error) { lastError = error; await Bun.sleep(20); }
-  }
-  throw new Error(`northd did not open ${path}`, { cause: lastError });
 }
 
 export function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHello | null> {
   const result = Promise.withResolvers<BridgeHello | null>();
   let buffer = "";
+  let finished = false;
   const finish = (value: BridgeHello | null) => {
+    if (finished) return;
+    finished = true;
     clearTimeout(timer);
     socket.off("data", onData);
+    socket.off("close", onClose);
+    socket.off("error", onError);
     result.resolve(value);
   };
+  const onClose = () => finish(null);
+  const onError = () => finish(null);
   const onData = (chunk: string) => {
     buffer += chunk;
     const newline = buffer.indexOf("\n");
@@ -190,6 +205,9 @@ export function readHello(socket: Socket, timeoutMs: number): Promise<BridgeHell
   const timer = setTimeout(() => finish(null), timeoutMs);
   socket.setEncoding("utf8");
   socket.on("data", onData);
+  socket.once("close", onClose);
+  socket.once("error", onError);
+  if (socket.destroyed || socket.readableEnded) finish(null);
   return result.promise;
 }
 
@@ -216,6 +234,13 @@ const consoleBridgeConnectionOutput: BridgeConnectionOutput = {
 
 function shortIdentity(identity: string | undefined): string {
   return identity ? identity.slice(0, 8) : "unknown";
+}
+
+const DAEMON_RETIRE_TIMEOUT_MS = 5_000;
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
 /**
@@ -256,25 +281,45 @@ export async function verifiedSocket(
     if (hello !== null) {
       replacedFrom = hello.identity;
       replaced = true;
+      const closed = socketClosed(socket);
       socket.write(`${JSON.stringify({ op: "retire" })}\n`);
-      await socketClosed(socket);
+      await closed;
+      if (!await daemonRetired(path, hello.pid)) {
+        throw new Error(`northd ${hello.pid} did not finish retirement`);
+      }
     } else {
       socket.destroy();
-      try { unlinkSync(path); } catch { /* replaced concurrently */ }
-      output.error("north bridge: replacing a northd that predates the identity handshake;"
-        + " reap the orphan with: pkill -f bridge/northd");
+      if (attempt === 2) {
+        output.error("north bridge: northd did not present the identity handshake;"
+          + " reap the orphan with: pkill -f bridge/northd");
+      }
+      await Bun.sleep(50);
     }
-    await Bun.sleep(50);
   }
   throw new Error("northd did not present a fresh identity after replacement");
 }
 
-async function daemonListening(path: string): Promise<boolean> {
-  try {
-    const socket = await openSocket(path);
+async function daemonRetired(path: string, retiringPid: number): Promise<boolean> {
+  const deadline = Date.now() + DAEMON_RETIRE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (retiringPid !== process.pid && !processAlive(retiringPid)) return true;
+    let socket: Socket;
+    try { socket = await openSocket(path); }
+    catch {
+      // A detached daemon may release its listener before process shutdown has
+      // released every process-owned resource. Hosted tests run in this client
+      // process; for them, listener teardown is the completion boundary.
+      if (retiringPid === process.pid) return true;
+      await Bun.sleep(20);
+      continue;
+    }
+    const hello = await readHello(socket, 100);
     socket.destroy();
-    return true;
-  } catch { return false; }
+    if (hello !== null && hello.pid !== retiringPid
+      && (retiringPid === process.pid || !processAlive(retiringPid))) return true;
+    await Bun.sleep(20);
+  }
+  return false;
 }
 
 /**
@@ -291,22 +336,21 @@ export async function runBridgeRestart(path: string): Promise<number> {
   catch { socket = undefined; }
   if (socket !== undefined) {
     const hello = await readHello(socket, 750);
+    if (hello === null) {
+      socket.destroy();
+      console.error("north bridge: northd predates the identity handshake;"
+        + " reap the orphan with: pkill -f bridge/northd");
+      return 1;
+    }
     retiredFrom = hello?.identity;
     const closed = socketClosed(socket);
     socket.write(`${JSON.stringify({ op: "retire" })}\n`);
     await closed;
-    let gone = false;
-    for (let attempt = 0; attempt < 100 && !gone; attempt++) {
-      if (await daemonListening(path)) await Bun.sleep(20);
-      else gone = true;
-    }
+    const gone = await daemonRetired(path, hello.pid);
     if (!gone) {
       console.error(`north bridge: the control daemon is still listening at ${path}`);
       return 1;
     }
-    // A daemon that predates the retire op answers nothing and leaves its
-    // socket behind; the file is dead either way once nothing accepts on it.
-    try { unlinkSync(path); } catch { /* already reaped */ }
   }
   const successor = await verifiedSocket(path);
   successor.socket.destroy();

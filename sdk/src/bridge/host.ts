@@ -314,6 +314,7 @@ export class Northd {
   }
 
   async #close(): Promise<void> {
+    this.#retiring = true;
     if (this.#staleTimer !== undefined) clearInterval(this.#staleTimer);
     this.#staleTimer = undefined;
     const terminations: Promise<void>[] = [];
@@ -355,16 +356,20 @@ export class Northd {
         if (failures.length > 1) throw new AggregateError(failures);
       })());
     }
-    for (const socket of this.#sockets) socket.destroy();
-    if (this.#server.listening) await serverClosed(this.#server);
     await Promise.allSettled(terminations);
+    const closeFailures: unknown[] = [];
     for (const runtime of this.#runtimes.values()) {
-      runtime.journal.close();
-      await runtime.wireJournal?.close().catch(() => {});
+      try { runtime.journal.close(); }
+      catch (error) { closeFailures.push(error); }
+      try { await runtime.wireJournal?.close(); }
+      catch (error) { closeFailures.push(error); }
     }
-    if (existsSync(this.socketPath) && lstatSync(this.socketPath).isSocket()) {
-      unlinkSync(this.socketPath);
-    }
+    for (const socket of this.#sockets) socket.destroy();
+    try {
+      if (this.#server.listening) await serverClosed(this.#server);
+    } catch (error) { closeFailures.push(error); }
+    if (closeFailures.length === 1) throw closeFailures[0];
+    if (closeFailures.length > 1) throw new AggregateError(closeFailures);
   }
 
   async #runtime(executionId: string): Promise<ExecutionRuntime> {
@@ -1067,6 +1072,11 @@ export class Northd {
       if (this.#retiring) return;
       this.#retiring = true;
       this.#onRetire();
+      return;
+    }
+    if (this.#retiring) {
+      send(socket, { type: "error", message: "northd is retiring" });
+      socket.end();
       return;
     }
     if (request.op === "launch") await this.#launch(socket, request);

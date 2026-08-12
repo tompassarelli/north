@@ -4,6 +4,7 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
+import { bridgeWirePath, ExecutionJournal } from "../src/bridge/journal";
 import type {
   BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
 } from "../src/bridge/provider";
@@ -49,6 +50,24 @@ async function waitFor(condition: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 2_000;
   while (!condition() && Date.now() < deadline) await Bun.sleep(5);
   if (!condition()) throw new Error(`timed out waiting for ${label}`);
+}
+
+class BlockingTerminationSession extends BridgeWireTestSession {
+  readonly terminationStarted = Promise.withResolvers<void>();
+  readonly releaseTermination = Promise.withResolvers<void>();
+
+  async terminateSession(): Promise<void> {
+    this.terminationStarted.resolve();
+    await this.releaseTermination.promise;
+    await super.terminateSession();
+  }
+}
+
+class CloseFailureJournal extends ExecutionJournal {
+  close(): void {
+    super.close();
+    throw new Error("fixture control journal close failure");
+  }
 }
 
 async function fixture(
@@ -111,6 +130,63 @@ test("a stale idle daemon retires and releases its socket", async () => {
   disk = "rev-b";
   await waitFor(() => retireCount() === 1, "retirement");
   await waitFor(() => !existsSync(socketPath), "socket teardown");
+});
+
+test("a retiring daemon keeps its listener until provider locks are released", async () => {
+  let session: BlockingTerminationSession | undefined;
+  const { socketPath, northd, openCount } = await fixture(
+    () => "rev-a",
+    async (context) => {
+      session = new BlockingTerminationSession(context);
+      return session;
+    },
+  );
+  const launched = await client(socketPath, { op: "launch", prompt: "stay", cwd: "/" });
+  await waitFor(() => openCount() === 1, "provider open");
+  if (!session) throw new Error("provider session missing");
+
+  const closing = northd.close();
+  await session.terminationStarted.promise;
+  expect(existsSync(socketPath)).toBe(true);
+  const draining = await client(socketPath, { op: "attach", executionId: "missing", cursor: 0 });
+  await draining.closed;
+  expect(draining.messages[0]?.type).toBe("hello");
+  expect(draining.messages).toContainEqual({ type: "error", message: "northd is retiring" });
+
+  session.releaseTermination.resolve();
+  await closing;
+  expect(existsSync(socketPath)).toBe(false);
+  launched.socket.destroy();
+});
+
+test("a control-journal close failure still releases the listener and wire lock", async () => {
+  const root = mkdtempSync(join(tmpdir(), "north-bridge-close-failure-"));
+  const socketPath = join(root, "northd.sock");
+  const journalRoot = join(root, "journal");
+  const northd = new Northd({
+    socketPath,
+    journalRoot,
+    provider: {
+      async open(context) { return new BridgeWireTestSession(context); },
+    },
+    selectProvider: async () => "openai",
+    sourceIdentity: () => "rev-a",
+    controlJournal: (directory, executionId) => new CloseFailureJournal(directory, executionId),
+  });
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  await northd.listen();
+  const launched = await client(socketPath, { op: "launch", prompt: "stay", cwd: "/" });
+  await waitFor(
+    () => launched.messages.some((message) => message.type === "launched"),
+    "execution launch",
+  );
+  const launchMessage = launched.messages.find((message) => message.type === "launched");
+  if (!launchMessage || launchMessage.type !== "launched") throw new Error("launch id missing");
+
+  await expect(northd.close()).rejects.toThrow("fixture control journal close failure");
+  expect(existsSync(socketPath)).toBe(false);
+  expect(existsSync(`${bridgeWirePath(journalRoot, launchMessage.executionId)}.lock`)).toBe(false);
+  launched.socket.destroy();
 });
 
 test("live executions pin a stale daemon and new launches fail explicitly", async () => {
