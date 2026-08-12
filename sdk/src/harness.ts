@@ -1742,19 +1742,29 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // SDK worker authoring-guard parity (see authoring-guards.ts for the WHY). The SDK
 // never loads ~/.claude/settings.json, so we re-run the SAME PreToolUse guard scripts
 // the interactive matchers run and translate their output into HookJSONOutput.
-// PARITY SOURCE: ~/code/nixos-config/dotfiles/claude/settings.json (PreToolUse). These
-// lists are the POST-parity target; keep both in lockstep with settings.json.
-//   Edit|Write|MultiEdit -> firn
-//   Bash                 -> tripwire, firn, corpus-scan
+// PARITY SOURCE: ~/code/nixos-config/dotfiles/agents/hooks.d/*.json, the fragments
+// `agents apply` composes into ~/.claude/settings.json (PreToolUse). Keep the chains
+// in lockstep with those manifests' matchers.
+//   Edit|Write|MultiEdit -> worktree, firn
+//   Bash                 -> worktree, blind-stage, tripwire, firn, corpus-scan
+// The worktree guard is on BOTH entrances because a write into a protected `main`
+// checkout arrives as an Edit or as a shell command, and enforcement on one entrance
+// is not enforcement. The blind-stage and corpus-scan guards read only
+// tool_input.command and return early for any other tool_name, so they are Bash-only
+// by construction.
+// BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
+// (agent-spawn-guard): repository layout and staging discipline bind every lane.
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "firn-guard.sh",
+  "launch-critical-worktree-guard.sh", "firn-guard.sh",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
+  "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
   "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
-  "agent-spawn-guard.sh", "tripwire-guard.sh", "firn-guard.sh",
-  "corpus-scan-guard.sh",
+  "agent-spawn-guard.sh",
+  "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
+  "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
 ]);
 
 function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {
