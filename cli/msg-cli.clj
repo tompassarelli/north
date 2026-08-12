@@ -141,7 +141,7 @@
         (reject-msg-unavailable! "target liveness projection is unreadable"))
       (when-not online?
         (reject-msg! "target is offline")))
-    (when-not (= "streaming" live-input)
+    (when-not (contains? #{"streaming" "turn-framed"} live-input)
       (reject-msg!
        (str "target adapter does not support live input"
             (when (string? provider) (str " (provider " provider ")")))))

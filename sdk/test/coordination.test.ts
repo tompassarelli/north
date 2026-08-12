@@ -78,6 +78,7 @@ function harness(options: {
   stopKillMs?: number;
   stopReapMs?: number;
   settlementOnly?: boolean;
+  deferredStart?: boolean;
 } = {}) {
   const children: FakeChild[] = [];
   const timers: FakeTimer[] = [];
@@ -96,6 +97,7 @@ function harness(options: {
         "--ack-timeout-ms",
         "10000",
         ...(options.settlementOnly ? ["--settlement-only", "true"] : []),
+        ...(options.deferredStart ? ["--deferred-start", "true"] : []),
       ]);
       expect(spawnOptions).toMatchObject({
         env: {
@@ -138,6 +140,7 @@ function harness(options: {
     ...(options.maxFrameBytes === undefined
       ? {}
       : { maxFrameBytes: options.maxFrameBytes }),
+    ...(options.deferredStart ? { deferredStart: true } : {}),
   };
   return {
     children,
@@ -169,6 +172,14 @@ function ready(child: FakeChild, recipient = "agent-test") {
     type: "ready",
     recipient,
     cursor: 17,
+  });
+}
+
+function caughtUp(child: FakeChild, recipient = "agent-test") {
+  emitLine(child, {
+    protocol,
+    type: "caught_up",
+    recipient,
   });
 }
 
@@ -275,6 +286,45 @@ test("subscription separates readiness, admits once, and acks the exact message 
   ]);
   subscription();
   expect(subscription.isArmed()).toBe(false);
+});
+
+test("deferred replay claims no follow-up before terminal and catches up after provider dequeue", async () => {
+  const h = harness({ deferredStart: true });
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  const subscription = subscribeFeed(
+    "agent-test",
+    (summary) => channel.push(summary),
+    h.runtime,
+  );
+  const child = h.children[0]!;
+
+  ready(child);
+  await subscription.ready;
+  expect(child.stdin.writes).toEqual([]);
+
+  let replayed = false;
+  const replay = subscription.replay().then(() => { replayed = true; });
+  expect(child.stdin.writes).toEqual(['{"type":"start"}\n']);
+  mail(child, "@msg:follow-up", "follow-up", "continue once");
+  await settle();
+  expect(channel.pending()).toBe(1);
+  expect(replayed).toBe(false);
+  expect(child.stdin.writes).not.toContain(
+    '{"type":"ack","id":"@msg:follow-up"}\n',
+  );
+
+  expect((await stream.next()).value?.text).toContain("continue once");
+  await settle();
+  expect(child.stdin.writes).toContain(
+    '{"type":"ack","id":"@msg:follow-up"}\n',
+  );
+  caughtUp(child);
+  await replay;
+  expect(replayed).toBe(true);
+  channel.end();
+  subscription();
 });
 
 test("terminal drain is canonical, rejects crossing mail, and resolves only on its receipt", async () => {
@@ -621,7 +671,7 @@ test("timed-out async admission cancels a dequeue proof that resolves late", asy
 });
 
 test("crash after dequeue but before graph ack replays without a second provider turn", async () => {
-  const h = harness();
+  const h = harness({ deferredStart: true });
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
@@ -633,6 +683,7 @@ test("crash after dequeue but before graph ack replays without a second provider
   const first = h.children[0]!;
   ready(first);
   await stop.ready;
+  void stop.replay();
   mail(first, "@msg:replay");
   await settle();
   expect(admissions).toBe(1);

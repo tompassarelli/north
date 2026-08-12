@@ -56,6 +56,8 @@ function capturingQuery(sink: { options?: RoutedQueryArguments["options"] }) {
 function readySubscription(stop: () => void = () => {}) {
   return Object.assign(stop, {
     ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
     drain: async () => {},
     isArmed: () => true,
   });

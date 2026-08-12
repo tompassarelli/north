@@ -365,6 +365,32 @@
                  (nil? (read-frame! feed 250)))))
       (stop-feed! feed))
 
+    ;; A deferred feed establishes its cursor at readiness but claims nothing
+    ;; until the terminal-boundary start. Its replay barrier stays open while
+    ;; the host owns a delivered frame and closes only after provider-dequeue ack.
+    (let [feed (start-feed! port "recipient" 3000 2000
+                            "--deferred-start" "true")
+          ready (require-frame! feed "ready")
+          message
+          (send-message!
+           port "sender" "recipient" "deferred-terminal" "one later frame")]
+      (check "deferred feed arms its cursor without claiming pending mail"
+             (and (= "recipient" (get ready "recipient"))
+                  (nil? (read-frame! feed 250))
+                  (empty? (values-of port message "acked_by"))))
+      (send-control! feed (array-map "type" "start"))
+      (let [mail (require-frame! feed "mail")]
+        (check "terminal start replays the durable follow-up"
+               (= message (mail-id mail)))
+        (check "deferred replay remains open before provider dequeue"
+               (nil? (read-frame! feed 250)))
+        (ack! feed message)
+        (let [caught-up (require-frame! feed "caught_up")]
+          (check "provider dequeue closes the first replay barrier"
+                 (and (= "recipient" (get caught-up "recipient"))
+                      (await-acked! port "recipient" [message])))))
+      (stop-feed! feed))
+
     ;; Control input is authority-bearing. Duplicate JSON members must fail
     ;; closed, release the claim, and leave the message available to a clean
     ;; replacement instead of silently accepting last-key-wins parsing.

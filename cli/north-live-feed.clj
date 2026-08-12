@@ -4,6 +4,7 @@
 ;; Protocol (north-live-feed-v1), one canonical JSON object per line:
 ;;   stdout: {"protocol":"north-live-feed-v1","type":"ready",...}
 ;;   stdin:  {"type":"start"}
+;;   stdout: {"protocol":"north-live-feed-v1","type":"caught_up",...}
 ;;   stdout: {"protocol":"north-live-feed-v1","type":"mail",...}
 ;;   stdin:  {"type":"ack","id":"@msg:..."} | {"type":"nack","id":"@msg:..."}
 ;;   stdin:  {"type":"drain","epoch":"<frozen-route-uuid>"}
@@ -69,7 +70,7 @@
                     {:type :invalid-live-feed-option})))
   (doseq [[flag _] (partition 2 flags)]
     (when-not (contains? #{"--claim-ttl-ms" "--ack-timeout-ms"
-                           "--settlement-only"} flag)
+                           "--settlement-only" "--deferred-start"} flag)
       (throw (ex-info (str "unknown live-feed option: " flag)
                       {:type :invalid-live-feed-option :option flag}))))
   (let [names (take-nth 2 flags)]
@@ -190,6 +191,11 @@
                     "recipient" recipient
                     "cursor" cursor)))
 
+(defn emit-caught-up! [recipient]
+  (emit! (array-map "protocol" protocol
+                    "type" "caught_up"
+                    "recipient" recipient)))
+
 (defn emit-drain-progress! [recipient epoch settled]
   (emit! (array-map "protocol" protocol
                     "type" "drain_progress"
@@ -218,7 +224,9 @@
            id (assoc "id" id))))
 
 (defn await-control! [queue expected-type expected-id timeout-ms]
-  (let [event (.poll queue timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)]
+  (let [event (if (some? timeout-ms)
+                (.poll queue timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+                (.take queue))]
     (cond
       (nil? event)
       (throw (ex-info "host control acknowledgement timed out"
@@ -432,7 +440,7 @@
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
-        (or (not= "streaming" live-input)
+        (or (not (contains? #{"streaming" "turn-framed"} live-input))
             (not= "armed" live-input-state))
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
@@ -633,7 +641,7 @@
                        (min 250 (* 2 backoff-ms)))))))))))
 
 (defn run-poll-feed!
-  [port recipient settlement-only? claim-ttl-ms ack-timeout-ms
+  [port recipient settlement-only? deferred-start? claim-ttl-ms ack-timeout-ms
    control-queue event-queue]
   (let [interval (poll-ms)
         baseline (north.coord/cur-ver port)]
@@ -641,13 +649,20 @@
     ;; readiness is observable. Durable replay closes the ready/start gap.
     (require-open-lane! port recipient)
     (emit-ready! recipient baseline)
-    (await-control! control-queue "start" nil ack-timeout-ms)
+    (await-control! control-queue "start" nil
+                    (when-not deferred-start? ack-timeout-ms))
     (let [addrs (atom (current-direct-addresses port recipient))
           initial
           (when-not settlement-only?
             (replay-pending!
              port recipient @addrs control-queue
              claim-ttl-ms ack-timeout-ms))]
+      ;; The first replay attempt is the host's terminal-boundary barrier. A
+      ;; delivered frame keeps replay-pending! blocked through host admission
+      ;; and durable graph acknowledgement; a nacked or unavailable claim stays
+      ;; graph-pending but no longer delays this provider session.
+      (when deferred-start?
+        (emit-caught-up! recipient))
       (loop [cursor baseline
              retry-at
              (when (= :blocked initial)
@@ -716,6 +731,13 @@
              (ex-info "--settlement-only accepts only true"
                       {:type :invalid-live-feed-option})))
         settlement-only? (= "true" settlement-only-raw)
+        deferred-start-raw (flag-value flags "--deferred-start")
+        _ (when-not (or (nil? deferred-start-raw)
+                        (= "true" deferred-start-raw))
+            (throw
+             (ex-info "--deferred-start accepts only true"
+                      {:type :invalid-live-feed-option})))
+        deferred-start? (= "true" deferred-start-raw)
         _ (when (>= ack-timeout-ms claim-ttl-ms)
             (throw (ex-info "--ack-timeout-ms must be smaller than --claim-ttl-ms"
                             {:type :invalid-live-feed-option})))
@@ -733,7 +755,7 @@
                      event-queue-capacity)]
     (start-control-reader! control-queue event-queue)
     (run-poll-feed!
-     port recipient settlement-only? claim-ttl-ms ack-timeout-ms
+     port recipient settlement-only? deferred-start? claim-ttl-ms ack-timeout-ms
      control-queue event-queue)))
 
 (when-not (= "1" (System/getProperty "north.live-feed.lib"))
@@ -741,7 +763,7 @@
     (try
       (when (or (str/blank? port) (str/blank? recipient))
         (throw (ex-info
-                "usage: north-live-feed.clj <port> <recipient> [--claim-ttl-ms N] [--ack-timeout-ms N] [--settlement-only true]"
+                "usage: north-live-feed.clj <port> <recipient> [--claim-ttl-ms N] [--ack-timeout-ms N] [--settlement-only true] [--deferred-start true]"
                 {:type :usage})))
       (run-feed! (Integer/parseInt port) recipient (vec flags))
       (catch Exception error

@@ -86,7 +86,7 @@
                "provider" provider
                "provider_target" (str provider "-test")
                "live_input" live-input
-               "live_input_state" (if (= "streaming" live-input) "armed" "frozen")
+               "live_input_state" (if (= "unsupported" live-input) "frozen" "armed")
                "live_input_epoch" (if (= id "openai-unsupported")
                                     "00000000-0000-4000-8000-000000000001"
                                     (if (= id "anthropic-streaming")
@@ -216,6 +216,8 @@
 
     (publish! port "openai-unsupported" "openai" "unsupported")
     (register! port "openai-unsupported")
+    (publish! port "openai-turn-framed" "openai" "turn-framed")
+    (register! port "openai-turn-framed")
     (publish! port "anthropic-streaming" "anthropic" "streaming")
     (register! port "anthropic-streaming")
     (publish! port "anthropic-offline" "anthropic" "streaming")
@@ -242,6 +244,21 @@
       (check "public OpenAI rejection also creates zero message facts"
              (= after-raw after-public)))
 
+    (let [sent (run-cli msg-cli port (str port) "send" "director"
+                        "openai-turn-framed" "msg" "follow up after terminal")
+          message (second (re-find #"queued for live injection (@msg:[^ ]+)"
+                                   (:out sent)))]
+      (check "managed turn-framed lane accepts durable follow-up mail"
+             (and (zero? (:exit sent))
+                  (string? message)
+                  (= "openai-turn-framed" (fact-one port message "to"))))
+      (check "turn-framed mail remains pending until its terminal replay"
+             (contains?
+              (set
+               (north.message-audience/pending-message-ids
+                port "openai-turn-framed" #{"openai-turn-framed"}))
+              message)))
+
     (let [before (graph-message-ids port)
           offline (run-cli msg-cli port (str port) "send" "director"
                            "anthropic-offline" "msg" "must not land")]
@@ -261,7 +278,7 @@
       (check "active streaming Anthropic lane accepts one live-injection message"
              (and (zero? (:exit sent))
                   (str/includes? (:out sent) "queued for live injection @msg:")
-                  (= 1 (count ids))))
+                  (= 2 (count ids))))
       (check "accepted msg carries the exact committed route manifest"
              (= admitted-marker
                 (fact-one port message target-identity-manifest-predicate)))
