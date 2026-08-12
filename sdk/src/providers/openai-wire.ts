@@ -178,7 +178,7 @@ interface OpenToolItem {
 
 interface IgnoredItem {
 	category: "ignored";
-	kind: "reasoning" | "plan";
+	kind: "reasoning" | "plan" | "userMessage" | "hookPrompt";
 }
 
 type OpenItem = OpenMessageItem | OpenToolItem | IgnoredItem;
@@ -722,7 +722,8 @@ export class OpenAIWireNormalizer {
 			this.#messageSequence += 1;
 			return eventResult(events);
 		}
-		if (kind === "reasoning" || kind === "plan") {
+		if (kind === "reasoning" || kind === "plan"
+			|| kind === "userMessage" || kind === "hookPrompt") {
 			turn.items.set(itemId, { category: "ignored", kind });
 			return eventResult([]);
 		}
@@ -1063,9 +1064,7 @@ export class OpenAIWireNormalizer {
 		} else events = Object.freeze([]);
 		turn.items.delete(itemId);
 		turn.completedItemIds.add(itemId);
-		if (observedKind !== "agentMessage" && observedKind !== "reasoning") {
-			turn.toolItems += 1;
-		}
+		if (item.category === "tool") turn.toolItems += 1;
 		return eventResult(events);
 	}
 

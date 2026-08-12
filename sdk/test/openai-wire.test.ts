@@ -299,6 +299,26 @@ describe("OpenAIWireNormalizer", () => {
 		expect(replayed).toEqual(writer.snapshot());
 	});
 
+	test("accepts provider input and hook-prompt item lifecycles without projecting work", () => {
+		const { writer, normalizer } = harness();
+		startTurn(normalizer);
+		const eventCount = writer.events().length;
+		for (const type of ["userMessage", "hookPrompt"] as const) {
+			const id = `provider-${type}-private`;
+			expect(normalizer.normalize("item/started", {
+				threadId: "provider-thread-private",
+				turnId: "provider-turn-1",
+				item: { id, type },
+			}).events).toEqual([]);
+			expect(normalizer.normalize("item/completed", {
+				threadId: "provider-thread-private",
+				turnId: "provider-turn-1",
+				item: { id, type },
+			}).events).toEqual([]);
+		}
+		expect(writer.events()).toHaveLength(eventCount);
+	});
+
 	test("durably retains bounded command and MCP terminal material before referencing it", () => {
 		const { normalizer, artifacts } = harness();
 		startTurn(normalizer);
