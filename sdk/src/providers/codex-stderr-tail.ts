@@ -1,3 +1,5 @@
+import { redactObviousSecrets } from "../privacy-filter";
+
 /**
  * Bounded, redacted provider stderr — the diagnostics a Codex failure carries.
  *
@@ -20,33 +22,13 @@ export const STDERR_TAIL_LINES = 40;
 /** One diagnostic line is a diagnostic, not a payload channel. */
 export const STDERR_LINE_BYTES = 512;
 
-// Obvious secret shapes only. This is a diagnostic path, not a DLP boundary:
-// the goal is that a provider error response echoing an auth header or a
-// query-string token cannot land verbatim in a lane log or a thread fact.
-const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  [/\b(sk|rk|pk)-[A-Za-z0-9_-]{8,}/g, "$1-REDACTED"],
-  [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, "gh_REDACTED"],
-  [/\bxox[baprs]-[A-Za-z0-9-]{10,}/g, "xox-REDACTED"],
-  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)?/g, "REDACTED-JWT"],
-  [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 REDACTED"],
-  [
-    /([?&](?:access_token|refresh_token|id_token|api[_-]?key|apikey|token|secret|signature|sig|code|password)=)[^&\s"'<>]+/gi,
-    "$1REDACTED",
-  ],
-  [
-    /((?:"|')?(?:authorization|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|secret|password|passwd)(?:"|')?\s*[:=]\s*(?:"|')?)[^\s"',;}\]]{4,}/gi,
-    "$1REDACTED",
-  ],
-];
-
 /**
  * Strip control characters, redact obvious credentials, and bound the length.
  * Applied on INSERT so neither ring ever holds an unredacted secret.
  */
 export function redactProviderStderrLine(line: string): string {
-  let value = line.replace(/\r/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
-  for (const [pattern, replacement] of SECRET_PATTERNS)
-    value = value.replace(pattern, replacement);
+  let value = redactObviousSecrets(line)
+    .replace(/\r/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
   value = value.trimEnd();
   if (Buffer.byteLength(value, "utf8") <= STDERR_LINE_BYTES) return value;
   // Truncate on a byte bound without splitting a code point.

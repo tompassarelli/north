@@ -19,6 +19,7 @@ import {
 	recordWireRunTelemetryProjection,
 	wireRunTelemetryFacts,
 } from "../src/telemetry";
+import { SHADOW_REVIEWER_VERSION } from "../src/shadow-reviewer";
 import {
 	WireEventWriter,
 	decodeWireEvent,
@@ -397,6 +398,20 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 			reduced,
 			{ status: "recorded", summary },
 			{
+				shadowReviewerSummary: {
+					version: SHADOW_REVIEWER_VERSION,
+					targetId: "reviewer-standard",
+					status: "partial",
+					eligibleUpdates: 3,
+					reviewedUpdates: 2,
+					droppedUpdates: 1,
+					emittedNotes: 1,
+					quarantinedOutputs: 0,
+					failedReviews: 0,
+					usageStatus: "exact",
+					tokens: 77,
+					durationMs: 19,
+				},
 				runEstimate: {
 					hours: "2.7777777777777777",
 					durationMs: 10_000_000,
@@ -432,6 +447,8 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 			.toBeGreaterThan(128 * 1024);
 		expect(telemetry.facts).toContainEqual(["estimate_ratio", "1.000002"]);
 		expect(telemetry.facts).toContainEqual(["judgment_grade", "m"]);
+		expect(telemetry.facts).toContainEqual(["shadow_reviewer_usage_status", "exact"]);
+		expect(telemetry.facts).toContainEqual(["shadow_reviewer_tokens", "77"]);
 		const runFactWriter = async (
 			facts: readonly (readonly [string, string])[],
 			subject = telemetry.subject,
@@ -475,6 +492,9 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 			["provider_turn_units", "1"],
 			["provider_join_key_version", "north-provider-join:v1"],
 			["watchdog_reason", "north_watchdog_execution_inactivity"],
+			["shadow_reviewer_version", "north-shadow-reviewer:v2"],
+			["shadow_reviewer_reviewed_updates", "4"],
+			["shadow_reviewer_usage_status", "partial"],
 		] as const) {
 			const forged = telemetry.facts.some(([candidate]) => candidate === predicate)
 				? telemetry.facts.map((fact) => fact[0] === predicate
@@ -514,8 +534,101 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		expect(runFacts.get("usage_scope")).toBe("wire_run_cumulative");
 		expect(runFacts.get("usage_total_status")).toBe("partial");
 		expect(runFacts.has("tokens")).toBe(false);
+		expect(runFacts.get("shadow_reviewer_status")).toBe("partial");
+		expect(runFacts.get("shadow_reviewer_tokens")).toBe("77");
 		expect(runRows.rows.filter((row) =>
 			row instanceof FramTriple && row.t2 === "mcp_operation_receipt")).toHaveLength(512);
+
+		const shadowSourceRunId = wireRunId("run:ledger-shadow-source");
+		const shadowWriter = new WireEventWriter({
+			runId: wireRunId("run:ledger-shadow-reviewer"),
+		});
+		const shadowCallId = wireModelCallId("model-call:ledger-shadow-reviewer");
+		shadowWriter.append({
+			kind: "run.started",
+			lifecycle: "running",
+			parentRunId: shadowSourceRunId,
+		});
+		shadowWriter.append({
+			kind: "model-call.started",
+			modelCallId: shadowCallId,
+			model: { provider: "anthropic", tier: "standard" },
+			attempt: 1,
+		});
+		shadowWriter.append({
+			kind: "model-call.completed",
+			modelCallId: shadowCallId,
+			status: "succeeded",
+			origin: "provider",
+			usageCoverage: "exact",
+			usage: {
+				lifetime: {
+					inputTokens: 7,
+					outputTokens: 2,
+					cacheReadTokens: 1,
+					cacheWriteTokens: 0,
+					reasoningTokens: 0,
+					modelCalls: 1,
+				},
+				context: { tokens: 8 },
+			},
+			evidence: {
+				turns: { unit: "provider-turn", count: 1, toolItems: 0, comparable: false },
+			},
+		});
+		shadowWriter.terminate({ lifecycle: "completed", reason: { code: "completed" } });
+		const shadowEvents = shadowWriter.events();
+		expect(await recordWireEventProjections(
+			shadowEvents.map((event) => wireEventFacts(identity, event)),
+			4_000,
+			environment,
+		)).toBe("recorded");
+		const shadowTelemetry = wireRunTelemetryFacts(
+			identity,
+			reduceWireEvents(shadowEvents),
+			{ status: "recorded", summary: wireLedgerSummary(shadowEvents) },
+			{
+				role: "shadow-reviewer",
+				provider: "anthropic",
+				providerTarget: "reviewer-standard",
+				shadowReviewerExecution: {
+					version: SHADOW_REVIEWER_VERSION,
+					targetId: "reviewer-standard",
+					sourceRunId: shadowSourceRunId,
+					sourceFromSequence: 2,
+					sourceThroughSequence: 8,
+					privacyOmittedEvents: 1,
+					capacityOmittedEvents: 4,
+					inputSha256: "a".repeat(64),
+				},
+			},
+		);
+		expect(shadowTelemetry.facts).toContainEqual([
+			"shadow_reviewer_source_run",
+			shadowSourceRunId,
+		]);
+		expect(shadowTelemetry.facts).toContainEqual(["shadow_reviewer_input_sha256", "a".repeat(64)]);
+		expect(shadowTelemetry.facts).toContainEqual(["parent_run", "@run:ledger-shadow-source"]);
+		for (const [predicate, value] of [
+			["role", "worker"],
+			["shadow_reviewer_source_run", "run:another-source"],
+			["shadow_reviewer_input_sha256", "not-a-digest"],
+		] as const) {
+			const forged = shadowTelemetry.facts.map((fact) => fact[0] === predicate
+				? [predicate, value] as const : fact);
+			expect((await runFactWriter(forged, shadowTelemetry.subject)).exitCode).not.toBe(0);
+			expect((await client.scanAll(shadowTelemetry.subject, null, null)).rows).toHaveLength(0);
+		}
+		const shadowValid = await runFactWriter(shadowTelemetry.facts, shadowTelemetry.subject);
+		expect(shadowValid.exitCode, shadowValid.stderr).toBe(0);
+		const shadowRows = await client.scanAll(shadowTelemetry.subject, null, null);
+		const shadowFacts = new Map(shadowRows.rows.map((row) => {
+			const fact = row as FramTriple;
+			return [String(fact.t2), String(fact.t3)] as const;
+		}));
+		expect(shadowFacts.get("role")).toBe("shadow-reviewer");
+		expect(shadowFacts.get("shadow_reviewer_source_run")).toBe(shadowSourceRunId);
+		expect(shadowFacts.get("shadow_reviewer_capacity_omitted_events")).toBe("4");
 
 		const providerTurnWriter = new WireEventWriter({
 			runId: wireRunId("run:ledger-provider-turn-units"),

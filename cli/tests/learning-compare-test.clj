@@ -22,14 +22,15 @@
 
 (defn assignment-facts
   [{:keys [axis arm-id assignment-id episode-id evidence-mode
-           propensity explore-propensity]
+           propensity explore-propensity options-sha256]
     :or {axis "control"
          arm-id "control"
          assignment-id (sha "assignment-control")
          episode-id "episode-control"
          evidence-mode "evaluation"
          propensity "0.800000000000"
-         explore-propensity "0.200000000000"}}]
+         explore-propensity "0.200000000000"
+         options-sha256 (sha "options")}}]
   {"learning_assignment_version" "north-learning-assignment:v1"
    "learning_policy_version" "north-learning-policy:v1"
    "learning_policy_sha256" (sha "policy")
@@ -49,7 +50,7 @@
                                   "control:eligible"
                                   (str "explore:" axis ":" arm-id))
    "learning_baseline_sha256" (sha "baseline")
-   "learning_options_sha256" (sha "options")
+   "learning_options_sha256" options-sha256
    "learning_assignment_sha256" assignment-id})
 
 (def exact-receipts
@@ -123,7 +124,8 @@
      reservation)))
 
 (defn complete-run
-  [run {:keys [duration tokens token-status retry-of retry-attempt]
+  [run {:keys [duration tokens token-status retry-of retry-attempt
+               reviewer-duration reviewer-tokens reviewer-token-status]
         :or {duration "100" tokens "10" token-status "exact"}
         :as options}]
   (cond->
@@ -133,6 +135,11 @@
           {"duration_ms" duration
            "usage_total_status" token-status})
     tokens (assoc "tokens" tokens)
+    reviewer-duration
+    (assoc "shadow_reviewer_duration_ms" reviewer-duration)
+    reviewer-tokens (assoc "shadow_reviewer_tokens" reviewer-tokens)
+    reviewer-token-status
+    (assoc "shadow_reviewer_usage_status" reviewer-token-status)
     retry-of (assoc "retry_of_run" retry-of)
     retry-attempt (assoc "retry_attempt" (str retry-attempt))))
 
@@ -165,13 +172,19 @@
                                      {:assignment-id assignment-id
                                       :episode-id "episode-retry"
                                       :duration "200" :tokens "20"
+                                      :reviewer-duration "40"
+                                      :reviewer-tokens "3"
+                                      :reviewer-token-status "exact"
                                       :retry-of initial :retry-attempt 1}))
              (rows-for unknown
                        (complete-run unknown
                                      {:assignment-id (sha "unknown-assignment")
                                       :episode-id "episode-unknown"
                                       :duration "300" :tokens nil
-                                      :token-status "partial"}))
+                                      :token-status "partial"
+                                      :reviewer-duration "60"
+                                      :reviewer-tokens "999"
+                                      :reviewer-token-status "partial"}))
              (rows-for variant
                        (complete-run variant
                                      {:axis "prompt" :arm-id "variant-a"
@@ -218,15 +231,17 @@
          (and (= "descriptive_only" (get document "interpretation"))
               (= "Observed cohorts only; no causal estimate is produced."
                  (get document "notice"))))
-  (check "cohorts are exact task/axis/arm and control sorts first"
-         (and (= [(sha "exact-task") "control" "control"]
+  (check "cohorts are exact task/axis/arm/options and control sorts first"
+         (and (= [(sha "exact-task") "control" "control" (sha "options")]
                  [(get control "taskSignature")
                   (get control "axis")
-                  (get control "armId")])
-              (= [(sha "exact-task") "prompt" "variant-a"]
+                  (get control "armId")
+                  (get control "optionsSha256")])
+              (= [(sha "exact-task") "prompt" "variant-a" (sha "options")]
                  [(get prompt "taskSignature")
                   (get prompt "axis")
-                  (get prompt "armId")])))
+                  (get prompt "armId")
+                  (get prompt "optionsSha256")])))
   (check "valid maximum-safe counts aggregate without integer overflow"
          (= {"mean" 9.007199254740991E15
              "populationN" 1 "knownN" 1 "unknownN" 0}
@@ -242,9 +257,21 @@
                  (get control-metrics "durationMs"))
               (= {"mean" nil "populationN" 2 "knownN" 1 "unknownN" 1}
                  (get control-metrics "tokens"))))
+  (check "reviewer usage remains separate from primary usage"
+         (and (= {"mean" 50.0 "populationN" 2 "knownN" 2 "unknownN" 0}
+                 (get control-metrics "reviewerDurationMs"))
+              (= {"mean" nil "populationN" 2 "knownN" 1 "unknownN" 1}
+                 (get control-metrics "reviewerTokens"))
+              (= 200 (get retry-observation "durationMs"))
+              (= 20 (get retry-observation "tokens"))
+              (= 40 (get retry-observation "reviewerDurationMs"))
+              (= 3 (get retry-observation "reviewerTokens"))))
   (check "unknown token evidence remains unknown"
          (and (nil? (get unknown-observation "tokens"))
-              (= "partial" (get unknown-observation "tokenStatus"))))
+              (= "partial" (get unknown-observation "tokenStatus"))
+              (nil? (get unknown-observation "reviewerTokens"))
+              (= "partial"
+                 (get unknown-observation "reviewerUsageStatus"))))
   (check "stored propensities survive and unstored factors remain explicit"
          (= {"assigned" 0.8 "explore" 0.2 "axis" nil "arm" nil}
             (get retry-observation "propensity")))
@@ -253,7 +280,35 @@
            (and (str/includes? rendered
                                "Descriptive only — observed cohorts are not causal estimates.")
                 (str/includes? rendered "tokens: unknown (known 1, unknown 1)")
+                (str/includes? rendered
+                               "reviewer tokens: unknown (known 1, unknown 1)")
+                (str/includes? rendered (str "OPTIONS " (sha "options")))
                 (str/includes? rendered "axis-p=unknown · arm-p=unknown")))))
+
+(let [reviewer-off-options (sha "reviewer-off-options")
+      reviewer-on-options (sha "reviewer-on-options")
+      off-run "@run:reviewer-off-options"
+      on-run "@run:reviewer-on-options"
+      rows (vec
+            (concat
+             (rows-for off-run
+                       (complete-run off-run
+                                     {:assignment-id (sha "reviewer-off-assignment")
+                                      :episode-id "episode-reviewer-off"
+                                      :options-sha256 reviewer-off-options}))
+             (rows-for on-run
+                       (complete-run on-run
+                                     {:assignment-id (sha "reviewer-on-assignment")
+                                      :episode-id "episode-reviewer-on"
+                                      :options-sha256 reviewer-on-options}))))
+      document (north.learning-compare/comparison-document
+                "exp-fixture" 42 rows)
+      cohorts (get document "cohorts")]
+  (check "exact eligible-option receipts stratify otherwise identical controls"
+         (and (= 2 (count cohorts))
+              (= #{reviewer-off-options reviewer-on-options}
+                 (set (map #(get % "optionsSha256") cohorts)))
+              (every? #(= 1 (get-in % ["population" "included"])) cohorts))))
 
 (let [discovery "@run:discovery"
       missing "@run:missing-predecessor"
@@ -299,7 +354,10 @@
                        (complete-run malformed-count
                                      {:assignment-id (sha "malformed-count")
                                       :episode-id "episode-malformed-count"
-                                      :duration "+1" :tokens "01"}))
+                                      :duration "+1" :tokens "01"
+                                      :reviewer-duration "+2"
+                                      :reviewer-tokens "02"
+                                      :reviewer-token-status "exact"}))
              (rows-for partial-task
                        (assoc
                         (complete-run partial-task
@@ -332,7 +390,9 @@
   (check "noncanonical count literals remain unknown rather than becoming measurements"
          (let [observed (observation-of document malformed-count)]
            (and (nil? (get observed "durationMs"))
-                (nil? (get observed "tokens")))))
+                (nil? (get observed "tokens"))
+                (nil? (get observed "reviewerDurationMs"))
+                (nil? (get observed "reviewerTokens")))))
   (check "nonexact task identities remain visible outside exact cohorts"
          (let [observed (observation-of document partial-task)]
            (and (some #{"task_signature_not_exact"}

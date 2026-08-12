@@ -124,6 +124,8 @@ export interface ObservedAgentIdentity {
   liveInputState?: LiveInputState;
   /** Opaque UUIDv4 route generation; changes on every live-input/route publication. */
   liveInputEpoch?: string;
+  /** SHA-256 of the host-only capability authorizing shadow-reviewer follow-up mail. */
+  shadowReviewerNoteCapabilitySha256?: string;
   effort?: string;
   compositionKind?: "preset" | "bespoke" | "none";
   compositionId?: string;
@@ -484,6 +486,7 @@ export function agentIdentityFacts(
     ["live_input", f.liveInput],
     ["live_input_state", f.liveInputState],
     ["live_input_epoch", f.liveInputEpoch],
+    ["shadow_reviewer_note_capability_sha256", f.shadowReviewerNoteCapabilitySha256],
     ["effort", f.effort],
     ["composition_kind", f.compositionKind],
     ["composition_id", f.compositionId],

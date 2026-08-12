@@ -17,6 +17,8 @@ import { ProviderRetrySafeError, type RoutedQueryArguments } from "../src/provid
 import { ManagedCodexHarvestError } from "../src/providers/codex-app-server";
 import { managedCodexHarvestEvidence } from "../src/providers/openai";
 import { RUN_BAR_EVIDENCE_VERSION } from "../src/delivery-verification";
+import type { RoutingAssessment } from "../src/routing-economics";
+import type { ShadowReviewerNote, ShadowReviewerUpdate } from "../src/shadow-reviewer";
 import {
   DeliveryEvidenceRetryableError,
   DeliveryReservationWriterProcessFailure,
@@ -67,11 +69,27 @@ const MANAGED_ENV = [
   "NORTH_STRUGGLE_POLICY_EXPECTED", "STRUGGLE_ERROR_STREAK",
   "STRUGGLE_LOOP_REPEAT", "STRUGGLE_LOOP_WINDOW", "STRUGGLE_STALL_TURNS",
   "STRUGGLE_STALL_TURNS_ORCHESTRATOR",
+  "NORTH_SHADOW_REVIEWER", "NORTH_LEARNING_POLICY",
 ] as const;
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
 
 const TEST_COORDINATOR = `test-coordinator-${process.pid}`;
+
+const LOW_RISK_ASSESSMENT: RoutingAssessment = {
+  version: "minimum-sufficient-v1",
+  signals: {
+    decisionOwnership: "none", seamScope: "none",
+    errorExposure: "contained-reversible", oracleStrength: "objective-local",
+    foundationalImpact: "none", dependencyShape: "atomic-cohesive",
+    reasoningShape: "deterministic",
+  },
+  derived: {
+    minimumTier: "economy", minimumReasoning: "low",
+    ruleCodes: ["reasoning-shape:deterministic"],
+  },
+  selected: { tier: "economy", reasoning: "low" },
+};
 
 function pinEvidence(
   provider: "anthropic" | "openai",
@@ -209,6 +227,8 @@ exit 2
   delete process.env.STRUGGLE_LOOP_WINDOW;
   delete process.env.STRUGGLE_STALL_TURNS;
   delete process.env.STRUGGLE_STALL_TURNS_ORCHESTRATOR;
+  delete process.env.NORTH_SHADOW_REVIEWER;
+  delete process.env.NORTH_LEARNING_POLICY;
   delete process.env.AGENT_ID;
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;
@@ -293,6 +313,152 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   expect(runLines.some((line) => line.endsWith(" model_call_count 1"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" struggle_topology worker"))).toBe(true);
   expect(runLines.some((line) => line.endsWith(" struggle_no_progress_turn_threshold 6"))).toBe(true);
+});
+
+test("spawn runs its assigned shadow reviewer, publishes the note, and records the summary", async () => {
+  writeFileSync(log, "");
+  const policyPath = join(dir, "shadow-reviewer-spawn-policy.json");
+  writeFileSync(policyPath, JSON.stringify({
+    version: 1, mode: "learning", intensity: 1, axes: ["authoring"],
+    maxTierDelta: 1, riskCeiling: "p1", seed: "shadow-spawn", epoch: "1",
+    evidenceMode: "evaluation",
+  }));
+  const priorPolicy = process.env.NORTH_LEARNING_POLICY;
+  const priorProvider = process.env.AGENT_PROVIDER;
+  process.env.NORTH_LEARNING_POLICY = policyPath;
+  process.env.AGENT_PROVIDER = "anthropic";
+  const updates: ShadowReviewerUpdate[] = [];
+  const published: Array<{ source: string; note: ShadowReviewerNote }> = [];
+  try {
+    const result = await spawnUnderTest({
+      prompt: "exercise the spawn shadow reviewer",
+      agentId: "test-shadow-reviewer-spawn",
+      role: "scout",
+      routingMetadata: presetRequest("scout"),
+      routingAssessment: LOW_RISK_ASSESSMENT,
+      provider: "anthropic",
+      pinEvidence: pinEvidence("anthropic"),
+      loadShadowReviewerConfig: () => ({ targetId: "anthropic" }),
+      shadowReviewRunner: async (update: ShadowReviewerUpdate) => {
+        updates.push(update);
+        return {
+          runId: wireRunId("run:test-shadow-reviewer-spawn-child"),
+          status: "succeeded" as const,
+          output: {
+            kind: "note",
+            severity: "nit",
+            issueCode: "unresolved_failure",
+            sourceSequence: update.sourceThroughSequence,
+          },
+          usageStatus: "exact" as const,
+          tokens: 7,
+          durationMs: 3,
+        };
+      },
+      publishShadowReviewerNote: async (source: string, note: ShadowReviewerNote) => {
+        published.push({ source, note });
+      },
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        provider: "anthropic", output: "spawn done", turns: 1, providerDurationMs: 1,
+      }),
+    });
+    expect(result).toBe("spawn done");
+  } finally {
+    if (priorPolicy === undefined) delete process.env.NORTH_LEARNING_POLICY;
+    else process.env.NORTH_LEARNING_POLICY = priorPolicy;
+    if (priorProvider === undefined) delete process.env.AGENT_PROVIDER;
+    else process.env.AGENT_PROVIDER = priorProvider;
+  }
+  expect(updates).toHaveLength(1);
+  expect(published).toHaveLength(1);
+  expect(published[0]).toMatchObject({
+    source: "test-shadow-reviewer-spawn",
+    note: {
+      severity: "nit",
+      issueCode: "unresolved_failure",
+      note: `The latest update contains an unresolved failure (source event ${updates[0]!.sourceThroughSequence}).`,
+    },
+  });
+  const lines = await settledRunLines("test-shadow-reviewer-spawn");
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_status completed"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_eligible_updates 1"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_emitted_notes 1"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_tokens 7"))).toBe(true);
+});
+
+test("dispatch runs its assigned shadow reviewer, publishes the note, and records the summary", async () => {
+  writeFileSync(log, "");
+  const policyPath = join(dir, "shadow-reviewer-dispatch-policy.json");
+  writeFileSync(policyPath, JSON.stringify({
+    version: 1, mode: "learning", intensity: 1, axes: ["authoring"],
+    maxTierDelta: 1, riskCeiling: "p1", seed: "shadow-dispatch", epoch: "1",
+    evidenceMode: "evaluation",
+  }));
+  const priorPolicy = process.env.NORTH_LEARNING_POLICY;
+  process.env.NORTH_LEARNING_POLICY = policyPath;
+  const priorProvider = process.env.AGENT_PROVIDER;
+  process.env.AGENT_PROVIDER = "anthropic";
+  const updates: ShadowReviewerUpdate[] = [];
+  const published: Array<{ source: string; note: ShadowReviewerNote }> = [];
+  try {
+    await dispatchUnderTest("test-shadow-reviewer-dispatch-thread", {
+      agentId: "test-shadow-reviewer-dispatch",
+      routingMetadata: presetRequest("scout"),
+      routingAssessment: LOW_RISK_ASSESSMENT,
+      pinEvidence: pinEvidence("anthropic"),
+      claimDriver: () => ({ release() {} }),
+      loadChildren: () => [],
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Exercise the dispatch shadow reviewer" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+        { predicate: "done_when", value: "dispatch finishes" },
+      ],
+      loadShadowReviewerConfig: () => ({ targetId: "anthropic" }),
+      shadowReviewRunner: async (update: ShadowReviewerUpdate) => {
+        updates.push(update);
+        return {
+          runId: wireRunId("run:test-shadow-reviewer-dispatch-child"),
+          status: "succeeded" as const,
+          output: {
+            kind: "note",
+            severity: "nit",
+            issueCode: "failed_verification",
+            sourceSequence: update.sourceThroughSequence,
+          },
+          usageStatus: "exact" as const,
+          tokens: 11,
+          durationMs: 5,
+        };
+      },
+      publishShadowReviewerNote: async (source: string, note: ShadowReviewerNote) => {
+        published.push({ source, note });
+      },
+      queryFn: (args: RoutedQueryArguments) => wireTurnQuery(args, {
+        provider: "anthropic", output: "dispatch done", turns: 1, providerDurationMs: 1,
+      }),
+    });
+  } finally {
+    if (priorPolicy === undefined) delete process.env.NORTH_LEARNING_POLICY;
+    else process.env.NORTH_LEARNING_POLICY = priorPolicy;
+    if (priorProvider === undefined) delete process.env.AGENT_PROVIDER;
+    else process.env.AGENT_PROVIDER = priorProvider;
+  }
+  expect(updates).toHaveLength(1);
+  expect(published).toHaveLength(1);
+  expect(published[0]).toMatchObject({
+    source: "test-shadow-reviewer-dispatch",
+    note: {
+      severity: "nit",
+      issueCode: "failed_verification",
+      note: `The latest update treats a failed verification as successful (source event ${updates[0]!.sourceThroughSequence}).`,
+    },
+  });
+  const lines = await settledRunLines("test-shadow-reviewer-dispatch");
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_status completed"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_eligible_updates 1"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_emitted_notes 1"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" shadow_reviewer_tokens 11"))).toBe(true);
 });
 
 test("a lane that dies mid-stream records outcome=died ON the lane entity (reported, not silent)", async () => {

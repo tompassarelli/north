@@ -35,6 +35,16 @@
 (def checks (atom []))
 (def test-space "north-coordination")
 (def identity-fixtures (atom {}))
+(def reviewer-capability (apply str (repeat 64 "c")))
+(defn sha256 [value]
+  (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                        (.getBytes (str value)
+                                   java.nio.charset.StandardCharsets/UTF_8))]
+    (format "%064x" (java.math.BigInteger. 1 digest))))
+(defn reviewer-agent-id [source-agent-id]
+  (let [sanitized (str/replace source-agent-id #"[^A-Za-z0-9_.:-]+" "-")]
+    (str (subs sanitized 0 (min 96 (count sanitized)))
+         ".shadow-reviewer." (subs (sha256 source-agent-id) 0 12))))
 
 (defn test-env [port]
   {"FRAM_SPACE_ID" test-space
@@ -79,6 +89,22 @@
          {:continue true :out :string :err :string
           :extra-env (assoc (test-env port) "NORTH_PORT" (str port))}
          "bb" "-cp" (str root "/out:" fram "/out") path args))
+(defn run-cli-as-worker [path port self & args]
+  (apply proc/shell
+         {:continue true :out :string :err :string
+          :extra-env (assoc (test-env port)
+                            "NORTH_PORT" (str port)
+                            "AGENT_TOPOLOGY" "worker"
+                            "AGENT_ID" self)}
+         "bb" "-cp" (str root "/out:" fram "/out") path args))
+(defn run-cli-as-worker-input [path port self input & args]
+  (apply proc/shell
+         {:continue true :in input :out :string :err :string
+          :extra-env (assoc (test-env port)
+                            "NORTH_PORT" (str port)
+                            "AGENT_TOPOLOGY" "worker"
+                            "AGENT_ID" self)}
+         "bb" "-cp" (str root "/out:" fram "/out") path args))
 (defn publish! [port id provider live-input]
   (let [facts {"kind" "lane"
                "role" "integrator"
@@ -92,6 +118,8 @@
                                     (if (= id "anthropic-streaming")
                                       "00000000-0000-4000-8000-000000000002"
                                       "00000000-0000-4000-8000-000000000003"))
+               "shadow_reviewer_note_capability_sha256"
+               (when (= id "openai-turn-framed") (sha256 reviewer-capability))
                "model" (if (= provider "anthropic") "claude-opus-4-8" "gpt-5.6-sol")
                "effort" "xhigh"
                "composition_kind" "preset"
@@ -101,6 +129,7 @@
                "spawned_at" "2026-07-19T00:00:00Z"
                "display_handle" (str provider "-test-integrator-" id)
                "display_name" (str provider " · integrator · " id)}
+        facts (into {} (remove (comp nil? val) facts))
         result (run-cli identity-writer port (str port) "publish"
                         (str "agent:" id) (json/generate-string facts))]
     (when-not (zero? (:exit result))
@@ -443,6 +472,62 @@
                      (some #(str/includes? % "\"reason\":\"missing_sender\"")
                            (fact-values port message "delivery_rejection"))))
               poison-ids)))
+
+    (let [self "openai-turn-framed"
+          reviewer (reviewer-agent-id self)
+          before-review (graph-message-ids port)
+          denied (run-cli-as-worker msg-cli port self (str port) "review"
+                                    reviewer self "[nit] forged worker note")
+          wrong-capability (apply str (repeat 64 "d"))
+          wrong (run-cli-as-worker-input msg-cli port self wrong-capability
+                                         (str port) "review" reviewer self
+                                         "[nit] forged worker note")
+          after-forgeries (graph-message-ids port)
+          sent (run-cli-as-worker-input msg-cli port self reviewer-capability
+                                        (str port) "review" reviewer self
+                                        "[nit] self review note")
+          message (second (re-find #"queued for live injection (@msg:[^ ]+)"
+                                   (:out sent)))]
+      (check "ordinary worker cannot forge reviewer follow-up authority"
+             (and (not (zero? (:exit denied)))
+                  (str/includes? (:err denied) "sealed host capability")))
+      (check "wrong reviewer capability cannot publish graph facts"
+             (and (not (zero? (:exit wrong)))
+                  (str/includes? (:err wrong) "review capability")
+                  (= before-review after-forgeries)))
+      (check "sealed host reviewer producer lands one canonical managed msg"
+             (and (zero? (:exit sent))
+                  (string? message)
+                  (= self (fact-one port message "to"))
+                  (= reviewer (fact-one port message "from"))
+                  (= "msg" (fact-one port message "subject"))))
+      (let [before (graph-message-ids port)
+            peer (run-cli-as-worker-input msg-cli port self reviewer-capability
+                                          (str port) "review" reviewer
+                                          "anthropic-streaming"
+                                          "[blocker] must not control a peer")]
+        (check "self-only reviewer producer rejects a peer target without facts"
+               (and (not (zero? (:exit peer)))
+                    (or (str/includes? (:err peer) "review sender")
+                        (str/includes? (:err peer) "coordination authority denied"))
+                    (= before (graph-message-ids port)))))
+      (doseq [[label from body]
+              [["malformed reviewer sender" "ordinary-sender" "[nit] note"]
+               ["malformed reviewer body" reviewer "ordinary body"]]]
+        (let [before (graph-message-ids port)
+              rejected (run-cli-as-worker-input msg-cli port self reviewer-capability
+                                                (str port) "review" from self body)]
+          (check (str label " is rejected before publication")
+                 (and (= 2 (:exit rejected))
+                      (str/includes? (:err rejected) "REJECTED: message")
+                      (= before (graph-message-ids port))))))
+      (let [before (graph-message-ids port)
+            ordinary (run-cli-as-worker msg-cli port self (str port) "send"
+                                        reviewer self "msg" "ordinary bypass")]
+        (check "ordinary send msg retains the coordination-authority gate"
+               (and (not (zero? (:exit ordinary)))
+                    (str/includes? (:err ordinary) "coordination authority denied")
+                    (= before (graph-message-ids port))))))
 
     (let [before (graph-message-ids port)
           broadcast-msg

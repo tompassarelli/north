@@ -10,6 +10,7 @@
 (def identity-predicates
   #{"kind" "role" "model" "provider" "provider_target" "live_input"
     "live_input_state" "live_input_epoch" "effort"
+    "shadow_reviewer_note_capability_sha256"
     "composition_kind" "composition_id" "composition_overrides"
     "composition_override_reason" "nearest_preset" "bespoke_reason"
     "promotion_candidate" "composition_contract_sha256"

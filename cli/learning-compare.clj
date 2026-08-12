@@ -242,18 +242,22 @@
 (defn- exact-cohort [facts]
   (let [task (one facts "learning_task_signature_sha256")
         axis (one facts "learning_axis")
-        arm (one facts "learning_arm_id")]
+        arm (one facts "learning_arm_id")
+        options (one facts "learning_options_sha256")]
     (when (and (exact-digest? task)
+               (exact-digest? options)
                (= "exact" (one facts "learning_task_signature_coverage"))
                (#{"control" "model-tier" "effort" "prompt" "authoring" "history"}
                 axis)
                (exact-identifier? arm))
-      [task axis arm])))
+      [task axis arm options])))
 
 (defn- observation [run facts]
   (let [retry-of (one facts "retry_of_run")
         retry-link-present? (present? facts "retry_of_run")
-        token-status (or (one facts "usage_total_status") "unknown")]
+        token-status (or (one facts "usage_total_status") "unknown")
+        reviewer-token-status
+        (or (one facts "shadow_reviewer_usage_status") "unknown")]
     {:run run
      :facts facts
      :cohort (exact-cohort facts)
@@ -271,6 +275,12 @@
      :token-status token-status
      :tokens (when (= "exact" token-status)
                (parse-nonnegative-long (one facts "tokens")))
+     :reviewer-duration-ms
+     (parse-nonnegative-long (one facts "shadow_reviewer_duration_ms"))
+     :reviewer-token-status reviewer-token-status
+     :reviewer-tokens
+     (when (= "exact" reviewer-token-status)
+       (parse-nonnegative-long (one facts "shadow_reviewer_tokens")))
      :propensity (parse-probability (one facts "learning_propensity"))
      :explore-propensity
      (parse-probability (one facts "learning_explore_propensity"))
@@ -376,17 +386,20 @@
    "durationMs" (:duration-ms item)
    "tokens" (:tokens item)
    "tokenStatus" (:token-status item)
+   "reviewerDurationMs" (:reviewer-duration-ms item)
+   "reviewerTokens" (:reviewer-tokens item)
+   "reviewerUsageStatus" (:reviewer-token-status item)
    "propensity" (public-propensity item)))
 
 (defn- exclusion-counts [observations]
   (into (sorted-map)
         (frequencies (mapcat :exclusion-reasons observations))))
 
-(defn- cohort-sort-key [[task axis arm]]
+(defn- cohort-sort-key [[task axis arm options]]
   [task (if (= axis "control") 0 1) axis
-   (if (= arm "control") 0 1) arm])
+   (if (= arm "control") 0 1) arm options])
 
-(defn- cohort-document [[task axis arm] observations]
+(defn- cohort-document [[task axis arm options] observations]
   (let [observations (vec (sort-by (juxt :chain-id :run) observations))
         included (filterv :included observations)
         outcomes (frequencies (map #(or (:outcome %) "unknown") included))]
@@ -394,6 +407,7 @@
      "taskSignature" task
      "axis" axis
      "armId" arm
+     "optionsSha256" options
      "population" (array-map
                     "attempts" (count observations)
                     "logicalChains" (count (set (map :chain-id observations)))
@@ -402,7 +416,10 @@
      "outcomes" (into (sorted-map) outcomes)
      "metrics" (array-map
                  "durationMs" (mean-metric included :duration-ms)
-                 "tokens" (mean-metric included :tokens))
+                 "tokens" (mean-metric included :tokens)
+                 "reviewerDurationMs"
+                 (mean-metric included :reviewer-duration-ms)
+                 "reviewerTokens" (mean-metric included :reviewer-tokens))
      "exclusionCounts" (exclusion-counts observations)
      "observations" (mapv public-observation observations))))
 
@@ -511,6 +528,7 @@
               [(str "\nTASK " (get cohort "taskSignature"))
                (str "  AXIS " (get cohort "axis") " · ARM "
                     (get cohort "armId"))
+               (str "  OPTIONS " (get cohort "optionsSha256"))
                (str "    population: " (get cohort-population "included")
                     " included / " (get cohort-population "attempts")
                     " attempts · " (get cohort-population "excludedAttempts")
@@ -523,7 +541,11 @@
                (str "    duration: "
                     (metric-label (get metrics "durationMs") "ms"))
                (str "    tokens: "
-                    (metric-label (get metrics "tokens") ""))]
+                    (metric-label (get metrics "tokens") ""))
+               (str "    reviewer duration: "
+                    (metric-label (get metrics "reviewerDurationMs") "ms"))
+               (str "    reviewer tokens: "
+                    (metric-label (get metrics "reviewerTokens") ""))]
               (map
                (fn [item]
                  (let [propensity (get item "propensity")]

@@ -12,6 +12,10 @@ import type { ProviderModelAdmissionReceipt } from "./provider-model-observation
 import type { ProviderAuthoritySurface } from "./providers";
 import type { AllocationEvidence, RoutingFallbackReason } from "./providers/types";
 import { compareRunEstimate, type RunEstimateSnapshot } from "./run-estimate";
+import {
+	SHADOW_REVIEWER_VERSION,
+	type ShadowReviewerSummary,
+} from "./shadow-reviewer";
 import type {
 	RoutingAdmissionReceipt,
 	RoutingAssessment,
@@ -20,6 +24,7 @@ import type {
 import type { RoutingRequest } from "./routing-metadata";
 import type { McpActivityObservation } from "./tool-activity";
 import type { WireExecutionTransport } from "./wire/query";
+import type { WireRunId } from "./wire/ids";
 import {
 	managedRunTokenBudgetHandoff,
 	type ManagedRunTokenBudgetStatus,
@@ -38,6 +43,17 @@ export interface WireModelAvailabilityReceipt {
 	readonly observedAt: string;
 	readonly source: string;
 	readonly observationDigest: string;
+}
+
+export interface ShadowReviewerExecutionProvenance {
+	readonly version: typeof SHADOW_REVIEWER_VERSION;
+	readonly targetId: string;
+	readonly sourceRunId: WireRunId;
+	readonly sourceFromSequence: number;
+	readonly sourceThroughSequence: number;
+	readonly privacyOmittedEvents: number;
+	readonly capacityOmittedEvents: number;
+	readonly inputSha256: string;
 }
 
 export function wireModelAvailabilityReceipt(
@@ -97,12 +113,24 @@ export interface WireRunProvenance {
 	readonly judgmentGrade?: JudgmentGradeSnapshot;
 	readonly struggleObservation?: StruggleObservation;
 	readonly tokenBudget?: ManagedRunTokenBudgetStatus;
+	readonly shadowReviewerSummary?: ShadowReviewerSummary;
+	readonly shadowReviewerExecution?: ShadowReviewerExecutionProvenance;
 }
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$/;
 const COMPONENT = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
+const WIRE_ID = /^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$/;
 const COVERAGE = new Set(["exact", "partial", "unknown"]);
+const SHADOW_REVIEWER_STATUSES = new Set(["not_assigned", "completed", "partial", "aborted"]);
+const TOKEN_TOTAL_STATUSES = new Set([
+	"exact",
+	"partial",
+	"unknown_incomplete_terminal",
+	"unknown_no_terminal",
+	"unknown_provider",
+	"unknown_overflow",
+]);
 const STRUGGLE_TRIGGERS = new Set(["consecutive_errors", "tool_loop", "no_progress"]);
 const ROUTING_AXIS_PREDICATES = {
 	taskGrade: "task_grade",
@@ -124,6 +152,123 @@ const ROUTING_SIGNAL_PREDICATES = {
 function count(value: number, label: string): string {
 	if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`invalid ${label}`);
 	return String(value);
+}
+
+function shadowReviewerHeader(
+	version: string,
+	targetId: string,
+): RunProvenanceFact[] {
+	if (version !== SHADOW_REVIEWER_VERSION || !COMPONENT.test(targetId)) {
+		throw new TypeError("invalid shadow reviewer identity");
+	}
+	return [
+		["shadow_reviewer_version", version],
+		["shadow_reviewer_target", targetId],
+	];
+}
+
+function shadowReviewerSummaryFacts(summary: ShadowReviewerSummary): RunProvenanceFact[] {
+	const facts = shadowReviewerHeader(summary.version, summary.targetId);
+	if (!SHADOW_REVIEWER_STATUSES.has(summary.status)
+		|| !TOKEN_TOTAL_STATUSES.has(summary.usageStatus)) {
+		throw new TypeError("invalid shadow reviewer summary status");
+	}
+	const eligible = count(summary.eligibleUpdates, "shadow reviewer eligible update count");
+	const reviewed = count(summary.reviewedUpdates, "shadow reviewer reviewed update count");
+	const dropped = count(summary.droppedUpdates, "shadow reviewer dropped update count");
+	const emitted = count(summary.emittedNotes, "shadow reviewer emitted note count");
+	const quarantined = count(
+		summary.quarantinedOutputs,
+		"shadow reviewer quarantined output count",
+	);
+	const failed = count(summary.failedReviews, "shadow reviewer failed review count");
+	const duration = count(summary.durationMs, "shadow reviewer duration");
+	const handledUpdates = summary.reviewedUpdates + summary.droppedUpdates;
+	const surfacedOutputs = summary.emittedNotes + summary.quarantinedOutputs;
+	if (!Number.isSafeInteger(handledUpdates) || !Number.isSafeInteger(surfacedOutputs)
+		|| handledUpdates > summary.eligibleUpdates
+		|| surfacedOutputs > summary.reviewedUpdates
+		|| summary.failedReviews > summary.eligibleUpdates) {
+		throw new TypeError("shadow reviewer summary counts do not reconcile");
+	}
+	const exactUsage = summary.usageStatus === "exact";
+	if (exactUsage !== (summary.tokens !== undefined)) {
+		throw new TypeError("shadow reviewer exact usage and token total do not reconcile");
+	}
+	const tokens = summary.tokens === undefined
+		? undefined : count(summary.tokens, "shadow reviewer token count");
+	const allZero = summary.eligibleUpdates === 0
+		&& summary.reviewedUpdates === 0
+		&& summary.droppedUpdates === 0
+		&& summary.emittedNotes === 0
+		&& summary.quarantinedOutputs === 0
+		&& summary.failedReviews === 0
+		&& summary.durationMs === 0
+		&& summary.tokens === 0;
+	if (summary.status === "not_assigned" && (!allZero || !exactUsage)) {
+		throw new TypeError("inactive shadow reviewer summary carries activity");
+	}
+	if (summary.status === "completed"
+		&& (!exactUsage || summary.reviewedUpdates !== summary.eligibleUpdates
+			|| summary.droppedUpdates !== 0 || summary.quarantinedOutputs !== 0
+			|| summary.failedReviews !== 0)) {
+		throw new TypeError("completed shadow reviewer summary carries incomplete work");
+	}
+	if (summary.status === "partial" && summary.droppedUpdates === 0
+		&& summary.quarantinedOutputs === 0 && summary.failedReviews === 0 && exactUsage) {
+		throw new TypeError("partial shadow reviewer summary lacks partial evidence");
+	}
+	facts.push(
+		["shadow_reviewer_status", summary.status],
+		["shadow_reviewer_eligible_updates", eligible],
+		["shadow_reviewer_reviewed_updates", reviewed],
+		["shadow_reviewer_dropped_updates", dropped],
+		["shadow_reviewer_emitted_notes", emitted],
+		["shadow_reviewer_quarantined_outputs", quarantined],
+		["shadow_reviewer_failed_reviews", failed],
+		["shadow_reviewer_usage_status", summary.usageStatus],
+	);
+	if (tokens !== undefined) facts.push(["shadow_reviewer_tokens", tokens]);
+	facts.push(["shadow_reviewer_duration_ms", duration]);
+	return facts;
+}
+
+function shadowReviewerExecutionFacts(
+	execution: ShadowReviewerExecutionProvenance,
+): RunProvenanceFact[] {
+	const facts = shadowReviewerHeader(execution.version, execution.targetId);
+	if (!WIRE_ID.test(execution.sourceRunId)) {
+		throw new TypeError("invalid shadow reviewer source run");
+	}
+	const fromSequence = count(
+		execution.sourceFromSequence,
+		"shadow reviewer source from-sequence",
+	);
+	const throughSequence = count(
+		execution.sourceThroughSequence,
+		"shadow reviewer source through-sequence",
+	);
+	if (execution.sourceFromSequence > execution.sourceThroughSequence) {
+		throw new TypeError("shadow reviewer source sequence interval is inverted");
+	}
+	if (!DIGEST.test(execution.inputSha256)) {
+		throw new TypeError("invalid shadow reviewer input digest");
+	}
+	return [
+		...facts,
+		["shadow_reviewer_source_run", execution.sourceRunId],
+		["shadow_reviewer_source_from_sequence", fromSequence],
+		["shadow_reviewer_source_through_sequence", throughSequence],
+		[
+			"shadow_reviewer_privacy_omitted_events",
+			count(execution.privacyOmittedEvents, "shadow reviewer privacy omission count"),
+		],
+		[
+			"shadow_reviewer_capacity_omitted_events",
+			count(execution.capacityOmittedEvents, "shadow reviewer capacity omission count"),
+		],
+		["shadow_reviewer_input_sha256", execution.inputSha256],
+	];
 }
 
 function estimateFacts(
@@ -592,6 +737,15 @@ export function wireRunProvenanceFacts(
 	actualDurationMs: number,
 ): readonly RunProvenanceFact[] {
 	const facts: RunProvenanceFact[] = receiptFacts(context);
+	if (context.shadowReviewerSummary && context.shadowReviewerExecution) {
+		throw new TypeError("run cannot carry both shadow reviewer summary and execution provenance");
+	}
+	if (context.shadowReviewerSummary) {
+		facts.push(...shadowReviewerSummaryFacts(context.shadowReviewerSummary));
+	}
+	if (context.shadowReviewerExecution) {
+		facts.push(...shadowReviewerExecutionFacts(context.shadowReviewerExecution));
+	}
 	if (context.posture) facts.push(["posture", context.posture]);
 	if (context.role) facts.push(["role", context.role]);
 	if (context.provider) facts.push(["provider", context.provider]);

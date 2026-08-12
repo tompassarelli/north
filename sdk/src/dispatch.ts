@@ -122,6 +122,23 @@ import {
   publishLearningAssignment,
   type LearningAssignmentPublicationStatus,
 } from "./learning-assignment-writer";
+import { runAnthropicShadowReview } from "./providers/shadow-reviewer";
+import {
+  mintShadowReviewerNoteCapability,
+  publishShadowReviewerNote,
+} from "./shadow-reviewer-note";
+import {
+  SHADOW_REVIEWER_ARM,
+  ShadowReviewer,
+  ShadowReviewerInterruptGate,
+  assignedShadowReviewerTarget,
+  inactiveShadowReviewerSummary,
+  shadowReviewerConfig,
+  shadowReviewerTaskSignature,
+  type ShadowReviewRunner,
+  type ShadowReviewerConfig,
+  type ShadowReviewerSummary,
+} from "./shadow-reviewer";
 import { buildRunEnvelope } from "./composition-receipt";
 import { unknownMcpActivity } from "./tool-activity";
 import { unknownNativeCommandActivity } from "./native-command-activity";
@@ -184,6 +201,9 @@ interface DispatchRuntime {
   publishLearningAssignment?: (
     runId: string, assignment: LearningAssignment,
   ) => Promise<LearningAssignmentPublicationStatus>;
+  loadShadowReviewerConfig?: () => ShadowReviewerConfig | undefined;
+  shadowReviewRunner?: ShadowReviewRunner;
+  publishShadowReviewerNote?: typeof publishShadowReviewerNote;
 }
 
 interface DispatchDriverClaim {
@@ -256,8 +276,10 @@ async function runDispatch(
   preflightRuntime: Pick<
     DispatchRuntime,
     "refreshAccountUsages" | "threadFactsLoadOptions" | "publishLearningAssignment"
+      | "shadowReviewRunner" | "publishShadowReviewerNote"
   > = {},
   learningAssignment?: LearningAssignment,
+  shadowConfig?: ShadowReviewerConfig,
 ): Promise<DispatchResult> {
   const routingMetadata = hydratedMetadata;
   if (!routingMetadata) throw new Error("managed North dispatch execution requires explicit routingMetadata");
@@ -355,6 +377,13 @@ async function runDispatch(
     }
   }
   termination.throwIfTerminated();
+  const shadowTarget = assignedShadowReviewerTarget(
+    shadowConfig,
+    learningAssignment,
+    routing.routingTargets,
+  );
+  const shadowNoteCapability = shadowTarget
+    ? mintShadowReviewerNoteCapability() : undefined;
   const resolved = resolveTier(routing.provider, requestedTier,
     requestedModel, requestedReasoning);
   const composition = routingMetadata.composition!;
@@ -377,6 +406,7 @@ async function runDispatch(
     repo: userAnchoredPath(workingDirectory),
     goal: posture.title,
     coordinator: process.env.AGENT_COORDINATOR,
+    shadowReviewerNoteCapabilitySha256: shadowNoteCapability?.sha256,
   } as const;
   const initialLiveInput = providerLiveInput(routing.provider);
   const ch = inputChannel(prompt);
@@ -414,6 +444,10 @@ async function runDispatch(
   let result = "";
   let outcome = "ran";
   const executionFold = makeExecutionFold(strugglePolicy);
+  let shadowReviewer: ShadowReviewer | undefined;
+  let shadowReviewerSummary: ShadowReviewerSummary | undefined = shadowConfig
+    ? inactiveShadowReviewerSummary(shadowConfig) : undefined;
+  const shadowReviewerInterruptGate = new ShadowReviewerInterruptGate();
   let wireWriter: WireEventWriter | undefined;
   let stream: StreamWriter | undefined;
   let wireCommitter: SerializedWireEventCommitter | undefined;
@@ -433,6 +467,8 @@ async function runDispatch(
     }
     await wireCommitter.commitThrough(canonical);
     const observation = executionFold.observe(canonical);
+    shadowReviewerInterruptGate.observe(canonical);
+    shadowReviewer?.observe(canonical);
     nextObservedSequence += 1;
     return observation;
   };
@@ -440,10 +476,7 @@ async function runDispatch(
     if (!wireWriter || !wireCommitter) return;
     const events = wireWriter.events();
     while (nextObservedSequence < events.length) {
-      const event = events[nextObservedSequence]!;
-      await wireCommitter.commitThrough(event);
-      executionFold.observe(event);
-      nextObservedSequence += 1;
+      await observeWireEvent(events[nextObservedSequence]!);
     }
   };
   const startWireRun = async (): Promise<WireEventWriter> => {
@@ -547,6 +580,36 @@ async function runDispatch(
       console.error(
         `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} `
         + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
+      );
+    }
+    if (shadowTarget) {
+      const reviewRunner = preflightRuntime.shadowReviewRunner ?? ((update, signal) =>
+        runAnthropicShadowReview({
+          update,
+          target: shadowTarget,
+          sourceAgentId: agentId,
+          thread: threadId,
+          ...(process.env.NORTH_THREAD_ID === undefined
+            ? {} : { parentThread: process.env.NORTH_THREAD_ID }),
+          ...(coordHandle === undefined ? {} : { coordinator: coordHandle }),
+          signal,
+        }));
+      const notePublisher = preflightRuntime.publishShadowReviewerNote
+        ?? publishShadowReviewerNote;
+      shadowReviewer = new ShadowReviewer(
+        shadowConfig!,
+        wireRunId(runId),
+        reviewRunner,
+        async (note, signal) => {
+          await notePublisher(agentId, note, shadowNoteCapability!, signal);
+          if (note.severity !== "blocker") return;
+          await shadowReviewerInterruptGate.interruptIfArmed(
+            liveInputRoute.isArmed(),
+            signal,
+            activeExecutionQuery?.interruptTurn,
+          );
+        },
+        { signal: termination.signal, home: process.env.HOME },
       );
     }
     const artifacts = new RunArtifactStore(runId);
@@ -660,6 +723,8 @@ async function runDispatch(
       }
 
       if (event.essential && event.kind === "model-call.completed") {
+        const reviewerCancelledThisCall = shadowReviewerInterruptGate
+          .consumeReviewerCancellation(event);
         if (isIntermediateProviderSessionReplacement(event)) continue;
         result = observation.state.lastCompletedAssistantOutput ?? "";
         const tokenBudget = termination.observeCompletedCallUsage(observation.state.run);
@@ -698,6 +763,11 @@ async function runDispatch(
           break;
         }
         if (event.status !== "succeeded") {
+          if (reviewerCancelledThisCall
+              && !termination.signal.aborted) {
+            await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+            if (ch.pending() > 0) continue;
+          }
           outcome = "provider_error";
           providerErrorDetail = observation.state.providerErrorDetail
             ?? "model-call terminal failed without diagnostic evidence";
@@ -708,6 +778,10 @@ async function runDispatch(
         // The usage observation above latches L5's token tripwire. The shared gate
         // checks it with the durable hard deadline before and after inbox replay.
         await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+        if (ch.pending() === 0 && shadowReviewer) {
+          await shadowReviewer.settleEligibleUpdates();
+          await prepareManagedTerminalFollowUp(liveInputRoute, termination);
+        }
         if (ch.pending() === 0) {
           // Orchestrator continuation race (thread 019f8ec5): a continuation
           // injected at a prior turn-end asks the provider for ANOTHER genuine
@@ -942,6 +1016,8 @@ async function runDispatch(
     stopProviderActivity();
     try { await observeCommittedWireEvents(); }
     catch (error) { queryCloseError ??= error; }
+    shadowReviewerInterruptGate.disarm();
+    if (shadowReviewer) shadowReviewerSummary = await shadowReviewer.close();
     try {
       await liveInputRoute.freezeAndUnbind();
     } catch (error) {
@@ -1210,6 +1286,7 @@ async function runDispatch(
       ? {} : { routingPinEvidence: routingEconomics.pinEvidence }),
     ...(promptComposition === undefined ? {} : { promptComposition }),
     learningAssignment,
+    ...(shadowReviewerSummary === undefined ? {} : { shadowReviewerSummary }),
     ...(promptReceipt === undefined ? {} : { promptReceipt }),
     ...(environmentReceipt === undefined ? {} : { environmentReceipt }),
     ...(runEnvelopeReceipt === undefined ? {} : { runEnvelopeReceipt }),
@@ -1292,6 +1369,7 @@ export async function dispatch(
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
   (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedDispatchDependencies(dependencies);
+  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
   managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
@@ -1358,11 +1436,13 @@ export async function dispatch(
       taskGrade: routingMetadata.taskGrade,
       topology: routingMetadata.topology,
       domains: [...routingMetadata.domainRequirements].sort(),
+      shadowReviewer: shadowReviewerTaskSignature(shadowConfig),
     },
     taskSignatureCoverage: "exact",
     routingMetadata,
     routingAssessment: routingEconomics.assessment,
     pinEvidence: routingEconomics.pinEvidence,
+    ...(shadowConfig ? { authoringArms: [SHADOW_REVIEWER_ARM] } : {}),
   });
   routingMetadata = learning.routingMetadata;
   routingEconomics = admitRoutingEconomics({
@@ -1414,6 +1494,7 @@ export async function dispatch(
       termination,
       injected,
       learning.assignment,
+      shadowConfig,
     );
   } catch (error) {
     failed = true;

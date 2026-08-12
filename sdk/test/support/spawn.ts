@@ -18,6 +18,7 @@ const RUNTIME_FIELDS = new Set([
   "admitDispatchAuthority",
   "worktreeAllocationWriter",
   "publishLearningAssignment",
+  "loadShadowReviewerConfig", "shadowReviewRunner", "publishShadowReviewerNote",
   "journalRoot",
 ]);
 
