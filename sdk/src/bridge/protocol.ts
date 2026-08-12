@@ -66,6 +66,7 @@ export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
 export type BridgeRequest =
   | {
     op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole;
+    executionId?: string;
     provider?: BridgeLaunchProvider;
   }
   | { op: "attach"; executionId: string; cursor: number }
@@ -88,6 +89,15 @@ export function bridgeJournalRoot(env: NodeJS.ProcessEnv = process.env): string 
   return join(bridgeStateDirectory(env), "journal");
 }
 
+function parseExecutionId(value: unknown, operation: string): string {
+  if (typeof value !== "string"
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)
+    || value === "." || value === "..") {
+    throw new Error(`bridge ${operation} requires a safe execution id`);
+  }
+  return value;
+}
+
 export function parseBridgeRequest(value: unknown): BridgeRequest {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("bridge request must be an object");
@@ -98,31 +108,41 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     if (typeof request.cwd !== "string" || !request.cwd)
       throw new Error("bridge launch requires cwd");
     const provider = parseBridgeLaunchProvider(request.provider);
+    const executionId = request.executionId === undefined
+      ? undefined
+      : parseBridgeLaunchExecutionId(request.executionId);
     return {
       op: "launch", prompt: request.prompt, cwd: request.cwd,
       role: parseBridgeLaunchRole(request.role),
+      ...(executionId ? { executionId } : {}),
       ...(provider ? { provider } : {}),
     };
   }
   if (request.op === "retire") return { op: "retire" };
   if (request.op === "attach") {
-    if (typeof request.executionId !== "string" || !request.executionId)
-      throw new Error("bridge attach requires an execution id");
+    const executionId = parseExecutionId(request.executionId, "attach");
     if (!Number.isSafeInteger(request.cursor) || (request.cursor as number) < 0)
       throw new Error("bridge attach cursor must be a non-negative integer");
-    return { op: "attach", executionId: request.executionId, cursor: request.cursor as number };
+    return { op: "attach", executionId, cursor: request.cursor as number };
   }
   if (["submitInput", "interruptTurn", "redirectNow", "terminateSession"].includes(String(request.op))) {
-    if (typeof request.executionId !== "string" || !request.executionId)
-      throw new Error(`bridge ${String(request.op)} requires an execution id`);
+    const executionId = parseExecutionId(request.executionId, String(request.op));
     if (request.op === "submitInput" || request.op === "redirectNow") {
       if (typeof request.input !== "string" || !request.input.trim())
         throw new Error(`bridge ${request.op} requires non-empty input`);
-      return { op: request.op, executionId: request.executionId, input: request.input };
+      return { op: request.op, executionId, input: request.input };
     }
     if (request.op === "interruptTurn")
-      return { op: request.op, executionId: request.executionId };
-    return { op: "terminateSession", executionId: request.executionId };
+      return { op: request.op, executionId };
+    return { op: "terminateSession", executionId };
   }
   throw new Error("unknown bridge request");
+}
+
+export function parseBridgeLaunchExecutionId(value: unknown): string {
+  if (typeof value !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error("bridge launch execution id must be a UUIDv4");
+  }
+  return value.toLowerCase();
 }

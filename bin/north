@@ -365,6 +365,12 @@ case "${1:-}" in
     coord_runtime_ready ;;
   coord-safety)
     coord_safety_ready ;;
+  acp)
+    if [ "$#" -ne 1 ]; then
+      echo "usage: north acp" >&2
+      exit 2
+    fi
+    exec "$BUN" run "$NORTH/sdk/src/acp/cli.ts" ;;
   dashboard)
     # Compatibility alias: Bridge owns the operator cockpit command surface.
     exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" dashboard "${@:2}" ;;
