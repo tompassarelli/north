@@ -80,6 +80,13 @@ async function runApp(args: string[]): Promise<number> {
     viewId = rest[1];
   }
   process.env.NORTH_BIN ??= resolve(import.meta.dir, "../../../bin/north");
+  // Opening the control TUI supersedes a control session left behind by the
+  // previous checkout. Replace a stale daemon before drawing the app so the
+  // first thing on screen is startup progress, never a terminal stale error.
+  const connection = await verifiedSocket(
+    bridgeSocketPath(), consoleBridgeConnectionOutput, { replacePinned: true },
+  );
+  connection.socket.destroy();
   // The checkout the app is running from, which is the same identity the
   // staleness handshake is fought over. The banner prints its short form, so
   // "which North Bridge am I looking at" is answerable from the screen.
@@ -227,6 +234,10 @@ export interface BridgeConnectionOutput {
   error(message: string): void;
 }
 
+export interface VerifiedSocketOptions {
+  replacePinned?: boolean;
+}
+
 const consoleBridgeConnectionOutput: BridgeConnectionOutput = {
   info: (message) => console.log(message),
   error: (message) => console.error(message),
@@ -254,6 +265,7 @@ function processAlive(pid: number): boolean {
 export async function verifiedSocket(
   path: string,
   output: BridgeConnectionOutput = consoleBridgeConnectionOutput,
+  options: VerifiedSocketOptions = {},
 ): Promise<BridgeConnection> {
   let replacedFrom: string | undefined;
   let replaced = false;
@@ -272,7 +284,7 @@ export async function verifiedSocket(
       return { socket, hello };
     }
     const pinning = hello === null ? 0 : pinningExecutions(hello);
-    if (pinning > 0) {
+    if (pinning > 0 && options.replacePinned !== true) {
       output.error(`north bridge: northd is stale with ${pinning} live session(s);`
         + " run 'north bridge restart' to replace it now, or new launches are refused"
         + " until it drains");
