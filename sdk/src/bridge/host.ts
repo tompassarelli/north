@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
 import { dirname, join } from "node:path";
+import { causeChain } from "../death";
+import { privacyFilteredText } from "../privacy-filter";
 import {
   BridgeWireJournal,
   ExecutionJournal,
@@ -45,6 +54,7 @@ import {
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const STALE_POLL_MS = 15_000;
 const PROVIDER_TEARDOWN_TIMEOUT_MS = 2_000;
+const FAILURE_DIAGNOSTIC_MAX_BYTES = 4_096;
 
 class HostProviderTeardownTimeoutError extends Error {
   constructor() {
@@ -173,6 +183,31 @@ function failureData(
     classification,
     ...(evidence === undefined ? {} : { evidence }),
   };
+}
+
+function persistFailureDiagnostic(
+  runtime: ExecutionRuntime,
+  error: unknown,
+  code: "provider_error" | "provider_process_died",
+  classification: string,
+): void {
+  try {
+    const path = join(runtime.journal.root, runtime.executionId, "failure-diagnostic.json");
+    const detail = privacyFilteredText(
+      causeChain(error, 8, FAILURE_DIAGNOSTIC_MAX_BYTES),
+      { home: process.env.HOME, maxBytes: FAILURE_DIAGNOSTIC_MAX_BYTES },
+    );
+    writeFileSync(path, `${JSON.stringify({
+      version: "north:bridge-failure-diagnostic:v1",
+      at: new Date().toISOString(),
+      code,
+      classification,
+      detail,
+    })}\n`, { encoding: "utf8", mode: 0o600 });
+    chmodSync(path, 0o600);
+  } catch {
+    // Diagnostics must never replace the failure they describe.
+  }
 }
 
 function liveSocket(path: string): Promise<boolean> {
@@ -710,6 +745,7 @@ export class Northd {
     const classification = code === "provider_process_died"
       ? "provider_process_died"
       : providerFailureClassification(error);
+    persistFailureDiagnostic(runtime, error, code, classification);
     const failures: unknown[] = [];
     try {
       this.#appendControl(

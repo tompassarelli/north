@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import type { BridgeProviderExecution } from "../src/bridge/provider";
 import type { BridgeServerMessage } from "../src/bridge/protocol";
 import { ProviderRetrySafeError } from "../src/providers/types";
 
+const FAILURE_DIAGNOSTIC_DETAIL_BYTES = 4_096;
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -42,6 +43,8 @@ async function launch(open: BridgeProviderExecution["open"]): Promise<{
   messages: BridgeServerMessage[];
   attach: BridgeServerMessage[];
   journal: string;
+  diagnostic: string;
+  diagnosticMode: number;
 }> {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-cause-"));
   const socketPath = join(root, "northd.sock");
@@ -57,12 +60,20 @@ async function launch(open: BridgeProviderExecution["open"]): Promise<{
   const launched = messages.find((message) => message.type === "launched");
   if (!launched || launched.type !== "launched") throw new Error("launch id missing");
   const journalPath = join(root, "journal", launched.executionId, "events.log");
+  const diagnosticPath = join(
+    root,
+    "journal",
+    launched.executionId,
+    "failure-diagnostic.json",
+  );
   return {
     messages,
     attach: await exchange(socketPath, {
       op: "attach", executionId: launched.executionId, cursor: 0,
     }),
     journal: readFileSync(journalPath, "utf8"),
+    diagnostic: readFileSync(diagnosticPath, "utf8"),
+    diagnosticMode: statSync(diagnosticPath).mode & 0o777,
   };
 }
 
@@ -91,6 +102,8 @@ test("provider prose, JSON-RPC payloads, stderr, and cause chains never enter Br
   });
   const publicMaterial = `${JSON.stringify(result.messages)}\n${JSON.stringify(result.attach)}\n${result.journal}`;
   for (const canary of canaries) expect(publicMaterial).not.toContain(canary);
+  for (const canary of canaries) expect(result.diagnostic).toContain(canary);
+  expect(result.diagnosticMode).toBe(0o600);
 });
 
 test("a provider-named typed runtime failure publishes only generic North-owned classification", async () => {
@@ -117,4 +130,21 @@ test("a provider-named typed runtime failure publishes only generic North-owned 
   const publicMaterial = `${JSON.stringify(result.messages)}\n${JSON.stringify(result.attach)}\n${result.journal}`;
   expect(publicMaterial).not.toContain(canary);
   expect(publicMaterial).not.toContain(causeCanary);
+  expect(result.diagnostic).toContain(canary);
+  expect(result.diagnostic).toContain(causeCanary);
+});
+
+test("private failure diagnostics redact secrets, shorten home paths, and stay bounded", async () => {
+  const home = process.env.HOME;
+  if (!home) throw new Error("HOME is required by this test");
+  const secret = "sk-supervisorsecret012345";
+  const result = await launch(async () => {
+    throw new Error(`${home}/private ${secret} ${"x".repeat(8_000)}`);
+  });
+  expect(result.diagnostic).not.toContain(home);
+  expect(result.diagnostic).toContain("~/private");
+  expect(result.diagnostic).not.toContain(secret);
+  expect(result.diagnostic).toContain("sk-REDACTED");
+  expect(Buffer.byteLength(JSON.parse(result.diagnostic).detail, "utf8"))
+    .toBeLessThanOrEqual(FAILURE_DIAGNOSTIC_DETAIL_BYTES);
 });
