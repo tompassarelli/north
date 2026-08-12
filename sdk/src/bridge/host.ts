@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { createServer, Socket, type Server } from "node:net";
 import { dirname, join } from "node:path";
-import { causeChain } from "../death";
 import { privacyFilteredText } from "../privacy-filter";
 import {
   BridgeWireJournal,
@@ -185,6 +184,32 @@ function failureData(
   };
 }
 
+function failureDiagnosticDetail(error: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 8 && current != null; depth += 1) {
+    if (seen.has(current)) {
+      parts.push("[cyclic cause]");
+      current = undefined;
+      break;
+    }
+    seen.add(current);
+    parts.push(privacyFilteredText(errorMessage(current).replace(/\s+/g, " ").trim(), {
+      home: process.env.HOME,
+      maxBytes: FAILURE_DIAGNOSTIC_MAX_BYTES,
+    }));
+    current = typeof current === "object" && "cause" in current
+      ? (current as { cause?: unknown }).cause
+      : undefined;
+  }
+  if (current != null) parts.push("[cause chain truncated]");
+  return privacyFilteredText(parts.join(" <- cause: "), {
+    home: process.env.HOME,
+    maxBytes: FAILURE_DIAGNOSTIC_MAX_BYTES,
+  });
+}
+
 function persistFailureDiagnostic(
   runtime: ExecutionRuntime,
   error: unknown,
@@ -193,10 +218,7 @@ function persistFailureDiagnostic(
 ): void {
   try {
     const path = join(runtime.journal.root, runtime.executionId, "failure-diagnostic.json");
-    const detail = privacyFilteredText(
-      causeChain(error, 8, FAILURE_DIAGNOSTIC_MAX_BYTES),
-      { home: process.env.HOME, maxBytes: FAILURE_DIAGNOSTIC_MAX_BYTES },
-    );
+    const detail = failureDiagnosticDetail(error);
     writeFileSync(path, `${JSON.stringify({
       version: "north:bridge-failure-diagnostic:v1",
       at: new Date().toISOString(),

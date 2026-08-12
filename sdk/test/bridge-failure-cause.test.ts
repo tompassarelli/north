@@ -148,3 +148,21 @@ test("private failure diagnostics redact secrets, shorten home paths, and stay b
   expect(Buffer.byteLength(JSON.parse(result.diagnostic).detail, "utf8"))
     .toBeLessThanOrEqual(FAILURE_DIAGNOSTIC_DETAIL_BYTES);
 });
+
+test("private failure diagnostics redact sensitive values crossing the output boundary", async () => {
+  const home = process.env.HOME;
+  if (!home) throw new Error("HOME is required by this test");
+  const homePrefix = home.slice(0, Math.max(1, home.length - 2));
+  const homeResult = await launch(async () => {
+    throw new Error(`${"x".repeat(4_090)}${home}/private`);
+  });
+  expect(homeResult.diagnostic).not.toContain(homePrefix);
+  expect(homeResult.diagnostic).toContain("~");
+
+  const secretPrefix = "sk-sup";
+  const secretResult = await launch(async () => {
+    throw new Error(`${"x".repeat(4_089)} sk-supervisorsecret012345`);
+  });
+  expect(secretResult.diagnostic).not.toContain(secretPrefix);
+  expect(secretResult.diagnostic).toContain("sk-…");
+});
