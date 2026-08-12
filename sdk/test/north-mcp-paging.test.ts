@@ -28,6 +28,30 @@ interface McpResponse {
   };
 }
 
+interface PageItemFragment {
+  index: number;
+  encoding: string;
+  byteOffset: number;
+  totalBytes: number;
+  content: string;
+}
+
+interface PageResponse {
+  protocol: string;
+  version: number;
+  snapshot: string;
+  offset: number;
+  limit: number;
+  maxResponseBytes: number;
+  total: number;
+  nextOffset: number | null;
+  nextItemByteOffset?: number | null;
+  complete: boolean;
+  state: string;
+  items: unknown[];
+  itemFragment?: PageItemFragment;
+}
+
 afterEach(() => {
   for (const directory of temporary.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
@@ -101,15 +125,118 @@ test("show returns coherent bounded pages without changing its complete projecti
 
   expect(text(responses[0])).toEqual({
     protocol: "north.page", version: 1, snapshot, offset: 0, limit: 2,
-    total: 5, nextOffset: 2, complete: false, state: "incomplete", items: facts.slice(0, 2),
+    maxResponseBytes: 65_536, total: 5, nextOffset: 2, complete: false,
+    state: "incomplete", items: facts.slice(0, 2),
   });
   expect(text(responses[1])).toEqual({
     protocol: "north.page", version: 1, snapshot, offset: 2, limit: 2,
-    total: 5, nextOffset: 4, complete: false, state: "incomplete", items: facts.slice(2, 4),
+    maxResponseBytes: 65_536, total: 5, nextOffset: 4, complete: false,
+    state: "incomplete", items: facts.slice(2, 4),
   });
   expect(text(responses[2])).toEqual({
     protocol: "north.page", version: 1, snapshot, offset: 5, limit: 2,
-    total: 5, nextOffset: null, complete: true, state: "exhausted", items: [],
+    maxResponseBytes: 65_536, total: 5, nextOffset: null, complete: true,
+    state: "exhausted", items: [],
+  });
+});
+
+test("show and search losslessly fragment arbitrarily large graph values within the byte bound", () => {
+  const hugeValue = '🙂"\\'.repeat(12_000);
+  const itemsByTool = {
+    show: [{ predicate: "note", value: hugeValue }],
+    search: [{ subject: "thread-1", title: "Large", predicate: "note", value: hugeValue }],
+  };
+
+  for (const [name, items] of Object.entries(itemsByTool)) {
+    const snapshot = sha256(items);
+    const fragments: string[] = [];
+    let offset = 0;
+    let itemByteOffset = 0;
+    let complete = false;
+
+    for (let pageNumber = 0; pageNumber < 20 && !complete; pageNumber += 1) {
+      const args: Record<string, unknown> = name === "show"
+        ? { id: "thread-1", offset, limit: 100 }
+        : { query: "large", offset, limit: 100 };
+      if (itemByteOffset > 0) {
+        args.itemByteOffset = itemByteOffset;
+        args.snapshot = snapshot;
+      }
+      const response = rpc([items], [call(pageNumber + 1, name, args)])[0];
+      expect(response.result.isError).toBe(false);
+      const page = text(response) as PageResponse;
+      expect(page.maxResponseBytes).toBe(65_536);
+      expect(Buffer.byteLength(JSON.stringify(response), "utf8"))
+        .toBeLessThanOrEqual(page.maxResponseBytes);
+      expect(page.snapshot).toBe(snapshot);
+      expect(page.items).toEqual([]);
+      expect(page.itemFragment).toMatchObject({
+        index: 0,
+        encoding: "json",
+        byteOffset: itemByteOffset,
+      });
+      if (!page.itemFragment) throw new Error("oversized item omitted its fragment");
+      fragments.push(page.itemFragment.content);
+      complete = page.complete;
+      if (!complete) {
+        expect(page.nextOffset).toBe(0);
+        expect(page.nextItemByteOffset).toBeGreaterThan(itemByteOffset);
+        offset = page.nextOffset ?? 0;
+        itemByteOffset = page.nextItemByteOffset ?? 0;
+      }
+    }
+
+    expect(complete).toBe(true);
+    expect(JSON.parse(fragments.join(""))).toEqual(items[0]);
+  }
+});
+
+test("byte packing continues from whole items through a fragmented item to the next item", () => {
+  const facts = [
+    { predicate: "a", value: "small first" },
+    { predicate: "b", value: '🙂"\\'.repeat(12_000) },
+    { predicate: "c", value: "small last" },
+  ];
+  const snapshot = sha256(facts);
+  const first = rpc([facts], [call(1, "show", { id: "thread-1", limit: 100 })])[0];
+  const firstPage = text(first) as PageResponse;
+  expect(Buffer.byteLength(JSON.stringify(first), "utf8")).toBeLessThanOrEqual(65_536);
+  expect(firstPage).toMatchObject({
+    snapshot,
+    offset: 0,
+    nextOffset: 1,
+    complete: false,
+    items: facts.slice(0, 1),
+  });
+
+  const fragments: string[] = [];
+  let itemByteOffset = 0;
+  let afterFragment: PageResponse | undefined;
+  for (let pageNumber = 0; pageNumber < 20 && !afterFragment; pageNumber += 1) {
+    const args: Record<string, unknown> = {
+      id: "thread-1", offset: 1, limit: 100, snapshot,
+    };
+    if (itemByteOffset > 0) args.itemByteOffset = itemByteOffset;
+    const response = rpc([facts], [call(pageNumber + 2, "show", args)])[0];
+    expect(Buffer.byteLength(JSON.stringify(response), "utf8")).toBeLessThanOrEqual(65_536);
+    const page = text(response) as PageResponse;
+    expect(page.itemFragment).toMatchObject({ index: 1, byteOffset: itemByteOffset });
+    if (!page.itemFragment) throw new Error("oversized middle item omitted its fragment");
+    fragments.push(page.itemFragment.content);
+    if (page.nextItemByteOffset == null) afterFragment = page;
+    else itemByteOffset = page.nextItemByteOffset;
+  }
+  expect(JSON.parse(fragments.join(""))).toEqual(facts[1]);
+  expect(afterFragment).toMatchObject({
+    offset: 1, nextOffset: 2, complete: false, items: [],
+  });
+
+  const last = rpc([facts], [call(20, "show", {
+    id: "thread-1", offset: 2, limit: 100, snapshot,
+  })])[0];
+  expect(Buffer.byteLength(JSON.stringify(last), "utf8")).toBeLessThanOrEqual(65_536);
+  expect(text(last)).toMatchObject({
+    offset: 2, nextOffset: null, complete: true, items: facts.slice(2),
   });
 });
 
@@ -171,6 +298,7 @@ test("show and search advertise and enforce the bounded continuation contract", 
     expect(byName[name].inputSchema.properties).toMatchObject({
       offset: { type: "integer", minimum: 0, maximum: 2147483647, default: 0 },
       limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+      itemByteOffset: { type: "integer", minimum: 0, maximum: 2147483647, default: 0 },
       snapshot: { type: "string", pattern: "^[0-9a-f]{64}$" },
     });
     expect(byName[name].inputSchema.additionalProperties).toBe(false);

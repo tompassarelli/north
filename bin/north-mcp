@@ -56,9 +56,10 @@
   {:type "string" :minLength 1 :description "Optional configured Linear MCP server name"})
 
 (def evidence-argument-keys #{"bar" "observed"})
-(def page-argument-keys #{"offset" "limit" "snapshot"})
+(def page-argument-keys #{"offset" "limit" "snapshot" "itemByteOffset"})
 (def max-page-offset 2147483647)
 (def max-page-limit 100)
+(def max-page-response-bytes 65536)
 (def artifact-read-argument-keys #{"artifactId" "offset" "limit" "snapshot"})
 (def max-artifact-read-limit 65536)
 
@@ -69,16 +70,22 @@
           unknown (sort (remove allowed (keys arguments)))
           offset (get arguments "offset" 0)
           limit (get arguments "limit" 50)
-          snapshot (get arguments "snapshot")]
+          snapshot (get arguments "snapshot")
+          item-byte-offset (get arguments "itemByteOffset" 0)]
       (cond
         (seq unknown) (str "unknown arguments: " (str/join ", " unknown))
         (not (and (integer? offset) (<= 0 offset max-page-offset)))
         "offset must be an integer from 0 through 2147483647"
         (not (and (integer? limit) (<= 1 limit max-page-limit)))
         "limit must be an integer from 1 through 100"
+        (not (and (integer? item-byte-offset)
+                  (<= 0 item-byte-offset max-page-offset)))
+        "itemByteOffset must be an integer from 0 through 2147483647"
         (and (some? snapshot)
              (not (and (string? snapshot) (re-matches #"[0-9a-f]{64}" snapshot))))
         "snapshot must be a 64-character lowercase SHA-256 hash"
+        (and (pos? item-byte-offset) (nil? snapshot))
+        "itemByteOffset requires snapshot"
         :else nil))))
 
 (defn show-argument-problem [arguments]
@@ -163,20 +170,24 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "needs-review"])}
    {:name "validate"     :desc "Integrity check over the whole graph."
     :schema {:type "object" :properties {}} :argv (fn [_] ["validate"])}
-   {:name "show"         :desc "Show one graph subject's facts as a bounded snapshot page. Continue with nextOffset and the returned snapshot; a changed projection rejects the continuation."
+   {:name "show"         :desc "Show one graph subject's facts in a JSON-RPC response bounded to 65536 serialized UTF-8 bytes. Oversized items are returned as lossless JSON fragments. Continue with nextOffset, nextItemByteOffset when present, and the returned snapshot; a changed projection rejects the continuation."
     :schema {:type "object"
              :properties {:id {:type "string" :minLength 1}
                           :offset {:type "integer" :minimum 0 :maximum 2147483647 :default 0}
                           :limit {:type "integer" :minimum 1 :maximum 100 :default 50}
+                          :itemByteOffset {:type "integer" :minimum 0 :maximum 2147483647 :default 0
+                                           :description "exact UTF-8 byte continuation inside an oversized JSON item; use only nextItemByteOffset"}
                           :snapshot {:type "string" :pattern "^[0-9a-f]{64}$"}}
              :required ["id"] :additionalProperties false}
     :argument-problem show-argument-problem
     :argv (fn [a] ["json" "show" (get a "id")])}
-   {:name "search"       :desc "Case-insensitive literal search over private North graph titles, predicates, and values. Returns deterministic subject-diverse snapshot pages."
+   {:name "search"       :desc "Case-insensitive literal search over private North graph titles, predicates, and values. Returns deterministic subject-diverse pages in JSON-RPC responses bounded to 65536 serialized UTF-8 bytes; oversized items use lossless JSON fragments."
     :schema {:type "object"
              :properties {:query {:type "string" :minLength 1}
                           :offset {:type "integer" :minimum 0 :maximum 2147483647 :default 0}
                           :limit {:type "integer" :minimum 1 :maximum 100 :default 50}
+                          :itemByteOffset {:type "integer" :minimum 0 :maximum 2147483647 :default 0
+                                           :description "exact UTF-8 byte continuation inside an oversized JSON item; use only nextItemByteOffset"}
                           :snapshot {:type "string" :pattern "^[0-9a-f]{64}$"}}
              :required ["query"] :additionalProperties false}
     :argument-problem search-argument-problem
@@ -1099,7 +1110,155 @@
     (< end total) "incomplete"
     :else "complete"))
 
-(defn paged-output [nm arguments text]
+(defn utf8-byte-count [text]
+  (alength (.getBytes (str text) java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn page-envelope [nm digest offset limit total end page-items]
+  (let [complete (>= end total)]
+    {:protocol "north.page"
+     :version 1
+     :snapshot digest
+     :offset offset
+     :limit limit
+     :maxResponseBytes max-page-response-bytes
+     :total total
+     :nextOffset (when-not complete end)
+     :complete complete
+     :state (page-state nm total offset end)
+     :items page-items}))
+
+(defn encode-page [body response-id]
+  (let [text (json/generate-string body)
+        result {:content [{:type "text" :text text}] :isError false}
+        response {:jsonrpc "2.0" :id response-id :result result}]
+    {:body body
+     :result result
+     :bytes (utf8-byte-count (json/generate-string response))}))
+
+(defn page-success [{:keys [result bytes]}]
+  (when (> bytes max-page-response-bytes)
+    (throw (ex-info "serialized page exceeds its byte bound"
+                    {:type :page-response-too-large
+                     :bytes bytes
+                     :limit max-page-response-bytes})))
+  result)
+
+(defn page-error [body]
+  {:content [{:type "text" :text (json/generate-string body)}] :isError true})
+
+(defn bounded-whole-page [nm items digest offset limit response-id]
+  (let [total (count items)
+        initial-end (min offset total)
+        initial (encode-page
+                 (page-envelope nm digest offset limit total initial-end [])
+                 response-id)]
+    (loop [end initial-end
+           best initial]
+      (if (or (>= end total) (>= (- end offset) limit))
+        {:page best :item-count (- end offset)}
+        (let [candidate-end (inc end)
+              candidate (encode-page
+                         (page-envelope nm digest offset limit total candidate-end
+                                        (subvec items offset candidate-end))
+                         response-id)]
+          (if (<= (:bytes candidate) max-page-response-bytes)
+            (recur candidate-end candidate)
+            {:page best :item-count (- end offset)}))))))
+
+(defn utf8-continuation-byte? [value]
+  (= 128 (bit-and 192 (bit-and 255 value))))
+
+(defn utf8-boundary? [bytes offset]
+  (or (zero? offset)
+      (= offset (alength bytes))
+      (not (utf8-continuation-byte? (aget bytes offset)))))
+
+(defn floor-utf8-boundary [bytes start candidate]
+  (loop [end candidate]
+    (if (or (= end start)
+            (= end (alength bytes))
+            (not (utf8-continuation-byte? (aget bytes end))))
+      end
+      (recur (dec end)))))
+
+(defn item-fragment-envelope [digest offset limit total item-bytes start end]
+  (let [item-total (alength item-bytes)
+        item-complete (= end item-total)
+        projection-end (if item-complete (inc offset) offset)
+        complete (>= projection-end total)
+        content (String. item-bytes (int start) (int (- end start))
+                          java.nio.charset.StandardCharsets/UTF_8)]
+    {:protocol "north.page"
+     :version 1
+     :snapshot digest
+     :offset offset
+     :limit limit
+     :maxResponseBytes max-page-response-bytes
+     :total total
+     :nextOffset (when-not complete projection-end)
+     :nextItemByteOffset (when-not item-complete end)
+     :complete complete
+     :state (if complete "complete" "incomplete")
+     :items []
+     :itemFragment {:index offset
+                    :encoding "json"
+                    :byteOffset start
+                    :totalBytes item-total
+                    :content content}}))
+
+(defn bounded-item-fragment [items digest offset limit start response-id]
+  (let [total (count items)]
+    (cond
+      (>= offset total)
+      {:error "invalid_item_byte_offset"
+       :snapshot digest
+       :offset offset
+       :itemByteOffset start
+       :total total}
+
+      :else
+      (let [item-text (json/generate-string (nth items offset))
+            item-bytes (.getBytes item-text java.nio.charset.StandardCharsets/UTF_8)
+            item-total (alength item-bytes)]
+        (cond
+          (or (>= start item-total) (not (utf8-boundary? item-bytes start)))
+          {:error "invalid_item_byte_offset"
+           :snapshot digest
+           :offset offset
+           :itemByteOffset start
+           :itemBytes item-total}
+
+          :else
+          (let [complete-candidate
+                (encode-page
+                 (item-fragment-envelope digest offset limit total item-bytes
+                                         start item-total)
+                 response-id)]
+            (if (<= (:bytes complete-candidate) max-page-response-bytes)
+              complete-candidate
+              (loop [low (inc start)
+                     high (dec item-total)
+                     best nil]
+                (if (> low high)
+                  (or best
+                      {:error "page_item_too_large"
+                       :snapshot digest
+                      :offset offset
+                      :itemBytes item-total
+                       :maxResponseBytes max-page-response-bytes})
+                  (let [middle (+ low (quot (- high low) 2))
+                        end (floor-utf8-boundary item-bytes start middle)
+                        candidate (when (> end start)
+                                    (encode-page
+                                     (item-fragment-envelope digest offset limit total
+                                                             item-bytes start end)
+                                     response-id))]
+                    (if (and candidate
+                             (<= (:bytes candidate) max-page-response-bytes))
+                      (recur (inc middle) high candidate)
+                      (recur low (dec middle) best))))))))))))
+
+(defn paged-output [nm arguments text response-id]
   (try
     (let [parsed (json/parse-string text)
           _ (when-not (sequential? parsed)
@@ -1110,31 +1269,24 @@
           digest (sha256 serialized)
           supplied (get arguments "snapshot")]
       (if (and supplied (not= supplied digest))
-        {:content [{:type "text"
-                    :text (json/generate-string
-                           {:error "stale_snapshot"
-                            :expected supplied
-                            :actual digest})}]
-         :isError true}
+        (page-error {:error "stale_snapshot"
+                     :expected supplied
+                     :actual digest})
         (let [total (count items)
               offset (get arguments "offset" 0)
               limit (get arguments "limit" 50)
-              end (min total (+ offset limit))
-              page-items (if (< offset total) (subvec items offset end) [])
-              complete (>= end total)]
-          {:content [{:type "text"
-                      :text (json/generate-string
-                             {:protocol "north.page"
-                              :version 1
-                              :snapshot digest
-                              :offset offset
-                              :limit limit
-                              :total total
-                              :nextOffset (when-not complete end)
-                              :complete complete
-                              :state (page-state nm total offset end)
-                              :items page-items})}]
-           :isError false})))
+              item-byte-offset (get arguments "itemByteOffset" 0)
+              whole (when (zero? item-byte-offset)
+                      (bounded-whole-page nm items digest offset limit response-id))
+              result (if (and whole
+                              (or (pos? (:item-count whole))
+                                  (>= offset total)))
+                       (:page whole)
+                       (bounded-item-fragment items digest offset limit
+                                              item-byte-offset response-id))]
+          (if (:error result)
+            (page-error result)
+            (page-success result)))))
     (catch Exception error
       {:content [{:type "text"
                   :text (str "invalid " nm " projection: " (.getMessage error))}]
@@ -1164,7 +1316,7 @@
     {:content [{:type "text" :text text}]
      :isError (boolean (or (not (zero? exit)) (seq stderr)))}))
 
-(defn call-tool [nm args]
+(defn call-tool [nm args response-id]
   (if-let [st (find-sdk-tool nm)]
     (try
       (call-sdk nm (or args {}))
@@ -1191,7 +1343,7 @@
                             :text (bound-tool-error
                                    (str "invalid " nm " projection: " errs))}]
                  :isError true}
-                (paged-output nm arguments (str/trim (or out ""))))
+                (paged-output nm arguments (str/trim (or out "")) response-id))
               {:content [{:type "text" :text (if (str/blank? text) (str "(done; exit " exit ")") text)}]
                :isError (not (zero? exit))})))))
       {:content [{:type "text" :text (str "unknown tool: " nm)}] :isError true})))
@@ -1224,7 +1376,7 @@
             (= method "notifications/initialized")  nil
             (= method "ping")                       (respond id {})
             (= method "tools/list")                 (respond id (tools-list))
-            (= method "tools/call")                 (respond id (call-tool (get params "name") (get params "arguments")))
+            (= method "tools/call")                 (respond id (call-tool (get params "name") (get params "arguments") id))
             (some? id)                              (respond-err id -32601 (str "method not found: " method))
             :else                                   nil))))))
 
