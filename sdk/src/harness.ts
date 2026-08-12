@@ -1640,7 +1640,7 @@ export function applyHarnessRoute(
   if (provider === "anthropic")
     assertCanonicalGlobalAgentsExactlyOnce(composed.prompt, state.environment);
   let modelAvailabilityRequired = false;
-  if (provider === "anthropic") {
+  if (provider === "anthropic" || provider === "openai") {
     if (state.exactModelPinned) modelAvailabilityRequired = true;
     else if (state.routingRequest?.tier && concreteModel) {
       try {

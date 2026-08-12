@@ -234,6 +234,48 @@ test("a cold machine probes under a boot budget, then takes the configured defau
   expect(route.target).toEqual(fallback);
 });
 
+test("an explicit Bridge model is selected with its exact receipt and never falls back statically", async () => {
+  const target = { id: "codex-a", provider: "openai" as const, authMode: "ambient" as const };
+  const receipt = {
+    provider: "openai" as const,
+    targetId: target.id,
+    authMode: "ambient" as const,
+    model: "gpt-5.6-sol",
+    observedAt: new Date().toISOString(),
+    source: "codex-app-server:model-list" as const,
+    observationDigest: "0".repeat(64),
+  };
+  let observedContext: unknown;
+  let defaults = 0;
+  const route = await bridgeRoute({
+    BOOT_ROUTING_TIMEOUT_MS,
+    selectProviderFromCachedState: async (_preference, _policy, context) => {
+      observedContext = context;
+      return {
+        target: target.id,
+        routingTargets: { [target.id]: target },
+        modelAvailabilityReceipts: { [target.id]: receipt },
+      } as RoutingDecision;
+    },
+    refreshProviderRoutingInBackground: () => Promise.resolve(),
+    selectProviderForExecution: async () => { throw new Error("must not probe"); },
+    configuredDefaultTarget: () => { defaults++; return target; },
+  }, "openai", "gpt-5.6-sol");
+  expect(observedContext).toEqual({ model: "gpt-5.6-sol" });
+  expect(route).toEqual({ target, receipt });
+  expect(defaults).toBe(0);
+
+  const blocked = await bridgeRoute({
+    BOOT_ROUTING_TIMEOUT_MS,
+    selectProviderFromCachedState: async () => undefined,
+    refreshProviderRoutingInBackground: () => Promise.resolve(),
+    selectProviderForExecution: async () => { throw new Error("model not observed"); },
+    configuredDefaultTarget: () => { defaults++; return target; },
+  }, "openai", "gpt-5.6-sol");
+  expect(blocked).toEqual({});
+  expect(defaults).toBe(0);
+});
+
 test("the background refresh collapses, never rejects, and never blocks", async () => {
   let refreshes = 0;
   const failing = async () => { refreshes += 1; throw new Error("provider unreachable"); };

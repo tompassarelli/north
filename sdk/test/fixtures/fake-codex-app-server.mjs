@@ -19,7 +19,9 @@ const rl = readline.createInterface({ input: process.stdin });
 
 rl.on("line", (line) => {
   const request = JSON.parse(line);
-  const result = fixture[request.method];
+  const configured = fixture[request.method];
+  const cursor = typeof request.params?.cursor === "string" ? request.params.cursor : "";
+  const result = configured?.$pages ? configured.$pages[cursor] : configured;
   if (result === "exit") return process.exit(9);
   if (result === "never") return;
   // Provider death with last words: the shape the supervisor used to swallow.

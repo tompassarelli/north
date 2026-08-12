@@ -388,6 +388,17 @@ an exact provider/target/model pin fails closed instead of silently mapping to a
 different model. After acceptance, any change requires a new dispatch with the
 desired semantic tier or exact model.
 
+Anthropic evidence comes from the selected account's `supportedModels` control;
+OpenAI evidence comes from the selected ChatGPT account's stable Codex app-server
+`model/list` control. Codex uses each visible entry's executable `model` field,
+not its picker `id`, and intersects that literal set with Orchestration's existing
+OpenAI catalog. Unknown provider IDs are ignored rather than added to the catalog,
+account results are never unioned, and only the OpenAI target selected by static
+routing is collected. Explicit OpenAI pins carry a target/auth/profile-scoped
+receipt that the adapter revalidates before every Codex process launch, including
+a replacement launch; a newer empty or failed observation revokes the receipt.
+Unpinned semantic defaults remain static and do not require model-list evidence.
+
 ## Coordination authority boundary
 
 Topology authority is enforced on every supported North control surface: the

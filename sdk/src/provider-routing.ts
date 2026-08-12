@@ -908,6 +908,8 @@ export interface ProviderModelSelectionEvidence {
   /** In-memory results from this execution's refresh dominate every persisted predecessor. */
   currentAttempts?: readonly AccountModelAvailabilityAttempt[];
   now?: Date;
+  /** Internal preselection seam; never grants execution admission. */
+  enforceModelObservations?: boolean;
 }
 
 function routeRequiresModelObservation(
@@ -916,7 +918,6 @@ function routeRequiresModelObservation(
   reasoning: Effort | undefined,
   model: string | undefined,
 ): boolean {
-  if (target.provider !== "anthropic") return false;
   if (model !== undefined) return true;
   // Today every automatic route is the canonical Orchestration tier row. When a
   // provider adapter gains an automatic non-default alternate, its selected
@@ -965,10 +966,10 @@ export function selectProviderFromAvailability(
   const staticRouteCompatible = (target: RoutingTarget) => providerSupportsRoute(target.provider, tier, reasoning, model)
     && providerSupportsModel(target.provider, model)
     && capabilityCompatible(target);
-  const requiredModelTargets = new Set(targets
+  const requiredModelTargets = new Set((modelEvidence.enforceModelObservations ?? true) ? targets
     .filter((target) => staticRouteCompatible(target)
       && routeRequiresModelObservation(target, tier, reasoning, model))
-    .map(({ id }) => id));
+    .map(({ id }) => id) : []);
   const modelReceipts: Record<string, ProviderModelAdmissionReceipt> = {};
   for (const target of targets) {
     if (!requiredModelTargets.has(target.id)) continue;
@@ -1250,7 +1251,9 @@ export async function collectExecutionModelRefreshAttempts(
     const reports = await refresh({
       accounts: probeTargets,
       requested: preference,
-      observeAnthropicModels: requiredTargets.length > 0,
+      observeAnthropicModels: requiredTargets.some(({ provider }) => provider === "anthropic"),
+      observeCodexModels: requiredTargets.some(({ provider }) => provider === "openai"),
+      modelObservationTargetIds: requiredTargets.map(({ id }) => id),
       signal,
     });
     throwIfProviderRefreshCancelled(signal);
@@ -1264,7 +1267,9 @@ export async function collectExecutionModelRefreshAttempts(
       status: "unavailable" as const,
       targetId: target.id,
       attemptedAt,
-      reason: "anthropic_models_refresh_unavailable",
+      reason: target.provider === "anthropic"
+        ? "anthropic_models_refresh_unavailable"
+        : "codex_models_refresh_unavailable",
     }));
   }
 }
@@ -1315,11 +1320,18 @@ export async function selectProviderForExecution(
   throwIfProviderRefreshCancelled(context.signal);
   const reasoning = context.reasoning
     ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
-  const requiredRefreshTargets = probeTargets.filter((target) =>
+  const staticallyRequiredTargets = probeTargets.filter((target) =>
     stateOfTarget(availability, target).available
       && providerSupportsRoute(target.provider, context.tier, reasoning, context.model)
       && providerSupportsModel(target.provider, context.model)
       && routeRequiresModelObservation(target, context.tier, reasoning, context.model));
+  const preliminary = selectProviderFromAvailability(
+    preference, availability, policy, context.tier, context.stableKey,
+    reasoning, context.model, context.capabilities,
+    { enforceModelObservations: false },
+  );
+  const requiredRefreshTargets = staticallyRequiredTargets.filter((target) =>
+    target.provider === "anthropic" || target.id === preliminary.target);
   const attempts = await collectExecutionModelRefreshAttempts(
     probeTargets, requiredRefreshTargets, preference,
     dependencies.refreshAccountUsages ?? refreshAccountUsages,

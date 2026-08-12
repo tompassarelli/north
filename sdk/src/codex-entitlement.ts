@@ -7,6 +7,17 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProviderUsageObservation, ProviderUsageWindow } from "./providers/types";
+import {
+  MAX_PROVIDER_MODELS_PER_TARGET,
+  type ProviderModelObservation,
+} from "./provider-model-observation-store";
+import {
+  CodexModelsUnavailableError,
+  MAX_CODEX_MODEL_LIST_PAGES,
+  normalizeCodexModelListPage,
+  normalizeCodexSupportedModels,
+  type CodexModelsUnavailableReason,
+} from "./providers/codex-models";
 import { writeProviderUsageObservations } from "./provider-observation-store";
 import {
   automatedPressure,
@@ -59,6 +70,7 @@ interface AppServerOptions {
   now?: Date;
   spawnProcess?: typeof spawn;
   signal?: AbortSignal;
+  observeModels?: boolean;
 }
 
 interface ObserveOptions extends AppServerOptions {
@@ -82,6 +94,15 @@ interface RateLimitSnapshot {
   primary?: RateLimitWindow | null;
   secondary?: RateLimitWindow | null;
   rateLimitReachedType?: unknown;
+}
+
+export type CodexModelControlSurface =
+  | { ok: true; observation: ProviderModelObservation }
+  | { ok: false; attemptedAt: string; reason: CodexModelsUnavailableReason };
+
+export interface CodexControlObservation {
+  observation: ProviderUsageObservation;
+  models?: CodexModelControlSurface;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -212,8 +233,8 @@ export function normalizeCodexRateLimits(value: unknown): ProviderUsageWindow[] 
     .filter((window): window is ProviderUsageWindow => window !== undefined);
 }
 
-/** Read ChatGPT/Codex subscription headroom without sending a model turn. */
-export async function readCodexEntitlementObservation(options: AppServerOptions = {}): Promise<ProviderUsageObservation> {
+/** Read ChatGPT/Codex subscription controls without sending a model turn. */
+export async function readCodexControlObservation(options: AppServerOptions = {}): Promise<CodexControlObservation> {
   if (options.signal?.aborted)
     throw new CodexUsageUnavailableError("codex_usage_probe_failed");
   if (options.target && options.targetId && options.target.id !== options.targetId)
@@ -316,17 +337,78 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
       throw new CodexUsageUnavailableError("codex_usage_probe_failed");
     if (!record(account) || !record(account.account) || account.account.type !== "chatgpt")
       throw new CodexUsageUnavailableError("codex_usage_subscription_auth_required");
-    const limits = await request(writeLine, pending, 3, "account/rateLimits/read", null);
+    let nextRequestId = 3;
+    let models: CodexModelControlSurface | undefined;
+    if (options.observeModels) {
+      const advertisedModels: string[] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | null = null;
+      let pages = 0;
+      let itemCount = 0;
+      try {
+        for (;;) {
+          pages++;
+          if (pages > MAX_CODEX_MODEL_LIST_PAGES)
+            throw new CodexModelsUnavailableError("codex_models_pagination_invalid");
+          const rawPage = await request(writeLine, pending, nextRequestId++, "model/list", {
+            cursor,
+            limit: MAX_PROVIDER_MODELS_PER_TARGET,
+            includeHidden: false,
+          });
+          const page = normalizeCodexModelListPage(rawPage);
+          itemCount += page.itemCount;
+          if (itemCount > MAX_PROVIDER_MODELS_PER_TARGET)
+            throw new CodexModelsUnavailableError("codex_models_pagination_invalid");
+          for (const model of page.models) {
+            advertisedModels.push(model);
+            if (advertisedModels.length > MAX_PROVIDER_MODELS_PER_TARGET)
+              throw new CodexModelsUnavailableError("codex_models_pagination_invalid");
+          }
+          if (page.nextCursor === null) break;
+          if (seenCursors.has(page.nextCursor))
+            throw new CodexModelsUnavailableError("codex_models_pagination_invalid");
+          seenCursors.add(page.nextCursor);
+          cursor = page.nextCursor;
+        }
+        models = {
+          ok: true,
+          observation: normalizeCodexSupportedModels(
+            advertisedModels,
+            options.target ?? {
+              id: options.targetId ?? "openai", provider: "openai", authMode: "ambient",
+            },
+            options.now ?? new Date(),
+          ),
+        };
+      } catch (error) {
+        if (options.signal?.aborted)
+          throw new CodexUsageUnavailableError("codex_usage_probe_failed");
+        // A shared transport death invalidates every control surface. Do not
+        // downgrade it to a model-only negative and enqueue a rate-limit read
+        // onto a provider process that has already exited.
+        if (terminalError) throw terminalError;
+        models = {
+          ok: false,
+          attemptedAt: (options.now ?? new Date()).toISOString(),
+          reason: error instanceof CodexModelsUnavailableError
+            ? error.reason : "codex_models_probe_failed",
+        };
+      }
+    }
+    const limits = await request(writeLine, pending, nextRequestId, "account/rateLimits/read", null);
     if (options.signal?.aborted)
       throw new CodexUsageUnavailableError("codex_usage_probe_failed");
     const windows = normalizeCodexRateLimits(limits);
     if (!windows.length) throw new CodexUsageUnavailableError("codex_usage_windows_unavailable");
     return {
-      targetId: options.target?.id ?? options.targetId ?? "openai",
-      provider: "openai",
-      source: CODEX_USAGE_SOURCE,
-      observedAt: (options.now ?? new Date()).toISOString(),
-      windows,
+      observation: {
+        targetId: options.target?.id ?? options.targetId ?? "openai",
+        provider: "openai",
+        source: CODEX_USAGE_SOURCE,
+        observedAt: (options.now ?? new Date()).toISOString(),
+        windows,
+      },
+      ...(models ? { models } : {}),
     };
   } finally {
     options.signal?.removeEventListener("abort", abortProbe);
@@ -339,6 +421,13 @@ export async function readCodexEntitlementObservation(options: AppServerOptions 
     const force = setTimeout(() => child.kill("SIGKILL"), 250);
     force.unref?.();
   }
+}
+
+/** Read ChatGPT/Codex subscription headroom without sending a model turn. */
+export async function readCodexEntitlementObservation(
+  options: AppServerOptions = {},
+): Promise<ProviderUsageObservation> {
+  return (await readCodexControlObservation({ ...options, observeModels: false })).observation;
 }
 
 /** Probe and atomically merge the observation into North's shared provider store. */

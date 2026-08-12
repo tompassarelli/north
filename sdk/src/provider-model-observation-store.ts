@@ -9,6 +9,10 @@ import type { ProviderId, RoutingTarget } from "./providers/types";
 
 export const ANTHROPIC_MODEL_OBSERVATION_SOURCE =
   "claude-agent-sdk:Query.supportedModels" as const;
+export const CODEX_MODEL_OBSERVATION_SOURCE = "codex-app-server:model-list" as const;
+export type ProviderModelObservationSource =
+  | typeof ANTHROPIC_MODEL_OBSERVATION_SOURCE
+  | typeof CODEX_MODEL_OBSERVATION_SOURCE;
 export const PROVIDER_MODEL_OBSERVATION_TTL_MS = 5 * 60 * 1000;
 export const MAX_PROVIDER_MODEL_OBSERVATION_STORE_BYTES = 256 * 1024;
 export const MAX_PROVIDER_MODEL_OBSERVATION_TARGETS = 256;
@@ -23,7 +27,7 @@ export interface ProviderModelObservation {
   authMode: "ambient" | "isolated";
   profile?: string;
   observedAt: string;
-  source: typeof ANTHROPIC_MODEL_OBSERVATION_SOURCE;
+  source: ProviderModelObservationSource;
   /** Exact Orchestration model IDs only; provider aliases are normalized before persistence. */
   models: string[];
   /** A newer failed control read is unknown evidence, never a reusable positive. */
@@ -39,13 +43,13 @@ export interface ProviderModelObservationStore {
 }
 
 export interface ProviderModelAdmissionReceipt {
-  provider: "anthropic";
+  provider: ProviderId;
   targetId: string;
   authMode: "ambient" | "isolated";
   profile?: string;
   model: string;
   observedAt: string;
-  source: typeof ANTHROPIC_MODEL_OBSERVATION_SOURCE;
+  source: ProviderModelObservationSource;
   observationDigest: string;
 }
 
@@ -53,6 +57,12 @@ const PORTABLE_TARGET = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function modelObservationSource(provider: ProviderId): ProviderModelObservationSource {
+  return provider === "anthropic"
+    ? ANTHROPIC_MODEL_OBSERVATION_SOURCE
+    : CODEX_MODEL_OBSERVATION_SOURCE;
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
@@ -91,8 +101,8 @@ function parseObservation(value: unknown, now: Date): ProviderModelObservation {
       ...(hasFailure ? ["collectionFailure"] : [])],
     "entry",
   );
-  if (value.provider !== "anthropic"
-      || value.source !== ANTHROPIC_MODEL_OBSERVATION_SOURCE
+  if ((value.provider !== "anthropic" && value.provider !== "openai")
+      || value.source !== modelObservationSource(value.provider as ProviderId)
       || (value.authMode !== "ambient" && value.authMode !== "isolated")
       || typeof value.targetId !== "string"
       || typeof value.observedAt !== "string"
@@ -110,8 +120,8 @@ function parseObservation(value: unknown, now: Date): ProviderModelObservation {
   if (new Set(models).size !== models.length || [...models].sort().some((model, index) => model !== models[index]))
     throw new Error("invalid provider model observation: exact model set is not canonical");
   for (const model of models) {
-    if (!providerSupportsModel("anthropic", model)
-        || resolveModelAlias("anthropic", model) !== model) {
+    if (!providerSupportsModel(value.provider as ProviderId, model)
+        || resolveModelAlias(value.provider as ProviderId, model) !== model) {
       throw new Error("invalid provider model observation: model is not an exact Orchestration declaration");
     }
   }
@@ -134,12 +144,12 @@ function parseObservation(value: unknown, now: Date): ProviderModelObservation {
     };
   }
   const observation: ProviderModelObservation = {
-    provider: "anthropic",
+    provider: value.provider as ProviderId,
     targetId: value.targetId,
     authMode: value.authMode,
     ...(hasProfile ? { profile: value.profile as string } : {}),
     observedAt: new Date(observedAt).toISOString(),
-    source: ANTHROPIC_MODEL_OBSERVATION_SOURCE,
+    source: value.source as ProviderModelObservationSource,
     models: [...models] as string[],
     ...(collectionFailure ? { collectionFailure } : {}),
   };
@@ -257,12 +267,12 @@ export function failedProviderModelObservation(
 ): ProviderModelObservation {
   const authMode = target.authMode ?? "ambient";
   return {
-    provider: "anthropic",
+    provider: target.provider,
     targetId: target.id,
     authMode,
     ...(authMode === "isolated" ? { profile: target.profile } : {}),
     observedAt: now.toISOString(),
-    source: ANTHROPIC_MODEL_OBSERVATION_SOURCE,
+    source: modelObservationSource(target.provider),
     models: [],
     collectionFailure: { observedAt: now.toISOString(), reason },
   };
@@ -278,7 +288,7 @@ export function modelAdmissionReceipt(
       || modelObservationForTarget({ version: 1, observations: [observation] }, target) !== observation
       || !observation.models.includes(model)) return undefined;
   return Object.freeze({
-    provider: "anthropic",
+    provider: observation.provider,
     targetId: observation.targetId,
     authMode: observation.authMode,
     ...(observation.profile ? { profile: observation.profile } : {}),
@@ -296,10 +306,10 @@ export async function validateModelAdmissionReceipt(
   path = providerModelObservationPath(),
   now = new Date(),
 ): Promise<boolean> {
-  if (!receipt || receipt.provider !== "anthropic" || receipt.targetId !== target.id
+  if (!receipt || receipt.provider !== target.provider || receipt.targetId !== target.id
       || receipt.authMode !== (target.authMode ?? "ambient")
       || receipt.profile !== target.profile || receipt.model !== model
-      || receipt.source !== ANTHROPIC_MODEL_OBSERVATION_SOURCE) return false;
+      || receipt.source !== modelObservationSource(target.provider)) return false;
   let store: ProviderModelObservationStore | undefined;
   try { store = await readProviderModelObservations(path, now); }
   catch { return false; }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ANTHROPIC_MODEL_OBSERVATION_SOURCE,
+  CODEX_MODEL_OBSERVATION_SOURCE,
   failedProviderModelObservation,
   MAX_PROVIDER_MODEL_OBSERVATION_STORE_BYTES,
   MAX_PROVIDER_MODEL_OBSERVATION_TARGETS,
@@ -21,6 +22,11 @@ import {
   AnthropicModelsUnavailableError,
   normalizeAnthropicSupportedModels,
 } from "../src/providers/anthropic-models";
+import {
+  CodexModelsUnavailableError,
+  normalizeCodexModelListPage,
+  normalizeCodexSupportedModels,
+} from "../src/providers/codex-models";
 import type { RoutingTarget } from "../src/providers/types";
 
 const roots: string[] = [];
@@ -37,6 +43,12 @@ const ambient: RoutingTarget = {
 };
 const isolated: RoutingTarget = {
   id: "claude-work", provider: "anthropic", authMode: "isolated", profile: "work",
+};
+const codexAmbient: RoutingTarget = {
+  id: "codex-personal", provider: "openai", authMode: "ambient",
+};
+const codexIsolated: RoutingTarget = {
+  id: "codex-work", provider: "openai", authMode: "isolated", profile: "work",
 };
 const now = new Date("2026-07-20T10:00:00.000Z");
 
@@ -68,6 +80,78 @@ test("supportedModels trusts only value, maps Orchestration aliases, and detects
   }
   expect(() => normalizeAnthropicSupportedModels([{ displayName: "fable" }], ambient, now))
     .toThrow("anthropic_models_response_schema_changed");
+});
+
+test("Codex model/list trusts executable model IDs, filters hidden entries, and never extends the catalog", () => {
+  const visible = {
+    id: "provider-picker-id",
+    model: "gpt-5.6-sol",
+    upgrade: null,
+    upgradeInfo: null,
+    availabilityNux: null,
+    displayName: "PRIVATE DISPLAY CANARY",
+    description: "PRIVATE DESCRIPTION CANARY",
+    hidden: false,
+    supportedReasoningEfforts: [],
+    defaultReasoningEffort: "high",
+    inputModalities: ["text"],
+    supportsPersonality: false,
+    additionalSpeedTiers: [],
+    serviceTiers: [],
+    defaultServiceTier: null,
+    isDefault: true,
+  };
+  expect(normalizeCodexModelListPage({
+    data: [visible, { ...visible, id: "hidden", model: "gpt-5.6-terra", hidden: true }],
+    nextCursor: "opaque-next",
+  })).toEqual({ models: ["gpt-5.6-sol"], nextCursor: "opaque-next", itemCount: 2 });
+  expect(normalizeCodexSupportedModels(
+    ["gpt-5.6-sol", "future-provider-model"], codexAmbient, now,
+  )).toMatchObject({
+    provider: "openai",
+    targetId: codexAmbient.id,
+    source: CODEX_MODEL_OBSERVATION_SOURCE,
+    models: ["gpt-5.6-sol"],
+  });
+  expect(() => normalizeCodexModelListPage({ data: [visible] }))
+    .toThrow(CodexModelsUnavailableError);
+  expect(() => normalizeCodexModelListPage({
+    data: [{ ...visible, model: undefined }], nextCursor: null,
+  })).toThrow("codex_models_response_schema_changed");
+  expect(() => normalizeCodexModelListPage({
+    data: [], nextCursor: "x".repeat(4_097),
+  })).toThrow("codex_models_response_schema_changed");
+  expect(() => normalizeCodexSupportedModels(
+    ["gpt-5.6-sol", "gpt-5.6-sol"], codexAmbient, now,
+  )).toThrow("codex_models_collision");
+  expect(normalizeCodexSupportedModels(["sol"], codexAmbient, now).models).toEqual([]);
+});
+
+test("Codex observations and receipts remain target, auth, and profile scoped", async () => {
+  const path = await temporaryStore();
+  const personal = normalizeCodexSupportedModels(["gpt-5.6-sol"], codexAmbient, now);
+  const work = normalizeCodexSupportedModels(["gpt-5.6-terra"], codexIsolated, now);
+  await writeProviderModelObservation(personal, path, now);
+  await writeProviderModelObservation(work, path, now);
+  const receipt = modelAdmissionReceipt(personal, codexAmbient, "gpt-5.6-sol", now)!;
+  expect(await validateModelAdmissionReceipt(
+    receipt, codexAmbient, "gpt-5.6-sol", path, now,
+  )).toBe(true);
+  expect(await validateModelAdmissionReceipt(
+    receipt, codexIsolated, "gpt-5.6-sol", path, now,
+  )).toBe(false);
+  expect(modelObservationForTarget(
+    await readProviderModelObservations(path, now), codexIsolated,
+  )?.models).toEqual(["gpt-5.6-terra"]);
+  const failedAt = new Date(now.getTime() + 1_000);
+  await writeProviderModelObservation(
+    failedProviderModelObservation(codexAmbient, "codex_models_probe_failed", failedAt),
+    path,
+    failedAt,
+  );
+  expect(await validateModelAdmissionReceipt(
+    receipt, codexAmbient, "gpt-5.6-sol", path, failedAt,
+  )).toBe(false);
 });
 
 test("strict store rejects future, malformed, duplicate-target, and unknown model evidence", () => {

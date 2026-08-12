@@ -26,6 +26,11 @@ import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { markCoordinationOptional, markExecutionAdmission } from "../src/execution-admission";
 import { selectProviderFromAvailability } from "../src/provider-routing";
 import { providerEnvironmentForTarget } from "../src/accounts";
+import {
+  modelAdmissionReceipt,
+  writeProviderModelObservation,
+} from "../src/provider-model-observation-store";
+import { normalizeCodexSupportedModels } from "../src/providers/codex-models";
 import { scrubAmbientGraphEnv } from "./support/managed-env";
 import { gatedTest } from "./support/capabilities";
 import { providerSessionKey } from "../src/providers/provider-join";
@@ -113,6 +118,7 @@ const savedAgentLawsPath = process.env.AGENT_LAWS_PATH;
 const savedPort = process.env.NORTH_PORT;
 const savedLaws = process.env.AGENT_LAWS;
 const savedOrchestration = process.env.NORTH_ORCHESTRATION_HOME;
+const savedModelObservations = process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
 const temporary: string[] = [];
 beforeEach(() => {
@@ -212,6 +218,8 @@ afterEach(() => {
   else process.env.AGENT_LAWS = savedLaws;
   if (savedOrchestration === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
   else process.env.NORTH_ORCHESTRATION_HOME = savedOrchestration;
+  if (savedModelObservations === undefined) delete process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
+  else process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS = savedModelObservations;
   for (const path of liveProcessPidFiles) killRecordedProcess(path);
   liveProcessPidFiles.clear();
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
@@ -1169,6 +1177,7 @@ test("a replacement preflight failure drains its respawn terminal before iterato
     provider: "openai",
     cwd: northRoot,
     model: "gpt-5.6-luna",
+    modelAvailability: { exactModelPinned: false, targetId: "openai" },
     routingMetadata: applyOrchestrationStaffing({ role: "scout" }),
     presenceRegistrar: false,
   });
@@ -1303,6 +1312,80 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   expect(resolverCalls).toBe(1);
   expect(queryConstructed).toBe(false);
   expect(routePublished).toBe(false);
+});
+
+test("managed Codex admission revalidates an exact-model receipt after target-scoped revocation", async () => {
+  const home = mkdtempSync(join(tmpdir(), "north-openai-model-toctou-"));
+  temporary.push(home);
+  process.env.HOME = home;
+  process.env.AGENT_LAWS = "on";
+  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(
+    savedOrchestration ?? join(northRoot, "orchestration"),
+  );
+  process.env.NORTH_PORT = "65534";
+  const canonicalAgents = join(home, ".agents", "AGENTS.md");
+  mkdirSync(join(home, ".agents"), { recursive: true });
+  writeFileSync(canonicalAgents, "CODEX_MODEL_TOCTOU_CANONICAL\n");
+  process.env.AGENT_LAWS_PATH = canonicalAgents;
+  const codexHome = join(home, ".codex");
+  mkdirSync(codexHome);
+  symlinkSync(canonicalAgents, join(codexHome, "AGENTS.md"));
+  const auth = join(codexHome, "auth.json");
+  writeFileSync(auth, "{}\n", { mode: 0o600 });
+  chmodSync(auth, 0o600);
+
+  const target: RoutingTarget = {
+    id: "codex-personal", provider: "openai", authMode: "ambient",
+  };
+  const modelStorePath = join(home, "model-observations.json");
+  process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS = modelStorePath;
+  const observedAt = new Date();
+  const positive = normalizeCodexSupportedModels(["gpt-5.6-luna"], target, observedAt);
+  await writeProviderModelObservation(positive, modelStorePath, observedAt);
+  const receipt = modelAdmissionReceipt(positive, target, "gpt-5.6-luna", observedAt)!;
+  const options = harnessOptions({
+    self: "openai-model-toctou",
+    provider: "openai",
+    cwd: northRoot,
+    model: "gpt-5.6-luna",
+    modelAvailability: {
+      exactModelPinned: true,
+      targetId: target.id,
+      receipt,
+    },
+    routingMetadata: applyOrchestrationStaffing({ role: "scout" }),
+    presenceRegistrar: false,
+  });
+  markCoordinationOptional(options as object);
+  let managedHookChecks = 0;
+  let managedRuns = 0;
+  const provider = internalOpenAIProviderWithManagedHooksProbeForTest(
+    () => { managedHookChecks++; },
+    {
+      resolveManagedCommand: () => "/bin/true",
+      createManagedRun: (runOptions) => {
+        managedRuns++;
+        return new ManagedCodexAppServerRun(runOptions);
+      },
+    },
+  );
+  await provider.admit!({ options, target });
+  markExecutionAdmission("openai", options);
+  await writeProviderModelObservation(
+    normalizeCodexSupportedModels([], target, observedAt), modelStorePath, observedAt,
+  );
+  const query = provider.query({
+    input: "must not launch",
+    options,
+    target,
+    context: testWireContext(),
+  });
+  await expect(async () => {
+    for await (const _event of query) { /* no provider event is admissible */ }
+  })
+    .toThrow("openai_model_availability_unproven");
+  expect(managedHookChecks).toBe(2);
+  expect(managedRuns).toBe(0);
 });
 
 gatedTest("loopback-bind", "selected Codex account bootstrap fails during admission before onRoute or provider spawn", async () => {
