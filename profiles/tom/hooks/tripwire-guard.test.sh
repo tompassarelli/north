@@ -9,18 +9,51 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOOK="$HERE/tripwire-guard.sh"
-REPO_CWD="$HOME/code/nixos-config/main" # a real git repo, for repo-relative cases
-NOREPO_CWD="/etc"                  # cwd with no enclosing git repo
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/tripwire-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
+
+# Class 1 keys on what a path IS — a main checkout, someone else's lane, a
+# cache, tracked-and-clean — so the matrix needs a real home with real repos in
+# it. Every case runs against this sandbox HOME: hermetic, and the live
+# ~/code, ~/.cache and ~/Pictures are never a variable in the result.
+FH="$SCRATCH/home"
+REPO_CWD="$FH/code/proj/wt-mine" # this session's lane
+OTHER_WT="$FH/code/proj/wt-other"  # a concurrent lane
+MAIN_CO="$FH/code/proj/main"       # the never-edited checkout
+NOREPO_CWD="$FH/notrepo"           # cwd with no enclosing git repo
+# A path that exists, has no repo, no cache root above it, and is not under
+# $HOME or the temp hierarchy — the unclassifiable tier.
+UNCLASSIFIED=/nix/var
+mkdir -p "$FH"/{Pictures/Screenshots,Documents} "$FH/.cache/thumbnails" \
+  "$FH/.cache/beagle/build-core" "$FH/notrepo/stuff" \
+  "$FH/code/north-data/accounts" "$FH/.local/state/north/graph" \
+  "$MAIN_CO" "$OTHER_WT/src" "$REPO_CWD"
+mkdir -p "$FH/Documents/notes"
+: > "$FH/Pictures/Screenshots/old.png"
+: > "$FH/Documents/notes/a.md"
+: > "$FH/notrepo/stuff/x"
+for r in "$MAIN_CO" "$OTHER_WT" "$REPO_CWD"; do
+  git -C "$r" init -q 2>/dev/null
+done
+mkdir -p "$REPO_CWD/src" "$REPO_CWD/node_modules" "$REPO_CWD/build" "$REPO_CWD/scratch"
+printf 'node_modules/\nbuild/\n' > "$REPO_CWD/.gitignore"
+: > "$REPO_CWD/src/app.txt"
+: > "$REPO_CWD/node_modules/dep.js"
+: > "$REPO_CWD/build/out.o"
+: > "$REPO_CWD/scratch/notes.txt" # untracked, NOT ignored: unrecoverable work
+git -C "$REPO_CWD" add .gitignore src >/dev/null 2>&1
+git -C "$REPO_CWD" -c user.email=t@example -c user.name=t \
+  commit -qm base >/dev/null 2>&1
 
 pass=0 fail=0
 
 # run EXPECT DESC CMD [CWD] [EXTRA_ENV]
-#   EXPECT: allow | deny | ask   EXTRA_ENV: single VAR=VAL for the hook env
+#   EXPECT: allow | deny | ask   EXTRA_ENV: VAR=VAL (whitespace-separated for
+#   more than one) added to the hook env.
 #   ask = exit 0 AND stdout parses as JSON with permissionDecision == "ask".
 #   Set permission_mode by prefixing a call with the PM env (PM=default run …)
 #   or via the runm helper below; empty/unset PM omits the field (old harness).
+LAST_OUT=""
 run() {
   local expect="$1" desc="$2" c="$3" wd="${4:-$REPO_CWD}" extra="${5:-}"
   local json rc want out ok=1
@@ -31,12 +64,15 @@ run() {
     json="$(jq -n --arg c "$c" --arg d "$wd" \
       '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d}')"
   fi
-  set -- env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE \
+  set -- env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE -u XDG_CACHE_HOME \
+    HOME="$FH" TMPDIR=/tmp \
     TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
     NORTH_BIN=/bin/true
-  [ -n "$extra" ] && set -- "$@" "$extra"
+  # shellcheck disable=SC2086  # deliberate split: EXTRA_ENV may name several vars
+  [ -n "$extra" ] && set -- "$@" $extra
   out="$(printf '%s' "$json" | "$@" "$HOOK" 2>&1)"
   rc=$?
+  LAST_OUT="$out"
   case "$expect" in allow | ask) want=0 ;; deny) want=2 ;; esac
   [ "$rc" = "$want" ] || ok=0
   # ask must also emit the ask envelope on stdout (the merged out is JSON-only
@@ -66,7 +102,7 @@ runm() {
 raw() {
   local expect="$1" desc="$2" payload="$3" rc want
   printf '%s' "$payload" |
-    env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE \
+    env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE HOME="$FH" \
       TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
       NORTH_BIN=/bin/true \
       "$HOOK" >/dev/null 2>&1
@@ -81,61 +117,112 @@ raw() {
   fi
 }
 
-echo "== class 1: recursive/force deletes outside safe roots =="
-run deny 'rm -rf outside repo' 'rm -rf /home/tom/somedir'
+echo "== class 1a: the never-list — hard in every mode =="
 run deny 'rm -rf / outright' 'rm -rf /'
 run deny 'rm -fr ~ outright' 'rm -fr ~'
 run deny 'rm -rf $HOME outright' 'rm -rf $HOME'
-run deny 'rm -rf /home/tom outright' 'rm -rf /home/tom'
-run deny 'rm --recursive --force long flags' 'rm --recursive --force /etc/nixos'
-run deny 'sudo rm -rf system path' 'sudo rm -rf /var/lib/foo'
-run deny 'rm -rf home glob' 'rm -rf /home/tom/*'
-run deny 'rm -rf inside $( )' 'echo done $(rm -rf /usr/lib)'
-run deny 'rm -rf relative, cwd not a repo' 'rm -rf ./stuff' "$NOREPO_CWD"
-run deny 'find -delete outside safe roots' "find /home/tom/Documents -name '*.o' -delete"
-run deny 'git -C elsewhere clean -fdx' 'git -C /home/tom/other clean -fdx'
+run deny 'rm -rf /home outright' 'rm -rf /home'
+run deny 'rm -rf a system root' 'rm --recursive --force /etc'
+run deny 'rm -rf /tmp itself (other lanes live there)' 'rm -rf /tmp'
+run deny 'rm -rf ~/code (every project at once)' 'rm -rf ~/code'
+run deny 'rm -rf a personal category root' 'rm -rf ~/Pictures'
+run deny 'rm -rf $HOME glob' 'rm -rf $HOME/*'
+run deny 'rm -rf inside $( )' 'echo done $(rm -rf /usr)'
+runm default deny 'rm -rf / stays hard (default mode)' 'rm -rf /'
+runm default deny 'rm -rf $HOME stays hard (default mode)' 'rm -rf $HOME'
+runm default deny 'rm -rf ~/Pictures stays hard (default mode)' 'rm -rf ~/Pictures'
+
+echo "== class 1b: the unset-variable shape — hard in every mode =="
+run deny 'rm -rf "$VAR"/glob (unset expands to root)' 'rm -rf "$BUILD"/*'
+run deny 'rm -rf $VAR bare' 'rm -rf $SCRATCHDIR'
+run deny 'rm -rf ${VAR}/sub' 'rm -rf ${OUTDIR}/sub'
+run deny 'variable mid-path outside scratch' 'rm -rf /srv/data-$ID'
+runm default deny 'unset-variable shape stays hard (default mode)' 'rm -rf "$BUILD"/*'
+run allow 'the guarded form the message names' 'rm -rf "${BUILD:?}"/dist'
+run allow 'variable mid-path under /tmp' 'rm -rf /tmp/build-$ID'
+
+echo "== class 1c: sacred — the machine's memory, or another lane's work =="
+run deny "another session's worktree" "rm -rf $OTHER_WT"
+run deny "inside another session's worktree" "rm -rf $OTHER_WT/src"
+run deny 'a .git directory' "rm -rf $REPO_CWD/.git"
+run deny 'this lane checkout root' "rm -rf $REPO_CWD"
+run deny 'inside a main/ checkout' "rm -rf $MAIN_CO/result"
+run deny 'a project container' "rm -rf $FH/code/proj"
+run deny 'north-data (machine memory)' "rm -rf $FH/code/north-data/accounts"
+run deny "North's own state" "rm -rf $FH/.local/state/north/graph"
+run deny 'git clean -fdx with cwd in a main/ checkout' 'git clean -fdx' "$MAIN_CO"
+runm default deny "another lane's worktree stays hard (default mode)" "rm -rf $OTHER_WT"
+runm default deny '.git stays hard (default mode)' "rm -rf $REPO_CWD/.git"
+runm default deny 'main/ checkout stays hard (default mode)' "rm -rf $MAIN_CO/result"
+
+echo "== class 1d: recoverable — allowed without friction =="
+run allow 'the thumbnails cache regenerates itself' 'rm -rf ~/.cache/thumbnails/*'
+run allow 'a build cache under ~/.cache' 'rm -rf ~/.cache/beagle/build-core'
 run allow 'rm -rf in scratchpad /tmp/claude-*' 'rm -rf /tmp/claude-1000/x/scratchpad/build'
 run allow 'rm -rf under /tmp' 'rm -rf /tmp/build-cache'
-run allow 'rm -rf ./node_modules inside repo' 'rm -rf ./node_modules'
-run allow 'rm -rf abs path inside repo' "rm -rf $REPO_CWD/result"
+run allow 'gitignored dir inside this lane' 'rm -rf ./node_modules'
+run allow 'gitignored dir, absolute' "rm -rf $REPO_CWD/build"
+run allow 'tracked and clean: git restores it' "rm -rf $REPO_CWD/src"
+run allow 'a path that does not exist loses nothing' "rm -rf $REPO_CWD/result"
 run allow 'rm -rf with redirection to /dev/null' 'rm -rf ./build > /dev/null 2>&1'
-run allow 'rm non-recursive' 'rm -f /home/tom/somefile'
-run allow 'find -delete inside repo' "find . -name '*.tmp' -delete"
+run allow 'rm non-recursive' 'rm -f ~/Pictures/Screenshots/old.png'
+run allow 'find -delete over an ignored dir' "find ./build -name '*.o' -delete"
 run allow 'find -delete under /tmp' 'find /tmp/claude-123 -type f -delete'
-run allow 'git clean -fdx in cwd repo' 'git clean -fdx'
+run allow 'git clean -fdx in this lane' 'git clean -fdx'
 run allow 'echo mentioning rm -rf /' "echo 'rm -rf /'"
 
+echo "== class 1e: unrecoverable work the old rule permitted =="
+run deny 'untracked work inside this lane' "rm -rf $REPO_CWD/scratch"
+run deny 'untracked work, relative' 'rm -rf ./scratch'
+runm default ask 'untracked work -> ask (default)' "rm -rf $REPO_CWD/scratch"
+runm bypassPermissions deny 'untracked work -> deny (unattended)' "rm -rf $REPO_CWD/scratch"
+
+echo "== class 1f: personal data + proportionality =="
+run deny 'whole-tree rm -rf of a personal directory' 'rm -rf ~/Pictures/Screenshots'
+case "$LAST_OUT" in *whole-tree*) pass=$((pass + 1)); echo 'PASS  deny   reason says whole-tree' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   reason says whole-tree (got: %s)\n' "$LAST_OUT" ;; esac
+run deny 'bounded find -mtime +30 -delete under personal data' \
+  'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
+case "$LAST_OUT" in *bounded*) pass=$((pass + 1)); echo 'PASS  deny   reason says bounded, not whole-tree' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   reason says bounded (got: %s)\n' "$LAST_OUT" ;; esac
+case "$LAST_OUT" in *'north config guards off'*) pass=$((pass + 1)); echo 'PASS  deny   reason names the deliberate path' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   reason names the deliberate path (got: %s)\n' "$LAST_OUT" ;; esac
+run deny 'personal dir with no repo above it' 'rm -rf ./stuff' "$NOREPO_CWD"
+run deny 'unclassifiable path is blocked, not waved through' "rm -rf $UNCLASSIFIED"
+run deny 'git -C clean -fdx in another repo' "git -C $NOREPO_CWD clean -fdx"
+
 echo "== class 1 mode-aware: interactive ask vs unattended deny =="
-# The no-permission_mode class-1 deny rows above (run without PM) ARE the
-# missing-field case (e): they must keep passing unchanged (fail-closed floor).
-runm default ask 'rm -rf outside repo -> ask (default)' 'rm -rf /home/tom/somedir'
-runm acceptEdits ask 'rm -rf outside repo -> ask (acceptEdits)' 'rm -rf /home/tom/somedir'
-runm plan ask 'rm -rf outside repo -> ask (plan)' 'rm -rf /home/tom/somedir'
-runm bypassPermissions deny 'rm -rf outside repo -> deny (bypassPermissions)' 'rm -rf /home/tom/somedir'
-runm default deny 'rm -rf / stays hard (never-list, default)' 'rm -rf /'
-runm default deny 'rm -rf $HOME stays hard (never-list, default)' 'rm -rf $HOME'
-runm default deny 'hard class wins over pending ask (rm ask + git push -f)' 'rm -rf /home/tom/x && git push -f'
-runm default ask 'find -delete outside roots -> ask (default)' "find /home/tom/Documents -name '*.o' -delete"
-runm default ask 'git -C clean -fdx outside repo -> ask (default)' 'git -C /home/tom/other clean -fdx'
+# The no-permission_mode rows above (run without PM) ARE the missing-field case:
+# they must keep passing unchanged (the fail-closed unattended floor).
+runm default ask 'personal data -> ask (default)' 'rm -rf ~/Pictures/Screenshots'
+runm acceptEdits ask 'personal data -> ask (acceptEdits)' 'rm -rf ~/Pictures/Screenshots'
+runm plan ask 'personal data -> ask (plan)' 'rm -rf ~/Pictures/Screenshots'
+runm bypassPermissions deny 'personal data -> deny (bypassPermissions)' 'rm -rf ~/Pictures/Screenshots'
+runm default deny 'hard class wins over pending ask (rm ask + git push -f)' \
+  'rm -rf ~/Pictures/Screenshots && git push -f'
+runm default ask 'bounded find under personal data -> ask (default)' \
+  'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
+runm default ask 'git -C clean -fdx elsewhere -> ask (default)' "git -C $NOREPO_CWD clean -fdx"
 runm default deny 'git push --force unaffected by mode (class 2 hard)' 'git push --force'
-runm default allow 'rm -rf ./node_modules inside repo -> allow (no ask spam)' 'rm -rf ./node_modules'
-# case m: two outside-root targets ACCUMULATE into ONE ask envelope naming both.
-macc="$(jq -n --arg c 'rm -rf /home/tom/a /home/tom/b' --arg d "$REPO_CWD" --arg pm default \
+runm default allow 'gitignored dir inside this lane -> allow (no ask spam)' 'rm -rf ./node_modules'
+# two personal targets ACCUMULATE into ONE ask envelope naming both.
+macc="$(jq -n --arg c "rm -rf $FH/Documents/notes $FH/Pictures/Screenshots" --arg d "$REPO_CWD" --arg pm default \
   '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d, permission_mode:$pm}' |
-  env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE TRIPWIRE_LOG_DIR="$SCRATCH" \
+  env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
     AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" NORTH_BIN=/bin/true "$HOOK" 2>/dev/null)"
 mrc=$?
 if [ "$mrc" = 0 ] &&
   [ "$(printf '%s' "$macc" | jq -s 'length' 2>/dev/null)" = 1 ] &&
   printf '%s' "$macc" | jq -e '.hookSpecificOutput.permissionDecision == "ask"' >/dev/null 2>&1 &&
   printf '%s' "$macc" |
-  jq -e '.hookSpecificOutput.permissionDecisionReason | test("/home/tom/a") and test("/home/tom/b")' \
+  jq -e --arg a "$FH/Documents/notes" --arg b "$FH/Pictures/Screenshots" \
+    '.hookSpecificOutput.permissionDecisionReason | contains($a) and contains($b)' \
     >/dev/null 2>&1; then
   pass=$((pass + 1))
-  echo 'PASS  ask    accumulation: two outside targets -> one ask naming both'
+  echo 'PASS  ask    accumulation: two personal targets -> one ask naming both'
 else
   fail=$((fail + 1))
-  printf 'FAIL  ask    accumulation: two outside targets in one ask (rc=%s out=%s)\n' "$mrc" "$macc"
+  printf 'FAIL  ask    accumulation: two personal targets in one ask (rc=%s out=%s)\n' "$mrc" "$macc"
 fi
 
 echo "== class 2: force-push / history rewrite / raw push =="
@@ -222,8 +309,8 @@ echo "== plumbing: fail-open + kill-switch + deny log =="
 raw allow 'garbage stdin (fail-open)' 'this is not json rm -rf /'
 raw allow 'empty stdin' ''
 run allow 'payload without command key' '' # empty command -> exit 0
-run allow 'kill-switch CLAUDE_NO_AUTHORING_HOOKS' 'rm -rf /home/tom' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=1
-if [ -s "$SCRATCH/tripwire.log" ] && grep -q 'rm -rf /home/tom/somedir' "$SCRATCH/tripwire.log"; then
+run allow 'kill-switch CLAUDE_NO_AUTHORING_HOOKS' 'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=1
+if [ -s "$SCRATCH/tripwire.log" ] && grep -q 'rm -rf ~/Pictures/Screenshots' "$SCRATCH/tripwire.log"; then
   pass=$((pass + 1))
   echo 'PASS  plumb  deny decisions are logged (ts, cwd, reason, cmd head)'
 else
@@ -233,22 +320,27 @@ fi
 
 echo "== kill-switch: shared value-aware semantics (lib/authoring-killswitch.sh) =="
 # Precedence: env 0/false = force-live (beats state); any other non-empty env =
-# off; else state `guards=off` = off, unset/empty = live. `rm -rf /home/tom` is an
-# outright-deny tripwire, so a running guard ALWAYS denies it — the only way to see
-# an allow here is the kill-switch engaging BEFORE the guard parses the command.
+# off; else state `guards=off` = off, unset/empty = live. The deliberate path the
+# class-1 reasons NAME is this state file, written by `north config guards off` —
+# a personal-data delete is refused while guards are live and goes through once
+# the human turns them off, which is the whole point of the friction.
 # (The env=1 allow case lives in the plumbing block above.)
 # env 0/false force guards LIVE -> guard runs -> deny. The old presence-only check
 # (`[ -n "$VAR" ] && exit 0`) would have ALLOWED these — the bug this rewire fixes.
 run deny 'env CLAUDE_NO_AUTHORING_HOOKS=0 forces guards live (old bug allowed)' \
-  'rm -rf /home/tom' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
+  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
 run deny 'env CLAUDE_NO_AUTHORING_HOOKS=false forces guards live' \
-  'rm -rf /home/tom' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=false
+  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=false
 # Persistent state `guards=off` (env unset) -> guards OFF -> allow.
 printf 'guards=off\n' >"$SCRATCH/killswitch.state"
-run allow 'state guards=off (persistent kill) -> allow' 'rm -rf /home/tom'
+run allow 'north config guards off -> personal delete allowed' 'rm -rf ~/Pictures/Screenshots'
+run allow 'north config guards off -> bounded find allowed' \
+  'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
+run allow "north config guards off -> another lane's worktree allowed (human's call)" \
+  "rm -rf $OTHER_WT"
 # State off BUT env=0 -> env force-live BEATS state -> deny.
 run deny 'env=0 force-live beats state guards=off' \
-  'rm -rf /home/tom' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
+  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
 rm -f "${SCRATCH:?}/killswitch.state" # restore neutral state for the benches below
 
 echo "== latency (fast path = prescreen miss; slow path = parse, allow) =="
@@ -257,7 +349,11 @@ bench() {
   json="$(jq -n --arg c "$c" --arg d "$REPO_CWD" \
     '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d}')"
   t0=$(date +%s%N)
-  for _ in $(seq 1 50); do printf '%s' "$json" | "$HOOK" >/dev/null 2>&1; done
+  for _ in $(seq 1 50); do
+    printf '%s' "$json" | env HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
+      AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" NORTH_BIN=/bin/true \
+      "$HOOK" >/dev/null 2>&1
+  done
   t1=$(date +%s%N)
   printf '  %-38s %s ms/call (50 runs)\n' "$desc" "$(((t1 - t0) / 50000000))"
 }
