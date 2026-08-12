@@ -1745,15 +1745,16 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // PARITY SOURCE: ~/code/nixos-config/dotfiles/claude/settings.json (PreToolUse). These
 // lists are the POST-parity target; keep both in lockstep with settings.json.
 //   Edit|Write|MultiEdit -> firn
-//   Bash                 -> tripwire, firn
+//   Bash                 -> tripwire, firn, corpus-scan
 const EDIT_GUARDS = resolveManagedGuardChain([
   "firn-guard.sh",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
-  "tripwire-guard.sh", "firn-guard.sh",
+  "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh", "tripwire-guard.sh", "firn-guard.sh",
+  "corpus-scan-guard.sh",
 ]);
 
 function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {
