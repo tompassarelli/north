@@ -30,6 +30,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "beagle",
     path: "integrations/north/hooks/beagle-session-start.sh",
   },
+  "corpus-scan-guard.sh": {
+    repository: "north",
+    path: "profiles/tom/hooks/corpus-scan-guard.sh",
+  },
   "launch-critical-worktree-guard.sh": {
     repository: "north",
     path: "profiles/tom/hooks/launch-critical-worktree-guard.sh",
@@ -142,6 +146,7 @@ export function expectedManagedCodexHooks(
           command("tripwire-guard.sh", 10, managedDir),
           command("firn-guard.sh", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
+          command("corpus-scan-guard.sh", 10, managedDir),
         ],
       },
     ],
