@@ -1,6 +1,6 @@
 import { accessSync, constants } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import type { OrchestrationCapability } from "./orchestration-capabilities";
 import {
   hasAuthoringCapability, providerCapabilityRejectionCode,
@@ -46,6 +46,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "NORTH_RUN_ID",
   "NORTH_THREAD_ID",
   "NORTH_RUN_CAPABILITY",
+  "NORTH_RUN_ARTIFACT_DIR",
   "NORTH_CHECKPOINT_ENABLED",
   "NORTH_CHECKPOINT_EXECUTION_ROOT",
   "NORTH_CHECKPOINT_WORKTREE",
@@ -115,6 +116,16 @@ export function managedNorthMcpEnvironment(
     : undefined;
   if (selector) environment.NORTH_MCP_MANAGED_CODEX_BIN = selector;
   return environment;
+}
+
+function managedRunArtifactDirectory(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !isAbsolute(value) || value.includes("\0")) return undefined;
+  const canonical = resolve(value);
+  if (canonical !== value
+      || basename(dirname(canonical)) !== "run-artifacts"
+      || !/^run-[a-f0-9]{64}$/.test(basename(canonical))) return undefined;
+  return canonical;
 }
 
 function sameStringMap(actual: unknown, expected: Record<string, string>): boolean {
@@ -311,9 +322,16 @@ export function validateManagedExecutionEnvelope(
   }
 
   const north = options?.mcpServers?.north;
+  const artifactDirectory = managedRunArtifactDirectory(
+    north?.env?.NORTH_RUN_ARTIFACT_DIR,
+  );
+  if (north?.env?.NORTH_RUN_ARTIFACT_DIR !== undefined && artifactDirectory === undefined) {
+    throw new ExecutionAdmissionError(`${provider}_managed_run_artifact_contract_invalid`);
+  }
   const expectedNorthEnv = managedNorthMcpEnvironment({
     ...options?.env,
     NORTH_BIN: ENGINE,
+    ...(artifactDirectory === undefined ? {} : { NORTH_RUN_ARTIFACT_DIR: artifactDirectory }),
   });
   if (north?.type !== "stdio"
       || typeof north.command !== "string"

@@ -5,6 +5,7 @@ import {
 	wireModelCallId,
 	wireToolCallId,
 	type WireCompletionEvidence,
+	type WireArtifactSink,
 	type WireEffort,
 	type WireEventDraft,
 	type WireEventWriter,
@@ -17,6 +18,13 @@ import {
 	type WireToolCallId,
 	type WireUsageSnapshot,
 } from "../wire";
+import {
+	isArtifactReadToolName,
+	persistRetainedProviderMaterial,
+	RetainedArtifactPersistenceError,
+	retainedProviderMaterial,
+	type RetainedProviderMaterial,
+} from "./retained-artifact";
 
 const MAX_PROVIDER_ID_BYTES = 1_024;
 const MAX_CONTENT_BLOCKS = 256;
@@ -118,8 +126,13 @@ interface ParsedToolAdmission {
 interface ParsedToolTerminal {
 	rawId: string;
 	wireId: WireToolCallId;
-	status: "succeeded" | "failed";
+	status: "succeeded" | "failed" | "cancelled";
 	preview?: string;
+	result?: unknown;
+	kind?: string;
+	label?: string;
+	errorCode?: string;
+	retainResult?: boolean;
 }
 
 export type AnthropicWireTurnStatus = "succeeded" | "failed" | "cancelled";
@@ -239,6 +252,7 @@ function stableErrorCode(subtype: string, terminalReason: string | undefined): s
 export class AnthropicWireNormalizer {
 	#writer: WireEventWriter;
 	#route: WireQueryRoute;
+	#artifacts?: WireArtifactSink;
 	#model: WireModelSelection;
 	#effort?: WireEffort;
 	#activeCall?: ActiveModelCall;
@@ -247,7 +261,7 @@ export class AnthropicWireNormalizer {
 	#turnOpen = true;
 	#semanticFrames = 0;
 
-	constructor(writer: WireEventWriter, route: WireQueryRoute) {
+	constructor(writer: WireEventWriter, route: WireQueryRoute, artifacts?: WireArtifactSink) {
 		const snapshot = writer.snapshot();
 		if (!snapshot) {
 			throw new WireReductionError(
@@ -275,6 +289,7 @@ export class AnthropicWireNormalizer {
 		}
 		this.#writer = writer;
 		this.#route = Object.freeze({ ...route, model: Object.freeze({ ...route.model }) });
+		this.#artifacts = artifacts;
 		this.#model = this.#route.model;
 		this.#effort = this.#route.effort;
 	}
@@ -478,10 +493,15 @@ export class AnthropicWireNormalizer {
 					wireId: known?.id ?? local!.wireId,
 					status: block.is_error === true ? "failed" : "succeeded",
 					preview: boundedPreview(block.content),
+					...(block.content === undefined ? {} : { result: block.content }),
+					retainResult: !isArtifactReadToolName(
+						"anthropic",
+						known?.rawName ?? local!.rawName,
+					),
 				};
 				terminals.push(terminal);
 				locallyTerminal.add(rawId);
-				drafts.push(this.#toolTerminalDraft(terminal));
+				drafts.push(...this.#toolTerminalDrafts(terminal));
 			}
 		}
 
@@ -558,6 +578,8 @@ export class AnthropicWireNormalizer {
 				wireId: tool.id,
 				status: block.is_error === true ? "failed" : "succeeded",
 				preview: boundedPreview(block.content),
+				...(block.content === undefined ? {} : { result: block.content }),
+				retainResult: !isArtifactReadToolName("anthropic", tool.rawName),
 			};
 			terminals.push(terminal);
 			terminalIds.add(rawId);
@@ -577,7 +599,7 @@ export class AnthropicWireNormalizer {
 				role: "tool",
 				parentToolCallId: tool.id,
 			});
-			drafts.push(this.#toolTerminalDraft(terminal));
+			drafts.push(...this.#toolTerminalDrafts(terminal));
 			blockIndex += 1;
 		}
 		if (textParts.length > 0) {
@@ -802,16 +824,19 @@ export class AnthropicWireNormalizer {
 		if (result !== undefined && typeof result !== "string") {
 			return this.#malformed("anthropic background task terminal detail is malformed");
 		}
-		const events = this.#writer.appendAll([{
-			kind: "tool.terminal",
-			toolCallId: task.id,
+		const events = this.#writer.appendAll(this.#toolTerminalDrafts({
+			rawId: rawTaskId,
+			wireId: task.id,
 			status,
-			origin: "provider",
-			...(typeof result === "string"
-				? { resultPreview: boundedText(result, MAX_PREVIEW_BYTES) } : {}),
+			...(typeof result === "string" ? {
+				preview: boundedText(result, MAX_PREVIEW_BYTES),
+				result,
+			} : {}),
+			kind: "background-task-result",
+			label: "background task result",
 			...(status === "failed" ? { errorCode: "background_task_failed" } : {}),
 			...(status === "cancelled" ? { errorCode: "background_task_cancelled" } : {}),
-		}]);
+		}));
 		task.status = "terminal";
 		this.#backgroundTasks.set(rawTaskId, task);
 		return Object.freeze({ events });
@@ -1003,15 +1028,62 @@ export class AnthropicWireNormalizer {
 		};
 	}
 
-	#toolTerminalDraft(terminal: ParsedToolTerminal): WireEventDraft {
-		return {
+	#toolTerminalDrafts(terminal: ParsedToolTerminal): WireEventDraft[] {
+		let material: RetainedProviderMaterial | undefined;
+		if (terminal.result !== undefined && terminal.retainResult !== false && this.#artifacts) {
+			try {
+				material = retainedProviderMaterial({
+					runId: this.#writer.runId,
+					provider: "anthropic",
+					kind: terminal.kind ?? "tool-result",
+					identity: terminal.rawId,
+					value: terminal.result,
+					label: terminal.label ?? "tool result",
+				});
+				persistRetainedProviderMaterial(this.#artifacts, material);
+			} catch (cause) {
+				if (cause instanceof RetainedArtifactPersistenceError) {
+					throw new WireReductionError(
+						"state_violation",
+						"anthropic tool result artifact could not be persisted",
+						{ runId: this.#writer.runId },
+						{ cause },
+					);
+				}
+				throw new WireDecodeError(
+					"malformed_event",
+					"anthropic tool result is not retainable",
+					{ runId: this.#writer.runId },
+					{ cause },
+				);
+			}
+		}
+		const drafts: WireEventDraft[] = [];
+		if (material) {
+			drafts.push({
+				kind: "artifact.published",
+				artifactId: material.artifactId,
+				mediaType: material.mediaType,
+				bytes: material.bytes,
+				digest: material.digest,
+				label: material.label,
+			});
+		}
+		drafts.push({
 			kind: "tool.terminal",
 			toolCallId: terminal.wireId,
 			status: terminal.status,
 			origin: "provider",
 			...(terminal.preview === undefined ? {} : { resultPreview: terminal.preview }),
-			...(terminal.status === "failed" ? { errorCode: "tool_failed" } : {}),
-		};
+			...(material === undefined ? {} : {
+				resultArtifactId: material.artifactId,
+				resultArtifactDigest: material.digest,
+			}),
+			...(terminal.errorCode !== undefined
+				? { errorCode: terminal.errorCode }
+				: terminal.status === "failed" ? { errorCode: "tool_failed" } : {}),
+		});
+		return drafts;
 	}
 
 	#parentTool(value: unknown, requirePending: boolean): AdmittedTool | undefined {

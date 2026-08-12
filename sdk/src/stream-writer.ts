@@ -62,7 +62,7 @@ function assertAgentId(agentId: string): void {
 	}
 }
 
-function resolvedStreamDirectory(): string {
+export function streamDirectory(): string {
 	const configured = process.env.NORTH_STREAM_DIR;
 	const home = process.env.HOME;
 	const raw = configured ?? (home === undefined ? undefined : path.join(home, "code/agent-data"));
@@ -89,7 +89,7 @@ function streamPaths(agentId: string): {
 	archivePrefix: string;
 } {
 	assertAgentId(agentId);
-	const directory = resolvedStreamDirectory();
+	const directory = streamDirectory();
 	const fileName = `agent-${agentId}.stream.jsonl`;
 	const archivePrefix = `agent-${agentId}.archive-`;
 	const archiveName = `${archivePrefix}${Date.now().toString(36)}-${crypto.randomUUID()}.stream.jsonl`;

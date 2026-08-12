@@ -234,6 +234,7 @@ export const COORDINATION_TOOLS = [
   "mcp__north__evidence_record",
   "mcp__north__show",
   "mcp__north__search",
+  "mcp__north__artifact_read",
   "mcp__north__ready",
   "mcp__north__next",
   "mcp__north__board",
@@ -257,6 +258,7 @@ export const NORTH_MCP_TOOL_NAMES = [
   "validate",
   "show",
   "search",
+  "artifact_read",
   "capture",
   "tell",
   "evidence_record",
@@ -390,6 +392,8 @@ export interface HarnessOpts {
     threadId: string;
     capability: string;
   };
+  /** Sealed, run-scoped artifact directory exposed only to the managed North MCP. */
+  artifactDirectory?: string;
   /** Test seam: false suppresses graph presence; a function captures registration hermetically. */
   presenceRegistrar?: false | ((self: string, cwd: string) => void);
   /** Matching heartbeat seam. Omit with production registration for the real renewer. */
@@ -1877,6 +1881,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     NORTH_RUN_ID: _inheritedRun,
     NORTH_THREAD_ID: _inheritedThread,
     NORTH_RUN_CAPABILITY: _inheritedCapability,
+    NORTH_RUN_ARTIFACT_DIR: _inheritedArtifactDirectory,
     NORTH_MANAGED_LANE: _inheritedManagedLane,
     NORTH_ORCHESTRATION_ROLE: _inheritedOrchestrationRole,
     NORTH_CODEX_BIN: _inheritedCodexOverride,
@@ -1924,7 +1929,13 @@ export function harnessOptions(o: HarnessOpts): Options {
     : o.presenceRenewer ?? (o.presenceRegistrar === undefined ? renewPresence : undefined);
   const readonlyShell = capabilities?.includes("shell.readonly") === true;
   const northMcpEnv = Object.freeze(
-    managedNorthMcpEnvironment({ ...childEnv, NORTH_BIN: ENGINE }),
+    managedNorthMcpEnvironment({
+      ...childEnv,
+      NORTH_BIN: ENGINE,
+      ...(o.artifactDirectory === undefined
+        ? {}
+        : { NORTH_RUN_ARTIFACT_DIR: o.artifactDirectory }),
+    }),
   );
   const northMcpServer = Object.freeze({
     type: "stdio", command: MCP,

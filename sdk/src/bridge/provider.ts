@@ -5,7 +5,8 @@ import { applyOrchestrationStaffing } from "../orchestration-staffing";
 import * as providerRouting from "../provider-routing";
 import { anthropicProvider } from "../providers/anthropic";
 import { openaiProvider } from "../providers/openai";
-import type { RoutingTarget } from "../providers/types";
+import type { AgentProvider, RoutingTarget } from "../providers/types";
+import { RunArtifactStore } from "../run-artifacts";
 import {
   wireQueryRoute,
   type WireEvent,
@@ -230,13 +231,13 @@ export class BridgeWireSession implements BridgeProviderSession {
   }
 }
 
-type ProviderRouting = Pick<typeof providerRouting,
+export type BridgeProviderRouting = Pick<typeof providerRouting,
   "selectProviderFromCachedState" | "refreshProviderRoutingInBackground"
   | "selectProviderForExecution" | "configuredDefaultTarget" | "BOOT_ROUTING_TIMEOUT_MS">;
 
 /** Select an authenticated target without making Bridge's open path unbounded. */
 export async function bridgeRoute(
-  routing: ProviderRouting,
+  routing: BridgeProviderRouting,
   provider: BridgeLaunchProvider,
   model?: string,
 ): Promise<{ target?: RoutingTarget; receipt?: ProviderModelAdmissionReceipt }> {
@@ -271,58 +272,73 @@ export async function bridgeRoute(
   }
 }
 
-export const bridgeProvider: BridgeProviderExecution = {
-  async open(context): Promise<BridgeProviderSession> {
-    const agentProvider = context.provider === "anthropic" ? anthropicProvider : openaiProvider;
-    const model = process.env.NORTH_BRIDGE_MODEL;
-    const route = await bridgeRoute(providerRouting, context.provider, model);
-    const target = route.target;
-    if (model && !target)
-      throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
-    const routingMetadata = applyOrchestrationStaffing({ role: context.role });
-    const abortController = new AbortController();
-    const options = harnessOptions({
-      self: `bridge-${context.executionId}`,
-      provider: context.provider,
-      routingMetadata,
-      role: routingMetadata.role,
-      posture: routingMetadata.posture,
-      cwd: context.cwd,
-      model,
-      ...(model && target ? {
-        modelAvailability: {
-          exactModelPinned: true,
-          targetId: target.id,
-          receipt: route.receipt,
-        },
-      } : {}),
-      presenceRegistrar: false,
-      presenceRenewer: false,
-      systemPrompt: bridgeSystemPrompt(context.role),
-      abortController,
-    });
-    markCoordinationOptional(options);
-    await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
-    const effort = options.effort ?? "high";
-    const query = agentProvider.query({
-      input: context.prompt,
-      options,
-      ...(target ? { target } : {}),
-      context: {
-        writer: context.writer,
-        route: wireQueryRoute({
-          model: {
-            provider: context.provider,
-            capabilityClass: context.role === "director" ? "orchestrator" : "authoring",
+type BridgeAgentProviders = Readonly<Record<BridgeLaunchProvider, AgentProvider>>;
+
+export function bridgeProviderWithDependenciesForTest(
+  providers: BridgeAgentProviders,
+  routing: BridgeProviderRouting,
+): BridgeProviderExecution {
+  return Object.freeze({
+    async open(context: BridgeProviderOpenContext): Promise<BridgeProviderSession> {
+      const agentProvider = providers[context.provider];
+      const model = process.env.NORTH_BRIDGE_MODEL;
+      const route = await bridgeRoute(routing, context.provider, model);
+      const target = route.target;
+      if (model && !target)
+        throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
+      const routingMetadata = applyOrchestrationStaffing({ role: context.role });
+      const abortController = new AbortController();
+      const artifacts = new RunArtifactStore(context.writer.runId);
+      const options = harnessOptions({
+        self: `bridge-${context.executionId}`,
+        provider: context.provider,
+        routingMetadata,
+        role: routingMetadata.role,
+        posture: routingMetadata.posture,
+        cwd: context.cwd,
+        model,
+        ...(model && target ? {
+          modelAvailability: {
+            exactModelPinned: true,
+            targetId: target.id,
+            receipt: route.receipt,
           },
-          effort,
-          attempt: 1,
-        }),
-      },
-    });
-    return new BridgeWireSession(query, abortController, context.signal);
-  },
-};
+        } : {}),
+        presenceRegistrar: false,
+        presenceRenewer: false,
+        systemPrompt: bridgeSystemPrompt(context.role),
+        abortController,
+        artifactDirectory: artifacts.directory,
+      });
+      markCoordinationOptional(options);
+      await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
+      const effort = options.effort ?? "high";
+      const query = agentProvider.query({
+        input: context.prompt,
+        options,
+        ...(target ? { target } : {}),
+        context: {
+          writer: context.writer,
+          artifacts,
+          route: wireQueryRoute({
+            model: {
+              provider: context.provider,
+              capabilityClass: context.role === "director" ? "orchestrator" : "authoring",
+            },
+            effort,
+            attempt: 1,
+          }),
+        },
+      });
+      return new BridgeWireSession(query, abortController, context.signal);
+    },
+  });
+}
+
+export const bridgeProvider: BridgeProviderExecution = bridgeProviderWithDependenciesForTest(
+  { anthropic: anthropicProvider, openai: openaiProvider },
+  providerRouting,
+);
 
 const BRIDGE_PRESSURE_RANK: Record<string, number> = {
   plenty: 4, normal: 3, low: 2, unknown: 1, exhausted: 0,

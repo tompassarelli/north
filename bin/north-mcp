@@ -46,6 +46,8 @@
 ;; keys) to the engine argument vector.
 (def read-external-annotations
   {:readOnlyHint true :destructiveHint false :idempotentHint true :openWorldHint true})
+(def read-local-annotations
+  {:readOnlyHint true :destructiveHint false :idempotentHint true :openWorldHint false})
 (def local-write-annotations
   {:readOnlyHint false :destructiveHint false :idempotentHint true :openWorldHint true})
 (def remote-write-annotations
@@ -57,6 +59,8 @@
 (def page-argument-keys #{"offset" "limit" "snapshot"})
 (def max-page-offset 2147483647)
 (def max-page-limit 100)
+(def artifact-read-argument-keys #{"artifactId" "offset" "limit" "snapshot"})
+(def max-artifact-read-limit 65536)
 
 (defn page-argument-problem [arguments required-keys]
   (if-not (map? arguments)
@@ -88,6 +92,28 @@
       (when-not (and (string? (get arguments "query"))
                      (not (str/blank? (get arguments "query"))))
         "query must be a non-empty string")))
+
+(defn artifact-read-argument-problem [arguments]
+  (if-not (map? arguments)
+    "arguments must be an object"
+    (let [unknown (sort (remove artifact-read-argument-keys (keys arguments)))
+          artifact-id (get arguments "artifactId")
+          offset (get arguments "offset" 0)
+          limit (get arguments "limit" 16384)
+          snapshot (get arguments "snapshot")]
+      (cond
+        (seq unknown) (str "unknown artifact_read arguments: " (str/join ", " unknown))
+        (not (and (string? artifact-id)
+                  (re-matches #"[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}" artifact-id)))
+        "artifactId must be a valid Wire artifact ID"
+        (not (and (integer? offset) (<= 0 offset max-page-offset)))
+        "offset must be an integer from 0 through 2147483647"
+        (not (and (integer? limit) (<= 1 limit max-artifact-read-limit)))
+        "limit must be an integer from 1 through 65536"
+        (and (some? snapshot)
+             (not (and (string? snapshot) (re-matches #"[0-9a-f]{64}" snapshot))))
+        "snapshot must be a 64-character lowercase SHA-256 hash"
+        :else nil))))
 
 (defn evidence-argument-problem [arguments]
   (cond
@@ -155,6 +181,16 @@
              :required ["query"] :additionalProperties false}
     :argument-problem search-argument-problem
     :argv (fn [a] ["json" "search" (get a "query")])}
+   {:name "artifact_read"
+    :desc "Read a bounded UTF-8 page from one artifact retained by this managed run. offset, limit, total, and nextOffset count UTF-8 bytes. Continue only with nextOffset and the returned snapshot; a changed artifact rejects the continuation."
+    :schema {:type "object"
+             :properties {:artifactId {:type "string" :pattern "^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$"}
+                          :offset {:type "integer" :minimum 0 :maximum 2147483647 :default 0 :description "UTF-8 byte offset; use only a returned nextOffset"}
+                          :limit {:type "integer" :minimum 1 :maximum 65536 :default 16384 :description "maximum UTF-8 content bytes"}
+                          :snapshot {:type "string" :pattern "^[0-9a-f]{64}$"}}
+             :required ["artifactId"] :additionalProperties false}
+    :annotations read-local-annotations
+    :argument-problem artifact-read-argument-problem}
    {:name "capture"      :desc "Create a new thread from a title (a thought or unit of work)."
     :schema {:type "object" :properties {:title {:type "string"}
                                          :owner {:type "string" :description "defaults to personal"}}
@@ -241,6 +277,7 @@
 (def route-preflight (str sdk-dir "/mcp-route-preflight.ts"))
 (def routing-economics-preflight (str sdk-dir "/routing-economics-preflight-cli.ts"))
 (def struggle-policy-cli (str sdk-dir "/struggle.ts"))
+(def artifact-read-cli (str sdk-dir "/run-artifact-read-cli.ts"))
 ;; NORTH_ORCHESTRATION_HOME is the canonical name every other surface reads, and
 ;; the fallback is the IN-REPO orchestration/ (derived from this script, via
 ;; `here`) — never the former sibling checkout location, which stopped existing
@@ -1113,6 +1150,20 @@
           tail (- available head)]
       (str (subs text 0 head) marker (subs text (- (count text) tail))))))
 
+(defn call-artifact-read [arguments]
+  (let [{:keys [out err exit]}
+        (proc/sh {:in (json/generate-string arguments)}
+                 bun "run" artifact-read-cli)
+        stdout (str/trim (or out ""))
+        stderr (str/trim (or err ""))
+        text (cond
+               (and (zero? exit) (seq stdout) (str/blank? stderr)) stdout
+               (seq stdout) stdout
+               (seq stderr) (bound-tool-error stderr)
+               :else "artifact read failed")]
+    {:content [{:type "text" :text text}]
+     :isError (boolean (or (not (zero? exit)) (seq stderr)))}))
+
 (defn call-tool [nm args]
   (if-let [st (find-sdk-tool nm)]
     (try
@@ -1125,7 +1176,9 @@
         (if-let [problem (when-let [argument-problem (:argument-problem t)]
                            (argument-problem arguments))]
           {:content [{:type "text" :text problem}] :isError true}
-          (let [argv (mapv str ((:argv t) arguments))
+          (if (= nm "artifact_read")
+            (call-artifact-read arguments)
+            (let [argv (mapv str ((:argv t) arguments))
                 {:keys [out err exit]} (apply proc/sh engine argv)
                 errs (str/trim (or err ""))
                 raw (str/trim (str out (when (seq errs) (str "\n[stderr] " errs))))
@@ -1140,7 +1193,7 @@
                  :isError true}
                 (paged-output nm arguments (str/trim (or out ""))))
               {:content [{:type "text" :text (if (str/blank? text) (str "(done; exit " exit ")") text)}]
-               :isError (not (zero? exit))}))))
+               :isError (not (zero? exit))})))))
       {:content [{:type "text" :text (str "unknown tool: " nm)}] :isError true})))
 
 (defn tool-descriptor [t]

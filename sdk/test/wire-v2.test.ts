@@ -204,6 +204,34 @@ describe("wire-v2 decoding", () => {
     })), "malformed_event");
   });
 
+	test("requires an exact SHA-256 digest alongside a terminal result artifact id", () => {
+		const artifactId = wireArtifactId("artifact:terminal-digest-decode");
+		const digest = "a".repeat(64);
+		const decoded = decodeWireEvent(rawEvent(1, "tool.terminal", {
+			toolCallId: TOOL_ID,
+			status: "succeeded",
+			origin: "provider",
+			resultArtifactId: artifactId,
+			resultArtifactDigest: digest,
+		}));
+		expect(decoded).toMatchObject({ resultArtifactId: artifactId, resultArtifactDigest: digest });
+		expect(decoded.extensions).toBeUndefined();
+
+		for (const payload of [
+			{ resultArtifactId: artifactId },
+			{ resultArtifactDigest: digest },
+			{ resultArtifactId: artifactId, resultArtifactDigest: "A".repeat(64) },
+			{ resultArtifactId: artifactId, resultArtifactDigest: "a".repeat(63) },
+		] as const) {
+			expectContractError(() => decodeWireEvent(rawEvent(1, "tool.terminal", {
+				toolCallId: TOOL_ID,
+				status: "succeeded",
+				origin: "provider",
+				...payload,
+			})), "malformed_event");
+		}
+	});
+
   test("decodes bounded completion provenance and rejects malformed evidence", () => {
     const modelCallId = wireModelCallId("model-call:evidence");
     const evidence = {
@@ -1425,6 +1453,7 @@ describe("wire-v2 reduction", () => {
 
 	test("requires artifact publication before any artifact reference", () => {
 		const artifactId = wireArtifactId("artifact:published-before-reference");
+		const digest = "a".repeat(64);
 		expectContractError(() => reduceWireEvents([
 			started(),
 			decodeWireEvent(rawEvent(1, "run.progress", {
@@ -1441,6 +1470,42 @@ describe("wire-v2 reduction", () => {
 				argumentArtifactId: artifactId,
 			})),
 		]), "state_violation");
+		expectContractError(() => reduceWireEvents([
+			started(),
+			decodeWireEvent(rawEvent(1, "tool.admitted", {
+				toolCallId: TOOL_ID,
+				name: "artifact-tool",
+				schema: { status: "unavailable", reason: "fixture" },
+			})),
+			decodeWireEvent(rawEvent(2, "tool.terminal", {
+				toolCallId: TOOL_ID,
+				status: "succeeded",
+				origin: "provider",
+				resultArtifactId: artifactId,
+				resultArtifactDigest: digest,
+			})),
+		]), "state_violation");
+		expectContractError(() => reduceWireEvents([
+			started(),
+			decodeWireEvent(rawEvent(1, "artifact.published", {
+				artifactId,
+				mediaType: "application/json",
+				bytes: 12,
+				digest,
+			})),
+			decodeWireEvent(rawEvent(2, "tool.admitted", {
+				toolCallId: TOOL_ID,
+				name: "artifact-tool",
+				schema: { status: "unavailable", reason: "fixture" },
+			})),
+			decodeWireEvent(rawEvent(3, "tool.terminal", {
+				toolCallId: TOOL_ID,
+				status: "succeeded",
+				origin: "provider",
+				resultArtifactId: artifactId,
+				resultArtifactDigest: "b".repeat(64),
+			})),
+		]), "state_violation");
 
 		const snapshot = reduceWireEvents([
 			started(),
@@ -1448,6 +1513,7 @@ describe("wire-v2 reduction", () => {
 				artifactId,
 				mediaType: "application/json",
 				bytes: 12,
+				digest,
 			})),
 			decodeWireEvent(rawEvent(2, "tool.admitted", {
 				toolCallId: TOOL_ID,
@@ -1464,6 +1530,7 @@ describe("wire-v2 reduction", () => {
 				status: "succeeded",
 				origin: "provider",
 				resultArtifactId: artifactId,
+				resultArtifactDigest: digest,
 			})),
 			decodeWireEvent(rawEvent(5, "run.progress", {
 				lifecycle: "running",
@@ -1476,6 +1543,7 @@ describe("wire-v2 reduction", () => {
 		expect(snapshot.outputReferences).toEqual([{ kind: "artifact", artifactId }]);
 		expect(snapshot.patch?.artifactId).toBe(artifactId);
 		expect(snapshot.toolCalls[TOOL_ID]?.resultArtifactId).toBe(artifactId);
+		expect(snapshot.toolCalls[TOOL_ID]?.resultArtifactDigest).toBe(digest);
 	});
 
   test("treats valid prototype-named identities as ordinary record keys", () => {

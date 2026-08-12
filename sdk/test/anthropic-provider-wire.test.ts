@@ -15,6 +15,8 @@ import {
 	WireEventWriter,
 	wireEventId,
 	wireRunId,
+	type WireArtifactMaterial,
+	type WireArtifactSink,
 	type WireEvent,
 	type WireQueryInput,
 } from "../src/wire";
@@ -26,7 +28,11 @@ const USAGE = {
 	cache_read_input_tokens: 3,
 } as const;
 
-function providerArgs(label: string, input: WireQueryInput = "first turn"): AgentProviderQuery {
+function providerArgs(
+	label: string,
+	input: WireQueryInput = "first turn",
+	artifacts?: WireArtifactSink,
+): AgentProviderQuery {
 	const writer = new WireEventWriter({
 		runId: wireRunId(`run:anthropic-provider:${label}`),
 		eventId: (sequence) => wireEventId(`event:anthropic-provider:${label}:${sequence}`),
@@ -38,6 +44,7 @@ function providerArgs(label: string, input: WireQueryInput = "first turn"): Agen
 		options: {},
 		context: {
 			writer,
+			...(artifacts === undefined ? {} : { artifacts }),
 			route: {
 				model: { provider: "anthropic", tier: "senior", capabilityClass: "authoring" },
 				effort: "high",
@@ -124,6 +131,71 @@ function fakeRuntime(
 }
 
 describe("Anthropic public wire adapter", () => {
+	test("carries the production artifact sink into public tool-result normalization", async () => {
+		const persisted: WireArtifactMaterial[] = [];
+		const sink: WireArtifactSink = {
+			persist(artifact) {
+				persisted.push(artifact);
+				return { artifactId: artifact.artifactId, digest: artifact.digest };
+			},
+		};
+		const frames = [[
+			{
+				type: "assistant",
+				uuid: "artifact-assistant",
+				session_id: "artifact-session",
+				parent_tool_use_id: null,
+				message: {
+					id: "artifact-turn",
+					role: "assistant",
+					model: "private-model",
+					content: [{
+						type: "tool_use",
+						id: "artifact-tool",
+						name: "Bash",
+						input: { command: "printf retained" },
+					}],
+				},
+			},
+			{
+				type: "user",
+				uuid: "artifact-result",
+				session_id: "artifact-session",
+				parent_tool_use_id: null,
+				message: {
+					role: "user",
+					content: [{
+						type: "tool_result",
+						tool_use_id: "artifact-tool",
+						content: "public adapter retained output",
+					}],
+				},
+			},
+			result("artifact-terminal", "artifact-session"),
+		]];
+		const state: FakeRuntimeState = {
+			resumes: [], options: [], inputs: [], models: [], efforts: [],
+			interrupts: 0, returns: 0, settles: 0,
+		};
+		const providerQuery = createAnthropicQuery(
+			providerArgs("artifact-sink", "retain this", sink),
+			true,
+			fakeRuntime(frames, state),
+		);
+		const events: WireEvent[] = [];
+		for await (const event of providerQuery) events.push(event);
+		expect(persisted).toHaveLength(1);
+		expect(persisted[0]).toMatchObject({ content: "public adapter retained output" });
+		const publishedIndex = events.findIndex((event) => event.kind === "artifact.published");
+		const terminalIndex = events.findIndex((event) => event.kind === "tool.terminal");
+		expect(publishedIndex).toBeGreaterThan(-1);
+		expect(terminalIndex).toBeGreaterThan(publishedIndex);
+		expect(events[terminalIndex]).toMatchObject({
+			resultArtifactId: persisted[0]!.artifactId,
+			resultArtifactDigest: persisted[0]!.digest,
+		});
+	});
+
 	test("strips caller-authored provider session continuation at the public adapter boundary", async () => {
 		const state: FakeRuntimeState = {
 			resumes: [], options: [], inputs: [], models: [], efforts: [], interrupts: 0, returns: 0, settles: 0,

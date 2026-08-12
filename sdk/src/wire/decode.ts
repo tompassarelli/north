@@ -60,7 +60,8 @@ const PAYLOAD_KEYS: Readonly<Record<WireEventKind, readonly string[]>> = {
 	],
 	"tool.progress": ["toolCallId", "progress", "outputArtifactId"],
 	"tool.terminal": [
-		"toolCallId", "status", "origin", "resultPreview", "resultArtifactId", "errorCode",
+		"toolCallId", "status", "origin", "resultPreview", "resultArtifactId",
+		"resultArtifactDigest", "errorCode",
 	],
 	"artifact.published": ["artifactId", "resourceId", "mediaType", "bytes", "digest", "label"],
 	"resource.pressure": ["resourceId", "scope", "resource", "used", "reserved", "limit", "advisory"],
@@ -87,6 +88,14 @@ function text(value: JsonValue | undefined, label: string, maxLength = 65_536): 
 
 function optionalText(value: JsonValue | undefined, label: string, maxLength = 65_536): string | undefined {
 	return value === undefined ? undefined : text(value, label, maxLength);
+}
+
+function sha256Digest(value: JsonValue | undefined, label: string): string {
+	const parsed = text(value, label, 64);
+	if (!/^[a-f0-9]{64}$/.test(parsed)) {
+		malformed(`${label} must be a 64-character lowercase SHA-256 digest`);
+	}
+	return parsed;
 }
 
 function publicErrorCode(value: JsonValue | undefined, label: string): string {
@@ -753,7 +762,17 @@ function validatePayload(kind: WireEventKind, source: JsonObject): void {
 				malformed("synthetic tool failures must originate from North");
 			}
 			optionalText(source.resultPreview, "tool.terminal resultPreview", 8_192);
-			optionalId(source.resultArtifactId, "tool.terminal resultArtifactId", wireArtifactId);
+			const resultArtifactId = optionalId(
+				source.resultArtifactId,
+				"tool.terminal resultArtifactId",
+				wireArtifactId,
+			);
+			const resultArtifactDigest = source.resultArtifactDigest === undefined
+				? undefined
+				: sha256Digest(source.resultArtifactDigest, "tool.terminal resultArtifactDigest");
+			if ((resultArtifactId === undefined) !== (resultArtifactDigest === undefined)) {
+				malformed("tool.terminal resultArtifactId and resultArtifactDigest must appear together");
+			}
 			optionalPublicErrorCode(source.errorCode, "tool.terminal errorCode");
 			return;
 		}
@@ -765,10 +784,7 @@ function validatePayload(kind: WireEventKind, source: JsonObject): void {
 				malformed("artifact.published mediaType is invalid");
 			}
 			count(source.bytes, "artifact.published bytes");
-			const digest = optionalText(source.digest, "artifact.published digest", 128);
-			if (digest !== undefined && !/^[a-f0-9]{64}$/.test(digest)) {
-				malformed("artifact.published digest must be 64 lowercase hexadecimal characters");
-			}
+			if (source.digest !== undefined) sha256Digest(source.digest, "artifact.published digest");
 			optionalText(source.label, "artifact.published label", 512);
 			return;
 		}
@@ -993,6 +1009,12 @@ function knownEvent(
 						wireArtifactId,
 					),
 				}),
+				...(source.resultArtifactDigest === undefined ? {} : {
+					resultArtifactDigest: sha256Digest(
+						source.resultArtifactDigest,
+						"tool.terminal resultArtifactDigest",
+					),
+				}),
 				...(errorCode === undefined ? {} : { errorCode }),
 				} satisfies WireKnownEvent);
 			}
@@ -1007,7 +1029,7 @@ function knownEvent(
 				mediaType: text(source.mediaType, "artifact.published mediaType", 256),
 				bytes: count(source.bytes, "artifact.published bytes"),
 				...(source.digest === undefined ? {} : {
-					digest: text(source.digest, "artifact.published digest", 128),
+					digest: sha256Digest(source.digest, "artifact.published digest"),
 				}),
 				...(source.label === undefined ? {} : {
 					label: text(source.label, "artifact.published label", 512),

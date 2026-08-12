@@ -180,10 +180,11 @@ test("Orchestration capabilities compile to exact provider authority before work
     + "native-multi-agent=disabled; "
     + "live-input=streaming; "
     + "authoring-hooks=harness-exact; "
-    + "north enabled_tools=capture,tell,evidence_record,show,search,ready,next,board,plate; "
+    + "north enabled_tools=capture,tell,evidence_record,show,search,artifact_read,ready,next,board,plate; "
     + "web=disabled; sdk builtins=Read,Grep,Glob; "
     + "mcp tools=mcp__north-readonly-shell__run,mcp__north__capture,mcp__north__tell,"
-    + "mcp__north__evidence_record,mcp__north__show,mcp__north__search,mcp__north__ready,mcp__north__next,"
+    + "mcp__north__evidence_record,mcp__north__show,mcp__north__search,mcp__north__artifact_read,"
+    + "mcp__north__ready,mcp__north__next,"
     + "mcp__north__board,mcp__north__plate",
   );
   expect(loggedSurface).not.toMatch(/\b(Edit|Write|Bash)\b/);
@@ -309,7 +310,7 @@ test("Codex receives per-run native-agent disablement and a worker North allowli
   });
   expect(worker).toEqual([
     "--disable", "multi_agent", "--config",
-    "mcp_servers.north.enabled_tools=[\"capture\",\"tell\",\"evidence_record\",\"show\",\"search\",\"ready\",\"next\",\"board\",\"plate\"]",
+    "mcp_servers.north.enabled_tools=[\"capture\",\"tell\",\"evidence_record\",\"show\",\"search\",\"artifact_read\",\"ready\",\"next\",\"board\",\"plate\"]",
   ]);
   expect(codexHarnessArguments({ disallowedTools: ["Agent"] })).toEqual(["--disable", "multi_agent"]);
 });
