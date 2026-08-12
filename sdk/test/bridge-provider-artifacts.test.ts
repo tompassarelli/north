@@ -83,6 +83,12 @@ test("Bridge provider executions retain artifacts behind their deterministic MCP
   });
 
   const firstQuery = queries[0]!;
+  expect(first.presentation).toEqual({
+    model: firstQuery.options.model,
+    effort: firstQuery.options.effort,
+    cwd: streamRoot,
+    permissionMode: "bypassPermissions",
+  });
   expect(firstQuery.context.artifacts).toBeInstanceOf(RunArtifactStore);
   const directory = artifactDirectory(firstQuery);
   expect(directory).toBe((firstQuery.context.artifacts as RunArtifactStore).directory);

@@ -1507,6 +1507,11 @@ export function roster_text(state, selected, supervisor_id, banner_p) {
   return (((agents.length === 0)) ? "No agents attached" : ((rows.length === 0)) ? "" : rows.map((row) => row.text).join("\n"));
 }
 
+export function roster_visible_rows(content) {
+  const value = text(content).trim();
+  return ((value === "") ? 0 : Math.min(4, value.split("\n").length));
+}
+
 function agent_display_name(agent) {
   const name = agent_field_text(agent_name(agent));
   return ((name === "") ? agent_field_text(agent_id(agent)) : name);
@@ -1749,7 +1754,7 @@ if ((filechangedetails_rows(file).length > 0)) {
 }
 
 function push_working_wave_bang(chunks, runtime) {
-  const letters = "Working".split("");
+  const letters = text_or(runtime.workingLabel, "Working").split("");
   const cursor = (runtime.spinnerIndex % letters.length);
   push_chunk_bang(chunks, brightBlack("• "));
   return letters.forEach((letter, index) => push_chunk_bang(chunks, ((index === cursor) ? brightBlack(letter) : brightWhite(letter))));
@@ -2254,10 +2259,14 @@ return chunks.push(segment_chunk(segment, (focused_p && (index === selected))));
   return new StyledText(chunks);
 }
 
-function render_status(runtime, state) {
+function status_notice(runtime, state) {
   const workspace_notice = text(runtime.workspaceNotice);
   const notice = ((workspace_notice === "") ? visible_notice(bridgesnapshot_notice(state)) : workspace_notice);
-  return new StyledText([brightBlack(notice)]);
+  return notice;
+}
+
+function render_status(runtime, state) {
+  return new StyledText([brightBlack(status_notice(runtime, state))]);
 }
 
 const AGENTS_TAB_LABEL = "Agents";
@@ -2579,11 +2588,18 @@ function render_ui_bang(runtime, ui) {
     const agent_max = Math.max(0, (agents.length - 1));
     const work_max = Math.max(0, (items.length - 1));
     const board_p = (workview_id(current) === "board");
+    const banner_p = banner_visible_p(runtime);
+    const roster = roster_text(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
+    const roster_rows = roster_visible_rows(roster);
+    const notice = status_notice(runtime, state);
+    const notice_p = (!(notice === ""));
     (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
     (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     apply_frame_visibility_bang(runtime, ui);
     (ui.viewTabsText.content = render_view_tabs_bang(runtime.frame, state, workview_id(current), runtime));
-    (ui.agentsText.content = roster_text(state, runtime.agentIndex, text(runtime.supervisorId), banner_visible_p(runtime)));
+    (ui.agentsText.visible = (roster_rows > 0));
+    (ui.agentsText.height = Math.max(1, roster_rows));
+    (ui.agentsText.content = roster);
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = (!board_p));
     (ui.boardRoot.visible = board_p);
@@ -2594,7 +2610,8 @@ function render_ui_bang(runtime, ui) {
     }
     (ui.statusText.content = render_status(runtime, state));
     (ui.agentStatusText.content = render_status(runtime, state));
-    (ui.agentStatusText.visible = (!threads_frame_p(runtime.frame)));
+    (ui.statusText.visible = (threads_frame_p(runtime.frame) && notice_p));
+    (ui.agentStatusText.visible = ((!threads_frame_p(runtime.frame)) && notice_p));
     render_prompt_bang(runtime, ui.composerPrompt);
     const segments = agent_segments(agents);
     const strip_max = Math.max(0, (segments.length - 1));
@@ -2681,7 +2698,7 @@ function adopt_wire_model_bang(runtime, model, effort) {
     const provider = text(model.provider);
     const tier = text(model.tier);
     const label = ((((!(provider === "")) && (!(tier === "")))) ? ("".concat(provider, "/", tier)) : ((!(provider === ""))) ? provider : "");
-    if ((!(label === ""))) {
+    if (((!(label === "")) && (text(runtime.sessionModel).trim() === ""))) {
       (runtime.sessionModel = label);
     }
   }
@@ -2723,12 +2740,23 @@ function handle_record_bang(runtime, stream_state, record) {
 }
 if (((!stream_state.booting) && (!(prompt === "")))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", prompt, "done"));
+} })() : ((kind === "session.config")) ? (() => { const model = text(data.model).trim(); const effort = text(data.effort).trim(); const cwd = text(data.cwd).trim(); const permissions = text(data.permissionMode).trim(); if ((!(model === ""))) {
+  (runtime.sessionModel = model);
+}
+if ((!(effort === ""))) {
+  (runtime.sessionEffort = effort);
+}
+if ((!(cwd === ""))) {
+  (runtime.sessionCwd = cwd);
+}
+if ((!(permissions === ""))) {
+  return (runtime.sessionPermissions = permissions);
 } })() : (((kind === "control.submit_input") || (kind === "control.redirect_now"))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
-} })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { adopt_wire_model_bang(runtime, data.model, data.effort);
-set_execution_working_bang(runtime, execution_id, true, "Agent is working");
+} })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { const booting = stream_state.booting; adopt_wire_model_bang(runtime, data.model, data.effort);
+set_execution_working_bang(runtime, execution_id, true, (booting ? ("".concat("Starting ", main_agent_label(), "…")) : "Agent is working"));
 if ((!(execution_id === ""))) {
-  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
+  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (booting ? "starting" : "working"));
 } })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || (kind === "tool.progress") || (kind === "tool.terminal"))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = (data.progress || {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
 if (progress.branch) {
   (runtime.sessionBranch = text(progress.branch.name));
@@ -2791,7 +2819,7 @@ async function launch_agent_bang(runtime, prompt, role) {
   if ((prompt.trim() === "")) {
     (() => { throw new Error("launch requires a prompt"); })();
   }
-  set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label())));
+  set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label(), "…")));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
   const exit_code = await stream_command((() => { const flag = supervisor_provider_flag(); const base = [north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")]; return ((flag === "") ? [...base, prompt] : [...[...base, flag], prompt]); })(), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
   if ((!(exit_code === 0))) {

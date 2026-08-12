@@ -108,6 +108,54 @@ test("canonical wire message stages rebuild one assistant item in the Bridge tra
   expect(streamState.buffer).toBe("");
 });
 
+test("session config keeps the concrete model ahead of provider-neutral Wire metadata", () => {
+  const runtime = {
+    conversation: [] as ConversationItem[],
+    sessionModel: "",
+    sessionEffort: "",
+    sessionCwd: "",
+    sessionPermissions: "",
+    model: makeModel("list"),
+    bridgeExecutions: new Set<string>(),
+    supervisorId: "",
+    agentIndex: 0,
+    working: false,
+    workingLabel: "",
+    workingSince: 0,
+    spinnerTimer: null,
+    spinnerIndex: 0,
+    disposed: false,
+    render() {},
+    renderConversation() {},
+  };
+  const streamState = {
+    buffer: "", executionId: "execution-config", role: "supervisor",
+    booting: true, soundLive: false,
+  };
+  parseBridgeStream(
+    runtime,
+    streamState,
+    '[1] session.config {"model":"gpt-5.6-sol","effort":"max",'
+      + '"cwd":"/home/tom/code/north/main","permissionMode":"bypassPermissions"}\n',
+  );
+  expect(runtime.sessionModel).toBe("gpt-5.6-sol");
+  expect(runtime.sessionEffort).toBe("max");
+  expect(runtime.sessionCwd).toBe("/home/tom/code/north/main");
+  expect(runtime.sessionPermissions).toBe("bypassPermissions");
+
+  const writer = new WireEventWriter({ runId: wireRunId("run:bridge-config") });
+  writer.append({ kind: "run.started", lifecycle: "running", owner: "bridge:test" });
+  const started = writer.append({
+    kind: "model-call.started",
+    modelCallId: wireModelCallId("model-call:bridge-config"),
+    model: { provider: "openai", capabilityClass: "orchestrator" },
+    effort: "max",
+    attempt: 1,
+  });
+  parseBridgeStream(runtime, streamState, `${renderWireEvent(started)}\n`);
+  expect(runtime.sessionModel).toBe("gpt-5.6-sol");
+});
+
 test("provider-session replacement stays working across its stream chunk boundary", () => {
   const writer = new WireEventWriter({
     runId: wireRunId("run:bridge-wire-ui-session-replacement"),
