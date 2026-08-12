@@ -53,7 +53,8 @@ import {
   formatProviderStderrTail, ProviderStderrRing, STDERR_TAIL_LINES,
 } from "./codex-stderr-tail";
 import {
-  openAIWireToolIdentity, type OpenAIWireSemanticToolKind, type OpenAIWireToolIdentity,
+  openAIWireCountsAsToolItem, openAIWireToolIdentity,
+  type OpenAIWireSemanticToolKind, type OpenAIWireToolIdentity,
 } from "./openai-wire";
 import { providerJoinEvidence } from "./provider-join";
 import type { WireProviderJoinEvidence } from "../wire/events";
@@ -1742,17 +1743,6 @@ interface RuntimeNotificationState {
   mcpServerNames: readonly string[];
 }
 
-/**
- * The one definition of a counted work item, shared by both Codex transports
- * (the exec transport spells the same two exclusions `agent_message` /
- * `reasoning`). Reasoning blocks complete on every non-trivial turn whether or
- * not a single tool ran, so counting them would make the item count useless
- * for its only purpose: showing that a tool loop actually happened.
- */
-function countsAsToolItem(itemType: string): boolean {
-  return itemType !== "agentMessage" && itemType !== "reasoning";
-}
-
 function pendingItemSnapshot(state: RuntimeNotificationState): {
   pendingItemCount: number;
   pendingItems: readonly ManagedCodexPendingItemSummary[];
@@ -2226,7 +2216,7 @@ function validateProgressNotification(
     } else if (started && started.kind !== itemType) {
       throw new Error("Codex item completion changed its started kind");
     }
-    if (method === "item/completed" && countsAsToolItem(itemType)) state.toolItems += 1;
+    if (method === "item/completed" && openAIWireCountsAsToolItem(itemType)) state.toolItems += 1;
     if (method === "item/started" && item.type === "commandExecution")
       startedNativeCommand(item, state);
     if (method === "item/completed" && item.type === "agentMessage") {

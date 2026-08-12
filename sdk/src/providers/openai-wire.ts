@@ -302,6 +302,10 @@ function semanticToolKind(value: string): OpenAIWireSemanticToolKind | undefined
 	return undefined;
 }
 
+export function openAIWireCountsAsToolItem(itemType: string): boolean {
+	return semanticToolKind(itemType) !== undefined;
+}
+
 function openAIWireArgumentDigest(
 	item: UnknownRecord,
 	kind: OpenAIWireSemanticToolKind,
