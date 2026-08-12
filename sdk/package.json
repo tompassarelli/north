@@ -14,7 +14,7 @@
   "scripts": {
     "dispatch": "bun run src/dispatch.ts",
     "license:check": "bun run src/license-integrity.ts",
-    "check": "bun run license:check && bun x tsc --noEmit && bun build src/dispatch.ts --no-bundle > /dev/null && bun build src/spawn.ts --no-bundle > /dev/null && bun build src/routing-economics-preflight-cli.ts --no-bundle > /dev/null && bun build src/provider-capability-admission-cli.ts --no-bundle > /dev/null && bun build src/run-artifact-read-cli.ts --no-bundle > /dev/null && bun build src/spawn-doctor-probe.ts --no-bundle > /dev/null &&bun build src/integrations/linear/cli.ts --no-bundle > /dev/null && bun build src/ccr-cli.ts --no-bundle > /dev/null && bun build src/succession-cli.ts --no-bundle > /dev/null && bun build src/acp/cli.ts --no-bundle > /dev/null",
+    "check": "bun run license:check && bun x tsc --noEmit && bun build src/dispatch.ts --no-bundle > /dev/null && bun build src/spawn.ts --no-bundle > /dev/null && bun build src/routing-economics-preflight-cli.ts --no-bundle > /dev/null && bun build src/provider-capability-admission-cli.ts --no-bundle > /dev/null && bun build src/run-artifact-read-cli.ts --no-bundle > /dev/null && bun build src/spawn-doctor-probe.ts --no-bundle > /dev/null &&bun build src/integrations/linear/cli.ts --no-bundle > /dev/null && bun build src/ccr-cli.ts --no-bundle > /dev/null && bun build src/succession-cli.ts --no-bundle > /dev/null && bun build src/acp/cli.ts --no-bundle > /dev/null && bun build src/tier1-distiller-cli.ts --no-bundle > /dev/null",
     "test": "bash ./test/support/run-suite.sh"
   },
   "devDependencies": {

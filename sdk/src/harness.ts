@@ -402,6 +402,8 @@ export interface HarnessOpts {
   activatedResources?: readonly EnvironmentArtifact[];
   /** Explicit available-skill catalog observation; absence remains unknown. */
   availableSkills?: readonly EnvironmentArtifact[];
+  /** Sealed zero-tool execution for data transforms whose input carries no authority. */
+  dataOnly?: boolean;
 }
 
 // Auto-connect every SDK-spawned agent to north coordination — the SDK twin of
@@ -1199,6 +1201,7 @@ interface HarnessCompositionState {
   initialEffort?: Effort;
   omitModelDeltaReason?: string;
   exactModelPinned: boolean;
+  dataOnly: boolean;
   /** Immutable composer input; dynamic branches may not reread ambient env. */
   environment: NodeJS.ProcessEnv;
 }
@@ -1223,12 +1226,18 @@ function composeSystemPrompt(
   const constitution = includeConstitution
     ? constitutionTiers(state.capabilities, state.cwd, state.environment)
     : { core: "", cap: "", repo: "" };
-  const delta = modelDeltaAppendix(provider, model, state.omitModelDeltaReason);
+  const delta = modelDeltaAppendix(
+    provider,
+    model,
+    state.dataOnly ? "data-only contract excludes model prompt deltas" : state.omitModelDeltaReason,
+  );
   const core = state.basePrompt + constitution.core;
   const cap = state.orchestrationAppendix + constitution.cap;
   const project = projectAgentsAppendix(state.cwd, state.environment);
   const repo = project + constitution.repo;
-  const coordination = coordinationBlock(state.self, state.cwd, provider, state.capabilities);
+  const coordination = state.dataOnly
+    ? ""
+    : coordinationBlock(state.self, state.cwd, provider, state.capabilities);
   const tail = coordination + delta.appendix;
   const stablePrefix = core + cap + repo;
   const prompt = stablePrefix + tail;
@@ -1334,6 +1343,7 @@ interface HarnessAuthoritySeal {
   model?: string;
   maxTurns?: number;
   modelAvailability: HarnessModelAvailabilityBinding;
+  dataOnly: boolean;
 }
 const harnessAuthoritySeals = new WeakMap<object, HarnessAuthoritySeal>();
 export interface HarnessModelAvailabilityBinding {
@@ -1367,9 +1377,10 @@ function sealHarnessAuthority(options: Options, provider: ProviderId): void {
   const raw = options as any;
   if (!raw.northRoutingRequest || !raw.northCapabilities) return;
   const evidence = appliedEvidence.get(options as object);
-  const northServer = raw.mcpServers?.north;
+  const northServer = raw.mcpServers?.north as object | undefined;
   if (!evidence || typeof raw.systemPrompt !== "string"
-      || !raw.env || !northServer || typeof raw.cwd !== "string") return;
+      || !raw.env || (!northServer && raw.northDataOnly !== true)
+      || typeof raw.cwd !== "string") return;
   const optionKeys = Object.keys(raw).sort();
   harnessAuthoritySeals.set(options as object, {
     provider,
@@ -1382,7 +1393,7 @@ function sealHarnessAuthority(options: Options, provider: ProviderId): void {
     env: raw.env,
     mcpServers: raw.mcpServers,
     mcpServerEntries: Object.entries(raw.mcpServers),
-    northServer,
+    northServer: northServer ?? raw.mcpServers,
     tools: raw.tools,
     allowedTools: raw.allowedTools,
     disallowedTools: raw.disallowedTools,
@@ -1397,6 +1408,7 @@ function sealHarnessAuthority(options: Options, provider: ProviderId): void {
     model: raw.model,
     maxTurns: raw.maxTurns,
     modelAvailability: raw.northModelAvailability,
+    dataOnly: raw.northDataOnly === true,
   });
 }
 
@@ -1423,7 +1435,9 @@ export function hasCanonicalHarnessAuthority(options: Options, provider: Provide
     && mcpServerEntries.every(([name, server], index) =>
       name === seal.mcpServerEntries[index]?.[0]
       && server === seal.mcpServerEntries[index]?.[1])
-    && raw.mcpServers?.north === seal.northServer
+    && (raw.northDataOnly === true
+      ? raw.mcpServers === seal.northServer
+      : raw.mcpServers?.north === seal.northServer)
     && raw.tools === seal.tools
     && raw.allowedTools === seal.allowedTools
     && raw.disallowedTools === seal.disallowedTools
@@ -1437,7 +1451,8 @@ export function hasCanonicalHarnessAuthority(options: Options, provider: Provide
     && raw.effort === seal.effort
     && raw.model === seal.model
     && raw.maxTurns === seal.maxTurns
-    && raw.northModelAvailability === seal.modelAvailability,
+    && raw.northModelAvailability === seal.modelAvailability
+    && (raw.northDataOnly === true) === seal.dataOnly,
   );
 }
 
@@ -1857,15 +1872,26 @@ export function harnessOptions(o: HarnessOpts): Options {
   const orchestration = orchestrationAppendix(metadata, cwd, composerEnvironment);
   const capabilities = orchestration.evidence.capabilities;
   // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
-  // eso. The capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
+  // eso. Data-only transforms omit the ambient ESO presentation appendix. The
+  // capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
   // tail are composed by composeSystemPrompt from the state below.
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
-    + esoAppendix(composerEnvironment);
+    + (o.dataOnly ? "" : esoAppendix(composerEnvironment));
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
   const orchestrationAllowed = topology === "orchestrator"
     && capabilities?.includes("coordination") === true;
-  const policy = capabilities ? managedToolPolicy(capabilities) : undefined;
+  const capabilityPolicy = capabilities ? managedToolPolicy(capabilities) : undefined;
+  const policy = o.dataOnly && capabilityPolicy
+    ? {
+      tools: [],
+      allowedTools: [],
+      disallowedTools: [...new Set([
+        ...capabilityPolicy.allowedTools,
+        ...capabilityPolicy.disallowedTools,
+      ])],
+    }
+    : capabilityPolicy;
   const disallowedTools = policy?.disallowedTools ?? [...new Set([
     ...NATIVE_AGENT_TOOLS,
     ...(orchestrationAllowed ? [] : ORCHESTRATION_TOOLS),
@@ -1937,21 +1963,21 @@ export function harnessOptions(o: HarnessOpts): Options {
         : { NORTH_RUN_ARTIFACT_DIR: o.artifactDirectory }),
     }),
   );
-  const northMcpServer = Object.freeze({
+  const northMcpServer = o.dataOnly ? undefined : Object.freeze({
     type: "stdio", command: MCP,
     args: Object.freeze([]) as unknown as string[],
     env: northMcpEnv,
   });
   const mcpServers = Object.freeze({
-    north: northMcpServer,
-    ...(orchestrationAllowed
+    ...(northMcpServer ? { north: northMcpServer } : {}),
+    ...(orchestrationAllowed && !o.dataOnly
       ? { "north-peer": Object.freeze(peerCommandServer(o.self)) }
       : {}),
     // Compile the minimum authority surface for every retry-safe route up
     // front. Codex ignores Claude SDK tool allowlists and independently
     // enforces --sandbox read-only; an Anthropic fallback must still inherit
     // denied native Bash plus North's isolated read-only shell.
-    ...(readonlyShell
+    ...(readonlyShell && !o.dataOnly
       ? { [READONLY_SHELL_SERVER]: Object.freeze(
         readonlyShellServer(cwd, childEnv, o.abortController?.signal),
       ) }
@@ -1994,6 +2020,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     // A direct managed caller that supplies a model is conservatively an exact
     // pin. Production explicitly supplies false for a canonical tier default.
     exactModelPinned: o.modelAvailability?.exactModelPinned ?? o.model !== undefined,
+    dataOnly: o.dataOnly === true,
     environment: composerEnvironment,
   };
   const initialRouteModel = o.provider
@@ -2020,6 +2047,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       northCapabilities: Object.freeze([...capabilities]) as unknown as OrchestrationCapability[],
     } : {}),
     ...(metadata ? { northRoutingRequest: metadata } : {}),
+    ...(o.dataOnly ? { northDataOnly: true } : {}),
     cwd,
     systemPrompt: initialSystemPrompt,
     maxTurns: o.maxTurns ?? (Number(process.env.AGENT_MAX_TURNS) || 200),

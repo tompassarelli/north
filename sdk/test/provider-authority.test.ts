@@ -20,7 +20,9 @@ import {
   projectAgentsAppendix,
 } from "../src/harness";
 import { providerEnvironmentForTarget } from "../src/accounts";
-import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
+import {
+  applyOrchestrationStaffing, orchestrationCapabilities,
+} from "../src/orchestration-staffing";
 import { admitRoutingRequest } from "../src/routing-admission";
 import {
   MANAGED_NORTH_MCP_ENV_KEYS, validateManagedExecutionEnvelope,
@@ -132,6 +134,46 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
     ...MANAGED_CODEX_DISABLED_FEATURES.flatMap((name) => ["--disable", name]),
   ]);
   expect(formatProviderAuthoritySurface(directorSurface)).toContain("network=disabled");
+});
+
+test("a sealed data-only harness exposes no provider or North tool before execution", () => {
+  const routingMetadata = applyOrchestrationStaffing({ role: "designer" });
+  const anthropic = harnessOptions({
+    self: "anthropic-data-only",
+    provider: "anthropic",
+    cwd: north,
+    presenceRegistrar: false,
+    presenceRenewer: false,
+    routingMetadata,
+    availableSkills: [],
+    activatedResources: [],
+    dataOnly: true,
+  });
+  const surface = compileProviderAuthoritySurface("anthropic", anthropic);
+  expect(anthropic.tools).toEqual([]);
+  expect(anthropic.allowedTools).toEqual([]);
+  expect(Object.keys(anthropic.mcpServers ?? {})).toEqual([]);
+  expect(surface.northEnabledTools).toEqual([]);
+  expect(surface.managedTools).toEqual([]);
+  expect(surface.builtins).toEqual([]);
+  expect(() => validateManagedExecutionEnvelope(
+    "anthropic", orchestrationCapabilities(routingMetadata), anthropic,
+  )).not.toThrow();
+
+  const openai = harnessOptions({
+    self: "openai-data-only",
+    provider: "openai",
+    cwd: north,
+    presenceRegistrar: false,
+    presenceRenewer: false,
+    routingMetadata,
+    availableSkills: [],
+    activatedResources: [],
+    dataOnly: true,
+  });
+  expect(() => compileProviderAuthoritySurface("openai", openai)).toThrow(
+    "openai_data_only_execution_unsupported",
+  );
 });
 
 test("Codex network argv preserves the structured Gitiles policy without a boolean overwrite", () => {

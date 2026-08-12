@@ -333,7 +333,11 @@ export function validateManagedExecutionEnvelope(
     NORTH_BIN: ENGINE,
     ...(artifactDirectory === undefined ? {} : { NORTH_RUN_ARTIFACT_DIR: artifactDirectory }),
   });
-  if (north?.type !== "stdio"
+  if (options?.northDataOnly === true) {
+    if (!options?.mcpServers || Object.keys(options.mcpServers).length !== 0) {
+      throw new ExecutionAdmissionError(`${provider}_data_only_mcp_surface_must_be_empty`);
+    }
+  } else if (north?.type !== "stdio"
       || typeof north.command !== "string"
       || resolve(north.command) !== MCP
       || !Array.isArray(north.args)
@@ -462,7 +466,8 @@ export async function admitExecution(
   } catch (cause) {
     throw new ExecutionAdmissionError("north_mcp_executable_unavailable", { cause });
   }
-  if (provider === "anthropic" && capabilities.includes("shell.readonly")) {
+  if (provider === "anthropic" && capabilities.includes("shell.readonly")
+      && options?.northDataOnly !== true) {
     try {
       preflightReadonlyShell(cwd, options?.env ?? process.env);
     } catch (error) {
@@ -475,11 +480,13 @@ export async function admitExecution(
   // managed worker fails closed against a dead coordinator. An interactive
   // session (coordinationOptional) may run unrecorded: for chat, the
   // coordinator is telemetry when present, never a launch gate.
-  try {
-    await requireCoordinator(options?.mcpServers?.north?.env);
-  } catch (error) {
-    if (!isCoordinationOptional(options)) throw error;
-    console.warn("north: coordinator unreachable — session proceeds unrecorded");
+  if (options?.northDataOnly !== true) {
+    try {
+      await requireCoordinator(options?.mcpServers?.north?.env);
+    } catch (error) {
+      if (!isCoordinationOptional(options)) throw error;
+      console.warn("north: coordinator unreachable — session proceeds unrecorded");
+    }
   }
 }
 

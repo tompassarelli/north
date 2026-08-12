@@ -127,14 +127,19 @@ function normalizedAnthropicFrames(source: AsyncIterable<unknown>): AsyncIterabl
 
 function validateAnthropicHarness(options: Options): OrchestrationCapability[] | undefined {
 	if (!("northCapabilities" in options)) return undefined;
+  const managed = options as Options & {
+    northCapabilities: unknown;
+    northDataOnly?: boolean;
+  };
   const capabilities = requireOrchestrationCapabilities(
-    options.northCapabilities, "northCapabilities",
+    managed.northCapabilities, "northCapabilities",
   );
   if (!hasCanonicalHarnessAuthority(options, "anthropic"))
     throw providerPreacceptError("anthropic_harness_authority_seal_missing");
   validateManagedExecutionEnvelope("anthropic", capabilities, options);
   admitPinnedProvider("anthropic", capabilities);
   const policy = managedToolPolicy(capabilities);
+  const dataOnly = managed.northDataOnly === true;
   if (!Array.isArray(options.settingSources) || options.settingSources.length !== 0)
     throw providerPreacceptError("anthropic_setting_sources_must_be_isolated");
   if (options.strictMcpConfig !== true)
@@ -154,10 +159,11 @@ function validateAnthropicHarness(options: Options): OrchestrationCapability[] |
       );
   };
   requireDenied(NATIVE_AGENT_TOOLS, "native_agent");
-  requireAllowed(COORDINATION_TOOLS, "north");
+  if (dataOnly) requireDenied(COORDINATION_TOOLS, "north");
+  else requireAllowed(COORDINATION_TOOLS, "north");
 
   const exactCapability = (present: boolean, tools: string[], capability: string) => {
-    if (present) requireAllowed(tools, capability);
+    if (present && !dataOnly) requireAllowed(tools, capability);
     else requireDenied(tools, capability);
   };
   exactCapability(capabilities.includes("filesystem.read"), ["Read"], "filesystem_read");
@@ -169,22 +175,22 @@ function validateAnthropicHarness(options: Options): OrchestrationCapability[] |
   );
   exactCapability(capabilities.includes("web"), ["WebSearch", "WebFetch"], "web");
 
-  if (capabilities.includes("shell")) {
+  if (capabilities.includes("shell") && !dataOnly) {
     requireAllowed(["Bash"], "shell");
     requireDenied([READONLY_SHELL_TOOL], "readonly_shell");
-  } else if (capabilities.includes("shell.readonly")) {
+  } else if (capabilities.includes("shell.readonly") && !dataOnly) {
     requireDenied(["Bash"], "shell");
     requireAllowed([READONLY_SHELL_TOOL], "readonly_shell");
   } else {
     requireDenied(["Bash", READONLY_SHELL_TOOL], "shell");
   }
 
-  const expectedMcpServers = [
+  const expectedMcpServers = dataOnly ? [] : [
     "north",
     ...(capabilities.includes("coordination") ? ["north-peer"] : []),
     ...(capabilities.includes("shell.readonly") ? [READONLY_SHELL_SERVER] : []),
   ];
-  if (capabilities.includes("coordination")) {
+  if (capabilities.includes("coordination") && !dataOnly) {
     requireAllowed(ORCHESTRATION_TOOLS, "coordination");
     const peer = options.mcpServers?.["north-peer"];
     if (peer?.type !== "sdk" || peer.name !== "north-peer")
@@ -196,7 +202,7 @@ function validateAnthropicHarness(options: Options): OrchestrationCapability[] |
   const permissionMode = capabilities.includes("filesystem.write") ? "acceptEdits" : "default";
   if (options.permissionMode !== permissionMode)
     throw providerPreacceptError("anthropic_permission_mode_contract_missing");
-  if (capabilities.includes("shell.readonly")) {
+  if (capabilities.includes("shell.readonly") && !dataOnly) {
     const readonly = options.mcpServers?.[READONLY_SHELL_SERVER];
     if (readonly?.type !== "sdk" || readonly.name !== READONLY_SHELL_SERVER) {
       throw providerPreacceptError("anthropic_readonly_shell_contract_missing");
@@ -205,11 +211,14 @@ function validateAnthropicHarness(options: Options): OrchestrationCapability[] |
   const actualMcpServers = Object.keys(options.mcpServers ?? {});
   if (!exactStrings(actualMcpServers, expectedMcpServers))
     throw providerPreacceptError("anthropic_mcp_server_surface_contract_missing");
-  if (!exactStrings(options.tools, policy.tools))
+  if (!exactStrings(options.tools, dataOnly ? [] : policy.tools))
     throw providerPreacceptError("anthropic_builtin_tool_surface_contract_missing");
-  if (!exactStrings(options.allowedTools, policy.allowedTools))
+  if (!exactStrings(options.allowedTools, dataOnly ? [] : policy.allowedTools))
     throw providerPreacceptError("anthropic_auto_approval_contract_missing");
-  if (!exactStrings(options.disallowedTools, policy.disallowedTools))
+  const expectedDenied = dataOnly
+    ? [...new Set([...policy.allowedTools, ...policy.disallowedTools])]
+    : policy.disallowedTools;
+  if (!exactStrings(options.disallowedTools, expectedDenied))
     throw providerPreacceptError("anthropic_denied_tool_contract_missing");
   if (!hasCanonicalAuthoringHooks(options))
     throw providerPreacceptError("anthropic_authoring_guard_contract_missing");

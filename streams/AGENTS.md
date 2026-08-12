@@ -13,7 +13,8 @@ The stream layer the operating manual describes. Two directories:
 - `streams/distillations/` — **committed tiered compressions** of raw streams.
   Tier 1 = one session → decisions, principles, spawned threads, artifacts,
   with `@thread-id` links so the coordination graph and the narrative cross-reference.
-  Files: `YYYY-MM-DD-<slug>.tier1.md`.
+  Files: `YYYY-MM-DD-<slug>.<raw-lineage-digest>.tier1.md`; the full lineage
+  digest is the write-once identity across crash recovery and retries.
 
 Provenance contract: every distillation names its raw source(s) and the north
 thread minted for the session (`stream thread`), which carries `relates_to`
@@ -46,3 +47,12 @@ layer's — raw here is its input corpus.
   fresh agent re-parsing megabytes of JSONL — allowed, but that's the only case.
 - **Coordinator's only job**: mint the stream thread + `relates_to` edges
   (a handful of facts).
+- **Tier 1 claims are explicit and project-scoped.** `north stream-distill`
+  accepts a coordinator-minted stream thread, matches the raw session's exact
+  repository identity, and claims one settled managed mirror. The model sees
+  the static distiller contract plus that claimed snapshot as untrusted task
+  data. Global machine law and the declared routing contract remain explicit,
+  receipt-attested policy; ambient memory, skill catalogs, and activated
+  resources do not enter the task context. North publishes provenance and marks
+  completion only after the write-once artifact is durable. A replaced claim
+  token makes late model output stale.
