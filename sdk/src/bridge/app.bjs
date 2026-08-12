@@ -2559,7 +2559,8 @@
       (set! (.-model runtime) (select-agent (.-model runtime) selected)))
     selected)))
 
-(defn refresh! [runtime: Any] -> (Promise Any)
+(js/export
+ (defn refresh! [runtime: Any] -> (Promise Any)
   (let [payloads
         (js/await
          (Promise/all
@@ -2624,7 +2625,7 @@
       (when (identical? (workview-id next-view) "list")
         (.delete (.-collapsedListConditions runtime)
                  (list-section-id (workitem-condition (aget next-items next-index))))))
-    (.render runtime)))
+    (.render runtime))))
 
 (defn canonical-work-view [view-id: String] -> String
   (cond
@@ -5531,7 +5532,8 @@
 ;; The one way a line leaves the composer, whether the user typed it and hit
 ;; enter or the palette fired a command on their behalf. The composer is
 ;; cleared first so the frame never shows a line that is already in flight.
-(defn submit-input!
+(js/export
+ (defn submit-input!
   [runtime: Any
    ui: Any
    input: String] -> Any
@@ -5545,7 +5547,7 @@
       (report-promise! runtime
                        (submit-work! runtime ui input
                                      (->WorkSelection (.-activeView runtime)
-                                                      (.-workIndex runtime)))))))
+                                                      (.-workIndex runtime))))))))
 
 ;; Pure: what enter means while the palette is open, given the highlighted
 ;; entry. A command that takes no arguments has nothing left to say, so enter

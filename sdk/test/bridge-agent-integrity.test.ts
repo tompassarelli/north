@@ -1,15 +1,20 @@
 import { expect, test } from "bun:test";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   agent_cell_text as agentCellText,
   agent_route_text as agentRouteText,
   agent_row_text as agentRowText,
   normalize_agents as normalizeAgents,
   reconcile_agent_selection_bang as reconcileAgentSelection,
+  refresh_bang as refresh,
   render_detail_panel_bang as renderDetailPanel,
   roster_text as rosterText,
   selected_agent_id as selectedAgentId,
+  submit_input_bang as submitInput,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
   Agent,
@@ -69,6 +74,84 @@ test("agent reorder preserves the highlighted identity and composer target", asy
   expect(frame).toContain("› Beta");
   expect(frame).toContain("composer target: beta");
   expect(frame).not.toContain("› Alpha");
+});
+
+test("refresh preserves the selected submit target and falls back when it disappears", async () => {
+  const root = mkdtempSync(join(tmpdir(), "north-bridge-agent-selection-"));
+  const north = join(root, "north");
+  const roster = join(root, "roster.json");
+  const messages = join(root, "messages.tsv");
+  const priorNorthBin = process.env.NORTH_BIN;
+  try {
+    await Bun.write(
+      north,
+      `#!/bin/sh
+case "$1" in
+  agents) exec cat ${JSON.stringify(roster)} ;;
+  json) printf '[]\\n' ;;
+  msg) printf '%s\\t%s\\n' "$2" "$3" >> ${JSON.stringify(messages)} ;;
+esac
+`,
+    );
+    chmodSync(north, 0o755);
+    process.env.NORTH_BIN = north;
+
+    let model = makeModel("list");
+    for (const row of [agent("alpha", "Alpha"), agent("beta", "Beta"), agent("gamma", "Gamma")]) {
+      model = upsertAgent(model, row);
+    }
+    model = selectAgent(model, "beta");
+    const runtime = {
+      activeView: "list",
+      agentIndex: 1,
+      bridgeExecutions: new Set<string>(),
+      collapsedListConditions: new Set<string>(),
+      conversation: [] as unknown[],
+      disposed: false,
+      frame: "agents",
+      itemSequence: 0,
+      lastSubmitted: "",
+      model,
+      paletteIndex: 0,
+      render() {},
+      renderConversation() {},
+      spinnerIndex: 0,
+      spinnerTimer: null,
+      supervisorId: "",
+      workIndex: 0,
+      working: false,
+      workingLabel: "",
+      workingSince: 0,
+    };
+    const ui = { composerInput: { value: "" } };
+
+    await Bun.write(roster, JSON.stringify({ agents: [
+      { control_id: "gamma", display_handle: "Gamma" },
+      { control_id: "alpha", display_handle: "Alpha" },
+      { control_id: "beta", display_handle: "Beta" },
+    ] }));
+    await refresh(runtime);
+    expect(runtime.agentIndex).toBe(2);
+    expect(snapshot(runtime.model).selected_agent).toBe("beta");
+    await submitInput(runtime, ui, "first message");
+
+    await Bun.write(roster, JSON.stringify({ agents: [
+      { control_id: "gamma", display_handle: "Gamma" },
+      { control_id: "alpha", display_handle: "Alpha" },
+    ] }));
+    await refresh(runtime);
+    expect(runtime.agentIndex).toBe(1);
+    expect(snapshot(runtime.model).selected_agent).toBe("alpha");
+    await submitInput(runtime, ui, "second message");
+
+    expect(readFileSync(messages, "utf8")).toBe(
+      "beta\tfirst message\nalpha\tsecond message\n",
+    );
+  } finally {
+    if (priorNorthBin === undefined) delete process.env.NORTH_BIN;
+    else process.env.NORTH_BIN = priorNorthBin;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("agent rows remove terminal controls and clamp by terminal cells", async () => {
