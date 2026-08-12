@@ -559,13 +559,17 @@ function setup(mode = "ok") {
       if (mode === "turn-id-mismatch-notification")
         startedTurn.id = "019f7abc-0000-7000-8000-000000000099";
       notify("turn/started", { threadId, turn: startedTurn });
-      if (mode === "passive-items") {
+      if (mode === "passive-items" || mode === "provider-death-open-passive") {
         for (const passive of [
           item("user-message-1", "userMessage"),
           item("hook-prompt-1", "hookPrompt"),
         ]) {
           lifecycle("started", passive, 1);
-          lifecycle("completed", passive, 2);
+          if (mode === "passive-items") lifecycle("completed", passive, 2);
+        }
+        if (mode === "provider-death-open-passive") {
+          die(9, "codex: provider died with passive inputs open");
+          return;
         }
       }
       // Leave the replacement turn live until the queued control request is
@@ -1198,6 +1202,21 @@ test("provider input and hook prompts do not inflate managed tool accounting", a
   const { options } = setup("passive-items");
   const result = await new ManagedCodexAppServerRun(options).execute();
   expect(result.toolItems).toBe(3);
+});
+
+test("open provider input and hook prompts are not harvested as possible side effects", async () => {
+  const { options } = setup("provider-death-open-passive");
+  let caught: unknown;
+  try {
+    await new ManagedCodexAppServerRun({ ...options, maxRespawns: 0 }).execute();
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
+  const harvest = (caught as ManagedCodexHarvestError).harvest;
+  expect(harvest.pendingItemCount).toBe(0);
+  expect(harvest.pendingItems).toEqual([]);
+  expect(harvest.landedWork).toBe(false);
 });
 
 test("notification processing waits for the event durability callback before advancing", async () => {
