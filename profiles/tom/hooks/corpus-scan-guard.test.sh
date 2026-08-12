@@ -121,7 +121,7 @@ allow 'a heredoc body' "$(printf 'cat <<%s\nrg -l needle %s\nEOF\n' EOF "$ND")"
 
 echo
 echo '== envelopes this guard has no opinion on =='
-out="$(python3 -c 'import json;print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"/home/tom/code/north-data/x"}}))' |
+out="$(python3 -c 'import json,sys;print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":sys.argv[1]}}))' "$ND/x" |
   env HOME="$HOME_SB" AGENT_NO_AUTHORING_HOOKS=0 "$GUARD")"
 if [ "$(verdict "$out")" = allow ]; then
   pass=$((pass + 1)); printf 'PASS  allow  an Edit envelope is not a search\n'
