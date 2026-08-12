@@ -49,7 +49,11 @@
    title: String
    body: String
    status: String
-   data: Any])
+   data: Any
+   execution-id: String
+   at: String
+   cursor: Int
+   sequence: Int])
 
 (defrecord WorkView
   [id: String
@@ -85,7 +89,8 @@
    path: String])
 
 (defrecord ParsedRecord
-  [kind: String
+  [sequence: Int
+   kind: String
    data: Any])
 
 (defrecord CommandParts
@@ -271,6 +276,7 @@
 (def AGENT-COMMANDS: (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
+   (->SlashCommand "/transcript" "show selected or all execution transcripts" true "" false)
    ;; Capturing a thread is not the Threads view's privilege: it shells the same
    ;; `north capture` from wherever you are and needs nothing from the view.
    (->SlashCommand "/capture" "capture a new thread" true "" false)
@@ -433,22 +439,94 @@
   (set! (.-itemSequence runtime) (+ (.-itemSequence runtime) 1))
   (str prefix ":" (.-itemSequence runtime)))
 
-(defn conversation-item
-  [id: String
-   kind: String
-   title: String
-   body: String
-   status: String] -> ConversationItem
-  (->ConversationItem id kind title body status nil))
-
-(defn conversation-item-with-data!
+(defn owned-conversation-item
   [id: String
    kind: String
    title: String
    body: String
    status: String
-   data: Any] -> ConversationItem
-  (->ConversationItem id kind title body status data))
+   data: Any
+   execution-id: String
+   at: String
+   cursor: Int
+   sequence: Int] -> ConversationItem
+  (->ConversationItem id kind title body status data execution-id at cursor sequence))
+
+(defn compare-text [left: String right: String] -> Int
+  (.localeCompare left right))
+
+(defn compare-conversation-items
+  [left: ConversationItem
+   right: ConversationItem] -> Int
+  (let [at-order (compare-text (conversationitem-at left) (conversationitem-at right))
+        cursor-order (- (conversationitem-cursor left) (conversationitem-cursor right))
+        owner-order (compare-text (conversationitem-execution-id left)
+                                  (conversationitem-execution-id right))
+        sequence-order (- (conversationitem-sequence left)
+                          (conversationitem-sequence right))]
+    (cond
+      (not (identical? at-order 0)) at-order
+      (not (identical? cursor-order 0)) cursor-order
+      (not (identical? owner-order 0)) owner-order
+      (not (identical? sequence-order 0)) sequence-order
+      :else (compare-text (conversationitem-id left) (conversationitem-id right)))))
+
+(defn compare-execution-items
+  [left: ConversationItem
+   right: ConversationItem] -> Int
+  (let [cursor-order (- (conversationitem-cursor left) (conversationitem-cursor right))
+        sequence-order (- (conversationitem-sequence left)
+                          (conversationitem-sequence right))]
+    (cond
+      (not (identical? cursor-order 0)) cursor-order
+      (not (identical? sequence-order 0)) sequence-order
+      :else (compare-text (conversationitem-id left) (conversationitem-id right)))))
+
+;; The same fold serves a live stream and a replay. Arrival order is not
+;; authority: control records replay before Wire, while live records interleave.
+(js/export
+ (defn project-conversation
+  [items: Any
+   execution-id: String
+   aggregate: Bool] -> Any
+  (let [visible (if aggregate
+                  (.slice items)
+                  (.filter items
+                           (fn [item: ConversationItem] -> Bool
+                             (identical? (conversationitem-execution-id item)
+                                         execution-id))))]
+    (.sort visible (if aggregate compare-conversation-items
+                     compare-execution-items)))))
+
+(defn runtime-selected-agent-id [runtime: Any] -> String
+  (let [agents (bridgesnapshot-agents (snapshot (.-model runtime)))
+        total (.-length agents)
+        selected (Number (or (.-agentIndex runtime) 0))]
+    (if (> total 0)
+      (agent-id (aget agents (Math/max 0 (Math/min selected (- total 1)))))
+      "")))
+
+(defn aggregate-transcript? [runtime: Any] -> Bool
+  (identical? (text (.-transcriptView runtime)) "all"))
+
+(defn projected-conversation [runtime: Any] -> Any
+  (project-conversation (.-conversation runtime)
+                        (runtime-selected-agent-id runtime)
+                        (aggregate-transcript? runtime)))
+
+(defn transcript-working? [runtime: Any] -> Bool
+  (let [executions (.-workingExecutions runtime)]
+    (if executions
+      (if (aggregate-transcript? runtime)
+        (> (.-size executions) 0)
+        (.has executions (runtime-selected-agent-id runtime)))
+      (if (.-working runtime) true false))))
+
+(defn mark-execution-working!
+  [runtime: Any execution-id: String working: Bool] -> Any
+  (let [executions (.-workingExecutions runtime)]
+    (when (and executions (not (identical? execution-id "")))
+      (if working (.add executions execution-id) (.delete executions execution-id)))))
 
 (defn conversation-index
   [runtime: Any
@@ -471,32 +549,33 @@
       (aset (.-conversation runtime) index item)
       (.push (.-conversation runtime) item))
     (when (> (.-length (.-conversation runtime)) 240)
-      (set! (.-conversation runtime) (.slice (.-conversation runtime) -240)))
+      (set! (.-conversation runtime)
+            (.slice (project-conversation (.-conversation runtime) "" true) -240)))
     (.render runtime)))
 
 (defn append-system!
   [runtime: Any
    body: String] -> Any
   (when (not (identical? (.trim body) ""))
-    (upsert-conversation!
-     runtime
-     (conversation-item (next-item-id! runtime "system") "system" "" (.trim body) "done"))))
+    (let [id (next-item-id! runtime "system")]
+      (upsert-conversation!
+       runtime
+       (owned-conversation-item id "system" "" (.trim body) "done" nil
+                                (runtime-selected-agent-id runtime)
+                                (.toISOString (Date.))
+                                (.-itemSequence runtime) 1)))))
 
 (defn append-error!
   [runtime: Any
    body: String] -> Any
   (when (not (identical? (.trim body) ""))
-    (upsert-conversation!
-     runtime
-     (conversation-item (next-item-id! runtime "error") "error" "Error" (.trim body) "failed"))))
-
-(defn append-interrupted! [runtime: Any] -> Any
-  (upsert-conversation!
-   runtime
-   (conversation-item (next-item-id! runtime "interrupted")
-                      "interrupted" ""
-                      "Conversation interrupted — tell the model what to do differently."
-                      "interrupted")))
+    (let [id (next-item-id! runtime "error")]
+      (upsert-conversation!
+       runtime
+       (owned-conversation-item id "error" "Error" (.trim body) "failed" nil
+                                (runtime-selected-agent-id runtime)
+                                (.toISOString (Date.))
+                                (.-itemSequence runtime) 1)))))
 
 (defn set-working!
   [runtime: Any
@@ -523,6 +602,16 @@
       (set! (.-spinnerTimer runtime) nil)
       (set! (.-workingSince runtime) 0)))
   (.renderConversation runtime))
+
+(defn set-execution-working!
+  [runtime: Any execution-id: String working: Bool label: String] -> Any
+  (let [executions (.-workingExecutions runtime)]
+    (mark-execution-working! runtime execution-id working)
+    (if executions
+      (let [any-working? (> (.-size executions) 0)]
+        (set-working! runtime any-working?
+                      (if any-working? (text-or label (.-workingLabel runtime)) "")))
+      (set-working! runtime working label))))
 
 (defn command [input: String] -> ParsedCommand
   (let [trimmed (.trim input)
@@ -2227,7 +2316,7 @@
       (append-error! runtime (error-message error)))))
 
 (js/export
- (defn handle-local-command!
+(defn handle-local-command!
   [runtime: Any
    ui: Any
    input: String] -> Bool
@@ -2263,6 +2352,15 @@
           (do (set! (.-soundEnabled runtime) false)
               (publish-line! runtime (sound-status runtime))
               true)
+
+          (identical? name "transcript")
+          (let [requested (.toLowerCase (.trim rest))]
+            (when (not (or (identical? requested "selected")
+                           (identical? requested "all")))
+              (throw (Error. "transcript requires selected or all")))
+            (set! (.-transcriptView runtime) requested)
+            (.render runtime)
+            true)
 
           (identical? name "config")
           (do (open-config-panel! runtime ui "all") true)
@@ -2328,9 +2426,68 @@
 
           :else false))))))
 
+(defn render-after-suspend! [runtime: Any] -> Any
+  (when (and (not (.-disposed runtime)) (.-render runtime))
+    (.render runtime)))
+
+;; Exact-listener cleanup is shared by SIGCONT, a failed stop, and teardown.
+;; OpenTUI owns the terminal lifecycle; North owns only the process signal.
+(js/export
+ (defn cleanup-suspend!
+  [runtime: Any
+   process-api: Any] -> Bool
+  (let [handler (.-suspendResume runtime)
+        suspended? (if (.-rendererSuspended runtime) true false)
+        active? (or handler suspended?)]
+    (when handler
+      (.removeListener process-api "SIGCONT" handler))
+    (set! (.-suspendResume runtime) nil)
+    (set! (.-rendererSuspended runtime) false)
+    (when suspended?
+      (try
+        (.resume (.-renderer runtime))
+        (catch Error error
+          (set! (.-suspendError runtime) (error-message error)))))
+    (render-after-suspend! runtime)
+    (if active? true false))))
+
+;; POSIX job control stops the foreground process group, not merely this PID.
+;; The continuation listener must exist before SIGSTOP because stopped code
+;; cannot install its own recovery path.
+(js/export
+ (defn suspend-runtime!
+  [runtime: Any
+   platform: String
+   process-api: Any] -> Bool
+  (if (or (identical? platform "win32") (.-suspendResume runtime))
+    false
+    (let [state {:handler nil}
+          resume
+          (fn [] -> Any
+            (let [handler (.-handler state)]
+              (when (identical? (.-suspendResume runtime) handler)
+                (cleanup-suspend! runtime process-api))))]
+      (set! (.-handler state) resume)
+      (set! (.-suspendResume runtime) resume)
+      (set! (.-suspendError runtime) "")
+      (try
+        (.once process-api "SIGCONT" resume)
+        ;; Treat a suspend call as stateful before invoking it. If OpenTUI
+        ;; throws after touching the terminal, the catch path must still call
+        ;; resume rather than assume nothing changed.
+        (set! (.-rendererSuspended runtime) true)
+        (.suspend (.-renderer runtime))
+        (.kill process-api 0 "SIGSTOP")
+        true
+        (catch Error error
+          (set! (.-suspendError runtime) (error-message error))
+          (cleanup-suspend! runtime process-api)
+          false))))))
+
 (defn quiesce! [runtime: Any] -> Any
   (when (not (.-disposed runtime))
     (set! (.-disposed runtime) true)
+    (cleanup-suspend! runtime process)
     (when (.-spinnerTimer runtime) (clearInterval (.-spinnerTimer runtime)))
     (set! (.-spinnerTimer runtime) nil)
     (.forEach (.-soundChildren runtime)
@@ -2355,11 +2512,19 @@
   (.on (.-keyInput (.-renderer runtime)) "keypress"
        (fn [key: Any] -> Any
          (let [name (text (.-name key))]
-           (when (and (.-ctrl key)
-                      (or (identical? name "c") (identical? name "q")))
-             (.preventDefault key)
-             (.stopPropagation key)
-             (destroy! runtime))))))
+           (cond
+             (and (.-ctrl key) (identical? name "z"))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (suspend-runtime! runtime (text (.-platform process)) process))
+
+             (and (.-ctrl key)
+                  (or (identical? name "c") (identical? name "q")))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (destroy! runtime))
+
+             :else nil)))))
 
 ;; The index is presentation state; the ID is identity. Every roster mutation
 ;; resolves the old identity in the new ordering before the composer can use
@@ -2772,6 +2937,14 @@
        (text-or (short-directory (.-sessionCwd runtime)) "directory pending") " · "
        (text-or (.-sessionBranch runtime) "branch pending")))
 
+(defn transcript-context-text [runtime: Any] -> String
+  (let [selected (runtime-selected-agent-id runtime)]
+    (cond
+      (aggregate-transcript? runtime) "all Bridge executions"
+      (identical? selected (text (.-supervisorId runtime))) (session-context-text runtime)
+      (not (identical? selected "")) (str "Bridge execution " (.slice selected 0 8))
+      :else "Bridge execution pending")))
+
 (defn command-parts [title: String] -> CommandParts
   (let [space (.indexOf title " ")]
     (if (< space 0)
@@ -3047,9 +3220,12 @@
 ;; draws it, the roster that stands down for it — reads the same answer instead
 ;; of each recomputing the rule.
 (defn banner-visible? [runtime: Any] -> Bool
-  (transcript-banner? (supervisor-status runtime)
-                      (.-length (.-conversation runtime))
-                      (if (.-working runtime) true false)))
+  (and (not (aggregate-transcript? runtime))
+       (identical? (runtime-selected-agent-id runtime)
+                   (text (.-supervisorId runtime)))
+       (transcript-banner? (supervisor-status runtime)
+                           (.-length (projected-conversation runtime))
+                           (transcript-working? runtime))))
 
 ;; The banner's own facts, each labelled, in one column. The label width is
 ;; fixed so the values line up as a column of answers rather than a paragraph.
@@ -3221,7 +3397,7 @@
 (js/export
  (defn render-conversation! [runtime: Any] -> Any
   (let [chunks []
-        items (.-conversation runtime)]
+        items (projected-conversation runtime)]
     (.forEach
      items
      (fn [item: ConversationItem] -> Any
@@ -3273,15 +3449,20 @@
            :else
            (do (push-chunk! chunks (brightBlack (str "• " body)))
                (push-chunk! chunks (white "\n\n")))))))
-    (when (.-working runtime)
+    (when (transcript-working? runtime)
       (let [elapsed (Math/floor (/ (- (Date/now) (.-workingSince runtime)) 1000))]
         (push-working-wave! chunks runtime)
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc or ctrl-c to cancel)\n  ")))
-        (push-chunk! chunks (brightBlack (session-context-text runtime)))))
+        (push-chunk! chunks (brightBlack (transcript-context-text runtime)))))
     (let [status (supervisor-status runtime)
-          working? (if (.-working runtime) true false)
-          placeholder (transcript-placeholder (main-agent-label) status
-                                              (.-length items) working?)]
+          working? (transcript-working? runtime)
+          supervisor-view? (and (not (aggregate-transcript? runtime))
+                                (identical? (runtime-selected-agent-id runtime)
+                                            (text (.-supervisorId runtime))))
+          placeholder (if supervisor-view?
+                        (transcript-placeholder (main-agent-label) status
+                                                (.-length items) working?)
+                        "")]
       (when (not (identical? placeholder ""))
         (push-chunk! chunks (brightBlack placeholder)))
       ;; The ready-and-empty screen: the one moment there is room to say what
@@ -4069,6 +4250,8 @@
                (push-chunk! chunks (white "  "))))))
         (push-chunk! chunks (brightBlack "  ← switch →")))
       (push-session-identity! chunks session))
+    (when (and (not threads?) (aggregate-transcript? session))
+      (push-chunk! chunks (brightYellow " · all transcripts")))
     (StyledText. chunks))))
 
 (defn compact-text
@@ -4645,7 +4828,8 @@
             kind (if (< space 0) rest (.slice rest 0 space))
             payload (if (< space 0) "" (.trim (.slice rest (+ space 1))))]
         (try
-          (->ParsedRecord kind (if (identical? payload "") {} (JSON/parse payload)))
+          (->ParsedRecord (Number (.slice line 1 close)) kind
+                          (if (identical? payload "") {} (JSON/parse payload)))
           (catch Error _ nil))))))
 
 (defn event-item-id
@@ -4653,8 +4837,48 @@
    item-id: Any] -> String
   (str execution-id ":" (text item-id)))
 
+(defn safe-sequence [value: Any] -> Int
+  (let [candidate (Number value)]
+    (if (Number/isSafeInteger candidate) candidate 0)))
+
+(defn wire-conversation-item
+  [existing: ConversationItem?
+   id: String
+   kind: String
+   title: String
+   body: String
+   status: String
+   item-data: Any
+   execution-id: String
+   event: Any] -> ConversationItem
+  (owned-conversation-item
+   id kind title body status item-data execution-id
+   (if existing (conversationitem-at existing) (text (.-at event)))
+   (if existing (conversationitem-cursor existing)
+     (+ (safe-sequence (.-sequence event)) 1))
+   (if existing (conversationitem-sequence existing) 0)))
+
+(defn control-conversation-item
+  [execution-id: String
+   record: ParsedRecord
+   kind: String
+   title: String
+   body: String
+   status: String] -> ConversationItem
+  (let [data (or (parsedrecord-data record) {})
+        record-sequence (parsedrecord-sequence record)
+        cursor-candidate (Number (.-wireCursor data))
+        cursor (if (Number/isSafeInteger cursor-candidate)
+                 cursor-candidate 9007199254740991)]
+    (owned-conversation-item
+     (event-item-id execution-id (str "control:" record-sequence))
+     kind title body status nil execution-id (text (.-bridgeRecordAt data))
+     cursor (+ record-sequence 1))))
+
 (defn append-item-delta!
   [runtime: Any
+   stream-state: Any
+   event: Any
    id: String
    kind: String
    title: String
@@ -4665,8 +4889,10 @@
         actual-title (if existing (conversationitem-title existing) title)]
     (upsert-conversation!
      runtime
-     (conversation-item-with-data! id kind actual-title (clipped (str prior delta) 6000) status
-                                   (if existing (conversationitem-data existing) nil)))))
+     (wire-conversation-item existing id kind actual-title
+                             (clipped (str prior delta) 6000) status
+                             (if existing (conversationitem-data existing) nil)
+                             (text (.-executionId stream-state)) event))))
 
 (defn wire-content-text [value: Any] -> String
   (cond
@@ -4715,10 +4941,13 @@
     (when (and (identical? role "assistant") (not (.-booting stream-state)))
       (cond
         (identical? stage "started")
-        (upsert-conversation! runtime (conversation-item id "assistant" "" "" "running"))
+        (upsert-conversation!
+         runtime
+         (wire-conversation-item existing id "assistant" "" "" "running" nil
+                                 execution-id data))
 
         (identical? stage "delta")
-        (append-item-delta! runtime id "assistant" "" body "running")
+        (append-item-delta! runtime stream-state data id "assistant" "" body "running")
 
         (identical? stage "completed")
         (let [completed-body (if (identical? body "")
@@ -4726,7 +4955,9 @@
                                body)]
           (set! (.-lastAssistantText runtime) completed-body)
           (upsert-conversation!
-           runtime (conversation-item id "assistant" "" completed-body "done")))
+           runtime
+           (wire-conversation-item existing id "assistant" "" completed-body "done" nil
+                                   execution-id data)))
 
         :else nil))))
 
@@ -4741,23 +4972,26 @@
       (identical? kind "tool.admitted")
       (upsert-conversation!
        runtime
-       (conversation-item id "tool" (text (.-name data))
-                          (clean-text (.-argumentPreview data)) "running"))
+       (wire-conversation-item existing id "tool" (text (.-name data))
+                               (clean-text (.-argumentPreview data)) "running" nil
+                               (text (.-executionId stream-state)) data))
 
       (identical? kind "tool.progress")
-      (append-item-delta! runtime id "tool"
+      (append-item-delta! runtime stream-state data id "tool"
                           (if existing (conversationitem-title existing) "Tool activity")
                           (wire-content-text (.-progress data)) "running")
 
       (identical? kind "tool.terminal")
       (upsert-conversation!
        runtime
-       (conversation-item id "tool"
-                          (if existing (conversationitem-title existing) "Tool activity")
-                          (text-or (.-resultPreview data)
-                                   (if existing (conversationitem-body existing) ""))
-                          (if (identical? (text (.-status data)) "succeeded")
-                            "done" "failed")))
+       (wire-conversation-item
+        existing id "tool"
+        (if existing (conversationitem-title existing) "Tool activity")
+        (text-or (.-resultPreview data)
+                 (if existing (conversationitem-body existing) ""))
+        (if (identical? (text (.-status data)) "succeeded") "done" "failed")
+        (if existing (conversationitem-data existing) nil)
+        (text (.-executionId stream-state)) data))
 
       :else nil)))
 
@@ -4770,13 +5004,35 @@
         execution-id (text (.-executionId stream-state))]
     (cond
       (identical? kind "execution.accepted")
-      (let [cwd (text (.-cwd data))]
+      (let [cwd (text (.-cwd data))
+            prompt (.trim (text (.-prompt data)))]
         (when (not (identical? cwd ""))
-          (set! (.-sessionCwd runtime) cwd)))
+          (set! (.-sessionCwd runtime) cwd))
+        (when (and (not (.-booting stream-state))
+                   (not (identical? prompt "")))
+          (upsert-conversation!
+           runtime
+           (control-conversation-item execution-id record "user" "" prompt "done"))))
+
+      (or (identical? kind "control.submit_input")
+          (identical? kind "control.redirect_now"))
+      (let [input (.trim (text (.-input data)))]
+        (when (not (identical? input ""))
+          (upsert-conversation!
+           runtime
+           (control-conversation-item execution-id record "user" "" input "done"))))
+
+      (identical? kind "control.interrupt_turn")
+      (upsert-conversation!
+       runtime
+       (control-conversation-item
+        execution-id record "interrupted" ""
+        "Conversation interrupted — tell the model what to do differently."
+        "interrupted"))
 
       (identical? kind "model-call.started")
       (do (adopt-wire-model! runtime (.-model data) (.-effort data))
-          (set-working! runtime true "Agent is working")
+          (set-execution-working! runtime execution-id true "Agent is working")
           (when (not (identical? execution-id ""))
             (bridge-agent! runtime execution-id (text (.-role stream-state)) "working")))
 
@@ -4800,21 +5056,24 @@
           (when (not (identical? action "")) (set-working! runtime true action))))
 
       (identical? kind "artifact.published")
-      (upsert-conversation!
-       runtime
-       (conversation-item (event-item-id execution-id (.-artifactId data)) "change"
-                          (text-or (.-label data) "Published artifact")
-                          (text (.-mediaType data)) "done"))
+      (let [id (event-item-id execution-id (.-artifactId data))
+            existing (conversation-item-by-id runtime id)]
+        (upsert-conversation!
+         runtime
+         (wire-conversation-item existing id "change"
+                                 (text-or (.-label data) "Published artifact")
+                                 (text (.-mediaType data)) "done" nil
+                                 execution-id data)))
 
       (identical? kind "model-call.completed")
       (when (not (intermediate-provider-session-replacement? data))
-        (set-working! runtime false ""))
+        (set-execution-working! runtime execution-id false ""))
 
       (identical? kind "session.idle")
       (let [disposition (text (.-disposition data))
             pending-inputs (Number (or (.-pendingInputs data) 0))
             booting (.-booting stream-state)]
-        (set-working! runtime false "")
+        (set-execution-working! runtime execution-id false "")
         (cond
           booting (play-sound-event! runtime stream-state "ready")
           (identical? disposition "interrupted")
@@ -4828,18 +5087,27 @@
           (bridge-agent! runtime execution-id (text (.-role stream-state)) "ready")))
 
       (identical? kind "run.terminated")
-      (do (set-working! runtime false "")
+      (do (set-execution-working! runtime execution-id false "")
           (when (or (identical? (text (.-lifecycle data)) "failed")
                     (identical? (text (.-lifecycle data)) "blocked"))
             (play-sound-event! runtime stream-state "failed")
-            (append-error! runtime (failure-summary (.-reason data))))
+            (let [id (event-item-id execution-id (str "terminal:" (.-sequence data)))
+                  existing (conversation-item-by-id runtime id)]
+              (upsert-conversation!
+               runtime
+               (wire-conversation-item existing id "error" "Error"
+                                       (failure-summary (.-reason data)) "failed" nil
+                                       execution-id data))))
           (when (not (identical? execution-id ""))
             (bridge-agent! runtime execution-id
                            (text (.-role stream-state)) "offline")))
 
       (identical? kind "execution.failure")
-      (do (set-working! runtime false "")
-          (append-error! runtime (str kind ": " (failure-summary data))))
+      (do (set-execution-working! runtime execution-id false "")
+          (upsert-conversation!
+           runtime
+           (control-conversation-item execution-id record "error" "Error"
+                                      (str kind ": " (failure-summary data)) "failed")))
 
       :else nil)))
 
@@ -4903,10 +5171,6 @@
    role: String] -> (Promise Any)
   (when (identical? (.trim prompt) "")
     (throw (Error. "launch requires a prompt")))
-  (when (not (identical? role "supervisor"))
-    (upsert-conversation!
-     runtime
-     (conversation-item (next-item-id! runtime "user") "user" "" (.trim prompt) "done")))
   (set-working! runtime true (str "Starting " (main-agent-label)))
   (let [stream-state {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
@@ -5005,8 +5269,7 @@
   (when (not (.has (.-bridgeExecutions runtime) target))
     (throw (Error. "interrupt is available for Bridge-launched executions")))
   (js/await (run-command [(north-bin) "bridge" "interrupt" target]))
-  (set-working! runtime false "")
-  (append-interrupted! runtime)
+  (set-execution-working! runtime target false "")
   (restore-submitted-text! runtime ui))
 
 (defn submit-agent!
@@ -5039,12 +5302,21 @@
           ;; a /msg verb would only be ceremony in front of the same path.
           (let [message trimmed]
             (when (identical? message "") (throw (Error. "nothing to send")))
-            (upsert-conversation!
-             runtime
-             (conversation-item (next-item-id! runtime "user") "user" "" message "done"))
+            ;; Bridge submissions are projected from the durable control record
+            ;; observed on this execution's stream. Only unmanaged roster rows
+            ;; need a local row; both cases retain the chosen target as owner.
+            (when (not (.has (.-bridgeExecutions runtime) target))
+              (let [id (next-item-id! runtime "user")]
+                (upsert-conversation!
+                 runtime
+                 (owned-conversation-item id "user" "" message "done" nil target
+                                          (.toISOString (Date.))
+                                          (.-itemSequence runtime) 1))))
             ;; What a cancel would hand back: the message this turn started with.
             (set! (.-lastSubmitted runtime) message)
-            (set-working! runtime true "Codex is working")
+            (if (.has (.-bridgeExecutions runtime) target)
+              (set-execution-working! runtime target true "Codex is working")
+              (set-working! runtime true "Codex is working"))
             (if (.has (.-bridgeExecutions runtime) target)
               (js/await (run-command [(north-bin) "bridge" "msg" target message]))
               (js/await (run-command [(north-bin) "msg" target message])))
@@ -6008,6 +6280,9 @@
         runtime {:model (make-model view)
                  :renderer renderer
                  :disposed false
+                 :rendererSuspended false
+                 :suspendResume nil
+                 :suspendError ""
                  :frame BOOT-FRAME
                  :activeView view
                  :agentIndex 0
@@ -6020,11 +6295,13 @@
                  :bridgeExecutions (Set.)
                  :supervisorId ""
                  :conversation []
+                 :transcriptView "selected"
                  :itemSequence 0
                  :lastAssistantText ""
                  ;; The text a cancel hands back to the composer.
                  :lastSubmitted ""
                  :working false
+                 :workingExecutions (Set.)
                  :workingLabel ""
                  :workingSince 0
                  :spinnerIndex 0

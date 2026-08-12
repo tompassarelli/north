@@ -27,8 +27,8 @@ function parsedcommand_name(r) { return r.name; }
 
 function parsedcommand_rest(r) { return r.rest; }
 
-function ConversationItem(id, kind, title, body, status, data) {
-  return Object.freeze({_tag: "ConversationItem", id, kind, title, body, status, data});
+function ConversationItem(id, kind, title, body, status, data, execution_id, at, cursor, sequence) {
+  return Object.freeze({_tag: "ConversationItem", id, kind, title, body, status, data, execution_id, at, cursor, sequence});
 }
 
 function conversationitem_id(r) { return r.id; }
@@ -42,6 +42,14 @@ function conversationitem_body(r) { return r.body; }
 function conversationitem_status(r) { return r.status; }
 
 function conversationitem_data(r) { return r.data; }
+
+function conversationitem_execution_id(r) { return r.execution_id; }
+
+function conversationitem_at(r) { return r.at; }
+
+function conversationitem_cursor(r) { return r.cursor; }
+
+function conversationitem_sequence(r) { return r.sequence; }
 
 function WorkView(id, title, items) {
   return Object.freeze({_tag: "WorkView", id, title, items});
@@ -109,9 +117,11 @@ function soundplayer_kind(r) { return r.kind; }
 
 function soundplayer_path(r) { return r.path; }
 
-function ParsedRecord(kind, data) {
-  return Object.freeze({_tag: "ParsedRecord", kind, data});
+function ParsedRecord(sequence, kind, data) {
+  return Object.freeze({_tag: "ParsedRecord", sequence, kind, data});
 }
+
+function parsedrecord_sequence(r) { return r.sequence; }
 
 function parsedrecord_kind(r) { return r.kind; }
 
@@ -236,7 +246,7 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents from the Threads view", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents from the Threads view", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
 const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "back to Agents from the Threads view", false, "", false), SlashCommand("/exit", "close Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
@@ -319,12 +329,58 @@ function next_item_id_bang(runtime, prefix) {
   return ("".concat(prefix, ":", runtime.itemSequence));
 }
 
-function conversation_item(id, kind, title, body, status) {
-  return ConversationItem(id, kind, title, body, status, null);
+function owned_conversation_item(id, kind, title, body, status, data, execution_id, at, cursor, sequence) {
+  return ConversationItem(id, kind, title, body, status, data, execution_id, at, cursor, sequence);
 }
 
-function conversation_item_with_data_bang(id, kind, title, body, status, data) {
-  return ConversationItem(id, kind, title, body, status, data);
+function compare_text(left, right) {
+  return left.localeCompare(right);
+}
+
+function compare_conversation_items(left, right) {
+  const at_order = compare_text(conversationitem_at(left), conversationitem_at(right));
+  const cursor_order = (conversationitem_cursor(left) - conversationitem_cursor(right));
+  const owner_order = compare_text(conversationitem_execution_id(left), conversationitem_execution_id(right));
+  const sequence_order = (conversationitem_sequence(left) - conversationitem_sequence(right));
+  return (((!(at_order === 0))) ? at_order : ((!(cursor_order === 0))) ? cursor_order : ((!(owner_order === 0))) ? owner_order : ((!(sequence_order === 0))) ? sequence_order : compare_text(conversationitem_id(left), conversationitem_id(right)));
+}
+
+function compare_execution_items(left, right) {
+  const cursor_order = (conversationitem_cursor(left) - conversationitem_cursor(right));
+  const sequence_order = (conversationitem_sequence(left) - conversationitem_sequence(right));
+  return (((!(cursor_order === 0))) ? cursor_order : ((!(sequence_order === 0))) ? sequence_order : compare_text(conversationitem_id(left), conversationitem_id(right)));
+}
+
+export function project_conversation(items, execution_id, aggregate) {
+  const visible = (aggregate ? items.slice() : items.filter((item) => (conversationitem_execution_id(item) === execution_id)));
+  return visible.sort((aggregate ? compare_conversation_items : compare_execution_items));
+}
+
+function runtime_selected_agent_id(runtime) {
+  const agents = bridgesnapshot_agents(snapshot(runtime.model));
+  const total = agents.length;
+  const selected = Number((runtime.agentIndex || 0));
+  return ((total > 0) ? agent_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
+}
+
+function aggregate_transcript_p(runtime) {
+  return (text(runtime.transcriptView) === "all");
+}
+
+function projected_conversation(runtime) {
+  return project_conversation(runtime.conversation, runtime_selected_agent_id(runtime), aggregate_transcript_p(runtime));
+}
+
+function transcript_working_p(runtime) {
+  const executions = runtime.workingExecutions;
+  return (executions ? (aggregate_transcript_p(runtime) ? (executions.size > 0) : executions.has(runtime_selected_agent_id(runtime))) : (runtime.working ? true : false));
+}
+
+function mark_execution_working_bang(runtime, execution_id, working) {
+  const executions = runtime.workingExecutions;
+  if ((executions && (!(execution_id === "")))) {
+    return (working ? executions.add(execution_id) : executions.delete(execution_id));
+  }
 }
 
 function conversation_index(runtime, id) {
@@ -344,25 +400,23 @@ function upsert_conversation_bang(runtime, item) {
     runtime.conversation.push(item);
   }
   if ((runtime.conversation.length > 240)) {
-    (runtime.conversation = runtime.conversation.slice(-240));
+    (runtime.conversation = project_conversation(runtime.conversation, "", true).slice(-240));
   }
   return runtime.render();
 }
 
 function append_system_bang(runtime, body) {
   if ((!(body.trim() === ""))) {
-    return upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "system"), "system", "", body.trim(), "done"));
+    const id = next_item_id_bang(runtime, "system");
+    return upsert_conversation_bang(runtime, owned_conversation_item(id, "system", "", body.trim(), "done", null, runtime_selected_agent_id(runtime), new Date().toISOString(), runtime.itemSequence, 1));
   }
 }
 
 function append_error_bang(runtime, body) {
   if ((!(body.trim() === ""))) {
-    return upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "error"), "error", "Error", body.trim(), "failed"));
+    const id = next_item_id_bang(runtime, "error");
+    return upsert_conversation_bang(runtime, owned_conversation_item(id, "error", "Error", body.trim(), "failed", null, runtime_selected_agent_id(runtime), new Date().toISOString(), runtime.itemSequence, 1));
   }
-}
-
-function append_interrupted_bang(runtime) {
-  return upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "interrupted"), "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted"));
 }
 
 function set_working_bang(runtime, working, label) {
@@ -390,6 +444,17 @@ function set_working_bang(runtime, working, label) {
     (runtime.workingSince = 0);
   }
   return runtime.renderConversation();
+}
+
+function set_execution_working_bang(runtime, execution_id, working, label) {
+  const executions = runtime.workingExecutions;
+  mark_execution_working_bang(runtime, execution_id, working);
+  if (executions) {
+    const any_working_p = (executions.size > 0);
+    return set_working_bang(runtime, any_working_p, (any_working_p ? text_or(label, runtime.workingLabel) : ""));
+  } else {
+    return set_working_bang(runtime, working, label);
+  }
 }
 
 function command(input) {
@@ -1232,6 +1297,11 @@ runtime.render();
 return true; })() : ((name === "sound")) ? (() => { handle_sound_command_bang(runtime, rest);
 return true; })() : ((name === "mute")) ? (() => { (runtime.soundEnabled = false);
 publish_line_bang(runtime, sound_status(runtime));
+return true; })() : ((name === "transcript")) ? (() => { const requested = rest.trim().toLowerCase(); if ((!((requested === "selected") || (requested === "all")))) {
+  (() => { throw new Error("transcript requires selected or all"); })();
+}
+(runtime.transcriptView = requested);
+runtime.render();
 return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, ui, "all");
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
@@ -1255,9 +1325,62 @@ return true; })() : false);
   }
 }
 
+function render_after_suspend_bang(runtime) {
+  if (((!runtime.disposed) && runtime.render)) {
+    return runtime.render();
+  }
+}
+
+export function cleanup_suspend_bang(runtime, process_api) {
+  const handler = runtime.suspendResume;
+  const suspended_p = (runtime.rendererSuspended ? true : false);
+  const active_p = (handler || suspended_p);
+  if (handler) {
+    process_api.removeListener("SIGCONT", handler);
+  }
+  (runtime.suspendResume = null);
+  (runtime.rendererSuspended = false);
+  if (suspended_p) {
+    (() => { try {
+    return runtime.renderer.resume();
+  } catch (error) {
+    return (runtime.suspendError = error_message(error));
+  } })();
+  }
+  render_after_suspend_bang(runtime);
+  return (active_p ? true : false);
+}
+
+export function suspend_runtime_bang(runtime, platform, process_api) {
+  if (((platform === "win32") || runtime.suspendResume)) {
+    return false;
+  } else {
+    const state = {handler: null};
+    const resume = () => { const handler = state.handler;
+if ((runtime.suspendResume === handler)) {
+  return cleanup_suspend_bang(runtime, process_api);
+} };
+    (state.handler = resume);
+    (runtime.suspendResume = resume);
+    (runtime.suspendError = "");
+    return (() => { try {
+    process_api.once("SIGCONT", resume);
+  (runtime.rendererSuspended = true);
+  runtime.renderer.suspend();
+  process_api.kill(0, "SIGSTOP");
+  return true;
+  } catch (error) {
+    (runtime.suspendError = error_message(error));
+    cleanup_suspend_bang(runtime, process_api);
+    return false;
+  } })();
+  }
+}
+
 function quiesce_bang(runtime) {
   if ((!runtime.disposed)) {
     (runtime.disposed = true);
+    cleanup_suspend_bang(runtime, process);
     if (runtime.spinnerTimer) {
       clearInterval(runtime.spinnerTimer);
     }
@@ -1287,11 +1410,11 @@ function install_process_cleanup_bang(runtime) {
 
 function install_global_exit_bang(runtime) {
   return runtime.renderer.keyInput.on("keypress", (key) => { const name = text(key.name);
-if ((key.ctrl && ((name === "c") || (name === "q")))) {
-  key.preventDefault();
-  key.stopPropagation();
-  return destroy_bang(runtime);
-} });
+return (((key.ctrl && (name === "z"))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return suspend_runtime_bang(runtime, text(process.platform), process); })() : ((key.ctrl && ((name === "c") || (name === "q")))) ? (() => { key.preventDefault();
+key.stopPropagation();
+return destroy_bang(runtime); })() : null); });
 }
 
 export function selected_agent_id(state, selected) {
@@ -1524,6 +1647,11 @@ function session_context_text(runtime) {
   return ("".concat(text_or(runtime.sessionModel, "model pending"), " ", text_or(runtime.sessionEffort, "effort pending"), " · ", text_or(short_directory(runtime.sessionCwd), "directory pending"), " · ", text_or(runtime.sessionBranch, "branch pending")));
 }
 
+function transcript_context_text(runtime) {
+  const selected = runtime_selected_agent_id(runtime);
+  return ((aggregate_transcript_p(runtime)) ? "all Bridge executions" : ((selected === text(runtime.supervisorId))) ? session_context_text(runtime) : ((!(selected === ""))) ? ("".concat("Bridge execution ", selected.slice(0, 8))) : "Bridge execution pending");
+}
+
 function command_parts(title) {
   const space = title.indexOf(" ");
   return ((space < 0) ? CommandParts(title, "") : CommandParts(title.slice(0, space), title.slice((space + 1))));
@@ -1645,7 +1773,7 @@ export function transcript_banner_p(status, item_count, working_p) {
 }
 
 function banner_visible_p(runtime) {
-  return transcript_banner_p(supervisor_status(runtime), runtime.conversation.length, (runtime.working ? true : false));
+  return ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)) && transcript_banner_p(supervisor_status(runtime), projected_conversation(runtime).length, transcript_working_p(runtime)));
 }
 
 const BANNER_LABEL_WIDTH = 13;
@@ -1739,7 +1867,7 @@ if ((!(suffix === ""))) {
 
 export function render_conversation_bang(runtime) {
   const chunks = [];
-  const items = runtime.conversation;
+  const items = projected_conversation(runtime);
   items.forEach((item) => { const kind = conversationitem_kind(item);
 const title = conversationitem_title(item);
 const body = clipped(conversationitem_body(item), 6000);
@@ -1760,15 +1888,16 @@ return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "error")) ? (()
 push_chunk_bang(chunks, red(body.replaceAll("\n", "\n  ")));
 return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack(("".concat("• ", body))));
 return push_chunk_bang(chunks, white("\n\n")); })()); });
-  if (runtime.working) {
+  if (transcript_working_p(runtime)) {
     const elapsed = Math.floor(((Date.now() - runtime.workingSince) / 1000));
     push_working_wave_bang(chunks, runtime);
     push_chunk_bang(chunks, brightBlack(("".concat(" (", elapsed, "s · esc or ctrl-c to cancel)\n  "))));
-    push_chunk_bang(chunks, brightBlack(session_context_text(runtime)));
+    push_chunk_bang(chunks, brightBlack(transcript_context_text(runtime)));
   }
   const status = supervisor_status(runtime);
-  const working_p = (runtime.working ? true : false);
-  const placeholder = transcript_placeholder(main_agent_label(), status, items.length, working_p);
+  const working_p = transcript_working_p(runtime);
+  const supervisor_view_p = ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
+  const placeholder = (supervisor_view_p ? transcript_placeholder(main_agent_label(), status, items.length, working_p) : "");
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
@@ -2172,6 +2301,9 @@ if ((index < (views.length - 1))) {
   } else {
     push_session_identity_bang(chunks, session);
   }
+  if (((!threads_p) && aggregate_transcript_p(session))) {
+    push_chunk_bang(chunks, brightYellow(" · all transcripts"));
+  }
   return new StyledText(chunks);
 }
 
@@ -2505,7 +2637,7 @@ function record_line(line) {
     const kind = ((space < 0) ? rest : rest.slice(0, space));
     const payload = ((space < 0) ? "" : rest.slice((space + 1)).trim());
     return (() => { try {
-    return ParsedRecord(kind, ((payload === "") ? {} : JSON.parse(payload)));
+    return ParsedRecord(Number(line.slice(1, close)), kind, ((payload === "") ? {} : JSON.parse(payload)));
   } catch (__) {
     return null;
   } })();
@@ -2516,11 +2648,28 @@ function event_item_id(execution_id, item_id) {
   return ("".concat(execution_id, ":", text(item_id)));
 }
 
-function append_item_delta_bang(runtime, id, kind, title, delta, status) {
+function safe_sequence(value) {
+  const candidate = Number(value);
+  return (Number.isSafeInteger(candidate) ? candidate : 0);
+}
+
+function wire_conversation_item(existing, id, kind, title, body, status, item_data, execution_id, event) {
+  return owned_conversation_item(id, kind, title, body, status, item_data, execution_id, (existing ? conversationitem_at(existing) : text(event.at)), (existing ? conversationitem_cursor(existing) : (safe_sequence(event.sequence) + 1)), (existing ? conversationitem_sequence(existing) : 0));
+}
+
+function control_conversation_item(execution_id, record, kind, title, body, status) {
+  const data = (parsedrecord_data(record) || {});
+  const record_sequence = parsedrecord_sequence(record);
+  const cursor_candidate = Number(data.wireCursor);
+  const cursor = (Number.isSafeInteger(cursor_candidate) ? cursor_candidate : 9007199254740991);
+  return owned_conversation_item(event_item_id(execution_id, ("".concat("control:", record_sequence))), kind, title, body, status, null, execution_id, text(data.bridgeRecordAt), cursor, (record_sequence + 1));
+}
+
+function append_item_delta_bang(runtime, stream_state, event, id, kind, title, delta, status) {
   const existing = conversation_item_by_id(runtime, id);
   const prior = (existing ? conversationitem_body(existing) : "");
   const actual_title = (existing ? conversationitem_title(existing) : title);
-  return upsert_conversation_bang(runtime, conversation_item_with_data_bang(id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? conversationitem_data(existing) : null)));
+  return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? conversationitem_data(existing) : null), text(stream_state.executionId), event));
 }
 
 function wire_content_text(value) {
@@ -2554,25 +2703,30 @@ function handle_wire_message_bang(runtime, stream_state, data) {
   const body = clean_text(wire_content_text(data.content));
   const existing = conversation_item_by_id(runtime, id);
   if (((role === "assistant") && (!stream_state.booting))) {
-    return (((stage === "started")) ? upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", "", "running")) : ((stage === "delta")) ? append_item_delta_bang(runtime, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (existing ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
-return upsert_conversation_bang(runtime, conversation_item(id, "assistant", "", completed_body, "done")); })() : null);
+    return (((stage === "started")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", "", "running", null, execution_id, data)) : ((stage === "delta")) ? append_item_delta_bang(runtime, stream_state, data, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (existing ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
+return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", completed_body, "done", null, execution_id, data)); })() : null);
   }
 }
 
 function handle_wire_tool_bang(runtime, stream_state, data, kind) {
   const id = event_item_id(text(stream_state.executionId), data.toolCallId);
   const existing = conversation_item_by_id(runtime, id);
-  return (((kind === "tool.admitted")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", text(data.name), clean_text(data.argumentPreview), "running")) : ((kind === "tool.progress")) ? append_item_delta_bang(runtime, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), wire_content_text(data.progress), "running") : ((kind === "tool.terminal")) ? upsert_conversation_bang(runtime, conversation_item(id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), text_or(data.resultPreview, (existing ? conversationitem_body(existing) : "")), ((text(data.status) === "succeeded") ? "done" : "failed"))) : null);
+  return (((kind === "tool.admitted")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", text(data.name), clean_text(data.argumentPreview), "running", null, text(stream_state.executionId), data)) : ((kind === "tool.progress")) ? append_item_delta_bang(runtime, stream_state, data, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), wire_content_text(data.progress), "running") : ((kind === "tool.terminal")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), text_or(data.resultPreview, (existing ? conversationitem_body(existing) : "")), ((text(data.status) === "succeeded") ? "done" : "failed"), (existing ? conversationitem_data(existing) : null), text(stream_state.executionId), data)) : null);
 }
 
 function handle_record_bang(runtime, stream_state, record) {
   const kind = parsedrecord_kind(record);
   const data = (parsedrecord_data(record) || {});
   const execution_id = text(stream_state.executionId);
-  return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); if ((!(cwd === ""))) {
-  return (runtime.sessionCwd = cwd);
-} })() : ((kind === "model-call.started")) ? (() => { adopt_wire_model_bang(runtime, data.model, data.effort);
-set_working_bang(runtime, true, "Agent is working");
+  return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); const prompt = text(data.prompt).trim(); if ((!(cwd === ""))) {
+  (runtime.sessionCwd = cwd);
+}
+if (((!stream_state.booting) && (!(prompt === "")))) {
+  return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", prompt, "done"));
+} })() : (((kind === "control.submit_input") || (kind === "control.redirect_now"))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
+  return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
+} })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { adopt_wire_model_bang(runtime, data.model, data.effort);
+set_execution_working_bang(runtime, execution_id, true, "Agent is working");
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "working");
 } })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || (kind === "tool.progress") || (kind === "tool.terminal"))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = (data.progress || {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
@@ -2585,7 +2739,7 @@ if ((lifecycle === "waiting")) {
   if ((!(action === ""))) {
     return set_working_bang(runtime, true, action);
   }
-} })() : ((kind === "artifact.published")) ? upsert_conversation_bang(runtime, conversation_item(event_item_id(execution_id, data.artifactId), "change", text_or(data.label, "Published artifact"), text(data.mediaType), "done")) : ((kind === "model-call.completed")) ? ((!intermediate_provider_session_replacement_p(data)) ? (() => { return set_working_bang(runtime, false, ""); })() : null) : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_working_bang(runtime, false, "");
+} })() : ((kind === "artifact.published")) ? (() => { const id = event_item_id(execution_id, data.artifactId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "change", text_or(data.label, "Published artifact"), text(data.mediaType), "done", null, execution_id, data)); })() : ((kind === "model-call.completed")) ? ((!intermediate_provider_session_replacement_p(data)) ? (() => { return set_execution_working_bang(runtime, execution_id, false, ""); })() : null) : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_execution_working_bang(runtime, execution_id, false, "");
 if (booting) {
   play_sound_event_bang(runtime, stream_state, "ready");
 } else if ((disposition === "interrupted")) {
@@ -2598,15 +2752,17 @@ if (booting) {
 (stream_state.booting = false);
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "ready");
-} })() : ((kind === "run.terminated")) ? (() => { set_working_bang(runtime, false, "");
+} })() : ((kind === "run.terminated")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
 if (((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked"))) {
   play_sound_event_bang(runtime, stream_state, "failed");
-  append_error_bang(runtime, failure_summary(data.reason));
+  const id = event_item_id(execution_id, ("".concat("terminal:", data.sequence)));
+  const existing = conversation_item_by_id(runtime, id);
+  upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "error", "Error", failure_summary(data.reason), "failed", null, execution_id, data));
 }
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "offline");
-} })() : ((kind === "execution.failure")) ? (() => { set_working_bang(runtime, false, "");
-return append_error_bang(runtime, ("".concat(kind, ": ", failure_summary(data)))); })() : null);
+} })() : ((kind === "execution.failure")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
+return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "error", "Error", ("".concat(kind, ": ", failure_summary(data))), "failed")); })() : null);
 }
 
 export function parse_bridge_stream_bang(runtime, stream_state, chunk) {
@@ -2634,9 +2790,6 @@ function main_agent_label() {
 async function launch_agent_bang(runtime, prompt, role) {
   if ((prompt.trim() === "")) {
     (() => { throw new Error("launch requires a prompt"); })();
-  }
-  if ((!(role === "supervisor"))) {
-    upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "user"), "user", "", prompt.trim(), "done"));
   }
   set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label())));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
@@ -2700,8 +2853,7 @@ async function cancel_turn_bang(runtime, ui, target) {
     (() => { throw new Error("interrupt is available for Bridge-launched executions"); })();
   }
   await run_command([north_bin(), "bridge", "interrupt", target]);
-  set_working_bang(runtime, false, "");
-  append_interrupted_bang(runtime);
+  set_execution_working_bang(runtime, target, false, "");
   return restore_submitted_text_bang(runtime, ui);
 }
 
@@ -2722,9 +2874,16 @@ if ((slash_p && (name === "interrupt"))) {
   if ((message === "")) {
     (() => { throw new Error("nothing to send"); })();
   }
-  upsert_conversation_bang(runtime, conversation_item(next_item_id_bang(runtime, "user"), "user", "", message, "done"));
+  if ((!runtime.bridgeExecutions.has(target))) {
+    const id = next_item_id_bang(runtime, "user");
+    upsert_conversation_bang(runtime, owned_conversation_item(id, "user", "", message, "done", null, target, new Date().toISOString(), runtime.itemSequence, 1));
+  }
   (runtime.lastSubmitted = message);
-  set_working_bang(runtime, true, "Codex is working");
+  if (runtime.bridgeExecutions.has(target)) {
+    set_execution_working_bang(runtime, target, true, "Codex is working");
+  } else {
+    set_working_bang(runtime, true, "Codex is working");
+  }
   if (runtime.bridgeExecutions.has(target)) {
     await run_command([north_bin(), "bridge", "msg", target, message]);
   } else {
@@ -3248,7 +3407,7 @@ if ((runtime.working && (!(target === "")))) {
 async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const view_tabs_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
