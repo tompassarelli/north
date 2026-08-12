@@ -1,0 +1,13 @@
+export const RUN_SHARE_SEALED_HEADER = "north.run-share.sealed.v1\n";
+export const RUN_SHARE_AES_GCM_AAD = "north.run-share.aes-gcm.v1";
+export const RUN_SHARE_BUNDLE_PROTOCOL = "north.run-share";
+export const RUN_SHARE_BUNDLE_VERSION = 1;
+export const RUN_SHARE_REDACTION_POLICY = "north.run-share-redaction:v1";
+export const RUN_SHARE_REPLAY_MODE = "structural";
+export const RUN_SHARE_KEY_BYTES = 32;
+export const RUN_SHARE_NONCE_BYTES = 12;
+export const RUN_SHARE_AUTH_TAG_BYTES = 16;
+export const RUN_SHARE_MAX_SEALED_BYTES = 8 * 1_024 * 1_024;
+export const RUN_SHARE_MAX_PLAINTEXT_BYTES = 16 * 1_024 * 1_024;
+export const RUN_SHARE_MAX_VIEWER_BYTES = 12 * 1_024 * 1_024;
+export const RUN_SHARE_MAX_EVENTS = 16_384;
