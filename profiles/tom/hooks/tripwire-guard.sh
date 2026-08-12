@@ -7,22 +7,40 @@
 #
 # DENY (exit 2 + one-line stderr reason) ONLY these classes; everything else
 # exits 0 fast:
-#   1. Recursive/force deletes outside safe roots: rm -rf/-fr (any flag order,
-#      incl. --recursive --force) whose target resolves outside the cwd repo,
-#      /tmp, or /tmp/claude-*; rm -rf of /, /home, ~ denied outright. Also
-#      find … -delete with start paths outside those roots, and
-#      git -C <elsewhere> clean -f… (plain git clean in the cwd repo: allowed).
-#      MODE-AWARE: in an INTERACTIVE session (permission_mode ∈ default/
-#      acceptEdits/plan) the outside-safe-roots delete + the git -C clean deny
-#      become a permission ASK (stdout ask envelope, exit 0), NOT a hard exit-2 —
-#      the human decides. The root-ish outright denies (/, /home, /home/tom,
-#      $HOME) stay HARD in every mode. Unattended (bypassPermissions, or a
+#   1. Recursive deletes judged by WHAT WOULD BE LOST, not by where the path is:
+#      rm -r (any flag order, incl. --recursive), find … -delete, git clean -f.
+#      Each target is classified once (classify_delete_target) into one of:
+#        never    — /, $HOME, a system root, a personal category root, /tmp
+#                   itself, or an unguarded `$VAR` target whose unset expansion
+#                   IS a root delete. HARD in every mode, no ask.
+#        sacred   — someone else's or the machine's: a `main/` checkout, a
+#                   project container under ~/code, ~/code/*-data,
+#                   ~/.local/state/north, ~/code/reference, a `wt-<slug>`
+#                   worktree this session is not working in, any `.git`, any
+#                   checkout root. HARD in every mode, no ask.
+#        gone     — the path does not exist: nothing to lose. ALLOW.
+#        regen    — provably regenerable: $XDG_CACHE_HOME, /tmp/*, /var/tmp,
+#                   $TMPDIR/*, /run/user/*, node_modules/__pycache__/&c, and
+#                   anything git itself declares ignored. ALLOW.
+#        tracked  — inside a repo with nothing untracked or modified under it:
+#                   git restores it. ALLOW.
+#        dirty    — inside a repo, but untracked/modified content under the
+#                   target that git cannot restore. Ask/deny.
+#        personal — under $HOME, no version control, no cache: ask/deny.
+#        unknown  — unclassifiable: ask/deny (blocking is the safe default).
+#      MODE-AWARE, for the ask/deny tiers ONLY: in an INTERACTIVE session
+#      (permission_mode ∈ default/acceptEdits/plan) they become a permission ASK
+#      (stdout ask envelope, exit 0); unattended (bypassPermissions, or a
 #      missing/empty/unknown permission_mode — old harness or SDK-dispatched
-#      lane) fails CLOSED to the hard deny: the unattended safety floor never
-#      weakens. Asks ACCUMULATE, they do not exit — a later hard-deny class in
-#      the same command (e.g. `rm -rf ~/x && git push -f`) still wins (exit 2);
-#      the ask envelope emits only after the full walk with asks pending and no
-#      hard deny. Classes 2-5 below are hard denies in EVERY mode.
+#      lane) fails CLOSED to the hard deny, and the reason names
+#      `north config guards off` as the deliberate path. never/sacred are HARD
+#      in every mode. Asks ACCUMULATE, they do not exit — a later hard-deny
+#      class in the same command (e.g. `rm -rf ~/x && git push -f`) still wins
+#      (exit 2); the ask envelope emits only after the full walk with asks
+#      pending and no hard deny. Classes 2-5 below are hard denies in EVERY mode.
+#      PROPORTIONALITY: a bounded `find … -type f -mtime +N -delete` and an
+#      `rm -rf` of the same directory are both blocked, but the reason says
+#      which one it is — the friction should read as sized to the act.
 #   2. Force-push / history rewrite: git push with -f/--force/--force-with-lease/
 #      --mirror/--delete/--prune; and raw `git push` (house policy: safe-push
 #      only). safe-push's inner push exports SAFE_PUSH_ACTIVE=1 → allowed.
@@ -52,12 +70,17 @@
 # Design constraints honored:
 #   - pure bash + coreutils; jq only on the slow path for correct JSON string
 #     decode (NO python — this runs on EVERY Bash call). Fork budget: fast path
-#     0 forks (case-glob prescreen), slow path 2 (jq), deletion classes add one
-#     `git rev-parse` + one `realpath -m` per candidate target.
+#     0 forks (case-glob prescreen), slow path 2 (jq). A class-1 target adds one
+#     `realpath -sm`, and only if the fork-free tiers (never / sacred / gone /
+#     scratch) all decline does it ask git: `rev-parse`, then `check-ignore`,
+#     then a PATH-SCOPED `status --porcelain` — the enumeration is bounded by
+#     the target, and the ignored case (node_modules and friends) never reaches
+#     the status call.
 #   - FAIL-OPEN on anything unparseable — this is a tripwire for clear
 #     destructive patterns, not a general classifier. Deliberate accepted
-#     misses: `bash -c "…"`/xargs indirection, unexpanded $VAR targets,
-#     find with \( \) grouping (the grouped -delete lands in another segment).
+#     misses: `bash -c "…"`/xargs indirection, and find with \( \) grouping (the
+#     grouped -delete lands in another segment). A $VAR delete target is NOT a
+#     miss any more — it is class 1's unguarded-variable deny.
 #   - Every DENY is (1) appended to ~/.local/state/north/tripwire.log (ISO ts <TAB>
 #     cwd <TAB> reason <TAB> command head) so north-mine can audit, AND (2) routed
 #     through the guard_denial fact idiom (sdk/src/guard-log.ts): a titleless
@@ -294,19 +317,268 @@ resolve_path() {
   [ -n "$RES" ] || return 1
 }
 
-# deny unless target is inside: cwd repo, /tmp, /tmp/claude-*. Root-ish targets outright.
-check_delete_target() {
-  resolve_path "$1" || return 0
-  local p="$RES"
-  case "$p" in
-    / | /home | /home/tom | "$HOME") deny "recursive delete of '$p' — never, not even by accident" ;;
-    /tmp/*) return 0 ;;
+# ---- class 1: what would be lost, and whose is it ---------------------------
+# The tiers, and the ORDER, are the whole rule: both HARD tiers are decided
+# before any tier that can allow, so "it does not exist" or "it is a cache" can
+# never speak for a main checkout, a sibling lane, or a root.
+
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}"
+# The deliberate path, quoted verbatim in every ask/deny reason: it is the move
+# that worked, and a denial that does not name the exit is a trap.
+OVERRIDE='deliberate path: `north config guards off`, run it, `north config guards on`'
+
+# is_never_path PATH : exact roots whose recursive delete is catastrophic in
+# every mode. /tmp is here as the ROOT (other lanes' scratchpads live in it);
+# /tmp/<anything> is a regen path below.
+is_never_path() {
+  case "$1" in
+    / | /bin | /boot | /dev | /etc | /home | /lib | /lib64 | /nix | /opt | /proc | \
+      /root | /run | /sbin | /srv | /sys | /tmp | /usr | /var) return 0 ;;
   esac
-  ensure_repo_root
-  if [ -n "$REPO_ROOT" ] && { [ "$p" = "$REPO_ROOT" ] || [[ "$p" == "$REPO_ROOT"/* ]]; }; then
+  case "$1" in
+    "$HOME" | "$HOME"/code | "$HOME"/Desktop | "$HOME"/Documents | "$HOME"/Downloads | \
+      "$HOME"/Music | "$HOME"/Pictures | "$HOME"/Videos | "$HOME"/.config | \
+      "$HOME"/.gnupg | "$HOME"/.local | "$HOME"/.local/share | "$HOME"/.local/state | \
+      "$HOME"/.ssh) return 0 ;;
+  esac
+  return 1
+}
+
+# is_under_scratch PATH : roots whose contents are regenerable BY DEFINITION —
+# XDG cache (the spec's own words: deletable without loss of data), the temp
+# hierarchy, the runtime dir. Also the prefix test for a mid-path variable.
+is_under_scratch() {
+  case "$1" in
+    "$CACHE_ROOT" | "$CACHE_ROOT"/* | /tmp | /tmp/* | /var/tmp | /var/tmp/* | \
+      /run/user/*) return 0 ;;
+  esac
+  if [ -n "${TMPDIR:-}" ]; then
+    local td="${TMPDIR%/}"
+    case "$1" in "$td" | "$td"/*) return 0 ;; esac
+  fi
+  return 1
+}
+
+# is_cache_path PATH : the XDG cache tree, plus directories whose creating tool
+# rebuilds them on demand. Repository-declared ignores are handled by git itself
+# in the classifier — this list is only for paths outside a checkout. Checked
+# BEFORE the $HOME tier, because the cache lives under $HOME and is the one
+# thing there that is regenerable by definition.
+is_cache_path() {
+  case "$1" in
+    "$CACHE_ROOT" | "$CACHE_ROOT"/*) return 0 ;;
+  esac
+  case "${1##*/}" in
+    node_modules | __pycache__ | .pytest_cache | .mypy_cache | .ruff_cache | \
+      .direnv | .gradle) return 0 ;;
+  esac
+  return 1
+}
+
+# is_disposable PATH : regenerable without asking git — the XDG cache anywhere,
+# and the temp hierarchy when it is NOT inside $HOME. The $HOME exclusion is the
+# safe reading of an ambiguous layout: a scratch root someone put under $HOME is
+# personal data until something proves otherwise.
+is_disposable() {
+  is_cache_path "$1" && return 0
+  case "$1" in "$HOME"/*) return 1 ;; esac
+  is_under_scratch "$1"
+}
+
+# sacred_owner_reason PATH : the machine's own memory, or another lane's work —
+# decided by WHOSE it is, before anything about git. Sets $WHY, returns 0 on a
+# match. Path shape only: no forks.
+sacred_owner_reason() {
+  local p="$1" pre rest slug wt
+  WHY=""
+  case "$p" in
+    "$HOME"/code/*-data | "$HOME"/code/*-data/*)
+      WHY="'$p' is machine memory — a ~/code/*-data runtime store that live lanes read, and nothing regenerates it. Prune it with the tool that owns it, never with a recursive delete"
+      return 0
+      ;;
+    "$HOME"/.local/state/north | "$HOME"/.local/state/north/*)
+      WHY="'$p' is North's own state (coordination graph, session ledger) and other sessions are reading it right now"
+      return 0
+      ;;
+    "$HOME"/code/reference | "$HOME"/code/reference/*)
+      WHY="'$p' is ~/code/reference — read-only context; agents never edit or delete there"
+      return 0
+      ;;
+    "$HOME"/code/*/main | "$HOME"/code/*/main/*)
+      WHY="'$p' is inside a 'main' checkout — production, and any dirty state in it is human work-in-progress. Work in a sibling worktree: git -C <container>/main worktree add <container>/wt-<slug> -b <slug>"
+      return 0
+      ;;
+  esac
+  case "$p" in
+    "$HOME"/code/*)
+      rest="${p#"$HOME"/code/}"
+      case "$rest" in
+        */*) ;;
+        *)
+          WHY="'$p' is a project container — main/ and every worktree in it go together. Name one directory inside it instead"
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  case "$p" in
+    */wt-*)
+      pre="${p%%/wt-*}"
+      case "$pre" in
+        "$HOME"/code*)
+          rest="${p#"$pre"/}"
+          slug="${rest%%/*}"
+          wt="$pre/$slug"
+          ensure_cwd
+          case "$cwd/" in
+            "$wt"/*) ;;
+            *)
+              if [ "$p" = "$wt" ]; then
+                WHY="'$p' is another session's worktree"
+              else
+                WHY="'$p' is inside $wt, another session's worktree"
+              fi
+              WHY="$WHY — it may hold in-flight work this session cannot see (several lanes run concurrently here). If that lane is yours and has landed: git -C $pre/main worktree remove $wt"
+              return 0
+              ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
+# sacred_reason PATH : ownership, plus the two that only a DELETE can destroy —
+# a .git, and a checkout root (which contains one). `git clean` never touches
+# either, so it asks sacred_owner_reason instead.
+sacred_reason() {
+  sacred_owner_reason "$1" && return 0
+  case "$1" in
+    */.git | */.git/*)
+      WHY="'$1' takes a repository's .git with it — every unpushed commit, every branch, and the reflog. Delete working files instead"
+      return 0
+      ;;
+  esac
+  if [ -e "$1/.git" ]; then
+    WHY="'$1' is a git checkout root — a recursive delete takes .git with it (unpushed commits, reflog). Use: git -C $1 worktree remove '$1', or name a subdirectory"
     return 0
   fi
-  ask_or_deny "recursive delete outside safe roots (target: $p; safe: cwd repo, /tmp, /tmp/claude-*)"
+  return 1
+}
+
+GREPO=""
+git_root_of() { # nearest existing dir at or above PATH -> $GREPO ("" = no repo)
+  local d="$1"
+  [ -d "$d" ] || d="${d%/*}"
+  [ -n "$d" ] || d=/
+  GREPO="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$GREPO" ]
+}
+
+# classify_delete_target PATH -> $CLASS (+ $WHY on every blocking tier).
+CLASS="" WHY=""
+classify_delete_target() {
+  local p="$1" dirty
+  CLASS="" WHY=""
+  if is_never_path "$p"; then
+    CLASS=never
+    WHY="recursive delete of '$p' — never, not even by accident. Name the specific subdirectory you mean"
+    return 0
+  fi
+  if sacred_reason "$p"; then
+    CLASS=sacred
+    return 0
+  fi
+  # A symlink loses only the link; a missing path loses nothing at all.
+  if [ -L "$p" ] || [ ! -e "$p" ]; then
+    CLASS=gone
+    return 0
+  fi
+  if is_disposable "$p"; then
+    CLASS=regen
+    return 0
+  fi
+  if git_root_of "$p"; then
+    # git's own answer to "is this disposable": an ignored path is build output
+    # by declaration, and a clean tracked path is restorable from the object db.
+    if git -C "$GREPO" check-ignore -q -- "$p" 2>/dev/null; then
+      CLASS=regen
+      return 0
+    fi
+    dirty="$(git -C "$GREPO" status --porcelain -- "$p" 2>/dev/null | head -3)"
+    if [ -z "$dirty" ]; then
+      CLASS=tracked
+      return 0
+    fi
+    CLASS=dirty
+    WHY="'$p' holds work git cannot restore (${dirty//$'\n'/; }) — commit it, or gitignore it if it is build output; $OVERRIDE"
+    return 0
+  fi
+  case "$p" in
+    "$HOME"/*)
+      CLASS=personal
+      WHY="'$p' is personal data — no version control above it, no cache root, so nothing restores it; $OVERRIDE"
+      return 0
+      ;;
+  esac
+  CLASS=unknown
+  WHY="'$p' cannot be classified as recoverable (no repository, no cache root, outside \$HOME) — blocked by default. Narrow the target to the regenerable directory you mean, or $OVERRIDE"
+  return 0
+}
+
+# var_shape_check TOKEN : the `rm -rf "$VAR"/glob` family the house rules name —
+# an unset variable expands to a bare-root delete. Return 0 = keep going, 1 =
+# allow outright, or deny (exits). A LEADING bare $VAR is denied in every mode;
+# the guarded ${VAR:?} form cannot expand to empty and is the prescribed fix.
+var_shape_check() {
+  strip_g "$1"
+  local t="$S" pre disp
+  disp="${t//\"/}" # quote residue from the split: show the shape, not the noise
+  disp="${disp//\'/}"
+  case "$t" in
+    *'$'* | *'`'*) ;;
+    *) return 0 ;;
+  esac
+  # shellcheck disable=SC2016  # matching LITERAL $HOME text in the command
+  case "$t" in
+    '$HOME' | '${HOME}' | '$HOME/'* | '${HOME}/'*) return 0 ;; # resolvable below
+    *'${'*':?'*) return 1 ;;                                   # the prescribed guarded form
+    '$'*)
+      deny "unguarded variable as a recursive-delete target ('$disp') — an unset variable expands to a bare-root delete. Write the literal path, or guard it: rm -rf \"\${VAR:?}\"/subdir"
+      ;;
+  esac
+  pre="${t%%[\$\`]*}"
+  case "$pre" in
+    /*) ;;
+    *)
+      ensure_cwd
+      pre="$cwd/$pre"
+      ;;
+  esac
+  pre="${pre%/*}"
+  [ -n "$pre" ] || pre=/
+  pre="$(realpath -sm -- "$pre" 2>/dev/null)" || pre=/
+  is_under_scratch "$pre" && return 1 # expansion lands in cache/temp: harmless
+  deny "variable expansion inside a recursive-delete target ('$disp', under '$pre') — the guard cannot tell what it resolves to. Write the literal path, or guard it: \"\${VAR:?}\""
+}
+
+# check_delete_target TOKEN [SHAPE] : SHAPE ∈ tree|bounded. Shape never changes
+# the tier — it changes how the reason reads, so a precise `find -type f -mtime
+# +30 -delete` does not get told off in the words reserved for `rm -rf ~`.
+check_delete_target() {
+  local shape="${2:-tree}"
+  var_shape_check "$1" || return 0
+  resolve_path "$1" || return 0 # unresolvable for any other reason: fail-open
+  classify_delete_target "$RES"
+  case "$CLASS" in
+    gone | regen | tracked) return 0 ;;
+    never | sacred) deny "$WHY" ;;
+  esac
+  case "$shape" in
+    bounded) ask_or_deny "bounded delete (find … -delete, filtered by type/age/name): $WHY" ;;
+    *) ask_or_deny "whole-tree recursive delete: $WHY" ;;
+  esac
 }
 
 # is_secret_path: uses $S (post strip_g); return 0 if it looks like credential
@@ -371,8 +643,11 @@ redirect_skip() {
   esac
 }
 
+# RECURSIVE is the trigger, with or without -f: `rm -r ~/code/proj/main` loses
+# exactly as much as `rm -rf` does, and the tiers below already let the cheap
+# cases (gone, cache, gitignored, tracked-clean) through without friction.
 handle_rm() {
-  local recursive=0 force=0 endflags=0 skipnext=0 t
+  local recursive=0 endflags=0 skipnext=0 t
   local -a targets=()
   for t in "$@"; do
     if [ "$skipnext" = 1 ]; then skipnext=0; continue; fi
@@ -382,25 +657,34 @@ handle_rm() {
     case "$t" in
       --) endflags=1 ;;
       --recursive) recursive=1 ;;
-      --force) force=1 ;;
       --*) ;;
-      -*[rR]*)
-        recursive=1
-        case "$t" in *f*) force=1 ;; esac
-        ;;
-      -*f*) force=1 ;;
+      -*[rR]*) recursive=1 ;;
       -*) ;;
       *) targets+=("$t") ;;
     esac
   done
-  { [ "$recursive" = 1 ] && [ "$force" = 1 ]; } || return 0
-  for t in "${targets[@]}"; do check_delete_target "$t"; done
+  [ "$recursive" = 1 ] || return 0
+  for t in "${targets[@]}"; do check_delete_target "$t" tree; done
 }
 
+# A find whose predicates NARROW the sweep (a type plus an age/size/name filter)
+# is a different act from deleting the tree, and says so in the reason. It is
+# still judged by the same tiers — proportionality is in the wording, never in
+# the verdict.
 handle_find() {
-  local has_delete=0 t
-  for t in "$@"; do [ "$t" = "-delete" ] && has_delete=1; done
+  local has_delete=0 typef=0 narrow=0 t prev=""
+  for t in "$@"; do
+    case "$t" in
+      -delete) has_delete=1 ;;
+      -mtime | -atime | -ctime | -mmin | -amin | -cmin | -size | -name | -iname | \
+        -path | -ipath | -regex | -newer* | -maxdepth) narrow=1 ;;
+    esac
+    [ "$prev" = "-type" ] && case "$t" in f | f,*) typef=1 ;; esac
+    prev="$t"
+  done
   [ "$has_delete" = 1 ] || return 0
+  local shape=tree
+  { [ "$typef" = 1 ] && [ "$narrow" = 1 ]; } && shape=bounded
   local -a paths=()
   for t in "$@"; do
     case "$t" in
@@ -410,7 +694,7 @@ handle_find() {
     esac
   done
   [ "${#paths[@]}" -gt 0 ] || paths=(".") # find defaults to cwd
-  for t in "${paths[@]}"; do check_delete_target "$t"; done
+  for t in "${paths[@]}"; do check_delete_target "$t" "$shape"; done
 }
 
 handle_git() {
@@ -460,14 +744,25 @@ handle_git() {
         case "${a[$j]}" in --force | -*f*) force=1 ;; esac
       done
       [ "$force" = 1 ] || return 0
-      [ -n "$cval" ] || return 0 # plain `git clean -f…` cleans the cwd repo: allowed
-      resolve_path "$cval" || return 0
-      case "$RES" in /tmp/*) return 0 ;; esac
+      # `git clean -f` destroys untracked work by definition, so the tiers that
+      # ask git what is recoverable do not apply — ownership does. The repo it
+      # runs in is the one it cleans: -C when given, otherwise the cwd. That is
+      # why the no-C form is no longer waved through: a `git clean -fdx` with
+      # the cwd in a main/ checkout wipes the human's work-in-progress.
+      if [ -n "$cval" ]; then
+        resolve_path "$cval" || return 0
+      else
+        ensure_cwd
+        RES="$(realpath -sm -- "$cwd" 2>/dev/null)" || return 0
+      fi
+      is_never_path "$RES" && deny "git clean -f in '$RES' — never"
+      sacred_owner_reason "$RES" && deny "git clean -f: $WHY"
       ensure_repo_root
       if [ -n "$REPO_ROOT" ] && { [ "$RES" = "$REPO_ROOT" ] || [[ "$RES" == "$REPO_ROOT"/* ]]; }; then
         return 0
       fi
-      ask_or_deny "git -C clean -f outside the cwd repo (target: $RES)"
+      is_disposable "$RES" && return 0
+      ask_or_deny "git clean -f in '$RES' — outside this session's repo, and untracked files there are not in any object database; $OVERRIDE"
       ;;
   esac
 }
