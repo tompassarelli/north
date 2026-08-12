@@ -17,7 +17,15 @@ import directorPrompt from "./director-prompt.md" with { type: "text" };
 import implementerPrompt from "./implementer-prompt.md" with { type: "text" };
 import type { BridgeLaunchProvider, BridgeLaunchRole } from "./protocol";
 
+export interface BridgeSessionPresentation {
+  model?: string;
+  effort?: string;
+  cwd: string;
+  permissionMode?: string;
+}
+
 export interface BridgeProviderSession {
+  presentation?: BridgeSessionPresentation;
   submitInput(input: string): Promise<void>;
   interruptTurn(): Promise<void>;
   terminateSession(): Promise<void>;
@@ -108,11 +116,18 @@ export class BridgeWireSession implements BridgeProviderSession {
   #eventsConsumed = false;
   #closed = false;
   #termination?: Promise<void>;
+  readonly presentation?: BridgeSessionPresentation;
 
-  constructor(query: WireQuery, abort: AbortController, signal: AbortSignal) {
+  constructor(
+    query: WireQuery,
+    abort: AbortController,
+    signal: AbortSignal,
+    presentation?: BridgeSessionPresentation,
+  ) {
     this.#query = query;
     this.#abort = abort;
     this.#signal = signal;
+    this.presentation = presentation;
     this.#signalAbort = () => { void this.terminateSession().catch(() => {}); };
     signal.addEventListener("abort", this.#signalAbort, { once: true });
     if (signal.aborted) this.#signalAbort();
@@ -330,7 +345,16 @@ export function bridgeProviderWithDependenciesForTest(
           }),
         },
       });
-      return new BridgeWireSession(query, abortController, context.signal);
+      return new BridgeWireSession(query, abortController, context.signal, Object.freeze({
+        model: options.model,
+        effort: options.effort,
+        cwd: options.cwd ?? context.cwd,
+        // Managed Codex is launched with approvalPolicy=never. The operator's
+        // established name for that no-prompt mode is the banner's YOLO mode.
+        permissionMode: context.provider === "openai"
+          ? "bypassPermissions"
+          : options.permissionMode,
+      }));
     },
   });
 }

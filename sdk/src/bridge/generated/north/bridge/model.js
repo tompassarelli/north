@@ -93,7 +93,7 @@ function canonical_view(view_id) {
 
 export function make_model(view_id) {
   const view = canonical_view(view_id);
-  return BridgeModel([], [], [], "vertical", view, "", "", "", ("".concat("view ", view)));
+  return BridgeModel([], [], [], "vertical", view, "", "", "", "");
 }
 
 export function replace_projection(model, agents, list_items, board_items) {
@@ -119,7 +119,7 @@ function set_layout(model, layout) {
 }
 
 export function select_agent(model, agent_id) {
-  return Object.freeze({...model, selected_agent: agent_id, notice: ((agent_id === "") ? "showing all work" : ("".concat("work assigned to ", agent_id)))});
+  return Object.freeze({...model, selected_agent: agent_id, notice: ""});
 }
 
 export function select_thread(model, thread_id) {

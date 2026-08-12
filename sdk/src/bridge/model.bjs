@@ -60,7 +60,7 @@
 (js/export
  (defn make-model [view-id: String] -> BridgeModel
   (let [view (canonical-view view-id)]
-    (->BridgeModel [] [] [] "vertical" view "" "" "" (str "view " view)))))
+    (->BridgeModel [] [] [] "vertical" view "" "" "" ""))))
 
 (js/export
  (defn replace-projection
@@ -115,9 +115,10 @@
    agent-id: String] -> BridgeModel
   (with model
     [:selected-agent agent-id]
-    [:notice (if (identical? agent-id "")
-               "showing all work"
-               (str "work assigned to " agent-id))])))
+    ;; Selection is already visible in the highlighted roster row and controls
+    ;; where the composer sends. Repeating an internal execution UUID in the
+    ;; status line leaks routing machinery without telling the operator more.
+    [:notice ""])))
 
 (js/export
  (defn select-thread

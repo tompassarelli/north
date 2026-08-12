@@ -2701,6 +2701,17 @@
       (identical? (.-length rows) 0) ""
       :else (.join (.map rows (fn [row: Any] -> String (.-text row))) "\n")))))
 
+;; The roster used to reserve four rows even when the banner suppressed its
+;; only row. On a short terminal that left the welcome card with no viewport at
+;; all. Give the roster exactly the rows it actually draws; zero means it leaves
+;; the layout entirely while the banner owns the empty session.
+(js/export
+ (defn roster-visible-rows [content: Any] -> Int
+  (let [value (.trim (text content))]
+    (if (identical? value "")
+      0
+      (Math/min 4 (.-length (.split value "\n")))))))
+
 (defn agent-display-name [agent: Agent] -> String
   (let [name (agent-field-text (agent-name agent))]
     (if (identical? name "") (agent-field-text (agent-id agent)) name)))
@@ -3145,7 +3156,7 @@
 (defn push-working-wave!
   [chunks: Any
    runtime: Any] -> Any
-  (let [letters (.split "Working" "")
+  (let [letters (.split (text-or (.-workingLabel runtime) "Working") "")
         cursor (mod (.-spinnerIndex runtime) (.-length letters))]
     (push-chunk! chunks (brightBlack "• "))
     (.forEach
@@ -4171,13 +4182,18 @@
       (.push chunks (brightBlack "   h/l segment · enter open · esc input")))
     (StyledText. chunks)))
 
-(defn render-status
+(defn status-notice
   [runtime: Any
-   state: BridgeSnapshot] -> Any
+   state: BridgeSnapshot] -> String
   (let [workspace-notice (text (.-workspaceNotice runtime))
         notice (if (identical? workspace-notice "")
                  (visible-notice (bridgesnapshot-notice state)) workspace-notice)]
-    (StyledText. [(brightBlack notice)])))
+    notice))
+
+(defn render-status
+  [runtime: Any
+   state: BridgeSnapshot] -> Any
+  (StyledText. [(brightBlack (status-notice runtime state))]))
 
 ;; ---------------------------------------------------------------------------
 ;; The view bar. One row directly under the composer, two views: `Agents |
@@ -4749,16 +4765,21 @@
         items (workview-items current)
         agent-max (Math/max 0 (- (.-length agents) 1))
         work-max (Math/max 0 (- (.-length items) 1))
-        board? (identical? (workview-id current) "board")]
+        board? (identical? (workview-id current) "board")
+        banner? (banner-visible? runtime)
+        roster (roster-text state (.-agentIndex runtime)
+                            (text (.-supervisorId runtime)) banner?)
+        roster-rows (roster-visible-rows roster)
+        notice (status-notice runtime state)
+        notice? (not (identical? notice ""))]
     (set! (.-agentIndex runtime) (Math/max 0 (Math/min (.-agentIndex runtime) agent-max)))
     (set! (.-workIndex runtime) (Math/max 0 (Math/min (.-workIndex runtime) work-max)))
     (apply-frame-visibility! runtime ui)
     (set! (.-content (.-viewTabsText ui))
           (render-view-tabs! (.-frame runtime) state (workview-id current) runtime))
-    (set! (.-content (.-agentsText ui))
-          (roster-text state (.-agentIndex runtime)
-                       (text (.-supervisorId runtime))
-                       (banner-visible? runtime)))
+    (set! (.-visible (.-agentsText ui)) (> roster-rows 0))
+    (set! (.-height (.-agentsText ui)) (Math/max 1 roster-rows))
+    (set! (.-content (.-agentsText ui)) roster)
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
     (set! (.-visible (.-workText ui)) (not board?))
     (set! (.-visible (.-boardRoot ui)) board?)
@@ -4770,8 +4791,10 @@
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-content (.-agentStatusText ui)) (render-status runtime state))
     ;; One status line, inside whichever view is showing.
+    (set! (.-visible (.-statusText ui))
+          (and (threads-frame? (.-frame runtime)) notice?))
     (set! (.-visible (.-agentStatusText ui))
-          (not (threads-frame? (.-frame runtime))))
+          (and (not (threads-frame? (.-frame runtime))) notice?))
     (render-prompt! runtime (.-composerPrompt ui))
     (let [segments (agent-segments agents)
           strip-max (Math/max 0 (- (.-length segments) 1))]
@@ -4919,7 +4942,12 @@
                        (not (identical? tier ""))) (str provider "/" tier)
                   (not (identical? provider "")) provider
                   :else "")]
-      (when (not (identical? label "")) (set! (.-sessionModel runtime) label))))
+      ;; Wire carries the provider-neutral route, while session.config carries
+      ;; the concrete model the provider actually opened. The generic route is
+      ;; only a fallback and must never replace that exact display value.
+      (when (and (not (identical? label ""))
+                 (identical? (.trim (text (.-sessionModel runtime))) ""))
+        (set! (.-sessionModel runtime) label))))
   (let [effort-label (text effort)]
     (when (not (identical? effort-label ""))
       (set! (.-sessionEffort runtime) effort-label))))
@@ -5015,6 +5043,17 @@
            runtime
            (control-conversation-item execution-id record "user" "" prompt "done"))))
 
+      (identical? kind "session.config")
+      (let [model (.trim (text (.-model data)))
+            effort (.trim (text (.-effort data)))
+            cwd (.trim (text (.-cwd data)))
+            permissions (.trim (text (.-permissionMode data)))]
+        (when (not (identical? model "")) (set! (.-sessionModel runtime) model))
+        (when (not (identical? effort "")) (set! (.-sessionEffort runtime) effort))
+        (when (not (identical? cwd "")) (set! (.-sessionCwd runtime) cwd))
+        (when (not (identical? permissions ""))
+          (set! (.-sessionPermissions runtime) permissions)))
+
       (or (identical? kind "control.submit_input")
           (identical? kind "control.redirect_now"))
       (let [input (.trim (text (.-input data)))]
@@ -5032,10 +5071,15 @@
         "interrupted"))
 
       (identical? kind "model-call.started")
-      (do (adopt-wire-model! runtime (.-model data) (.-effort data))
-          (set-execution-working! runtime execution-id true "Agent is working")
+      (let [booting (.-booting stream-state)]
+        (adopt-wire-model! runtime (.-model data) (.-effort data))
+        (set-execution-working! runtime execution-id true
+                                (if booting
+                                  (str "Starting " (main-agent-label) "…")
+                                  "Agent is working"))
           (when (not (identical? execution-id ""))
-            (bridge-agent! runtime execution-id (text (.-role stream-state)) "working")))
+            (bridge-agent! runtime execution-id (text (.-role stream-state))
+                           (if booting "starting" "working"))))
 
       (identical? kind "message.recorded")
       (handle-wire-message! runtime stream-state data)
@@ -5172,7 +5216,7 @@
    role: String] -> (Promise Any)
   (when (identical? (.trim prompt) "")
     (throw (Error. "launch requires a prompt")))
-  (set-working! runtime true (str "Starting " (main-agent-label)))
+  (set-working! runtime true (str "Starting " (main-agent-label) "…"))
   (let [stream-state {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code

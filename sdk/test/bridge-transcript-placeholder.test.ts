@@ -10,6 +10,7 @@ import {
   banner_revision as bannerRevision,
   banner_rule_line_p as bannerRuleLine,
   render_conversation_bang as renderConversation,
+  roster_visible_rows as rosterVisibleRows,
   roster_row_suppressed_p as rosterRowSuppressed,
   roster_text as rosterText,
   session_banner as sessionBanner,
@@ -19,7 +20,8 @@ import {
   transcript_placeholder as transcriptPlaceholder,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
-  Agent, make_model as makeModel, snapshot, upsert_agent as upsertAgent,
+  Agent, make_model as makeModel, select_agent as selectAgent, snapshot,
+  upsert_agent as upsertAgent,
 } from "../src/bridge/generated/north/bridge/model.js";
 
 // The banner is sized against the frame, which is read off the terminal. Pin it
@@ -150,6 +152,7 @@ function runtimeWith(status: string) {
   return {
     conversation: [] as unknown[],
     working: false,
+    workingLabel: "",
     workingSince: Date.now(),
     spinnerIndex: 0,
     supervisorId: "exec-supervisor",
@@ -227,6 +230,16 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   renderer.destroy();
 });
 
+test("boot names the session being started instead of showing a generic working state", () => {
+  const booting = runtimeWith("starting");
+  booting.working = true;
+  booting.workingLabel = "Starting Codex Main…";
+  const rendered = (renderConversation(booting) as { chunks: Array<{ text: string }> })
+    .chunks.map((chunk) => chunk.text).join("");
+  expect(rendered).toContain("Starting Codex Main…");
+  expect(rendered).not.toContain("Working");
+});
+
 // The screenshot bug: the title LINE was coloured bright and every other line
 // dim, so the box characters took the colour of whatever line they sat on and
 // the frame came out in two tones — bright pipes beside the title, dim
@@ -300,6 +313,9 @@ test("the roster stands down for the banner, and comes back with it", () => {
   // With the banner up the pane says nothing rather than reporting "no agents"
   // about a session that is plainly on the screen underneath it.
   expect(rosterText(control, 0, "exec-supervisor", true)).toBe("");
+  expect(rosterVisibleRows(rosterText(control, 0, "exec-supervisor", true))).toBe(0);
+  expect(rosterVisibleRows(rosterText(control, 0, "exec-supervisor", false))).toBe(1);
+  expect(rosterVisibleRows("one\ntwo\nthree\nfour\nfive")).toBe(4);
   expect(rosterText(snapshot(makeModel("list")), 0, "exec-supervisor", true))
     .toBe("No agents attached");
 
@@ -319,12 +335,18 @@ test("the roster stands down for the banner, and comes back with it", () => {
       + "\n› Worker (running) — landing the fix");
 });
 
+test("agent selection does not leak its execution UUID into the status line", () => {
+  const selected = snapshot(selectAgent(makeModel("list"), "317a9f83-5b04-4d67-a261-c9b194faa94a"));
+  expect(selected.selected_agent).toBe("317a9f83-5b04-4d67-a261-c9b194faa94a");
+  expect(selected.notice).toBe("");
+});
+
 test("the roster row and the banner are never on screen together", async () => {
   const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 90, height: 14,
   });
   const pane = new BoxRenderable(renderer, { id: "agents-pane", flexGrow: 1 });
-  const roster = new TextRenderable(renderer, { id: "agents-text", height: 4, wrapMode: "word" });
+  const roster = new TextRenderable(renderer, { id: "agents-text", height: 1, wrapMode: "word" });
   const scroll = new ScrollBoxRenderable(renderer, { id: "transcript-scroll", flexGrow: 1 });
   const transcript = new TextRenderable(renderer, { id: "transcript-text", wrapMode: "word" });
   scroll.add(transcript);
@@ -334,7 +356,9 @@ test("the roster row and the banner are never on screen together", async () => {
 
   // Banner state: ready, empty, idle.
   const ready = runtimeWith("ready");
-  roster.content = rosterText(snapshot(ready.model), 0, "exec-supervisor", true);
+  const bannerRoster = rosterText(snapshot(ready.model), 0, "exec-supervisor", true);
+  roster.visible = rosterVisibleRows(bannerRoster) > 0;
+  roster.content = bannerRoster;
   transcript.content = renderConversation(ready);
   await renderOnce();
   const banner = captureCharFrame();
@@ -349,7 +373,10 @@ test("the roster row and the banner are never on screen together", async () => {
     id: "item-1", kind: "assistant", title: "", body: "hello", status: "done", data: null,
     execution_id: "exec-supervisor", at: "2026-08-12T00:00:00.000Z", cursor: 1, sequence: 0,
   }];
-  roster.content = rosterText(snapshot(answered.model), 0, "exec-supervisor", false);
+  const answeredRoster = rosterText(snapshot(answered.model), 0, "exec-supervisor", false);
+  roster.visible = true;
+  roster.height = rosterVisibleRows(answeredRoster);
+  roster.content = answeredRoster;
   transcript.content = renderConversation(answered);
   await renderOnce();
   const conversing = captureCharFrame();

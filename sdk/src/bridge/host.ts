@@ -822,6 +822,9 @@ export class Northd {
         writer: runtime.writer!,
       });
       runtime.session = session;
+      if (session.presentation) {
+        this.#appendControl(runtime, "session.config", { ...session.presentation });
+      }
       if (runtime.terminating || runtime.terminal) {
         try { await this.#teardown(runtime); }
         catch (error) {
