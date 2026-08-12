@@ -529,7 +529,7 @@
    ["struggle_topology" "single" "literal" "topology whose struggle thresholds were effective for a run"]
    ["struggle_error_streak_threshold" "single" "literal" "effective consecutive tool-error threshold for a run"]
    ["struggle_loop_repeat_threshold" "single" "literal" "effective identical-call repeat threshold for a run"]
-   ["struggle_loop_window" "single" "literal" "effective recent-call window for tool-loop detection"]
+   ["struggle_loop_window" "single" "literal" "maximum retained consecutive-call evidence for tool-loop detection"]
    ["struggle_no_progress_turn_threshold" "single" "literal" "effective assistant-turn threshold for no-progress detection"]
    ["scope_escalation" "multi" "literal" "versioned JSON checkpoint for a managed scope-overrun/needs-replan escalation"]
    ["stop_reason"    "single" "literal" "why a run stopped"]

@@ -205,6 +205,7 @@ export function wireTurnSequenceQuery(
   if (liveInput !== "streaming") {
     let opened = false;
     return {
+      executionTransport: "managed-app-server",
       [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
         return (async function*(): AsyncGenerator<WireEvent> {
           if (opened) throw new Error("turn-framed wire fixture iterator opened twice");
@@ -224,6 +225,7 @@ export function wireTurnSequenceQuery(
   let pendingInput: WireQueryInput | undefined = args.input;
   let turn = 0;
   return {
+    executionTransport: "sdk-stream",
     async continueTurn(input: WireQueryInput): Promise<void> {
       if (active) throw new Error("wire turn fixture continued before its iterator completed");
       if (pendingInput !== undefined) throw new Error("wire turn fixture continuation was not consumed");

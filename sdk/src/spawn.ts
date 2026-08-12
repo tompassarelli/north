@@ -141,6 +141,9 @@ import {
   wireTerminalDecision,
 } from "./execution-outcome";
 import {
+  emptyResultRepairMode, successfulEmptyResultRepairInput,
+} from "./empty-result-repair";
+import {
   makeExecutionFold,
   type ExecutionFoldSnapshot,
 } from "./execution-fold";
@@ -758,6 +761,8 @@ async function runSpawn(
   // empty terminal (the continuation raced the Anthropic session's teardown),
   // this drives an explicit blocked outcome instead of a ran_empty masquerade.
   let pendingContinuation: OrchestratorContinuationKind | undefined;
+  let emptyResultRepairAttempted = false;
+  let emptyResultRepairContinuation = false;
   // Streaming providers own private continuation identity. North asks the
   // same semantic query for another turn without observing a raw session id.
   const resumeContinuations = orchestrator
@@ -1050,19 +1055,67 @@ async function runSpawn(
             break;
           }
         }
+        if (!emptyResultRepairAttempted
+            && isEmptyResultTerminal(observation.state.run)
+            && termination.emptyResultRepairAllowed()) {
+          const repairMode = emptyResultRepairMode(activeQuery);
+          if (repairMode !== undefined) {
+            emptyResultRepairAttempted = true;
+            const repairInput = successfulEmptyResultRepairInput();
+            console.error(
+              `[empty-result] @agent:${agentId} opening one same-session corrective turn`,
+            );
+            if (repairMode === "streaming") {
+              emptyResultRepairContinuation = true;
+              privateContinuation = repairInput;
+            } else {
+              termination.throwIfTerminated();
+              ch.push(repairInput);
+            }
+            continue;
+          }
+        }
         end("ran");
         break; // MUST end the channel or the query hangs
       }
     }
   }
   if (privateContinuation !== undefined) {
-    if (!activeQuery.continueTurn) {
-      end("provider_error");
-      providerErrorDetail = "active provider cannot retain a private continuation turn";
-      terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
-      break turnLoop;
+    if (emptyResultRepairContinuation) {
+      // This corrective turn deliberately receives only its static instruction.
+      // Freeze the public live-input route first and cancel queued messages as
+      // unconsumed so the coordinator can replay them instead of waiting on an
+      // orphaned channel while the private continuation runs.
+      ch.end();
+      try {
+        await liveInputRoute.freezeAndUnbind();
+      } catch (error) {
+        liveInputFreezeError ??= error;
+        emptyResultRepairContinuation = false;
+        break turnLoop;
+      }
+      if (!activeQuery.continueTurn || !termination.emptyResultRepairAllowed()) {
+        emptyResultRepairContinuation = false;
+        break turnLoop;
+      }
+      termination.throwIfTerminated();
+      try {
+        await activeQuery.continueTurn(privateContinuation);
+      } catch {
+        termination.throwIfTerminated();
+        emptyResultRepairContinuation = false;
+        break turnLoop;
+      }
+      emptyResultRepairContinuation = false;
+    } else {
+      if (!activeQuery.continueTurn) {
+        end("provider_error");
+        providerErrorDetail = "active provider cannot retain a private continuation turn";
+        terminalSignal = { subject: "AGENT BLOCKED", detail: providerErrorDetail };
+        break turnLoop;
+      }
+      await activeQuery.continueTurn(privateContinuation);
     }
-    await activeQuery.continueTurn(privateContinuation);
     continue turnLoop;
   }
   break;

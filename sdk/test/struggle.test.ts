@@ -11,6 +11,7 @@ import {
 	wireModelCallId,
 	wireRunId,
 	wireToolCallId,
+	wireToolArgumentDigest,
 } from "../src/wire";
 
 function writer(label: string): WireEventWriter {
@@ -29,14 +30,14 @@ function toolResult(
 	name: string,
 	index: number,
 	status: "succeeded" | "failed" = "succeeded",
-	argumentPreview = `{"index":${index}}`,
+	argumentDigest = wireToolArgumentDigest({ index }),
 ): void {
 	const toolCallId = wireToolCallId(`tool:struggle-${index}`);
 	observer.observe(source.append({
 		kind: "tool.admitted",
 		toolCallId,
 		name,
-		argumentPreview,
+		...(argumentDigest === undefined ? {} : { argumentDigest }),
 		schema: { status: "unavailable", reason: "test" },
 	}));
 	observer.observe(source.append({
@@ -85,11 +86,44 @@ test("canonical failed tool terminals drive the consecutive-error trigger", () =
 test("identical semantic tool admissions preserve loop detection after success", () => {
 	const source = writer("loop");
 	const observer = makeStruggleObserver(resolveStrugglePolicy("worker", {}));
+	const digest = wireToolArgumentDigest({ path: "same" });
 	for (let index = 0; index < 3; index += 1) {
-		toolResult(source, observer, "Read", index, "succeeded", "{\"path\":\"same\"}");
+		toolResult(source, observer, "Read", index, "succeeded", digest);
 	}
 	expect(checkStruggle(observer.state)).toBe("tool_loop");
 	expect(observer.state.lastProgressTurn).toBe(3);
+});
+
+test("tool-loop evidence is semantic, consecutive, resettable, and never name-only", () => {
+	const source = writer("semantic-loop");
+	const observer = makeStruggleObserver(resolveStrugglePolicy("worker", {}));
+	const a = wireToolArgumentDigest({ nested: { right: 2, i: "first", left: 1 } });
+	const reorderedA = wireToolArgumentDigest({ nested: { left: 1, __intent: "second", right: 2 } });
+	const b = wireToolArgumentDigest({ nested: { left: 9, right: 2 } });
+	expect(a).toBe(reorderedA);
+
+	toolResult(source, observer, "Read", 0, "succeeded", a);
+	toolResult(source, observer, "Read", 1, "succeeded", reorderedA);
+	toolResult(source, observer, "Read", 2, "succeeded", b);
+	toolResult(source, observer, "Read", 3, "succeeded", a);
+	toolResult(source, observer, "Read", 4, "succeeded", undefined);
+	toolResult(source, observer, "Read", 5, "succeeded", a);
+	toolResult(source, observer, "Grep", 6, "succeeded", a);
+	toolResult(source, observer, "Read", 7, "succeeded", a);
+	toolResult(source, observer, "Read", 8, "succeeded", a);
+	expect(checkStruggle(observer.state)).toBeNull();
+	toolResult(source, observer, "Read", 9, "succeeded", a);
+	expect(checkStruggle(observer.state)).toBe("tool_loop");
+});
+
+test("repeated North polling probes remain observable loop evidence", () => {
+	const source = writer("polling-loop");
+	const observer = makeStruggleObserver(resolveStrugglePolicy("worker", {}));
+	const digest = wireToolArgumentDigest({ agent: "worker" });
+	for (let index = 0; index < 3; index += 1) {
+		toolResult(source, observer, "mcp:north/show", index, "succeeded", digest);
+	}
+	expect(checkStruggle(observer.state)).toBe("tool_loop");
 });
 
 test("non-progress work units fire at the topology bound while successful work resets it", () => {

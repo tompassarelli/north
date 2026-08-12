@@ -44,6 +44,7 @@ import {
   wireTurnEvents,
   wireTurnQuery,
   wireTurnSequenceQuery,
+  wireInputIterator,
 } from "./support/wire-query";
 import { spawn as spawnUnderTest } from "./support/spawn";
 import { dispatch as dispatchUnderTest } from "./support/dispatch";
@@ -826,6 +827,301 @@ test("a dispatch success terminal with an empty result is a LOUD ran_empty, neve
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain(`send ${agentId} ${TEST_COORDINATOR} AGENT EMPTY RESULT`);
   expect(logged.includes(`send ${agentId} ${TEST_COORDINATOR} AGENT COMPLETE`)).toBe(false);
+});
+
+test("spawn repairs one empty Anthropic terminal on the same streaming query", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-spawn";
+  let queryConstructions = 0;
+  let continuationCalls = 0;
+  const inputs: string[] = [];
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return wireTurnSequenceQuery(args, [
+      { provider: "anthropic", output: "", turns: 1, providerDurationMs: 1 },
+      { provider: "anthropic", output: "recovered result", turns: 1, providerDurationMs: 2 },
+    ], {
+      onContinue: () => { continuationCalls++; },
+      onInput: (text) => inputs.push(text),
+    });
+  };
+
+  const result = await spawnUnderTest({
+    prompt: "finish after an empty first turn",
+    agentId,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    queryFn,
+  });
+
+  expect(result).toBe("recovered result");
+  expect(queryConstructions).toBe(1);
+  expect(continuationCalls).toBe(1);
+  expect(inputs).toHaveLength(2);
+  expect(inputs[1]).toContain("previous turn succeeded without any assistant text");
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(2);
+  expect(replay.events.filter((event) => event.kind === "model-call.started")
+    .map((event) => event.model.provider)).toEqual(["anthropic", "anthropic"]);
+  expect(replay.events.filter((event) => event.kind === "run.terminated")).toHaveLength(1);
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated", lifecycle: "completed", reason: { code: "completed" },
+  });
+  const lines = await settledRunLines(agentId);
+  expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
+});
+
+test("private empty repair freezes live input and leaves between-turn mail replayable", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-live-input-freeze";
+  let deliver: ((message: string) => {
+    consumed: Promise<boolean>;
+    cancel: () => void;
+  }) | undefined;
+  let lateAdmission: {
+    consumed: Promise<boolean>;
+    cancel: () => void;
+  } | undefined;
+  let lateConsumed: boolean | undefined;
+  let drainCalls = 0;
+  let continuationCalls = 0;
+  const inputs: string[] = [];
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    let turn = 0;
+    let pendingInput: WireQueryInput | undefined = args.input;
+    return {
+      executionTransport: "sdk-stream",
+      async continueTurn(input: WireQueryInput): Promise<void> {
+        continuationCalls++;
+        pendingInput = input;
+      },
+      [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+        return (async function*(): AsyncGenerator<WireEvent> {
+          const currentTurn = turn++;
+          const input = pendingInput;
+          if (input === undefined) throw new Error("repair turn opened without input");
+          pendingInput = undefined;
+          const frame = await wireInputIterator(input).next();
+          if (frame.done) throw new Error("repair turn input was empty");
+          inputs.push(frame.value.text);
+          try {
+            yield* wireTurnEvents(args, {
+              provider: "anthropic",
+              output: currentTurn === 0 ? "" : "recovered after route freeze",
+              turns: 1,
+            });
+          } finally {
+            if (currentTurn === 0) {
+              if (!deliver) throw new Error("live-input feed was not armed");
+              lateAdmission = deliver("late between-turn message");
+            }
+          }
+        })();
+      },
+    };
+  };
+
+  const result = await spawnUnderTest({
+    prompt: "repair without orphaning live input",
+    agentId,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    sessionHardCapRuntime: {
+      hardCapMs: 5_000,
+      stateDirectory: join(dir, "repair-live-input-hard-cap"),
+    },
+    feedSubscriber: (_recipient: string, onMail: typeof deliver) => {
+      if (!onMail) throw new Error("live-input feed has no admission callback");
+      deliver = onMail;
+      return Object.assign(async () => {}, {
+        ready: Promise.resolve(),
+        drain: async () => {
+          drainCalls++;
+          if (!lateAdmission) throw new Error("late admission was not observed before freeze");
+          lateConsumed = await lateAdmission.consumed;
+        },
+        isArmed: () => true,
+      });
+    },
+    queryFn,
+  });
+
+  expect(result).toBe("recovered after route freeze");
+  expect(continuationCalls).toBe(1);
+  expect(inputs).toHaveLength(2);
+  expect(inputs[1]).toContain("previous turn succeeded without any assistant text");
+  expect(inputs[1]).not.toContain("late between-turn message");
+  expect(lateConsumed).toBe(false);
+  expect(drainCalls).toBe(1);
+  const lines = await settledRunLines(agentId);
+  expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" process_outcome session_hard_cap"))).toBe(false);
+});
+
+test("dispatch repairs one empty managed-Codex terminal in the retained iterator", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-dispatch";
+  let queryConstructions = 0;
+  let continuationCalls = 0;
+  const inputs: string[] = [];
+  const queryFn = (args: RoutedQueryArguments): WireQuery => {
+    queryConstructions++;
+    return wireTurnSequenceQuery(args, [
+      { provider: "openai", output: "", turns: 1, providerDurationMs: 1 },
+      { provider: "openai", output: "dispatch recovered", turns: 1, providerDurationMs: 2 },
+    ], {
+      onContinue: () => { continuationCalls++; },
+      onInput: (text) => inputs.push(text),
+    });
+  };
+
+  const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
+  const priorProvider = process.env.AGENT_PROVIDER;
+  const result = await (async () => {
+    try {
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    process.env.AGENT_PROVIDER = "openai";
+    return await dispatchUnderTest("test-empty-repair-dispatch-thread", {
+      agentId,
+      routingMetadata: presetRequest("integrator"),
+      pinEvidence: pinEvidence("openai"),
+      queryFn,
+      claimDriver: () => ({ release: () => true }),
+      loadThreadFacts: () => [
+        { predicate: "title", value: "Finish after an empty first turn" },
+        { predicate: "planned", value: "true" },
+        { predicate: "atomic", value: "true" },
+      ],
+      loadChildren: () => [],
+    });
+    } finally {
+      if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;
+      else process.env.NORTH_STAFFING_SOURCE = priorStaffingSource;
+      if (priorProvider === undefined) delete process.env.AGENT_PROVIDER;
+      else process.env.AGENT_PROVIDER = priorProvider;
+    }
+  })();
+
+  expect(result.result).toBe("dispatch recovered");
+  expect(queryConstructions).toBe(1);
+  expect(continuationCalls).toBe(0);
+  expect(inputs).toHaveLength(2);
+  expect(inputs[1]).toContain("previous turn succeeded without any assistant text");
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(2);
+  expect(replay.events.filter((event) => event.kind === "model-call.started")
+    .map((event) => event.model.provider)).toEqual(["openai", "openai"]);
+  expect(replay.events.filter((event) => event.kind === "run.terminated")).toHaveLength(1);
+  expect(replay.events.at(-1)).toMatchObject({
+    kind: "run.terminated", lifecycle: "completed", reason: { code: "completed" },
+  });
+});
+
+test("a second empty terminal exhausts the single corrective turn and remains ran_empty", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-exhausted";
+  let continuationCalls = 0;
+  const result = await spawnUnderTest({
+    prompt: "remain empty twice",
+    agentId,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    queryFn: (args) => wireTurnSequenceQuery(args, [
+      { provider: "anthropic", output: "", turns: 1, providerDurationMs: 1 },
+      { provider: "anthropic", output: "", turns: 1, providerDurationMs: 2 },
+    ], { onContinue: () => { continuationCalls++; } }),
+  });
+
+  expect(result).toBe("");
+  expect(continuationCalls).toBe(1);
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(2);
+  const lines = await settledRunLines(agentId);
+  expect(lines.some((line) => line.endsWith(" process_outcome ran_empty"))).toBe(true);
+  expect(lines.some((line) => line.endsWith(" process_outcome ran"))).toBe(false);
+});
+
+test("the exact token tripwire suppresses empty-result repair", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-token-target";
+  let continuationCalls = 0;
+  const result = await spawnUnderTest({
+    prompt: "stop at the token target",
+    agentId,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    tokenTarget: 15,
+    queryFn: (args) => wireTurnSequenceQuery(args, [
+      {
+        provider: "anthropic", output: "", turns: 1,
+        usage: {
+          lifetime: {
+            inputTokens: 10, outputTokens: 5, cacheReadTokens: 0,
+            cacheWriteTokens: 0, reasoningTokens: 0, modelCalls: 1,
+          },
+          context: { tokens: 15, window: 200_000 },
+        },
+      },
+      { provider: "anthropic", output: "must not run", turns: 1 },
+    ], { onContinue: () => { continuationCalls++; } }),
+  });
+
+  expect(result).toBe("");
+  expect(continuationCalls).toBe(0);
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(1);
+  const lines = await settledRunLines(agentId);
+  expect(lines.some((line) => line.endsWith(" process_outcome token_budget_limited"))).toBe(true);
+});
+
+test("the absolute hard deadline suppresses repair even when its timer has not fired", async () => {
+  writeFileSync(log, "");
+  const agentId = "test-empty-repair-hard-deadline";
+  let now = new Date("2026-08-12T00:00:00.000Z");
+  let scheduledDelay: number | undefined;
+  let continuationCalls = 0;
+  const result = await spawnUnderTest({
+    prompt: "finish at the absolute deadline",
+    agentId,
+    role: "integrator",
+    routingMetadata: presetRequest("integrator"),
+    provider: "anthropic",
+    pinEvidence: pinEvidence("anthropic"),
+    sessionHardCapRuntime: {
+      hardCapMs: 10,
+      now: () => now,
+      schedule: (_callback: () => void, delayMs: number) => {
+        scheduledDelay = delayMs;
+        return 1;
+      },
+      cancel: () => {},
+    },
+    queryFn: (args) => wireTurnSequenceQuery(args, [
+      { provider: "anthropic", output: "", turns: 1 },
+      { provider: "anthropic", output: "must not run", turns: 1 },
+    ], {
+      onContinue: () => { continuationCalls++; },
+      onInput: (_text, turn) => {
+        if (turn === 0) now = new Date("2026-08-12T00:00:00.010Z");
+      },
+    }),
+  });
+
+  expect(result).toBe("");
+  expect(scheduledDelay).toBe(10);
+  expect(continuationCalls).toBe(0);
+  const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
+  expect(replay.events.filter((event) => event.kind === "model-call.completed")).toHaveLength(1);
+  const lines = await settledRunLines(agentId);
+  expect(lines.some((line) => line.endsWith(" process_outcome ran_empty"))).toBe(true);
 });
 
 test("SIGTERM during provider preflight waits for envelope and driver cleanup", async () => {
@@ -3682,7 +3978,7 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   expect(factValues("struggle")).toEqual(["consecutive_errors"]);
   expect(factValues("error_count")).toEqual(["3"]);
   expect(factValues("struggle_detector_policy_version"))
-    .toEqual(["north:struggle-observer:v1"]);
+    .toEqual(["north:struggle-observer:v2"]);
   expect(factValues("struggle_error_streak_threshold")).toEqual(["3"]);
   // The run still finished normally at its immutable admitted route.
   const logged = readFileSync(log, "utf8");

@@ -150,7 +150,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     AGENT_COMPOSITION: JSON.stringify(route.composition),
   });
   expect(JSON.parse(childEnv.NORTH_STRUGGLE_POLICY_EXPECTED)).toEqual({
-    version: "north:struggle-observer:v1",
+    version: "north:struggle-observer:v2",
     topology: route.topology,
     errorStreak: 3,
     loopRepeat: 3,

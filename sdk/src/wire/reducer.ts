@@ -379,6 +379,7 @@ export interface WireToolCallSnapshot {
 	modelCallId?: WireModelCallId;
 	parentToolCallId?: WireToolCallId;
 	schema: WireToolSchemaProvenance;
+	argumentDigest?: string;
 	argumentPreview?: string;
 	argumentArtifactId?: WireArtifactId;
 	admittedAt: string;
@@ -794,6 +795,7 @@ function admittedTool(event: WireToolAdmittedEvent): WireToolCallSnapshot {
 		...optional("modelCallId", event.modelCallId),
 		...optional("parentToolCallId", event.parentToolCallId),
 		schema: event.schema,
+		...optional("argumentDigest", event.argumentDigest),
 		...optional("argumentPreview", event.argumentPreview),
 		...optional("argumentArtifactId", event.argumentArtifactId),
 		admittedAt: event.at,

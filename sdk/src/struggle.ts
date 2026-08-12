@@ -1,7 +1,7 @@
 import type { WireEvent } from "./wire/events";
 import type { WireToolCallId } from "./wire/ids";
 
-export const STRUGGLE_DETECTOR_POLICY_VERSION = "north:struggle-observer:v1";
+export const STRUGGLE_DETECTOR_POLICY_VERSION = "north:struggle-observer:v2";
 export const STRUGGLE_THRESHOLD_MAX = 1_000;
 
 export type StruggleTopology = "worker" | "orchestrator";
@@ -12,6 +12,7 @@ export interface StrugglePolicy {
 	readonly topology: StruggleTopology;
 	readonly errorStreak: number;
 	readonly loopRepeat: number;
+	/** Memory bound for the consecutive identical-call streak. */
 	readonly loopWindow: number;
 	readonly noProgressTurns: number;
 }
@@ -156,8 +157,11 @@ export function makeStruggleState(
 	};
 }
 
-function fingerprint(name: string, argumentPreview: string | undefined): string {
-	return `${name}:${(argumentPreview ?? "").slice(0, 200)}`;
+function fingerprint(
+	event: Extract<WireEvent, { essential: true; kind: "tool.admitted" }>,
+): string | undefined {
+	return event.argumentDigest === undefined
+		? undefined : JSON.stringify([event.name, event.argumentDigest]);
 }
 
 function progressTool(name: string): boolean {
@@ -177,7 +181,11 @@ export function updateStruggle(event: WireEvent, state: StruggleState): void {
 	if (event.kind === "tool.admitted") {
 		if (event.name === "background-task") return;
 		state.pending.set(event.toolCallId, event.name);
-		state.fingerprints.push(fingerprint(event.name, event.argumentPreview));
+		const observed = fingerprint(event);
+		const previous = state.fingerprints.at(-1);
+		if (observed === undefined) state.fingerprints = [];
+		else if (observed === previous) state.fingerprints.push(observed);
+		else state.fingerprints = [observed];
 		if (state.fingerprints.length > state.policy.loopWindow) state.fingerprints.shift();
 		const unit = workUnit(event);
 		if (!state.workUnits.has(unit)) {
@@ -203,12 +211,7 @@ export function updateStruggle(event: WireEvent, state: StruggleState): void {
 
 export function checkStruggle(state: StruggleState): StruggleTrigger | null {
 	if (state.consecutiveErrors >= state.policy.errorStreak) return "consecutive_errors";
-	const counts = new Map<string, number>();
-	for (const value of state.fingerprints) {
-		const count = (counts.get(value) ?? 0) + 1;
-		counts.set(value, count);
-		if (count >= state.policy.loopRepeat) return "tool_loop";
-	}
+	if (state.fingerprints.length >= state.policy.loopRepeat) return "tool_loop";
 	if (state.workTurns - state.lastProgressTurn >= state.policy.noProgressTurns) return "no_progress";
 	return null;
 }

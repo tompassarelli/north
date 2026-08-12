@@ -325,6 +325,43 @@ describe("Anthropic wire-v2 normalization", () => {
 		expect(writer.snapshot()?.artifacts).toEqual({});
 	});
 
+	test("tool argument evidence canonicalizes keys and ignores intent-only fields", () => {
+		const first = setup("tool-digest-first").normalizer.accept({
+			type: "assistant",
+			uuid: "assistant-first",
+			parent_tool_use_id: null,
+			message: {
+				role: "assistant",
+				model: "provider-model-private",
+				content: [{
+					type: "tool_use", id: "tool-first", name: "Read",
+					input: { nested: { z: 2, i: "CANARY-INTENT-ONE", a: 1 }, path: "README.md" },
+				}],
+			},
+		}).events.find((event) => event.kind === "tool.admitted");
+		const second = setup("tool-digest-second").normalizer.accept({
+			type: "assistant",
+			uuid: "assistant-second",
+			parent_tool_use_id: null,
+			message: {
+				role: "assistant",
+				model: "provider-model-private",
+				content: [{
+					type: "tool_use", id: "tool-second", name: "Read",
+					input: { path: "README.md", nested: { a: 1, __intent: "CANARY-INTENT-TWO", z: 2 } },
+				}],
+			},
+		}).events.find((event) => event.kind === "tool.admitted");
+		if (first?.kind !== "tool.admitted" || second?.kind !== "tool.admitted") {
+			throw new Error("missing tool admissions");
+		}
+		expect(first.argumentDigest).toMatch(/^[a-f0-9]{64}$/);
+		expect(first.argumentDigest).toBe(second.argumentDigest);
+		const evidence = JSON.stringify([first.argumentDigest, second.argumentDigest]);
+		expect(evidence).not.toContain("CANARY-INTENT-ONE");
+		expect(evidence).not.toContain("CANARY-INTENT-TWO");
+	});
+
 	test("returns a successful model-call terminal with split usage and bounded completion evidence", () => {
 		const { writer, normalizer } = setup("success");
 		normalizer.accept({

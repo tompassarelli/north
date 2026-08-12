@@ -19,6 +19,7 @@ import {
 	wireResourceId,
   wireRunId,
   wireToolCallId,
+	wireToolArgumentDigest,
   type WireContractErrorCode,
   type WireEvent,
 	type WireEventDraft,
@@ -230,6 +231,45 @@ describe("wire-v2 decoding", () => {
 				...payload,
 			})), "malformed_event");
 		}
+	});
+
+	test("tool argument digests are canonical, privacy-bounded, and optional on replay", () => {
+		const first = wireToolArgumentDigest({
+			z: [{ b: 2, i: "private intent", a: 1 }],
+			a: { __intent: "legacy intent", value: true },
+		});
+		const reordered = wireToolArgumentDigest({
+			a: { value: true, __intent: "changed legacy intent" },
+			z: [{ a: 1, i: "changed intent", b: 2 }],
+		});
+		expect(first).toMatch(/^[a-f0-9]{64}$/);
+		expect(first).toBe(reordered);
+		expect(first).not.toContain("private intent");
+		expect(wireToolArgumentDigest({ items: [1, 2] }))
+			.not.toBe(wireToolArgumentDigest({ items: [2, 1] }));
+
+		const admitted = decodeWireEvent(rawEvent(1, "tool.admitted", {
+			toolCallId: TOOL_ID,
+			name: "read",
+			schema: { status: "unavailable", reason: "provider omitted schema" },
+			argumentDigest: first,
+		}));
+		expect(admitted.kind === "tool.admitted" ? admitted.argumentDigest : undefined).toBe(first);
+		expect(reduceWireEvent(reduceWireEvent(undefined, started()), admitted)
+			.toolCalls[TOOL_ID]?.argumentDigest).toBe(first);
+
+		const legacy = decodeWireEvent(rawEvent(1, "tool.admitted", {
+			toolCallId: TOOL_ID,
+			name: "read",
+			schema: { status: "unavailable", reason: "legacy provider" },
+		}));
+		expect(legacy.kind === "tool.admitted" ? legacy.argumentDigest : undefined).toBeUndefined();
+		expectContractError(() => decodeWireEvent(rawEvent(1, "tool.admitted", {
+			toolCallId: TOOL_ID,
+			name: "read",
+			schema: { status: "unavailable", reason: "provider omitted schema" },
+			argumentDigest: "A".repeat(64),
+		})), "malformed_event");
 	});
 
   test("decodes bounded completion provenance and rejects malformed evidence", () => {

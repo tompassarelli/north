@@ -490,6 +490,44 @@ describe("OpenAIWireNormalizer", () => {
 		expect(artifacts.size).toBe(0);
 	});
 
+	test("managed tool admissions retain only canonical argument equality evidence", () => {
+		const admit = (label: string, argumentsValue: unknown) => {
+			const { writer, normalizer } = harness();
+			startTurn(normalizer, `provider-turn-${label}`);
+			normalizer.normalize("item/started", {
+				threadId: "provider-thread-private",
+				turnId: `provider-turn-${label}`,
+				item: {
+					id: `provider-mcp-${label}`,
+					type: "mcpToolCall",
+					server: "north",
+					tool: "tell",
+					arguments: argumentsValue,
+				},
+			});
+			const event = writer.events().find((candidate) => candidate.kind === "tool.admitted");
+			if (event?.kind !== "tool.admitted") throw new Error("missing managed tool admission");
+			return event;
+		};
+		const first = admit("first", {
+			to: "worker", nested: { z: 2, i: "CANARY-INTENT-ONE", a: 1 },
+		});
+		const reordered = admit("reordered", {
+			nested: { a: 1, __intent: "CANARY-INTENT-TWO", z: 2 }, to: "worker",
+		});
+		const different = admit("different", {
+			nested: { a: 9, z: 2 }, to: "worker",
+		});
+		expect(first.argumentDigest).toMatch(/^[a-f0-9]{64}$/);
+		expect(first.argumentDigest).toBe(reordered.argumentDigest);
+		expect(first.argumentDigest).not.toBe(different.argumentDigest);
+		const evidence = JSON.stringify([
+			first.argumentDigest, reordered.argumentDigest, different.argumentDigest,
+		]);
+		expect(evidence).not.toContain("CANARY-INTENT-ONE");
+		expect(evidence).not.toContain("CANARY-INTENT-TWO");
+	});
+
 	test("accepts every validated app-server notification without leaking raw progress", () => {
 		const { writer, normalizer } = harness();
 		const observed = new Set<string>();
