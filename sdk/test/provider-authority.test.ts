@@ -103,7 +103,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   const workerSurface = compileProviderAuthoritySurface("openai", openaiWorker);
   expect(workerSurface.liveInput).toBe("turn-framed");
   expect(workerSurface.northEnabledTools).toEqual([
-    "capture", "tell", "evidence_record", "show", "ready", "next", "board", "plate",
+    "capture", "tell", "evidence_record", "show", "search", "ready", "next", "board", "plate",
   ]);
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([
