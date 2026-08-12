@@ -54,6 +54,41 @@
   {:type "string" :minLength 1 :description "Optional configured Linear MCP server name"})
 
 (def evidence-argument-keys #{"bar" "observed"})
+(def page-argument-keys #{"offset" "limit" "snapshot"})
+(def max-page-offset 2147483647)
+(def max-page-limit 100)
+
+(defn page-argument-problem [arguments required-keys]
+  (if-not (map? arguments)
+    "arguments must be an object"
+    (let [allowed (into page-argument-keys required-keys)
+          unknown (sort (remove allowed (keys arguments)))
+          offset (get arguments "offset" 0)
+          limit (get arguments "limit" 50)
+          snapshot (get arguments "snapshot")]
+      (cond
+        (seq unknown) (str "unknown arguments: " (str/join ", " unknown))
+        (not (and (integer? offset) (<= 0 offset max-page-offset)))
+        "offset must be an integer from 0 through 2147483647"
+        (not (and (integer? limit) (<= 1 limit max-page-limit)))
+        "limit must be an integer from 1 through 100"
+        (and (some? snapshot)
+             (not (and (string? snapshot) (re-matches #"[0-9a-f]{64}" snapshot))))
+        "snapshot must be a 64-character lowercase SHA-256 hash"
+        :else nil))))
+
+(defn show-argument-problem [arguments]
+  (or (page-argument-problem arguments #{"id"})
+      (when-not (and (string? (get arguments "id"))
+                     (not (str/blank? (get arguments "id"))))
+        "id must be a non-empty string")))
+
+(defn search-argument-problem [arguments]
+  (or (page-argument-problem arguments #{"query"})
+      (when-not (and (string? (get arguments "query"))
+                     (not (str/blank? (get arguments "query"))))
+        "query must be a non-empty string")))
+
 (defn evidence-argument-problem [arguments]
   (cond
     (not (map? arguments)) "arguments must be an object"
@@ -102,9 +137,24 @@
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "needs-review"])}
    {:name "validate"     :desc "Integrity check over the whole graph."
     :schema {:type "object" :properties {}} :argv (fn [_] ["validate"])}
-   {:name "show"         :desc "Show one graph subject's facts, including connected predicate teaching facts. Returns JSON [{predicate,value}]."
-    :schema {:type "object" :properties {:id {:type "string"}} :required ["id"]}
+   {:name "show"         :desc "Show one graph subject's facts as a bounded snapshot page. Continue with nextOffset and the returned snapshot; a changed projection rejects the continuation."
+    :schema {:type "object"
+             :properties {:id {:type "string" :minLength 1}
+                          :offset {:type "integer" :minimum 0 :maximum 2147483647 :default 0}
+                          :limit {:type "integer" :minimum 1 :maximum 100 :default 50}
+                          :snapshot {:type "string" :pattern "^[0-9a-f]{64}$"}}
+             :required ["id"] :additionalProperties false}
+    :argument-problem show-argument-problem
     :argv (fn [a] ["json" "show" (get a "id")])}
+   {:name "search"       :desc "Case-insensitive literal search over private North graph titles, predicates, and values. Returns deterministic subject-diverse snapshot pages."
+    :schema {:type "object"
+             :properties {:query {:type "string" :minLength 1}
+                          :offset {:type "integer" :minimum 0 :maximum 2147483647 :default 0}
+                          :limit {:type "integer" :minimum 1 :maximum 100 :default 50}
+                          :snapshot {:type "string" :pattern "^[0-9a-f]{64}$"}}
+             :required ["query"] :additionalProperties false}
+    :argument-problem search-argument-problem
+    :argv (fn [a] ["json" "search" (get a "query")])}
    {:name "capture"      :desc "Create a new thread from a title (a thought or unit of work)."
     :schema {:type "object" :properties {:title {:type "string"}
                                          :owner {:type "string" :description "defaults to personal"}}
@@ -986,6 +1036,61 @@
     "capture"      (slim-capture text)
     text))
 
+(def paged-tool-names #{"show" "search"})
+
+(defn sha256 [text]
+  (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                        (.getBytes text java.nio.charset.StandardCharsets/UTF_8))]
+    (format "%064x" (java.math.BigInteger. 1 digest))))
+
+(defn page-state [nm total offset end]
+  (cond
+    (and (= nm "search") (zero? total)) "no_matches"
+    (>= offset total) (if (zero? total) "complete" "exhausted")
+    (< end total) "incomplete"
+    :else "complete"))
+
+(defn paged-output [nm arguments text]
+  (try
+    (let [parsed (json/parse-string text)
+          _ (when-not (sequential? parsed)
+              (throw (ex-info "paged projection must be a JSON array"
+                              {:type :invalid-page-projection})))
+          items (vec parsed)
+          serialized (json/generate-string items)
+          digest (sha256 serialized)
+          supplied (get arguments "snapshot")]
+      (if (and supplied (not= supplied digest))
+        {:content [{:type "text"
+                    :text (json/generate-string
+                           {:error "stale_snapshot"
+                            :expected supplied
+                            :actual digest})}]
+         :isError true}
+        (let [total (count items)
+              offset (get arguments "offset" 0)
+              limit (get arguments "limit" 50)
+              end (min total (+ offset limit))
+              page-items (if (< offset total) (subvec items offset end) [])
+              complete (>= end total)]
+          {:content [{:type "text"
+                      :text (json/generate-string
+                             {:protocol "north.page"
+                              :version 1
+                              :snapshot digest
+                              :offset offset
+                              :limit limit
+                              :total total
+                              :nextOffset (when-not complete end)
+                              :complete complete
+                              :state (page-state nm total offset end)
+                              :items page-items})}]
+           :isError false})))
+    (catch Exception error
+      {:content [{:type "text"
+                  :text (str "invalid " nm " projection: " (.getMessage error))}]
+       :isError true})))
+
 (def max-tool-error-chars 8192)
 (defn bound-tool-error [text]
   (if (<= (count text) max-tool-error-chars)
@@ -1015,8 +1120,15 @@
                 text (if (zero? exit)
                        (slim-output nm arguments raw)
                        (bound-tool-error raw))]
-            {:content [{:type "text" :text (if (str/blank? text) (str "(done; exit " exit ")") text)}]
-             :isError (not (zero? exit))})))
+            (if (and (zero? exit) (paged-tool-names nm))
+              (if (seq errs)
+                {:content [{:type "text"
+                            :text (bound-tool-error
+                                   (str "invalid " nm " projection: " errs))}]
+                 :isError true}
+                (paged-output nm arguments (str/trim (or out ""))))
+              {:content [{:type "text" :text (if (str/blank? text) (str "(done; exit " exit ")") text)}]
+               :isError (not (zero? exit))}))))
       {:content [{:type "text" :text (str "unknown tool: " nm)}] :isError true})))
 
 (defn tool-descriptor [t]
