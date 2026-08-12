@@ -157,6 +157,7 @@ const codexSuccess = (
 
 const RESPAWN_FAILURE_THREAD = "019f7abc-0000-7000-8000-00000000feed";
 const RESPAWN_FAILURE_TURN = "019f7abc-0000-7000-8000-00000000beef";
+const RESPAWN_FAILURE_TOOL = "command-private-before-commit";
 
 class RespawnThenPreflightFailureRun extends ManagedCodexAppServerRun {
   readonly #runOptions: ManagedCodexAppServerOptions;
@@ -169,11 +170,16 @@ class RespawnThenPreflightFailureRun extends ManagedCodexAppServerRun {
   override async *session(
     _nextInput: ManagedCodexNextInput,
   ): AsyncGenerator<ManagedCodexResult> {
-    this.#runOptions.onEvent?.("turn/started", {
+    await this.#runOptions.onEvent?.("turn/started", {
       threadId: RESPAWN_FAILURE_THREAD,
       turn: { id: RESPAWN_FAILURE_TURN, status: "inProgress" },
     });
-    this.#runOptions.onRespawn?.();
+    await this.#runOptions.onEvent?.("item/started", {
+      threadId: RESPAWN_FAILURE_THREAD,
+      turnId: RESPAWN_FAILURE_TURN,
+      item: { id: RESPAWN_FAILURE_TOOL, type: "commandExecution" },
+    });
+    await this.#runOptions.onRespawn?.();
     throw new ManagedCodexHarvestError({
       turnIds: [],
       completedTurns: 0,
@@ -1152,7 +1158,7 @@ test("the executable Codex adapter admits exact managed orchestrator authority",
   expect(codexHarnessArguments(options)).toEqual(expectedCodexFeatureArgs(true));
 });
 
-test("a replacement preflight failure drains its respawn terminal before iterator rejection", async () => {
+test("managed events cross the commit barrier before publication or iterator rejection", async () => {
   const home = mkdtempSync(join(tmpdir(), "north-openai-respawn-preflight-wire-"));
   temporary.push(home);
   process.env.HOME = home;
@@ -1182,7 +1188,18 @@ test("a replacement preflight failure drains its respawn terminal before iterato
     presenceRegistrar: false,
   });
   markCoordinationOptional(options as object);
-  const context = testWireContext();
+  const toolCommitReached = Promise.withResolvers<void>();
+  const releaseToolCommit = Promise.withResolvers<void>();
+  const context = {
+    ...testWireContext(),
+    eventCommitter: {
+      async commitThrough(event: WireEvent): Promise<void> {
+        if (event.kind !== "tool.admitted") return;
+        toolCommitReached.resolve();
+        await releaseToolCommit.promise;
+      },
+    },
+  };
   const provider = internalOpenAIProviderWithManagedHooksProbeForTest(
     () => {},
     {
@@ -1194,14 +1211,18 @@ test("a replacement preflight failure drains its respawn terminal before iterato
   const observed: WireEvent[] = [];
   const unsubscribe = query.subscribeProviderEvents?.((event) => observed.push(event));
   const yielded: WireEvent[] = [];
-  let caught: unknown;
-  try {
-    for await (const event of query) yielded.push(event);
-  } catch (error) {
-    caught = error;
-  } finally {
-    unsubscribe?.();
-  }
+  const execution = (async (): Promise<unknown> => {
+    try {
+      for await (const event of query) yielded.push(event);
+    } catch (error) { return error; }
+    return undefined;
+  })();
+  await toolCommitReached.promise;
+  expect(observed.some((event) => event.kind === "tool.admitted")).toBe(false);
+  expect(yielded).toEqual([]);
+  releaseToolCommit.resolve();
+  const caught = await execution;
+  unsubscribe?.();
 
   expect(caught).toBeInstanceOf(ManagedCodexHarvestError);
   const yieldedRespawnTerminals = yielded.filter((event) =>
@@ -1222,6 +1243,7 @@ test("a replacement preflight failure drains its respawn terminal before iterato
     expect(serialized).not.toContain("CANARY-private-provider-death-reason");
     expect(serialized).not.toContain(RESPAWN_FAILURE_THREAD);
     expect(serialized).not.toContain(RESPAWN_FAILURE_TURN);
+    expect(serialized).not.toContain(RESPAWN_FAILURE_TOOL);
     expect(serialized).not.toContain("gpt-5.6-luna");
   }
 

@@ -59,6 +59,7 @@ import {
   type WireCompletionEvidence,
   type WireCompletionInterruptEvidence,
   type WireArtifactSink,
+  type WireEventCommitBarrier,
   type WireEvent,
   type WireEventDraft,
   type WireKnownEvent,
@@ -1289,6 +1290,7 @@ class CodexQuery implements WireQuery {
   readonly #writer: WireEventWriter;
   readonly #route: WireQueryRoute;
   readonly #artifacts: WireArtifactSink | undefined;
+  readonly #eventCommitter: WireEventCommitBarrier | undefined;
   readonly #target?: RoutingTarget;
   readonly #assertManagedHooks: ManagedHooksProbe;
   readonly #resolveManagedCommand: ManagedCommandResolver;
@@ -1301,6 +1303,7 @@ class CodexQuery implements WireQuery {
   #completedMcpActivity?: McpActivityObservation;
   #completedNativeCommandActivity?: NativeCommandActivityObservation;
   #managedEvents: WireKnownEvent[] = [];
+  #managedPublicationTail: Promise<void> = Promise.resolve();
   #managedNormalizer?: OpenAIWireNormalizer;
   #continuations?: ManagedInputQueue;
   #iterated = false;
@@ -1313,6 +1316,7 @@ class CodexQuery implements WireQuery {
     writer: WireEventWriter,
     route: WireQueryRoute,
     artifacts: WireArtifactSink | undefined,
+    eventCommitter: WireEventCommitBarrier | undefined,
     target?: RoutingTarget,
     admitted = false,
     assertManagedHooks: ManagedHooksProbe = assertInstalledManagedCodexHooks,
@@ -1325,6 +1329,7 @@ class CodexQuery implements WireQuery {
     this.#writer = writer;
     this.#route = route;
     this.#artifacts = artifacts;
+    this.#eventCommitter = eventCommitter;
     this.#target = target;
     this.#admitted = admitted;
     this.#assertManagedHooks = assertManagedHooks;
@@ -1347,10 +1352,22 @@ class CodexQuery implements WireQuery {
   }
 
   #publishEvents(events: readonly WireKnownEvent[]): void {
-    for (const event of events) {
-      this.#managedEvents.push(event);
-      this.#notifyEvent(event);
-    }
+    if (events.length === 0) return;
+    const batch = [...events];
+    const publication = this.#managedPublicationTail.then(async () => {
+      const last = batch.at(-1)!;
+      await this.#eventCommitter?.commitThrough(last);
+      for (const event of batch) {
+        this.#managedEvents.push(event);
+        this.#notifyEvent(event);
+      }
+    });
+    this.#managedPublicationTail = publication;
+    void publication.catch(() => {});
+  }
+
+  async #drainManagedPublications(): Promise<void> {
+    await this.#managedPublicationTail;
   }
 
   #notifyEvent(event: WireEvent): void {
@@ -1501,18 +1518,21 @@ class CodexQuery implements WireQuery {
             this.#activity.record("provider", kind);
             renewHarnessPresence(this.#options);
           },
-          onEvent: (method, params) => {
+          onEvent: async (method, params) => {
             const normalized = normalizer.normalize(method, params);
             this.#publishEvents(normalized.events);
+            await this.#drainManagedPublications();
           },
-          onRespawn: () => {
+          onRespawn: async () => {
             if (!normalizer.hasActiveTurn()) return;
             this.#publishEvents(normalizer.settleProviderRespawn().events);
+            await this.#drainManagedPublications();
           },
         });
         this.#managedRun = run;
         const nextInput = mergedManagedInput(frames, this.#continuations);
         for await (const completed of run.session(nextInput)) {
+          await this.#drainManagedPublications();
           const terminal = [...this.#managedEvents].reverse().find(
             (event) => event.kind === "model-call.completed",
           );
@@ -1536,6 +1556,7 @@ class CodexQuery implements WireQuery {
       } catch (error) {
         if (error instanceof ManagedCodexPreThreadError)
           throw new ProviderRetrySafeError(error.message, { cause: error });
+        await this.#drainManagedPublications();
         const normalizer = this.#managedNormalizer;
         if (normalizer?.hasActiveTurn()) {
           const interrupt = error instanceof ManagedCodexHarvestError
@@ -1553,6 +1574,7 @@ class CodexQuery implements WireQuery {
           };
           this.#publishEvents(normalizer.settleTurn(settlement).events);
         }
+        await this.#drainManagedPublications();
         for (const event of this.#managedEvents.splice(0)) yield event;
         throw error;
       } finally {
@@ -1717,6 +1739,7 @@ export function internalOpenAIProviderWithManagedHooksProbeForTest(
         context.writer,
         context.route,
         context.artifacts,
+        context.eventCommitter,
         target,
         admitted,
         assertManagedHooks,

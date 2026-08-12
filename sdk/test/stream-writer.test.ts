@@ -3,14 +3,18 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { StreamWriter, StreamWriterError } from "../src/stream-writer";
+import {
+	StreamWriter, StreamWriterError,
+} from "../src/stream-writer";
 import {
 	WireEventWriter,
 	WireJsonlError,
 	encodeWireJsonlLine,
 	readWireJsonl,
 	wireEventId,
+	wireModelCallId,
 	wireRunId,
+	wireToolCallId,
 	type WireEvent,
 } from "../src/wire";
 
@@ -97,6 +101,66 @@ test("persists exact canonical events and rotates a completed run without trunca
 	expect(await Bun.file(stablePath).text()).toBe(
 		secondEvents.map((event) => encodeWireJsonlLine(event)).join(""),
 	);
+});
+
+test("a commit barrier reopens the exact durable prefix after tool admission", async () => {
+	const directory = await streamDirectory();
+	const agentId = "stream-crash-prefix";
+	const child = Bun.spawn([
+		process.execPath,
+		path.join(import.meta.dir, "fixtures/stream-writer-kill-after-admitted.ts"),
+		agentId,
+	], {
+		env: { ...process.env, NORTH_STREAM_DIR: directory },
+		stdout: "pipe",
+		stderr: "inherit",
+	});
+	try {
+		const output = (child.stdout as ReadableStream<Uint8Array>).getReader();
+		const ready = await output.read();
+		output.releaseLock();
+		expect(new TextDecoder().decode(ready.value)).toContain("ready");
+		child.kill("SIGKILL");
+		await child.exited;
+	} finally {
+		if (child.exitCode === null) {
+			child.kill("SIGKILL");
+			await child.exited;
+		}
+	}
+
+	const writer = new WireEventWriter({
+		runId: wireRunId("run:stream:crash-prefix"),
+		eventId: (sequence) => wireEventId(`event:stream:crash-prefix:${sequence}`),
+		now: () => "2026-08-12T00:00:00.000Z",
+	});
+	writer.append({ kind: "run.started", lifecycle: "running" });
+	const modelCallId = wireModelCallId("model-call:stream:crash-prefix");
+	writer.append({
+		kind: "model-call.started",
+		modelCallId,
+		model: { provider: "openai", capabilityClass: "authoring" },
+		attempt: 1,
+	});
+	writer.append({
+		kind: "tool.admitted",
+		toolCallId: wireToolCallId("tool:stream:crash-prefix"),
+		modelCallId,
+		name: "command",
+		schema: { status: "unavailable", reason: "provider schema unavailable" },
+	});
+
+	const replay = await readWireJsonl(
+		path.join(directory, `agent-${agentId}.stream.jsonl`),
+	);
+	expect(replay.events).toEqual(writer.events());
+	expect(replay.events.map((event) => event.kind)).toEqual([
+		"run.started", "model-call.started", "tool.admitted",
+	]);
+	expect(replay.snapshot?.lifecycle).toBe("running");
+	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "tool.terminal" }));
+	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "model-call.completed" }));
+	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "run.terminated" }));
 });
 
 test("refuses concurrent and stale locks, incomplete streams, and torn streams", async () => {

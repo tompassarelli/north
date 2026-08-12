@@ -3,7 +3,7 @@ import {
   getThreadFacts, getChildren, normalizeNorthEntityId, type Fact,
 } from "./north-client";
 import { deriveManagedDispatchPosture, buildPrompt } from "./posture";
-import { StreamWriter } from "./stream-writer";
+import { SerializedWireEventCommitter, StreamWriter } from "./stream-writer";
 import {
   harnessCompositionEvidence, harnessOptions, renewHarnessPresence, DEFAULT_SYSTEM_PROMPT,
   type Effort, type HarnessCompositionEvidence,
@@ -409,23 +409,11 @@ async function runDispatch(
   const executionFold = makeExecutionFold(strugglePolicy);
   let wireWriter: WireEventWriter | undefined;
   let stream: StreamWriter | undefined;
+  let wireCommitter: SerializedWireEventCommitter | undefined;
   let nextObservedSequence = 0;
-  let nextPersistedSequence = 0;
   let announcedCompactions = 0;
-  const flushWireEvents = async (): Promise<void> => {
-    if (!wireWriter || !stream) return;
-    const events = wireWriter.events();
-    while (nextPersistedSequence < events.length) {
-      const event = events[nextPersistedSequence]!;
-      if (event.sequence !== nextPersistedSequence) {
-        throw new Error("wire writer persistence sequence diverged");
-      }
-      await stream.writeWireEvent(event);
-      nextPersistedSequence += 1;
-    }
-  };
   const observeWireEvent = async (event: WireEvent) => {
-    if (!wireWriter) throw new Error("wire event observed before run admission");
+    if (!wireWriter || !wireCommitter) throw new Error("wire event observed before run admission");
     const canonical = wireWriter.events()[nextObservedSequence];
     let matchesCanonical = canonical === event;
     if (!matchesCanonical && canonical) {
@@ -436,19 +424,20 @@ async function runDispatch(
     if (!canonical || !matchesCanonical) {
       throw new Error("provider yielded an event that differs from its shared writer canonical event");
     }
+    await wireCommitter.commitThrough(canonical);
     const observation = executionFold.observe(canonical);
     nextObservedSequence += 1;
-    await flushWireEvents();
     return observation;
   };
   const observeCommittedWireEvents = async (): Promise<void> => {
-    if (!wireWriter) return;
+    if (!wireWriter || !wireCommitter) return;
     const events = wireWriter.events();
     while (nextObservedSequence < events.length) {
-      executionFold.observe(events[nextObservedSequence]!);
+      const event = events[nextObservedSequence]!;
+      await wireCommitter.commitThrough(event);
+      executionFold.observe(event);
       nextObservedSequence += 1;
     }
-    await flushWireEvents();
   };
   const startWireRun = async (): Promise<WireEventWriter> => {
     if (wireWriter) return wireWriter;
@@ -456,6 +445,7 @@ async function runDispatch(
     const writer = new WireEventWriter({ runId: wireRunId(runId) });
     stream = opened;
     wireWriter = writer;
+    wireCommitter = new SerializedWireEventCommitter(writer, opened);
     const started = writer.append({
       kind: "run.started",
       lifecycle: "running",
@@ -581,6 +571,7 @@ async function runDispatch(
       input: ch.stream(),
       options: agentOptions,
       writer,
+      eventCommitter: wireCommitter,
     };
     termination.throwIfTerminated();
     const q = queryFn
@@ -1077,7 +1068,7 @@ async function runDispatch(
   const wireTerminal = wireTerminalDecision(outcome, terminalDetail, watchdogAbort);
   const wireTerminalEvents = finalWriter.terminate(wireTerminal);
   for (const event of wireTerminalEvents) await observeWireEvent(event);
-  await flushWireEvents();
+  await wireCommitter?.commitAll();
   const finalExecution = executionFold.snapshot();
   if (!finalExecution || finalExecution.run.lifecycle === "running"
       || finalExecution.run.lifecycle === "waiting") {

@@ -11,6 +11,7 @@ import type { WireCapabilityClass, WireEvent, WireModelSelection } from "../wire
 import {
   wireQueryRoute,
   type WireArtifactSink,
+  type WireEventCommitBarrier,
   type WireEventListener,
   type WireQuery,
   type WireQueryInput,
@@ -40,6 +41,7 @@ export interface RoutedQueryArguments {
   /** Shared writer whose run.started event has already been committed. */
   writer: WireEventWriter;
   artifacts?: WireArtifactSink;
+  eventCommitter?: WireEventCommitBarrier;
 }
 
 function replayableInput(input: WireQueryInput): WireQueryInput {
@@ -373,6 +375,7 @@ export function routedQueryWithRegistry(
               ...(contextWindow === undefined ? {} : { contextWindow }),
             }),
             ...(args.artifacts === undefined ? {} : { artifacts: args.artifacts }),
+            ...(args.eventCommitter === undefined ? {} : { eventCommitter: args.eventCommitter }),
           };
           active = provider.query({
             input,
