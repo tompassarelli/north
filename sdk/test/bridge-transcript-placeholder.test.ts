@@ -207,6 +207,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   const withItem = runtimeWith("ready");
   withItem.conversation = [{
     id: "item-1", kind: "assistant", title: "", body: "hello", status: "done", data: null,
+    execution_id: "exec-supervisor", at: "2026-08-12T00:00:00.000Z", cursor: 1, sequence: 0,
   }];
   transcript.content = renderConversation(withItem);
   await renderOnce();
@@ -346,6 +347,7 @@ test("the roster row and the banner are never on screen together", async () => {
   const answered = runtimeWith("ready");
   answered.conversation = [{
     id: "item-1", kind: "assistant", title: "", body: "hello", status: "done", data: null,
+    execution_id: "exec-supervisor", at: "2026-08-12T00:00:00.000Z", cursor: 1, sequence: 0,
   }];
   roster.content = rosterText(snapshot(answered.model), 0, "exec-supervisor", false);
   transcript.content = renderConversation(answered);

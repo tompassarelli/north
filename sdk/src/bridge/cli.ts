@@ -305,7 +305,7 @@ export async function runBridgeRestart(path: string): Promise<number> {
 }
 
 function renderRecord(record: JournalRecord): string {
-  const data = Object.keys(record.data).length ? ` ${JSON.stringify(record.data)}` : "";
+  const data = ` ${JSON.stringify({ ...record.data, bridgeRecordAt: record.at })}`;
   return `[${record.seq}] ${record.kind}${data}`;
 }
 

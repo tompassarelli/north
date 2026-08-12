@@ -20,6 +20,10 @@ interface ConversationItem {
   body: string;
   status: string;
   data: unknown;
+  execution_id: string;
+  at: string;
+  cursor: number;
+  sequence: number;
 }
 
 test("canonical wire message stages rebuild one assistant item in the Bridge transcript", () => {
@@ -94,6 +98,10 @@ test("canonical wire message stages rebuild one assistant item in the Bridge tra
     body: "hello wire",
     status: "done",
     data: null,
+    execution_id: "execution-wire-ui",
+    at: events[0]!.at,
+    cursor: events[0]!.sequence + 1,
+    sequence: 0,
   }]);
   expect(runtime.lastAssistantText).toBe("hello wire");
   expect(runtime.renders).toBe(4);

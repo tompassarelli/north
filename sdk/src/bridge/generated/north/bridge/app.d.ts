@@ -16,3 +16,20 @@ export function parse_bridge_stream_bang(
   streamState: unknown,
   chunk: string,
 ): unknown;
+
+export function project_conversation(
+  items: unknown[],
+  executionId: string,
+  aggregate: boolean,
+): unknown[];
+
+export function suspend_runtime_bang(
+  runtime: unknown,
+  platform: string,
+  processApi: unknown,
+): boolean;
+
+export function cleanup_suspend_bang(
+  runtime: unknown,
+  processApi: unknown,
+): boolean;

@@ -824,6 +824,7 @@ export class Northd {
         prompt: request.prompt,
         cwd: request.cwd,
         role: request.role,
+        wireCursor: runtime.wireEvents.length,
       });
     } catch (error) {
       runtime.live = false;
@@ -890,6 +891,7 @@ export class Northd {
       const command = this.#appendControl(runtime, "control.submit_input", {
         input: request.input,
         delivery: "queued-next-turn",
+        wireCursor: runtime.wireEvents.length,
       });
       runtime.pendingInputs.push({
         input: request.input,
@@ -904,7 +906,10 @@ export class Northd {
         delivery: "queued-next-turn",
       });
     } else if (request.op === "interruptTurn") {
-      this.#appendControl(runtime, "control.interrupt_turn", { delivery: "active-turn" });
+      this.#appendControl(runtime, "control.interrupt_turn", {
+        delivery: "active-turn",
+        wireCursor: runtime.wireEvents.length,
+      });
       if (!runtime.activeTurn || !runtime.session) {
         throw new Error(`bridge execution ${runtime.executionId} has no active turn`);
       }
@@ -926,6 +931,7 @@ export class Northd {
       const command = this.#appendControl(runtime, "control.redirect_now", {
         input: request.input,
         delivery: "interrupt-and-redirect",
+        wireCursor: runtime.wireEvents.length,
       });
       runtime.pendingInputs.unshift({
         input: request.input,
