@@ -441,7 +441,10 @@ test("/restart is in both command sets and restores the session in place", async
     bridgeExecutions: new Set([dead]),
     model: bridgeModel.upsert_agent(
       bridgeModel.make_model("list"),
-      bridgeModel.Agent(dead, "Main", "ready", "Northbridge control session"),
+      bridgeModel.Agent(
+        dead, "Main", "ready", "Northbridge control session",
+        "", "", "", "", "", "", "", "", "",
+      ),
     ),
     render() {},
     renderConversation() {},

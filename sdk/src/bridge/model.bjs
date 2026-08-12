@@ -4,19 +4,30 @@
 
 (define-mode strict)
 
-(defrecord Agent
+(js/export
+ (defrecord Agent
   [id: String
    name: String
    status: String
-   task: String])
+   task: String
+   provider: String
+   provider-target: String
+   provider-label: String
+   model: String
+   model-display: String
+   effort: String
+   orchestration-provenance: String
+   goal: String
+   state: String]))
 
-(defrecord WorkItem
+(js/export
+ (defrecord WorkItem
   [id: String
    title: String
    body: String
    condition: String
    driver: String
-   dependencies: (Vec String)])
+   dependencies: (Vec String)]))
 
 (defrecord BridgeModel
   [agents: (Vec Agent)
@@ -29,7 +40,8 @@
    filter-text: String
    notice: String])
 
-(defrecord BridgeSnapshot
+(js/export
+ (defrecord BridgeSnapshot
   [agents: (Vec Agent)
    list: (Vec WorkItem)
    board: (Vec WorkItem)
@@ -37,7 +49,7 @@
    active-view-id: String
    selected-agent: String
    selected-thread: String
-   notice: String])
+   notice: String]))
 
 (defn canonical-view [view-id: String] -> String
   (cond
@@ -45,11 +57,13 @@
     (or (identical? view-id "graph") (identical? view-id "dag")) "graph"
     :else "list"))
 
-(defn make-model [view-id: String] -> BridgeModel
+(js/export
+ (defn make-model [view-id: String] -> BridgeModel
   (let [view (canonical-view view-id)]
-    (->BridgeModel [] [] [] "vertical" view "" "" "" (str "view " view))))
+    (->BridgeModel [] [] [] "vertical" view "" "" "" (str "view " view)))))
 
-(defn replace-projection
+(js/export
+ (defn replace-projection
   [model: BridgeModel
    agents: (Vec Agent)
    list-items: (Vec WorkItem)
@@ -57,34 +71,37 @@
   (with model
     [:agents agents]
     [:list list-items]
-    [:board board-items]))
+    [:board board-items])))
 
-(defn upsert-agent
+(js/export
+ (defn upsert-agent
   [model: BridgeModel
    agent: Agent] -> BridgeModel
   (let [agents (.filter (bridgemodel-agents model)
                         (fn [existing: Agent] -> Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
-    (with model [:agents (.concat agents agent)])))
+    (with model [:agents (.concat agents agent)]))))
 
 ;; The roster can lose a member. A session that has been replaced is not a row
 ;; with a sad status — it is not on the roster at all, and only the caller that
 ;; replaced it knows that.
-(defn remove-agent
+(js/export
+ (defn remove-agent
   [model: BridgeModel
    removed-id: String] -> BridgeModel
   (with model
     [:agents (.filter (bridgemodel-agents model)
                       (fn [existing: Agent] -> Bool
-                        (not (identical? (agent-id existing) removed-id))))]))
+                        (not (identical? (agent-id existing) removed-id))))])))
 
-(defn focus-view
+(js/export
+ (defn focus-view
   [model: BridgeModel
    view-id: String] -> BridgeModel
   (let [view (canonical-view view-id)]
     (with model
       [:active-view-id view]
-      [:notice (str "view " view)])))
+      [:notice (str "view " view)]))))
 
 (defn set-layout
   [model: BridgeModel
@@ -92,25 +109,28 @@
   (with model
     [:layout (if (identical? layout "horizontal") "horizontal" "vertical")]))
 
-(defn select-agent
+(js/export
+ (defn select-agent
   [model: BridgeModel
    agent-id: String] -> BridgeModel
   (with model
     [:selected-agent agent-id]
     [:notice (if (identical? agent-id "")
                "showing all work"
-               (str "work assigned to " agent-id))]))
+               (str "work assigned to " agent-id))])))
 
-(defn select-thread
+(js/export
+ (defn select-thread
   [model: BridgeModel
    thread-id: String] -> BridgeModel
   (with model
     [:selected-thread thread-id]
     [:notice (if (identical? thread-id "")
                "no thread selected"
-               (str "selected @" thread-id))]))
+               (str "selected @" thread-id))])))
 
-(defn set-filter
+(js/export
+ (defn set-filter
   [model: BridgeModel
    filter-text: String] -> BridgeModel
   (let [trimmed (.trim filter-text)]
@@ -118,7 +138,7 @@
       [:filter-text (.toLowerCase trimmed)]
       [:notice (if (identical? trimmed "")
                  "filter cleared"
-                 (str "filter: " filter-text))])))
+                 (str "filter: " filter-text))]))))
 
 (defn visible-work
   [model: BridgeModel
@@ -139,7 +159,8 @@
                                (workitem-driver item)))
                          needle)))))))
 
-(defn snapshot [model: BridgeModel] -> BridgeSnapshot
+(js/export
+ (defn snapshot [model: BridgeModel] -> BridgeSnapshot
   (->BridgeSnapshot
    (bridgemodel-agents model)
    (visible-work model (bridgemodel-list model))
@@ -148,4 +169,4 @@
    (bridgemodel-active-view-id model)
    (bridgemodel-selected-agent model)
    (bridgemodel-selected-thread model)
-   (bridgemodel-notice model)))
+   (bridgemodel-notice model))))

@@ -8,10 +8,15 @@
             [|@opentui/keymap/addons| :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
             [|@opentui/keymap/opentui| :refer [createDefaultOpenTuiKeymap]]
             [north.bridge.model :refer [Agent BridgeSnapshot WorkItem ->Agent ->WorkItem
-                                        agent-id agent-name agent-status agent-task
+                                        agent-effort agent-goal agent-id agent-model
+                                        agent-model-display agent-name
+                                        agent-orchestration-provenance agent-provider
+                                        agent-provider-label agent-provider-target
+                                        agent-state agent-status agent-task
                                         bridgesnapshot-active-view-id bridgesnapshot-agents
                                         bridgesnapshot-board
                                         bridgesnapshot-list bridgesnapshot-notice
+                                        bridgesnapshot-selected-agent
                                         bridgesnapshot-selected-thread
                                         focus-view make-model
                                         remove-agent
@@ -376,6 +381,44 @@
 (defn clean-text [value: Any] -> String
   (stripAnsiSequences (text value)))
 
+;; Agent identity and route fields come from coordinator-owned facts, but they
+;; are still terminal input. A single-line row cannot carry terminal controls
+;; or create another row of its own.
+(js/export
+ (defn agent-field-text [value: Any] -> String
+  (.join
+   (.map (Array/from (clean-text value))
+         (fn [character: String] -> String
+           (let [code (.charCodeAt character 0)]
+             (cond
+               (or (identical? code 9) (identical? code 10) (identical? code 13)) " "
+               (or (< code 32) (and (>= code 127) (<= code 159))) ""
+               :else character))))
+   "")))
+
+(js/export
+ (defn agent-cell-text
+  [value: Any
+   width: Int] -> String
+  (let [source (agent-field-text value)
+        limit (Math/max 1 width)]
+    (if (<= (.stringWidth Bun source) limit)
+      source
+      (let [room (Math/max 0 (- limit (.stringWidth Bun "…")))
+            kept []
+            state {:width 0 :done false}]
+        (.forEach
+         (Array/from (.segment (IntlSegmenter. "en" {:granularity "grapheme"}) source))
+         (fn [part: Any] -> Any
+           (let [segment (text (.-segment part))
+                 segment-width (.stringWidth Bun segment)]
+             (when (not (.-done state))
+               (if (<= (+ (.-width state) segment-width) room)
+                 (do (.push kept segment)
+                     (set! (.-width state) (+ (.-width state) segment-width)))
+                 (set! (.-done state) true))))))
+        (str (.join kept "") "…"))))))
+
 (defn clipped
   [value: Any
    limit: Int] -> String
@@ -692,7 +735,8 @@
                                (.-exited child)]))]
     (aget results 2)))
 
-(defn normalize-agents [payload: Any] -> (Vec Agent)
+(js/export
+ (defn normalize-agents [payload: Any] -> (Vec Agent)
   (let [rows (if (and payload (Array/isArray (.-agents payload))) (.-agents payload) [])]
     (.map rows
           (fn [row: Any] -> Agent
@@ -703,7 +747,33 @@
                   status (text-or (.-state_label row)
                                   (text-or (.-state row) "unknown"))
                   task (text-or (.-task row) (text (.-thread_title row)))]
-              (->Agent id name status task))))))
+              (->Agent id name status task
+                       (text (.-provider row))
+                       (text (.-provider_target row))
+                       (text (.-provider_label row))
+                       (text (.-model row))
+                       (text (.-model_display row))
+                       (text (.-effort row))
+                       (text (.-orchestration_provenance row))
+                       (text (.-goal row))
+                       (text (.-state row)))))))))
+
+(defn agent-with-route
+  [agent: Agent
+   route: Agent] -> Agent
+  (->Agent (agent-id agent)
+           (agent-name agent)
+           (agent-status agent)
+           (agent-task agent)
+           (agent-provider route)
+           (agent-provider-target route)
+           (agent-provider-label route)
+           (agent-model route)
+           (agent-model-display route)
+           (agent-effort route)
+           (agent-orchestration-provenance route)
+           (agent-goal route)
+           (agent-state route)))
 
 (defn board-ids [board: Any] -> (Vec String)
   (if (Array/isArray board)
@@ -2291,6 +2361,39 @@
              (.stopPropagation key)
              (destroy! runtime))))))
 
+;; The index is presentation state; the ID is identity. Every roster mutation
+;; resolves the old identity in the new ordering before the composer can use
+;; the index again.
+(js/export
+ (defn selected-agent-id
+  [state: BridgeSnapshot
+   selected: Int] -> String
+  (let [agents (bridgesnapshot-agents state)
+        total (.-length agents)]
+    (if (> total 0)
+      (agent-id (aget agents (Math/max 0 (Math/min selected (- total 1)))))
+      ""))))
+
+(js/export
+ (defn reconcile-agent-selection!
+  [runtime: Any
+   prior-id: String] -> String
+  (let [state (snapshot (.-model runtime))
+        agents (bridgesnapshot-agents state)
+        total (.-length agents)
+        found (.findIndex agents
+                          (fn [agent: Agent] -> Bool
+                            (identical? (agent-id agent) prior-id)))
+        fallback (Math/max 0
+                           (Math/min (.-agentIndex runtime)
+                                     (Math/max 0 (- total 1))))
+        index (if (>= found 0) found fallback)
+        selected (if (> total 0) (agent-id (aget agents index)) "")]
+    (set! (.-agentIndex runtime) index)
+    (when (not (identical? (bridgesnapshot-selected-agent state) selected))
+      (set! (.-model runtime) (select-agent (.-model runtime) selected)))
+    selected)))
+
 (defn refresh! [runtime: Any] -> (Promise Any)
   (let [payloads
         (js/await
@@ -2306,10 +2409,17 @@
         done (aget payloads 2)
         state (snapshot (.-model runtime))
         current-agents (bridgesnapshot-agents state)
-        bridge-agents (.filter current-agents
-                               (fn [agent: Agent] -> Bool
-                                 (.has (.-bridgeExecutions runtime) (agent-id agent))))
         remote-agents (if agent-payload (normalize-agents agent-payload) [])
+        bridge-agents
+        (.map
+         (.filter current-agents
+                  (fn [agent: Agent] -> Bool
+                    (.has (.-bridgeExecutions runtime) (agent-id agent))))
+         (fn [agent: Agent] -> Agent
+           (let [remote (.find remote-agents
+                               (fn [candidate: Agent] -> Bool
+                                 (identical? (agent-id candidate) (agent-id agent))))]
+             (if remote (agent-with-route agent remote) agent))))
         distinct-remote (.filter remote-agents
                                  (fn [agent: Agent] -> Bool
                                    (not (.has (.-bridgeExecutions runtime) (agent-id agent)))))
@@ -2334,6 +2444,7 @@
         list-work (.concat work terminal-work)
         kanban (ordered-board-items work terminal-work)
         next-model (replace-projection (.-model runtime) agents list-work kanban)
+        prior-agent-id (selected-agent-id state (.-agentIndex runtime))
         selected-id (bridgesnapshot-selected-thread state)
         next-state (snapshot next-model)
         next-view (selected-view next-state (.-activeView runtime))
@@ -2342,6 +2453,7 @@
                                (fn [item: WorkItem] -> Bool
                                  (identical? (workitem-id item) selected-id)))]
     (set! (.-model runtime) next-model)
+    (reconcile-agent-selection! runtime prior-agent-id)
     (when (>= next-index 0)
       (set! (.-workIndex runtime) next-index)
       (when (identical? (workview-id next-view) "list")
@@ -2403,19 +2515,16 @@
    supervisor-id: String
    banner?: Bool] -> String
   (let [agents (bridgesnapshot-agents state)
+        width (Math/max 1 (- (terminal-columns) 6))
         rows (.filter
               (.map agents
                     (fn
                       [agent: Agent
                        index: Int] -> Any
                       {:id (agent-id agent)
-                       :text (str (if (identical? index selected) "› " "  ")
-                                  (let [name (agent-name agent)]
-                                    (if (identical? name "") (agent-id agent) name))
-                                  (if (identical? (agent-status agent) "") ""
-                                    (str " (" (agent-status agent) ")"))
-                                  (if (identical? (agent-task agent) "") ""
-                                    (str " — " (agent-task agent))))}))
+                       :text (agent-row-text agent
+                                             (identical? index selected)
+                                             width)}))
               (fn [row: Any] -> Bool
                 (not (roster-row-suppressed? (.-id row) supervisor-id banner?))))]
     (cond
@@ -2427,8 +2536,58 @@
       :else (.join (.map rows (fn [row: Any] -> String (.-text row))) "\n")))))
 
 (defn agent-display-name [agent: Agent] -> String
-  (let [name (agent-name agent)]
-    (if (identical? name "") (agent-id agent) name)))
+  (let [name (agent-field-text (agent-name agent))]
+    (if (identical? name "") (agent-field-text (agent-id agent)) name)))
+
+(defn agent-summary [agent: Agent] -> String
+  (let [status (agent-field-text (agent-status agent))
+        task (agent-field-text (agent-task agent))]
+    (str (agent-display-name agent)
+         (if (identical? status "") "" (str " (" status ")"))
+         (if (identical? task "") "" (str " — " task)))))
+
+(js/export
+ (defn agent-row-text
+  [agent: Agent
+   selected?: Bool
+   width: Int] -> String
+  (let [prefix (if selected? "› " "  ")]
+    (str prefix (agent-cell-text (agent-summary agent)
+                                 (Math/max 1 (- width (.stringWidth Bun prefix))))))))
+
+(defn route-provider [agent: Agent] -> String
+  (let [label (agent-field-text (agent-provider-label agent))
+        provider (agent-field-text (agent-provider agent))
+        target (agent-field-text (agent-provider-target agent))]
+    (cond
+      (not (identical? label "")) label
+      (and (not (identical? provider "")) (not (identical? target "")))
+      (str provider ":" target)
+      :else (text-or provider target))))
+
+(defn route-model [agent: Agent] -> String
+  (text-or (agent-field-text (agent-model-display agent))
+           (agent-field-text (agent-model agent))))
+
+(js/export
+ (defn agent-route-text
+  [agent: Agent
+   width: Int] -> String
+  (let [provider (route-provider agent)
+        model (route-model agent)
+        effort (agent-field-text (agent-effort agent))
+        provenance (agent-field-text (agent-orchestration-provenance agent))
+        state (agent-field-text (agent-state agent))
+        goal (agent-field-text (agent-goal agent))
+        parts (.filter
+               [(if (identical? provider "") "" (str "provider " provider))
+                (if (identical? model "") "" (str "model " model))
+                (if (identical? effort "") "" (str "effort " effort))
+                (if (identical? provenance "") "" provenance)
+                (if (identical? state "") "" (str "state " state))
+                (if (identical? goal "") "" (str "goal " goal))]
+               (fn [part: String] -> Bool (not (identical? part ""))))]
+    (agent-cell-text (.join parts " · ") width))))
 
 ;; Pure: every agent state this app can observe folded onto the strip's
 ;; vocabulary. Bridge-local executions report starting/working/ready/offline;
@@ -3616,6 +3775,13 @@
    total: Int] -> Int
   (Math/max 0 (Math/min (if raw raw 0) (- total 1))))
 
+(defn selected-detail-agent [runtime: Any] -> Agent?
+  (let [agents (detail-agents runtime)
+        total (.-length agents)]
+    (if (> total 0)
+      (aget agents (clamped-index (.-detailIndex runtime) total))
+      nil)))
+
 ;; Pure: how many heading lines render-config-panel inserts inside a window, so
 ;; the docked panel is exactly as tall as its content. The same rule the renderer
 ;; uses — a row prints the headings it does not share with the row above it, and
@@ -3660,8 +3826,13 @@
   (cond
     (detail-showing? runtime "config") (config-detail-lines runtime)
     (detail-showing? runtime "agents")
-    (let [total (.-length (detail-agents runtime))]
-      (+ 1 (Math/max 1 (Math/min total (detail-visible-count total 0)))))
+    (let [total (.-length (detail-agents runtime))
+          agent (selected-detail-agent runtime)
+          metadata (if agent (agent-route-text agent (Math/max 12 (- (terminal-columns) 8))) "")
+          extra (if (identical? metadata "") 0 1)]
+      (+ 1
+         (Math/max 1 (Math/min total (detail-visible-count total extra)))
+         extra))
     (detail-showing? runtime "help") (+ 1 (help-visible-rows
                                            (panel-query runtime)))
     :else 0))
@@ -3676,13 +3847,7 @@
 (defn agent-detail-row
   [agent: Agent
    width: Int] -> String
-  (let [status (agent-status agent)
-        task (agent-task agent)]
-    (compact-text
-     (str (agent-display-name agent)
-          (if (identical? status "") "" (str " (" status ")"))
-          (if (identical? task "") "" (str " — " task)))
-     width)))
+  (agent-cell-text (agent-summary agent) width))
 
 (defn render-agent-detail [runtime: Any] -> Any
   (let [agents (detail-agents runtime)
@@ -3693,21 +3858,27 @@
     (if (identical? total 0)
       (StyledText. (.concat parts [(brightBlack "  no agents in this state")]))
       (let [index (clamped-index (.-detailIndex runtime) total)
-            window (detail-visible-count total 0)
+            width (Math/max 12 (- (terminal-columns) 8))
+            selected-agent (selected-detail-agent runtime)
+            metadata (if selected-agent (agent-route-text selected-agent width) "")
+            extra (if (identical? metadata "") 0 1)
+            window (detail-visible-count total extra)
             start (window-start index total window)
-            stop (Math/min total (+ start window))
-            width (Math/max 12 (- (terminal-columns) 8))]
+            stop (Math/min total (+ start window))]
         (.forEach (.slice agents start stop)
                   (fn
                     [agent: Agent
                      offset: Int] -> Any
                     (let [i (+ start offset)
                           cursor? (identical? i index)
-                          tail (if (identical? (+ i 1) stop) "" "\n")]
+                          tail (if (and (identical? (+ i 1) stop)
+                                        (identical? metadata "")) "" "\n")]
                       (.push parts (if cursor? (brightCyan "› ") (brightBlack "  ")))
                       (.push parts
                              ((if cursor? brightWhite brightBlack)
                               (str (agent-detail-row agent width) tail))))))
+        (when (not (identical? metadata ""))
+          (.push parts (brightBlack (str "  " metadata))))
         (StyledText. parts)))))
 
 ;; ---------------------------------------------------------------------------
@@ -4439,20 +4610,30 @@
    execution-id: String
    role: String
    status: String] -> Any
-  (.add (.-bridgeExecutions runtime) execution-id)
-  (when (identical? role "supervisor")
-    (set! (.-supervisorId runtime) execution-id)
-    (set! (.-agentIndex runtime) 0))
-  (set! (.-model runtime)
-        (upsert-agent (.-model runtime)
-                      (->Agent execution-id
-                               (if (identical? role "supervisor")
-                                 (main-agent-label)
-                                 (str "Codex " (.slice execution-id 0 8)))
-                               status
-                               (if (identical? role "supervisor")
-                                 "Northbridge control session"
-                                 "Bridge execution"))))
+  (let [state (snapshot (.-model runtime))
+        agents (bridgesnapshot-agents state)
+        prior-id (selected-agent-id state (.-agentIndex runtime))
+        existing (.find agents
+                        (fn [agent: Agent] -> Bool
+                          (identical? (agent-id agent) execution-id)))
+        updated (->Agent execution-id
+                         (if (identical? role "supervisor")
+                           (main-agent-label)
+                           (str "Codex " (.slice execution-id 0 8)))
+                         status
+                         (if (identical? role "supervisor")
+                           "Northbridge control session"
+                           "Bridge execution")
+                         "" "" "" "" "" "" "" "" "")]
+    (.add (.-bridgeExecutions runtime) execution-id)
+    (when (identical? role "supervisor")
+      (set! (.-supervisorId runtime) execution-id))
+    (set! (.-model runtime)
+          (upsert-agent (.-model runtime)
+                        (if existing (agent-with-route updated existing) updated)))
+    (reconcile-agent-selection! runtime
+                                (text-or prior-id
+                                         (if (identical? role "supervisor") execution-id ""))))
   (.render runtime))
 
 (defn record-line [line: String] -> ParsedRecord?
@@ -5087,9 +5268,7 @@
     (set! (.-paletteIndex runtime) 0)
     (if (not (threads-frame? (.-frame runtime)))
       (let [state (snapshot (.-model runtime))
-            agents (bridgesnapshot-agents state)
-            selected (if (> (.-length agents) 0)
-                       (agent-id (aget agents (.-agentIndex runtime))) "")]
+            selected (selected-agent-id state (.-agentIndex runtime))]
         (report-promise! runtime (submit-agent! runtime ui input selected)))
       (report-promise! runtime
                        (submit-work! runtime ui input
