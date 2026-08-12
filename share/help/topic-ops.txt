@@ -13,7 +13,10 @@ north help ops — daemons, health, deployment
   north hotspots                                where time goes and what fails, ranked from live telemetry
   north coord-ready                             cheap exact runtime identity for every active writer
   north coord-safety                            runtime identity + strict log-fence round trip
+  north acp                                     serve the bounded local ACP endpoint over stdio
   north stream-sync                             cursor-based transcript log-shipping
+  north stream-distill --project-root DIR --stream-thread ID [--lineage SHA256]
+                                                claim one settled mirror and publish its Tier 1 distillation
   north panic                                   minimal recovery path; works with bb/fram/coordinator down
   north help [<topic>|--all]                    the card; a topic page; or the complete reference
 

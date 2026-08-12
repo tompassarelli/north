@@ -72,6 +72,10 @@ export function compileProviderAuthoritySurface(
   // a fictitious "effective" boundary.
   admitPinnedProvider(provider, capabilities);
   const nativeMultiAgent = "disabled" as const;
+  const dataOnly = options.northDataOnly === true;
+  if (provider === "openai" && dataOnly) {
+    throw new ProviderRetrySafeError("openai_data_only_execution_unsupported");
+  }
   if (provider === "openai") {
     const northEnabledTools = capabilities.includes("coordination")
       ? CODEX_ORCHESTRATOR_NORTH_ENABLED_TOOLS
@@ -91,7 +95,7 @@ export function compileProviderAuthoritySurface(
     });
   }
   const policy = managedToolPolicy(capabilities);
-  const managedTools = policy.allowedTools
+  const managedTools = (dataOnly ? [] : policy.allowedTools)
     .filter((toolName) => toolName.startsWith("mcp__"));
   const northEnabledTools = managedTools
     .filter((toolName) => toolName.startsWith("mcp__north__"))
@@ -102,7 +106,7 @@ export function compileProviderAuthoritySurface(
     nativeMultiAgent,
     liveInput: "streaming",
     authoringHooks: "harness-exact",
-    builtins: Object.freeze(policy.tools),
+    builtins: Object.freeze(dataOnly ? [] : policy.tools),
     managedTools: Object.freeze(managedTools),
     northEnabledTools: Object.freeze(northEnabledTools),
     web: capabilities.includes("web") ? "enabled" : "disabled",

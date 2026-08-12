@@ -222,8 +222,12 @@
    :summary "cheap exact runtime identity for every active writer"}
   {:verb "coord-safety" :form "north coord-safety" :topic :ops
    :summary "runtime identity + strict log-fence round trip"}
+  {:verb "acp" :form "north acp" :topic :ops
+   :summary "serve the bounded local ACP endpoint over stdio"}
   {:verb "stream-sync" :form "north stream-sync" :topic :ops
    :summary "cursor-based transcript log-shipping"}
+  {:verb "stream-distill" :form "north stream-distill --project-root DIR --stream-thread ID [--lineage SHA256]" :topic :ops
+   :summary "claim one settled mirror and publish its Tier 1 distillation"}
   {:verb "panic" :form "north panic" :topic :ops :dispatch :pre-case
    :summary "minimal recovery path; works with bb/fram/coordinator down"}
   {:verb "help" :form "north help [<topic>|--all]" :topic :ops
