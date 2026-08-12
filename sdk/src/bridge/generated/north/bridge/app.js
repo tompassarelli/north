@@ -1,7 +1,7 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { Agent, WorkItem, agent_id, agent_name, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_thread, focus_view, make_model, remove_agent, replace_projection, select_agent, select_thread, set_filter, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
+import { Agent, WorkItem, agent_effort, agent_goal, agent_id, agent_model, agent_model_display, agent_name, agent_orchestration_provenance, agent_provider, agent_provider_label, agent_provider_target, agent_state, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_agent, bridgesnapshot_selected_thread, focus_view, make_model, remove_agent, replace_projection, select_agent, select_thread, set_filter, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
 
 const IntlSegmenter = Intl.Segmenter;
 
@@ -281,6 +281,34 @@ function clean_text(value) {
   return stripAnsiSequences(text(value));
 }
 
+export function agent_field_text(value) {
+  return Array.from(clean_text(value)).map((character) => { const code = character.charCodeAt(0);
+return ((((code === 9) || (code === 10) || (code === 13))) ? " " : (((code < 32) || ((code >= 127) && (code <= 159)))) ? "" : character); }).join("");
+}
+
+export function agent_cell_text(value, width) {
+  const source = agent_field_text(value);
+  const limit = Math.max(1, width);
+  if ((Bun.stringWidth(source) <= limit)) {
+    return source;
+  } else {
+    const room = Math.max(0, (limit - Bun.stringWidth("…")));
+    const kept = [];
+    const state = {width: 0, done: false};
+    Array.from(new IntlSegmenter("en", {granularity: "grapheme"}).segment(source)).forEach((part) => { const segment = text(part.segment);
+const segment_width = Bun.stringWidth(segment);
+if ((!state.done)) {
+  if (((state.width + segment_width) <= room)) {
+    kept.push(segment);
+    return (state.width = (state.width + segment_width));
+  } else {
+    return (state.done = true);
+  }
+} });
+    return ("".concat(kept.join(""), "…"));
+  }
+}
+
 function clipped(value, limit) {
   const clean = clean_text(value);
   return ((clean.length > limit) ? ("".concat("…", clean.slice((clean.length - limit)))) : clean);
@@ -463,13 +491,17 @@ async function stream_command(argv, on_stdout, on_stderr) {
   return results[2];
 }
 
-function normalize_agents(payload) {
+export function normalize_agents(payload) {
   const rows = ((payload && Array.isArray(payload.agents)) ? payload.agents : []);
   return rows.map((row) => { const id = bare(text_or(row.control_id, text_or(row.uuid, text(row.id))));
 const name = text_or(row.display_handle, text_or(row.display_name, id));
 const status = text_or(row.state_label, text_or(row.state, "unknown"));
 const task = text_or(row.task, text(row.thread_title));
-return Agent(id, name, status, task); });
+return Agent(id, name, status, task, text(row.provider), text(row.provider_target), text(row.provider_label), text(row.model), text(row.model_display), text(row.effort), text(row.orchestration_provenance), text(row.goal), text(row.state)); });
+}
+
+function agent_with_route(agent, route) {
+  return Agent(agent_id(agent), agent_name(agent), agent_status(agent), agent_task(agent), agent_provider(route), agent_provider_target(route), agent_provider_label(route), agent_model(route), agent_model_display(route), agent_effort(route), agent_orchestration_provenance(route), agent_goal(route), agent_state(route));
 }
 
 function board_ids(board) {
@@ -1262,6 +1294,27 @@ if ((key.ctrl && ((name === "c") || (name === "q")))) {
 } });
 }
 
+export function selected_agent_id(state, selected) {
+  const agents = bridgesnapshot_agents(state);
+  const total = agents.length;
+  return ((total > 0) ? agent_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
+}
+
+export function reconcile_agent_selection_bang(runtime, prior_id) {
+  const state = snapshot(runtime.model);
+  const agents = bridgesnapshot_agents(state);
+  const total = agents.length;
+  const found = agents.findIndex((agent) => (agent_id(agent) === prior_id));
+  const fallback = Math.max(0, Math.min(runtime.agentIndex, Math.max(0, (total - 1))));
+  const index = ((found >= 0) ? found : fallback);
+  const selected = ((total > 0) ? agent_id(agents[index]) : "");
+  (runtime.agentIndex = index);
+  if ((!(bridgesnapshot_selected_agent(state) === selected))) {
+    (runtime.model = select_agent(runtime.model, selected));
+  }
+  return selected;
+}
+
 async function refresh_bang(runtime) {
   const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
   const agent_payload = payloads[0];
@@ -1269,8 +1322,9 @@ async function refresh_bang(runtime) {
   const done = payloads[2];
   const state = snapshot(runtime.model);
   const current_agents = bridgesnapshot_agents(state);
-  const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(agent_id(agent)));
   const remote_agents = (agent_payload ? normalize_agents(agent_payload) : []);
+  const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(agent_id(agent))).map((agent) => { const remote = remote_agents.find((candidate) => (agent_id(candidate) === agent_id(agent)));
+return (remote ? agent_with_route(agent, remote) : agent); });
   const distinct_remote = remote_agents.filter((agent) => (!runtime.bridgeExecutions.has(agent_id(agent))));
   const agents = (agent_payload ? bridge_agents.concat(distinct_remote) : current_agents);
   const open_rows = (Array.isArray(board) ? board : []);
@@ -1283,12 +1337,14 @@ async function refresh_bang(runtime) {
   const list_work = work.concat(terminal_work);
   const kanban = ordered_board_items(work, terminal_work);
   const next_model = replace_projection(runtime.model, agents, list_work, kanban);
+  const prior_agent_id = selected_agent_id(state, runtime.agentIndex);
   const selected_id = bridgesnapshot_selected_thread(state);
   const next_state = snapshot(next_model);
   const next_view = selected_view(next_state, runtime.activeView);
   const next_items = workview_items(next_view);
   const next_index = next_items.findIndex((item) => (workitem_id(item) === selected_id));
   (runtime.model = next_model);
+  reconcile_agent_selection_bang(runtime, prior_agent_id);
   if ((next_index >= 0)) {
     (runtime.workIndex = next_index);
     if ((workview_id(next_view) === "list")) {
@@ -1323,13 +1379,47 @@ export function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
 
 export function roster_text(state, selected, supervisor_id, banner_p) {
   const agents = bridgesnapshot_agents(state);
-  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: ("".concat(((index === selected) ? "› " : "  "), (() => { const name = agent_name(agent); return ((name === "") ? agent_id(agent) : name); })(), ((agent_status(agent) === "") ? "" : ("".concat(" (", agent_status(agent), ")"))), ((agent_task(agent) === "") ? "" : ("".concat(" — ", agent_task(agent))))))})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
+  const width = Math.max(1, (terminal_columns() - 6));
+  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: agent_row_text(agent, (index === selected), width)})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
   return (((agents.length === 0)) ? "No agents attached" : ((rows.length === 0)) ? "" : rows.map((row) => row.text).join("\n"));
 }
 
 function agent_display_name(agent) {
-  const name = agent_name(agent);
-  return ((name === "") ? agent_id(agent) : name);
+  const name = agent_field_text(agent_name(agent));
+  return ((name === "") ? agent_field_text(agent_id(agent)) : name);
+}
+
+function agent_summary(agent) {
+  const status = agent_field_text(agent_status(agent));
+  const task = agent_field_text(agent_task(agent));
+  return ("".concat(agent_display_name(agent), ((status === "") ? "" : ("".concat(" (", status, ")"))), ((task === "") ? "" : ("".concat(" — ", task)))));
+}
+
+export function agent_row_text(agent, selected_p, width) {
+  const prefix = (selected_p ? "› " : "  ");
+  return ("".concat(prefix, agent_cell_text(agent_summary(agent), Math.max(1, (width - Bun.stringWidth(prefix))))));
+}
+
+function route_provider(agent) {
+  const label = agent_field_text(agent_provider_label(agent));
+  const provider = agent_field_text(agent_provider(agent));
+  const target = agent_field_text(agent_provider_target(agent));
+  return (((!(label === ""))) ? label : (((!(provider === "")) && (!(target === "")))) ? ("".concat(provider, ":", target)) : text_or(provider, target));
+}
+
+function route_model(agent) {
+  return text_or(agent_field_text(agent_model_display(agent)), agent_field_text(agent_model(agent)));
+}
+
+export function agent_route_text(agent, width) {
+  const provider = route_provider(agent);
+  const model = route_model(agent);
+  const effort = agent_field_text(agent_effort(agent));
+  const provenance = agent_field_text(agent_orchestration_provenance(agent));
+  const state = agent_field_text(agent_state(agent));
+  const goal = agent_field_text(agent_goal(agent));
+  const parts = [((provider === "") ? "" : ("".concat("provider ", provider))), ((model === "") ? "" : ("".concat("model ", model))), ((effort === "") ? "" : ("".concat("effort ", effort))), ((provenance === "") ? "" : provenance), ((state === "") ? "" : ("".concat("state ", state))), ((goal === "") ? "" : ("".concat("goal ", goal)))].filter((part) => (!(part === "")));
+  return agent_cell_text(parts.join(" · "), width);
 }
 
 function agent_bucket(status) {
@@ -1896,6 +1986,12 @@ function clamped_index(raw, total) {
   return Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
 }
 
+function selected_detail_agent(runtime) {
+  const agents = detail_agents(runtime);
+  const total = agents.length;
+  return ((total > 0) ? agents[clamped_index(runtime.detailIndex, total)] : null);
+}
+
 function config_header_lines(entries, basis, start, stop) {
   const count = {n: 0};
   entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
@@ -1923,7 +2019,7 @@ export function config_detail_lines(runtime) {
 }
 
 function detail_body_lines(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; return (1 + Math.max(1, Math.min(total, detail_visible_count(total, 0)))); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (agent ? agent_route_text(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
 }
 
 export function detail_height(runtime) {
@@ -1935,9 +2031,7 @@ function agent_detail_title(segment_id) {
 }
 
 function agent_detail_row(agent, width) {
-  const status = agent_status(agent);
-  const task = agent_task(agent);
-  return compact_text(("".concat(agent_display_name(agent), ((status === "") ? "" : ("".concat(" (", status, ")"))), ((task === "") ? "" : ("".concat(" — ", task))))), width);
+  return agent_cell_text(agent_summary(agent), width);
 }
 
 function render_agent_detail(runtime) {
@@ -1949,15 +2043,21 @@ function render_agent_detail(runtime) {
     return new StyledText(parts.concat([brightBlack("  no agents in this state")]));
   } else {
     const index = clamped_index(runtime.detailIndex, total);
-    const window = detail_visible_count(total, 0);
+    const width = Math.max(12, (terminal_columns() - 8));
+    const selected_agent = selected_detail_agent(runtime);
+    const metadata = (selected_agent ? agent_route_text(selected_agent, width) : "");
+    const extra = ((metadata === "") ? 0 : 1);
+    const window = detail_visible_count(total, extra);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    const width = Math.max(12, (terminal_columns() - 8));
     agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
-const tail = (((i + 1) === stop) ? "" : "\n");
+const tail = ((((i + 1) === stop) && (metadata === "")) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
 return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row(agent, width), tail)))); });
+    if ((!(metadata === ""))) {
+      parts.push(brightBlack(("".concat("  ", metadata))));
+    }
     return new StyledText(parts);
   }
 }
@@ -2381,12 +2481,17 @@ function render_ui_bang(runtime, ui) {
 }
 
 function bridge_agent_bang(runtime, execution_id, role, status) {
+  const state = snapshot(runtime.model);
+  const agents = bridgesnapshot_agents(state);
+  const prior_id = selected_agent_id(state, runtime.agentIndex);
+  const existing = agents.find((agent) => (agent_id(agent) === execution_id));
+  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
   runtime.bridgeExecutions.add(execution_id);
   if ((role === "supervisor")) {
     (runtime.supervisorId = execution_id);
-    (runtime.agentIndex = 0);
   }
-  (runtime.model = upsert_agent(runtime.model, Agent(execution_id, ((role === "supervisor") ? main_agent_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"))));
+  (runtime.model = upsert_agent(runtime.model, (existing ? agent_with_route(updated, existing) : updated)));
+  reconcile_agent_selection_bang(runtime, text_or(prior_id, ((role === "supervisor") ? execution_id : "")));
   return runtime.render();
 }
 
@@ -2790,8 +2895,7 @@ function submit_input_bang(runtime, ui, input) {
     (runtime.paletteIndex = 0);
     if ((!threads_frame_p(runtime.frame))) {
       const state = snapshot(runtime.model);
-      const agents = bridgesnapshot_agents(state);
-      const selected = ((agents.length > 0) ? agent_id(agents[runtime.agentIndex]) : "");
+      const selected = selected_agent_id(state, runtime.agentIndex);
       return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
     } else {
       return report_promise_bang(runtime, submit_work_bang(runtime, ui, input, WorkSelection(runtime.activeView, runtime.workIndex)));

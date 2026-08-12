@@ -160,7 +160,10 @@ function runtimeWith(status: string) {
     sessionPermissions: "acceptEdits",
     model: upsertAgent(
       makeModel("list"),
-      Agent("exec-supervisor", "Main", status, "Northbridge control session"),
+      Agent(
+        "exec-supervisor", "Main", status, "Northbridge control session",
+        "", "", "", "", "", "", "", "", "",
+      ),
     ),
   };
 }
@@ -303,7 +306,10 @@ test("the roster stands down for the banner, and comes back with it", () => {
   // into the full roster rather than into what survived the filter.
   const withWorker = snapshot(upsertAgent(
     runtimeWith("ready").model,
-    Agent("exec-worker", "Worker", "running", "landing the fix"),
+    Agent(
+      "exec-worker", "Worker", "running", "landing the fix",
+      "", "", "", "", "", "", "", "", "",
+    ),
   ));
   expect(rosterText(withWorker, 1, "exec-supervisor", true))
     .toBe("› Worker (running) — landing the fix");

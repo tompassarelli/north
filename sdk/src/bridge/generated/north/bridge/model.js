@@ -1,6 +1,6 @@
 
-export function Agent(id, name, status, task) {
-  return Object.freeze({_tag: "Agent", id, name, status, task});
+export function Agent(id, name, status, task, provider, provider_target, provider_label, model, model_display, effort, orchestration_provenance, goal, state) {
+  return Object.freeze({_tag: "Agent", id, name, status, task, provider, provider_target, provider_label, model, model_display, effort, orchestration_provenance, goal, state});
 }
 
 export function agent_id(r) { return r.id; }
@@ -10,6 +10,24 @@ export function agent_name(r) { return r.name; }
 export function agent_status(r) { return r.status; }
 
 export function agent_task(r) { return r.task; }
+
+export function agent_provider(r) { return r.provider; }
+
+export function agent_provider_target(r) { return r.provider_target; }
+
+export function agent_provider_label(r) { return r.provider_label; }
+
+export function agent_model(r) { return r.model; }
+
+export function agent_model_display(r) { return r.model_display; }
+
+export function agent_effort(r) { return r.effort; }
+
+export function agent_orchestration_provenance(r) { return r.orchestration_provenance; }
+
+export function agent_goal(r) { return r.goal; }
+
+export function agent_state(r) { return r.state; }
 
 export function WorkItem(id, title, body, condition, driver, dependencies) {
   return Object.freeze({_tag: "WorkItem", id, title, body, condition, driver, dependencies});
@@ -49,7 +67,7 @@ function bridgemodel_filter_text(r) { return r.filter_text; }
 
 function bridgemodel_notice(r) { return r.notice; }
 
-function BridgeSnapshot(agents, list, board, layout, active_view_id, selected_agent, selected_thread, notice) {
+export function BridgeSnapshot(agents, list, board, layout, active_view_id, selected_agent, selected_thread, notice) {
   return Object.freeze({_tag: "BridgeSnapshot", agents, list, board, layout, active_view_id, selected_agent, selected_thread, notice});
 }
 
@@ -59,11 +77,11 @@ export function bridgesnapshot_list(r) { return r.list; }
 
 export function bridgesnapshot_board(r) { return r.board; }
 
-function bridgesnapshot_layout(r) { return r.layout; }
+export function bridgesnapshot_layout(r) { return r.layout; }
 
 export function bridgesnapshot_active_view_id(r) { return r.active_view_id; }
 
-function bridgesnapshot_selected_agent(r) { return r.selected_agent; }
+export function bridgesnapshot_selected_agent(r) { return r.selected_agent; }
 
 export function bridgesnapshot_selected_thread(r) { return r.selected_thread; }
 
