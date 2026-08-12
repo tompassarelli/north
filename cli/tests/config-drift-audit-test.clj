@@ -25,33 +25,57 @@
 (defn check [label value]
   (swap! checks conj [label (boolean value)]))
 
-(defn write-skill! [root name]
-  (let [path (str root "/" name "/SKILL.md")]
+(defn write-skill-as! [root folder name]
+  (let [path (str root "/" folder "/SKILL.md")]
     (io/make-parents path)
     (spit path (str "---\nname: " name "\ndescription: fixture\n---\n"))))
 
-(defn write-plugin! [root provider]
-  (let [manifest (str root "/."
-                      (if (= provider "claude") "claude" "codex")
-                      "-plugin/plugin.json")]
-    (io/make-parents manifest)
-    (spit manifest (json/generate-string {:name (.getName (io/file root))}))))
+(defn write-skill! [root name]
+  (write-skill-as! root name name))
+
+(defn write-root-skill! [root name]
+  (let [path (str root "/SKILL.md")]
+    (io/make-parents path)
+    (spit path (str "---\nname: " name "\ndescription: fixture\n---\n"))))
+
+(defn write-plugin!
+  ([root provider] (write-plugin! root provider {}))
+  ([root provider fields]
+   (let [manifest (str root "/."
+                       (if (= provider "claude") "claude" "codex")
+                       "-plugin/plugin.json")]
+     (io/make-parents manifest)
+     (spit manifest
+           (json/generate-string
+            (merge {:name (.getName (io/file root))} fields))))))
 
 (def enabled-root (str tmp-dir "/plugins/enabled"))
 (def disabled-root (str tmp-dir "/plugins/disabled"))
 (def malformed-root (str tmp-dir "/plugins/malformed"))
 (def escape-root (str tmp-dir "/plugins/escape"))
+(def custom-root (str tmp-dir "/plugins/custom"))
+(def root-skill-root (str tmp-dir "/plugins/root-skill"))
 (def codex-plugin-root (str tmp-dir "/plugins/codex"))
 (def escaped-target (str tmp-dir "/outside/escaped"))
 
 (defn install-fixture! []
   (.mkdirs (io/file scratch-home))
-  (doseq [name ["collision" "shared-only"]] (write-skill! farm name))
+  (doseq [name ["collision" "frontmatter-collision" "shared-only"]]
+    (write-skill! farm name))
   (write-skill! codex-system "system-only")
 
   (write-plugin! enabled-root "claude")
   (write-skill! (str enabled-root "/skills") "collision")
   (write-skill! (str enabled-root "/skills") "plugin-only")
+  (write-skill-as! (str enabled-root "/skills") "folder-name" "frontmatter-name")
+  (write-skill-as! (str enabled-root "/skills") "different-folder" "frontmatter-collision")
+
+  (write-plugin! custom-root "claude" {:skills "./components/skill-root"})
+  (write-root-skill! (str custom-root "/components/skill-root") "custom-path-skill")
+  (write-skill! (str custom-root "/skills") "custom-default-skill")
+
+  (write-plugin! root-skill-root "claude" {:skills ["./"]})
+  (write-root-skill! root-skill-root "plugin-root-skill")
 
   (write-plugin! disabled-root "claude")
   (write-skill! (str disabled-root "/skills") "collision")
@@ -76,6 +100,8 @@
   (spit claude-settings
         (json/generate-string
          {:enabledPlugins {"enabled@market" true
+                           "custom@market" true
+                           "root-skill@market" true
                            "disabled@market" false
                            "malformed@market" true
                            "escape@market" true}}))
@@ -83,6 +109,8 @@
         (json/generate-string
          {:plugins
           {"enabled@market" [{:installPath enabled-root :scope "user"}]
+           "custom@market" [{:installPath custom-root :scope "user"}]
+           "root-skill@market" [{:installPath root-skill-root :scope "user"}]
            "disabled@market" [{:installPath disabled-root :scope "user"}]
            "malformed@market" [{:installPath malformed-root :scope "user"}]
            "escape@market" [{:installPath escape-root :scope "user"}]}}))
@@ -104,6 +132,7 @@
                             :args ["--mode" "same"] :cwd "/work"
                             :env {:TOKEN "ENV_SECRET_CANARY"}}
            "drift-stdio" {:command "/bin/server" :args ["left"]}
+           "forwarded-stdio" {:command "/bin/forwarded"}
            "aligned-http" {:type "http" :url "https://same.example/mcp"
                            :headers {:Authorization "HEADER_SECRET_CANARY"}}
            "drift-http" {:type "http" :url "https://left.example/mcp"
@@ -116,6 +145,8 @@
          "command = \"/bin/server\"\nargs = [\"--mode\", \"same\"]\ncwd = \"/work\"\n"
          "[mcp_servers.\"aligned-stdio\".env]\nTOKEN = \"ENV_SECRET_CANARY\"\n\n"
          "[mcp_servers.\"drift-stdio\"]\ncommand = \"/bin/server\"\nargs = [\"right\"]\n\n"
+         "[mcp_servers.\"forwarded-stdio\"]\ncommand = \"/bin/forwarded\"\n"
+         "env_vars = [\"FORWARDED_MCP_TOKEN\"]\n\n"
          "[mcp_servers.\"aligned-http\"]\nurl = \"https://same.example/mcp\"\n"
          "http_headers = { Authorization = \"HEADER_SECRET_CANARY\" }\n\n"
          "[mcp_servers.\"drift-http\"]\nurl = \"https://right.example/mcp\"\n"
@@ -137,7 +168,8 @@
                       "CODEX_HOME" codex-home
                       "NORTH_CODEX_SYSTEM_SKILLS" codex-system
                       "NORTH_CODEX_CONFIG" codex-config
-                      "NORTH_CODEX_PLUGIN_INVENTORY" codex-inventory}}
+                      "NORTH_CODEX_PLUGIN_INVENTORY" codex-inventory
+                      "FORWARDED_MCP_TOKEN" "FORWARDED_SECRET_VALUE_CANARY"}}
          (into ["bb" cli] args)))
 
 (defn comparison [report name]
@@ -166,6 +198,16 @@
                          (not (:collision %))) skills)
              (some #(and (= "codex-plugin-only" (:name %))
                          (= "codex-plugin@market" (:plugin %))) skills)]))
+    (check "skill inventory uses frontmatter invocation names instead of folder names"
+           (let [renamed-collision (filter #(= "frontmatter-collision" (:name %)) skills)]
+             (and (some #(and (= "frontmatter-name" (:name %))
+                              (str/ends-with? (:path %) "/folder-name")) skills)
+                  (not-any? #(contains? #{"folder-name" "different-folder"} (:name %)) skills)
+                  (= 2 (count renamed-collision))
+                  (every? :collision renamed-collision))))
+    (check "Claude manifest paths add custom roots and their root SKILL.md files"
+           (every? #(some (fn [row] (= % (:name row))) skills)
+                   ["custom-default-skill" "custom-path-skill" "plugin-root-skill"]))
     (check "escaping symlink is excluded with a containment diagnostic"
            (and (not-any? #(= "escaped" (:name %)) skills)
                 (some #(= "containment" (:kind %))
@@ -185,6 +227,15 @@
                 (some #{"arguments"} (:differences (comparison report "drift-stdio")))
                 (= "same-name-drift" (:state (comparison report "drift-http")))
                 (some #{"endpoint"} (:differences (comparison report "drift-http")))))
+    (check "Codex forwarded environment names participate in MCP identity"
+           (and (= "same-name-drift" (:state (comparison report "forwarded-stdio")))
+                (= ["forwardedEnvironmentVariables"]
+                   (:differences (comparison report "forwarded-stdio")))
+                (= ["FORWARDED_MCP_TOKEN"]
+                   (get-in (some #(when (and (= "codex" (:provider %))
+                                             (= "forwarded-stdio" (:name %))) %)
+                                 (get-in report [:mcp :servers]))
+                           [:normalized :forwardedEnvironmentVariables]))))
     (check "equivalent differently named declarations are reported as aliases"
            (some #(and (= "claude-alias" (get-in % [:claude :name]))
                        (= "codex-alias" (get-in % [:codex :name])))
@@ -195,7 +246,8 @@
     (check "environment and header values never appear in machine output"
            (not-any? #(str/includes? (:out result) %)
                      ["ENV_SECRET_CANARY" "HEADER_SECRET_CANARY"
-                      "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"]))
+                      "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"
+                      "FORWARDED_SECRET_VALUE_CANARY"]))
     (check "protected values retain structural keys and digests"
            (let [server (some #(when (and (= "claude" (:provider %))
                                           (= "aligned-http" (:name %))) %)
@@ -220,7 +272,8 @@
              (and (zero? (:exit human))
                   (not-any? #(str/includes? (:out human) %)
                             ["ENV_SECRET_CANARY" "HEADER_SECRET_CANARY"
-                             "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"]))))))
+                             "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"
+                             "FORWARDED_SECRET_VALUE_CANARY"]))))))
 
 (defn partial-case []
   (spit claude-mcp "{\"mcpServers\":")

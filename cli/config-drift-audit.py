@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tomllib
@@ -140,6 +141,7 @@ def skill_directories(
     diagnostics: list[dict[str, str]],
     *,
     contain_in: Path | None,
+    include_self: bool = False,
 ) -> list[dict[str, Any]]:
     canonical_root = canonical_directory(
         root, provider, plugin, diagnostics, within=contain_in
@@ -148,13 +150,14 @@ def skill_directories(
         return []
     rows: list[dict[str, Any]] = []
     try:
-        children = sorted(root.iterdir(), key=lambda path: path.name)
+        children = sorted(canonical_root.iterdir(), key=lambda path: path.name)
     except OSError:
         diagnostics.append(
             {"provider": provider, "source": str(root), "kind": "unreadable", "message": "cannot enumerate skill root"}
         )
         return []
-    for child in children:
+    candidates = ([canonical_root] if include_self else []) + children
+    for child in candidates:
         try:
             canonical = child.resolve(strict=True)
             if contain_in is not None:
@@ -177,7 +180,7 @@ def skill_directories(
             continue
         rows.append(
             {
-                "name": child.name,
+                "name": frontmatter_skill_name(skill_file, canonical.name),
                 "provider": provider,
                 "plugin": plugin,
                 "scope": scope,
@@ -185,6 +188,65 @@ def skill_directories(
             }
         )
     return rows
+
+
+def frontmatter_skill_name(skill_file: Path, fallback: str) -> str:
+    """Return the invocation name Claude/Codex derive from SKILL.md."""
+    try:
+        lines = skill_file.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return fallback
+    if not lines or lines[0] != "---":
+        return fallback
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return fallback
+    for line in lines[1:end]:
+        if line[:1].isspace():
+            continue
+        match = re.fullmatch(r"name:\s*(.*)", line)
+        if match is None:
+            continue
+        raw = match.group(1).strip()
+        if len(raw) >= 2 and raw[0] == raw[-1] == '"':
+            try:
+                value = json.loads(raw)
+            except json.JSONDecodeError:
+                return fallback
+            return value.strip() if isinstance(value, str) and value.strip() else fallback
+        if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+            value = raw[1:-1].replace("''", "'").strip()
+            return value or fallback
+        raw = re.sub(r"\s+#.*$", "", raw).strip()
+        if not raw or raw.lower() in {"null", "true", "false", "~"}:
+            return fallback
+        return raw
+    return fallback
+
+
+def claude_manifest_skill_roots(root: Path, manifest: dict[str, Any]) -> list[Path]:
+    """Resolve Claude's additive custom skill directories without escaping the plugin."""
+    candidates = [root / "skills"]
+    declared = manifest.get("skills")
+    values = [declared] if isinstance(declared, str) else declared if isinstance(declared, list) else []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            candidates.append(root / value.strip())
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if not (candidate.exists() or candidate.is_symlink()):
+            continue
+        try:
+            identity = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            identity = candidate.absolute()
+        if identity in seen:
+            continue
+        seen.add(identity)
+        roots.append(candidate)
+    return roots
 
 
 def claude_install_in_scope(install: Any) -> bool:
@@ -257,10 +319,10 @@ def claude_plugin_skills(diagnostics: list[dict[str, str]]) -> tuple[list[dict[s
         root = canonical_directory(Path(install_path), "claude", plugin, diagnostics)
         if root is None:
             continue
-        skills = root / "skills"
-        if skills.exists() or skills.is_symlink():
-            if manifest_at(root, "claude", diagnostics) is None:
-                continue
+        manifest = manifest_at(root, "claude", diagnostics)
+        if manifest is None:
+            continue
+        for skills in claude_manifest_skill_roots(root, manifest):
             rows.extend(
                 skill_directories(
                     skills,
@@ -269,6 +331,7 @@ def claude_plugin_skills(diagnostics: list[dict[str, str]]) -> tuple[list[dict[s
                     str(install.get("scope") or "unknown"),
                     diagnostics,
                     contain_in=root,
+                    include_self=True,
                 )
             )
     return rows, sources
@@ -401,6 +464,13 @@ def skill_audit() -> dict[str, Any]:
     sources.extend(claude_sources)
     sources.extend(codex_sources)
 
+    entries = list(
+        {
+            (entry["provider"], entry["plugin"], entry["scope"], entry["path"], entry["name"]): entry
+            for entry in entries
+        }.values()
+    )
+
     by_name: dict[str, list[dict[str, Any]]] = {}
     for entry in entries:
         by_name.setdefault(entry["name"], []).append(entry)
@@ -472,6 +542,11 @@ def normalized_mcp(provider: str, name: str, value: Any, source: Path) -> dict[s
         arguments = value.get("args", [])
         if not isinstance(arguments, list):
             raise ValueError("args must be an array")
+        forwarded_environment = value.get("env_vars", []) if provider == "codex" else []
+        if not isinstance(forwarded_environment, list) or not all(
+            isinstance(item, str) for item in forwarded_environment
+        ):
+            raise ValueError("env_vars must be an array of names")
         identity = {
             "enabled": enabled,
             "transport": "stdio",
@@ -479,6 +554,7 @@ def normalized_mcp(provider: str, name: str, value: Any, source: Path) -> dict[s
             "arguments": arguments,
             "workingDirectory": value.get("cwd"),
             "environment": protected_map(value.get("env", {}), "env"),
+            "forwardedEnvironmentVariables": sorted(set(forwarded_environment)),
         }
     return {
         "name": name,
@@ -548,6 +624,7 @@ def mcp_audit() -> dict[str, Any]:
         "workingDirectory",
         "endpoint",
         "environment",
+        "forwardedEnvironmentVariables",
         "headers",
         "environmentHeaders",
         "bearerTokenEnvironmentVariable",
