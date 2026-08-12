@@ -78,10 +78,10 @@ test("director is the canonical orchestrator role and topology names fail pedago
 
 test("CLI dry preview uses the exact topology policy selected for execution", () => {
   expect(dry("integrator", "openai")).toContain(
-    "policy=north:struggle-observer:v1 topology=worker error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=6",
+    "policy=north:struggle-observer:v2 topology=worker error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=6",
   );
   expect(dry("director", "anthropic")).toContain(
-    "policy=north:struggle-observer:v1 topology=orchestrator error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=12",
+    "policy=north:struggle-observer:v2 topology=orchestrator error-streak=3 loop-repeat=3 loop-window=20 no-progress-turns=12",
   );
 
   const overridden = spawnSync("bb", [

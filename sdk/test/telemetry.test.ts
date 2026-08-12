@@ -118,7 +118,7 @@ test("terminal telemetry preserves dispatch estimate calibration and struggle ev
 			runEstimate: { hours: "0.001", durationMs: 3_600 },
 			judgmentGrade: { grade: "m", status: "valid", source: "thread" },
 			struggleObservation: {
-				policyVersion: "north:struggle-observer:v1",
+				policyVersion: "north:struggle-observer:v2",
 				topology: "worker",
 				errorStreakThreshold: 3,
 				loopRepeatThreshold: 3,
@@ -141,7 +141,7 @@ test("terminal telemetry preserves dispatch estimate calibration and struggle ev
 	expect(projection.facts).toContainEqual(["struggle", "consecutive_errors"]);
 	expect(projection.facts).toContainEqual([
 		"struggle_detector_policy_version",
-		"north:struggle-observer:v1",
+		"north:struggle-observer:v2",
 	]);
 	expect(projection.facts).toContainEqual(["struggle_topology", "worker"]);
 	expect(projection.facts).toContainEqual(["struggle_error_streak_threshold", "3"]);

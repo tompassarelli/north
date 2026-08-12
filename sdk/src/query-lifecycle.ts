@@ -140,6 +140,7 @@ interface SessionHardCapDeadlineDocument extends SessionHardCapContext {
 
 interface SessionHardCapDeadline {
   remainingMs: number;
+  deadlineAtMs: number;
   path?: string;
   serialized?: string;
 }
@@ -330,6 +331,7 @@ function acquireSessionHardCapDeadline(
   if (!persist) {
     return {
       remainingMs: hardCapMs,
+      deadlineAtMs: now.getTime() + hardCapMs,
     };
   }
   const directory = handoffStateDirectory(runtime);
@@ -352,6 +354,7 @@ function acquireSessionHardCapDeadline(
   const deadlineAt = Date.parse(document.deadlineAt);
   return {
     remainingMs: Math.max(0, Math.min(hardCapMs, deadlineAt - now.getTime())),
+    deadlineAtMs: deadlineAt,
     path,
     serialized: `${JSON.stringify(document, null, 2)}\n`,
   };
@@ -639,6 +642,7 @@ export class ManagedQueryTermination {
   private readonly resources = new Set<ManagedOwnedResource>();
   private readonly hardCapOptions: ManagedSessionHardCapOptions | undefined;
   private readonly hardCapDeadline: SessionHardCapDeadline | undefined;
+  private readonly now: () => Date;
   private readonly cancelHardCapTimer: (timer: unknown) => void;
   private hardCapTimer: unknown;
   private hardCapActive = false;
@@ -652,6 +656,7 @@ export class ManagedQueryTermination {
     register: HostTerminationRegistrar = registerHostTerminationParticipant,
     hardCapOptions?: ManagedSessionHardCapOptions,
   ) {
+    this.now = hardCapOptions?.now ?? (() => new Date());
     if (hardCapOptions) {
       const hardCapMs = hardCapOptions.hardCapMs
         ?? DEFAULT_MANAGED_SESSION_HARD_CAP_MS;
@@ -760,6 +765,14 @@ export class ManagedQueryTermination {
 
   continuationAllowed(): boolean {
     return this.#tokenBudget?.state !== "budget_limited";
+  }
+
+  /** Read-only gate for the one successful-empty corrective turn. */
+  emptyResultRepairAllowed(): boolean {
+    if (!this.continuationAllowed() || this.hardCapFrozen || this.closePromise
+        || this.released || this.hostSignal()) return false;
+    return this.hardCapDeadline === undefined
+      || validNow({ now: this.now }).getTime() < this.hardCapDeadline.deadlineAtMs;
   }
 
   throwIfContinuationBlocked(): void {

@@ -403,7 +403,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 				},
 				judgmentGrade: { grade: "m", status: "valid", source: "thread" },
 				struggleObservation: {
-					policyVersion: "north:struggle-observer:v1",
+					policyVersion: "north:struggle-observer:v2",
 					topology: "worker",
 					errorStreakThreshold: 3,
 					loopRepeatThreshold: 3,

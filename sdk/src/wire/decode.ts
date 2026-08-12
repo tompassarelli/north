@@ -56,7 +56,7 @@ const PAYLOAD_KEYS: Readonly<Record<WireEventKind, readonly string[]>> = {
 	],
 	"tool.admitted": [
 		"toolCallId", "name", "messageId", "modelCallId", "parentToolCallId", "schema",
-		"argumentPreview", "argumentArtifactId",
+		"argumentDigest", "argumentPreview", "argumentArtifactId",
 	],
 	"tool.progress": ["toolCallId", "progress", "outputArtifactId"],
 	"tool.terminal": [
@@ -743,6 +743,10 @@ function validatePayload(kind: WireEventKind, source: JsonObject): void {
 			optionalId(source.modelCallId, "tool.admitted modelCallId", wireModelCallId);
 			optionalId(source.parentToolCallId, "tool.admitted parentToolCallId", wireToolCallId);
 			toolSchema(source.schema);
+			if (source.argumentDigest !== undefined
+				&& !/^[a-f0-9]{64}$/.test(text(source.argumentDigest, "tool.admitted argumentDigest", 64))) {
+				malformed("tool.admitted argumentDigest must be 64 lowercase hexadecimal characters");
+			}
 			optionalText(source.argumentPreview, "tool.admitted argumentPreview", 8_192);
 			optionalId(source.argumentArtifactId, "tool.admitted argumentArtifactId", wireArtifactId);
 			return;
@@ -958,6 +962,9 @@ function knownEvent(
 					),
 				}),
 				schema: toolSchema(source.schema),
+				...(source.argumentDigest === undefined ? {} : {
+					argumentDigest: text(source.argumentDigest, "tool.admitted argumentDigest", 64),
+				}),
 				...(source.argumentPreview === undefined ? {} : {
 					argumentPreview: text(source.argumentPreview, "tool.admitted argumentPreview", 8_192),
 				}),

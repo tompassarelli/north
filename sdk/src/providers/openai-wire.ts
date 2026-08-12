@@ -16,6 +16,7 @@ import {
 	type WireUsageSnapshot,
 	type WireArtifactSink,
 	type WireQueryRoute,
+	wireToolArgumentDigest,
 } from "../wire";
 import { providerJoinEvidence } from "./provider-join";
 import {
@@ -299,6 +300,34 @@ function semanticToolKind(value: string): OpenAIWireSemanticToolKind | undefined
 	if (value === "commandExecution" || value === "mcpToolCall" || value === "fileChange"
 		|| value === "webSearch" || value === "todoList") return value;
 	return undefined;
+}
+
+function openAIWireArgumentDigest(
+	item: UnknownRecord,
+	kind: OpenAIWireSemanticToolKind,
+): string | undefined {
+	if (kind === "mcpToolCall") {
+		return item.arguments === undefined
+			? undefined : wireToolArgumentDigest(item.arguments);
+	}
+	if (kind === "commandExecution") {
+		if (typeof item.command !== "string"
+			|| (item.cwd !== undefined && typeof item.cwd !== "string")) return undefined;
+		return wireToolArgumentDigest({
+			command: item.command,
+			...(item.cwd === undefined ? {} : { cwd: item.cwd }),
+		});
+	}
+	if (kind === "webSearch") {
+		return typeof item.query === "string"
+			? wireToolArgumentDigest({ query: item.query }) : undefined;
+	}
+	if (kind === "todoList") {
+		return item.items === undefined
+			? undefined : wireToolArgumentDigest({ items: item.items });
+	}
+	return item.changes === undefined
+		? undefined : wireToolArgumentDigest({ changes: item.changes });
 }
 
 /** One privacy-bounded semantic identity shared by Wire projection and crash harvest. */
@@ -702,6 +731,7 @@ export class OpenAIWireNormalizer {
 			return normalizationError("unsupported_notification", "Codex item type has no wire-v2 semantic mapping");
 		}
 		const toolCallId = this.#ids.toolCall(this.#toolCallSequence);
+		const argumentDigest = openAIWireArgumentDigest(item, tool.kind);
 		const events = this.#writer.appendAll([{
 			kind: "tool.admitted",
 			toolCallId,
@@ -711,6 +741,7 @@ export class OpenAIWireNormalizer {
 				status: "unavailable",
 				reason: "tool schema unavailable at normalization boundary",
 			},
+			...(argumentDigest === undefined ? {} : { argumentDigest }),
 		}]);
 		turn.items.set(itemId, {
 			category: "tool", kind: tool.kind, toolCallId, name: tool.name,

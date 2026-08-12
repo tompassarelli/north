@@ -553,6 +553,20 @@ test("Codex terminal usage preserves every reported cache and reasoning counter"
 
 test("Codex item payloads stay opaque except for identity and final agent text", async () => {
   const events = await eventsFromScript(codexSuccess([
+	JSON.stringify({
+	  type: "item.started",
+	  item: {
+	    id: "command_0", type: "command_execution", status: "in_progress",
+	    command: "printf CANARY-PRIVATE-COMMAND",
+	  },
+	}),
+	JSON.stringify({
+	  type: "item.completed",
+	  item: {
+	    id: "command_0", type: "command_execution", status: "completed",
+	    command: "printf CANARY-PRIVATE-COMMAND",
+	  },
+	}),
     JSON.stringify({
       type: "item.started",
       item: { id: "item_0", type: "future_provider_item" },
@@ -582,6 +596,13 @@ test("Codex item payloads stay opaque except for identity and final agent text",
   expect(events).toContainEqual(expect.objectContaining({
     kind: "message.recorded", stage: "delta", content: "final answer",
   }));
+	const commandAdmission = events.find((event) =>
+	  event.kind === "tool.admitted" && event.name === "command");
+	if (commandAdmission?.kind !== "tool.admitted") {
+	  throw new Error("missing Codex command admission");
+	}
+	expect(commandAdmission.argumentDigest).toMatch(/^[a-f0-9]{64}$/);
+	expect(JSON.stringify(events)).not.toContain("CANARY-PRIVATE-COMMAND");
 
   await expect(resultFromScript(codexSuccess([
     JSON.stringify({

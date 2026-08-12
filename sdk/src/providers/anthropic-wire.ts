@@ -17,6 +17,7 @@ import {
 	type WireQueryRoute,
 	type WireToolCallId,
 	type WireUsageSnapshot,
+	wireToolArgumentDigest,
 } from "../wire";
 import {
 	isArtifactReadToolName,
@@ -463,6 +464,8 @@ export class AnthropicWireNormalizer {
 					return this.#stateViolation("anthropic tool admission is duplicated");
 				}
 				const wireId = this.#toolCallId(rawId);
+				const argumentDigest = block.input === undefined
+					? undefined : wireToolArgumentDigest(block.input);
 				const admission = { rawId, rawName, wireId };
 				admissions.push(admission);
 				localTools.set(rawId, admission);
@@ -474,6 +477,7 @@ export class AnthropicWireNormalizer {
 					modelCallId,
 					...(parentTool === undefined ? {} : { parentToolCallId: parentTool.id }),
 					schema: { status: "unavailable", reason: "provider frame omitted schema provenance" },
+					...(argumentDigest === undefined ? {} : { argumentDigest }),
 					...(block.input === undefined ? {} : { argumentPreview: boundedPreview(block.input) }),
 				});
 				continue;

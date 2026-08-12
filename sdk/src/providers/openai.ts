@@ -71,6 +71,7 @@ import {
   type WireToolCallId,
   type WireUsageSnapshot,
   type WireUserInputFrame,
+  wireToolArgumentDigest,
 } from "../wire";
 import {
   OpenAIWireNormalizer,
@@ -722,12 +723,48 @@ interface ValidatedCodexItem {
   type: string;
   text?: string;
   status?: "in_progress" | "completed" | "failed";
+  argumentDigest?: string;
+}
+
+function codexExecArgumentDigest(item: JsonObject, type: string): string | undefined {
+  if (type === "command_execution" || type === "commandExecution") {
+    if (typeof item.command !== "string"
+        || (item.cwd !== undefined && typeof item.cwd !== "string")) return undefined;
+    return wireToolArgumentDigest({
+      command: item.command,
+      ...(item.cwd === undefined ? {} : { cwd: item.cwd }),
+    });
+  }
+  if (type === "mcp_tool_call" || type === "mcpToolCall") {
+    if (typeof item.server !== "string" || typeof item.tool !== "string"
+        || !item.arguments || typeof item.arguments !== "object"
+        || Array.isArray(item.arguments)) return undefined;
+    return wireToolArgumentDigest({
+      server: item.server,
+      tool: item.tool,
+      arguments: item.arguments,
+    });
+  }
+  if (type === "web_search" || type === "webSearch") {
+    return typeof item.query === "string"
+      ? wireToolArgumentDigest({ query: item.query }) : undefined;
+  }
+  if (type === "file_change" || type === "fileChange") {
+    return item.changes === undefined
+      ? undefined : wireToolArgumentDigest({ changes: item.changes });
+  }
+  if (type === "todo_list" || type === "todoList") {
+    return item.items === undefined
+      ? undefined : wireToolArgumentDigest({ items: item.items });
+  }
+  return undefined;
 }
 
 function validateCodexItem(value: unknown): ValidatedCodexItem {
   const item = objectValue(value, "Codex item");
   const type = boundedProtocolString(item.type, "Codex item type");
   const id = protocolId(item.id, "Codex item id");
+  const argumentDigest = codexExecArgumentDigest(item, type);
   // Item payloads are provider-incidental, not North authority. Keep them
   // strictly framed/parsed/bounded and require stable identity, but do not
   // freeze Codex's evolving command/MCP/web/todo payload union here. Only the
@@ -741,11 +778,16 @@ function validateCodexItem(value: unknown): ValidatedCodexItem {
     boundedProtocolString(item.message, "Codex error-item message", CODEX_JSONL_MAX_LINE_BYTES);
     return { id, type, status: "failed" };
   }
-  if (item.status === undefined) return { id, type };
+  if (item.status === undefined) return {
+    id, type, ...(argumentDigest === undefined ? {} : { argumentDigest }),
+  };
   if (item.status !== "in_progress" && item.status !== "completed" && item.status !== "failed") {
     throw new Error("Codex item status is invalid");
   }
-  return { id, type, status: item.status };
+  return {
+    id, type, status: item.status,
+    ...(argumentDigest === undefined ? {} : { argumentDigest }),
+  };
 }
 
 function exactUsage(value: unknown): ExactCodexUsage {
@@ -1043,6 +1085,9 @@ class CodexExecProtocol {
             status: "unavailable",
             reason: "tool schema unavailable at normalization boundary",
           },
+          ...(item.argumentDigest === undefined ? {} : {
+            argumentDigest: item.argumentDigest,
+          }),
         });
         return { category: "tool", type: item.type, toolCallId };
       };

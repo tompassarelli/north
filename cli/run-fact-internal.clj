@@ -605,7 +605,7 @@
     (when (seq present)
       (when-not (set/subset? struggle-required-predicates present)
         (fail! "struggle observation requires its complete policy fact set" {:fields present}))
-      (when-not (= "north:struggle-observer:v1"
+      (when-not (= "north:struggle-observer:v2"
                    (get scalar "struggle_detector_policy_version"))
         (fail! "unsupported struggle detector policy version" {}))
       (when-not (#{"worker" "orchestrator"} (get scalar "struggle_topology"))

@@ -310,6 +310,8 @@ export interface WireToolAdmittedEvent extends WireKnownEventEnvelope<"tool.admi
 	modelCallId?: WireModelCallId;
 	parentToolCallId?: WireToolCallId;
 	schema: WireToolSchemaProvenance;
+	/** SHA-256 over canonical structured arguments; absent when exact comparison is unavailable. */
+	argumentDigest?: string;
 	argumentPreview?: string;
 	argumentArtifactId?: WireArtifactId;
 }
