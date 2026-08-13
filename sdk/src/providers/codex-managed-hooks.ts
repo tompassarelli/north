@@ -42,6 +42,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "profiles/tom/hooks/logcompress-hook.js",
   },
+  "session-kill-guard.sh": {
+    repository: "north",
+    path: "profiles/tom/hooks/session-kill-guard.sh",
+  },
   "tripwire-guard.sh": {
     repository: "north",
     path: "profiles/tom/hooks/tripwire-guard.sh",
@@ -147,6 +151,7 @@ export function expectedManagedCodexHooks(
           command("firn-guard.sh", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
+          command("session-kill-guard.sh", 10, managedDir),
         ],
       },
     ],

@@ -1760,11 +1760,13 @@ const EDIT_GUARDS = resolveManagedGuardChain([
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
   "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
+  "session-kill-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
   "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
+  "session-kill-guard.sh",
 ]);
 
 function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {
