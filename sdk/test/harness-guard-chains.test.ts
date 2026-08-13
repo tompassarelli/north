@@ -128,6 +128,13 @@ for (const [name, route] of [
     expect(blind.decision).toBe("deny");
     expect(blind.reason).toContain("git add path/to/file");
     expect((await decide(hook, bash("printf ready && git add ."))).decision).toBe("deny");
+
+    const broadcast = await decide(hook, bash("kill -9 -1"));
+    expect(broadcast.decision).toBe("deny");
+    // Never trap a lane: the refusal names the scoped alternative.
+    expect(broadcast.reason).toContain("pkill -f");
+    expect((await decide(hook, bash("pkill -u tom"))).decision).toBe("deny");
+    expect((await decide(hook, bash("loginctl terminate-user tom"))).decision).toBe("deny");
   }, CASE_TIMEOUT_MS);
 
   test.skipIf(!installed)(`${name} never traps a lane`, async () => {
@@ -140,6 +147,8 @@ for (const [name, route] of [
       "git add sdk/src/harness.ts",
       `printf x > ${join(root, "north", "wt-lane", "x.txt")}`,
       "git commit -m 'stop using git add -A'",
+      "kill -TERM 1234",
+      "pkill -f 'wrangler dev --port 8788'",
     ]) {
       expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
         .toBe(`${command} => allow`);
