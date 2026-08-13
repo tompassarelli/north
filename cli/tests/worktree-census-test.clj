@@ -17,7 +17,7 @@
             "north worktree census "
             (make-array java.nio.file.attribute.FileAttribute 0)))
       claimed-path (.getCanonicalPath
-                    (doto (io/file tmp "wt-space and \"quote\"") .mkdirs))]
+                    (doto (io/file tmp "worktrees" "space and \"quote\"") .mkdirs))]
   (try
     (let [calls (atom [])]
       (with-redefs [north.coord/bounded-query-in-domain

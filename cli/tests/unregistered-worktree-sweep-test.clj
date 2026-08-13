@@ -83,9 +83,24 @@
      :container (.getCanonicalPath (io/file census-root name))
      :root main}))
 
+(defn census-pin!
+  "A pin in the exact shape both live pins have: clean, merged, DETACHED,
+   and aged past the horizon. Nothing but its parent directory keeps it out
+   of the reaper's hands."
+  [{:keys [container root]} name]
+  (let [pins (doto (io/file container "pins") .mkdirs)
+        path (.getCanonicalPath (io/file pins name))
+        head (git! "-C" root "rev-parse" "HEAD")]
+    (git! "-C" root "worktree" "add" "-q" "--detach" path head)
+    (spit (io/file pins (str name ".pin"))
+          (str name " — externally consumed. Consumers: a build outside this repo.\n"))
+    (age-worktree! path)
+    {:name name :path path}))
+
 (defn census-worktree!
   [{:keys [container root]} slug {:keys [dirty? unmerged? aged?]}]
-  (let [path (.getCanonicalPath (io/file container (str "wt-" slug)))]
+  (let [worktrees (doto (io/file container "worktrees") .mkdirs)
+        path (.getCanonicalPath (io/file worktrees slug))]
     (git! "-C" root "worktree" "add" "-q" "-b" slug path "HEAD")
     (when unmerged?
       (spit (io/file path "own work.txt") "unlanded bytes\n")
@@ -120,15 +135,20 @@
           fresh (census-worktree! demo "fresh" {})
           claimed (census-worktree! demo "claimed" {:aged? true})
           held-tree (census-worktree! held "held" {:aged? true})
-          foreign (doto (io/file (:container demo) "wt-foreign") .mkdirs)
+          pin (census-pin! demo "gjoa")
+          foreign (doto (io/file (:container demo) "worktrees" "foreign") .mkdirs)
           _ (proc/shell {:out :string :err :string}
                         "touch" "-d" aged-date (.getPath foreign))
           claimed-set #{(:path claimed)}
           live-repos #{(:container held)}
           before (into {} (map (juxt :slug #(tree-snapshot (:path %))))
                        [reapable dirty unmerged fresh claimed held-tree])
+          pin-before (tree-snapshot (:path pin))
           dry (sweep! census-root true claimed-set live-repos)]
 
+      ;; T17 — the highest-value assertion in the migration. `:scanned 7` is the
+      ;; whole proof: the pin is not kept, not reviewed, not skipped — it is
+      ;; NEVER ENUMERATED. A sweeper that opts in on worktrees/ cannot reach it.
       (check "dry run detects exactly one reclaimable unregistered tree"
              (= {:scanned 7 :claimed 1 :fresh 1 :review 3 :live-concern 1
                  :uncertain 0 :partial 0 :removed 0 :would-remove 1 :errors 0}
@@ -159,6 +179,15 @@
              (and (not (str/includes? (:out dry) (:path fresh)))
                   (not (str/includes? (:out dry) (:path claimed))))
              (:out dry))
+      (check "a pin never appears in the sweep at all (T17)"
+             (not (str/includes? (:out dry) (:path pin)))
+             (:out dry))
+      (check "the census does not enumerate a pins/ tree (T23)"
+             (not (contains?
+                   (into #{} (map :worktree)
+                         (north.worktree-census/repo-rows
+                          {:repo "demo" :container (:container demo) :root (:root demo)}))
+                   (:path pin))))
       (check "dry run mutates nothing"
              (and (every? #(.isDirectory (io/file (:path %)))
                           [reapable dirty unmerged fresh claimed held-tree])
@@ -186,6 +215,11 @@
                     (branch-present? (:root demo) (:branch claimed))
                     (branch-present? (:root held) (:branch held-tree))
                     (.isDirectory foreign)))
+        (check "the pin survives a production sweep byte for byte (T17)"
+               (and (.isDirectory (io/file (:path pin)))
+                    (= pin-before (tree-snapshot (:path pin)))
+                    (not (str/includes? (:out live) (:path pin))))
+               (:out live))
         (check "git's own registration list no longer carries the reclaimed tree"
                (not (str/includes?
                      (str/join " " (map :path (north.worktree-census/registered-worktrees

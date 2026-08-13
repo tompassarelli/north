@@ -141,8 +141,9 @@ in-flight WIP. GitHub releases: version tag as the title, details in body.
 Branch hygiene: origin carries main only (plus tags). Worktree/lane branches
 are local and ephemeral — land by fetch + `safe-push --to main`. Landing is
 complete only after cleanup: remove your worktree and delete your branch
-(`wt-reap` sweeps every merged+clean sibling); a landed lane that leaves its
-worktree behind is not done. Never publish a feature branch name.
+(`wt-reap` sweeps every merged+clean tree under `<container>/worktrees/`;
+`<container>/pins/` is exempt — an externally consumed pin is never "done");
+a landed lane that leaves its worktree behind is not done. Never publish a feature branch name.
 
 ## Removal means absence — no tombstones
 <!-- north-section: removal · bucket: write -->
@@ -320,7 +321,8 @@ a finished lane's shell never lingers.
 - **Human WIP is not yours; a dirty main gets rescued, never destroyed.**
   Never commit, stash, reset, or clean a `main/` checkout directly
   (guard-enforced). Remediation is standing policy: `wt-rescue` relocates
-  the dirty state intact to a rescue worktree and restores main to clean.
+  the dirty state intact to `<container>/worktrees/rescue-<ts>` and restores
+  main to clean.
   Genuine git surgery on a main rides the deliberate bypass
   (`north config guards off`), stated aloud, guards back on after.
   Out-of-footprint anomalies: one sentence or a `north capture`, never an

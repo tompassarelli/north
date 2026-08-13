@@ -522,8 +522,9 @@ case "${1:-}" in
     exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/north-listen.clj" \
       "${NORTH_PORT:-7977}" "${2:?usage: north listen <agent-id>}" --once --ack "${@:3}" ;;
   worktrees)
-    # Machine-wide worktree census: every wt-* sibling of a container repo's main
-    # checkout, joined to live concerns and graph lane registrations. Read-only.
+    # Machine-wide worktree census: every tree under a container's worktrees/
+    # directory, joined to live concerns and graph lane registrations. Nothing
+    # under pins/ is enumerated — a pin is never a lane. Read-only.
     # cli/worktrees-cli.clj.
     exec "$BB" "$NORTH/cli/worktrees-cli.clj" "${@:2}" ;;
   worktree)

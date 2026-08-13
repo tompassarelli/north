@@ -6,14 +6,26 @@
 // guard that never runs and never complains. These cases invoke the composed hook
 // and read back the decision.
 //
-// Hermetic: LAUNCH_CRITICAL_CODE_ROOT points the worktree guard at a fixture
-// container tree, so no assertion depends on this machine's ~/code.
+// Hermetic in BOTH directions. LAUNCH_CRITICAL_CODE_ROOT points the worktree guard
+// at a fixture container tree, so no assertion depends on this machine's ~/code —
+// and AGENT_HOOKS_DIR points the CHAIN at this repository's own guard scripts, so
+// no assertion depends on when `firn rebuild` last projected them into
+// ~/.agents/hooks. Without the second half these cases prove only what the last
+// rebuild shipped: a guard edited here would sit unverified until a rebuild, which
+// is the exact window a layout change has to be proven inside.
+// The chain-resolution mechanism it guards (resolveManagedGuardChain silently drops
+// a name it cannot resolve) is unaffected: the names are still resolved, just
+// against a directory this test can vouch for.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { HOOKS_DIR } from "../src/authoring-guards";
-import { harnessOptions } from "../src/harness";
+
+process.env.AGENT_HOOKS_DIR ||= resolve(import.meta.dir, "..", "..", "profiles", "tom", "hooks");
+// Dynamic, because harness.ts resolves its guard chains at MODULE LOAD: a plain
+// import is hoisted above the assignment above and would read the old directory.
+const { HOOKS_DIR } = await import("../src/authoring-guards");
+const { harnessOptions } = await import("../src/harness");
 
 const REQUIRED = ["launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh"];
 const installed = REQUIRED.every((name) => existsSync(resolve(HOOKS_DIR, name)));
@@ -24,9 +36,14 @@ let savedRoot: string | undefined;
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "north-guard-chain-"));
   // A `main` is protected when it holds a `.git` (dynamic detection), so the
-  // fixture container needs one; `wt-lane` is the sanctioned destination.
+  // fixture container needs one. The container carries all three slots, because
+  // the rule is positional: `worktrees/<slug>` is the sanctioned destination and
+  // `pins/<name>` is the one place a write is refused for a different reason.
   for (const project of ["north", "fram"]) mkdirSync(join(root, project, "main", ".git"), { recursive: true });
-  mkdirSync(join(root, "north", "wt-lane"), { recursive: true });
+  mkdirSync(join(root, "north", "worktrees", "lane"), { recursive: true });
+  mkdirSync(join(root, "north", "pins", "site"), { recursive: true });
+  writeFileSync(join(root, "north", "pins", "site.pin"),
+    "site — vendored upstream checkout. Consumers: the docs build.\n");
   savedRoot = process.env.LAUNCH_CRITICAL_CODE_ROOT;
   process.env.LAUNCH_CRITICAL_CODE_ROOT = root;
 });
@@ -93,16 +110,26 @@ const bash = (command: string) => ({
   tool_name: "Bash", session_id: "probe", cwd: root, tool_input: { command },
 });
 
-test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and passes a worktree", async () => {
+test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and passes a lane", async () => {
   const { edit: hook } = lane();
   const denied = await decide(hook, edit(join(root, "north", "main", "sdk", "harness.ts")));
   expect(denied.decision).toBe("deny");
-  // Never trap a lane: the refusal has to name the move that works.
+  // Never trap a lane: the refusal has to name the move that works, in the
+  // CURRENT layout. `SLUG` not `<slug>`: angle brackets in a runnable command
+  // parse as a shell redirect in the guard's own scanner.
   expect(denied.reason).toContain("worktree add");
-  expect(denied.reason).toContain("wt-<slug>");
+  expect(denied.reason).toContain("worktrees/SLUG");
 
-  expect((await decide(hook, edit(join(root, "north", "wt-lane", "sdk", "harness.ts")))).decision)
+  expect((await decide(hook, edit(join(root, "north", "worktrees", "lane", "sdk", "harness.ts")))).decision)
     .toBe("allow");
+
+  // A pin is refused for a DIFFERENT reason and with a different remedy —
+  // this is the only proof the chain carries the pin rule at all.
+  const pin = await decide(hook, edit(join(root, "north", "pins", "site", "index.html")));
+  expect(pin.decision).toBe("deny");
+  expect(pin.reason).toContain("pins/site.pin");
+  expect(pin.reason).toContain("the docs build");
+  expect(pin.reason).not.toContain("worktree add");
 }, CASE_TIMEOUT_MS);
 
 // Both Bash chains: they differ only by orchestration permission (agent-spawn-guard),
@@ -142,10 +169,12 @@ for (const [name, route] of [
     const main = join(root, "north", "main");
     for (const command of [
       `cat ${main}/AGENTS.md`,
-      `git -C ${main} worktree add ${join(root, "north", "wt-lane")} -b lane`,
+      `mkdir -p ${join(root, "north", "worktrees")}`,
+      `git -C ${main} worktree add ${join(root, "north", "worktrees", "lane")} -b lane`,
       `git -C ${main} pull --ff-only`,
       "git add sdk/src/harness.ts",
-      `printf x > ${join(root, "north", "wt-lane", "x.txt")}`,
+      `printf x > ${join(root, "north", "worktrees", "lane", "x.txt")}`,
+      `git -C ${join(root, "north", "pins", "site")} checkout 3e942ba2`,
       "git commit -m 'stop using git add -A'",
       "kill -TERM 1234",
       "pkill -f 'wrangler dev --port 8788'",

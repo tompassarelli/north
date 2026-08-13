@@ -116,9 +116,15 @@ check("grep inside a primary", run(bash("grep -rn foo cli/", cwd=NORTH)) is None
 check("cat a primary file", run(bash("cat /home/tom/code/north/main/cli/coord.clj")) is None)
 
 check("git worktree add FROM the primary is the escape route, never blocked",
-      run(bash("git -C /home/tom/code/north/main worktree add /home/tom/code/north/wt-x -b x")) is None)
+      run(bash("git -C /home/tom/code/north/main worktree add "
+               "/home/tom/code/north/worktrees/x -b x")) is None)
+check("the advised mkdir + worktree add sequence is allowed end to end",
+      run(bash("mkdir -p /home/tom/code/north/worktrees && "
+               "git -C /home/tom/code/north/main worktree add "
+               "/home/tom/code/north/worktrees/x -b x")) is None)
 check("git fetch INTO the primary is allowed",
-      run(bash("git -C /home/tom/code/north/main fetch /home/tom/code/north/wt-x x:refs/heads/main")) is None)
+      run(bash("git -C /home/tom/code/north/main fetch "
+               "/home/tom/code/north/worktrees/x x:refs/heads/main")) is None)
 
 # THE LANDING PATH MUST WORK. `fetch <wt> <branch>:refs/heads/main` fails when
 # main is checked out — which it always is under this layout — so --ff-only
@@ -154,21 +160,27 @@ check("a REAL sed -i on a primary is still denied",
 check("redirect to /tmp while cwd is a primary is fine",
       run(bash("grep foo cli/x.clj > /tmp/out", cwd=NORTH)) is None)
 
-print("--- the wt-* carve-out (both layouts) ---")
+print("--- the worktrees/ carve-out — the PARENT directory, positionally ---")
 
-check("writing in a wt- worktree is allowed",
-      run(bash("git add .", cwd="/home/tom/code/north/wt-abc")) is None)
-check("heredoc in a wt- worktree is allowed",
-      run(bash("python3 - <<'EOF'\npass\nEOF", cwd="/home/tom/code/north/wt-abc")) is None)
-check("a path under <project>/main IS protected (target layout)",
+check("writing in a lane is allowed",
+      run(bash("git add .", cwd="/home/tom/code/north/worktrees/abc")) is None)
+check("heredoc in a lane is allowed",
+      run(bash("python3 - <<'EOF'\npass\nEOF",
+               cwd="/home/tom/code/north/worktrees/abc")) is None)
+check("a lane whose slug is literally `main` is still a lane",
+      run(bash("git add .", cwd="/home/tom/code/north/worktrees/main")) is None)
+check("a path under <project>/main IS protected",
       run(bash("git add x", cwd="/home/tom/code/north/main")))
+check("`worktrees` is matched at container depth, not anywhere in the path",
+      run({"tool_name": "Edit", "tool_input": {
+          "file_path": "/home/tom/code/north/main/docs/worktrees/notes.md"}}))
 check("unrelated repos are untouched",
       run(bash("git commit -m x", cwd="/home/tom/code/some-other-project")) is None)
 check("a sibling like north-data must not match",
       run(bash("git add x", cwd="/home/tom/code/north-data")) is None)
 
-# The CONTAINER root is not a checkout: it holds only main/ and wt-*/, so a
-# symlink or scratch file there cannot dirty anything. Denying it left no
+# The CONTAINER root is not a checkout: it holds main/, worktrees/ and pins/,
+# so a symlink or scratch file there cannot dirty anything. Denying it left no
 # compliant way to place a compatibility symlink during the migration.
 check("the container root itself is writable",
       run(bash("ln -s main/orchestration orchestration-probe",
@@ -181,9 +193,10 @@ print("--- Edit/Write behaviour is unchanged ---")
 check("Edit into a primary is denied",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": "/home/tom/code/north/main/cli/x.clj"}}))
-check("Edit into a wt- worktree is allowed",
+check("Edit into a lane is allowed",
       run({"tool_name": "Edit",
-           "tool_input": {"file_path": "/home/tom/code/north/wt-a/cli/x.clj"}}) is None)
+           "tool_input": {
+               "file_path": "/home/tom/code/north/worktrees/a/cli/x.clj"}}) is None)
 check("Edit outside ~/code is allowed",
       run({"tool_name": "Edit", "tool_input": {"file_path": "/tmp/x.clj"}}) is None)
 
@@ -193,10 +206,13 @@ print("--- every container's main, not only the launch-critical ones ---")
 # never heard of, and must not sweep in the near-misses that live beside one.
 FIX = tempfile.mkdtemp(prefix="lc-guard-")
 ROOT = os.path.join(FIX, "code")
-for rel in ("proj/main/.git", "proj/wt-x/.git", "client/msa/app/main/.git",
-            "reference/upstream/main/.git", "runtime-data/.git",
-            "beagle/.git", "plain-dir"):
+for rel in ("proj/main/.git", "proj/worktrees/x/.git", "proj/worktrees/main",
+            "proj/pins/site", "client/msa/app/main/.git",
+            "reference/upstream/main/.git", "runtime-data/.git", "plain-dir"):
     os.makedirs(os.path.join(ROOT, rel), exist_ok=True)
+PIN = os.path.join(ROOT, "proj", "pins", "site")
+open(os.path.join(ROOT, "proj", "pins", "site.pin"), "w").write(
+    "site — vendored upstream checkout. Consumers: the docs build.\n")
 
 PROJ = os.path.join(ROOT, "proj", "main")
 CLIENT = os.path.join(ROOT, "client", "msa", "app", "main")
@@ -212,8 +228,12 @@ check("a client project's nested main is protected",
       fixture("git add .", cwd=CLIENT))
 check("the deny names the nested container",
       "client/msa/app" in (fixture("git add .", cwd=CLIENT) or ""))
-check("its wt- worktree is not",
-      fixture("git commit -m x", cwd=os.path.join(ROOT, "proj", "wt-x")) is None)
+check("its lane is not",
+      fixture("git commit -m x",
+              cwd=os.path.join(ROOT, "proj", "worktrees", "x")) is None)
+check("a lane whose slug is literally `main` is not the primary",
+      fixture("git commit -m x",
+              cwd=os.path.join(ROOT, "proj", "worktrees", "main")) is None)
 check("a data dir with a bare .git and no main/ stays writable",
       fixture("git commit -m x", cwd=os.path.join(ROOT, "runtime-data")) is None)
 check("a directory that is no checkout at all is untouched",
@@ -221,8 +241,6 @@ check("a directory that is no checkout at all is untouched",
 check("~/code/reference is read-only context, never this guard's business",
       fixture("cat notes.md",
               cwd=os.path.join(ROOT, "reference", "upstream", "main")) is None)
-check("a launch-critical container that IS the checkout (pre-migration)",
-      fixture("git add .", cwd=os.path.join(ROOT, "beagle")))
 check("Edit into an unheard-of project's main is denied",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": os.path.join(PROJ, "src/x.py")}},
@@ -232,6 +250,54 @@ check("Edit into ~/code/reference is allowed",
            "tool_input": {"file_path": os.path.join(
                ROOT, "reference/upstream/main/x.py")}},
           code_root=ROOT) is None)
+
+print("--- pins/: protected because something OUTSIDE consumes them ---")
+
+# A pin is not a main and not a lane. Its deny must carry its own noun, its
+# own WHY, and its own remedy — the manifest and the human. Answering a pin
+# deny with "work in a worktree" sends the agent to break what is protected.
+PIN_HIT = run({"tool_name": "Edit",
+               "tool_input": {"file_path": os.path.join(PIN, "index.html")}},
+              code_root=ROOT)
+check("a write into a pin is denied", PIN_HIT)
+check("the pin deny names the .pin manifest",
+      "pins/site.pin" in (PIN_HIT or ""))
+check("the pin deny names the manifest's consumers",
+      "the docs build" in (PIN_HIT or ""))
+check("the pin deny does NOT send the agent to worktree add",
+      "worktree add" not in (PIN_HIT or ""))
+check("the pin deny names the sanctioned re-point",
+      "checkout REF" in (PIN_HIT or ""))
+check("the manifest itself is protected like the pin (AMB-6)",
+      run({"tool_name": "Edit",
+           "tool_input": {"file_path": os.path.join(
+               ROOT, "proj", "pins", "site.pin")}},
+          code_root=ROOT))
+check("the pins/ ROOT itself stays writable — a container must grow one",
+      fixture("mkdir -p site", cwd=os.path.join(ROOT, "proj", "pins")) is None)
+check("the worktrees/ ROOT itself stays writable",
+      fixture("mkdir -p lane",
+              cwd=os.path.join(ROOT, "proj", "worktrees")) is None)
+check("a redirect into a pin is denied",
+      fixture(f"echo x > {os.path.join(PIN, 'x.txt')}"))
+check("sed -i inside a pin is denied",
+      fixture(f"sed -i s/a/b/ {os.path.join(PIN, 'x.txt')}"))
+check("committing inside a pin is denied", fixture("git commit -am x", cwd=PIN))
+check("re-pointing a pin is its ONE sanctioned mutation",
+      fixture(f"git -C {PIN} checkout 3e942ba2") is None)
+check("...also in the --detach form",
+      fixture(f"git -C {PIN} switch --detach 3e942ba2") is None)
+check("...but a working-tree checkout in a pin is not a re-point",
+      fixture(f"git -C {PIN} checkout -- ."))
+check("...and creating a branch in a pin is not a re-point",
+      fixture(f"git -C {PIN} checkout -b mine"))
+check("a re-point cannot shield a later write into the pin",
+      fixture(f"git -C {PIN} checkout abc123 && "
+              f"echo x > {os.path.join(PIN, 'x.txt')}"))
+check("reading a pin is always fine",
+      fixture(f"cat {os.path.join(PIN, 'index.html')}") is None)
+check("a reset --hard in a pin denies with the PIN reason, not wt-rescue",
+      "wt-rescue" not in (fixture(f"git -C {PIN} reset --hard") or "x"))
 
 shutil.rmtree(FIX, ignore_errors=True)
 
@@ -256,7 +322,7 @@ check("clean -ffdx", run(bash(f"git -C {NIXOS} clean -ffdx")))
 # The hole this class closes: the old scan stopped at the FIRST git call, so a
 # sanctioned verb ahead of a destructive one vouched for the whole line.
 check("a sanctioned verb earlier in the line does not shield a reset --hard",
-      run(bash(f"git -C {NORTH} worktree add /tmp/wt-y -b y && "
+      run(bash(f"git -C {NORTH} worktree add /tmp/lane-y -b y && "
                f"git -C {NORTH} reset --hard origin/main")))
 check("...nor a stash after a fetch",
       run(bash(f"git -C {NORTH} fetch origin && git -C {NORTH} stash")))
@@ -289,23 +355,30 @@ check("the allowlist is per SEGMENT — a reset --hard after it still denies",
       run(bash(f"wt-rescue {NORTH} && git -C {NORTH} reset --hard origin/main")))
 check("...and a plain mutation after it still denies",
       run(bash(f"wt-rescue {NORTH}; git -C {NORTH} commit -m x")))
-check("a wt-rescue's own rescue worktree is a wt- destination",
-      run(bash("git add .", cwd="/home/tom/code/north/wt-rescue-20260730-1600")) is None)
+# wt-rescue's destination moved with the layout: it now lands the human's
+# dirty state in <container>/worktrees/rescue-<ts>. That tree must be
+# writable, or the tool the deny message recommends produces a tree the
+# guard then refuses.
+check("a wt-rescue's own rescue tree is a lane under worktrees/",
+      run(bash("git add .",
+               cwd="/home/tom/code/north/worktrees/rescue-20260730-1600"))
+      is None)
 check("the word wt-rescue as mere text vouches for nothing",
       run(bash(f"echo wt-rescue && git -C {NORTH} reset --hard")))
 
-check("reset --hard INSIDE a worktree is the lane's own business",
+check("reset --hard INSIDE a lane is the lane's own business",
       run(bash("git reset --hard origin/main",
-               cwd="/home/tom/code/north/wt-abc")) is None)
-check("stash inside a worktree is fine",
-      run(bash("git -C /home/tom/code/north/wt-abc stash")) is None)
-check("clean -fd inside a worktree is fine",
-      run(bash("git clean -fd", cwd="/home/tom/code/fram/wt-abc")) is None)
+               cwd="/home/tom/code/north/worktrees/abc")) is None)
+check("stash inside a lane is fine",
+      run(bash("git -C /home/tom/code/north/worktrees/abc stash")) is None)
+check("clean -fd inside a lane is fine",
+      run(bash("git clean -fd", cwd="/home/tom/code/fram/worktrees/abc")) is None)
 
 print("--- the landing flow must still run from main ---")
 
 check("worktree remove", run(bash(
-    "git -C /home/tom/code/north/main worktree remove /home/tom/code/north/wt-x")) is None)
+    "git -C /home/tom/code/north/main worktree remove "
+    "/home/tom/code/north/worktrees/x")) is None)
 check("worktree prune",
       run(bash("git -C /home/tom/code/north/main worktree prune")) is None)
 check("branch -d", run(bash("git -C /home/tom/code/north/main branch -d slug")) is None)
@@ -316,8 +389,9 @@ check("the whole sequence in one command", run(bash(
     "git -C /home/tom/code/north/main merge --ff-only slug && "
     "git -C /home/tom/code/north/main branch -d slug && "
     "git -C /home/tom/code/north/main worktree prune")) is None)
-check("rebase run in a WORKTREE is untouched",
-      run(bash("git rebase main", cwd="/home/tom/code/north/wt-abc")) is None)
+check("rebase run in a LANE is untouched",
+      run(bash("git rebase main",
+               cwd="/home/tom/code/north/worktrees/abc")) is None)
 check("rebase run in main is not",
       run(bash("git rebase origin/main", cwd=NORTH)))
 
@@ -327,11 +401,11 @@ add_main = ENV.format(verb="Add", path=f"{NORTH}/cli/x.clj", body="+x\n")
 update_relative = ENV.format(verb="Update", path="cli/x.clj", body="@@\n-a\n+b\n")
 delete_fram = ENV.format(verb="Delete", path=f"{FRAM}/x.clj", body="")
 move_main = ENV.format(
-    verb="Update", path="/home/tom/code/north/wt-abc/a.clj",
+    verb="Update", path="/home/tom/code/north/worktrees/abc/a.clj",
     body=f"*** Move to: {NORTH}/a.clj\n@@\n-a\n+b\n")
-move_worktree = ENV.format(
-    verb="Update", path="/home/tom/code/north/wt-abc/a.clj",
-    body="*** Move to: /home/tom/code/north/wt-abc/b.clj\n@@\n-a\n+b\n")
+move_lane = ENV.format(
+    verb="Update", path="/home/tom/code/north/worktrees/abc/a.clj",
+    body="*** Move to: /home/tom/code/north/worktrees/abc/b.clj\n@@\n-a\n+b\n")
 tmp_add = ENV.format(verb="Add", path="/tmp/x.txt", body="+x\n")
 
 check("Add File with an absolute primary target is denied", run(patch(add_main)))
@@ -339,8 +413,8 @@ check("Update File resolves a relative target against cwd",
       run(patch(update_relative, cwd=NORTH)))
 check("Delete File into fram's primary is denied", run(patch(delete_fram)))
 check("Move to destination alone trips primary protection", run(patch(move_main)))
-check("Update and Move to within a worktree are allowed",
-      run(patch(move_worktree)) is None)
+check("Update and Move to within a lane are allowed",
+      run(patch(move_lane)) is None)
 check("Add File outside protected checkouts is allowed", run(patch(tmp_add)) is None)
 check("a nested envelope is found recursively", run({
     "tool_name": "apply_patch",
@@ -371,14 +445,14 @@ print("--- apply_patch through the shell ---")
 
 protected_heredoc = (
     "apply_patch <<'EOF'\n" + add_main + "\nEOF")
-worktree_envelope = ENV.format(
-    verb="Update", path="/home/tom/code/north/wt-abc/cli/x.clj",
+lane_envelope = ENV.format(
+    verb="Update", path="/home/tom/code/north/worktrees/abc/cli/x.clj",
     body="@@\n-a\n+b\n")
-worktree_heredoc = "apply_patch <<'EOF'\n" + worktree_envelope + "\nEOF"
+lane_heredoc = "apply_patch <<'EOF'\n" + lane_envelope + "\nEOF"
 check("a shell apply_patch heredoc into a primary is denied",
       run(bash(protected_heredoc)))
-check("a shell apply_patch heredoc into a worktree is allowed",
-      run(bash(worktree_heredoc)) is None)
+check("a shell apply_patch heredoc into a lane is allowed",
+      run(bash(lane_heredoc)) is None)
 check("an envelope written as pure heredoc data is allowed", run(bash(
     "cat > /tmp/t.md <<'EOF'\n*** Begin Patch\n"
     f"*** Update File: {NORTH}/x\n*** End Patch\nEOF")) is None)
@@ -387,14 +461,14 @@ check("apply_patch input redirection fails closed",
 check("the direct apply_patch argv form is denied", run(bash([
     "apply_patch", add_main,
 ])))
-check("the direct apply_patch argv form allows a worktree", run(bash([
-    "apply_patch", worktree_envelope,
+check("the direct apply_patch argv form allows a lane", run(bash([
+    "apply_patch", lane_envelope,
 ])) is None)
 check("an argv shell wrapper invoking apply_patch is denied", run(bash([
     "bash", "-lc", protected_heredoc,
 ])))
 check("an allowed envelope cannot shield a later destructive git command",
-      run(bash(worktree_heredoc +
+      run(bash(lane_heredoc +
                f"\n&& git -C {NORTH} reset --hard")))
 check("generic non-apply_patch argv handling remains out of scope",
       run(bash(["rm", f"{NORTH}/x"])) is None)

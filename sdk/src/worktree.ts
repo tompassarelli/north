@@ -28,7 +28,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   framBabashkaArguments,
   framCoordinatorChildTimeout,
@@ -198,21 +198,36 @@ function gitCommonDir(repoRoot: string): string {
   ]).trim());
 }
 
-// `~/code/<project>` is a CONTAINER whose checkout is its `main/` child, so a lane
-// dispatched from the container directory still resolves to exactly one repo root.
+// `~/code/<project>` is a CONTAINER holding exactly three slots: `main/` (the clean
+// checkout — the only source a lane is ever cut from), `worktrees/<slug>/` (the
+// ephemeral lanes, sweepable), and `pins/<name>/` (externally consumed checkouts that
+// automation never touches). A lane dispatched from the container directory still
+// resolves to exactly one repo root: its `main/`.
 function sourceRoot(repoRoot: string): string {
-  try {
-    return realpathSync(git(["-C", repoRoot, "rev-parse", "--show-toplevel"]).trim());
-  } catch (error) {
-    const nested = join(resolve(repoRoot), "main");
-    if (existsSync(join(nested, ".git")))
-      return realpathSync(git(["-C", nested, "rev-parse", "--show-toplevel"]).trim());
+  const resolved = (() => {
+    try {
+      return realpathSync(git(["-C", repoRoot, "rev-parse", "--show-toplevel"]).trim());
+    } catch (error) {
+      const nested = join(resolve(repoRoot), "main");
+      if (existsSync(join(nested, ".git")))
+        return realpathSync(git(["-C", nested, "rev-parse", "--show-toplevel"]).trim());
+      throw new Error(
+        `managed worktree allocation requires a git checkout: neither ${repoRoot} `
+        + `nor ${nested} is one`,
+        { cause: error },
+      );
+    }
+  })();
+  // FAIL LOUD on a pin. A pin is consumed outside this repository at exactly its path
+  // and revision; cutting a lane from one makes an agent's work depend on a checkout
+  // automation may never sweep, and silently succeeding here is how that happens.
+  if (basename(dirname(resolved)) === "pins")
     throw new Error(
-      `managed worktree allocation requires a git checkout: neither ${repoRoot} `
-      + `nor ${nested} is one`,
-      { cause: error },
+      `managed worktree allocation refuses a pin: ${resolved} is an externally consumed `
+      + `checkout (see ${resolved}.pin for its consumers). Dispatch against the `
+      + `container's main/ checkout instead.`,
     );
-  }
+  return resolved;
 }
 
 function repositoryIdentity(commonDir: string): string {
@@ -324,12 +339,24 @@ export function worktreeBranch(agentId: string): string {
   return `lane-${agentId}`;
 }
 
+// The name segment a lane's workspace carries. The CONTAINER's name whenever the root is
+// a `main/` checkout: production callers pass `~/code/<project>/main`, so keying off the
+// checkout basename alone collapsed every project's lanes into one `/tmp/main-lane-*`
+// namespace. Mirrored in cli/worktree-janitor.clj (clone-repo-tag) — the two must derive
+// the same string or the janitor stops recognising the clones it provisioned.
+export function worktreeRepoTag(repoRoot: string): string {
+  const base = basename(repoRoot);
+  if (base !== "main") return base;
+  return basename(dirname(repoRoot)) || base;
+}
+
 // Absolute path of a lane's workspace (the clone root; its .git lives INSIDE). /tmp (not
 // <repo>-worktrees/) DELIBERATELY: it matches kea's already-in-production worktree-lane
-// pattern (msa131-*, msa210* on /tmp). basename separates the normal case of repositories
-// with distinct names; the allocation ledger makes any residual path/ref collision explicit.
+// pattern (msa131-*, msa210* on /tmp). The repo tag separates the normal case of
+// repositories with distinct names; the allocation ledger makes any residual path/ref
+// collision explicit.
 export function worktreePath(agentId: string, repoRoot: string): string {
-  return `/tmp/${basename(repoRoot)}-${worktreeBranch(agentId)}`;
+  return `/tmp/${worktreeRepoTag(repoRoot)}-${worktreeBranch(agentId)}`;
 }
 
 // Push url sentinel: an unroutable transport so an accidental `git push` from a lane clone
@@ -409,6 +436,9 @@ export function worktreePayload(o: { path: string; branch: string; mainReportsDi
     `Your working tree is \`${o.path}\` on branch \`${o.branch}\` — your OWN index + tree.`,
     `Nothing you stage or commit can touch a peer's index, and no peer can reset yours.`,
     `Stage freely (\`git add -A\` is safe here); commit on \`${o.branch}\` only.`,
+    `If you cut a further lane yourself, it lives at \`<container>/worktrees/<slug>\` —`,
+    `never a \`wt-\` sibling, and never under \`<container>/pins/\`, which holds`,
+    `externally-consumed checkouts automation must never touch.`,
     ``,
     `### Landing protocol (get your branch into main)`,
     `1. Commit all work on \`${o.branch}\` (own index — zero cross-lane contamination).`,

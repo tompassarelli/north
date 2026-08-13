@@ -20,7 +20,7 @@ WORK — threads: thought → fact → outcome
   north evidence record "<bar>" "<result>"      bind done-bar evidence to this exact managed run
                                                 --thread <id> — no reservation in env: record unreserved thread evidence
   north bars list|prune <thread>                groom a thread's done_when set; prune retires evidenced bars
-  north worktrees [repo] [--json]               every repo's wt-* trees: drift, dirt, age, owning lane/concern
+  north worktrees [repo] [--json]               every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern
   north worktree lander [repo]                  landing reconciliation: harvest lane refs already merged to main
   north linear get|import|plan|sync             mechanical Linear bridge (sync is plan-only unless --apply)
   north merge <from> <to>                       fold one node into another; refs follow

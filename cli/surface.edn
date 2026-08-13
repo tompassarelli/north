@@ -66,7 +66,7 @@
   {:verb "bars" :form "north bars list|prune <thread>" :topic :work
    :summary "groom a thread's done_when set; prune retires evidenced bars"}
   {:verb "worktrees" :form "north worktrees [repo] [--json]" :topic :work
-   :summary "every repo's wt-* trees: drift, dirt, age, owning lane/concern"}
+   :summary "every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern"}
   {:verb "worktree" :form "north worktree lander [repo]" :topic :work
    :summary "landing reconciliation: harvest lane refs already merged to main"}
   {:verb "linear" :form "north linear get|import|plan|sync" :topic :work

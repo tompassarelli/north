@@ -6,6 +6,7 @@ import { test, expect, describe } from "bun:test";
 import {
   worktreeBranch,
   worktreePath,
+  worktreeRepoTag,
   cloneArgs,
   cloneBranchArgs,
   cloneNeuterPushArgs,
@@ -20,10 +21,30 @@ describe("branch + path naming", () => {
   test("branch is lane-<agentId>", () => {
     expect(worktreeBranch("sdk-abc123")).toBe("lane-sdk-abc123");
   });
-  test("path is /tmp/<repo-basename>-lane-<agentId>", () => {
+  test("path is /tmp/<repo-tag>-lane-<agentId>", () => {
     expect(worktreePath("sdk-abc123", "/home/tom/code/kea")).toBe("/tmp/kea-lane-sdk-abc123");
   });
-  test("path keys off distinct repo basenames", () => {
+  // PRODUCTION callers pass `~/code/<project>/main`, never the container. Keying
+  // the workspace name off the checkout basename put EVERY project's lanes in one
+  // `/tmp/main-lane-*` namespace; these fixtures used pre-container roots, which
+  // is exactly why the collapse was invisible.
+  test("a `main/` checkout is named by its CONTAINER, not by `main`", () => {
+    expect(worktreeRepoTag("/home/tom/code/kea/main")).toBe("kea");
+    expect(worktreePath("sdk-abc123", "/home/tom/code/kea/main"))
+      .toBe("/tmp/kea-lane-sdk-abc123");
+  });
+  test("two projects' main checkouts no longer collide", () => {
+    const a = worktreePath("x", "/home/tom/code/north/main");
+    const b = worktreePath("x", "/home/tom/code/kea/main");
+    expect(a).toBe("/tmp/north-lane-x");
+    expect(b).toBe("/tmp/kea-lane-x");
+    expect(a).not.toBe(b);
+  });
+  test("a non-`main` root keeps its own basename", () => {
+    expect(worktreeRepoTag("/other/place/kea")).toBe("kea");
+    expect(worktreeRepoTag("/home/tom/code/north/worktrees/layout")).toBe("layout");
+  });
+  test("path keys off distinct repo tags", () => {
     const a = worktreePath("x", "/home/tom/code/north");
     const b = worktreePath("x", "/other/place/kea");
     expect(a).toBe("/tmp/north-lane-x");
@@ -116,6 +137,10 @@ describe("worktreePayload — the injected protocol contract", () => {
     expect(p).toContain("/tmp/kea-lane-abc");
     expect(p).toContain("lane-abc");
     expect(p).toContain("ISOLATED");
+  });
+  test("states the CURRENT layout for a lane that cuts a further lane", () => {
+    expect(p).toContain("worktrees/<slug>");
+    expect(p).toContain("pins/");
   });
   test("carries the LANDING protocol: commit -> rebase -> ff-merge -> push", () => {
     expect(p).toContain("git fetch && git rebase origin/main");

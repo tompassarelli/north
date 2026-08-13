@@ -17,8 +17,11 @@ trap 'rm -rf "${SCRATCH:?}"' EXIT
 # it. Every case runs against this sandbox HOME: hermetic, and the live
 # ~/code, ~/.cache and ~/Pictures are never a variable in the result.
 FH="$SCRATCH/home"
-REPO_CWD="$FH/code/proj/wt-mine" # this session's lane
-OTHER_WT="$FH/code/proj/wt-other"  # a concurrent lane
+REPO_CWD="$FH/code/proj/worktrees/mine"  # this session's lane
+OTHER_WT="$FH/code/proj/worktrees/other" # a concurrent lane
+WT_ROOT="$FH/code/proj/worktrees"        # the lane collection root
+PIN="$FH/code/proj/pins/site"            # an externally consumed checkout
+PIN_ROOT="$FH/code/proj/pins"            # the pin collection root
 MAIN_CO="$FH/code/proj/main"       # the never-edited checkout
 NOREPO_CWD="$FH/notrepo"           # cwd with no enclosing git repo
 # A path that exists, has no repo, no cache root above it, and is not under
@@ -27,14 +30,15 @@ UNCLASSIFIED=/nix/var
 mkdir -p "$FH"/{Pictures/Screenshots,Documents} "$FH/.cache/thumbnails" \
   "$FH/.cache/beagle/build-core" "$FH/notrepo/stuff" \
   "$FH/code/north-data/accounts" "$FH/.local/state/north/graph" \
-  "$MAIN_CO" "$OTHER_WT/src" "$REPO_CWD"
+  "$MAIN_CO" "$OTHER_WT/src" "$REPO_CWD" "$PIN/src"
 mkdir -p "$FH/Documents/notes"
 : > "$FH/Pictures/Screenshots/old.png"
 : > "$FH/Documents/notes/a.md"
 : > "$FH/notrepo/stuff/x"
-for r in "$MAIN_CO" "$OTHER_WT" "$REPO_CWD"; do
+for r in "$MAIN_CO" "$OTHER_WT" "$REPO_CWD" "$PIN"; do
   git -C "$r" init -q 2>/dev/null
 done
+printf 'site — vendored upstream. Consumers: the docs build.\n' > "$PIN_ROOT/site.pin"
 mkdir -p "$REPO_CWD/src" "$REPO_CWD/node_modules" "$REPO_CWD/build" "$REPO_CWD/scratch"
 printf 'node_modules/\nbuild/\n' > "$REPO_CWD/.gitignore"
 : > "$REPO_CWD/src/app.txt"
@@ -142,12 +146,32 @@ run allow 'the guarded form the message names' 'rm -rf "${BUILD:?}"/dist'
 run allow 'variable mid-path under /tmp' 'rm -rf /tmp/build-$ID'
 
 echo "== class 1c: sacred — the machine's memory, or another lane's work =="
-run deny "another session's worktree" "rm -rf $OTHER_WT"
-run deny "inside another session's worktree" "rm -rf $OTHER_WT/src"
+run deny "another session's lane (T12)" "rm -rf $OTHER_WT"
+run deny "inside another session's lane (T12)" "rm -rf $OTHER_WT/src"
+case "$LAST_OUT" in *"another session's worktree"*) pass=$((pass + 1)); echo 'PASS  deny   cross-lane tier names the owning lane' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   cross-lane tier fell through to another tier (got: %s)\n' "$LAST_OUT" ;; esac
 run deny 'a .git directory' "rm -rf $REPO_CWD/.git"
 run deny 'this lane checkout root' "rm -rf $REPO_CWD"
+case "$LAST_OUT" in *"another session's"*) fail=$((fail + 1)); printf 'FAIL  deny   this session own lane must not read as another session (got: %s)\n' "$LAST_OUT" ;;
+  *) pass=$((pass + 1)); echo 'PASS  deny   this session owns its lane (T13: cwd containment still binds)' ;; esac
+run allow 'a scratch subdir of this session own lane (T13)' 'rm -rf ./build'
 run deny 'inside a main/ checkout' "rm -rf $MAIN_CO/result"
 run deny 'a project container' "rm -rf $FH/code/proj"
+# T9-T11 — the two collection roots and an individual pin. worktrees/ and
+# pins/ are one level DEEPER than the container tier reaches, so without
+# their own branches `rm -rf <container>/pins` (every externally-consumed
+# checkout at once) drops from a hard deny to an interactive ask.
+run deny 'the worktrees/ collection root (T9)' "rm -rf $WT_ROOT"
+run deny 'the pins/ collection root (T10)' "rm -rf $PIN_ROOT"
+run deny 'an individual pin (T11)' "rm -rf $PIN"
+case "$LAST_OUT" in *'externally CONSUMED'*) pass=$((pass + 1)); echo 'PASS  deny   a pin denies with the PIN reason' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   a pin must not fall through to the generic checkout-root reason (got: %s)\n' "$LAST_OUT" ;; esac
+case "$LAST_OUT" in *'worktree remove'*) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must not advise worktree remove (got: %s)\n' "$LAST_OUT" ;;
+  *) pass=$((pass + 1)); echo 'PASS  deny   a pin reason does not advise destroying it' ;; esac
+run deny 'inside a pin' "rm -rf $PIN/src"
+run deny 'a .pin manifest directory entry' "rm -rf $PIN_ROOT/site.pin"
+runm default deny 'the pins/ root stays hard (default mode)' "rm -rf $PIN_ROOT"
+runm default deny 'the worktrees/ root stays hard (default mode)' "rm -rf $WT_ROOT"
 run deny 'north-data (machine memory)' "rm -rf $FH/code/north-data/accounts"
 run deny "North's own state" "rm -rf $FH/.local/state/north/graph"
 run deny 'git clean -fdx with cwd in a main/ checkout' 'git clean -fdx' "$MAIN_CO"

@@ -1742,7 +1742,7 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // SDK worker authoring-guard parity (see authoring-guards.ts for the WHY). The SDK
 // never loads ~/.claude/settings.json, so we re-run the SAME PreToolUse guard scripts
 // the interactive matchers run and translate their output into HookJSONOutput.
-// PARITY SOURCE: ~/code/nixos-config/dotfiles/agents/hooks.d/*.json, the fragments
+// PARITY SOURCE: nixos-config:dotfiles/agents/hooks.d/*.json, the fragments
 // `agents apply` composes into ~/.claude/settings.json (PreToolUse). Keep the chains
 // in lockstep with those manifests' matchers.
 //   Edit|Write|MultiEdit -> worktree, firn
