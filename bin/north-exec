@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # north-exec — launch floor: two preconditions (codex on PATH + its cached
-# login); observers never gate. Runs in wt-<slug> beside main/; never pushes.
+# login); observers never gate. Runs in <container>/worktrees/<slug>; never pushes.
 # usage: north-exec <checkout|container> <prompt|@brief> [--slug NAME] [--model MODEL]
 set -euo pipefail
 
@@ -37,8 +37,9 @@ git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1 \
 root=$(git -C "$root" rev-parse --show-toplevel)
 container=$(dirname "$root")
 
-wt=$container/wt-$slug
+wt=$container/worktrees/$slug
 [ ! -e "$wt" ] || die "worktree already exists: $wt"
+mkdir -p "$container/worktrees"
 # Clone, not worktree: a worktree's git metadata lives under main/.git,
 # outside the workspace-write sandbox, so the agent could never commit.
 git clone -q "$root" "$wt"

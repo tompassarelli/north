@@ -651,7 +651,7 @@ north             # THE CARD: one screen of every significant incantation, group
 north dashboard   # the cockpit, four panes: FLEET (live lanes + work state),
                   # HEALTH (daemons), QUEUE (board), ACCOUNTS (provider windows)
 north doctor      # aggregate observed diagnostics; does not establish assurance
-north worktrees   # every repo's wt-* trees: drift, dirt, age, owning lane/concern
+north worktrees   # every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern
                   # (--json; § "Worktree lifecycle")
 north account status      # provider-owned subscription login, per isolated target
 north account list        # named account targets and their isolated CLI homes
@@ -899,10 +899,11 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    one-task probe is:
    `bb ~/code/north/main/cli/coordination-maintenance-task-host.clj worktrees --dry-run`.
 
-5. **Unregistered-worktree janitor.** The worktree task also reaps `wt-*` siblings
-   that no fact claims — the hand-made worktrees that accumulated because
+5. **Unregistered-worktree janitor.** The worktree task also reaps trees under
+   `<container>/worktrees/` that no fact claims — the hand-made worktrees that accumulated because
    nothing owned their cleanup. A tree is reclaimed only when Git proves it is a
-   linked worktree of that repository on its own branch, that branch is merged,
+   linked worktree of that repository, living under `<container>/worktrees/`, on
+   its own branch, that branch is merged,
    the status is clean, the tree has been idle **>48h**, no registration of any
    kind names it, and no **live concern** claims its repository. Removal is the
    same non-force `git worktree remove` + `git branch -d` with the same
@@ -924,18 +925,21 @@ signal — not merely "never registered".
 A worktree is born with a lane and **dies with the landing**. Landing is not
 complete when only the ref reaches main — it also requires the worktree removed
 and its branch deleted (`git -C <repo>/main worktree remove <path>` then
-`git branch -d <branch>`; `wt-reap` sweeps every merged+clean sibling). A landed
-lane that leaves its worktree behind is not done, and origin never carries a
-lane branch.
+`git branch -d <branch>`; `wt-reap` sweeps every merged+clean tree under
+`<container>/worktrees/`). A landed lane that leaves its worktree behind is not
+done, and origin never carries a lane branch. `<container>/pins/` is the
+opposite slot: an externally-consumed checkout is never "done", is never swept,
+and every sweeper opts in on `worktrees/` positively so a pin cannot be reached.
 
-What escapes that cleanup is caught, not lost. A `wt-*` tree idle past 48h with no
+What escapes that cleanup is caught, not lost. A `worktrees/` tree idle past 48h with no
 owning lane and no live concern is **stale**: merged and clean ones are reaped
 by the unregistered-worktree janitor (§ item 5 above); dirty or
 unmerged ones are only ever **surfaced** for review, never auto-removed, because
 the uncommitted bytes may be the only copy.
 
 `north worktrees` is the census. It reads every container repo under `~/code`
-(never `client/` or `reference/`) and prints one row per `wt-*` tree: drift
+(never `client/` or `reference/`) and prints one row per tree under that
+container's `worktrees/` (never a `pins/` checkout): drift
 against main, tracked/untracked dirt, age of last write, the live concern
 holding its repository, and the lane registration the fact server has for it —
 with `--json` for machine consumers. It composes `git`, `concern`, and the fact

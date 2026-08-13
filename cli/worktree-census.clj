@@ -6,7 +6,14 @@
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
-(def worktree-leaf-prefix "wt-")
+;; Directory = lifecycle policy. `<container>/worktrees/` holds the ephemeral
+;; lanes this census reports and the janitor may reclaim; `<container>/pins/`
+;; holds externally-consumed checkouts that automation never touches. The policy
+;; is carried by the PARENT DIRECTORY, not by any leaf name — which is why the
+;; pins exclusion here is structural: nothing under `pins/` is ever listed, so
+;; no downstream filter has to remember to exclude it.
+(def worktrees-dir-name "worktrees")
+(def pins-dir-name "pins")
 ;; Confidential and read-only trees stay out of the census by rule, not by the
 ;; accident of carrying no <name>/main checkout.
 (def excluded-container-names #{"client" "reference"})
@@ -54,7 +61,7 @@
 
 (defn containers
   "Container-layout repositories under `roots`: <root>/<repo>/main is a checkout,
-   and every worktree of that repo is a `wt-` sibling of it."
+   and every lane of that repo lives under <root>/<repo>/worktrees/."
   ([] (containers (roots)))
   ([roots]
    (vec
@@ -235,9 +242,10 @@
      :age_ms (max 0 (- (System/currentTimeMillis) written))}))
 
 (defn foreign-row
-  "A `wt-` sibling Git does not register: a separate clone or a plain directory.
-   It is REPORTED and never probed further — nothing here may be reclaimed, and
-   the census must not silently omit a tree just because Git disowns it."
+  "A tree under <container>/worktrees/ Git does not register: a separate clone
+   (north-exec provisions one deliberately) or a plain directory. It is REPORTED
+   and never probed further — nothing here may be reclaimed, and the census must
+   not silently omit a tree just because Git disowns it."
   [{:keys [repo container root]} base path]
   {:repo repo
    :container container
@@ -261,20 +269,39 @@
    :last_write_ms (.lastModified (io/file path))
    :age_ms (max 0 (- (System/currentTimeMillis) (.lastModified (io/file path))))})
 
+(defn worktrees-dir
+  "The one directory a container's lanes live in."
+  [container]
+  (io/file container worktrees-dir-name))
+
+(defn in-worktrees?
+  "Is PATH a direct child of <container>/worktrees? A POSITIONAL test — the
+   parent directory, never a leaf name — so `pins/` and every other container
+   sibling are excluded by construction rather than by a filter that could be
+   dropped in a refactor."
+  [container path]
+  (try
+    (= (.getCanonicalPath (worktrees-dir container))
+       (some-> (.getParentFile (io/file path)) .getCanonicalPath))
+    (catch Throwable _ false)))
+
 (defn repo-rows
-  "Every `wt-` sibling of one repo's main checkout, censused."
+  "Every tree under one repo's <container>/worktrees/, censused. Nothing under
+   <container>/pins/ is enumerated: both scans below read `worktrees/` and only
+   `worktrees/`, so a pin cannot reach a candidate list at all. If either
+   listing is ever widened back to the container, <container>/pins must be
+   excluded explicitly."
   [{:keys [container root] :as repo-entry}]
   (let [base (main-branch root)
         commit-times (branch-commit-times root)
         entries (->> (registered-worktrees root)
                      (remove #(= (canonical (:path %)) root))
-                     (filter #(str/starts-with? (.getName (io/file (:path %)))
-                                                worktree-leaf-prefix)))
+                     (filter #(in-worktrees? container (:path %))))
         known (into #{} (keep #(canonical (:path %))) entries)
-        foreign (->> (or (seq (.listFiles (io/file container))) [])
+        ;; The foreign scan is the ONLY thing that sees north-exec's clones —
+        ;; a clone never appears in `git worktree list`.
+        foreign (->> (or (seq (.listFiles (worktrees-dir container))) [])
                      (filter #(and (.isDirectory ^java.io.File %)
-                                   (str/starts-with? (.getName ^java.io.File %)
-                                                     worktree-leaf-prefix)
                                    (not (contains? known (.getCanonicalPath ^java.io.File %)))))
                      (map #(foreign-row repo-entry base %)))]
     (vec (concat (pmap #(census-row repo-entry base commit-times %) entries)
@@ -294,9 +321,12 @@
 
 (defn reapable?
   "The exact shape the janitor may reclaim WITHOUT force: a branch-attached,
-   proven-merged, provably clean `wt-` tree that has been idle past the horizon.
-   Liveness joins (graph lane registration, live concerns) are decided by the
-   caller — this predicate is only the filesystem-and-Git half."
+   proven-merged, provably clean tree UNDER <container>/worktrees/ that has been
+   idle past the horizon. Nothing under `pins/` reaches this predicate — the
+   census never enumerates one — and that structural exclusion, not the
+   `(not (:detached row))` clause below, is what makes a pin safe. Liveness
+   joins (graph lane registration, live concerns) are decided by the caller —
+   this predicate is only the filesystem-and-Git half."
   [row]
   (boolean
    (and (:branch row)

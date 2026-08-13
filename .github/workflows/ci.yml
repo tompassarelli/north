@@ -138,7 +138,7 @@ jobs:
           bb cli/tests/maintenance-task-lifecycle-test.clj  # bounded one-shot, reconnect, and per-task lock
           bb cli/tests/worktree-allocation-integration-test.clj  # marker-last physical ownership + rollback/quarantine
           bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated Fram server, scheduled task twice
-          bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed wt-* reap: real Git, deferred graph joins, server-free
+          bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed worktrees/ reap + the pins/ exclusion: real Git, deferred graph joins, server-free
           bb cli/tests/maintenance-large-corpus-test.clj  # >221k live facts + 48 lanes complete without scan/fixpoint amplification
       - name: FRAMRPC policy and startup boundaries
         working-directory: north

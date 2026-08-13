@@ -96,10 +96,14 @@
     {:handle handle :branch branch :path path :subject (str "@agent:" handle)}))
 
 (defn managed-clone-path [repo handle]
-  ;; Match sdk/src/worktree.ts: worktreePath: /tmp/<repo-basename>-lane-<id>.
-  (.getCanonicalPath
-   (io/file "/tmp"
-            (str (.getName (io/file repo)) "-lane-" handle))))
+  ;; Match sdk/src/worktree.ts: worktreePath = /tmp/<repo-tag>-lane-<id>, where
+  ;; the tag is the CONTAINER name for a `main/` checkout (AMB-8).
+  (let [file (io/file repo)
+        base (.getName file)
+        tag (if (= "main" base)
+              (or (some-> (.getParentFile file) .getName not-empty) base)
+              base)]
+    (.getCanonicalPath (io/file "/tmp" (str tag "-lane-" handle)))))
 
 (defn create-clone! [repo parent handle]
   (let [branch (str "lane-" handle)
@@ -155,9 +159,10 @@
                              "FRAM_TELEMETRY_LOG" ""})}
          "bb" maintenance-host "worktrees" flags))
 
-;; ---- unregistered wt-* census fixture ---------------------------------------
-;; Container layout (<root>/<repo>/main + wt-<slug> siblings) with dated commits
-;; and back-dated activity traces, so staleness is real rather than simulated.
+;; ---- unregistered <container>/worktrees/ census fixture ---------------------
+;; Container layout (<root>/<repo>/main + worktrees/<slug> lanes, and a pins/<name>
+;; checkout that must never be enumerated) with dated commits and back-dated
+;; activity traces, so staleness is real rather than simulated.
 
 ;; Four days before now: past the 48h horizon by a margin no clock skew closes.
 (def aged-date
@@ -200,7 +205,8 @@
 
 (defn census-worktree!
   [{:keys [container root]} slug {:keys [dirty? unmerged? aged?]}]
-  (let [path (.getCanonicalPath (io/file container (str "wt-" slug)))]
+  (let [worktrees (doto (io/file container "worktrees") .mkdirs)
+        path (.getCanonicalPath (io/file worktrees slug))]
     (git! "-C" root "worktree" "add" "-q" "-b" slug path "HEAD")
     (when unmerged?
       (spit (io/file path "own work.txt") "unlanded bytes\n")

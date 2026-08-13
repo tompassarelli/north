@@ -105,6 +105,23 @@
         (= false value) "absent"
         :else "unknown"))
 
+(defn- clone-repo-tag
+  "The name segment a managed lane's /tmp workspace carries: the CONTAINER's
+   name, not the checkout's. Production callers pass `~/code/<project>/main`, so
+   keying off the checkout basename put every project's lanes in ONE
+   `/tmp/main-lane-*` namespace. MIRROR of sdk/src/worktree.ts:worktreeRepoTag —
+   the two derive the same string or the janitor stops recognising its own
+   clones."
+  [root]
+  (let [file (io/file root)
+        base (.getName file)]
+    (if (= "main" base)
+      (or (some-> (.getParentFile file) .getName not-empty) base)
+      base)))
+
+(defn- expected-clone-path [root branch]
+  (str "/tmp/" (clone-repo-tag root) "-" branch))
+
 (defn- absent-cleanup-state
   "Recognize a prior cleanup without pretending an absent tree was retained.
    A fully absent registration+branch is idempotently settled; any other absent
@@ -122,7 +139,7 @@
                (.isDirectory (io/file root)))
         (let [registered? (worktree-registered? root worktree)
               branch-present (branch-present? root expected-branch)
-              expected-clone (str "/tmp/" (.getName (io/file root)) "-" expected-branch)]
+              expected-clone (expected-clone-path root expected-branch)]
           (if (or (and (= false registered?) (= false branch-present))
                   ;; A provisioned clone is intentionally unregistered. Its exact
                   ;; path shape identifies a prior clean removal while its harvested
@@ -453,28 +470,34 @@
                                         " — " (:reason removed)))
                           {:kind :uncertain})))))))))))))
 
-;; ---- UNREGISTERED wt-* siblings ---------------------------------------------
+;; ---- UNREGISTERED trees under <container>/worktrees/ -------------------------
 ;; Same non-force discipline as the lane sweep above, for trees no fact claims.
 ;; Dirty, unmerged, claimed, or live-concern-owned trees are never removed.
 
 (defn- validate-unregistered-provenance
-  "Prove against Git alone that this path is a linked `wt-` worktree of exactly
-   `root`, on its own non-baseline branch. The census supplies candidates; only
-   this function grants deletion authority."
+  "Prove against Git alone that this path is a linked worktree of exactly `root`,
+   living under `<container>/worktrees/`, on its own non-baseline branch. The
+   census supplies candidates; only this function grants deletion authority."
   [{:keys [root container]} base row]
   (try
     (let [worktree (registered-path (:worktree row))
-          branch (:branch row)]
+          branch (:branch row)
+          parent (some-> (io/file worktree) .getParentFile .getCanonicalPath)]
       (cond
         (or (nil? worktree) (= worktree root))
         {:ok? false :reason "worktree path is absent, relative, or the main checkout"}
 
-        (not (str/starts-with? (.getName (io/file worktree))
-                               north.worktree-census/worktree-leaf-prefix))
-        {:ok? false :reason "worktree leaf is not a wt- sibling"}
+        ;; Stated HERE, at the function that grants deletion authority, and not
+        ;; only in the census's candidate filter: a rule that lives in one
+        ;; filter is one refactor away from being gone, and a reaped pin is
+        ;; someone else's build broken with no way back.
+        (= parent (.getCanonicalPath
+                   (io/file container north.worktree-census/pins-dir-name)))
+        {:ok? false :reason "tree is an externally-consumed pin (pins/); automation never removes one"}
 
-        (not= container (.getCanonicalPath (.getParentFile (io/file worktree))))
-        {:ok? false :reason "worktree is not a sibling of the repository's main checkout"}
+        (not= parent (.getCanonicalPath
+                      (io/file container north.worktree-census/worktrees-dir-name)))
+        {:ok? false :reason "worktree is not under the container's worktrees/ directory"}
 
         (or (nil? branch) (:detached row) (= branch base))
         {:ok? false :reason "worktree has no branch of its own"}
@@ -603,7 +626,7 @@
       (contains? #{container root} (registered-path repo-filter))))
 
 (defn sweep-unregistered-worktrees!
-  "Reclaim `wt-` siblings no fact claims. Both graph joins arrive as deferred
+  "Reclaim trees under <container>/worktrees/ that no fact claims. Both graph joins arrive as deferred
    values the scheduled task supplies, so the sweep pays for them only when a tree
    actually reaches that gate — and can be driven with no live daemon."
   [{:keys [dry? repo-filter claimed-worktrees live-concern-repos]}]

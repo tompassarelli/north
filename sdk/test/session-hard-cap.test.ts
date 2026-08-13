@@ -282,7 +282,7 @@ test("the terminal handoff artifact and direct index are durable and idempotent"
     threadId: "thread-artifact",
     goal: "one deliverable",
     repo: "/home/tom/code/north",
-    worktree: "/home/tom/code/north/wt-artifact",
+    worktree: "/home/tom/code/north/worktrees/artifact",
     branch: "lane-artifact",
   };
   try {
@@ -323,7 +323,7 @@ test("the terminal handoff artifact and direct index are durable and idempotent"
       threadId: "thread-artifact",
       goal: "one deliverable",
       repo: "/home/tom/code/north",
-      worktree: "/home/tom/code/north/wt-artifact",
+      worktree: "/home/tom/code/north/worktrees/artifact",
       branch: "lane-artifact",
       nextAction: "Resume only this deliverable; inspect the named thread, worktree, branch, and session transcript before editing.",
       completionClaimed: false,

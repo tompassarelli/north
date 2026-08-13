@@ -1,26 +1,35 @@
 """Shared path policy for the main-checkout guard.
 
-THE LAYOUT
+THE LAYOUT — directory = lifecycle policy
 
-    ~/code/<project>/          container only — never a checkout
-    ~/code/<project>/main/     the clean main checkout; agents NEVER write here
-    ~/code/<project>/wt-<slug>/  every agent's working tree
+    ~/code/<project>/               container only — never a checkout
+    ~/code/<project>/main/          the clean checkout: read-only product, and
+                                    any dirt in it is the human's
+    ~/code/<project>/worktrees/<slug>/  ephemeral agent lanes — sweepable, and
+                                    the sanctioned destination for every write
+    ~/code/<project>/pins/<name>/   externally CONSUMED checkouts — something
+                                    outside this repository reads them at that
+                                    exact path and revision, so automation
+                                    never writes to them and never sweeps them
+    ~/code/<project>/pins/<name>.pin    one-line manifest naming that pin's
+                                    consumers
+
+The slot directly under the container carries the policy; leaf names carry
+none. `worktrees` and `pins` are matched POSITIONALLY at container depth, never
+anywhere in the path — `main/docs/worktrees/x.md` is repository content, not a
+lane.
 
 EVERY `main` checkout under ~/code is protected, not only the launch-critical
 ones: `main` is never edited in place anywhere, and dirty state there is the
 human's. Detection is dynamic — an ancestor directory named `main` holding a
 `.git` — so a project is covered the day it is cloned. Client repos nest
 (~/code/client/<owner>/<project>/main) and fall out of the same rule.
-
-The launch-critical containers keep their own reasons and their pre-migration
-single-checkout handling (the container itself being the checkout).
 """
 
 import os
 
 # Containers whose PRIMARY breaks something beyond itself. They are protected by
-# the same rule as every other main; only the reason text and the pre-migration
-# whole-container handling are theirs.
+# the same rule as every other main; only the reason text is theirs.
 LAUNCH_CRITICAL = {
     "fram": (
         "fram is the running database engine and is launch-critical. `north up`"
@@ -48,6 +57,15 @@ GENERIC_REASON = (
     " anyone, and uncommitted state in it belongs to the human."
 )
 
+# The two policy-bearing slots directly under a container.
+WORKTREES_DIR = "worktrees"
+PINS_DIR = "pins"
+
+# Kinds returned alongside the container, so a caller can render the right noun
+# and the right remedy. A pin hit carries its name: the remedy is the manifest.
+MAIN_KIND = "main"
+PIN_KIND = "pin:"
+
 # Read-only context by policy; never a work destination, so never protected here.
 EXCLUDED_ROOTS = ("reference",)
 
@@ -67,11 +85,51 @@ def _reason(container):
     return LAUNCH_CRITICAL.get(container, GENERIC_REASON)
 
 
+def _container_slot(root, parts):
+    """(container, index of the slot component) for the shallowest container.
+
+    A container is a directory holding `main/.git`; the SLOT is the component
+    directly beneath it — `main`, `worktrees`, `pins`, or anything else the
+    human parked there. Anchoring at container depth is what keeps a nested
+    checkout deeper in the tree from being read as this container's primary.
+    """
+    for i in range(1, len(parts)):
+        if os.path.exists(os.path.join(root, *(parts[:i] + ["main", ".git"]))):
+            return (os.sep.join(parts[:i]), i)
+    return (None, None)
+
+
+def _pin_manifest(root, container, name):
+    """The `pins/<name>.pin` manifest line — who consumes this pin — or None."""
+    try:
+        with open(os.path.join(root, container, PINS_DIR, name + ".pin"),
+                  encoding="utf-8", errors="replace") as handle:
+            return " ".join(handle.read(4096).split()) or None
+    except Exception:
+        return None
+
+
+def _pin_reason(root, container, name):
+    manifest = _pin_manifest(root, container, name)
+    listed = (f"Consumers, from {container}/{PINS_DIR}/{name}.pin: {manifest}"
+              if manifest else
+              f"No {container}/{PINS_DIR}/{name}.pin manifest exists — a pin whose"
+              " consumers cannot be named is one the human has to rule on, not one"
+              " an agent may edit.")
+    return (
+        f"{container}/{PINS_DIR}/{name} is an externally CONSUMED checkout."
+        " It is protected because something outside this repository reads it at"
+        " exactly this path and revision — not because the dirt would be the"
+        f" human's. {listed}")
+
+
 def protected_project(path):
-    """(container, reason) when PATH is inside a protected checkout, else None.
+    """(container, reason, kind) when PATH is inside a protected checkout.
 
     CONTAINER is relative to the code root, so a nested client container
-    ("client/<owner>/<project>") names itself correctly in the advice.
+    ("client/<owner>/<project>") names itself correctly in the advice. KIND is
+    `main` for the clean checkout, `pin:<name>` for an externally consumed one.
+    None means the path is not protected.
     """
     if not isinstance(path, str) or not path:
         return None
@@ -89,37 +147,86 @@ def protected_project(path):
     if not parts or parts[0] in EXCLUDED_ROOTS:
         return None
 
-    # Worktrees are the sanctioned destination, always.
-    if any(p.startswith("wt-") for p in parts):
+    container, slot_index = _container_slot(root, parts)
+    slot = parts[slot_index] if slot_index is not None else None
+
+    # A pin, before anything about `main`: its protection has a different WHY
+    # and a different remedy. The `pins/` directory ITSELF stays writable — a
+    # container has to be able to grow one.
+    if slot == PINS_DIR and len(parts) > slot_index + 1:
+        leaf = parts[slot_index + 1]
+        name = leaf[:-4] if leaf.endswith(".pin") else leaf
+        return (container, _pin_reason(root, container, name), PIN_KIND + name)
+
+    # Lanes are the sanctioned destination, always. Positional, never a
+    # substring match: `<container>/main/docs/worktrees/` is repository content.
+    if slot == WORKTREES_DIR:
         return None
 
     # The nearest ancestor named `main` that is actually a checkout. A `main`
-    # directly under the code root has no container and is not this layout.
+    # directly under the code root has no container and is not this layout. The
+    # scan STOPS at a `worktrees` or `pins` component: below one, a `main` is a
+    # lane whose slug is literally `main`, or a checkout inside a pin — never
+    # this container's primary.
     for i, part in enumerate(parts):
+        if i > 0 and part in (WORKTREES_DIR, PINS_DIR):
+            break
         if part != "main" or i == 0:
             continue
         if os.path.exists(os.path.join(root, *(parts[:i + 1] + [".git"]))):
-            container = os.sep.join(parts[:i])
-            return (container, _reason(container))
-
-    # Pre-migration: a launch-critical container that IS the checkout. Scoped to
-    # that set on purpose — generalising it would protect ~/code/<data-dir>,
-    # which is runtime state that must stay writable.
-    head = parts[0]
-    if (head in LAUNCH_CRITICAL
-            and not os.path.exists(os.path.join(root, head, "main", ".git"))
-            and os.path.exists(os.path.join(root, head, ".git"))):
-        return (head, LAUNCH_CRITICAL[head])
+            found = os.sep.join(parts[:i])
+            return (found, _reason(found), MAIN_KIND)
     return None
 
 
+def is_pin(kind):
+    return isinstance(kind, str) and kind.startswith(PIN_KIND)
+
+
+def hit_noun(container, kind):
+    """How to NAME what was hit, in one phrase — a primary is not a pin."""
+    if is_pin(kind):
+        return f"the externally-consumed pin {container}/{PINS_DIR}/{kind[len(PIN_KIND):]}"
+    return f"the PRIMARY checkout of {container}"
+
+
+def hit_advice(container, kind):
+    """The compliant move for this hit, in its own terms."""
+    if is_pin(kind):
+        return pin_advice(container, kind[len(PIN_KIND):])
+    return worktree_advice(container)
+
+
 def worktree_advice(project):
-    """The exact commands to work correctly, in the canonical layout."""
+    """The exact commands to work correctly, in the canonical layout.
+
+    SLUG, never `<slug>`: the angle brackets in a runnable command parse as a
+    shell redirect in launch_critical_decide's own scanner, which then denies
+    the agent for following this advice.
+    """
     container = os.path.join(code_root(), project)
     return (
-        "Work in a worktree, then land through a ref:\n"
-        f"  git -C {container}/main worktree add {container}/wt-<slug> -b <slug>\n"
-        f"  # edit + commit in {container}/wt-<slug>, then land it:\n"
-        f"  git -C {container}/main merge --ff-only <slug>\n"
-        f"  # (plain `fetch <wt> <b>:refs/heads/main` cannot be used: main is checked out)\n"
+        "Work in a lane, then land through a ref:\n"
+        f"  mkdir -p {container}/{WORKTREES_DIR}\n"
+        f"  git -C {container}/main worktree add {container}/{WORKTREES_DIR}/SLUG -b SLUG\n"
+        f"  # edit + commit in {container}/{WORKTREES_DIR}/SLUG, then land it:\n"
+        f"  git -C {container}/main merge --ff-only SLUG\n"
+        f"  # (plain `git fetch LANE BRANCH:refs/heads/main` cannot be used: main is checked out)\n"
+    )
+
+
+def pin_advice(project, name):
+    """The compliant move against a pin — never `worktree add`.
+
+    Sending an agent to cut a lane from a pin sends it to break the thing being
+    protected. A pin has exactly one sanctioned mutation: re-pointing it.
+    """
+    container = os.path.join(code_root(), project)
+    return (
+        "A pin is not a lane. Do not edit it, and do not cut a worktree from it:\n"
+        f"  cat {container}/{PINS_DIR}/{name}.pin        # who consumes it, on what terms\n"
+        f"  git -C {container}/{PINS_DIR}/{name} checkout REF   # the ONE sanctioned"
+        " mutation: re-point it\n"
+        "  # anything else is the human's call — editing a pin changes what its\n"
+        "  # consumers see, outside this repository.\n"
     )

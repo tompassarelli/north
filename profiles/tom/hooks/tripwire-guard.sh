@@ -14,10 +14,12 @@
 #                   itself, or an unguarded `$VAR` target whose unset expansion
 #                   IS a root delete. HARD in every mode, no ask.
 #        sacred   — someone else's or the machine's: a `main/` checkout, a
-#                   project container under ~/code, ~/code/*-data,
-#                   ~/.local/state/north, ~/code/reference, a `wt-<slug>`
-#                   worktree this session is not working in, any `.git`, any
-#                   checkout root. HARD in every mode, no ask.
+#                   project container under ~/code, a container's `worktrees/`
+#                   or `pins/` collection root, any `pins/<name>` (externally
+#                   consumed — automation never touches one), ~/code/*-data,
+#                   ~/.local/state/north, ~/code/reference, a
+#                   `worktrees/<slug>` lane this session is not working in, any
+#                   `.git`, any checkout root. HARD in every mode, no ask.
 #        gone     — the path does not exist: nothing to lose. ALLOW.
 #        regen    — provably regenerable: $XDG_CACHE_HOME, /tmp/*, /var/tmp,
 #                   $TMPDIR/*, /run/user/*, node_modules/__pycache__/&c, and
@@ -404,8 +406,24 @@ sacred_owner_reason() {
       WHY="'$p' is ~/code/reference — read-only context; agents never edit or delete there"
       return 0
       ;;
+    # The pin tiers come FIRST, ahead of the main tier and ahead of
+    # sacred_reason's generic checkout-root tier: a pin holds a .git, so the
+    # generic tier would already deny it — but with the wrong WHY, one that
+    # sends the agent to `worktree remove` the very thing being protected.
+    "$HOME"/code/*/pins)
+      WHY="'$p' is a container's pins/ root — every externally-consumed checkout in that project at once, plus the .pin manifests that are the only record of who consumes them. Automation never deletes here"
+      return 0
+      ;;
+    "$HOME"/code/*/pins/*)
+      WHY="'$p' is a pin — an externally CONSUMED checkout that something outside this repository reads at exactly this path and revision. Automation never touches it. Read its consumers in the sibling .pin manifest; re-pointing (git -C the-pin checkout REF) is the human's call, deleting it is not"
+      return 0
+      ;;
+    "$HOME"/code/*/worktrees)
+      WHY="'$p' is a container's worktrees/ root — every concurrent lane in that project at once, including lanes this session cannot see. Name the ONE lane you mean: $p/SLUG"
+      return 0
+      ;;
     "$HOME"/code/*/main | "$HOME"/code/*/main/*)
-      WHY="'$p' is inside a 'main' checkout — production, and any dirty state in it is human work-in-progress. Work in a sibling worktree: git -C <container>/main worktree add <container>/wt-<slug> -b <slug>"
+      WHY="'$p' is inside a 'main' checkout — production, and any dirty state in it is human work-in-progress. Work in a lane: git -C CONTAINER/main worktree add CONTAINER/worktrees/SLUG -b SLUG"
       return 0
       ;;
   esac
@@ -415,20 +433,23 @@ sacred_owner_reason() {
       case "$rest" in
         */*) ;;
         *)
-          WHY="'$p' is a project container — main/ and every worktree in it go together. Name one directory inside it instead"
+          WHY="'$p' is a project container — main/, every lane under worktrees/, and every pin under pins/ go together. Name one directory inside it instead"
           return 0
           ;;
       esac
       ;;
   esac
+  # Cross-lane protection, keyed on the `worktrees/` PATH SEGMENT. It used to
+  # key on the `wt-` leaf prefix; with bare slugs that pattern matches nothing,
+  # and this whole tier would fail OPEN with no error at all.
   case "$p" in
-    */wt-*)
-      pre="${p%%/wt-*}"
+    */worktrees/*)
+      pre="${p%%/worktrees/*}"
       case "$pre" in
         "$HOME"/code*)
-          rest="${p#"$pre"/}"
+          rest="${p#"$pre"/worktrees/}"
           slug="${rest%%/*}"
-          wt="$pre/$slug"
+          wt="$pre/worktrees/$slug"
           ensure_cwd
           case "$cwd/" in
             "$wt"/*) ;;

@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Decide whether one tool call writes into a protected `main` checkout.
+"""Decide whether one tool call writes into a protected checkout.
+
+TWO PROTECTED SHAPES, TWO REMEDIES
+
+A `main/` checkout is protected because it is the clean product and any dirt in
+it is the human's; the remedy is a lane under `<container>/worktrees/`. A
+`pins/<name>/` checkout is protected because something OUTSIDE the repository
+consumes it at that exact path and revision; the remedy is the `.pin` manifest
+and the human, never `worktree add` — sending an agent to cut a lane from a pin
+sends it to break the thing being protected. `protected_project` returns the
+kind so both nouns and both remedies stay correct at every deny site.
 
 BASH COVERAGE
 
@@ -19,8 +29,10 @@ READ vs WRITE
 
 Reads from a primary stay allowed — `git log`, `git status`, `grep`, `cat`. So
 does the sanctioned escape route the deny message itself recommends:
-`git worktree add` and `git fetch <worktree> <branch>:refs/heads/main`. Only
-mutation is refused.
+`git worktree add` (into `<container>/worktrees/`) and
+`git fetch LANE BRANCH:refs/heads/main`. A pin's one sanctioned mutation —
+`git -C <pin> checkout REF`, re-pointing it — is allowed for the same reason.
+Only unsanctioned mutation is refused.
 
 WIP DESTRUCTION
 
@@ -48,7 +60,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from launch_critical_paths import protected_project, worktree_advice  # noqa: E402
+from launch_critical_paths import (  # noqa: E402
+    hit_advice, hit_noun, is_pin, protected_project, worktree_advice)
 
 # git subcommands that change the repository or working tree.
 MUTATING_GIT = {
@@ -62,10 +75,18 @@ MUTATING_GIT = {
 SANCTIONED_GIT = {"worktree", "fetch"}
 
 # merge/pull are mutations, but --ff-only cannot dirty the tree or invent a
-# commit: it either fast-forwards or refuses. `git fetch <wt> <b>:refs/heads/main`
+# commit: it either fast-forwards or refuses. `git fetch LANE BRANCH:refs/heads/main`
 # — the other landing form — FAILS when main is checked out, which it always is
 # under this layout, so without these there is no way to land at all.
 FF_ONLY_GIT = {"merge", "pull"}
+
+# A pin's ONE sanctioned mutation: re-pointing it at another revision. Narrow on
+# purpose — a bare `checkout REF` / `switch --detach REF` moves HEAD and nothing
+# else. Path arguments (`checkout -- x`, `checkout .`), branch creation, and
+# force all rewrite the working tree a consumer is reading, so none of them ride
+# in on this carve-out.
+PIN_REPOINT_GIT = {"checkout", "switch"}
+PIN_REPOINT_FLAGS = {"-q", "--quiet", "--detach"}
 
 # Commands whose job is to modify a file in place.
 WRITE_COMMANDS = {
@@ -260,10 +281,10 @@ def _apply_patch_target_decision(targets, cwd):
         path = _resolve(os.path.expanduser(target), cwd)
         hit = protected_project(path)
         if hit:
-            project, why = hit
-            return (f"This apply_patch envelope would write {path} inside the "
-                    f"PRIMARY checkout of {project}. {why}\n\n"
-                    f"{worktree_advice(project)}")
+            project, why, kind = hit
+            return (f"This apply_patch envelope would write {path} inside "
+                    f"{hit_noun(project, kind)}. {why}\n\n"
+                    f"{hit_advice(project, kind)}")
     return None
 
 
@@ -369,10 +390,26 @@ def _git_read_form(verb, args):
     return False
 
 
+def _pin_repoint(target, verb, args):
+    """True when this git call is the one mutation a pin sanctions."""
+    if verb not in PIN_REPOINT_GIT:
+        return False
+    flags = [a for a in args if a.startswith("-")]
+    plain = [a for a in args if not a.startswith("-")]
+    if "--" in args or "." in plain or len(plain) != 1:
+        return False
+    if any(flag not in PIN_REPOINT_FLAGS for flag in flags):
+        return False
+    hit = protected_project(target)
+    return bool(hit) and is_pin(hit[2])
+
+
 def _git_decision(invocations):
     """(path, verb) for the first mutating git call, else None."""
     for target, verb, args in invocations:
         if verb in SANCTIONED_GIT or _git_read_form(verb, args):
+            continue
+        if _pin_repoint(target, verb, args):
             continue
         if verb in FF_ONLY_GIT:
             # Only the fast-forward form is sanctioned; a bare merge/pull can
@@ -433,9 +470,9 @@ def decide(payload):
         hit = protected_project(path)
         if not hit:
             return None
-        project, why = hit
-        return (f"{path} is inside the PRIMARY checkout of {project}. {why}"
-                f"\n\n{worktree_advice(project)}")
+        project, why, kind = hit
+        return (f"{path} is inside {hit_noun(project, kind)}. {why}"
+                f"\n\n{hit_advice(project, kind)}")
 
     # --- Bash ----------------------------------------------------------------
     command = tool_input.get("command")
@@ -454,10 +491,10 @@ def decide(payload):
     # written, not a command being run; sanctioned-tool segments are excised
     # because their remediation is the compliant move.
     scan = _excise_sanctioned(_strip_heredoc_bodies(command))
-    def deny(path, project, why, what):
-        return (f"This Bash command would {what} inside the PRIMARY checkout of "
-                f"{project} ({path}). {why}\n\n"
-                f"{worktree_advice(project)}\n"
+    def deny(path, project, why, what, kind=None):
+        return (f"This Bash command would {what} inside "
+                f"{hit_noun(project, kind)} ({path}). {why}\n\n"
+                f"{hit_advice(project, kind)}\n"
                 f"Reads are fine — it is the write that is refused.")
 
     verdict = _apply_patch_command_decision(command, eff, scan)
@@ -468,14 +505,21 @@ def decide(payload):
     invocations = _git_invocations(scan, eff)
 
     # 0. destroying uncommitted work in a main checkout — its own class, because
-    #    the loss is the human's and is not recoverable from the ref.
+    #    the loss is the human's and is not recoverable from the ref. A pin has
+    #    no human WIP to lose; it answers with the pin's own reason and remedy,
+    #    because `wt-rescue` is the wrong move against an externally consumed
+    #    checkout.
     for target, verb, args in invocations:
         what = _wip_destroying(verb, args)
         if not what:
             continue
         hit = protected_project(target)
+        if hit and is_pin(hit[2]):
+            project, why, kind = hit
+            return (f"`{what}` targets {target}, {hit_noun(project, kind)}. "
+                    f"{why}\n\n{hit_advice(project, kind)}")
         if hit:
-            project, why = hit
+            project, why, _kind = hit
             return (
                 f"`{what}` targets {target}, the MAIN checkout of {project}. "
                 f"Uncommitted state in a main checkout is the human's "
@@ -494,16 +538,16 @@ def decide(payload):
         target, verb = g
         hit = protected_project(target)
         if hit:
-            project, why = hit
-            return deny(target, project, why, f"run `git {verb}`")
+            project, why, kind = hit
+            return deny(target, project, why, f"run `git {verb}`", kind)
 
     # 2. shell redirection into a protected path
     for raw in _redirect_targets(scan):
         resolved = _resolve(os.path.expanduser(raw), eff)
         hit = protected_project(resolved)
         if hit:
-            project, why = hit
-            return deny(resolved, project, why, "write")
+            project, why, kind = hit
+            return deny(resolved, project, why, "write", kind)
 
     # 3. in-place / destination-taking commands, per SEGMENT.
     #    `cp`/`mv`/`ln` take their destination as the LAST argument — but only
@@ -524,7 +568,8 @@ def decide(payload):
         for tok in tokens:
             if os.path.basename(tok) in INTERPRETERS:
                 return deny(eff, hit[0], hit[1],
-                            "run an interpreter script with its working directory")
+                            "run an interpreter script with its working directory",
+                            hit[2])
     return None
 
 
@@ -541,20 +586,24 @@ def _scan_write_commands(tokens, eff, deny):
             for a in args[1:]:
                 hit = protected_project(_resolve(os.path.expanduser(a), eff))
                 if hit:
-                    return deny(a, hit[0], hit[1], "edit in place")
+                    return deny(a, hit[0], hit[1], "edit in place", hit[2])
         elif base in WRITE_COMMANDS or base in DESTRUCTIVE_COMMANDS:
             for a in args:
                 resolved = _resolve(os.path.expanduser(a), eff)
                 hit = protected_project(resolved)
                 if hit:
-                    if base in DESTRUCTIVE_COMMANDS and _tracks_nothing(resolved):
+                    # A gitignored build artifact inside a PIN is still the pin's:
+                    # it is protected because a consumer reads the tree, not
+                    # because git tracks the bytes.
+                    if (base in DESTRUCTIVE_COMMANDS and not is_pin(hit[2])
+                            and _tracks_nothing(resolved)):
                         continue
-                    return deny(a, hit[0], hit[1], f"run `{base}`")
+                    return deny(a, hit[0], hit[1], f"run `{base}`", hit[2])
         elif base in COPY_COMMANDS and args:
             dest = args[-1]
             hit = protected_project(_resolve(os.path.expanduser(dest), eff))
             if hit:
-                return deny(dest, hit[0], hit[1], f"run `{base}` into")
+                return deny(dest, hit[0], hit[1], f"run `{base}` into", hit[2])
     return None
 
 
