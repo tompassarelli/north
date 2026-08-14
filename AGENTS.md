@@ -29,5 +29,20 @@ is canonical; `threads/` is a projection.
   TUI changes get assertions rather than a screenshot.
 - A provider fallback is permitted only before side effects are observable.
 
-Claude Code-specific compatibility remains documented in `CLAUDE.md`; this file
-is the canonical cross-provider contract.
+## Research projects break forward
+
+- North and sibling personal projects support the current `main` line only.
+- No code, data reader, build path, API path, alias, fallback, migration,
+  fixture, or test may exist solely for compatibility with an older revision or
+  a removed design.
+- A breaking change updates every actual in-tree caller in the same change and
+  deletes the replaced implementation completely. Do not leave shims,
+  tombstones, removal errors, apology comments, or archaeology notes.
+- Do not preserve historical source, build, or test snapshots or recovery
+  manifests. Git history is the recovery and archaeology mechanism; generated
+  artifacts describe only the current source.
+- A content-addressed pin may name an active dependency. Once actual consumers
+  move, delete the replaced pin and every path that existed only to support it.
+
+Provider-specific behavior remains documented in `CLAUDE.md`; this file is the
+canonical cross-provider contract.
