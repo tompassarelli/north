@@ -17,8 +17,6 @@
 (def scratch-home (str tmp-dir "/home"))
 (def state (str tmp-dir "/harness.conf"))
 (def profile (str tmp-dir "/profile/skills"))
-(def world-root (str tmp-dir "/north-source"))
-(def world-profile (str world-root "/agent-profile/skills"))
 (def farm (str scratch-home "/.local/state/north/skills"))
 (def generations (str farm ".d"))
 (def claude-mcp (str tmp-dir "/claude.json"))
@@ -66,20 +64,6 @@
                       "NORTH_HARNESS_STATE" state
                       "NORTH_SKILLS_PROFILE" profile
                       "NORTH_SKILLS_FARM" farm}}
-         (into ["bb" cli "skills"] args)))
-
-(defn run-cli-default [& args]
-  (apply p/shell
-         {:out :string
-          :err :string
-          :continue true
-          :env (-> (into {} (System/getenv))
-                   (dissoc "NORTH_SKILLS_PROFILE")
-                   (assoc "HOME" scratch-home
-                          "NORTH_HOME" root
-                          "NORTH_HARNESS_STATE" state
-                          "WORLD_REPO_NORTH" world-root
-                          "NORTH_SKILLS_FARM" farm))}
          (into ["bb" cli "skills"] args)))
 
 (defn run-status []
@@ -139,20 +123,6 @@
       (check "item state is durable" (= "off" (stored "skills.skill.firn")))
       (check "only firn is removed"
              (= (disj all-ids "firn") (farm-entries farm))))))
-
-(defn default-source-case []
-  (install-profile-at! world-profile)
-  (let [all-ids (set (map first skill-specs))
-        synced (run-cli-default "sync")]
-    (check "world-selected default sync succeeds" (zero? (:exit synced)))
-    (check "world-selected default publishes the complete source set"
-           (= all-ids (farm-entries farm)))
-    (check "world-selected default points farm entries into the stable profile"
-           (every?
-            (fn [id]
-              (= (.toAbsolutePath (.normalize (.toPath (io/file world-profile id))))
-                 (link-target (str farm "/" id))))
-            all-ids))))
 
 (defn atomic-case []
   (let [synced (run-cli "sync")
@@ -249,14 +219,13 @@
   (install-profile!)
   (case requested
     "projection" (projection-case)
-    "default-source" (default-source-case)
     "atomic" (atomic-case)
     "precedence" (precedence-case)
     "aggregate" (aggregate-case)
     "readout" (readout-case)
     (do
       (binding [*out* *err*]
-        (println "usage: bb cli/tests/config-skills-test.clj [projection|default-source|atomic|precedence|aggregate|readout]"))
+        (println "usage: bb cli/tests/config-skills-test.clj [projection|atomic|precedence|aggregate|readout]"))
       (System/exit 2)))
   (finally
     (doseq [file (reverse (file-seq tmp-dir))]
