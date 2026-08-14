@@ -38,12 +38,12 @@ reuses the log's EDN read/write — so the YAML quoting/injection bug class (the
 `dq` mess) **cannot exist**.
 
 ```
-@2026-06-15-150040  title       "Pick back up: gjoa + reference/lean work"
+@2026-06-15-150040  title       "Pick back up: gjoa + resources/lean work"
 @2026-06-15-150040  committed   2026-06-15
 @2026-06-15-150040  relates_to  @2026-06-14-140000
 @2026-06-15-150040  repo        "~/code/gjoa"
 ---
-Resume the gjoa + reference/lean work. Pick it back up today.
+Resume the gjoa + resources/lean work. Pick it back up today.
 ```
 
 ### D2 — No "fields", only facts

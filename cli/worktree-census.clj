@@ -16,7 +16,7 @@
 (def pins-dir-name "pins")
 ;; Confidential and read-only trees stay out of the census by rule, not by the
 ;; accident of carrying no <name>/main checkout.
-(def excluded-container-names #{"client" "reference"})
+(def excluded-container-names #{"client" "resources"})
 (def stale-age-ms (* 48 60 60 1000))
 (def ^:private max-path-chars 4096)
 (def ^:private max-worktree-claims 4096)

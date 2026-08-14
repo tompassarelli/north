@@ -101,7 +101,7 @@ PIN_OID=0123456789abcdef0123456789abcdef01234567
 NEXT_PIN_OID=89abcdef0123456789abcdef0123456789abcdef
 mkdir -p "$ROOT/proj/main/.git" "$ROOT/proj/worktrees/x" "$ROOT/proj/worktrees/main" \
          "$ROOT/proj/pins/$PIN_OID" \
-         "$ROOT/client/msa/app/main/.git" "$ROOT/reference/upstream/main/.git" \
+         "$ROOT/client/msa/app/main/.git" "$ROOT/resources/upstream/main/.git" \
          "$ROOT/runtime-data/.git"
 printf 'The vendored upstream checkout. Consumers: gjoa:.envrc, the docs build.\n' \
   > "$ROOT/proj/pins/$PIN_OID.pin"
@@ -123,7 +123,7 @@ check allow "$ROOT/proj/pins/$PIN_OID.pin"            "the manifest is agent-wri
 check deny  "$ROOT/proj/pins/$PIN_OID/nested.pin"     "a .pin path inside the checkout is content, still denied"
 check deny  "$ROOT/proj/pins/$PIN_OID/build/out.js"   "gitignore does NOT exempt a pin (T6)"
 check allow "$ROOT/runtime-data/state.json"           "bare .git, no main/: runtime state stays writable"
-check allow "$ROOT/reference/upstream/main/README.md" "reference checkouts are read-only context"
+check allow "$ROOT/resources/upstream/main/README.md" "resource checkouts are read-only context"
 
 # The pin deny names the manifest and the immutable replacement route. The new
 # worktree is cut from main, never from the pin being protected.

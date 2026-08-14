@@ -70,7 +70,7 @@ MAIN_KIND = "main"
 PIN_KIND = "pin:"
 
 # Read-only context by policy; never a work destination, so never protected here.
-EXCLUDED_ROOTS = ("reference",)
+EXCLUDED_ROOTS = ("resources",)
 
 
 def code_root():

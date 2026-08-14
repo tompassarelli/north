@@ -88,7 +88,7 @@ shape as the fact log.
 
 ```
 @2026-06-15-150040
-title       "Pick back up: gjoa + reference/lean work"
+title       "Pick back up: gjoa + resources/lean work"
 owner       personal
 lead        @tom_passarelli
 source      tom
@@ -103,7 +103,7 @@ relates_to  @2026-06-14-140000
 
 ## Goal
 
-Resume the gjoa + reference/lean work. Pick it back up later today.
+Resume the gjoa + resources/lean work. Pick it back up later today.
 
 ## Log
 
@@ -941,7 +941,7 @@ unmerged ones are only ever **surfaced** for review, never auto-removed, because
 the uncommitted bytes may be the only copy.
 
 `north worktrees` is the census. It reads every container repo under `~/code`
-(never `client/` or `reference/`) and prints one row per tree under that
+(never `client/` or `resources/`) and prints one row per tree under that
 container's `worktrees/` (never a `pins/<full-object-id>/` checkout): drift
 against main, tracked/untracked dirt, age of last write, the live concern
 holding its repository, and the lane registration the fact server has for it —

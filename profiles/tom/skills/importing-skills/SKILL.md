@@ -15,7 +15,7 @@ import.
 ## Gate the source before reading it
 
 Read `north:profiles/tom/docs/external-code.md`. For a GitHub URL, clone into
-`~/code/reference/<repo>` or a temporary directory; never edit a reference
+`~/code/resources/<repo>` or a temporary directory; never edit a resource
 checkout. Before reading README or skill content, inspect tracked filenames for
 `LICENSE*`, `COPYING*`, and `NOTICE*`, then read any specified license terms.
 
