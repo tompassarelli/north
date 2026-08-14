@@ -20,7 +20,8 @@ FH="$SCRATCH/home"
 REPO_CWD="$FH/code/proj/worktrees/mine"  # this session's lane
 OTHER_WT="$FH/code/proj/worktrees/other" # a concurrent lane
 WT_ROOT="$FH/code/proj/worktrees"        # the lane collection root
-PIN="$FH/code/proj/pins/site"            # an externally consumed checkout
+PIN_OID=0123456789abcdef0123456789abcdef01234567
+PIN="$FH/code/proj/pins/$PIN_OID"        # an externally consumed checkout
 PIN_ROOT="$FH/code/proj/pins"            # the pin collection root
 MAIN_CO="$FH/code/proj/main"       # the never-edited checkout
 NOREPO_CWD="$FH/notrepo"           # cwd with no enclosing git repo
@@ -38,7 +39,7 @@ mkdir -p "$FH/Documents/notes"
 for r in "$MAIN_CO" "$OTHER_WT" "$REPO_CWD" "$PIN"; do
   git -C "$r" init -q 2>/dev/null
 done
-printf 'site — vendored upstream. Consumers: the docs build.\n' > "$PIN_ROOT/site.pin"
+printf 'Vendored upstream. Consumers: the docs build.\n' > "$PIN_ROOT/$PIN_OID.pin"
 mkdir -p "$REPO_CWD/src" "$REPO_CWD/node_modules" "$REPO_CWD/build" "$REPO_CWD/scratch"
 printf 'node_modules/\nbuild/\n' > "$REPO_CWD/.gitignore"
 : > "$REPO_CWD/src/app.txt"
@@ -169,7 +170,7 @@ case "$LAST_OUT" in *'externally CONSUMED'*) pass=$((pass + 1)); echo 'PASS  den
 case "$LAST_OUT" in *'worktree remove'*) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must not advise worktree remove (got: %s)\n' "$LAST_OUT" ;;
   *) pass=$((pass + 1)); echo 'PASS  deny   a pin reason does not advise destroying it' ;; esac
 run deny 'inside a pin' "rm -rf $PIN/src"
-run deny 'a .pin manifest directory entry' "rm -rf $PIN_ROOT/site.pin"
+run deny 'a .pin manifest directory entry' "rm -rf $PIN_ROOT/$PIN_OID.pin"
 runm default deny 'the pins/ root stays hard (default mode)' "rm -rf $PIN_ROOT"
 runm default deny 'the worktrees/ root stays hard (default mode)' "rm -rf $WT_ROOT"
 run deny 'north-data (machine memory)' "rm -rf $FH/code/north-data/accounts"

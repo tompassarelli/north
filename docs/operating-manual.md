@@ -927,9 +927,12 @@ complete when only the ref reaches main — it also requires the worktree remove
 and its branch deleted (`git -C <repo>/main worktree remove <path>` then
 `git branch -d <branch>`; `wt-reap` sweeps every merged+clean tree under
 `<container>/worktrees/`). A landed lane that leaves its worktree behind is not
-done, and origin never carries a lane branch. `<container>/pins/` is the
-opposite slot: an externally-consumed checkout is never "done", is never swept,
-and every sweeper opts in on `worktrees/` positively so a pin cannot be reached.
+done, and origin never carries a lane branch. `<container>/pins/<full-object-id>/` is
+the opposite slot: its leaf is the immutable full commit object ID, its
+same-name `.pin` sidecar names consumers, and it is never swept. Advancing a
+consumer creates another hash-named detached worktree and updates that consumer;
+an existing pin's contents and HEAD never move. Every sweeper opts in on
+`worktrees/` positively so a pin cannot be reached.
 
 What escapes that cleanup is caught, not lost. A `worktrees/` tree idle past 48h with no
 owning lane and no live concern is **stale**: merged and clean ones are reaped
@@ -939,7 +942,7 @@ the uncommitted bytes may be the only copy.
 
 `north worktrees` is the census. It reads every container repo under `~/code`
 (never `client/` or `reference/`) and prints one row per tree under that
-container's `worktrees/` (never a `pins/` checkout): drift
+container's `worktrees/` (never a `pins/<full-object-id>/` checkout): drift
 against main, tracked/untracked dirt, age of last write, the live concern
 holding its repository, and the lane registration the fact server has for it —
 with `--json` for machine consumers. It composes `git`, `concern`, and the fact
