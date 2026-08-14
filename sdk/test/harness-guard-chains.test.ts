@@ -29,6 +29,8 @@ const { harnessOptions } = await import("../src/harness");
 
 const REQUIRED = ["launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh"];
 const installed = REQUIRED.every((name) => existsSync(resolve(HOOKS_DIR, name)));
+const PIN_OID = "0123456789abcdef0123456789abcdef01234567";
+const NEXT_PIN_OID = "89abcdef0123456789abcdef0123456789abcdef";
 
 let root: string;
 let savedRoot: string | undefined;
@@ -38,12 +40,12 @@ beforeAll(() => {
   // A `main` is protected when it holds a `.git` (dynamic detection), so the
   // fixture container needs one. The container carries all three slots, because
   // the rule is positional: `worktrees/<slug>` is the sanctioned destination and
-  // `pins/<name>` is the one place a write is refused for a different reason.
+  // `pins/<full-object-id>` is the immutable content-addressed checkout slot.
   for (const project of ["north", "fram"]) mkdirSync(join(root, project, "main", ".git"), { recursive: true });
   mkdirSync(join(root, "north", "worktrees", "lane"), { recursive: true });
-  mkdirSync(join(root, "north", "pins", "site"), { recursive: true });
-  writeFileSync(join(root, "north", "pins", "site.pin"),
-    "site — vendored upstream checkout. Consumers: the docs build.\n");
+  mkdirSync(join(root, "north", "pins", PIN_OID), { recursive: true });
+  writeFileSync(join(root, "north", "pins", `${PIN_OID}.pin`),
+    "Vendored upstream checkout. Consumers: the docs build.\n");
   savedRoot = process.env.LAUNCH_CRITICAL_CODE_ROOT;
   process.env.LAUNCH_CRITICAL_CODE_ROOT = root;
 });
@@ -125,11 +127,12 @@ test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and p
 
   // A pin is refused for a DIFFERENT reason and with a different remedy —
   // this is the only proof the chain carries the pin rule at all.
-  const pin = await decide(hook, edit(join(root, "north", "pins", "site", "index.html")));
+  const pin = await decide(hook, edit(join(root, "north", "pins", PIN_OID, "index.html")));
   expect(pin.decision).toBe("deny");
-  expect(pin.reason).toContain("pins/site.pin");
+  expect(pin.reason).toContain(`pins/${PIN_OID}.pin`);
   expect(pin.reason).toContain("the docs build");
-  expect(pin.reason).not.toContain("worktree add");
+  expect(pin.reason).toContain("worktree add --detach");
+  expect(pin.reason).not.toContain("checkout REF");
 }, CASE_TIMEOUT_MS);
 
 // Both Bash chains: they differ only by orchestration permission (agent-spawn-guard),
@@ -174,10 +177,38 @@ for (const [name, route] of [
       `git -C ${main} pull --ff-only`,
       "git add sdk/src/harness.ts",
       `printf x > ${join(root, "north", "worktrees", "lane", "x.txt")}`,
-      `git -C ${join(root, "north", "pins", "site")} checkout 3e942ba2`,
+      `git -C ${main} worktree add --detach ${join(root, "north", "pins", NEXT_PIN_OID)} ${NEXT_PIN_OID}`,
       "git commit -m 'stop using git add -A'",
       "kill -TERM 1234",
       "pkill -f 'wrangler dev --port 8788'",
+    ]) {
+      expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
+        .toBe(`${command} => allow`);
+    }
+    const pin = join(root, "north", "pins", PIN_OID);
+    for (const command of [
+      `git -C ${pin} checkout ${NEXT_PIN_OID}`,
+      `git -C "${pin}" switch --detach ${NEXT_PIN_OID}`,
+      `git -C ${pin} worktree add --detach ${join(root, "north", "pins", NEXT_PIN_OID)} ${NEXT_PIN_OID}`,
+      `git -C ${main} worktree remove ${pin}`,
+      `git -C ${main} worktree move ${pin} ${join(root, "north", "pins", NEXT_PIN_OID)}`,
+      `git -C ${join(root, "north", "worktrees", "lane")} commit -am x ; git -C "${pin}" checkout ${NEXT_PIN_OID}`,
+      `git -C ${join(root, "north", "worktrees", "lane")} commit -am x ; git -C ${main} worktree remove ${pin}`,
+      `(git -C ${pin} checkout ${NEXT_PIN_OID})`,
+      `echo "$(git -C ${pin} checkout ${NEXT_PIN_OID})"`,
+      `sh -c 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
+      `bash -lc 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
+      `bash -ec 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
+      `sh -c -- 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
+    ]) {
+      expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
+        .toBe(`${command} => deny`);
+    }
+    for (const command of [
+      `echo 'example; git -C ${pin} checkout ${NEXT_PIN_OID}' >> /tmp/pin-notes`,
+      `echo 'example && git -C ${pin} checkout ${NEXT_PIN_OID}' >> /tmp/pin-notes`,
+      `echo '$(git -C ${pin} checkout ${NEXT_PIN_OID})' >> /tmp/pin-notes`,
+      `echo sh -c 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
     ]) {
       expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
         .toBe(`${command} => allow`);

@@ -142,7 +142,8 @@ Branch hygiene: origin carries main only (plus tags). Worktree/lane branches
 are local and ephemeral — land by fetch + `safe-push --to main`. Landing is
 complete only after cleanup: remove your worktree and delete your branch
 (`wt-reap` sweeps every merged+clean tree under `<container>/worktrees/`;
-`<container>/pins/` is exempt — an externally consumed pin is never "done");
+`<container>/pins/<full-object-id>/` is exempt — an immutable externally consumed pin
+is never "done");
 a landed lane that leaves its worktree behind is not done. Never publish a feature branch name.
 
 ## Removal means absence — no tombstones

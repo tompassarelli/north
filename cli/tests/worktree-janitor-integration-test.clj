@@ -160,7 +160,7 @@
          "bb" maintenance-host "worktrees" flags))
 
 ;; ---- unregistered <container>/worktrees/ census fixture ---------------------
-;; Container layout (<root>/<repo>/main + worktrees/<slug> lanes, and a pins/<name>
+;; Container layout (<root>/<repo>/main + worktrees/<slug> lanes, and a pins/<full-object-id>
 ;; checkout that must never be enumerated) with dated commits and back-dated
 ;; activity traces, so staleness is real rather than simulated.
 

@@ -206,13 +206,15 @@ print("--- every container's main, not only the launch-critical ones ---")
 # never heard of, and must not sweep in the near-misses that live beside one.
 FIX = tempfile.mkdtemp(prefix="lc-guard-")
 ROOT = os.path.join(FIX, "code")
+PIN_OID = "0123456789abcdef0123456789abcdef01234567"
+NEXT_PIN_OID = "89abcdef0123456789abcdef0123456789abcdef"
 for rel in ("proj/main/.git", "proj/worktrees/x/.git", "proj/worktrees/main",
-            "proj/pins/site", "client/msa/app/main/.git",
+            f"proj/pins/{PIN_OID}", "client/msa/app/main/.git",
             "reference/upstream/main/.git", "runtime-data/.git", "plain-dir"):
     os.makedirs(os.path.join(ROOT, rel), exist_ok=True)
-PIN = os.path.join(ROOT, "proj", "pins", "site")
-open(os.path.join(ROOT, "proj", "pins", "site.pin"), "w").write(
-    "site — vendored upstream checkout. Consumers: the docs build.\n")
+PIN = os.path.join(ROOT, "proj", "pins", PIN_OID)
+open(os.path.join(ROOT, "proj", "pins", PIN_OID + ".pin"), "w").write(
+    "vendored upstream checkout. Consumers: the docs build.\n")
 
 PROJ = os.path.join(ROOT, "proj", "main")
 CLIENT = os.path.join(ROOT, "client", "msa", "app", "main")
@@ -261,17 +263,17 @@ PIN_HIT = run({"tool_name": "Edit",
               code_root=ROOT)
 check("a write into a pin is denied", PIN_HIT)
 check("the pin deny names the .pin manifest",
-      "pins/site.pin" in (PIN_HIT or ""))
+      f"pins/{PIN_OID}.pin" in (PIN_HIT or ""))
 check("the pin deny names the manifest's consumers",
       "the docs build" in (PIN_HIT or ""))
-check("the pin deny does NOT send the agent to worktree add",
-      "worktree add" not in (PIN_HIT or ""))
-check("the pin deny names the sanctioned re-point",
-      "checkout REF" in (PIN_HIT or ""))
+check("the pin deny names new content-addressed pin creation",
+      "worktree add --detach" in (PIN_HIT or ""))
+check("the pin deny never names in-place checkout",
+      "checkout REF" not in (PIN_HIT or ""))
 check("the manifest is agent-writable pin METADATA (AMB-6 as amended)",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": os.path.join(
-               ROOT, "proj", "pins", "site.pin")}},
+               ROOT, "proj", "pins", PIN_OID + ".pin")}},
           code_root=ROOT) is None)
 check("a .pin-named path INSIDE a pin checkout is still content, still denied",
       run({"tool_name": "Edit",
@@ -290,19 +292,71 @@ check("committing inside a pin is denied", fixture("git commit -am x", cwd=PIN))
 check("quoted PROSE naming a pin git command is not an invocation",
       fixture("printf 'git -C " + PIN + " commit -am x' >> /tmp/pin-notes.txt")
       is None)
+check("a semicolon inside quoted prose is not a command boundary",
+      fixture("echo 'example; git -C " + PIN
+              + " checkout deadbeef' >> /tmp/pin-notes.txt") is None)
+check("an and-list inside quoted prose is not a command boundary",
+      fixture("echo 'example && git -C " + PIN
+              + " checkout deadbeef' >> /tmp/pin-notes.txt") is None)
+check("a single-quoted command substitution remains literal prose",
+      fixture("echo '$(git -C " + PIN
+              + " checkout deadbeef)' >> /tmp/pin-notes.txt") is None)
 check("the same command unquoted is still a live call, still denied",
       fixture("git -C " + PIN + " commit -am x"))
-check("re-pointing a pin is its ONE sanctioned mutation",
-      fixture(f"git -C {PIN} checkout 3e942ba2") is None)
-check("...also in the --detach form",
-      fixture(f"git -C {PIN} switch --detach 3e942ba2") is None)
-check("...but a working-tree checkout in a pin is not a re-point",
+check("checkout cannot change a content-addressed pin's HEAD",
+      fixture(f"git -C {PIN} checkout 3e942ba2"))
+check("a double-quoted -C path cannot hide pin checkout",
+      fixture(f'git -C "{PIN}" checkout 3e942ba2'))
+check("a single-quoted -C path cannot hide pin switch",
+      fixture(f"git -C '{PIN}' switch --detach 3e942ba2"))
+check("a parenthesized subshell cannot hide pin checkout",
+      fixture(f"(git -C {PIN} checkout deadbeef)"))
+check("a command substitution cannot hide pin checkout",
+      fixture(f'echo "$(git -C {PIN} checkout deadbeef)"'))
+check("a backtick substitution cannot hide pin checkout",
+      fixture(f"echo `git -C {PIN} checkout deadbeef`"))
+check("sh -c cannot hide pin checkout",
+      fixture(f"sh -c 'git -C {PIN} checkout deadbeef'"))
+check("bash -lc cannot hide pin checkout",
+      fixture(f"bash -lc 'git -C {PIN} checkout deadbeef'"))
+check("bash -ec cannot hide pin checkout",
+      fixture(f"bash -ec 'git -C {PIN} checkout deadbeef'"))
+check("sh -c -- cannot hide pin checkout",
+      fixture(f"sh -c -- 'git -C {PIN} checkout deadbeef'"))
+check("a shell name passed to echo is data, not an executable",
+      fixture(f"echo sh -c 'git -C {PIN} checkout deadbeef'") is None)
+check("switch --detach cannot change a content-addressed pin's HEAD",
+      fixture(f"git -C {PIN} switch --detach 3e942ba2"))
+check("a working-tree checkout in a pin is also denied",
       fixture(f"git -C {PIN} checkout -- ."))
-check("...and creating a branch in a pin is not a re-point",
+check("creating a branch in a pin is denied",
       fixture(f"git -C {PIN} checkout -b mine"))
-check("a re-point cannot shield a later write into the pin",
+check("a checkout cannot shield a later write into the pin",
       fixture(f"git -C {PIN} checkout abc123 && "
               f"echo x > {os.path.join(PIN, 'x.txt')}"))
+check("a replacement full-object-ID pin may be created from main",
+      fixture(f"git -C {PROJ} worktree add --detach "
+              f"{os.path.join(ROOT, 'proj', 'pins', NEXT_PIN_OID)} "
+              f"{NEXT_PIN_OID}") is None)
+check("an existing pin cannot be the source of worktree creation",
+      fixture(f"git -C '{PIN}' worktree add --detach "
+              f"{os.path.join(ROOT, 'proj', 'pins', NEXT_PIN_OID)} "
+              f"{NEXT_PIN_OID}"))
+check("worktree remove cannot delete an immutable pin",
+      fixture(f"git -C {PROJ} worktree remove {PIN}"))
+check("worktree move cannot rename an immutable pin",
+      fixture(f"git -C {PROJ} worktree move {PIN} "
+              f"{os.path.join(ROOT, 'proj', 'pins', NEXT_PIN_OID)}"))
+check("worktree move remains available for an ordinary lane",
+      fixture(f"git -C {PROJ} worktree move "
+              f"{os.path.join(ROOT, 'proj', 'worktrees', 'x')} "
+              f"{os.path.join(ROOT, 'proj', 'worktrees', 'y')}") is None)
+check("an earlier lane commit cannot hide a later pin checkout",
+      fixture(f"git -C {os.path.join(ROOT, 'proj', 'worktrees', 'x')} "
+              f"commit -am x ; git -C \"{PIN}\" checkout deadbeef"))
+check("an earlier lane commit cannot hide later pin removal",
+      fixture(f"git -C {os.path.join(ROOT, 'proj', 'worktrees', 'x')} "
+              f"commit -am x ; git -C {PROJ} worktree remove {PIN}"))
 check("reading a pin is always fine",
       fixture(f"cat {os.path.join(PIN, 'index.html')}") is None)
 check("a reset --hard in a pin denies with the PIN reason, not wt-rescue",

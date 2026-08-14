@@ -15,7 +15,7 @@
 #                   IS a root delete. HARD in every mode, no ask.
 #        sacred   — someone else's or the machine's: a `main/` checkout, a
 #                   project container under ~/code, a container's `worktrees/`
-#                   or `pins/` collection root, any `pins/<name>` (externally
+#                   or `pins/` collection root, any `pins/<full-object-id>` (externally
 #                   consumed — automation never touches one), ~/code/*-data,
 #                   ~/.local/state/north, ~/code/reference, a
 #                   `worktrees/<slug>` lane this session is not working in, any
@@ -415,7 +415,7 @@ sacred_owner_reason() {
       return 0
       ;;
     "$HOME"/code/*/pins/*)
-      WHY="'$p' is a pin — an externally CONSUMED checkout that something outside this repository reads at exactly this path and revision. Automation never touches it. Read its consumers in the sibling .pin manifest; re-pointing (git -C the-pin checkout REF) is the human's call, deleting it is not"
+      WHY="'$p' is a content-addressed pin — an externally CONSUMED checkout whose full commit ID is its path. Its contents, HEAD, and path are immutable. Read its consumers in the same-name sibling .pin manifest; advance a consumer by creating a new hash-named pin, never by changing this one"
       return 0
       ;;
     "$HOME"/code/*/worktrees)

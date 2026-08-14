@@ -7,17 +7,20 @@ THE LAYOUT — directory = lifecycle policy
                                     any dirt in it is the human's
     ~/code/<project>/worktrees/<slug>/  ephemeral agent lanes — sweepable, and
                                     the sanctioned destination for every write
-    ~/code/<project>/pins/<name>/   externally CONSUMED checkouts — something
+    ~/code/<project>/pins/<full-object-id>/ externally CONSUMED checkouts — the full
+                                    commit object ID is the directory name;
+                                    contents and HEAD are immutable
                                     outside this repository reads them at that
                                     exact path and revision, so automation
                                     never writes to them and never sweeps them
-    ~/code/<project>/pins/<name>.pin    one-line manifest naming that pin's
+    ~/code/<project>/pins/<full-object-id>.pin  one-line manifest naming that pin's
                                     consumers
 
-The slot directly under the container carries the policy; leaf names carry
-none. `worktrees` and `pins` are matched POSITIONALLY at container depth, never
-anywhere in the path — `main/docs/worktrees/x.md` is repository content, not a
-lane.
+The slot directly under the container carries the lifecycle policy. Lane leaf
+names carry none; a pin leaf additionally carries the checkout's full object
+identity. `worktrees` and `pins` are matched POSITIONALLY at container depth,
+never anywhere in the path — `main/docs/worktrees/x.md` is repository content,
+not a lane.
 
 EVERY `main` checkout under ~/code is protected, not only the launch-critical
 ones: `main` is never edited in place anywhere, and dirty state there is the
@@ -100,7 +103,7 @@ def _container_slot(root, parts):
 
 
 def _pin_manifest(root, container, name):
-    """The `pins/<name>.pin` manifest line — who consumes this pin — or None."""
+    """The `pins/<object-id>.pin` consumer manifest, or None."""
     try:
         with open(os.path.join(root, container, PINS_DIR, name + ".pin"),
                   encoding="utf-8", errors="replace") as handle:
@@ -154,7 +157,8 @@ def protected_project(path):
     # and a different remedy. The `pins/` directory ITSELF stays writable — a
     # container has to be able to grow one — and so is the `<name>.pin`
     # MANIFEST: it is pin metadata agents administer, not consumed checkout
-    # content. Only the checkout under `pins/<name>/` is protected.
+    # content. Only the checkout under `pins/<object-id>/` is protected. The
+    # layout checker separately rejects leaves that are not full commit IDs.
     if slot == PINS_DIR and len(parts) > slot_index + 1:
         leaf = parts[slot_index + 1]
         if leaf.endswith(".pin") and len(parts) == slot_index + 2:
@@ -220,17 +224,20 @@ def worktree_advice(project):
 
 
 def pin_advice(project, name):
-    """The compliant move against a pin — never `worktree add`.
+    """The compliant move against a pin — never mutate the current checkout.
 
-    Sending an agent to cut a lane from a pin sends it to break the thing being
-    protected. A pin has exactly one sanctioned mutation: re-pointing it.
+    The current pin never moves. Advancing a consumer means creating a new
+    detached, full-object-ID worktree from main and changing the consumer to
+    that new path.
     """
     container = os.path.join(code_root(), project)
     return (
         "A pin is not a lane. Do not edit it, and do not cut a worktree from it:\n"
         f"  cat {container}/{PINS_DIR}/{name}.pin        # who consumes it, on what terms\n"
-        f"  git -C {container}/{PINS_DIR}/{name} checkout REF   # the ONE sanctioned"
-        " mutation: re-point it\n"
-        "  # anything else is the human's call — editing a pin changes what its\n"
-        "  # consumers see, outside this repository.\n"
+        "To advance a consumer, leave this checkout untouched and create a new pin:\n"
+        "  PIN_OBJECT_ID=FULL_GIT_OBJECT_ID\n"
+        f"  git -C {container}/main worktree add --detach "
+        f"{container}/{PINS_DIR}/$PIN_OBJECT_ID $PIN_OBJECT_ID\n"
+        f"  # write {container}/{PINS_DIR}/$PIN_OBJECT_ID.pin, then update the consumer\n"
+        "The old path and HEAD remain immutable.\n"
     )

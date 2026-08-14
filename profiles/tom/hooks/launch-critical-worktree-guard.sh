@@ -14,7 +14,7 @@
 #
 # SCOPE
 #   Denies a write whose realpath sits inside a protected checkout — a `main`
-#   checkout, or a `pins/<name>` checkout something outside the repository
+#   checkout, or a `pins/<full-object-id>` checkout something outside the repository
 #   consumes — see lib/launch_critical_paths.py for the derivation, and,
 #   separately, a git call that would discard uncommitted work in a main. Every
 #   other path returns empty stdout, which the harness reads as "no opinion".
@@ -24,8 +24,9 @@
 #   DIRECTORY, positionally, not by any leaf name.
 #   `pins/` is the opposite slot: writes there are refused with the pin's own
 #   reason and remedy (its `.pin` manifest, and the human), because a pin is
-#   protected by who reads it, not by whose dirt it holds. Reads and the one
-#   sanctioned mutation — `git -C <pin> checkout REF` — stay allowed.
+#   protected by who reads it, not by whose dirt it holds. Reads stay allowed.
+#   Pin contents and HEAD have no sanctioned mutation; advancing a consumer
+#   creates a new full-object-ID pin.
 #   `wt-rescue`, the remediation the deny message recommends for a dirty main,
 #   is allowlisted — see SANCTIONED_TOOLS in lib/launch_critical_decide.py.
 #
@@ -63,7 +64,7 @@ type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 # Cheap bash pre-filter — this runs on EVERY Edit/Write, so a payload that
 # cannot possibly name a protected checkout must not pay a python3 startup.
 # Safe because a protected path names a `main` component or a `pins` one.
-# `*pins*` is LOAD-BEARING: without it a `Write ~/code/gjoa/pins/site/index.html`
+# `*pins*` is LOAD-BEARING: without it a write under a hash-named `pins/` path
 # never reaches python, the guard exits 0 with empty stdout, and the harness
 # reads that as "no opinion" — silent, error-free non-enforcement of the whole
 # pin rule. `worktrees` is deliberately NOT listed: a lane path is allowed

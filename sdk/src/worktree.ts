@@ -200,8 +200,8 @@ function gitCommonDir(repoRoot: string): string {
 
 // `~/code/<project>` is a CONTAINER holding exactly three slots: `main/` (the clean
 // checkout — the only source a lane is ever cut from), `worktrees/<slug>/` (the
-// ephemeral lanes, sweepable), and `pins/<name>/` (externally consumed checkouts that
-// automation never touches). A lane dispatched from the container directory still
+// ephemeral lanes, sweepable), and `pins/<full-object-id>/` (immutable externally consumed
+// checkouts whose leaf is their full commit ID). A lane dispatched from the container directory still
 // resolves to exactly one repo root: its `main/`.
 function sourceRoot(repoRoot: string): string {
   const resolved = (() => {
@@ -218,8 +218,8 @@ function sourceRoot(repoRoot: string): string {
       );
     }
   })();
-  // FAIL LOUD on a pin. A pin is consumed outside this repository at exactly its path
-  // and revision; cutting a lane from one makes an agent's work depend on a checkout
+  // FAIL LOUD on a pin. A pin is consumed outside this repository at exactly its
+  // content-addressed path; cutting a lane from one makes an agent's work depend on a checkout
   // automation may never sweep, and silently succeeding here is how that happens.
   if (basename(dirname(resolved)) === "pins")
     throw new Error(

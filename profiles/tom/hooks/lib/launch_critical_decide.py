@@ -5,11 +5,11 @@ TWO PROTECTED SHAPES, TWO REMEDIES
 
 A `main/` checkout is protected because it is the clean product and any dirt in
 it is the human's; the remedy is a lane under `<container>/worktrees/`. A
-`pins/<name>/` checkout is protected because something OUTSIDE the repository
-consumes it at that exact path and revision; the remedy is the `.pin` manifest
-and the human, never `worktree add` — sending an agent to cut a lane from a pin
-sends it to break the thing being protected. `protected_project` returns the
-kind so both nouns and both remedies stay correct at every deny site.
+`pins/<full-object-id>/` checkout is protected because something OUTSIDE the repository
+consumes that immutable commit at that exact path. The remedy is a new
+hash-named pin plus a consumer update, never mutation of the existing checkout.
+`protected_project` returns the kind so both nouns and both remedies stay
+correct at every deny site.
 
 BASH COVERAGE
 
@@ -30,9 +30,8 @@ READ vs WRITE
 Reads from a primary stay allowed — `git log`, `git status`, `grep`, `cat`. So
 does the sanctioned escape route the deny message itself recommends:
 `git worktree add` (into `<container>/worktrees/`) and
-`git fetch LANE BRANCH:refs/heads/main`. A pin's one sanctioned mutation —
-`git -C <pin> checkout REF`, re-pointing it — is allowed for the same reason.
-Only unsanctioned mutation is refused.
+`git fetch LANE BRANCH:refs/heads/main`. Pin contents and HEAD have no sanctioned
+mutation: a new full-object-ID pin is created when a consumer advances.
 
 WIP DESTRUCTION
 
@@ -70,23 +69,16 @@ MUTATING_GIT = {
     "clean", "rm", "mv", "gc", "prune", "filter-branch", "update-ref",
 }
 
-# Explicitly allowed from a primary — these are how you LEAVE it and how work
-# LANDS in it.
-SANCTIONED_GIT = {"worktree", "fetch"}
+# Explicitly allowed from a primary — this is one way work LANDS in it.
+# `git worktree` is handled by subcommand below because add/prune are compliant,
+# while remove/move may target an immutable pin.
+SANCTIONED_GIT = {"fetch"}
 
 # merge/pull are mutations, but --ff-only cannot dirty the tree or invent a
 # commit: it either fast-forwards or refuses. `git fetch LANE BRANCH:refs/heads/main`
 # — the other landing form — FAILS when main is checked out, which it always is
 # under this layout, so without these there is no way to land at all.
 FF_ONLY_GIT = {"merge", "pull"}
-
-# A pin's ONE sanctioned mutation: re-pointing it at another revision. Narrow on
-# purpose — a bare `checkout REF` / `switch --detach REF` moves HEAD and nothing
-# else. Path arguments (`checkout -- x`, `checkout .`), branch creation, and
-# force all rewrite the working tree a consumer is reading, so none of them ride
-# in on this carve-out.
-PIN_REPOINT_GIT = {"checkout", "switch"}
-PIN_REPOINT_FLAGS = {"-q", "--quiet", "--detach"}
 
 # Commands whose job is to modify a file in place.
 WRITE_COMMANDS = {
@@ -344,35 +336,185 @@ def _apply_patch_command_decision(command, cwd, stripped=None):
     return None
 
 
-def _blank_quoted(text):
-    """Blank single/double-quoted spans so quoted PROSE naming a git command
-    (a manifest line, a commit message, an echo) is never scanned as a live
-    invocation. A real call's `git`, flags, and verb sit outside quotes; the
-    known cost is a quoted -C argument losing its target, which degrades to
-    cwd — a narrower miss than the prose false-positive it removes."""
-    out, i, n, q = [], 0, len(text), None
-    while i < n:
-        c = text[i]
-        if q:
-            if q == '"' and c == "\\" and i + 1 < n:
-                out.append("  ")
-                i += 2
-                continue
-            if c == q:
-                q = None
-                out.append(" ")
-            else:
-                out.append("\n" if c == "\n" else " ")
+def _shell_segments(text):
+    """Split live shell commands without treating quoted separators as syntax."""
+    segments, buf = [], []
+    quote = None
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote:
+            buf.append(char)
+            if quote == '"' and char == "\\" and i + 1 < len(text):
+                i += 1
+                buf.append(text[i])
+            elif char == quote:
+                quote = None
             i += 1
             continue
-        if c in ("'", '"'):
-            q = c
-            out.append(" ")
+        if char in ("'", '"'):
+            quote = char
+            buf.append(char)
             i += 1
             continue
-        out.append(c)
+        if char == "\\" and i + 1 < len(text):
+            buf.append(char)
+            i += 1
+            buf.append(text[i])
+            i += 1
+            continue
+        if char in ";|&\n":
+            segment = "".join(buf).strip()
+            if segment:
+                segments.append(segment)
+            buf = []
+            if i + 1 < len(text) and text[i:i + 2] in ("&&", "||"):
+                i += 1
+            i += 1
+            continue
+        buf.append(char)
         i += 1
-    return "".join(out)
+    segment = "".join(buf).strip()
+    if segment:
+        segments.append(segment)
+    return segments
+
+
+def _shell_substitutions(text):
+    """Executable bodies of `$()` and backticks, excluding single-quoted data."""
+    bodies = []
+    quote = None
+    i = 0
+    while i < len(text):
+        char = text[i]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            i += 1
+            continue
+        if char == "\\" and i + 1 < len(text):
+            i += 2
+            continue
+        if char == '"':
+            quote = None if quote == '"' else '"'
+            i += 1
+            continue
+        if char == "'" and quote is None:
+            quote = "'"
+            i += 1
+            continue
+        if char == "`":
+            j = i + 1
+            body = []
+            while j < len(text):
+                if text[j] == "\\" and j + 1 < len(text):
+                    body.extend((text[j], text[j + 1]))
+                    j += 2
+                    continue
+                if text[j] == "`":
+                    bodies.append("".join(body))
+                    i = j + 1
+                    break
+                body.append(text[j])
+                j += 1
+            else:
+                i += 1
+            continue
+        if char == "$" and i + 1 < len(text) and text[i + 1] == "(":
+            # `$((...))` is arithmetic, not a command substitution.
+            if i + 2 < len(text) and text[i + 2] == "(":
+                i += 3
+                continue
+            depth, nested_quote, j = 1, None, i + 2
+            while j < len(text):
+                nested = text[j]
+                if nested_quote:
+                    if nested_quote == '"' and nested == "\\" and j + 1 < len(text):
+                        j += 2
+                        continue
+                    if nested == nested_quote:
+                        nested_quote = None
+                    j += 1
+                    continue
+                if nested in ("'", '"'):
+                    nested_quote = nested
+                elif nested == "\\" and j + 1 < len(text):
+                    j += 2
+                    continue
+                elif nested == "(":
+                    depth += 1
+                elif nested == ")":
+                    depth -= 1
+                    if depth == 0:
+                        bodies.append(text[i + 2:j])
+                        i = j + 1
+                        break
+                j += 1
+            else:
+                i += 2
+            continue
+        i += 1
+    return bodies
+
+
+def _shell_command_index(tokens):
+    """Index of the executable after common shell wrappers and assignments."""
+    i = 0
+    wrappers = {"env", "command", "builtin", "exec", "nohup", "sudo", "time"}
+    controls = {"!", "{", "if", "then", "elif", "while", "until", "do"}
+    value_flags = {
+        "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"},
+        "sudo": {
+            "-u", "--user", "-g", "--group", "-h", "--host", "-p",
+            "--prompt", "-C", "--chdir", "-r", "--role", "-t", "--type",
+        },
+    }
+    while i < len(tokens):
+        word = os.path.basename(tokens[i]).lstrip("(")
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[i]):
+            i += 1
+            continue
+        if word in controls:
+            i += 1
+            continue
+        if word not in wrappers:
+            break
+        i += 1
+        consumes = value_flags.get(word, set())
+        while i < len(tokens):
+            arg = tokens[i]
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", arg):
+                i += 1
+            elif arg in consumes and i + 1 < len(tokens):
+                i += 2
+            elif arg == "--":
+                i += 1
+                break
+            elif arg.startswith("-"):
+                i += 1
+            else:
+                break
+    return i
+
+
+def _shell_c_script(tokens, executable_index):
+    """The command string executed by a shell's `-c` option, if present."""
+    i = executable_index + 1
+    while i < len(tokens):
+        arg = tokens[i]
+        if arg in {"-O", "-o"} and i + 1 < len(tokens):
+            i += 2
+            continue
+        if arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]:
+            i += 1
+            if i < len(tokens) and tokens[i] == "--":
+                i += 1
+            return tokens[i] if i < len(tokens) else None
+        if arg == "--" or arg.startswith("-"):
+            i += 1
+            continue
+        return None
+    return None
 
 
 def _git_invocations(text, cwd):
@@ -382,10 +524,20 @@ def _git_invocations(text, cwd):
     mutating one later in the same line.
     """
     found = []
-    for segment in re.split(SEGMENT_SPLIT, _blank_quoted(text)):
+    # shlex preserves quoted arguments as single tokens. Thus `git -C
+    # "<pin>" checkout REF` retains its target, while quoted prose such as
+    # `printf 'git -C <pin> checkout REF'` never manufactures a `git` token.
+    for segment in _shell_segments(text):
         tokens = _tokens(segment)
+        command_index = _shell_command_index(tokens)
         for i, tok in enumerate(tokens):
-            if os.path.basename(tok) != "git":
+            executable = os.path.basename(tok).lstrip("(")
+            if executable in {"sh", "bash", "zsh"} and i == command_index:
+                script = _shell_c_script(tokens, i)
+                if script:
+                    nested_cwd = _effective_cwd(script, cwd)
+                    found.extend(_git_invocations(script, nested_cwd))
+            if executable != "git":
                 continue
             rest = tokens[i + 1:]
             target, verb, j = cwd, None, 0
@@ -402,6 +554,9 @@ def _git_invocations(text, cwd):
                 break
             if verb:
                 found.append((target, verb, rest[j + 1:]))
+        for body in _shell_substitutions(segment):
+            nested_cwd = _effective_cwd(body, cwd)
+            found.extend(_git_invocations(body, nested_cwd))
     return found
 
 
@@ -421,36 +576,81 @@ def _git_read_form(verb, args):
     return False
 
 
-def _pin_repoint(target, verb, args):
-    """True when this git call is the one mutation a pin sanctions."""
-    if verb not in PIN_REPOINT_GIT:
-        return False
-    flags = [a for a in args if a.startswith("-")]
-    plain = [a for a in args if not a.startswith("-")]
-    if "--" in args or "." in plain or len(plain) != 1:
-        return False
-    if any(flag not in PIN_REPOINT_FLAGS for flag in flags):
-        return False
-    hit = protected_project(target)
-    return bool(hit) and is_pin(hit[2])
+def _worktree_positionals(args):
+    """Return a worktree subcommand and its path-like positional arguments."""
+    if not args:
+        return None, []
+    subcommand = None
+    rest = []
+    for i, arg in enumerate(args):
+        if not arg.startswith("-"):
+            subcommand = arg
+            rest = args[i + 1:]
+            break
+    if not subcommand:
+        return None, []
 
-
-def _git_decision(invocations):
-    """(path, verb) for the first mutating git call, else None."""
-    for target, verb, args in invocations:
-        if verb in SANCTIONED_GIT or _git_read_form(verb, args):
+    positionals = []
+    skip_value = False
+    value_flags = {"-b", "-B", "--reason"}
+    literal = False
+    for arg in rest:
+        if skip_value:
+            skip_value = False
             continue
-        if _pin_repoint(target, verb, args):
+        if literal:
+            positionals.append(arg)
+            continue
+        if arg == "--":
+            literal = True
+            continue
+        if arg in value_flags:
+            skip_value = True
+            continue
+        if arg.startswith("--reason=") or arg.startswith("-"):
+            continue
+        positionals.append(arg)
+    return subcommand, positionals
+
+
+def _worktree_decision(target, args):
+    """Affected protected path for a disallowed worktree mutation, else None."""
+    subcommand, paths = _worktree_positionals(args)
+    if subcommand == "add":
+        hit = protected_project(target)
+        if hit and is_pin(hit[2]):
+            return (target, "worktree add from an immutable pin")
+        return None
+    if subcommand in {"remove", "move"}:
+        affected = paths[:1] if subcommand == "remove" else paths[:2]
+        for raw in affected:
+            path = _resolve(os.path.expanduser(raw), target)
+            if protected_project(path):
+                return (path, "worktree " + subcommand)
+        return None
+    # list/prune/lock/unlock/repair do not change checkout bytes or HEAD.
+    return None
+
+
+def _git_decisions(invocations):
+    """Yield every path-affecting mutating git call in command order."""
+    for target, verb, args in invocations:
+        if verb == "worktree":
+            decision = _worktree_decision(target, args)
+            if decision:
+                yield decision
+            continue
+        if verb in SANCTIONED_GIT or _git_read_form(verb, args):
             continue
         if verb in FF_ONLY_GIT:
             # Only the fast-forward form is sanctioned; a bare merge/pull can
             # conflict and leave the checkout dirty, which is the whole problem.
             if "--ff-only" in args:
                 continue
-            return (target, verb + " (without --ff-only)")
+            yield (target, verb + " (without --ff-only)")
+            continue
         if verb in MUTATING_GIT:
-            return (target, verb)
-    return None
+            yield (target, verb)
 
 
 def _wip_destroying(verb, args):
@@ -564,9 +764,7 @@ def decide(payload):
                 f"{worktree_advice(project)}")
 
     # 1. mutating git, wherever it points
-    g = _git_decision(invocations)
-    if g:
-        target, verb = g
+    for target, verb in _git_decisions(invocations):
         hit = protected_project(target)
         if hit:
             project, why, kind = hit

@@ -63,7 +63,7 @@ check allow "/tmp/fram-indexed-show-lane/bin/fram-fast.clj"    "ad-hoc lane work
 # silent, error-free non-enforcement of the entire pin rule. It must run WITHOUT
 # a fixture code root — the fixture root skips the pre-filter entirely, so a
 # fixture-only pin case proves nothing about production.
-check deny "$HOME/code/gjoa/pins/site/index.html" \
+check deny "$HOME/code/gjoa/pins/0123456789abcdef0123456789abcdef01234567/index.html" \
   "a pin write with no 'main' in the payload must still reach the decision"
 
 # --- 2b. gitignored paths are exempt ----------------------------------------
@@ -97,17 +97,19 @@ check deny "$HOME/code/nixos-config/main/modules/x.nix" "nixos-config primary, t
 # slots are all present, because the whole rule is positional.
 FIXTURE="$(mktemp -d)"
 ROOT="$FIXTURE/code"
+PIN_OID=0123456789abcdef0123456789abcdef01234567
+NEXT_PIN_OID=89abcdef0123456789abcdef0123456789abcdef
 mkdir -p "$ROOT/proj/main/.git" "$ROOT/proj/worktrees/x" "$ROOT/proj/worktrees/main" \
-         "$ROOT/proj/pins/site" \
+         "$ROOT/proj/pins/$PIN_OID" \
          "$ROOT/client/msa/app/main/.git" "$ROOT/reference/upstream/main/.git" \
          "$ROOT/runtime-data/.git"
-printf 'site — the vendored upstream checkout the docs build reads. Consumers: gjoa:.envrc, the docs build.\n' \
-  > "$ROOT/proj/pins/site.pin"
+printf 'The vendored upstream checkout. Consumers: gjoa:.envrc, the docs build.\n' \
+  > "$ROOT/proj/pins/$PIN_OID.pin"
 # A real repo inside the pin: `git check-ignore` needs one for the T6 case, and
 # both live pins are exactly this shape — full of ignored build artifacts.
-git init -q "$ROOT/proj/pins/site" 2>/dev/null
-printf 'build/\n' > "$ROOT/proj/pins/site/.gitignore"
-mkdir -p "$ROOT/proj/pins/site/build"
+git init -q "$ROOT/proj/pins/$PIN_OID" 2>/dev/null
+printf 'build/\n' > "$ROOT/proj/pins/$PIN_OID/.gitignore"
+mkdir -p "$ROOT/proj/pins/$PIN_OID/build"
 
 check deny  "$ROOT/proj/main/src/x.py"                "an unheard-of project's main"
 check deny  "$ROOT/client/msa/app/main/src/x.py"      "a client project's nested main"
@@ -116,26 +118,30 @@ check allow "$ROOT/proj/worktrees/main/x.py"          "a lane whose slug is lite
 check allow "$ROOT/proj/scratch.txt"                  "the container root is not a checkout"
 check allow "$ROOT/proj/worktrees"                    "the worktrees/ root itself must stay writable (T5)"
 check allow "$ROOT/proj/pins"                         "the pins/ root itself must stay writable (T5)"
-check deny  "$ROOT/proj/pins/site/index.html"         "a pin is externally consumed (T3)"
-check allow "$ROOT/proj/pins/site.pin"                "the manifest is agent-writable metadata (T7, AMB-6 as amended)"
-check deny  "$ROOT/proj/pins/site/nested.pin"         "a .pin path inside the checkout is content, still denied"
-check deny  "$ROOT/proj/pins/site/build/out.js"       "gitignore does NOT exempt a pin (T6)"
+check deny  "$ROOT/proj/pins/$PIN_OID/index.html"     "a content-addressed pin is externally consumed (T3)"
+check allow "$ROOT/proj/pins/$PIN_OID.pin"            "the manifest is agent-writable metadata (T7, AMB-6 as amended)"
+check deny  "$ROOT/proj/pins/$PIN_OID/nested.pin"     "a .pin path inside the checkout is content, still denied"
+check deny  "$ROOT/proj/pins/$PIN_OID/build/out.js"   "gitignore does NOT exempt a pin (T6)"
 check allow "$ROOT/runtime-data/state.json"           "bare .git, no main/: runtime state stays writable"
 check allow "$ROOT/reference/upstream/main/README.md" "reference checkouts are read-only context"
 
-# The pin deny must name the manifest and its consumers, and must NOT send the
-# agent to `worktree add` — cutting a lane from a pin breaks the thing protected.
-pin_out="$(decide "$ROOT/proj/pins/site/index.html")"
+# The pin deny names the manifest and the immutable replacement route. The new
+# worktree is cut from main, never from the pin being protected.
+pin_out="$(decide "$ROOT/proj/pins/$PIN_OID/index.html")"
 case "$pin_out" in
-  *"pins/site.pin"*) pass=$((pass + 1)) ;;
-  *) fail=$((fail + 1)); echo "FAIL  the pin deny must name pins/site.pin" >&2 ;;
+  *"pins/$PIN_OID.pin"*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  the pin deny must name the same-hash .pin sidecar" >&2 ;;
 esac
 case "$pin_out" in
   *"the docs build"*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  the pin deny must name the manifest's consumers" >&2 ;;
 esac
 case "$pin_out" in
-  *"worktree add"*) fail=$((fail + 1)); echo "FAIL  a pin deny must not recommend worktree add" >&2 ;;
+  *"worktree add --detach"*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  the pin deny must name new hash-pin creation" >&2 ;;
+esac
+case "$pin_out" in
+  *"checkout REF"*) fail=$((fail + 1)); echo "FAIL  a pin deny must not sanction in-place checkout" >&2 ;;
   *) pass=$((pass + 1)) ;;
 esac
 # ...and a main deny must name the NEW lane destination.
@@ -157,18 +163,94 @@ case "$(bash_decide "git -C $ROOT/proj/worktrees/x reset --hard HEAD~1" "$HOME")
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  reset --hard in a lane must be allowed" >&2 ;;
 esac
-# T15 — a pin's ONE sanctioned mutation: re-pointing it.
-case "$(bash_decide "git -C $ROOT/proj/pins/site checkout 3e942ba2" "$HOME")" in
-  "") pass=$((pass + 1)) ;;
-  *) fail=$((fail + 1)); echo "FAIL  re-pointing a pin must be allowed (T15)" >&2 ;;
-esac
-case "$(bash_decide "git -C $ROOT/proj/pins/site checkout -- ." "$HOME")" in
+# T15 — pin HEAD is immutable; advance by creating a different hash path.
+case "$(bash_decide "git -C $ROOT/proj/pins/$PIN_OID checkout 3e942ba2" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
-  *) fail=$((fail + 1)); echo "FAIL  a working-tree checkout in a pin is not a re-point" >&2 ;;
+  *) fail=$((fail + 1)); echo "FAIL  checkout must not change pin HEAD (T15)" >&2 ;;
 esac
-case "$(bash_decide "git -C $ROOT/proj/pins/site commit -am x" "$HOME")" in
+case "$(bash_decide "git -C \\\"$ROOT/proj/pins/$PIN_OID\\\" checkout 3e942ba2" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a quoted -C path must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "git -C '$ROOT/proj/pins/$PIN_OID' switch --detach 3e942ba2" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a quoted -C path must not hide pin switch" >&2 ;;
+esac
+case "$(bash_decide "(git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef)" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a subshell must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "echo \$(git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef)" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  command substitution must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "sh -c 'git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef'" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  sh -c must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "bash -lc 'git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef'" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  bash -lc must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "bash -ec 'git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef'" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  bash -ec must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "sh -c -- 'git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef'" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  sh -c -- must not hide pin checkout" >&2 ;;
+esac
+case "$(bash_decide "echo sh -c 'git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef'" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  sh passed to echo must remain data" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/pins/$PIN_OID switch --detach 3e942ba2" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  switch must not change pin HEAD" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/pins/$PIN_OID checkout -- ." "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a working-tree checkout in a pin must deny" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/pins/$PIN_OID commit -am x" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  committing in a pin must be denied" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main worktree add --detach $ROOT/proj/pins/$NEXT_PIN_OID $NEXT_PIN_OID" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  creating a replacement hash-named pin from main must pass" >&2 ;;
+esac
+case "$(bash_decide "git -C '$ROOT/proj/pins/$PIN_OID' worktree add --detach $ROOT/proj/pins/$NEXT_PIN_OID $NEXT_PIN_OID" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  an existing pin cannot source worktree creation" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/worktrees/x commit -am x ; git -C '$ROOT/proj/pins/$PIN_OID' checkout deadbeef" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a lane mutation must not hide later pin checkout" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/worktrees/x commit -am x ; git -C $ROOT/proj/main worktree remove $ROOT/proj/pins/$PIN_OID" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a lane mutation must not hide later pin removal" >&2 ;;
+esac
+case "$(bash_decide "echo 'example; git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef' >> /tmp/pin-notes" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  a semicolon inside quoted prose must stay prose" >&2 ;;
+esac
+case "$(bash_decide "echo 'example && git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef' >> /tmp/pin-notes" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  an and-list inside quoted prose must stay prose" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main worktree remove $ROOT/proj/pins/$PIN_OID" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  worktree remove must not delete a pin" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main worktree move $ROOT/proj/pins/$PIN_OID $ROOT/proj/pins/$NEXT_PIN_OID" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  worktree move must not rename a pin" >&2 ;;
+esac
+case "$(bash_decide "git -C $ROOT/proj/main worktree move $ROOT/proj/worktrees/x $ROOT/proj/worktrees/y" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  worktree move must remain available for a lane" >&2 ;;
 esac
 case "$(bash_decide "git -C $ROOT/proj/main merge --ff-only slug && git -C $ROOT/proj/main branch -d slug && git -C $ROOT/proj/main worktree prune && safe-push --to main" "$HOME")" in
   "") pass=$((pass + 1)) ;;
@@ -196,7 +278,7 @@ case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/worktrees/x/s
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  apply_patch into a lane must be allowed" >&2 ;;
 esac
-case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/pins/site/x.py\n@@\n-a\n+b\n*** End Patch" "$HOME")" in
+case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/pins/$PIN_OID/x.py\n@@\n-a\n+b\n*** End Patch" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  apply_patch into a pin must be denied" >&2 ;;
 esac
@@ -268,7 +350,7 @@ deny_ms() { # deny_ms <path>
   echo $(( ( $(date +%s%N) - start ) / 20 / 1000000 ))
 }
 main_ms="$(deny_ms "$HOME/code/north/main/cli/x.clj")"
-pins_ms="$(deny_ms "$HOME/code/gjoa/pins/site/index.html")"
+pins_ms="$(deny_ms "$HOME/code/gjoa/pins/0123456789abcdef0123456789abcdef01234567/index.html")"
 if [ "$pins_ms" -le $((main_ms + 20)) ]; then pass=$((pass + 1)); else
   fail=$((fail + 1))
   echo "FAIL  pin deny ${pins_ms}ms/call vs main deny ${main_ms}ms/call — the pin path costs more than the rule it mirrors" >&2
