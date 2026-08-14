@@ -210,7 +210,7 @@ PIN_OID = "0123456789abcdef0123456789abcdef01234567"
 NEXT_PIN_OID = "89abcdef0123456789abcdef0123456789abcdef"
 for rel in ("proj/main/.git", "proj/worktrees/x/.git", "proj/worktrees/main",
             f"proj/pins/{PIN_OID}", "client/msa/app/main/.git",
-            "reference/upstream/main/.git", "runtime-data/.git", "plain-dir"):
+            "resources/upstream/main/.git", "runtime-data/.git", "plain-dir"):
     os.makedirs(os.path.join(ROOT, rel), exist_ok=True)
 PIN = os.path.join(ROOT, "proj", "pins", PIN_OID)
 open(os.path.join(ROOT, "proj", "pins", PIN_OID + ".pin"), "w").write(
@@ -240,17 +240,17 @@ check("a data dir with a bare .git and no main/ stays writable",
       fixture("git commit -m x", cwd=os.path.join(ROOT, "runtime-data")) is None)
 check("a directory that is no checkout at all is untouched",
       fixture("rm -rf junk", cwd=os.path.join(ROOT, "plain-dir")) is None)
-check("~/code/reference is read-only context, never this guard's business",
+check("~/code/resources is read-only context, never this guard's business",
       fixture("cat notes.md",
-              cwd=os.path.join(ROOT, "reference", "upstream", "main")) is None)
+              cwd=os.path.join(ROOT, "resources", "upstream", "main")) is None)
 check("Edit into an unheard-of project's main is denied",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": os.path.join(PROJ, "src/x.py")}},
           code_root=ROOT))
-check("Edit into ~/code/reference is allowed",
+check("Edit into ~/code/resources is allowed",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": os.path.join(
-               ROOT, "reference/upstream/main/x.py")}},
+               ROOT, "resources/upstream/main/x.py")}},
           code_root=ROOT) is None)
 
 print("--- pins/: protected because something OUTSIDE consumes them ---")

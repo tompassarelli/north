@@ -180,7 +180,7 @@ migrate its consumer and data forward instead of preserving the old engine.
 <!-- north-section: external-code · bucket: write -->
 
 → `~/.agents/docs/external-code.md`
-Before leveraging ANY code you didn't write (`~/code/reference`, forks,
+Before leveraging ANY code you didn't write (`~/code/resources`, forks,
 vendored snippets): run the license protocol in the doc; flag copyleft or
 unlicensed sources to the user BEFORE building on them.
 

@@ -1,7 +1,7 @@
-# External code — license protocol + reference reads
+# External code — license protocol + resource reads
 
-Fires whenever leveraging code you didn't write: reference repos in
-`~/code/reference`, forks, vendored snippets, "how did X do it" reads.
+Fires whenever leveraging code you didn't write: resource repos in
+`~/code/resources`, forks, vendored snippets, "how did X do it" reads.
 
 ## License protocol
 
@@ -21,10 +21,10 @@ the license governs copied expression, not ideas. If a license is overly
 restrictive for the intended use, say so up front, before any work builds
 on it.
 
-## Vetted takeaways from ~/code/reference
+## Vetted takeaways from ~/code/resources
 
 Curated pointers from scanned forks (licenses already checked):
-→ `~/.agents/docs/reference-reads.md`
+→ `~/.agents/docs/resource-reads.md`
 Covers: skill-authoring methodology, debugging technique docs, measured MCP
 output caps, benchmark harness designs. Read when authoring a new skill,
 building an MCP tool returning big payloads, hunting a test-state polluter,

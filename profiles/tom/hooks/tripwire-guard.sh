@@ -17,7 +17,7 @@
 #                   project container under ~/code, a container's `worktrees/`
 #                   or `pins/` collection root, any `pins/<full-object-id>` (externally
 #                   consumed — automation never touches one), ~/code/*-data,
-#                   ~/.local/state/north, ~/code/reference, a
+#                   ~/.local/state/north, ~/code/resources, a
 #                   `worktrees/<slug>` lane this session is not working in, any
 #                   `.git`, any checkout root. HARD in every mode, no ask.
 #        gone     — the path does not exist: nothing to lose. ALLOW.
@@ -402,8 +402,8 @@ sacred_owner_reason() {
       WHY="'$p' is North's own state (coordination graph, session ledger) and other sessions are reading it right now"
       return 0
       ;;
-    "$HOME"/code/reference | "$HOME"/code/reference/*)
-      WHY="'$p' is ~/code/reference — read-only context; agents never edit or delete there"
+    "$HOME"/code/resources | "$HOME"/code/resources/*)
+      WHY="'$p' is ~/code/resources — read-only context; agents never edit or delete there"
       return 0
       ;;
     # The pin tiers come FIRST, ahead of the main tier and ahead of
