@@ -268,10 +268,14 @@ check("the pin deny does NOT send the agent to worktree add",
       "worktree add" not in (PIN_HIT or ""))
 check("the pin deny names the sanctioned re-point",
       "checkout REF" in (PIN_HIT or ""))
-check("the manifest itself is protected like the pin (AMB-6)",
+check("the manifest is agent-writable pin METADATA (AMB-6 as amended)",
       run({"tool_name": "Edit",
            "tool_input": {"file_path": os.path.join(
                ROOT, "proj", "pins", "site.pin")}},
+          code_root=ROOT) is None)
+check("a .pin-named path INSIDE a pin checkout is still content, still denied",
+      run({"tool_name": "Edit",
+           "tool_input": {"file_path": os.path.join(PIN, "nested.pin")}},
           code_root=ROOT))
 check("the pins/ ROOT itself stays writable — a container must grow one",
       fixture("mkdir -p site", cwd=os.path.join(ROOT, "proj", "pins")) is None)
