@@ -152,9 +152,13 @@ def protected_project(path):
 
     # A pin, before anything about `main`: its protection has a different WHY
     # and a different remedy. The `pins/` directory ITSELF stays writable — a
-    # container has to be able to grow one.
+    # container has to be able to grow one — and so is the `<name>.pin`
+    # MANIFEST: it is pin metadata agents administer, not consumed checkout
+    # content. Only the checkout under `pins/<name>/` is protected.
     if slot == PINS_DIR and len(parts) > slot_index + 1:
         leaf = parts[slot_index + 1]
+        if leaf.endswith(".pin") and len(parts) == slot_index + 2:
+            return None
         name = leaf[:-4] if leaf.endswith(".pin") else leaf
         return (container, _pin_reason(root, container, name), PIN_KIND + name)
 
