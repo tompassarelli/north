@@ -287,6 +287,11 @@ check("a redirect into a pin is denied",
 check("sed -i inside a pin is denied",
       fixture(f"sed -i s/a/b/ {os.path.join(PIN, 'x.txt')}"))
 check("committing inside a pin is denied", fixture("git commit -am x", cwd=PIN))
+check("quoted PROSE naming a pin git command is not an invocation",
+      fixture("printf 'git -C " + PIN + " commit -am x' >> /tmp/pin-notes.txt")
+      is None)
+check("the same command unquoted is still a live call, still denied",
+      fixture("git -C " + PIN + " commit -am x"))
 check("re-pointing a pin is its ONE sanctioned mutation",
       fixture(f"git -C {PIN} checkout 3e942ba2") is None)
 check("...also in the --detach form",

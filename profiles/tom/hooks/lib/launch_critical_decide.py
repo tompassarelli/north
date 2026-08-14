@@ -344,6 +344,37 @@ def _apply_patch_command_decision(command, cwd, stripped=None):
     return None
 
 
+def _blank_quoted(text):
+    """Blank single/double-quoted spans so quoted PROSE naming a git command
+    (a manifest line, a commit message, an echo) is never scanned as a live
+    invocation. A real call's `git`, flags, and verb sit outside quotes; the
+    known cost is a quoted -C argument losing its target, which degrades to
+    cwd — a narrower miss than the prose false-positive it removes."""
+    out, i, n, q = [], 0, len(text), None
+    while i < n:
+        c = text[i]
+        if q:
+            if q == '"' and c == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if c == q:
+                q = None
+                out.append(" ")
+            else:
+                out.append("\n" if c == "\n" else " ")
+            i += 1
+            continue
+        if c in ("'", '"'):
+            q = c
+            out.append(" ")
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def _git_invocations(text, cwd):
     """(target, verb, args) for EVERY git call in TEXT.
 
@@ -351,7 +382,7 @@ def _git_invocations(text, cwd):
     mutating one later in the same line.
     """
     found = []
-    for segment in re.split(SEGMENT_SPLIT, text):
+    for segment in re.split(SEGMENT_SPLIT, _blank_quoted(text)):
         tokens = _tokens(segment)
         for i, tok in enumerate(tokens):
             if os.path.basename(tok) != "git":
