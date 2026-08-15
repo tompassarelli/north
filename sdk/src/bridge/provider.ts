@@ -47,6 +47,11 @@ export interface BridgeProviderOpenContext extends BridgeLaunchSelection {
   writer: WireEventWriter;
 }
 
+export interface BridgeAutomaticProviderSelection
+  extends Omit<BridgeLaunchSelection, "provider"> {
+  role: BridgeLaunchRole;
+}
+
 export function resolveBridgeLaunchSelection(
   provider: BridgeLaunchProvider,
   role: BridgeLaunchRole,
@@ -412,19 +417,38 @@ const BRIDGE_PRESSURE_RANK: Record<string, number> = {
 
 const BRIDGE_PROVIDER_ORDER: BridgeLaunchProvider[] = ["anthropic", "openai"];
 
-export async function selectBridgeProvider(): Promise<BridgeLaunchProvider> {
+export async function selectBridgeProvider(
+  selection: BridgeAutomaticProviderSelection = { role: "implementer" },
+): Promise<BridgeLaunchProvider> {
+  const routeRequested = selection.tier !== undefined
+    || selection.model !== undefined
+    || selection.effort !== undefined;
+  const compatible = routeRequested
+    ? BRIDGE_PROVIDER_ORDER.filter((provider) => {
+      try {
+        resolveBridgeLaunchSelection(provider, selection.role, selection);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    : BRIDGE_PROVIDER_ORDER;
+  if (compatible.length === 0)
+    throw new Error("no Bridge provider supports the requested launch route");
+
+  const fallback = compatible.includes("openai") ? "openai" : compatible[0]!;
   try {
     const routing = providerRouting.cachedTargetRouting();
     let best: { provider: BridgeLaunchProvider; rank: number } | undefined;
-    for (const provider of BRIDGE_PROVIDER_ORDER) {
+    for (const provider of compatible) {
       for (const { target, eligible, headroom } of routing) {
         if (!eligible || target.provider !== provider) continue;
         const rank = BRIDGE_PRESSURE_RANK[headroom] ?? 0;
         if (!best || rank > best.rank) best = { provider, rank };
       }
     }
-    return best?.provider ?? "openai";
+    return best?.provider ?? fallback;
   } catch {
-    return "openai";
+    return fallback;
   }
 }

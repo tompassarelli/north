@@ -20,6 +20,7 @@ import {
   BridgeProviderTeardownTimeoutError,
   bridgeProvider,
   selectBridgeProvider,
+  type BridgeAutomaticProviderSelection,
   type BridgeProviderExecution,
   type BridgeProviderSession,
 } from "./provider";
@@ -74,7 +75,7 @@ export interface NorthdOptions {
   journalRoot?: string;
   provider?: BridgeProviderExecution;
   /** Test injection. Production selects by entitlement headroom. */
-  selectProvider?: () => Promise<BridgeLaunchProvider>;
+  selectProvider?: (selection: BridgeAutomaticProviderSelection) => Promise<BridgeLaunchProvider>;
   /** Test injection. Production reads this checkout's HEAD. */
   sourceIdentity?: () => string | undefined;
   stalePollMs?: number;
@@ -267,7 +268,7 @@ export class Northd {
   readonly socketPath: string;
   readonly journalRoot: string;
   #provider: BridgeProviderExecution;
-  #selectProvider: () => Promise<BridgeLaunchProvider>;
+  #selectProvider: (selection: BridgeAutomaticProviderSelection) => Promise<BridgeLaunchProvider>;
   #server: Server;
   #runtimes = new Map<string, ExecutionRuntime>();
   #runtimeLoads = new Map<string, Promise<ExecutionRuntime>>();
@@ -808,7 +809,12 @@ export class Northd {
     request: Extract<BridgeRequest, { op: "launch" }>,
   ): Promise<void> {
     try {
-      const provider = request.provider ?? await this.#selectProvider();
+      const provider = request.provider ?? await this.#selectProvider({
+        role: request.role,
+        ...(request.tier ? { tier: request.tier } : {}),
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.effort ? { effort: request.effort } : {}),
+      });
       const session = await this.#provider.open({
         executionId: runtime.executionId,
         prompt: request.prompt,

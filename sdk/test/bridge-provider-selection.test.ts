@@ -8,7 +8,8 @@ import { parseBridgeLaunchArguments } from "../src/bridge/cli";
 import { parseBridgeRequest, type BridgeLaunchProvider, type BridgeServerMessage } from "../src/bridge/protocol";
 import {
   bridgeRoute, resolveBridgeLaunchSelection, selectBridgeProvider,
-  type BridgeProviderExecution, type BridgeProviderOpenContext,
+  type BridgeAutomaticProviderSelection, type BridgeProviderExecution,
+  type BridgeProviderOpenContext,
 } from "../src/bridge/provider";
 import { authCacheKey, writeAuthState } from "../src/provider-auth-cache";
 import {
@@ -102,11 +103,15 @@ test("automatic effort follows the selected provider and tier", () => {
     role: "director", tier: "frontier", reasoning: "max",
     composition: { overrides: ["reasoning"] },
   });
+  expect(() => resolveBridgeLaunchSelection("anthropic", "director", { effort: "max" }))
+    .toThrow("cannot resolve semantic tier frontier with reasoning max");
 });
 
 async function launched(
   request: object,
-  selectProvider: () => Promise<BridgeLaunchProvider>,
+  selectProvider: (
+    selection: BridgeAutomaticProviderSelection,
+  ) => Promise<BridgeLaunchProvider>,
 ): Promise<BridgeProviderOpenContext | undefined> {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-select-"));
   const socketPath = join(root, "northd.sock");
@@ -165,6 +170,21 @@ test("a pinned launch never consults headroom", async () => {
   );
   expect(result?.provider).toBe("openai");
   expect(consulted).toBe(0);
+});
+
+test("an automatic launch gives its route axes to provider selection", async () => {
+  let selected: BridgeAutomaticProviderSelection | undefined;
+  const result = await launched({
+    op: "launch", prompt: "go", cwd: "/", role: "director",
+    tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  }, async (selection) => {
+    selected = selection;
+    return "openai";
+  });
+  expect(selected).toEqual({
+    role: "director", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  });
+  expect(result?.provider).toBe("openai");
 });
 
 test("the host forwards route overrides to the selected provider", async () => {
@@ -242,6 +262,23 @@ test("boot routes from the persisted verdicts, without spawning a probe", async 
   // capacity: two accounts at equal headroom keep the order the bridge has
   // always opened on.
   expect(await selectBridgeProvider()).toBe("anthropic");
+});
+
+test("automatic provider choice filters route compatibility before headroom", async () => {
+  routingSandbox();
+  const cache = process.env.NORTH_AUTH_STATE_CACHE!;
+  writeAuthState(cache, authCacheKey("anthropic", "claude-a"), ready("anthropic"));
+  writeAuthState(cache, authCacheKey("openai", "codex-a"), ready("openai"));
+
+  expect(await selectBridgeProvider({ role: "implementer", model: "terra" }))
+    .toBe("openai");
+  expect(await selectBridgeProvider({ role: "implementer", model: "sonnet" }))
+    .toBe("anthropic");
+  expect(await selectBridgeProvider({ role: "director", effort: "max" }))
+    .toBe("openai");
+  await expect(selectBridgeProvider({
+    role: "implementer", tier: "frontier", effort: "low",
+  })).rejects.toThrow("no Bridge provider supports the requested launch route");
 });
 
 test("a verdict nobody ever recorded is not a route", async () => {
