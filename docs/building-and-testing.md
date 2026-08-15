@@ -9,7 +9,7 @@ Running the ledger needs only [babashka](https://babashka.org): the compiled
 Clojure is committed under [`out/`](../out), so no Beagle toolchain is required
 at runtime — the same arrangement Fram uses.
 
-You also need the Fram engine selected by the Nix-owned
+You also need the Fram engine selected by the host-published
 `~/.local/state/north/framrpc.env`. The installed wrapper sources that exact
 selection and puts both North's and Fram's `out/` on the classpath. Tests may
 instead pass an explicit `FRAM_HOME` and matching `FRAM_OUT`.
