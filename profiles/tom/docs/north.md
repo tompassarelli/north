@@ -8,7 +8,7 @@ body; refs are `@id`, literals EDN. Lifecycle is DERIVED from facts
 capture is committed. Relatedness is `relates_to @<thread>` (no string tags —
 former tags are `@topic-*` threads). ids: `2026-06-15-150040`.
 For the product's file format and data model, see
-`north:docs/fact-native-redesign.md` as non-authoritative reference material.
+`north:docs/operating-manual.md` as non-authoritative reference material.
 Agent conduct remains owned by the profile that linked this document.
 
 ## Writing safely under concurrent agents
@@ -22,8 +22,8 @@ log path or start, restart, import, or export a live corpus as routine setup.
 
 - Create threads with `north capture "<title>"`.
 - Change facts through `north tell <id> <pred> <value>` and `north retract <id>
-  <pred> <value>` (`untell` is an alias). These writes are serialized and
-  rule-checked by the coordinator.
+  <pred> <value>`. These writes are serialized and rule-checked by the
+  coordinator.
 - Do not use `north set` during concurrent work; it is an offline/single-writer
   primitive.
 - Treat thread-file editing and `north import`/`north export` as explicit

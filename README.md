@@ -24,8 +24,6 @@ substrate.
   coordination domain, CLI, agent SDK, bridge, MCP edge, your data.
 - [docs/provider-architecture.md](docs/provider-architecture.md) — routing,
   provider accounts, subscription-entitlement billing.
-- [docs/fact-native-redesign.md](docs/fact-native-redesign.md) — the design
-  record.
 - [docs/building-and-testing.md](docs/building-and-testing.md) — rebuilding
   from source and running the suites.
 - [docs/docctl.md](docs/docctl.md) — Markdown dependency manifests and the
