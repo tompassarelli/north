@@ -762,8 +762,10 @@ EOF
               > "$stream_src/12345678-1234-1234-1234-123456789abc.jsonl"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" XDG_STATE_HOME="$smoke/xdg" PATH= \
-              $out/bin/north-stream-sync --days 30 --min-bytes 1 \
-                --src-dir "$smoke/source with spaces"
+              $out/bin/north-stream-sync \
+                --src-dir "$smoke/source with spaces" \
+                --provider anthropic --source-namespace package-smoke \
+                --layout claude
             stream_raw="$smoke/xdg/north/streams/raw"
             stream_dest="$(${pkgs.findutils}/bin/find "$stream_raw" -maxdepth 1 \
               -type f -name '*.jsonl' -print -quit)"
@@ -771,13 +773,18 @@ EOF
             ${pkgs.diffutils}/bin/cmp \
               "$stream_src/12345678-1234-1234-1234-123456789abc.jsonl" \
               "$stream_dest"
-            cursor_hash="$(${pkgs.coreutils}/bin/sha256sum "$stream_raw/.cursors")"
+            cursor_file="$(${pkgs.findutils}/bin/find "$stream_raw" -maxdepth 1 \
+              -type f -name '.cursors.v4.*' -print -quit)"
+            test -n "$cursor_file"
+            cursor_hash="$(${pkgs.coreutils}/bin/sha256sum "$cursor_file")"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" XDG_STATE_HOME="$smoke/xdg" PATH= \
-              $out/bin/north-stream-sync --days 30 --min-bytes 1 \
-                --src-dir "$smoke/source with spaces"
+              $out/bin/north-stream-sync \
+                --src-dir "$smoke/source with spaces" \
+                --provider anthropic --source-namespace package-smoke \
+                --layout claude
             test "$cursor_hash" = \
-              "$(${pkgs.coreutils}/bin/sha256sum "$stream_raw/.cursors")"
+              "$(${pkgs.coreutils}/bin/sha256sum "$cursor_file")"
             ${pkgs.diffutils}/bin/cmp \
               "$stream_src/12345678-1234-1234-1234-123456789abc.jsonl" \
               "$stream_dest"

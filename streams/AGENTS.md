@@ -8,7 +8,7 @@ The stream layer the operating manual describes. Two directories:
   context, tool output); the repo publishes projections, not the source signal. Files:
   `YYYY-MM-DD-<bounded-slug>.<lineage-digest>.jsonl`. The lineage digest binds
   provider + source authority + root-relative lineage; a provider session UUID
-  is not assumed globally unique. A copy is a snapshot — live sessions keep
+  is not assumed globally unique. A copy is a live mirror — sessions keep
   appending; the durable byte cursor advances on the next sweep.
 - `streams/distillations/` — **committed tiered compressions** of raw streams.
   Tier 1 = one session → decisions, principles, spawned threads, artifacts,
@@ -29,13 +29,11 @@ layer's — raw here is its input corpus.
 - **Raw capture = byte copy, zero tokens.** Claude Code writes
   `projects/<proj>/<session>.jsonl`; Codex writes
   `sessions/YYYY/MM/DD/rollout-<session>.jsonl`. `north-stream-sync-all`
-  discovers legacy homes, provider accounts, profiles, ambient Codex history,
-  and preserved managed Codex launches. All land in this same raw directory.
-  The engine advances a durable byte cursor and coalesces a moved lineage only
-  on exact prefix proof. Legacy Claude state remains in `.cursors`; explicit
-  provider authorities use scoped `.cursors.v4.*` files so rollback cannot
-  reinterpret one provider as another. Never have a model regenerate
-  conversation text into a file; snapshot the file the harness already wrote.
+  discovers ambient provider homes, provider accounts, profiles, and managed
+  Codex launches. All land in this same raw directory. Each explicit provider
+  authority owns scoped `.cursors.v4.*` state and a stable raw destination.
+  Never have a model regenerate conversation text; mirror the file the harness
+  already wrote.
 - **Managed Codex retention is mirror-gated.** A settled launch home is prunable
   only after its rollout and `north-launch.json` receipt have been copied here
   and `north-stream-mirrored` has been written back to the launch home.

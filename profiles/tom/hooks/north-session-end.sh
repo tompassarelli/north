@@ -72,6 +72,6 @@ setsid bash -c '
 # user timer — catches the tail of this session immediately instead of
 # waiting up to 5min). Mechanical, zero-AI, budgeted at a few seconds; never
 # block or fail this hook's exit.
-timeout 5 /run/current-system/sw/bin/north-stream-sync >/dev/null 2>&1 || true
+timeout 5 /run/current-system/sw/bin/north-stream-sync-all >/dev/null 2>&1 || true
 
 exit 0
