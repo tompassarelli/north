@@ -63,11 +63,11 @@
 (defn malformed-oversize-frame []
   (let [response (wire/rpc-response! "boundary" :rpc/version 0 nil nil
                                      wire/rpc-unit)
-        frame (wire/encode-rpc-frame-v1!
+        frame (wire/encode-rpc-frame-v2!
                (wire/rpc-response-frame 1 response))
-        header (byte-array wire/rpc-v1-header-bytes)
+        header (byte-array wire/rpc-v2-header-bytes)
         body-length (inc rpc/max-body-bytes)]
-    (System/arraycopy frame 0 header 0 wire/rpc-v1-header-bytes)
+    (System/arraycopy frame 0 header 0 wire/rpc-v2-header-bytes)
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN))]
       (.position buffer 14)
@@ -135,6 +135,24 @@
   (check! "version returns the served transaction version"
           (integer? (:served-version (rpc/version! @client))))
 
+  (let [malformed
+        (thrown-data
+         #(binding
+            [rpc/*round-trip!*
+             (fn [_ request]
+               (wire/rpc-response!
+                (t/rpcrequest-space request) (t/rpcrequest-op request)
+                0 nil nil
+                (wire/rpc-record!
+                 :rpc/mutation-result
+                 [(wire/rpc-list!
+                   [(wire/rpc-record!
+                     :rpc/action-result
+                     [0 true (t/triple "not" :an "occurrence-coordinate")])])])))]
+            (rpc/assert! @client (t/triple "@malformed" :value true))))]
+    (check! "malformed action results reject a non-coordinate occurrence"
+            (= :rpc-invalid-occurrence (:type malformed))))
+
   (let [proposition (t/triple "@round-trip" :stage "asserted")
         asserted (rpc/assert! @client proposition)
         shown (rpc/scan-all! @client "@round-trip" :stage nil)
@@ -142,10 +160,18 @@
         absent (rpc/scan-all! @client "@round-trip" :stage nil)]
     (check! "assert round-trip reports one changed action"
             (true? (get-in asserted [:results 0 :changed?])))
+    (check! "assert round-trip exposes one occurrence coordinate"
+            (and (t/occurrence-coordinate?
+                  (get-in asserted [:results 0 :occurrence]))
+                 (not (contains? (first (:results asserted)) :occurrences))))
     (check! "scan observes the asserted recursive Term"
             (= [proposition] (:rows shown)))
     (check! "retract round-trip reports one changed action"
             (true? (get-in retracted [:results 0 :changed?])))
+    (check! "retract round-trip exposes one occurrence coordinate"
+            (and (t/occurrence-coordinate?
+                  (get-in retracted [:results 0 :occurrence]))
+                 (not (contains? (first (:results retracted)) :occurrences))))
     (check! "scan observes the exact projection after retract"
             (empty? (:rows absent))))
 
@@ -158,6 +184,9 @@
                      (:rows (rpc/scan-all! @client "@batch" :value nil)))]
     (check! "batch returns one typed action result per input"
             (= [true true true] (mapv :changed? (:results result))))
+    (check! "batch returns one occurrence coordinate per input"
+            (every? t/occurrence-coordinate?
+                    (map :occurrence (:results result))))
     (check! "batch is visible atomically at the exact projection"
             (= ["b"] values)))
 

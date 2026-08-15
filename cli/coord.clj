@@ -391,13 +391,13 @@
 (defn- occurrence-event! [[coordinate action proposition :as row]]
   (when-not (and (= 3 (count row))
                  (t/occurrence-coordinate? coordinate)
-                 (contains? #{t/asserts t/retracts} action)
+                 (contains? #{t/assert-action t/retract-action} action)
                  (t/triple? proposition))
     (throw (ex-info "occurrence window returned a malformed row"
                     {:type :malformed-occurrence-window :row row})))
   (let [[subject predicate value] (triple-row! proposition)
         transaction (t/triple-t1 coordinate)]
-    {:operation (if (= action t/asserts) :assert :retract)
+    {:operation (if (= action t/assert-action) :assert :retract)
      :subject subject :predicate predicate :value value
      :version (t/triple-t3 transaction)}))
 

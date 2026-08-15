@@ -13,7 +13,7 @@ import {
   config_unit_active_p as configUnitActive,
   config_view_rows as configViewRows,
   load_config_memberships_bang as loadConfigMemberships,
-  render_config_panel as renderConfigPanel,
+  render_config_panel_bang as renderConfigPanel,
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // Pin the terminal: the panel reads it for its window math, so the frames below

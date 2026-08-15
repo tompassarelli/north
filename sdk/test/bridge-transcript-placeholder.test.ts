@@ -4,7 +4,7 @@ import {
   BoxRenderable, ScrollBoxRenderable, TextRenderable, brightBlack, brightWhite,
 } from "@opentui/core";
 import {
-  banner_box as bannerBox,
+  banner_box_bang as bannerBox,
   banner_line_segments as bannerLineSegments,
   banner_permissions as bannerPermissions,
   banner_revision as bannerRevision,
@@ -12,8 +12,8 @@ import {
   render_conversation_bang as renderConversation,
   roster_visible_rows as rosterVisibleRows,
   roster_row_suppressed_p as rosterRowSuppressed,
-  roster_text as rosterText,
-  session_banner as sessionBanner,
+  roster_text_bang as rosterText,
+  session_banner_bang as sessionBanner,
   session_banner_lines as sessionBannerLines,
   session_banner_runs as sessionBannerRuns,
   transcript_banner_p as transcriptBanner,
