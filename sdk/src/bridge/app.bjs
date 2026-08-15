@@ -273,6 +273,9 @@
 
 (def AGENT-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
+   (->SlashCommand "/provider" "set next launch: anthropic, openai, or auto" true "" false)
+   (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
+   (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
    (->SlashCommand "/transcript" "show selected or all execution transcripts" true "" false)
    ;; Capturing a thread is not the Threads view's privilege: it shells the same
@@ -299,6 +302,9 @@
 
 (def THREAD-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/capture" "capture a new thread" true "" false)
+   (->SlashCommand "/provider" "set next launch: anthropic, openai, or auto" true "" false)
+   (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
+   (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
    (->SlashCommand "/filter" "filter visible threads" true "" false)
    (->SlashCommand "/assign" "reassign the selected thread" true "" false)
    (->SlashCommand "/outcome" "record a selected thread outcome" true "" false)
@@ -2353,6 +2359,11 @@
             (js/call runtime .render)
             true)
 
+          (or (identical? name "provider")
+              (identical? name "model")
+              (identical? name "effort"))
+          (do (set-launch-route! runtime name rest) true)
+
           (identical? name "config")
           (do (open-config-panel! runtime ui "all") true)
 
@@ -3246,11 +3257,7 @@
 ;; is a broken box.
 (def BANNER-MIN-COLUMNS Int 55)
 
-;; The bridge has no `/model` command, so the banner does not invent one. What
-;; actually changes the model is the environment the app is launched with, and
-;; that is what the hint names. If a command is ever added, this is the string
-;; that changes.
-(def BANNER-MODEL-HINT String "NORTH_BRIDGE_MODEL to change")
+(def BANNER-MODEL-HINT String "/model changes the next launch")
 
 ;; Pure: the identity to print. The handshake identity is a full commit hash;
 ;; what a human needs off the screen is the short rev they would type at git.
@@ -5191,18 +5198,67 @@
 
            :else nil)))))))
 
-(defn supervisor-provider-flag []  String
-  (let [value (js/call (text (js/get (js/get process .env) .NORTH_BRIDGE_PROVIDER)) .trim)]
+(js/export
+ (defn launch-route-flags
+  [(provider Any)
+   (tier Any)
+   (model Any)
+   (effort Any)]  (Vec String)
+  (let [provider-value (js/call (text provider) .trim)
+        tier-value (js/call (text tier) .trim)
+        model-value (js/call (text model) .trim)
+        effort-value (js/call (text effort) .trim)]
+    (js/call [] .concat
+             (if (identical? provider-value "") [] ["--provider" provider-value])
+             (if (identical? tier-value "") [] ["--tier" tier-value])
+             (if (identical? model-value "") [] ["--model" model-value])
+             (if (identical? effort-value "") [] ["--effort" effort-value])))))
+
+(defn launch-route-summary [(runtime Any)]  String
+  (str "next launch: provider " (text-or (js/get runtime .launchProvider) "auto")
+       ", model " (text-or (text-or (js/get runtime .launchModel)
+                                    (text (js/get runtime .launchTier))) "auto")
+       ", effort " (text-or (js/get runtime .launchEffort) "auto")))
+
+(defn set-launch-route!
+  [(runtime Any)
+   (name String)
+   (value String)]  Any
+  (let [choice (js/call (js/call value .trim) .toLowerCase)]
+    (when (identical? choice "")
+      (throw (js/new Error (str name " requires a value or auto"))))
     (cond
-      (identical? value "anthropic") "--claude"
-      (identical? value "openai") "--openai"
-      :else "")))
+      (identical? name "provider")
+      (do
+        (when (not (or (identical? choice "auto")
+                       (identical? choice "anthropic")
+                       (identical? choice "openai")))
+          (throw (js/new Error "provider requires anthropic, openai, or auto")))
+        (js/set! runtime .launchProvider (if (identical? choice "auto") "" choice)))
+
+      (identical? name "model")
+      (if (identical? choice "auto")
+        (do (js/set! runtime .launchTier "")
+            (js/set! runtime .launchModel ""))
+        (if (js/call ["economy" "standard" "senior" "frontier"] .includes choice)
+          (do (js/set! runtime .launchTier choice)
+              (js/set! runtime .launchModel ""))
+          (do (js/set! runtime .launchTier "")
+              (js/set! runtime .launchModel value))))
+
+      :else
+      (do
+        (when (not (or (identical? choice "auto")
+                       (js/call ["low" "medium" "high" "xhigh" "max"] .includes choice)))
+          (throw (js/new Error "effort requires low, medium, high, xhigh, max, or auto")))
+        (js/set! runtime .launchEffort (if (identical? choice "auto") "" choice))))
+    (publish-line! runtime (launch-route-summary runtime))))
 
 ;; What the control session is *called* on screen. The role it plays inside the
 ;; runtime is still "supervisor" — that identifier reaches northd, the journal,
 ;; and msg routing, and is deliberately not what this returns.
-(defn main-agent-label []  String
-  (let [value (js/call (text (js/get (js/get process .env) .NORTH_BRIDGE_PROVIDER)) .trim)]
+(defn main-agent-label [(runtime Any)]  String
+  (let [value (js/call (text (js/get runtime .launchProvider)) .trim)]
     (cond
       (identical? value "anthropic") "Claude Main"
       (identical? value "openai") "Codex Main"
@@ -5214,18 +5270,20 @@
    (role String)]  (Promise Any)
   (when (identical? (js/call prompt .trim) "")
     (throw (js/new Error "launch requires a prompt")))
-  (set-working! runtime true (str "Starting " (main-agent-label) "…"))
+  (set-working! runtime true (str "Starting " (main-agent-label runtime) "…"))
   (let [stream-state {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code
         (js/await
          (stream-command
-          (let [flag (supervisor-provider-flag)
-                base [(north-bin) "bridge" "--role"
-                      (if (identical? role "supervisor") "director" "implementer")]]
-            (if (identical? flag "")
-              (conj base prompt)
-              (conj (conj base flag) prompt)))
+          (js/call [(north-bin) "bridge" "--role"
+                    (if (identical? role "supervisor") "director" "implementer")]
+                   .concat
+                   (launch-route-flags (js/get runtime .launchProvider)
+                                       (js/get runtime .launchTier)
+                                       (js/get runtime .launchModel)
+                                       (js/get runtime .launchEffort))
+                   [prompt])
           (fn [(chunk String)]  Any
             (parse-bridge-stream! runtime stream-state chunk))
           (fn [(chunk String)]  Any
@@ -6372,6 +6430,10 @@
                                         (text (js/get (js/get process .env) .AGENT_MODEL)))
                  :sessionEffort (text-or (js/get (js/get process .env) .AGENT_REASONING)
                                          (text (js/get (js/get process .env) .AGENT_EFFORT)))
+                 :launchProvider (text (js/get (js/get process .env) .NORTH_BRIDGE_PROVIDER))
+                 :launchTier (text (js/get (js/get process .env) .NORTH_BRIDGE_TIER))
+                 :launchModel (text (js/get (js/get process .env) .NORTH_BRIDGE_MODEL))
+                 :launchEffort (text (js/get (js/get process .env) .NORTH_BRIDGE_EFFORT))
                  :sessionCwd (text (js/call process .cwd))
                  :sessionBranch ""
                  ;; Reported by the session, not guessed here: until it says,
@@ -6437,7 +6499,7 @@
                                           :backgroundColor "#25272d" :focusedBackgroundColor "#25272d"
                                           :textColor "#e5e7eb" :focusedTextColor "#f8fafc"
                                           :placeholderColor "#6b7280"
-                                          :placeholder (composer-hint "agents" (main-agent-label))})
+                                          :placeholder (composer-hint "agents" (main-agent-label runtime))})
         ui {:root root :agentsPane agents-pane :workPane work-pane
             :viewTabsText view-tabs-text
             :agentsText agents-text :transcriptText transcript-text-view

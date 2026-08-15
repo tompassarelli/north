@@ -6,28 +6,33 @@ import { run_northbridge_app_bang } from "./generated/north/bridge/app.js";
 import { runBridgeAcceptance } from "./accept";
 import type { WireEvent } from "../wire/events";
 import {
-  bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchRole, pinningExecutions,
+  bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchEffort,
+  parseBridgeLaunchModel, parseBridgeLaunchProvider, parseBridgeLaunchRole,
+  parseBridgeLaunchTier, pinningExecutions,
+  type BridgeLaunchSelection,
   type BridgeHello, type BridgeLaunchProvider, type BridgeLaunchRole, type BridgeRequest,
   type BridgeServerMessage,
 } from "./protocol";
 import type { JournalRecord } from "./journal";
 import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
 
-export interface BridgeLaunchArguments {
+export interface BridgeLaunchArguments extends BridgeLaunchSelection {
   role: BridgeLaunchRole;
-  provider?: BridgeLaunchProvider;
   promptArguments: string[];
 }
 
 function usage(): never {
   console.error(
-    "usage: north bridge [app|tui] [--claude|--openai] [--view-id ID]  (opens the app)"
-    + " | north bridge [--role director|implementer] [--claude|--openai] <prompt>"
+    "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
+    + " | north bridge [--role director|implementer] [route flags] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge restart  (retire the control daemon now)"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
     + " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>"
+    + "\nroute flags: --provider anthropic|openai | --claude | --openai"
+    + " --tier economy|standard|senior|frontier --model ID"
+    + " --effort low|medium|high|xhigh|max"
     + "\nlaunch role defaults to implementer",
   );
   process.exit(2);
@@ -36,6 +41,9 @@ function usage(): never {
 export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArguments {
   let role: BridgeLaunchRole = "implementer";
   let provider: BridgeLaunchProvider | undefined;
+  let tier: BridgeLaunchSelection["tier"];
+  let model: string | undefined;
+  let effort: BridgeLaunchSelection["effort"];
   let index = 0;
   while (index < args.length) {
     const argument = args[index];
@@ -56,21 +64,54 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
       index += 1;
       continue;
     }
+    if (["--provider", "--tier", "--model", "--effort"].includes(argument ?? "")) {
+      if (index + 1 >= args.length) throw new Error(`bridge ${argument} requires a value`);
+      const value = args[index + 1];
+      if (argument === "--provider") provider = parseBridgeLaunchProvider(value);
+      else if (argument === "--tier") tier = parseBridgeLaunchTier(value);
+      else if (argument === "--model") model = parseBridgeLaunchModel(value);
+      else effort = parseBridgeLaunchEffort(value);
+      index += 2;
+      continue;
+    }
     break;
   }
-  return { role, ...(provider ? { provider } : {}), promptArguments: args.slice(index) };
+  return {
+    role,
+    ...(provider ? { provider } : {}),
+    ...(tier ? { tier } : {}),
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    promptArguments: args.slice(index),
+  };
 }
 
 async function runApp(args: string[]): Promise<number> {
   let viewId: string | undefined;
   const rest: string[] = [];
-  for (const argument of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
     if (argument === "--claude" || argument === "--anthropic") {
       process.env.NORTH_BRIDGE_PROVIDER = "anthropic";
       continue;
     }
     if (argument === "--openai" || argument === "--codex") {
       process.env.NORTH_BRIDGE_PROVIDER = "openai";
+      continue;
+    }
+    if (["--provider", "--tier", "--model", "--effort"].includes(argument)) {
+      const value = args[index + 1];
+      if (!value) usage();
+      if (argument === "--provider") {
+        process.env.NORTH_BRIDGE_PROVIDER = parseBridgeLaunchProvider(value)!;
+      } else if (argument === "--tier") {
+        process.env.NORTH_BRIDGE_TIER = parseBridgeLaunchTier(value)!;
+      } else if (argument === "--model") {
+        process.env.NORTH_BRIDGE_MODEL = parseBridgeLaunchModel(value)!;
+      } else {
+        process.env.NORTH_BRIDGE_EFFORT = parseBridgeLaunchEffort(value)!;
+      }
+      index += 1;
       continue;
     }
     rest.push(argument);
@@ -429,11 +470,15 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
 async function main(args: string[]): Promise<number> {
   // A provider pin with no prompt is still an app launch: it selects the
   // supervisor the app will start, not a one-shot turn.
-  const appFlags = new Set(["--claude", "--anthropic", "--openai", "--codex", "--view-id"]);
+  const appFlags = new Set([
+    "--claude", "--anthropic", "--openai", "--codex", "--view-id",
+    "--provider", "--tier", "--model", "--effort",
+  ]);
+  const valuedAppFlags = new Set(["--view-id", "--provider", "--tier", "--model", "--effort"]);
   if (args.length === 0 || args[0] === "app" || args[0] === "tui")
     return runApp(args[0] === "app" || args[0] === "tui" ? args.slice(1) : args);
-  if (args.every((argument, index) =>
-    appFlags.has(argument) || (index > 0 && args[index - 1] === "--view-id")))
+  if (args.every((argument, index) => appFlags.has(argument)
+    || (index > 0 && valuedAppFlags.has(args[index - 1]!))))
     return runApp(args);
   if (args[0] === "dashboard") return runDashboard(args.slice(1));
   if (args[0] === "pending") return runPending(args.slice(1));
@@ -476,6 +521,9 @@ async function main(args: string[]): Promise<number> {
     request = {
       op: "launch", prompt, cwd: process.cwd(), role: launch.role,
       ...(launch.provider ? { provider: launch.provider } : {}),
+      ...(launch.tier ? { tier: launch.tier } : {}),
+      ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
     };
   }
   const { socket } = await verifiedSocket(bridgeSocketPath());

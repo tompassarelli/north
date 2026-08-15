@@ -6,6 +6,7 @@ import * as providerRouting from "../provider-routing";
 import { anthropicProvider } from "../providers/anthropic";
 import { openaiProvider } from "../providers/openai";
 import type { AgentProvider, RoutingTarget } from "../providers/types";
+import { resolveTier } from "../providers/catalog";
 import { RunArtifactStore } from "../run-artifacts";
 import {
   wireQueryRoute,
@@ -15,7 +16,9 @@ import {
 } from "../wire";
 import directorPrompt from "./director-prompt.md" with { type: "text" };
 import implementerPrompt from "./implementer-prompt.md" with { type: "text" };
-import type { BridgeLaunchProvider, BridgeLaunchRole } from "./protocol";
+import type {
+  BridgeLaunchProvider, BridgeLaunchRole, BridgeLaunchSelection,
+} from "./protocol";
 
 export interface BridgeSessionPresentation {
   model?: string;
@@ -33,7 +36,7 @@ export interface BridgeProviderSession {
   events(): AsyncIterable<WireEvent>;
 }
 
-export interface BridgeProviderOpenContext {
+export interface BridgeProviderOpenContext extends BridgeLaunchSelection {
   executionId: string;
   prompt: string;
   cwd: string;
@@ -42,6 +45,33 @@ export interface BridgeProviderOpenContext {
   signal: AbortSignal;
   /** Shared writer whose run.started event is already durable. */
   writer: WireEventWriter;
+}
+
+export function resolveBridgeLaunchSelection(
+  provider: BridgeLaunchProvider,
+  role: BridgeLaunchRole,
+  selection: Omit<BridgeLaunchSelection, "provider">,
+) {
+  const base = applyOrchestrationStaffing({ role });
+  const overrides = [
+    ...(selection.tier && selection.tier !== base.tier ? ["tier" as const] : []),
+    ...(selection.effort && selection.effort !== base.reasoning ? ["reasoning" as const] : []),
+  ];
+  const routingMetadata = overrides.length === 0 ? base : applyOrchestrationStaffing({
+    role,
+    ...(selection.tier ? { tier: selection.tier } : {}),
+    ...(selection.effort ? { reasoning: selection.effort } : {}),
+    composition: {
+      kind: "preset", id: base.role, overrides,
+      overrideReason: "Bridge launch selection",
+    },
+  });
+  return {
+    routingMetadata,
+    resolved: resolveTier(
+      provider, routingMetadata.tier, selection.model, routingMetadata.reasoning,
+    ),
+  };
 }
 
 export interface BridgeProviderExecution {
@@ -296,12 +326,17 @@ export function bridgeProviderWithDependenciesForTest(
   return Object.freeze({
     async open(context: BridgeProviderOpenContext): Promise<BridgeProviderSession> {
       const agentProvider = providers[context.provider];
-      const model = process.env.NORTH_BRIDGE_MODEL;
+      const model = context.model ?? process.env.NORTH_BRIDGE_MODEL;
+      const selection = resolveBridgeLaunchSelection(context.provider, context.role, {
+        ...(context.tier ? { tier: context.tier } : {}),
+        ...(model ? { model } : {}),
+        ...(context.effort ? { effort: context.effort } : {}),
+      });
       const route = await bridgeRoute(routing, context.provider, model);
       const target = route.target;
       if (model && !target)
         throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
-      const routingMetadata = applyOrchestrationStaffing({ role: context.role });
+      const routingMetadata = selection.routingMetadata;
       const abortController = new AbortController();
       const artifacts = new RunArtifactStore(context.writer.runId);
       const options = harnessOptions({
@@ -338,6 +373,7 @@ export function bridgeProviderWithDependenciesForTest(
           route: wireQueryRoute({
             model: {
               provider: context.provider,
+              tier: routingMetadata.tier,
               capabilityClass: context.role === "director" ? "orchestrator" : "authoring",
             },
             effort,

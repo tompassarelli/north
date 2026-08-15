@@ -805,19 +805,19 @@ export class Northd {
 
   async #drive(
     runtime: ExecutionRuntime,
-    prompt: string,
-    cwd: string,
-    role: Extract<BridgeRequest, { op: "launch" }>["role"],
-    pinned: BridgeLaunchProvider | undefined,
+    request: Extract<BridgeRequest, { op: "launch" }>,
   ): Promise<void> {
     try {
-      const provider = pinned ?? await this.#selectProvider();
+      const provider = request.provider ?? await this.#selectProvider();
       const session = await this.#provider.open({
         executionId: runtime.executionId,
-        prompt,
-        cwd,
-        role,
+        prompt: request.prompt,
+        cwd: request.cwd,
+        role: request.role,
         provider,
+        ...(request.tier ? { tier: request.tier } : {}),
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.effort ? { effort: request.effort } : {}),
         signal: runtime.abort.signal,
         writer: runtime.writer!,
       });
@@ -961,9 +961,7 @@ export class Northd {
         });
         return;
       }
-      const drive = this.#drive(
-        runtime, request.prompt, request.cwd, request.role, request.provider,
-      );
+      const drive = this.#drive(runtime, request);
       this.#drives.add(drive);
       void drive
         .catch((error) => send(socket, { type: "error", message: errorMessage(error) }))

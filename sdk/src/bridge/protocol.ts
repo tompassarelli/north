@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { WireEvent } from "../wire/events";
+import {
+  REASONING_LEVELS, SEMANTIC_TIERS,
+  type ReasoningLevel, type RoutingTier,
+} from "../routing-metadata";
 import type { JournalRecord, TornTail } from "./journal";
 
 // HEAD is the identity: main is never dirty by policy, so committed state is
@@ -50,11 +54,39 @@ export type BridgeLaunchRole = typeof BRIDGE_LAUNCH_ROLES[number];
 export const BRIDGE_LAUNCH_PROVIDERS = ["anthropic", "openai"] as const;
 export type BridgeLaunchProvider = typeof BRIDGE_LAUNCH_PROVIDERS[number];
 
+export interface BridgeLaunchSelection {
+  provider?: BridgeLaunchProvider;
+  tier?: RoutingTier;
+  model?: string;
+  effort?: ReasoningLevel;
+}
+
 /** Absent means the daemon selects by headroom; a pin is always honored. */
 export function parseBridgeLaunchProvider(value: unknown): BridgeLaunchProvider | undefined {
   if (value === undefined) return undefined;
   if (value === "anthropic" || value === "openai") return value;
   throw new Error("bridge launch provider must be anthropic or openai");
+}
+
+export function parseBridgeLaunchTier(value: unknown): RoutingTier | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && (SEMANTIC_TIERS as readonly string[]).includes(value))
+    return value as RoutingTier;
+  throw new Error(`bridge launch tier must be one of: ${SEMANTIC_TIERS.join(", ")}`);
+}
+
+export function parseBridgeLaunchModel(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(value))
+    return value;
+  throw new Error("bridge launch model must be a model id without whitespace");
+}
+
+export function parseBridgeLaunchEffort(value: unknown): ReasoningLevel | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string" && (REASONING_LEVELS as readonly string[]).includes(value))
+    return value as ReasoningLevel;
+  throw new Error(`bridge launch effort must be one of: ${REASONING_LEVELS.join(", ")}`);
 }
 
 export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
@@ -68,6 +100,9 @@ export type BridgeRequest =
     op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole;
     executionId?: string;
     provider?: BridgeLaunchProvider;
+    tier?: RoutingTier;
+    model?: string;
+    effort?: ReasoningLevel;
   }
   | { op: "attach"; executionId: string; cursor: number }
   | { op: "submitInput"; executionId: string; input: string }
@@ -108,6 +143,9 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     if (typeof request.cwd !== "string" || !request.cwd)
       throw new Error("bridge launch requires cwd");
     const provider = parseBridgeLaunchProvider(request.provider);
+    const tier = parseBridgeLaunchTier(request.tier);
+    const model = parseBridgeLaunchModel(request.model);
+    const effort = parseBridgeLaunchEffort(request.effort);
     const executionId = request.executionId === undefined
       ? undefined
       : parseBridgeLaunchExecutionId(request.executionId);
@@ -116,6 +154,9 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
       role: parseBridgeLaunchRole(request.role),
       ...(executionId ? { executionId } : {}),
       ...(provider ? { provider } : {}),
+      ...(tier ? { tier } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
     };
   }
   if (request.op === "retire") return { op: "retire" };
