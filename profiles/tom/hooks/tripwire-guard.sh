@@ -15,8 +15,9 @@
 #                   IS a root delete. HARD in every mode, no ask.
 #        sacred   — someone else's or the machine's: a `main/` checkout, a
 #                   project container under ~/code, a container's `worktrees/`
-#                   or `pins/` collection root, any `pins/<full-object-id>` (externally
-#                   consumed — automation never touches one), ~/code/*-data,
+#                   or `pins/` collection root, any `pins/<full-object-id>`
+#                   (raw deletion is forbidden; verified orphan retirement uses
+#                   `pin-retire`), ~/code/*-data,
 #                   ~/.local/state/north, ~/code/resources, a
 #                   `worktrees/<slug>` lane this session is not working in, any
 #                   `.git`, any checkout root. HARD in every mode, no ask.
@@ -411,11 +412,15 @@ sacred_owner_reason() {
     # generic tier would already deny it — but with the wrong WHY, one that
     # sends the agent to `worktree remove` the very thing being protected.
     "$HOME"/code/*/pins)
-      WHY="'$p' is a container's pins/ root — every externally-consumed checkout in that project at once, plus the .pin manifests that are the only record of who consumes them. Automation never deletes here"
+      WHY="'$p' is a container's pins/ root — every content-addressed checkout in that project at once, plus the .pin manifests that record who consumes them. Sweepers and raw recursive deletion never operate here; retire one verified orphan with pin-retire"
       return 0
       ;;
     "$HOME"/code/*/pins/*)
-      WHY="'$p' is a content-addressed pin — an externally CONSUMED checkout whose full commit ID is its path. Its contents, HEAD, and path are immutable. Read its consumers in the same-name sibling .pin manifest; advance a consumer by creating a new hash-named pin, never by changing this one"
+      pre="${p%%/pins/*}"
+      rest="${p#"$pre"/pins/}"
+      slug="${rest%%/*}"
+      wt="$pre/pins/$slug"
+      WHY="'$p' is in a content-addressed pin whose consumer state must be verified. Its contents, HEAD, and path are immutable while any consumer remains. Advance consumers with a new hash-named pin; after every real consumer moves, retire this pin and sidecar with: pin-retire --consumer-main CONSUMER/main -- '$wt'. Raw deletion stays denied"
       return 0
       ;;
     "$HOME"/code/*/worktrees)

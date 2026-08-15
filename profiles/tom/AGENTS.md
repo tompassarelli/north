@@ -142,8 +142,13 @@ Branch hygiene: origin carries main only (plus tags). Worktree/lane branches
 are local and ephemeral — land by fetch + `safe-push --to main`. Landing is
 complete only after cleanup: remove your worktree and delete your branch
 (`wt-reap` sweeps every merged+clean tree under `<container>/worktrees/`;
-`<container>/pins/<full-object-id>/` is exempt — an immutable externally consumed pin
-is never "done");
+`<container>/pins/<full-object-id>/` is exempt from every sweeper — an active
+pin's tracked contents, HEAD, and path are immutable). Once every real consumer
+has moved, add one exact `consumer-main: ~/code/CONSUMER/main` sidecar record
+for each repository consumer, then retire the orphaned pin and its sidecar together:
+`pin-retire --consumer-main CONSUMER/main -- ~/code/PROJECT/pins/OID` (repeat
+`--consumer-main` for each record; the two sets must match). Raw `git worktree remove`, `rm`, and
+recursive deletion under `pins/` remain denied;
 a landed lane that leaves its worktree behind is not done. Never publish a feature branch name.
 
 ## Removal means absence — no tombstones

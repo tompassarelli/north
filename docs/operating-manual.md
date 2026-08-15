@@ -906,10 +906,18 @@ and its branch deleted (`git -C <repo>/main worktree remove <path>` then
 `<container>/worktrees/`). A landed lane that leaves its worktree behind is not
 done, and origin never carries a lane branch. `<container>/pins/<full-object-id>/` is
 the opposite slot: its leaf is the immutable full commit object ID, its
-same-name `.pin` sidecar names consumers, and it is never swept. Advancing a
-consumer creates another hash-named detached worktree and updates that consumer;
-an existing pin's contents and HEAD never move. Every sweeper opts in on
-`worktrees/` positively so a pin cannot be reached.
+same-name `.pin` sidecar names consumers, and it is never swept. While any
+consumer remains, the pin's contents, HEAD, and path are immutable. Advancing a
+consumer creates another hash-named detached worktree and updates that consumer.
+After every real consumer has moved, retire the orphaned pin and sidecar
+explicitly after adding one exact `consumer-main: ~/code/CONSUMER/main`
+sidecar record per repository consumer, with
+`pin-retire --consumer-main CONSUMER/main -- ~/code/PROJECT/pins/OID`, repeating
+`--consumer-main` for each record. The helper requires the CLI and sidecar sets
+to match and verifies the pin and published consumer mains before removing both.
+Raw `git worktree remove`, `rm`, and recursive
+deletion under `pins/` remain denied. Every sweeper opts in on `worktrees/`
+positively so a pin cannot be reached.
 
 What escapes that cleanup is caught, not lost. A `worktrees/` tree idle past 48h with no
 owning lane and no live concern is **stale**: merged and clean ones are reaped

@@ -165,10 +165,14 @@ run deny 'a project container' "rm -rf $FH/code/proj"
 run deny 'the worktrees/ collection root (T9)' "rm -rf $WT_ROOT"
 run deny 'the pins/ collection root (T10)' "rm -rf $PIN_ROOT"
 run deny 'an individual pin (T11)' "rm -rf $PIN"
-case "$LAST_OUT" in *'externally CONSUMED'*) pass=$((pass + 1)); echo 'PASS  deny   a pin denies with the PIN reason' ;;
+case "$LAST_OUT" in *'content-addressed pin'*) pass=$((pass + 1)); echo 'PASS  deny   a pin denies with the PIN reason' ;;
   *) fail=$((fail + 1)); printf 'FAIL  deny   a pin must not fall through to the generic checkout-root reason (got: %s)\n' "$LAST_OUT" ;; esac
 case "$LAST_OUT" in *'worktree remove'*) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must not advise worktree remove (got: %s)\n' "$LAST_OUT" ;;
   *) pass=$((pass + 1)); echo 'PASS  deny   a pin reason does not advise destroying it' ;; esac
+case "$LAST_OUT" in *'pin-retire --consumer-main CONSUMER/main -- '*"$PIN"*) pass=$((pass + 1)); echo 'PASS  deny   a pin reason names verified orphan retirement' ;;
+  *) fail=$((fail + 1)); printf 'FAIL  deny   a pin reason must name pin-retire with the exact pin (got: %s)\n' "$LAST_OUT" ;; esac
+run allow 'explicit verified orphan retirement helper' \
+  "pin-retire --consumer-main $FH/code/consumer/main -- $PIN"
 run deny 'inside a pin' "rm -rf $PIN/src"
 run deny 'a .pin manifest directory entry' "rm -rf $PIN_ROOT/$PIN_OID.pin"
 runm default deny 'the pins/ root stays hard (default mode)' "rm -rf $PIN_ROOT"

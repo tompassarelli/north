@@ -213,7 +213,8 @@ for rel in ("proj/main/.git", "proj/worktrees/x/.git", "proj/worktrees/main",
             "resources/upstream/main/.git", "runtime-data/.git", "plain-dir"):
     os.makedirs(os.path.join(ROOT, rel), exist_ok=True)
 PIN = os.path.join(ROOT, "proj", "pins", PIN_OID)
-open(os.path.join(ROOT, "proj", "pins", PIN_OID + ".pin"), "w").write(
+PIN_SIDECAR = os.path.join(ROOT, "proj", "pins", PIN_OID + ".pin")
+open(PIN_SIDECAR, "w").write(
     "vendored upstream checkout. Consumers: the docs build.\n")
 
 PROJ = os.path.join(ROOT, "proj", "main")
@@ -256,7 +257,8 @@ check("Edit into ~/code/resources is allowed",
 print("--- pins/: protected because something OUTSIDE consumes them ---")
 
 # A pin is not a main and not a lane. Its deny must carry its own noun, its
-# own WHY, and its own remedy — the manifest and the human. Answering a pin
+# own WHY, and its own remedy — replacement while live, verified retirement
+# once orphaned. Answering a pin
 # deny with "work in a worktree" sends the agent to break what is protected.
 PIN_HIT = run({"tool_name": "Edit",
                "tool_input": {"file_path": os.path.join(PIN, "index.html")}},
@@ -268,6 +270,8 @@ check("the pin deny names the manifest's consumers",
       "the docs build" in (PIN_HIT or ""))
 check("the pin deny names new content-addressed pin creation",
       "worktree add --detach" in (PIN_HIT or ""))
+check("the pin deny names verified orphan retirement",
+      "pin-retire" in (PIN_HIT or ""))
 check("the pin deny never names in-place checkout",
       "checkout REF" not in (PIN_HIT or ""))
 check("the manifest is agent-writable pin METADATA (AMB-6 as amended)",
@@ -303,6 +307,20 @@ check("a single-quoted command substitution remains literal prose",
               + " checkout deadbeef)' >> /tmp/pin-notes.txt") is None)
 check("the same command unquoted is still a live call, still denied",
       fixture("git -C " + PIN + " commit -am x"))
+check("raw rm cannot erase a live pin sidecar",
+      fixture(f"rm {PIN_SIDECAR}"))
+check("raw unlink cannot erase a live pin sidecar",
+      fixture(f"unlink {PIN_SIDECAR}"))
+check("raw mv cannot rename a live pin sidecar",
+      fixture(f"mv {PIN_SIDECAR} {PIN_SIDECAR}.bak"))
+check("the verified pin retirement helper is allowed",
+      fixture(f"pin-retire --consumer-main {PROJ} -- {PIN}") is None)
+check("pin-retire cannot hide a command-substitution pin mutation",
+      fixture(f"pin-retire --consumer-main {PROJ} -- "
+              f"$(git -C {PIN} checkout deadbeef)"))
+check("pin-retire cannot shield a later pin mutation",
+      fixture(f"pin-retire --consumer-main {PROJ} -- {PIN}; "
+              f"git -C {PIN} checkout deadbeef"))
 check("checkout cannot change a content-addressed pin's HEAD",
       fixture(f"git -C {PIN} checkout 3e942ba2"))
 check("a double-quoted -C path cannot hide pin checkout",
@@ -361,6 +379,28 @@ check("reading a pin is always fine",
       fixture(f"cat {os.path.join(PIN, 'index.html')}") is None)
 check("a reset --hard in a pin denies with the PIN reason, not wt-rescue",
       "wt-rescue" not in (fixture(f"git -C {PIN} reset --hard") or "x"))
+
+delete_sidecar = ENV.format(verb="Delete", path=PIN_SIDECAR, body="")
+move_sidecar = ENV.format(
+    verb="Update", path=PIN_SIDECAR,
+    body=f"*** Move to: {PIN_SIDECAR}.bak\n@@\n-old\n+new\n")
+update_sidecar = ENV.format(
+    verb="Update", path=PIN_SIDECAR, body="@@\n-old\n+new\n")
+check("apply_patch Delete File cannot erase a live pin sidecar",
+      run(patch(delete_sidecar), code_root=ROOT))
+check("apply_patch Move to cannot rename a live pin sidecar",
+      run(patch(move_sidecar), code_root=ROOT))
+check("apply_patch may update live pin consumer metadata",
+      run(patch(update_sidecar), code_root=ROOT) is None)
+mixed_move = (
+    "*** Begin Patch\n"
+    f"*** Update File: {PIN_SIDECAR}\n@@\n-old\n+new\n"
+    f"*** Update File: {os.path.join(ROOT, 'proj', 'worktrees', 'x', 'move-me')}\n"
+    f"*** Move to: {os.path.join(ROOT, 'proj', 'worktrees', 'x', 'moved')}\n"
+    "@@\n-old\n+new\n"
+    "*** End Patch")
+check("an unrelated move does not turn a sidecar update into a removal",
+      run(patch(mixed_move), code_root=ROOT) is None)
 
 shutil.rmtree(FIX, ignore_errors=True)
 
