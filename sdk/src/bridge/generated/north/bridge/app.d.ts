@@ -17,6 +17,23 @@ export function parse_bridge_stream_bang(
   chunk: string,
 ): unknown;
 
+export function launch_route_flags(
+  provider: unknown,
+  tier: unknown,
+  model: unknown,
+  effort: unknown,
+): string[];
+
+export function set_launch_route_bang(
+  runtime: Record<string, unknown>,
+  name: string,
+  value: string,
+): unknown;
+
+export function take_launch_route_flags_bang(
+  runtime: Record<string, unknown>,
+): string[];
+
 export function project_conversation(
   items: unknown[],
   executionId: string,
