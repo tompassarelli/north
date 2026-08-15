@@ -502,7 +502,7 @@ case "${1:-}" in
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.
-    exec "$NORTH/bin/north-stream-sync" "${@:2}" ;;
+    exec "$NORTH/bin/north-stream-sync-all" "${@:2}" ;;
   stream-distill)
     # Claim one settled mirror and publish its provenance-complete Tier 1
     # Markdown projection through the cheap-tier managed provider boundary.
