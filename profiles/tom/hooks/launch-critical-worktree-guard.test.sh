@@ -99,12 +99,13 @@ FIXTURE="$(mktemp -d)"
 ROOT="$FIXTURE/code"
 PIN_OID=0123456789abcdef0123456789abcdef01234567
 NEXT_PIN_OID=89abcdef0123456789abcdef0123456789abcdef
+PIN_SIDECAR="$ROOT/proj/pins/$PIN_OID.pin"
 mkdir -p "$ROOT/proj/main/.git" "$ROOT/proj/worktrees/x" "$ROOT/proj/worktrees/main" \
          "$ROOT/proj/pins/$PIN_OID" \
          "$ROOT/client/msa/app/main/.git" "$ROOT/resources/upstream/main/.git" \
          "$ROOT/runtime-data/.git"
 printf 'The vendored upstream checkout. Consumers: gjoa:.envrc, the docs build.\n' \
-  > "$ROOT/proj/pins/$PIN_OID.pin"
+  > "$PIN_SIDECAR"
 # A real repo inside the pin: `git check-ignore` needs one for the T6 case, and
 # both live pins are exactly this shape — full of ignored build artifacts.
 git init -q "$ROOT/proj/pins/$PIN_OID" 2>/dev/null
@@ -139,6 +140,10 @@ esac
 case "$pin_out" in
   *"worktree add --detach"*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  the pin deny must name new hash-pin creation" >&2 ;;
+esac
+case "$pin_out" in
+  *"pin-retire"*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  the pin deny must name verified orphan retirement" >&2 ;;
 esac
 case "$pin_out" in
   *"checkout REF"*) fail=$((fail + 1)); echo "FAIL  a pin deny must not sanction in-place checkout" >&2 ;;
@@ -216,6 +221,30 @@ case "$(bash_decide "git -C $ROOT/proj/pins/$PIN_OID commit -am x" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  committing in a pin must be denied" >&2 ;;
 esac
+case "$(bash_decide "rm $PIN_SIDECAR" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  raw rm must not erase a live pin sidecar" >&2 ;;
+esac
+case "$(bash_decide "unlink $PIN_SIDECAR" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  raw unlink must not erase a live pin sidecar" >&2 ;;
+esac
+case "$(bash_decide "mv $PIN_SIDECAR $PIN_SIDECAR.bak" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  raw mv must not rename a live pin sidecar" >&2 ;;
+esac
+case "$(bash_decide "pin-retire --consumer-main $ROOT/proj/main -- $ROOT/proj/pins/$PIN_OID" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  direct pin-retire must be allowed" >&2 ;;
+esac
+case "$(bash_decide "pin-retire --consumer-main $ROOT/proj/main -- \$(git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef)" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  pin-retire must not hide command-substitution pin mutation" >&2 ;;
+esac
+case "$(bash_decide "pin-retire --consumer-main $ROOT/proj/main -- $ROOT/proj/pins/$PIN_OID; git -C $ROOT/proj/pins/$PIN_OID checkout deadbeef" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  pin-retire must not shield a later pin mutation" >&2 ;;
+esac
 case "$(bash_decide "git -C $ROOT/proj/main worktree add --detach $ROOT/proj/pins/$NEXT_PIN_OID $NEXT_PIN_OID" "$HOME")" in
   "") pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  creating a replacement hash-named pin from main must pass" >&2 ;;
@@ -281,6 +310,22 @@ esac
 case "$(apply_decide "*** Begin Patch\n*** Update File: $ROOT/proj/pins/$PIN_OID/x.py\n@@\n-a\n+b\n*** End Patch" "$HOME")" in
   *'"deny"'*) pass=$((pass + 1)) ;;
   *) fail=$((fail + 1)); echo "FAIL  apply_patch into a pin must be denied" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Delete File: $PIN_SIDECAR\n*** End Patch" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  apply_patch Delete File must not erase a live pin sidecar" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Update File: $PIN_SIDECAR\n*** Move to: $PIN_SIDECAR.bak\n@@\n-old\n+new\n*** End Patch" "$HOME")" in
+  *'"deny"'*) pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  apply_patch Move to must not rename a live pin sidecar" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Update File: $PIN_SIDECAR\n@@\n-old\n+new\n*** End Patch" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  apply_patch may update live pin consumer metadata" >&2 ;;
+esac
+case "$(apply_decide "*** Begin Patch\n*** Update File: $PIN_SIDECAR\n@@\n-old\n+new\n*** Update File: $ROOT/proj/worktrees/actual/move-me\n*** Move to: $ROOT/proj/worktrees/actual/moved\n@@\n-old\n+new\n*** End Patch" "$HOME")" in
+  "") pass=$((pass + 1)) ;;
+  *) fail=$((fail + 1)); echo "FAIL  an unrelated move must not turn a sidecar update into a removal" >&2 ;;
 esac
 case "$(apply_decide "*** Begin Patch\n*** Nonsense\n*** End Patch" "$ROOT/proj/main")" in
   *'"deny"'*) pass=$((pass + 1)) ;;

@@ -60,7 +60,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from launch_critical_paths import (  # noqa: E402
-    hit_advice, hit_noun, is_pin, protected_project, worktree_advice)
+    code_root, hit_advice, hit_noun, is_pin, pin_sidecar, protected_project,
+    worktree_advice)
 
 # git subcommands that change the repository or working tree.
 MUTATING_GIT = {
@@ -88,7 +89,7 @@ WRITE_COMMANDS = {
 # Commands that write to a destination argument (checked positionally).
 COPY_COMMANDS = {"cp", "mv", "rsync", "ln"}
 
-DESTRUCTIVE_COMMANDS = {"rm", "rmdir", "shred"}
+DESTRUCTIVE_COMMANDS = {"rm", "rmdir", "shred", "unlink"}
 
 INTERPRETERS = {"python", "python3", "perl", "ruby", "node", "bb", "bash", "sh", "zsh"}
 
@@ -242,6 +243,22 @@ def _patch_targets(envelope):
             + PATCH_MOVE_HEADER.findall(envelope))
 
 
+def _patch_removal_targets(envelope):
+    """Targets deleted or moved away, which may be live pin metadata."""
+    removed = []
+    blocks = re.split(
+        r"(?=^\*\*\* (?:Add|Update|Delete) File:)", envelope, flags=re.M)
+    for block in blocks:
+        deleted = re.match(r"^\*\*\* Delete File:\s+(.+?)\s*$", block, re.M)
+        if deleted:
+            removed.append(deleted.group(1))
+            continue
+        updated = re.match(r"^\*\*\* Update File:\s+(.+?)\s*$", block, re.M)
+        if updated and PATCH_MOVE_HEADER.search(block):
+            removed.append(updated.group(1))
+    return removed
+
+
 def _find_envelope(value):
     """The first nested string containing an apply_patch envelope."""
     if isinstance(value, str):
@@ -268,7 +285,18 @@ def _apply_patch_fail_closed():
         "`north config guards off`.")
 
 
-def _apply_patch_target_decision(targets, cwd):
+def _apply_patch_target_decision(targets, cwd, removal_targets=()):
+    for target in removal_targets:
+        path = _resolve(os.path.expanduser(target), cwd)
+        sidecar = pin_sidecar(path)
+        if sidecar:
+            container, name, _pin_path = sidecar
+            return (
+                f"This apply_patch envelope would delete live pin consumer "
+                f"metadata at {path}. Retire the checkout and sidecar together "
+                f"after proving every named consumer moved:\n\n"
+                f"  pin-retire --consumer-main CONSUMER/main -- "
+                f"{os.path.join(code_root(), container, 'pins', name)}")
     for target in targets:
         path = _resolve(os.path.expanduser(target), cwd)
         hit = protected_project(path)
@@ -300,7 +328,8 @@ def _apply_patch_tool_decision(tool_input, payload):
     targets = _patch_targets(envelope)
     if not targets:
         return _apply_patch_fail_closed()
-    return _apply_patch_target_decision(targets, patch_cwd)
+    return _apply_patch_target_decision(
+        targets, patch_cwd, _patch_removal_targets(envelope))
 
 
 def _apply_patch_command_decision(command, cwd, stripped=None):
@@ -330,7 +359,8 @@ def _apply_patch_command_decision(command, cwd, stripped=None):
         targets = _patch_targets(envelope)
         if not targets:
             return _apply_patch_fail_closed()
-        verdict = _apply_patch_target_decision(targets, cwd)
+        verdict = _apply_patch_target_decision(
+            targets, cwd, _patch_removal_targets(envelope))
         if verdict:
             return verdict
     return None
@@ -819,6 +849,17 @@ def _scan_write_commands(tokens, eff, deny):
         elif base in WRITE_COMMANDS or base in DESTRUCTIVE_COMMANDS:
             for a in args:
                 resolved = _resolve(os.path.expanduser(a), eff)
+                sidecar = pin_sidecar(resolved)
+                if base in DESTRUCTIVE_COMMANDS and sidecar:
+                    container, name, pin_path = sidecar
+                    hit = protected_project(pin_path)
+                    if hit:
+                        return deny(
+                            resolved, hit[0], hit[1],
+                            f"delete live consumer metadata with `{base}`; use "
+                            f"`pin-retire --consumer-main CONSUMER/main -- "
+                            f"{pin_path}` instead",
+                            hit[2])
                 hit = protected_project(resolved)
                 if hit:
                     # A gitignored build artifact inside a PIN is still the pin's:
@@ -829,6 +870,20 @@ def _scan_write_commands(tokens, eff, deny):
                         continue
                     return deny(a, hit[0], hit[1], f"run `{base}`", hit[2])
         elif base in COPY_COMMANDS and args:
+            if base == "mv":
+                for source in args[:-1]:
+                    resolved = _resolve(os.path.expanduser(source), eff)
+                    sidecar = pin_sidecar(resolved)
+                    if sidecar:
+                        _container, _name, pin_path = sidecar
+                        hit = protected_project(pin_path)
+                        if hit:
+                            return deny(
+                                resolved, hit[0], hit[1],
+                                "move live consumer metadata; use "
+                                f"`pin-retire --consumer-main CONSUMER/main -- "
+                                f"{pin_path}` instead",
+                                hit[2])
             dest = args[-1]
             hit = protected_project(_resolve(os.path.expanduser(dest), eff))
             if hit:

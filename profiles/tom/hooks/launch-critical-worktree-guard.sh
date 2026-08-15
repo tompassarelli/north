@@ -23,10 +23,12 @@
 #   at ~/code/<project>/worktrees/<slug> and is carved out by its PARENT
 #   DIRECTORY, positionally, not by any leaf name.
 #   `pins/` is the opposite slot: writes there are refused with the pin's own
-#   reason and remedy (its `.pin` manifest, and the human), because a pin is
+#   reason and remedy (its `.pin` manifest and `pin-retire`), because a pin is
 #   protected by who reads it, not by whose dirt it holds. Reads stay allowed.
 #   Pin contents and HEAD have no sanctioned mutation; advancing a consumer
-#   creates a new full-object-ID pin.
+#   creates a new full-object-ID pin. Once every named consumer has moved,
+#   `pin-retire --consumer-main ... -- PIN` validates consumer movement and
+#   removes the old pin and sidecar.
 #   `wt-rescue`, the remediation the deny message recommends for a dirty main,
 #   is allowlisted — see SANCTIONED_TOOLS in lib/launch_critical_decide.py.
 #

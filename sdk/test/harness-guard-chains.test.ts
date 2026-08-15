@@ -132,6 +132,7 @@ test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and p
   expect(pin.reason).toContain(`pins/${PIN_OID}.pin`);
   expect(pin.reason).toContain("the docs build");
   expect(pin.reason).toContain("worktree add --detach");
+  expect(pin.reason).toContain("pin-retire");
   expect(pin.reason).not.toContain("checkout REF");
 }, CASE_TIMEOUT_MS);
 
@@ -170,6 +171,9 @@ for (const [name, route] of [
   test.skipIf(!installed)(`${name} never traps a lane`, async () => {
     const hook = lane(route).bash;
     const main = join(root, "north", "main");
+    const consumerMain = join(root, "fram", "main");
+    const pin = join(root, "north", "pins", PIN_OID);
+    const pinSidecar = `${pin}.pin`;
     for (const command of [
       `cat ${main}/AGENTS.md`,
       `mkdir -p ${join(root, "north", "worktrees")}`,
@@ -178,6 +182,7 @@ for (const [name, route] of [
       "git add sdk/src/harness.ts",
       `printf x > ${join(root, "north", "worktrees", "lane", "x.txt")}`,
       `git -C ${main} worktree add --detach ${join(root, "north", "pins", NEXT_PIN_OID)} ${NEXT_PIN_OID}`,
+      `pin-retire --consumer-main ${consumerMain} -- ${pin}`,
       "git commit -m 'stop using git add -A'",
       "kill -TERM 1234",
       "pkill -f 'wrangler dev --port 8788'",
@@ -185,7 +190,9 @@ for (const [name, route] of [
       expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
         .toBe(`${command} => allow`);
     }
-    const pin = join(root, "north", "pins", PIN_OID);
+    const sidecarRemoval = await decide(hook, bash(`rm -f ${pinSidecar}`));
+    expect(sidecarRemoval.decision).toBe("deny");
+    expect(sidecarRemoval.reason).toContain("pin-retire");
     for (const command of [
       `git -C ${pin} checkout ${NEXT_PIN_OID}`,
       `git -C "${pin}" switch --detach ${NEXT_PIN_OID}`,
@@ -200,6 +207,9 @@ for (const [name, route] of [
       `bash -lc 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
       `bash -ec 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
       `sh -c -- 'git -C ${pin} checkout ${NEXT_PIN_OID}'`,
+      `unlink ${pinSidecar}`,
+      `mv ${pinSidecar} /tmp/${PIN_OID}.pin`,
+      `pin-retire --consumer-main ${consumerMain} -- "$(git -C ${pin} checkout ${NEXT_PIN_OID})"`,
     ]) {
       expect(`${command} => ${(await decide(hook, bash(command))).decision}`)
         .toBe(`${command} => deny`);

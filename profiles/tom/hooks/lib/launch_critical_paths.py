@@ -30,6 +30,7 @@ human's. Detection is dynamic — an ancestor directory named `main` holding a
 """
 
 import os
+import re
 
 # Containers whose PRIMARY breaks something beyond itself. They are protected by
 # the same rule as every other main; only the reason text is theirs.
@@ -187,6 +188,40 @@ def protected_project(path):
     return None
 
 
+def pin_sidecar(path):
+    """(container, object-id, pin-path) for one live top-level pin sidecar.
+
+    Sidecars stay writable metadata. Deleting one while its pin still exists is
+    different: that would erase the only consumer record without retiring the
+    checkout, so raw deletion is refused in favor of `pin-retire`.
+    """
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        real = os.path.realpath(path)
+    except Exception:
+        return None
+    root = code_root()
+    if not _within(real, root):
+        return None
+    rest = real[len(root):].strip(os.sep)
+    parts = [p for p in rest.split(os.sep) if p] if rest else []
+    if not parts or parts[0] in EXCLUDED_ROOTS:
+        return None
+    container, slot_index = _container_slot(root, parts)
+    if (container is None or slot_index is None
+            or len(parts) != slot_index + 2
+            or parts[slot_index] != PINS_DIR):
+        return None
+    leaf = parts[slot_index + 1]
+    match = re.fullmatch(r"([0-9a-f]{40})\.pin", leaf)
+    if not match:
+        return None
+    name = match.group(1)
+    pin_path = os.path.join(root, container, PINS_DIR, name)
+    return (container, name, pin_path) if os.path.isdir(pin_path) else None
+
+
 def is_pin(kind):
     return isinstance(kind, str) and kind.startswith(PIN_KIND)
 
@@ -228,7 +263,8 @@ def pin_advice(project, name):
 
     The current pin never moves. Advancing a consumer means creating a new
     detached, full-object-ID worktree from main and changing the consumer to
-    that new path.
+    that new path. Once every named consumer has moved, explicit verified
+    retirement removes the old checkout and sidecar together.
     """
     container = os.path.join(code_root(), project)
     return (
@@ -239,5 +275,8 @@ def pin_advice(project, name):
         f"  git -C {container}/main worktree add --detach "
         f"{container}/{PINS_DIR}/$PIN_OBJECT_ID $PIN_OBJECT_ID\n"
         f"  # write {container}/{PINS_DIR}/$PIN_OBJECT_ID.pin, then update the consumer\n"
-        "The old path and HEAD remain immutable.\n"
+        "After read-only checks prove every named consumer moved, retire the old pin:\n"
+        f"  pin-retire --consumer-main CONSUMER/main -- "
+        f"{container}/{PINS_DIR}/{name}\n"
+        "Raw removal stays denied; the old path and HEAD remain immutable until retirement.\n"
     )
