@@ -246,18 +246,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
-
-AGENT_COMMANDS.splice(1, 0,
-  SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false),
-  SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false),
-  SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false));
-THREAD_COMMANDS.splice(1, 0,
-  SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false),
-  SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false),
-  SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false));
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -1315,7 +1306,7 @@ return true; })() : ((name === "transcript")) ? (() => { const requested = rest.
 }
 (runtime.transcriptView = requested);
 runtime.render();
-return true; })() : (["provider", "model", "effort"].includes(name)) ? (() => { set_launch_route_bang(runtime, name, rest);
+return true; })() : (((name === "provider") || (name === "model") || (name === "effort"))) ? (() => { set_launch_route_bang(runtime, name, rest);
 return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, ui, "all");
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
@@ -1917,7 +1908,7 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
   const status = supervisor_status(runtime);
   const working_p = transcript_working_p(runtime);
   const supervisor_view_p = ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
-  const placeholder = (supervisor_view_p ? transcript_placeholder(main_agent_label(), status, items.length, working_p) : "");
+  const placeholder = (supervisor_view_p ? transcript_placeholder(main_agent_label(runtime), status, items.length, working_p) : "");
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
@@ -2557,7 +2548,7 @@ export function composer_hint(pane, label) {
 }
 
 function minibuffer_placeholder(runtime) {
-  return composer_hint(text(runtime.frame), main_agent_label());
+  return composer_hint(text(runtime.frame), main_agent_label(runtime));
 }
 
 function palette_visible_count(total, rows, docked) {
@@ -2649,7 +2640,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
   const agents = bridgesnapshot_agents(state);
   const prior_id = selected_agent_id(state, runtime.agentIndex);
   const existing = agents.find((agent) => (agent_id(agent) === execution_id));
-  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label() : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
+  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label(runtime) : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
   runtime.bridgeExecutions.add(execution_id);
   if ((role === "supervisor")) {
     (runtime.supervisorId = execution_id);
@@ -2769,7 +2760,7 @@ if ((!(permissions === ""))) {
 } })() : (((kind === "control.submit_input") || (kind === "control.redirect_now"))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
 } })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { const booting = stream_state.booting; adopt_wire_model_bang(runtime, data.model, data.effort);
-set_execution_working_bang(runtime, execution_id, true, (booting ? ("".concat("Starting ", main_agent_label(), "…")) : "Agent is working"));
+set_execution_working_bang(runtime, execution_id, true, (booting ? ("".concat("Starting ", main_agent_label(runtime), "…")) : "Agent is working"));
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (booting ? "starting" : "working"));
 } })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || (kind === "tool.progress") || (kind === "tool.terminal"))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = (data.progress || {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
@@ -2825,42 +2816,53 @@ export function launch_route_flags(provider, tier, model, effort) {
   const tier_value = text(tier).trim();
   const model_value = text(model).trim();
   const effort_value = text(effort).trim();
-  return [].concat((provider_value === "") ? [] : ["--provider", provider_value],
-    (tier_value === "") ? [] : ["--tier", tier_value],
-    (model_value === "") ? [] : ["--model", model_value],
-    (effort_value === "") ? [] : ["--effort", effort_value]);
+  return [].concat(((provider_value === "") ? [] : ["--provider", provider_value]), ((tier_value === "") ? [] : ["--tier", tier_value]), ((model_value === "") ? [] : ["--model", model_value]), ((effort_value === "") ? [] : ["--effort", effort_value]));
 }
 
 function launch_route_summary(runtime) {
-  return "".concat("next launch: provider ", text_or(runtime.launchProvider, "auto"),
-    ", model ", text_or(text_or(runtime.launchModel, text(runtime.launchTier)), "auto"),
-    ", effort ", text_or(runtime.launchEffort, "auto"));
+  return ("".concat("next launch: provider ", text_or(runtime.launchProvider, "auto"), ", model ", text_or(text_or(runtime.launchModel, text(runtime.launchTier)), "auto"), ", effort ", text_or(runtime.launchEffort, "auto")));
 }
 
-function set_launch_route_bang(runtime, name, value) {
-  const choice = value.trim().toLowerCase();
-  if (choice === "") throw new Error("".concat(name, " requires a value or auto"));
-  if (name === "provider") {
-    if (!["auto", "anthropic", "openai"].includes(choice))
-      throw new Error("provider requires anthropic, openai, or auto");
-    runtime.launchProvider = choice === "auto" ? "" : choice;
-  } else if (name === "model") {
-    if (choice === "auto") {
-      runtime.launchTier = "";
-      runtime.launchModel = "";
-    } else if (["economy", "standard", "senior", "frontier"].includes(choice)) {
-      runtime.launchTier = choice;
-      runtime.launchModel = "";
+export function set_launch_route_bang(runtime, name, value) {
+  const trimmed = value.trim();
+  const choice = trimmed.toLowerCase();
+  if ((choice === "")) {
+    (() => { throw new Error(("".concat(name, " requires a value or auto"))); })();
+  }
+  if ((name === "provider")) {
+    if ((!((choice === "auto") || (choice === "anthropic") || (choice === "openai")))) {
+      (() => { throw new Error("provider requires anthropic, openai, or auto"); })();
+    }
+    (runtime.launchProvider = ((choice === "auto") ? "" : choice));
+  } else if ((name === "model")) {
+    if ((choice === "auto")) {
+      (runtime.launchTier = "");
+      (runtime.launchModel = "");
     } else {
-      runtime.launchTier = "";
-      runtime.launchModel = value;
+      if (["economy", "standard", "senior", "frontier"].includes(choice)) {
+        (runtime.launchTier = choice);
+        (runtime.launchModel = "");
+      } else {
+        (runtime.launchTier = "");
+        (runtime.launchModel = trimmed);
+      }
     }
   } else {
-    if (!["auto", "low", "medium", "high", "xhigh", "max"].includes(choice))
-      throw new Error("effort requires low, medium, high, xhigh, max, or auto");
-    runtime.launchEffort = choice === "auto" ? "" : choice;
+    if ((!((choice === "auto") || ["low", "medium", "high", "xhigh", "max"].includes(choice)))) {
+      (() => { throw new Error("effort requires low, medium, high, xhigh, max, or auto"); })();
+    }
+    (runtime.launchEffort = ((choice === "auto") ? "" : choice));
   }
   return publish_line_bang(runtime, launch_route_summary(runtime));
+}
+
+export function take_launch_route_flags_bang(runtime) {
+  const flags = launch_route_flags(runtime.launchProvider, runtime.launchTier, runtime.launchModel, runtime.launchEffort);
+  (runtime.launchProvider = "");
+  (runtime.launchTier = "");
+  (runtime.launchModel = "");
+  (runtime.launchEffort = "");
+  return flags;
 }
 
 function main_agent_label(runtime) {
@@ -2874,7 +2876,7 @@ async function launch_agent_bang(runtime, prompt, role) {
   }
   set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label(runtime), "…")));
   const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
-  const exit_code = await stream_command([north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")].concat(launch_route_flags(runtime.launchProvider, runtime.launchTier, runtime.launchModel, runtime.launchEffort), [prompt]), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
+  const exit_code = await stream_command([north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")].concat(take_launch_route_flags_bang(runtime), [prompt]), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
     return append_error_bang(runtime, ("".concat("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : ("".concat("\n", text(stream_state.stderr).trim()))))));
@@ -3487,11 +3489,7 @@ if ((runtime.working && (!(target === "")))) {
 async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
-  runtime.launchProvider = text(process.env.NORTH_BRIDGE_PROVIDER);
-  runtime.launchTier = text(process.env.NORTH_BRIDGE_TIER);
-  runtime.launchModel = text(process.env.NORTH_BRIDGE_MODEL);
-  runtime.launchEffort = text(process.env.NORTH_BRIDGE_EFFORT);
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text_or(process.env.AGENT_REASONING, text(process.env.AGENT_EFFORT)), launchProvider: text(process.env.NORTH_BRIDGE_PROVIDER), launchTier: text(process.env.NORTH_BRIDGE_TIER), launchModel: text(process.env.NORTH_BRIDGE_MODEL), launchEffort: text(process.env.NORTH_BRIDGE_EFFORT), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const view_tabs_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});

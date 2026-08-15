@@ -7,7 +7,8 @@ import { Northd } from "../src/bridge/host";
 import { parseBridgeLaunchArguments } from "../src/bridge/cli";
 import { parseBridgeRequest, type BridgeLaunchProvider, type BridgeServerMessage } from "../src/bridge/protocol";
 import {
-  bridgeRoute, selectBridgeProvider, type BridgeProviderExecution,
+  bridgeRoute, resolveBridgeLaunchSelection, selectBridgeProvider,
+  type BridgeProviderExecution, type BridgeProviderOpenContext,
 } from "../src/bridge/provider";
 import { authCacheKey, writeAuthState } from "../src/provider-auth-cache";
 import {
@@ -37,21 +38,82 @@ test("a provider flag composes with --role in either order", () => {
     .toEqual({ role: "director", provider: "anthropic", promptArguments: ["go"] });
 });
 
+test("launch route flags compose before the prompt", () => {
+  expect(parseBridgeLaunchArguments([
+    "--provider", "openai", "--tier", "frontier", "--effort", "max", "go",
+  ])).toEqual({
+    role: "implementer", provider: "openai", tier: "frontier", effort: "max",
+    promptArguments: ["go"],
+  });
+  expect(parseBridgeLaunchArguments([
+    "--role", "director", "--model", "gpt-5.6-sol", "review",
+  ])).toEqual({
+    role: "director", model: "gpt-5.6-sol", promptArguments: ["review"],
+  });
+});
+
 test("the wire rejects an unknown provider", () => {
   expect(() => parseBridgeRequest({ op: "launch", prompt: "go", cwd: "/", provider: "gemini" }))
     .toThrow("bridge launch provider must be anthropic or openai");
 });
 
+test("the wire validates and preserves every launch route override", () => {
+  expect(parseBridgeRequest({
+    op: "launch", prompt: "go", cwd: "/", role: "director",
+    provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  })).toEqual({
+    op: "launch", prompt: "go", cwd: "/", role: "director",
+    provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  });
+  expect(() => parseBridgeRequest({ op: "launch", prompt: "go", cwd: "/", tier: "extreme" }))
+    .toThrow("bridge launch tier must be one of");
+  expect(() => parseBridgeRequest({ op: "launch", prompt: "go", cwd: "/", model: "two words" }))
+    .toThrow("bridge launch model must be a model id without whitespace");
+  expect(() => parseBridgeRequest({ op: "launch", prompt: "go", cwd: "/", effort: "ultra" }))
+    .toThrow("bridge launch effort must be one of");
+});
+
+test("automatic effort follows the selected provider and tier", () => {
+  const frontier = resolveBridgeLaunchSelection("openai", "implementer", {
+    tier: "frontier",
+  });
+  expect(frontier.resolved).toEqual({
+    tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh",
+  });
+  expect(frontier.routingMetadata).toMatchObject({
+    role: "implementer", tier: "frontier", reasoning: "xhigh",
+    composition: { overrides: ["tier", "reasoning"] },
+  });
+
+  const exact = resolveBridgeLaunchSelection("openai", "implementer", { model: "terra" });
+  expect(exact.resolved).toEqual({
+    tier: "standard", model: "gpt-5.6-terra", effort: "medium",
+  });
+  expect(exact.routingMetadata).toMatchObject({
+    role: "implementer", tier: "standard", reasoning: "medium",
+    composition: { overrides: [] },
+  });
+
+  const explicit = resolveBridgeLaunchSelection("openai", "director", { effort: "max" });
+  expect(explicit.resolved).toEqual({
+    tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  });
+  expect(explicit.routingMetadata).toMatchObject({
+    role: "director", tier: "frontier", reasoning: "max",
+    composition: { overrides: ["reasoning"] },
+  });
+});
+
 async function launched(
   request: object,
   selectProvider: () => Promise<BridgeLaunchProvider>,
-): Promise<BridgeLaunchProvider | undefined> {
+): Promise<BridgeProviderOpenContext | undefined> {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-select-"));
   const socketPath = join(root, "northd.sock");
-  const opened: BridgeLaunchProvider[] = [];
+  const opened: BridgeProviderOpenContext[] = [];
   const provider: BridgeProviderExecution = {
     async open(context) {
-      opened.push(context.provider);
+      opened.push(context);
       throw new Error("stop after selection");
     },
   };
@@ -92,7 +154,7 @@ test("an unpinned launch takes the headroom selection", async () => {
     { op: "launch", prompt: "go", cwd: "/" },
     async () => "anthropic",
   );
-  expect(result).toBe("anthropic");
+  expect(result?.provider).toBe("anthropic");
 });
 
 test("a pinned launch never consults headroom", async () => {
@@ -101,8 +163,19 @@ test("a pinned launch never consults headroom", async () => {
     { op: "launch", prompt: "go", cwd: "/", provider: "openai" },
     async () => { consulted += 1; return "anthropic"; },
   );
-  expect(result).toBe("openai");
+  expect(result?.provider).toBe("openai");
   expect(consulted).toBe(0);
+});
+
+test("the host forwards route overrides to the selected provider", async () => {
+  const result = await launched({
+    op: "launch", prompt: "go", cwd: "/", role: "director",
+    provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  }, async () => "anthropic");
+  expect(result).toMatchObject({
+    prompt: "go", cwd: "/", role: "director", provider: "openai",
+    tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+  });
 });
 
 // --- Boot routing -----------------------------------------------------------
@@ -260,8 +333,10 @@ test("an explicit Bridge model is selected with its exact receipt and never fall
     refreshProviderRoutingInBackground: () => Promise.resolve(),
     selectProviderForExecution: async () => { throw new Error("must not probe"); },
     configuredDefaultTarget: () => { defaults++; return target; },
-  }, "openai", "gpt-5.6-sol");
-  expect(observedContext).toEqual({ model: "gpt-5.6-sol" });
+  }, "openai", { tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol" });
+  expect(observedContext).toEqual({
+    tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol",
+  });
   expect(route).toEqual({ target, receipt });
   expect(defaults).toBe(0);
 
@@ -271,9 +346,34 @@ test("an explicit Bridge model is selected with its exact receipt and never fall
     refreshProviderRoutingInBackground: () => Promise.resolve(),
     selectProviderForExecution: async () => { throw new Error("model not observed"); },
     configuredDefaultTarget: () => { defaults++; return target; },
-  }, "openai", "gpt-5.6-sol");
+  }, "openai", { tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol" });
   expect(blocked).toEqual({});
   expect(defaults).toBe(0);
+});
+
+test("an automatic model routes by resolved tier and effort without becoming an exact pin", async () => {
+  const target = { id: "codex-a", provider: "openai" as const, authMode: "ambient" as const };
+  let observedContext: unknown;
+  const route = await bridgeRoute({
+    BOOT_ROUTING_TIMEOUT_MS,
+    selectProviderFromCachedState: async (_preference, _policy, context) => {
+      observedContext = context;
+      return undefined;
+    },
+    refreshProviderRoutingInBackground: () => Promise.resolve(),
+    selectProviderForExecution: async (_preference, _policy, context) => {
+      observedContext = context;
+      return {
+        target: target.id,
+        routingTargets: { [target.id]: target },
+      } as RoutingDecision;
+    },
+    configuredDefaultTarget: () => target,
+  }, "openai", { tier: "frontier", reasoning: "xhigh" });
+
+  expect(observedContext).toMatchObject({ tier: "frontier", reasoning: "xhigh" });
+  expect(observedContext).not.toHaveProperty("model");
+  expect(route).toEqual({ target });
 });
 
 test("the background refresh collapses, never rejects, and never blocks", async () => {

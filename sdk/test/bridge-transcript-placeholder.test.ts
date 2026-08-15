@@ -9,6 +9,7 @@ import {
   banner_permissions as bannerPermissions,
   banner_revision as bannerRevision,
   banner_rule_line_p as bannerRuleLine,
+  launch_route_flags as launchRouteFlags,
   render_conversation_bang as renderConversation,
   roster_visible_rows as rosterVisibleRows,
   roster_row_suppressed_p as rosterRowSuppressed,
@@ -16,6 +17,8 @@ import {
   session_banner_bang as sessionBanner,
   session_banner_lines as sessionBannerLines,
   session_banner_runs as sessionBannerRuns,
+  set_launch_route_bang as setLaunchRoute,
+  take_launch_route_flags_bang as takeLaunchRouteFlags,
   transcript_banner_p as transcriptBanner,
   transcript_placeholder as transcriptPlaceholder,
 } from "../src/bridge/generated/north/bridge/app.js";
@@ -79,7 +82,7 @@ test("the banner states the session's facts, and says pending for the ones it la
   expect(lines).toEqual([
     ">_ North Bridge (1f3c2de7)",
     "",
-    "model:       claude-fable-5 xhigh   NORTH_BRIDGE_MODEL to change",
+    "model:       claude-fable-5 xhigh   /model changes the next launch",
     "directory:   ~/code",
     "permissions: acceptEdits",
   ]);
@@ -101,14 +104,67 @@ test("the banner states the session's facts, and says pending for the ones it la
   // already uses for the same gap.
   const bare = sessionBannerLines("", "", "", "", "") as string[];
   expect(bare[0]).toBe(">_ North Bridge (unknown)");
-  expect(bare[2]).toBe("model:       pending   NORTH_BRIDGE_MODEL to change");
+  expect(bare[2]).toBe("model:       pending   /model changes the next launch");
   expect(bare[3]).toBe("directory:   pending");
   expect(bare[4]).toBe("permissions: pending");
 
-  // There is no /model command in the bridge, so the hint names the thing that
-  // actually changes the model rather than inventing one.
-  expect(lines[2]).toContain("NORTH_BRIDGE_MODEL");
-  expect(lines.join("\n")).not.toContain("/model");
+  expect(lines[2]).toContain("/model changes the next launch");
+});
+
+function launchRouteRuntime() {
+  return {
+    disposed: false,
+    conversation: [] as unknown[],
+    itemSequence: 0,
+    model: makeModel("list"),
+    agentIndex: 0,
+    launchProvider: "",
+    launchTier: "",
+    launchModel: "",
+    launchEffort: "",
+    render() {},
+  };
+}
+
+test("Bridge route commands set and reset only the next launch", () => {
+  const runtime = launchRouteRuntime();
+  setLaunchRoute(runtime, "provider", "openai");
+  setLaunchRoute(runtime, "model", "frontier");
+  setLaunchRoute(runtime, "effort", "max");
+  expect(runtime).toMatchObject({
+    launchProvider: "openai", launchTier: "frontier", launchModel: "", launchEffort: "max",
+  });
+  expect(launchRouteFlags(
+    runtime.launchProvider, runtime.launchTier, runtime.launchModel, runtime.launchEffort,
+  )).toEqual(["--provider", "openai", "--tier", "frontier", "--effort", "max"]);
+
+  setLaunchRoute(runtime, "model", "  gpt-5.6-sol  ");
+  expect(runtime.launchTier).toBe("");
+  expect(runtime.launchModel).toBe("gpt-5.6-sol");
+  setLaunchRoute(runtime, "model", "auto");
+  setLaunchRoute(runtime, "provider", "auto");
+  setLaunchRoute(runtime, "effort", "auto");
+  expect(runtime).toMatchObject({
+    launchProvider: "", launchTier: "", launchModel: "", launchEffort: "",
+  });
+  expect(() => setLaunchRoute(runtime, "provider", "gemini"))
+    .toThrow("provider requires anthropic, openai, or auto");
+  expect(() => setLaunchRoute(runtime, "effort", "ultra"))
+    .toThrow("effort requires low, medium, high, xhigh, max, or auto");
+});
+
+test("a route selection is consumed once", () => {
+  const runtime = launchRouteRuntime();
+  Object.assign(runtime, {
+    launchProvider: "anthropic", launchModel: "fable", launchEffort: "xhigh",
+  });
+  expect(takeLaunchRouteFlags(runtime)).toEqual([
+    "--provider", "anthropic", "--model", "fable", "--effort", "xhigh",
+  ]);
+  expect(runtime).toMatchObject({
+    launchProvider: "", launchTier: "", launchModel: "", launchEffort: "",
+  });
+  expect(takeLaunchRouteFlags(runtime)).toEqual([]);
 });
 
 test("the box is drawn to the content, and gives way rather than wrapping", () => {
@@ -201,7 +257,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   expect(ready).toContain("╭");
   expect(ready).toContain(">_ North Bridge (1f3c2de7)");
   expect(ready).toContain("model:       claude-fable-5 xhigh");
-  expect(ready).toContain("NORTH_BRIDGE_MODEL to change");
+  expect(ready).toContain("/model changes the next launch");
   expect(ready).toContain("directory:   /tmp/switchboard-fixture/code");
   expect(ready).toContain("permissions: acceptEdits");
   expect(ready).toContain("╰");

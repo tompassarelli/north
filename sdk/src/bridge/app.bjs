@@ -3476,7 +3476,7 @@
                                 (identical? (runtime-selected-agent-id runtime)
                                             (text (js/get runtime .supervisorId))))
           placeholder (if supervisor-view?
-                        (transcript-placeholder (main-agent-label) status
+                        (transcript-placeholder (main-agent-label runtime) status
                                                 (js/get items .length) working?)
                         "")]
       (when (not (identical? placeholder ""))
@@ -4706,7 +4706,7 @@
     "/list, /board, /graph, /capture, /filter, /assign")))
 
 (defn minibuffer-placeholder [(runtime Any)]  String
-  (composer-hint (text (js/get runtime .frame)) (main-agent-label)))
+  (composer-hint (text (js/get runtime .frame)) (main-agent-label runtime)))
 
 ;; Pure: rows the slash palette may draw at once. `docked` is whatever the
 ;; detail panel is already spending, so an open switchboard shrinks the palette
@@ -4830,7 +4830,7 @@
                           (identical? (agent-id agent) execution-id)))
         updated (->Agent execution-id
                          (if (identical? role "supervisor")
-                           (main-agent-label)
+                           (main-agent-label runtime)
                            (str "Codex " (js/call execution-id .slice 0 8)))
                          status
                          (if (identical? role "supervisor")
@@ -5080,7 +5080,7 @@
         (adopt-wire-model! runtime (js/get data .model) (js/get data .effort))
         (set-execution-working! runtime execution-id true
                                 (if booting
-                                  (str "Starting " (main-agent-label) "…")
+                                  (str "Starting " (main-agent-label runtime) "…")
                                   "Agent is working"))
           (when (not (identical? execution-id ""))
             (bridge-agent! runtime execution-id (text (js/get stream-state .role))
@@ -5220,11 +5220,13 @@
                                     (text (js/get runtime .launchTier))) "auto")
        ", effort " (text-or (js/get runtime .launchEffort) "auto")))
 
-(defn set-launch-route!
+(js/export
+ (defn set-launch-route!
   [(runtime Any)
    (name String)
    (value String)]  Any
-  (let [choice (js/call (js/call value .trim) .toLowerCase)]
+  (let [trimmed (js/call value .trim)
+        choice (js/call trimmed .toLowerCase)]
     (when (identical? choice "")
       (throw (js/new Error (str name " requires a value or auto"))))
     (cond
@@ -5244,7 +5246,7 @@
           (do (js/set! runtime .launchTier choice)
               (js/set! runtime .launchModel ""))
           (do (js/set! runtime .launchTier "")
-              (js/set! runtime .launchModel value))))
+              (js/set! runtime .launchModel trimmed))))
 
       :else
       (do
@@ -5252,7 +5254,20 @@
                        (js/call ["low" "medium" "high" "xhigh" "max"] .includes choice)))
           (throw (js/new Error "effort requires low, medium, high, xhigh, max, or auto")))
         (js/set! runtime .launchEffort (if (identical? choice "auto") "" choice))))
-    (publish-line! runtime (launch-route-summary runtime))))
+    (publish-line! runtime (launch-route-summary runtime)))))
+
+(js/export
+ (defn take-launch-route-flags!
+  [(runtime Any)]  (Vec String)
+  (let [flags (launch-route-flags (js/get runtime .launchProvider)
+                                  (js/get runtime .launchTier)
+                                  (js/get runtime .launchModel)
+                                  (js/get runtime .launchEffort))]
+    (js/set! runtime .launchProvider "")
+    (js/set! runtime .launchTier "")
+    (js/set! runtime .launchModel "")
+    (js/set! runtime .launchEffort "")
+    flags)))
 
 ;; What the control session is *called* on screen. The role it plays inside the
 ;; runtime is still "supervisor" — that identifier reaches northd, the journal,
@@ -5279,10 +5294,7 @@
           (js/call [(north-bin) "bridge" "--role"
                     (if (identical? role "supervisor") "director" "implementer")]
                    .concat
-                   (launch-route-flags (js/get runtime .launchProvider)
-                                       (js/get runtime .launchTier)
-                                       (js/get runtime .launchModel)
-                                       (js/get runtime .launchEffort))
+                   (take-launch-route-flags! runtime)
                    [prompt])
           (fn [(chunk String)]  Any
             (parse-bridge-stream! runtime stream-state chunk))

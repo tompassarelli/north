@@ -53,25 +53,24 @@ export function resolveBridgeLaunchSelection(
   selection: Omit<BridgeLaunchSelection, "provider">,
 ) {
   const base = applyOrchestrationStaffing({ role });
+  const tier = selection.tier ?? base.tier;
+  const automatic = resolveTier(provider, tier);
+  const effort = selection.effort ?? automatic.effort ?? base.reasoning;
+  const resolved = resolveTier(provider, tier, selection.model, effort);
   const overrides = [
-    ...(selection.tier && selection.tier !== base.tier ? ["tier" as const] : []),
-    ...(selection.effort && selection.effort !== base.reasoning ? ["reasoning" as const] : []),
+    ...(tier !== base.tier ? ["tier" as const] : []),
+    ...(effort !== base.reasoning ? ["reasoning" as const] : []),
   ];
   const routingMetadata = overrides.length === 0 ? base : applyOrchestrationStaffing({
     role,
-    ...(selection.tier ? { tier: selection.tier } : {}),
-    ...(selection.effort ? { reasoning: selection.effort } : {}),
+    tier,
+    reasoning: effort,
     composition: {
       kind: "preset", id: base.role, overrides,
       overrideReason: "Bridge launch selection",
     },
   });
-  return {
-    routingMetadata,
-    resolved: resolveTier(
-      provider, routingMetadata.tier, selection.model, routingMetadata.reasoning,
-    ),
-  };
+  return { routingMetadata, resolved };
 }
 
 export interface BridgeProviderExecution {
@@ -284,9 +283,12 @@ export type BridgeProviderRouting = Pick<typeof providerRouting,
 export async function bridgeRoute(
   routing: BridgeProviderRouting,
   provider: BridgeLaunchProvider,
-  model?: string,
+  context: {
+    tier?: BridgeLaunchSelection["tier"];
+    reasoning?: BridgeLaunchSelection["effort"];
+    model?: string;
+  } = {},
 ): Promise<{ target?: RoutingTarget; receipt?: ProviderModelAdmissionReceipt }> {
-  const context = model ? { model } : {};
   const cached = await routing.selectProviderFromCachedState({ provider }, undefined, context);
   if (cached) {
     void routing.refreshProviderRoutingInBackground({ provider });
@@ -311,7 +313,7 @@ export async function bridgeRoute(
   } catch {
     // An explicit model is exact authority. A static account default cannot
     // prove it and must not reach an adapter without a receipt.
-    if (model) return {};
+    if (context.model) return {};
     const fallback = routing.configuredDefaultTarget(provider);
     return fallback ? { target: fallback } : {};
   }
@@ -332,7 +334,11 @@ export function bridgeProviderWithDependenciesForTest(
         ...(model ? { model } : {}),
         ...(context.effort ? { effort: context.effort } : {}),
       });
-      const route = await bridgeRoute(routing, context.provider, model);
+      const route = await bridgeRoute(routing, context.provider, {
+        tier: selection.resolved.tier,
+        reasoning: selection.resolved.effort,
+        ...(model ? { model } : {}),
+      });
       const target = route.target;
       if (model && !target)
         throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
