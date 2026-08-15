@@ -14,10 +14,11 @@
 (defn b64 [^bytes bytes]
   (.encodeToString (java.util.Base64/getEncoder) bytes))
 
-(defn req [id request] (b64 (w/encode-rpc-frame-v1! (w/rpc-request-frame id request))))
-(defn resp [id response] (b64 (w/encode-rpc-frame-v1! (w/rpc-response-frame id response))))
+(defn req [id request] (b64 (w/encode-rpc-frame-v2! (w/rpc-request-frame id request))))
+(defn resp [id response] (b64 (w/encode-rpc-frame-v2! (w/rpc-response-frame id response))))
 
 (def fence (w/rpc-fence! resource holder 42))
+(def transaction (t/transaction-coordinate space 46))
 
 (defn nest [n]
   (loop [k n term "leaf"]
@@ -115,8 +116,9 @@
             space :rpc/batch 46 nil nil
             (w/rpc-mutation-result!
              [(w/rpc-action-result!
-               0 true [(t/triple "@agent:x" "role" "worker")])
-              (w/rpc-action-result! 1 false [])])))
+               0 true (t/occurrence-coordinate transaction 0))
+              (w/rpc-action-result!
+               1 false (t/occurrence-coordinate transaction 1))])))
 
    "conflict-error-response"
    (resp 8 (w/rpc-response!

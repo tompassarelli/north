@@ -29,10 +29,10 @@
   (if (str/starts-with? subject "@") (subs subject 1) subject))
 
 (defn- set-string-membership [members ^String value ^Boolean present?]
-  (if present? (if (kc/vec-member? members value) members (conj members value)) (filterv (fn [member] (not (= member value))) members)))
+  (if present? (if (kc/vec-member? members value) members (conj members value)) (filterv (fn [^String member] (not (= member value))) members)))
 
 (defn ^ProjectionIndex index-triples [triples]
-  (let [base (reduce (fn [index triple] (let [subject (t/triple-t1 triple)
+  (let [base (reduce (fn [^ProjectionIndex index triple] (let [subject (t/triple-t1 triple)
    predicate (t/triple-t2 triple)
    value (t/triple-t3 triple)
    key [subject predicate]
@@ -101,10 +101,10 @@
   (and (some? (string-value-at idx te "title")) (and (some? (string-value-at idx te "committed")) (and (not (terminal-i? idx te)) (and (nil? (string-value-at idx te "driver")) (and (empty? (string-values-at idx te "depends_on")) (and (nil? (string-value-at idx te "part_of")) (and (nil? (string-value-at idx te "do_on")) (and (nil? (string-value-at idx te "valid_until")) (and (nil? (string-value-at idx te "estimate_hours")) (and (nil? (string-value-at idx te "lead")) (and (empty? (string-values-at idx te "proposed_by")) (and (nil? (string-value-at idx te "created_at")) (and (nil? (string-value-at idx te "updated_at")) (nil? (string-value-at idx te "repo"))))))))))))))))
 
 (defn work-thread-ids-i [^ProjectionIndex idx]
-  (filterv (fn [s] (not (anchor-i? idx s))) (thread-subjects idx)))
+  (filterv (fn [^String s] (not (anchor-i? idx s))) (thread-subjects idx)))
 
 (defn incomplete-deps [^ProjectionIndex idx ^String te]
-  (filterv (fn [d] (and (some? (string-value-at idx d "title")) (not (terminal-i? idx d)))) (string-values-at idx te "depends_on")))
+  (filterv (fn [^String d] (and (some? (string-value-at idx d "title")) (not (terminal-i? idx d)))) (string-values-at idx te "depends_on")))
 
 (defn ^Boolean blocked? [^ProjectionIndex idx ^String te]
   (not (empty? (incomplete-deps idx te))))
@@ -129,7 +129,7 @@
   (= (classify idx te today before? live?) "ready"))
 
 (defn ready [^ProjectionIndex idx ^String today before? live?]
-  (filterv (fn [te] (eligible? idx te today before? live?)) (work-thread-ids-i idx)))
+  (filterv (fn [^String te] (eligible? idx te today before? live?)) (work-thread-ids-i idx)))
 
 (defrecord Eligibility [state eligible reason])
 
@@ -151,7 +151,7 @@
   :else "uncommitted draft — decide + commit before it is work"))))
 
 (defn blocked [^ProjectionIndex idx]
-  (filterv (fn [te] (and (not (terminal-i? idx te)) (blocked? idx te))) (work-thread-ids-i idx)))
+  (filterv (fn [^String te] (and (not (terminal-i? idx te)) (blocked? idx te))) (work-thread-ids-i idx)))
 
 (defn ^String condition-i [^ProjectionIndex idx ^String te ^String today before? live?]
   (classify idx te today before? live?))
@@ -179,4 +179,4 @@
   (if (contains? seen x) (recur rest-f seen ordered) (recur (vec (concat rest-f (dependents-of idx x))) (assoc seen x true) (conj ordered x)))))))
 
 (defn leverage-score [^ProjectionIndex idx ^String te]
-  (count (filterv (fn [d] (and (not (= d te)) (not (terminal-i? idx d)))) (transitive-dependents idx te))))
+  (count (filterv (fn [^String d] (and (not (= d te)) (not (terminal-i? idx d)))) (transitive-dependents idx te))))

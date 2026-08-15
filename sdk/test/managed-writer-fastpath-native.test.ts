@@ -113,9 +113,12 @@ function decodedBatch(input: FramRpcTransportInput): { actions: BatchAction[]; f
 
 function mutationPayload(actions: readonly BatchAction[], malformed = false): Term {
   const count = malformed ? Math.max(0, actions.length - 1) : actions.length;
+  const transaction = triple("north-coordination", kw("kernel/tx-sequence"), 1);
   return rpcRecord(kw("rpc/mutation-result"), [rpcList(
     Array.from({ length: count }, (_, index) => rpcRecord(
-      kw("rpc/action-result"), [index, true, rpcList([])],
+      kw("rpc/action-result"), [
+        index, true, triple(transaction, kw("kernel/op-ordinal"), index),
+      ],
     )),
   )]);
 }

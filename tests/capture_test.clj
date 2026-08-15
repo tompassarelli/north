@@ -44,8 +44,8 @@
 (def partial-output
   (with-redefs-fn
     {#'m/uuidv7 (fn [] "019f0000-0000-7000-8000-000000000001")
-     #'rt/getenv-or (fn [key default]
-                      (if (= key "NORTH_CAPTURE_STRUCTURED") "1" default))
+     #'rt/getenv (fn [key]
+                   (when (= key "NORTH_CAPTURE_STRUCTURED") "1"))
      #'rt/ensure-dir (fn [_] nil)
      #'rt/today-iso (fn [] "2026-07-19")
      #'rt/now-iso (fn [] "2026-07-19T00:00:00Z")

@@ -1,4 +1,4 @@
-// One-shot FRAMRPC v1 client, mirroring north:cli/framrpc-client.clj. The server
+// One-shot FRAMRPC v2 client, mirroring north:cli/framrpc-client.clj. The server
 // serves ONE request per connection. A mutation whose bytes reached the socket is
 // never auto-retried: the caller gets `requestSent` and owns the resolution.
 import { connect as netConnect, type Socket } from "node:net";
@@ -11,7 +11,7 @@ import {
   decodeFrame, decodeFrameHeader, decodeLeaseCheck, decodeLeaseGrant,
   decodeLeaseReleased, decodeMutationResult, decodeStatus, decodeTriples,
   encodeRequestFrame, rpcBatch, rpcLeaseAcquire, rpcLeaseRenew,
-  rpcTriplePattern, RPC_UNIT, RPC_V1_HEADER_BYTES,
+  rpcTriplePattern, RPC_UNIT, RPC_V2_HEADER_BYTES,
 } from "./framrpc-codec";
 
 /** A typed refusal the server put on the wire. */
@@ -196,13 +196,13 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
       chunks.push(chunk);
       received += chunk.length;
       try {
-        if (bodyLength === null && received >= RPC_V1_HEADER_BYTES) {
+        if (bodyLength === null && received >= RPC_V2_HEADER_BYTES) {
           bodyLength = decodeFrameHeader(
-            Uint8Array.from(Buffer.concat(chunks).subarray(0, RPC_V1_HEADER_BYTES)),
+            Uint8Array.from(Buffer.concat(chunks).subarray(0, RPC_V2_HEADER_BYTES)),
           ).bodyLength;
         }
         if (bodyLength === null) return;
-        const total = RPC_V1_HEADER_BYTES + bodyLength;
+        const total = RPC_V2_HEADER_BYTES + bodyLength;
         if (received < total) return;
         if (received > total) {
           failWith("rpc-trailing-bytes",

@@ -3,7 +3,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
   clear_panel_filter_bang as clearPanelFilter,
-  config_detail_lines as configDetailLines,
+  config_detail_lines_bang as configDetailLines,
   config_fold_rows as configFoldRows,
   config_node_expanded_p as configNodeExpanded,
   config_panel_legend as configPanelLegend,
@@ -15,7 +15,7 @@ import {
   config_row_matches_p as configRowMatches,
   config_row_search_text as configRowSearchText,
   config_view_rows as configViewRows,
-  detail_height as detailHeight,
+  detail_height_bang as detailHeight,
   escape_rung as escapeRung,
   filter_character as filterCharacter,
   filter_key_action as filterKeyAction,

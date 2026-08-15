@@ -9,7 +9,7 @@
            [java.util.concurrent ThreadLocalRandom]
            [java.util.concurrent.atomic AtomicLong]))
 
-(def max-body-bytes 1048576)
+(def max-body-bytes wire/rpc-v2-max-body-bytes)
 (def effective-page-limit 200)
 ;; Must stay equal to the Fram server's own retryable set;
 ;; a code the server marks retryable but the client omits fails a caller that
@@ -61,7 +61,7 @@
 (defn- header-body-length! [header]
   (dotimes [index 8]
     (when-not (= (bit-and 255 (int (aget header index)))
-                 (bit-and 255 (int (aget wire/rpc-v1-magic index))))
+                 (bit-and 255 (int (aget wire/rpc-v2-magic index))))
       (throw (ex-info "FRAMRPC response magic does not match"
                       {:type :rpc-invalid-magic}))))
   (let [buffer (doto (ByteBuffer/wrap header) (.order ByteOrder/LITTLE_ENDIAN))]
@@ -71,8 +71,8 @@
           kind (bit-and 255 (int (.get buffer)))
           flags (bit-and 255 (int (.get buffer)))
           body-length (Integer/toUnsignedLong (.getInt buffer))]
-      (when-not (and (= major wire/rpc-v1-major)
-                     (= minor wire/rpc-v1-minor))
+      (when-not (and (= major wire/rpc-v2-major)
+                     (= minor wire/rpc-v2-minor))
         (throw (ex-info "FRAMRPC response version is unsupported"
                         {:type :rpc-unsupported-version
                          :major major :minor minor})))
@@ -93,24 +93,24 @@
   "Read one bounded FRAMRPC response/event frame without allocating an
    untrusted declared body."
   [input]
-  (let [header (byte-array wire/rpc-v1-header-bytes)]
-    (when-not (read-exact! input header 0 wire/rpc-v1-header-bytes)
+  (let [header (byte-array wire/rpc-v2-header-bytes)]
+    (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
       (throw (ex-info "FRAMRPC response ended inside its header"
                       {:type :rpc-truncated})))
     (let [body-length (header-body-length! header)
           body (byte-array body-length)
-          frame (byte-array (+ wire/rpc-v1-header-bytes body-length))]
+          frame (byte-array (+ wire/rpc-v2-header-bytes body-length))]
       (when-not (read-exact! input body 0 body-length)
         (throw (ex-info "FRAMRPC response ended inside its body"
                         {:type :rpc-truncated})))
-      (System/arraycopy header 0 frame 0 wire/rpc-v1-header-bytes)
-      (System/arraycopy body 0 frame wire/rpc-v1-header-bytes body-length)
-      (wire/decode-rpc-frame-v1! frame))))
+      (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
+      (System/arraycopy body 0 frame wire/rpc-v2-header-bytes body-length)
+      (wire/decode-rpc-frame-v2! frame))))
 
 (defn encode-request-frame!
   "Encode one request through TermCodecV1 and enforce the shared body limit."
   [request-id request]
-  (wire/encode-rpc-frame-v1! (wire/rpc-request-frame request-id request)))
+  (wire/encode-rpc-frame-v2! (wire/rpc-request-frame request-id request)))
 
 (defn transport-round-trip!
   "Perform one unary socket exchange. The daemon owns one request per socket."
@@ -131,11 +131,11 @@
             (.write output bytes)
             (.flush output))
           (let [frame (read-frame! (.getInputStream socket))
-                response (t/rpcframev1-response frame)]
-            (when-not (= :response (t/rpcframev1-kind frame))
+                response (t/rpcframev2-response frame)]
+            (when-not (= :response (t/rpcframev2-kind frame))
               (throw (ex-info "FRAMRPC unary request received a non-response frame"
                               {:type :rpc-invalid-kind})))
-            (when-not (= request-id (t/rpcframev1-request-id frame))
+            (when-not (= request-id (t/rpcframev2-request-id frame))
               (throw (ex-info "FRAMRPC response request-id does not match"
                               {:type :rpc-request-id-mismatch})))
             (when-not (and (= (t/rpcrequest-space request)
@@ -309,11 +309,17 @@
         (assoc (dissoc base :payload :page)
                :results
                (mapv (fn [encoded]
-                       (let [[input-index changed occurrences]
+                       (let [[input-index changed occurrence]
                              (record-fields! encoded :rpc/action-result 3)]
+                         (when-not (t/occurrence-coordinate? occurrence)
+                           (throw
+                            (ex-info
+                             "FRAMRPC action result requires one occurrence coordinate"
+                             {:type :rpc-invalid-occurrence
+                              :occurrence occurrence})))
                          {:input-index input-index
                           :changed? changed
-                          :occurrences (list-values! occurrences)}))
+                          :occurrence occurrence}))
                      (list-values! encoded-results)))))))
 
 (defn version! [client]

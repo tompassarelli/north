@@ -19,43 +19,34 @@
 (require north.projections :as proj)
 
 ;; te = the thread, pred = which judgment, detail = why it needs review.
-(defrecord Review
-  [te :- String
-   pred :- String
-   detail :- String])
+(defrecord Review [(te String) (pred String) (detail String)])
 
 ;; Estimate revision is North judgment provenance, not a storage-kernel type.
 ;; Producers may project occurrence history into this application record.
-(defrecord Latest
-  [tx: Int
-   l: String
-   p: String
-   r: String
-   frame: String])
+(defrecord Latest [(tx Int) (l String) (p String) (r String) (frame String)])
 
 ;; predicates whose (re)assertion materially changes an hours estimate.
-(def scope-preds :- (Vec String) ["depends_on" "part_of" "body"])
+(def scope-preds (Vec String) ["depends_on" "part_of" "body"])
 ;; loose thread-ref edges worth re-checking once their target is *abandoned*
 ;; (canceled) — relating to dropped work is the genuine "is this still relevant?"
 ;; signal. Excluded: `depends_on` (depends_on->abandoned is already a hard
 ;; validation violation), and `part_of` (a child under a completed/abandoned
 ;; parent is normal hierarchy, not a belief-revision signal).
-(def edge-preds :- (Vec String) ["relates_to" "clarifies" "amends"])
+(def edge-preds (Vec String) ["relates_to" "clarifies" "amends"])
 ;; write-event frames that mean a genuine edit AFTER initial creation. A bulk
 ;; `import` assigns sequential tx in render order, so its tx-ordering is
 ;; serialization, NOT causality, and must never imply a judgment went stale.
-(defn- real-edit-frame? [fr :- String] :- Bool
+(defn- real-edit-frame? [(fr String)] Bool
   (or (= fr "coord") (or (= fr "agent") (= fr "cli"))))
 
 ;; --- time-judgments: valid_until strictly before today ----------------------
 (defn time-stale
-  [idx: proj/ProjectionIndex
-   today :- String
-   before? :- [String String -> Bool]] :- (Vec Review)
+  [(idx proj/ProjectionIndex)
+   (today String)
+   (before? (Fn [String String] Bool))]
+  (Vec Review)
   (reduce
-   (fn
-     [acc :- (Vec Review)
-      te :- String] :- (Vec Review)
+   (fn [(acc (Vec Review)) (te String)] (Vec Review)
      (let [vu (proj/string-value-at idx te "valid_until")]
        (if (and (not (proj/terminal-i? idx te))
                 (and (some? vu) (before? vu today)))
@@ -65,21 +56,15 @@
    (proj/thread-subjects idx)))
 
 ;; --- loose thread-ref edges pointing at an abandoned (canceled) target -------
-(defn edge-stale [idx: proj/ProjectionIndex] :- (Vec Review)
+(defn edge-stale [(idx proj/ProjectionIndex)] (Vec Review)
   (reduce
-   (fn
-     [acc :- (Vec Review)
-      te :- String] :- (Vec Review)
+   (fn [(acc (Vec Review)) (te String)] (Vec Review)
      (if (proj/terminal-i? idx te)
        acc
        (reduce
-        (fn
-          [a :- (Vec Review)
-           p :- String] :- (Vec Review)
+        (fn [(a (Vec Review)) (p String)] (Vec Review)
           (reduce
-           (fn
-             [b :- (Vec Review)
-              tgt :- String] :- (Vec Review)
+           (fn [(b (Vec Review)) (tgt String)] (Vec Review)
              (if (some? (proj/string-value-at idx tgt "abandoned"))
                (conj b (->Review te p (str "→ " tgt " was abandoned — relationship may be stale")))
                b))
@@ -93,12 +78,8 @@
 ;; (coord/agent/cli) — bulk-import scope facts are ignored (their tx-order is
 ;; serialization, not a later change), so a freshly-migrated corpus is never
 ;; estimate-stale; the rule lights up only once a real edit moves the scope.
-(defn- later-edit-scope-tx
-  [latest: (Vec Latest)
-   l :- String] :- Int
-  (reduce (fn
-            [m :- Int
-             v: Latest] :- Int
+(defn- later-edit-scope-tx [(latest (Vec Latest)) (l String)] Int
+  (reduce (fn [(m Int) (v Latest)] Int
             (if (and (= (:l v) l)
                      (and (kc/vec-member? scope-preds (:p v))
                           (and (real-edit-frame? (:frame v)) (> (:tx v) m))))
@@ -106,12 +87,9 @@
           0 latest))
 
 (defn estimate-stale
-  [idx: proj/ProjectionIndex
-   latest: (Vec Latest)] :- (Vec Review)
+  [(idx proj/ProjectionIndex) (latest (Vec Latest))] (Vec Review)
   (reduce
-   (fn
-     [acc :- (Vec Review)
-      v: Latest] :- (Vec Review)
+   (fn [(acc (Vec Review)) (v Latest)] (Vec Review)
      (if (and (= (:p v) "estimate_hours")
               (and (not (proj/terminal-i? idx (:l v)))
                    (> (later-edit-scope-tx latest (:l v)) (:tx v))))
@@ -129,17 +107,13 @@
 ;;                    become expected (capture stays zero-ceremony).
 ;;   bars-unevidenced an outcome was claimed over bars that lack evidence —
 ;;                    the done-claim itself is the judgment under review.
-(defn bar-mark
-  [evs :- (Vec String)
-   bar :- String] :- String
-  (if (some? (first (filterv (fn [e :- String] :- Bool (str/includes? e bar)) evs)))
+(defn bar-mark [(evs (Vec String)) (bar String)] String
+  (if (some? (first (filterv (fn [(e String)] Bool (str/includes? e bar)) evs)))
     "✓" "○"))
 
-(defn bars-missing [idx: proj/ProjectionIndex] :- (Vec Review)
+(defn bars-missing [(idx proj/ProjectionIndex)] (Vec Review)
   (reduce
-   (fn
-     [acc :- (Vec Review)
-      te :- String] :- (Vec Review)
+   (fn [(acc (Vec Review)) (te String)] (Vec Review)
      (if (and (some? (proj/string-value-at idx te "committed"))
               (and (some? (proj/string-value-at idx te "driver"))
                    (and (not (proj/terminal-i? idx te))
@@ -150,24 +124,20 @@
    []
    (proj/thread-subjects idx)))
 
-(defn bars-unevidenced [idx: proj/ProjectionIndex] :- (Vec Review)
+(defn bars-unevidenced [(idx proj/ProjectionIndex)] (Vec Review)
   (reduce
-   (fn
-     [acc :- (Vec Review)
-      te :- String] :- (Vec Review)
+   (fn [(acc (Vec Review)) (te String)] (Vec Review)
      (let [bars (proj/string-values-at idx te "done_when")]
        (if (and (some? (proj/string-value-at idx te "outcome")) (not (empty? bars)))
          (let [evs (proj/string-values-at idx te "bar_evidence")
-               marks (mapv (fn [b :- String] :- String (str (bar-mark evs b) " " b)) bars)
-               open (filterv (fn [m :- String] :- Bool (str/starts-with? m "○")) marks)]
+               marks (mapv (fn [(b String)] String (str (bar-mark evs b) " " b)) bars)
+               open (filterv (fn [(m String)] Bool (str/starts-with? m "○")) marks)]
            (if (empty? open)
              acc
              (conj acc (->Review te "outcome"
                                  (str (- (count bars) (count open)) "/" (count bars)
                                       " bar(s) evidenced — "
-                                      (reduce (fn
-                                                [s :- String
-                                                 m :- String] :- String
+                                      (reduce (fn [(s String) (m String)] String
                                                 (if (str/blank? s) m (str s " · " m)))
                                               "" marks)
                                       "  (bar_evidence \"<bar> → <observed result>\")")))))
@@ -176,10 +146,11 @@
    (proj/thread-subjects idx)))
 
 (defn needs-review
-  [idx: proj/ProjectionIndex
-   latest: (Vec Latest)
-   today :- String
-   before? :- [String String -> Bool]] :- (Vec Review)
+  [(idx proj/ProjectionIndex)
+   (latest (Vec Latest))
+   (today String)
+   (before? (Fn [String String] Bool))]
+  (Vec Review)
   (vec (concat (time-stale idx today before?)
                (vec (concat (edge-stale idx)
                             (vec (concat (estimate-stale idx latest)
@@ -190,17 +161,15 @@
 ;; The promotion prompt (D8): a raw capture is just title+body+owner; once it
 ;; gains a driver / estimate / dependency / relation it has become real work —
 ;; surface it so a human can commit it (intent can't be derived, only prompted).
-(defn- has-structure?
-  [idx: proj/ProjectionIndex
-   te :- String] :- Bool
+(defn- has-structure? [(idx proj/ProjectionIndex) (te String)] Bool
   (or (some? (proj/string-value-at idx te "driver"))
       (or (some? (proj/string-value-at idx te "estimate_hours"))
           (or (some? (proj/string-value-at idx te "part_of"))
               (or (not (empty? (proj/string-values-at idx te "depends_on")))
                   (not (empty? (proj/string-values-at idx te "relates_to"))))))))
 
-(defn promotable [idx: proj/ProjectionIndex] :- (Vec String)
-  (filterv (fn [te :- String] :- Bool
+(defn promotable [(idx proj/ProjectionIndex)] (Vec String)
+  (filterv (fn [(te String)] Bool
              (and (nil? (proj/string-value-at idx te "committed"))
                   (and (not (proj/terminal-i? idx te)) (has-structure? idx te))))
            (proj/thread-subjects idx)))

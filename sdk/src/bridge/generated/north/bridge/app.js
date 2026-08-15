@@ -296,7 +296,7 @@ export function agent_field_text(value) {
 return ((((code === 9) || (code === 10) || (code === 13))) ? " " : (((code < 32) || ((code >= 127) && (code <= 159)))) ? "" : character); }).join("");
 }
 
-export function agent_cell_text(value, width) {
+export function agent_cell_text_bang(value, width) {
   const source = agent_field_text(value);
   const limit = Math.max(1, width);
   if ((Bun.stringWidth(source) <= limit)) {
@@ -1505,10 +1505,10 @@ export function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
   return (banner_p && (!(supervisor_id === "")) && (agent_id === supervisor_id));
 }
 
-export function roster_text(state, selected, supervisor_id, banner_p) {
+export function roster_text_bang(state, selected, supervisor_id, banner_p) {
   const agents = bridgesnapshot_agents(state);
   const width = Math.max(1, (terminal_columns() - 6));
-  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: agent_row_text(agent, (index === selected), width)})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
+  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: agent_row_text_bang(agent, (index === selected), width)})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
   return (((agents.length === 0)) ? "No agents attached" : ((rows.length === 0)) ? "" : rows.map((row) => row.text).join("\n"));
 }
 
@@ -1528,9 +1528,9 @@ function agent_summary(agent) {
   return ("".concat(agent_display_name(agent), ((status === "") ? "" : ("".concat(" (", status, ")"))), ((task === "") ? "" : ("".concat(" — ", task)))));
 }
 
-export function agent_row_text(agent, selected_p, width) {
+export function agent_row_text_bang(agent, selected_p, width) {
   const prefix = (selected_p ? "› " : "  ");
-  return ("".concat(prefix, agent_cell_text(agent_summary(agent), Math.max(1, (width - Bun.stringWidth(prefix))))));
+  return ("".concat(prefix, agent_cell_text_bang(agent_summary(agent), Math.max(1, (width - Bun.stringWidth(prefix))))));
 }
 
 function route_provider(agent) {
@@ -1544,7 +1544,7 @@ function route_model(agent) {
   return text_or(agent_field_text(agent_model_display(agent)), agent_field_text(agent_model(agent)));
 }
 
-export function agent_route_text(agent, width) {
+export function agent_route_text_bang(agent, width) {
   const provider = route_provider(agent);
   const model = route_model(agent);
   const effort = agent_field_text(agent_effort(agent));
@@ -1552,7 +1552,7 @@ export function agent_route_text(agent, width) {
   const state = agent_field_text(agent_state(agent));
   const goal = agent_field_text(agent_goal(agent));
   const parts = [((provider === "") ? "" : ("".concat("provider ", provider))), ((model === "") ? "" : ("".concat("model ", model))), ((effort === "") ? "" : ("".concat("effort ", effort))), ((provenance === "") ? "" : provenance), ((state === "") ? "" : ("".concat("state ", state))), ((goal === "") ? "" : ("".concat("goal ", goal)))].filter((part) => (!(part === "")));
-  return agent_cell_text(parts.join(" · "), width);
+  return agent_cell_text_bang(parts.join(" · "), width);
 }
 
 function agent_bucket(status) {
@@ -1818,7 +1818,7 @@ function banner_clip(line, width) {
   return ((grapheme_count(line) > limit) ? ("".concat(line.slice(0, Math.max(0, (limit - 1))), "…")) : line);
 }
 
-function widest_line(lines) {
+function widest_line_bang(lines) {
   const widest = {n: 0};
   lines.forEach((line) => { if ((grapheme_count(line) > widest.n)) {
   return (widest.n = grapheme_count(line));
@@ -1826,20 +1826,20 @@ function widest_line(lines) {
   return widest.n;
 }
 
-export function banner_box(lines, width) {
+export function banner_box_bang(lines, width) {
   const inner = Math.max(1, (width - 4));
   const clipped = lines.map((line) => banner_clip(line, inner));
   if ((width < BANNER_MIN_COLUMNS)) {
     return clipped;
   } else {
-    const span = Math.min(inner, widest_line(clipped));
+    const span = Math.min(inner, widest_line_bang(clipped));
     const rule = "─".repeat((span + 2));
     return [("".concat("╭", rule, "╮"))].concat(clipped.map((line) => ("".concat("│ ", line.padEnd(span, " "), " │"))), [("".concat("╰", rule, "╯"))]);
   }
 }
 
-export function session_banner(identity, model, effort, directory, permissions, width) {
-  return banner_box(session_banner_lines(identity, model, effort, directory, permissions), width);
+export function session_banner_bang(identity, model, effort, directory, permissions, width) {
+  return banner_box_bang(session_banner_lines(identity, model, effort, directory, permissions), width);
 }
 
 const BANNER_BOX_PREFIX = "│ ";
@@ -1912,7 +1912,7 @@ return push_chunk_bang(chunks, white("\n\n")); })()); });
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
   if (banner_visible_p(runtime)) {
-    session_banner_runs(session_banner(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
+    session_banner_runs(session_banner_bang(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
   }
   return new StyledText(chunks);
 }
@@ -1936,7 +1936,7 @@ export function config_header_keys(entry, rows) {
   return config_header_roles(role).map((heading) => ("".concat(scope, " ", heading)));
 }
 
-export function config_header_shared(prior, current) {
+export function config_header_shared_bang(prior, current) {
   const count = {n: 0};
   current.forEach((heading, index) => { if (((count.n === index) && (index < prior.length) && (prior[index] === heading))) {
   return (count.n = (index + 1));
@@ -2016,7 +2016,7 @@ function config_header_indent(index) {
   return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
 }
 
-export function render_config_panel(runtime) {
+export function render_config_panel_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
@@ -2052,7 +2052,7 @@ const state_text = config_state_text(entry, manifest, memberships, active_p, nes
 const row = config_row_parts(entry, memberships, open_p, role, state_text, width);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
-const shared = config_header_shared(prior, headings);
+const shared = config_header_shared_bang(prior, headings);
 const tail = (((i + 1) === stop) ? "" : "\n");
 config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow(("".concat(config_header_indent(at), config_section_title(heading), "\n"))));
@@ -2131,16 +2131,16 @@ function selected_detail_agent(runtime) {
   return ((total > 0) ? agents[clamped_index(runtime.detailIndex, total)] : null);
 }
 
-function config_header_lines(entries, basis, start, stop) {
+function config_header_lines_bang(entries, basis, start, stop) {
   const count = {n: 0};
   entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
-return (count.n = (count.n + (headings.length - config_header_shared(prior, headings)))); });
+return (count.n = (count.n + (headings.length - config_header_shared_bang(prior, headings)))); });
   return count.n;
 }
 
-export function config_detail_lines(runtime) {
+export function config_detail_lines_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
@@ -2153,27 +2153,27 @@ export function config_detail_lines(runtime) {
     const window = config_visible_count(total, view);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    return (1 + (stop - start) + config_header_lines(entries, basis, start, stop));
+    return (1 + (stop - start) + config_header_lines_bang(entries, basis, start, stop));
   }
 }
 
-function detail_body_lines(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? config_detail_lines(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (agent ? agent_route_text(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
+function detail_body_lines_bang(runtime) {
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines_bang(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (agent ? agent_route_text_bang(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
 }
 
-export function detail_height(runtime) {
-  return (2 + detail_body_lines(runtime));
+export function detail_height_bang(runtime) {
+  return (2 + detail_body_lines_bang(runtime));
 }
 
 function agent_detail_title(segment_id) {
   return ((segment_id === "all") ? "agents" : ("".concat("agents · ", segment_id)));
 }
 
-function agent_detail_row(agent, width) {
-  return agent_cell_text(agent_summary(agent), width);
+function agent_detail_row_bang(agent, width) {
+  return agent_cell_text_bang(agent_summary(agent), width);
 }
 
-function render_agent_detail(runtime) {
+function render_agent_detail_bang(runtime) {
   const agents = detail_agents(runtime);
   const total = agents.length;
   const title = agent_detail_title(text_or(text(runtime.detailSegment), "all"));
@@ -2184,7 +2184,7 @@ function render_agent_detail(runtime) {
     const index = clamped_index(runtime.detailIndex, total);
     const width = Math.max(12, (terminal_columns() - 8));
     const selected_agent = selected_detail_agent(runtime);
-    const metadata = (selected_agent ? agent_route_text(selected_agent, width) : "");
+    const metadata = (selected_agent ? agent_route_text_bang(selected_agent, width) : "");
     const extra = ((metadata === "") ? 0 : 1);
     const window = detail_visible_count(total, extra);
     const start = window_start(index, total, window);
@@ -2193,7 +2193,7 @@ function render_agent_detail(runtime) {
 const cursor_p = (i === index);
 const tail = ((((i + 1) === stop) && (metadata === "")) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
-return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row(agent, width), tail)))); });
+return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row_bang(agent, width), tail)))); });
     if ((!(metadata === ""))) {
       parts.push(brightBlack(("".concat("  ", metadata))));
     }
@@ -2242,7 +2242,7 @@ if ((index < (rows.length - 1))) {
 }
 
 export function render_detail_panel_bang(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? render_config_panel(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel_bang(runtime) : new StyledText([brightBlack("")]));
+  return ((detail_showing_p(runtime, "config")) ? render_config_panel_bang(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail_bang(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel_bang(runtime) : new StyledText([brightBlack("")]));
 }
 
 function segment_chunk(segment, highlighted_p) {
@@ -2416,7 +2416,7 @@ function board_card_id(thread_id) {
 }
 
 function board_signature(items, selected, width) {
-  return ("".concat(width, "|", selected, "|", items.map((item) => ("".concat(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item)))).join("\x02")));
+  return ("".concat(width, "|", selected, "|", items.map((item) => ("".concat(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item)))).join("\u0002")));
 }
 
 function board_card_node(source) {
@@ -2568,7 +2568,7 @@ function render_minibuffer_bang(runtime, ui) {
   const options = palette_options(frame, text(input.value));
   const total = options.length;
   const index = Math.max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
-  const docked = (detail_open_p(runtime) ? detail_height(runtime) : 0);
+  const docked = (detail_open_p(runtime) ? detail_height_bang(runtime) : 0);
   const window = palette_visible_count(total, terminal_rows(), docked);
   const rows = palette_option_rows(total, window);
   const start = window_start(index, total, rows);
@@ -2594,7 +2594,7 @@ function render_ui_bang(runtime, ui) {
     const work_max = Math.max(0, (items.length - 1));
     const board_p = (workview_id(current) === "board");
     const banner_p = banner_visible_p(runtime);
-    const roster = roster_text(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
+    const roster = roster_text_bang(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
     const roster_rows = roster_visible_rows(roster);
     const notice = status_notice(runtime, state);
     const notice_p = (!(notice === ""));
@@ -2625,7 +2625,7 @@ function render_ui_bang(runtime, ui) {
     const open_p = detail_open_p(runtime);
     (ui.detailPanel.visible = open_p);
     if (open_p) {
-      (ui.detailPanel.height = detail_height(runtime));
+      (ui.detailPanel.height = detail_height_bang(runtime));
       (ui.detailText.content = render_detail_panel_bang(runtime));
     }
     render_minibuffer_bang(runtime, ui);
@@ -3105,7 +3105,7 @@ return render_minibuffer_bang(runtime, ui); });
   return ui.composerInput.on(InputRenderableEvents.ENTER, () => submit_input_bang(runtime, ui, text(ui.composerInput.value).trim()));
 }
 
-function subview_tab_id_at(views, column) {
+function subview_tab_id_at_bang(views, column) {
   const cursor = {x: SUBVIEW_TAB_ORIGIN, id: ""};
   views.forEach((view) => { const start = cursor.x;
 const width = (workview_title(view).length + 2);
@@ -3116,12 +3116,12 @@ return (cursor.x = (start + width + SUBVIEW_TAB_GAP)); });
   return text(cursor.id);
 }
 
-export function view_tab_id_at(frame, views, column) {
-  return ((((column >= 0) && (column < AGENTS_TAB_LABEL.length))) ? "agents" : (((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + THREADS_TAB_LABEL.length)))) ? "threads" : ((threads_frame_p(frame) && (column >= SUBVIEW_TAB_ORIGIN))) ? subview_tab_id_at(views, column) : "");
+export function view_tab_id_at_bang(frame, views, column) {
+  return ((((column >= 0) && (column < AGENTS_TAB_LABEL.length))) ? "agents" : (((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + THREADS_TAB_LABEL.length)))) ? "threads" : ((threads_frame_p(frame) && (column >= SUBVIEW_TAB_ORIGIN))) ? subview_tab_id_at_bang(views, column) : "");
 }
 
-function view_tab_at(runtime, tabs, event, views) {
-  return view_tab_id_at(runtime.frame, views, Math.floor((event.x - tabs.x)));
+function view_tab_at_bang(runtime, tabs, event, views) {
+  return view_tab_id_at_bang(runtime.frame, views, Math.floor((event.x - tabs.x)));
 }
 
 function complete_clicked_palette_bang(runtime, ui, frame, palette_renderable, event) {
@@ -3221,7 +3221,7 @@ function install_mouse_bang(runtime, ui) {
   (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.frame), ui.composerPalette, event));
   (ui.workText.onMouseDown = (event) => handle_list_click_bang(runtime, ui, event));
   return (ui.viewTabsText.onMouseDown = (event) => { if ((event.button === 0)) {
-  const tab = view_tab_at(runtime, ui.viewTabsText, event, view_list(snapshot(runtime.model)));
+  const tab = view_tab_at_bang(runtime, ui.viewTabsText, event, view_list(snapshot(runtime.model)));
   if ((!(tab === ""))) {
     event.preventDefault();
     event.stopPropagation();

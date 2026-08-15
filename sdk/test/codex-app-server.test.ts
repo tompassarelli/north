@@ -34,6 +34,7 @@ import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { providerSessionKey, providerTurnKey } from "../src/providers/provider-join";
 import { NORTH_BINARY_PROBE_SCRIPT } from "../src/native-command-activity";
 import { managedCodexWritableRoots } from "../src/providers/codex-app-server";
+import { RETAINED_PROVIDER_PREVIEW_MAX_BYTES } from "../src/providers/retained-artifact";
 
 function firstLine(stream: NodeJS.ReadableStream, label: string): Promise<string> {
   return new Promise((resolveLine, reject) => {
@@ -2897,6 +2898,15 @@ test("a turn interrupt waits through replacement preflight and dispatches exactl
   expect(toolTerminals).toHaveLength(toolAdmissions.length);
   expect(toolAdmissions.every((admission) => toolTerminals
     .filter((terminal) => terminal.toolCallId === admission.toolCallId).length === 1)).toBe(true);
+  const mcpAdmission = toolAdmissions.find((event) => event.name === "mcp:north/tell");
+  expect(mcpAdmission).toBeDefined();
+  const mcpTerminal = toolTerminals.find((event) =>
+    event.toolCallId === mcpAdmission?.toolCallId);
+  expect(mcpTerminal).toMatchObject({
+    status: "succeeded", origin: "provider", resultPreview: "CANARY-private-result",
+  });
+  expect(new TextEncoder().encode(mcpTerminal?.resultPreview).byteLength)
+    .toBeLessThanOrEqual(RETAINED_PROVIDER_PREVIEW_MAX_BYTES);
 
   writer.append({
     kind: "run.terminated", lifecycle: "completed", reason: { code: "completed" },
@@ -2915,8 +2925,10 @@ test("a turn interrupt waits through replacement preflight and dispatches exactl
     "gpt-fixture-exact",
     "fixture@example.test",
     "CANARY-private-argument",
-    "CANARY-private-result",
   ]) expect(serializedWire).not.toContain(privateMaterial);
+  const wireWithoutMcpPreview = writer.events().map((event) =>
+    event === mcpTerminal ? { ...event, resultPreview: undefined } : event);
+  expect(JSON.stringify(wireWithoutMcpPreview)).not.toContain("CANARY-private-result");
 });
 
 test("a queued turn interrupt survives an eligible replacement that dies before its turn", async () => {

@@ -60,27 +60,27 @@
           (recur (+ position read-count) (- remaining read-count)))))))
 
 (defn read-request-frame! [input]
-  (let [header (byte-array wire/rpc-v1-header-bytes)]
-    (when-not (read-exact! input header 0 wire/rpc-v1-header-bytes)
+  (let [header (byte-array wire/rpc-v2-header-bytes)]
+    (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
       (throw (ex-info "FRAMRPC request ended inside its header"
                       {:type :rpc-truncated})))
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN)
                    (.position 14))
           body-length (Integer/toUnsignedLong (.getInt buffer))]
-      (when (> body-length wire/rpc-v1-max-body-bytes)
+      (when (> body-length wire/rpc-v2-max-body-bytes)
         (throw (ex-info "FRAMRPC request exceeds the body limit"
                         {:type :rpc-frame-too-large
                          :body-length body-length})))
       (let [body (byte-array (int body-length))
-            frame (byte-array (+ wire/rpc-v1-header-bytes (int body-length)))]
+            frame (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
         (when-not (read-exact! input body 0 (int body-length))
           (throw (ex-info "FRAMRPC request ended inside its body"
                           {:type :rpc-truncated})))
-        (System/arraycopy header 0 frame 0 wire/rpc-v1-header-bytes)
-        (System/arraycopy body 0 frame wire/rpc-v1-header-bytes
+        (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
+        (System/arraycopy body 0 frame wire/rpc-v2-header-bytes
                           (int body-length))
-        (wire/decode-rpc-frame-v1! frame)))))
+        (wire/decode-rpc-frame-v2! frame)))))
 
 (defn scan-pattern [request]
   (mapv wire/rpc-option-value!
@@ -92,15 +92,15 @@
   (let [[plan _snapshot]
         (wire/rpc-record-fields!
          (t/rpc-request-payload-value request) :query/request 2)]
-    (wire/rpc-record-fields! plan :query/plan 2)))
+    (wire/rpc-record-fields! plan :query/plan 4)))
 
 (defn query-find [request]
-  (let [[find _strata] (query-plan-fields request)
+  (let [[find _strata _order _limit] (query-plan-fields request)
         [relation] (wire/rpc-record-fields! find :query/find-relation 1)]
     relation))
 
 (defn query-head-width [request]
-  (let [[_find strata] (query-plan-fields request)
+  (let [[_find strata _order _limit] (query-plan-fields request)
         [rules]
         (wire/rpc-record-fields!
          (first (wire/rpc-list-values! strata)) :query/stratum 1)
@@ -161,7 +161,7 @@
        (= [subject nil nil] (scan-pattern request))))
 
 (defn response-for [frame response]
-  (let [request (t/rpcframev1-request frame)
+  (let [request (t/rpcframev2-request frame)
         operation (t/rpcrequest-op request)
         version (or (:version response) 0)
         error
@@ -202,18 +202,18 @@
         typed-response
         (wire/rpc-response!
          (t/rpcrequest-space request) operation version page error payload)]
-    (wire/rpc-response-frame (t/rpcframev1-request-id frame) typed-response)))
+    (wire/rpc-response-frame (t/rpcframev2-request-id frame) typed-response)))
 
 (defn serve-peer! [server respond requests worker-error]
   (try
     (loop []
       (with-open [socket (.accept server)]
         (let [frame (read-request-frame! (.getInputStream socket))
-              request (t/rpcframev1-request frame)
+              request (t/rpcframev2-request frame)
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/encode-rpc-frame-v1!
+                  (wire/encode-rpc-frame-v2!
                    (response-for frame (respond request))))
           (.flush output)))
       (recur))

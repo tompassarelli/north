@@ -8,9 +8,23 @@
             [north.staleness :as stale]
             [north.audit :as audit]
             [clojure.string :as str]
+            [cheshire.core :as core]
             [fram.rt :as rt])
   (:import [java.util Random]
            [java.util UUID]))
+
+(defn- ^String getenv-or [^String name ^String default]
+  (let [value (fram.rt/getenv name)]
+  (if (nil? value) default value)))
+
+(defn- ^String to-json [value]
+  (cheshire.core/generate-string value))
+
+(defn- ^String threads-dir []
+  (getenv-or "FRAM_THREADS" (str (System/getProperty "user.dir") "/threads")))
+
+(defn- ^String log-path []
+  (getenv-or "FRAM_LOG" (str (System/getProperty "user.dir") "/coordination.log")))
 
 (defn- ^String string-term [value]
   (if (string? value) value (throw (ex-info "North coordination data requires String Triple terms" {:type :north/non-string-triple}))))
@@ -58,10 +72,10 @@
 
 (defn ^String resolve-ref [idx ^String ref]
   (if (some? (proj/string-value-at idx ref "title")) ref (let [bare (short-id ref)
-   matches (filterv (fn [te] (let [h (proj/string-value-at idx te "handle")]
+   matches (filterv (fn [^String te] (let [h (proj/string-value-at idx te "handle")]
   (and (some? h) (= h bare)))) (proj/thread-subjects idx))]
-  (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [te] (str/starts-with? (short-id te) bare)) (proj/thread-subjects idx)))]
-  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [best te] (if (str/blank? best) te (let [bc (let [c (proj/string-value-at idx best "created_at")]
+  (if (empty? matches) (let [pms (if (str/blank? bare) [] (filterv (fn [^String te] (str/starts-with? (short-id te) bare)) (proj/thread-subjects idx)))]
+  (if (= (count pms) 1) (first pms) ref)) (reduce (fn [^String best ^String te] (if (str/blank? best) te (let [bc (let [c (proj/string-value-at idx best "created_at")]
   (if (some? c) c ""))
    tc (let [c (proj/string-value-at idx te "created_at")]
   (if (some? c) c ""))]
@@ -171,7 +185,7 @@
 (defn- apply-queue-directive [items ^QueueDirective directive]
   (let [te (:te directive)
    old-index (queue-index items te)
-   remaining (filterv (fn [item] (not (= item te))) items)
+   remaining (filterv (fn [^String item] (not (= item te))) items)
    anchor-index (queue-index remaining (:anchor directive))
    fallback-index (if (< old-index 0) (count remaining) (if (> old-index (count remaining)) (count remaining) old-index))
    insert-index (cond
@@ -183,12 +197,12 @@
   (queue-insert remaining te insert-index)))
 
 (defn- queue-order-from-base [idx base]
-  (let [directives (reduce (fn [found te] (let [directive (queue-directive idx te)]
+  (let [directives (reduce (fn [found ^String te] (let [directive (queue-directive idx te)]
   (if (some? directive) (conj found directive) found))) [] base)]
-  (reduce (fn [ordered directive] (apply-queue-directive ordered directive)) base (vec (sort-by (fn [directive] (:version directive)) directives)))))
+  (reduce (fn [ordered ^QueueDirective directive] (apply-queue-directive ordered directive)) base (vec (sort-by (fn [^QueueDirective directive] (:version directive)) directives)))))
 
 (defn queue-order [idx tes]
-  (queue-order-from-base idx (vec (sort-by (fn [te] (- 0 (proj/leverage-score idx te))) tes))))
+  (queue-order-from-base idx (vec (sort-by (fn [^String te] (- 0 (proj/leverage-score idx te))) tes))))
 
 (defn- coord-version [port]
   (try
@@ -283,10 +297,10 @@
 (defn capturereceipt-reason [r] (:reason r))
 
 (defn- ^Boolean structured-capture? []
-  (= "1" (fram.rt/getenv-or "NORTH_CAPTURE_STRUCTURED" "")))
+  (= "1" (getenv-or "NORTH_CAPTURE_STRUCTURED" "")))
 
 (defn- print-capture-receipt [^String id ^String te ^String title ^String path expected committed ^Boolean complete ^String reason]
-  (println (fram.rt/to-json (->CaptureReceipt id te title path expected committed complete reason))))
+  (println (to-json (->CaptureReceipt id te title path expected committed complete reason))))
 
 (defn- ^Boolean retract-committed-capture-facts [port ^String log facts results i]
   (if (>= i (count facts)) true (let [fact (nth facts i)
@@ -302,10 +316,10 @@
   (and retracted (empty? remaining) (not (fram.rt/file-exists path)))))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
-  (let [source (fram.rt/getenv-or "NORTH_SOURCE" "self")
-   author (fram.rt/getenv-or "NORTH_AUTHOR" "you")
-   lead (fram.rt/getenv-or "NORTH_LEAD" "")
-   proposed (fram.rt/getenv-or "NORTH_PROPOSED_BY" "")]
+  (let [source (getenv-or "NORTH_SOURCE" "self")
+   author (getenv-or "NORTH_AUTHOR" "you")
+   lead (getenv-or "NORTH_LEAD" "")
+   proposed (getenv-or "NORTH_PROPOSED_BY" "")]
   (cond
   (or (str/blank? title) (ctrl? title)) (println "usage: capture <title> [owner]   (title must be a non-empty single line)")
   (ctrl? owner) (println "capture: owner must be a single line")
@@ -322,7 +336,7 @@
    server-v (coord-version port)]
   (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "framrpc-unavailable") (println (framrpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
    results (mapv (fn [c] (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5)) facts)
-   oks (count (filterv (fn [r] (str/starts-with? r "ok:")) results))]
+   oks (count (filterv (fn [^String r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
   (fram.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
@@ -358,7 +372,7 @@
 (defn cmd-validate [^String log]
   (let [idx (live-idx log)
    ids (proj/thread-subjects idx)
-   problems (reduce (fn [acc te] (reduce (fn [a v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] ids)]
+   problems (reduce (fn [acc ^String te] (reduce (fn [a ^String v] (conj a (str (short-id te) ": " v))) acc (val/violations-i idx te))) [] ids)]
   (if (empty? problems) (do
   (println (str "OK — " (count ids) " threads, no violations."))
   0) (do
@@ -389,11 +403,11 @@
   (and (> us 0) (< (- now-secs us) window-secs))))))))))
 
 (defn- driver-stale-window-secs []
-  (let [d (fram.rt/parse-int (fram.rt/getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
+  (let [d (fram.rt/parse-int (getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
   (* (if (> d 0) d 14) 86400)))
 
 (defn- live-driver-pred [now-secs window-secs]
-  (fn [idx te] (driver-live? idx te now-secs window-secs)))
+  (fn [idx ^String te] (driver-live? idx te now-secs window-secs)))
 
 (defn- default-live? []
   (live-driver-pred (fram.rt/iso-to-seconds (fram.rt/now-iso)) (driver-stale-window-secs)))
@@ -402,14 +416,14 @@
   (and (proj/assigned? idx te) (not (live? idx te))))
 
 (defn- parked-assignments [idx tes live?]
-  (filterv (fn [te] (parked-assignment? idx te live?)) tes))
+  (filterv (fn [^String te] (parked-assignment? idx te live?)) tes))
 
 (defn cmd-ready [^String log ^Boolean all]
   (let [idx (live-idx log)
    today (fram.rt/today-iso)
    live? (default-live?)
    raw (proj/ready idx today fram.rt/str-lt? live?)
-   rs (if all raw (filterv (fn [te] (= (kind-of idx te) "thread")) raw))
+   rs (if all raw (filterv (fn [^String te] (= (kind-of idx te) "thread")) raw))
    ranked (queue-order idx rs)
    shown (if all ranked (vec (take 15 ranked)))]
   (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by queue order (leverage fallback)")))
@@ -424,16 +438,16 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    live? (default-live?)
-   bs (filterv (fn [te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx))]
+   bs (filterv (fn [^String te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx))]
   (println (str "BLOCKED — " (count bs)))
   (doseq [te bs]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48) "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
 
 (defn cmd-leverage [^String log]
   (let [idx (live-idx log)
-   cands (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))
-   items (filterv (fn [it] (> (:score it) 0)) (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) cands))
-   ranked (vec (take 15 (sort-by (fn [it] (- 0 (:score it))) items)))]
+   cands (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))
+   items (filterv (fn [^LevItem it] (> (:score it) 0)) (mapv (fn [^String te] (->LevItem te (proj/leverage-score idx te))) cands))
+   ranked (vec (take 15 (sort-by (fn [^LevItem it] (- 0 (:score it))) items)))]
   (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
   (doseq [it ranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 46))))))
@@ -457,9 +471,9 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    live? (default-live?)
-   items (mapv (fn [te] (next-item idx te today before? live?)) (proj/ready idx today before? live?))
-   score-order (mapv (fn [it] (:te it)) (vec (sort-by (fn [it] (- 0 (:score it))) items)))
-   ranked (mapv (fn [te] (next-item idx te today before? live?)) (vec (take 12 (queue-order-from-base idx score-order))))]
+   items (mapv (fn [^String te] (next-item idx te today before? live?)) (proj/ready idx today before? live?))
+   score-order (mapv (fn [^NextItem it] (:te it)) (vec (sort-by (fn [^NextItem it] (- 0 (:score it))) items)))
+   ranked (mapv (fn [^String te] (next-item idx te today before? live?)) (vec (take 12 (queue-order-from-base idx score-order))))]
   (println (str "WHAT TO WORK ON — top picks (" today ")"))
   (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
   (println "  manual queue order is primary · fallback score = 3·graph-leverage + do_on urgency + parked-assignment momentum")
@@ -472,12 +486,12 @@
 (defn cmd-agenda [^String log]
   (let [idx (live-idx log)
    today (fram.rt/today-iso)
-   cands (filterv (fn [te] (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on")))) (proj/work-thread-ids-i idx))
-   items (mapv (fn [te] (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")]
+   cands (filterv (fn [^String te] (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on")))) (proj/work-thread-ids-i idx))
+   items (mapv (fn [^String te] (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")]
   (if (some? d) d "")))) cands)
-   overdue (vec (sort-by (fn [it] (:do_on it)) (filterv (fn [it] (fram.rt/str-lt? (:do_on it) today)) items)))
-   todayb (filterv (fn [it] (= (:do_on it) today)) items)
-   upcoming (vec (sort-by (fn [it] (:do_on it)) (filterv (fn [it] (fram.rt/str-lt? today (:do_on it))) items)))]
+   overdue (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (fram.rt/str-lt? (:do_on it) today)) items)))
+   todayb (filterv (fn [^AgendaItem it] (= (:do_on it) today)) items)
+   upcoming (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (fram.rt/str-lt? today (:do_on it))) items)))]
   (println (str "AGENDA — " today))
   (println (str "OVERDUE (" (count overdue) ")"))
   (doseq [it overdue]
@@ -496,7 +510,7 @@
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52)))))))
 
 (defn- in-condition [idx nonterm ^String today before? live? ^String c]
-  (filterv (fn [te] (= (proj/condition-i idx te today before? live?) c)) nonterm))
+  (filterv (fn [^String te] (= (proj/condition-i idx te today before? live?) c)) nonterm))
 
 (defn- parked-group [idx ^String today before? live? grp]
   (if (not (empty? grp)) (do
@@ -515,15 +529,15 @@
   (parked-group idx today before? live? (parked-assignments idx nonterm live?))))
 
 (defn- board-curated [idx ^String today before? live? nonterm]
-  (let [threads (filterv (fn [te] (= (kind-of idx te) "thread")) nonterm)
+  (let [threads (filterv (fn [^String te] (= (kind-of idx te) "thread")) nonterm)
    active (in-condition idx threads today before? live? "active")
    parked (parked-assignments idx threads live?)
    nparked (count parked)
    readyl (in-condition idx threads today before? live? "ready")
    blockedl (in-condition idx threads today before? live? "blocked")
-   nconcern (count (filterv (fn [s] (= (kind-of idx s) "concern")) (proj/all-subjects idx)))
+   nconcern (count (filterv (fn [^String s] (= (kind-of idx s) "concern")) (proj/all-subjects idx)))
    ashow (vec (take 20 active))
-   rranked (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))]
+   rranked (mapv (fn [^String te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))]
   (println (str "THREADS — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (north threads --all for the full kanban)"))
   (println "  open = not terminal · active = live driver · ready = committed + unblocked + no live driver + not future-scheduled")
   (if (not (empty? active)) (do
@@ -552,7 +566,7 @@
    today (fram.rt/today-iso)
    before? fram.rt/str-lt?
    live? (default-live?)
-   nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
+   nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (if all (board-full idx today before? live? nonterm) (board-curated idx today before? live? nonterm))))
 
 (defrecord JThread [id title condition emoji])
@@ -625,20 +639,20 @@
 
 (defn- ready-curated-tes [idx ^String today before? live? ^Boolean all?]
   (let [raw (proj/ready idx today before? live?)
-   rs (if all? raw (filterv (fn [te] (= (kind-of idx te) "thread")) raw))
+   rs (if all? raw (filterv (fn [^String te] (= (kind-of idx te) "thread")) raw))
    ranked (queue-order idx rs)]
   (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes [idx ^String today before? live? ^Boolean all?]
-  (let [nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
-  (if all? nonterm (let [threads (filterv (fn [te] (= (kind-of idx te) "thread")) nonterm)
+  (let [nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
+  (if all? nonterm (let [threads (filterv (fn [^String te] (= (kind-of idx te) "thread")) nonterm)
    active (in-condition idx threads today before? live? "active")
    ready (vec (take 15 (queue-order idx (in-condition idx threads today before? live? "ready"))))]
   (vec (concat active ready))))))
 
 (defn- recent-terminal-tes [idx]
-  (let [terminal (filterv (fn [te] (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
-  (vec (take 15 (reverse (sort-by (fn [te] (let [updated (proj/string-value-at idx te "updated_at")
+  (let [terminal (filterv (fn [^String te] (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
+  (vec (take 15 (reverse (sort-by (fn [^String te] (let [updated (proj/string-value-at idx te "updated_at")
    created (proj/string-value-at idx te "created_at")]
   (str (if (some? updated) updated "") "|" (if (some? created) created "") "|" te))) terminal))))))
 
@@ -649,7 +663,7 @@
   (reduce (fn [subjects fact] (if (and (= (triple-predicate fact) "coordinator") (= (triple-value fact) coordinator) (str/starts-with? (triple-subject fact) "@agent:")) (assoc subjects (triple-subject fact) true) subjects)) {} facts))
 
 (defn- child-agent-ids [subjects]
-  (reduce-kv (fn [ids subject _present] (assoc ids (subs subject (count "@agent:")) true)) {} subjects))
+  (reduce-kv (fn [ids ^String subject ^Boolean _present] (assoc ids (subs subject (count "@agent:")) true)) {} subjects))
 
 (defn- child-run-subjects [facts children committed-runs]
   (reduce (fn [subjects fact] (if (and (= (triple-predicate fact) "agent") (get children (triple-value fact) false) (get committed-runs (triple-subject fact) false)) (assoc subjects (triple-subject fact) true) subjects)) {} facts))
@@ -658,7 +672,7 @@
   (mapv (fn [fact] (->JSubjectFact (short-id (triple-subject fact)) (triple-predicate fact) (triple-value fact))) (filterv (fn [fact] (get subjects (triple-subject fact) false)) facts)))
 
 (defn- parked-assignment-reviews [idx ^String today before? live?]
-  (reduce (fn [acc te] (if (and (= (kind-of idx te) "thread") (and (not (proj/terminal-i? idx te)) (parked-assignment? idx te live?))) (let [d (proj/string-value-at idx te "driver")
+  (reduce (fn [acc ^String te] (if (and (= (kind-of idx te) "thread") (and (not (proj/terminal-i? idx te)) (parked-assignment? idx te live?))) (let [d (proj/string-value-at idx te "driver")
    eligibility (proj/explain idx te today before? live?)]
   (conj acc (stale/->Review te "driver" (str "parked assignment " (if (some? d) d "?") " has no live lease or recent activity; lifecycle=" (:state eligibility) " — reassign or retract driver")))) acc)) [] (proj/work-thread-ids-i idx)))
 
@@ -668,7 +682,7 @@
   (vec (concat live-base (parked-assignment-reviews live-idx today before? live?)))))
 
 (defn- cmd-json-show [^String log ^String arg]
-  (println (fram.rt/to-json (mapv (fn [c] (->JFact (triple-predicate c) (triple-value c))) (subject-facts log (str "@" arg))))))
+  (println (to-json (mapv (fn [c] (->JFact (triple-predicate c) (triple-value c))) (subject-facts log (str "@" arg))))))
 
 (defn- cmd-json-database [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
@@ -677,24 +691,24 @@
    before? fram.rt/str-lt?
    live? (default-live?)]
   (cond
-  (or (= what "board") (= what "plate")) (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
-  (= what "ready") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (ready-curated-tes idx today before? live? all?))))
-  (= what "blocked") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (filterv (fn [te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx)))))
-  (= what "done") (println (fram.rt/to-json (mapv (fn [te] (jthread idx te today before? live?)) (recent-terminal-tes idx))))
+  (or (= what "board") (= what "plate")) (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
+  (= what "ready") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (ready-curated-tes idx today before? live? all?))))
+  (= what "blocked") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (filterv (fn [^String te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx)))))
+  (= what "done") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (recent-terminal-tes idx))))
   (= what "needs-review") (let [reviews (canonical-grooming-reviews idx idx today before? live?)]
-  (println (fram.rt/to-json (mapv (fn [rv] (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv))) reviews))))
-  (= what "show-many") (let [subjects (filterv (fn [s] (not (str/blank? s))) (mapv (fn [s] (short-id s)) (vec (str/split arg #","))))
-   subject-set (reduce (fn [m s] (assoc m (str "@" s) true)) {} subjects)]
-  (println (fram.rt/to-json (mapv (fn [c] (->JSubjectFact (short-id (triple-subject c)) (triple-predicate c) (triple-value c))) (filterv (fn [c] (get subject-set (triple-subject c) false)) facts)))))
+  (println (to-json (mapv (fn [rv] (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv))) reviews))))
+  (= what "show-many") (let [subjects (filterv (fn [^String s] (not (str/blank? s))) (mapv (fn [^String s] (short-id s)) (vec (str/split arg #","))))
+   subject-set (reduce (fn [m ^String s] (assoc m (str "@" s) true)) {} subjects)]
+  (println (to-json (mapv (fn [c] (->JSubjectFact (short-id (triple-subject c)) (triple-predicate c) (triple-value c))) (filterv (fn [c] (get subject-set (triple-subject c) false)) facts)))))
   (= what "child-settlement") (let [children (direct-child-subjects facts arg)
    child-ids (child-agent-ids children)
    committed-runs (matching-subjects facts "kind" "run")
    runs (child-run-subjects facts child-ids committed-runs)]
-  (println (fram.rt/to-json (->JChildSettlementProjection "north.child-settlement" 1 arg (subject-fact-projection facts children) (subject-fact-projection facts runs)))))
-  (= what "children") (println (fram.rt/to-json (vec (sort (mapv short-id (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))
-  (= what "agents") (println (fram.rt/to-json (mapv (fn [c] (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c))) (filterv (fn [c] (let [l (triple-subject c)]
+  (println (to-json (->JChildSettlementProjection "north.child-settlement" 1 arg (subject-fact-projection facts children) (subject-fact-projection facts runs)))))
+  (= what "children") (println (to-json (vec (sort (mapv short-id (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))
+  (= what "agents") (println (to-json (mapv (fn [c] (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c))) (filterv (fn [c] (let [l (triple-subject c)]
   (and (some? l) (str/starts-with? l "@agent:")))) facts))))
-  (= what "presentation") (println (fram.rt/to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
+  (= what "presentation") (println (to-json (->JPresentation (proj/condition-emoji idx "active") (proj/condition-emoji idx "ready") (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))
   :else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation"))))
 
 (defn cmd-json [^String log ^String what ^String arg ^Boolean all?]
@@ -724,10 +738,10 @@
 (defn entrypoint-created [r] (:created r))
 
 (defn- ^String entry-note [idx ^String te]
-  (reduce (fn [acc v] (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc)) "" (proj/string-values-at idx te "note")))
+  (reduce (fn [^String acc ^String v] (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc)) "" (proj/string-values-at idx te "note")))
 
 (defn- ^EntryPoint find-entry [idx]
-  (reduce (fn [best te] (let [note (entry-note idx te)]
+  (reduce (fn [^EntryPoint best ^String te] (let [note (entry-note idx te)]
   (if (str/blank? note) best (let [c (let [cc (proj/string-value-at idx te "created_at")]
   (if (some? cc) cc ""))]
   (if (or (str/blank? (:te best)) (fram.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (proj/thread-subjects idx)))
@@ -746,11 +760,11 @@
   (println "\nSTANDING MANDATES (learning):")
   (doseq [l ls]
   (println (str "  - " l)))))))))
-  (let [nonterm (filterv (fn [te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
+  (let [nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? live? "active")) "  ready " (count (in-condition idx nonterm today before? live? "ready")) "  blocked " (count (in-condition idx nonterm today before? live? "blocked")) "  draft " (count (in-condition idx nonterm today before? live? "draft"))))
-  (let [cands (filterv (fn [te] (not (proj/terminal-i? idx te))) nonterm)
-   items (filterv (fn [it] (> (:score it) 0)) (mapv (fn [te] (->LevItem te (proj/leverage-score idx te))) cands))
-   ranked (vec (take 5 (sort-by (fn [it] (- 0 (:score it))) items)))]
+  (let [cands (filterv (fn [^String te] (not (proj/terminal-i? idx te))) nonterm)
+   items (filterv (fn [^LevItem it] (> (:score it) 0)) (mapv (fn [^String te] (->LevItem te (proj/leverage-score idx te))) cands))
+   ranked (vec (take 5 (sort-by (fn [^LevItem it] (- 0 (:score it))) items)))]
   (println "TOP LEVERAGE — finishing these transitively frees the most stuck threads")
   (doseq [it ranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
@@ -788,8 +802,8 @@
 
 (defn- census [idx facts]
   (let [subj-list (proj/all-subjects idx)
-   skind (reduce (fn [m s] (assoc m s (kind-of idx s))) {} subj-list)
-   ksub (reduce (fn [m s] (let [kd (get skind s "other")]
+   skind (reduce (fn [m ^String s] (assoc m s (kind-of idx s))) {} subj-list)
+   ksub (reduce (fn [m ^String s] (let [kd (get skind s "other")]
   (assoc m kd (+ 1 (get m kd 0))))) {} subj-list)
    kfacts (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")]
   (assoc m kd (+ 1 (get m kd 0))))) {} facts)
@@ -797,12 +811,12 @@
    kk (str kd KP-SEP (triple-predicate c))]
   (assoc m kk (+ 1 (get m kk 0))))) {} facts)
    kp-keys (vec (sort (set (keys kpreds))))
-   stats (mapv (fn [kd] (let [pfx (str kd KP-SEP)
+   stats (mapv (fn [^String kd] (let [pfx (str kd KP-SEP)
    off (+ (count kd) 1)
-   plist (mapv (fn [kk] (->PredCount (subs kk off) (get kpreds kk 0))) (filterv (fn [kk] (str/starts-with? kk pfx)) kp-keys))
-   ptop (vec (take 8 (sort-by (fn [pc] (- 0 (:n pc))) plist)))]
+   plist (mapv (fn [^String kk] (->PredCount (subs kk off) (get kpreds kk 0))) (filterv (fn [^String kk] (str/starts-with? kk pfx)) kp-keys))
+   ptop (vec (take 8 (sort-by (fn [^PredCount pc] (- 0 (:n pc))) plist)))]
   (->KindStat kd (get ksub kd 0) (get kfacts kd 0) ptop))) (vec (sort (set (keys ksub)))))]
-  (vec (sort-by (fn [ks] (- 0 (:facts ks))) stats))))
+  (vec (sort-by (fn [^KindStat ks] (- 0 (:facts ks))) stats))))
 
 (def ^String SP24 "                        ")
 
@@ -814,7 +828,7 @@
   (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
 (defn- kind-subjects [idx ^String kind]
-  (filterv (fn [s] (= (kind-of idx s) kind)) (proj/all-subjects idx)))
+  (filterv (fn [^String s] (= (kind-of idx s) kind)) (proj/all-subjects idx)))
 
 (defrecord CovAcc [seen pc])
 
@@ -823,7 +837,7 @@
 (defn covacc-pc [r] (:pc r))
 
 (defn- coverage [facts subjset]
-  (:pc (reduce (fn [a c] (if (get subjset (triple-subject c) false) (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
+  (:pc (reduce (fn [^CovAcc a c] (if (get subjset (triple-subject c) false) (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
   (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (triple-predicate c) (+ 1 (get (:pc a) (triple-predicate c) 0)))))) a)) (->CovAcc {} {}) facts)))
 
 (defrecord FieldStat [pred subs pct required])
@@ -839,13 +853,13 @@
 (defn- schema-fields [idx facts ^String kind]
   (let [ksubs (kind-subjects idx kind)
    total (count ksubs)
-   subjset (reduce (fn [m s] (assoc m s true)) {} ksubs)
+   subjset (reduce (fn [m ^String s] (assoc m s true)) {} ksubs)
    pc (coverage facts subjset)
-   stats (mapv (fn [p] (let [n (get pc p 0)
+   stats (mapv (fn [^String p] (let [n (get pc p 0)
    pct (if (> total 0) (quot (* 100 n) total) 0)
    req (if (> total 0) (>= (* n 100) (* total 98)) false)]
   (->FieldStat p n pct req))) (vec (sort (set (keys pc)))))]
-  (vec (sort-by (fn [fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
+  (vec (sort-by (fn [^FieldStat fs] (str (if (:required fs) "0" "1") "|" (pad7 (- 9999999 (:subs fs))) "|" (:pred fs))) stats))))
 
 (defn- ^String pred-ann [idx ^String p]
   (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality")) (some? (proj/string-value-at idx (str "@" p) "value_kind"))) (str "@" p) p)
@@ -869,8 +883,8 @@
   (let [ksubs (kind-subjects idx kind)
    total (count ksubs)]
   (if (= total 0) (println (str "SCHEMA · " kind " — no subjects of this kind. `north schema` lists the kinds in use.")) (let [fields (schema-fields idx facts kind)
-   req (filterv (fn [fs] (:required fs)) fields)
-   opt (filterv (fn [fs] (not (:required fs))) fields)]
+   req (filterv (fn [^FieldStat fs] (:required fs)) fields)
+   opt (filterv (fn [^FieldStat fs] (not (:required fs))) fields)]
   (println (str "SCHEMA · " kind " — " total " subjects · " (count fields) " distinct predicates"))
   (println (str "  REQUIRED — carried by ≥98% of " kind " subjects (≈ every one):"))
   (doseq [fs req]
@@ -888,7 +902,7 @@
   (let [facts (live-facts log)
    idx (proj/index-triples facts)]
   (if (not (str/blank? kind)) (print-schema-kind idx facts kind) (let [stats (census idx facts)
-   pred-subs (filterv (fn [s] (or (some? (proj/string-value-at idx s "cardinality")) (or (some? (proj/string-value-at idx s "value_kind")) (some? (proj/string-value-at idx s "acyclic"))))) (proj/all-subjects idx))]
+   pred-subs (filterv (fn [^String s] (or (some? (proj/string-value-at idx s "cardinality")) (or (some? (proj/string-value-at idx s "value_kind")) (some? (proj/string-value-at idx s "acyclic"))))) (proj/all-subjects idx))]
   (println (str "SCHEMA — " (count (proj/all-subjects idx)) " subjects / " (count facts) " live facts across " (count stats) " kinds"))
   (doseq [ks stats]
   (println (str "  " (padr (:kind ks) 20) " " (:subjects ks) " subjects · " (:facts ks) " facts")))
@@ -898,16 +912,16 @@
 (defn cmd-teaching-coverage [^String log]
   (let [facts (live-facts log)
    idx (proj/index-triples facts)
-   predicates (filterv (fn [s] (= (proj/string-value-at idx s "entity_kind") "predicate")) (proj/all-subjects idx))
-   taught (filterv (fn [s] (not (empty? (proj/string-values-at idx s "predicate_example")))) predicates)
-   missing (sort (map (fn [s] (if (str/starts-with? s "@") (subs s 1) s)) (remove (set taught) predicates)))]
+   predicates (filterv (fn [^String s] (= (proj/string-value-at idx s "entity_kind") "predicate")) (proj/all-subjects idx))
+   taught (filterv (fn [^String s] (not (empty? (proj/string-values-at idx s "predicate_example")))) predicates)
+   missing (sort (map (fn [^String s] (if (str/starts-with? s "@") (subs s 1) s)) (remove (set taught) predicates)))]
   (println (str "TEACHING COVERAGE — " (count taught) " / " (count predicates) " predicate entities have connected examples"))
   (if (empty? missing) (println "  ✓ every executable predicate has a connected example") (do
   (println (str "  missing examples — " (str/join ", " missing)))
   (println "  add predicate_example graph facts; bootstrap tables are not authority")))))
 
 (defn- ^Boolean has-flag? [args ^String f]
-  (not (empty? (filterv (fn [a] (= a f)) args))))
+  (not (empty? (filterv (fn [^String a] (= a f)) args))))
 
 (defn run [args ^String threads-dir ^String log]
   (let [cmd (if (empty? args) "" (first args))]
@@ -941,10 +955,11 @@
   (run args threads-dir log)
   0)))
 
-(defn -main [& args]
+(defn -main [& $beagle$rest$host]
+  (let [args (vec $beagle$rest$host)]
   (let [argv (vec args)
-   threads-dir (fram.rt/threads-dir)
-   log (fram.rt/log-path)
+   threads-dir (threads-dir)
+   log (log-path)
    status (run-status argv threads-dir log)]
   (if (not (= status 0)) (do
-  (System/exit status)))))
+  (System/exit status))))))

@@ -37,7 +37,7 @@ import { providerSessionKey } from "../src/providers/provider-join";
 import { causeChain } from "../src/death";
 import { kw } from "../src/coord-wire";
 import {
-  decodeFrame, encodeResponseFrame, rpcRecord, RPC_V1_HEADER_BYTES,
+  decodeFrame, encodeResponseFrame, rpcRecord, RPC_V2_HEADER_BYTES,
 } from "../src/framrpc-codec";
 import {
   WireEventWriter,
@@ -1437,11 +1437,11 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
     socket.on("data", (chunk) => {
       chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
-      if (buffer.length < RPC_V1_HEADER_BYTES) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES) return;
       const bodyLength = new DataView(
         buffer.buffer, buffer.byteOffset, buffer.length,
       ).getUint32(14, true);
-      if (buffer.length < RPC_V1_HEADER_BYTES + bodyLength) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES + bodyLength) return;
       const frame = decodeFrame(Uint8Array.from(buffer));
       socket.end(Buffer.from(encodeResponseFrame(frame.requestId, {
         space: frame.request!.space,

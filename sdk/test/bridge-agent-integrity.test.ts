@@ -5,14 +5,14 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  agent_cell_text as agentCellText,
-  agent_route_text as agentRouteText,
-  agent_row_text as agentRowText,
+  agent_cell_text_bang as agentCellText,
+  agent_route_text_bang as agentRouteText,
+  agent_row_text_bang as agentRowText,
   normalize_agents as normalizeAgents,
   reconcile_agent_selection_bang as reconcileAgentSelection,
   refresh_bang as refresh,
   render_detail_panel_bang as renderDetailPanel,
-  roster_text as rosterText,
+  roster_text_bang as rosterText,
   selected_agent_id as selectedAgentId,
   submit_input_bang as submitInput,
 } from "../src/bridge/generated/north/bridge/app.js";

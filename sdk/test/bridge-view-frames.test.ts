@@ -16,7 +16,7 @@ import {
   tab_swap_frame as tabSwapFrame,
   thread_view_command_p as threadViewCommand,
   view_list as viewList,
-  view_tab_id_at as viewTabIdAt,
+  view_tab_id_at_bang as viewTabIdAt,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
   bridgesnapshot_active_view_id as activeViewId,

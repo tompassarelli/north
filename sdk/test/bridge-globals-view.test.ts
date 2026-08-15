@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
-  config_detail_lines as configDetailLines,
+  config_detail_lines_bang as configDetailLines,
   config_header_roles as configHeaderRoles,
   config_row_role as configRowRole,
   config_section_rows as configSectionRows,
@@ -11,8 +11,8 @@ import {
   config_view_includes_p as configViewIncludes,
   config_view_rows as configViewRows,
   config_visible_count as configVisibleCount,
-  detail_height as detailHeight,
-  render_config_panel as renderConfigPanel,
+  detail_height_bang as detailHeight,
+  render_config_panel_bang as renderConfigPanel,
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // The panel reads the terminal for its window math. Pin both dimensions so the

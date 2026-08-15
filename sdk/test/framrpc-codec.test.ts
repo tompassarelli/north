@@ -14,7 +14,7 @@ import {
   framInstant, instantToMillis, rpcBatch, rpcFence, rpcLeaseAcquire,
   rpcLeaseRenew, rpcList, rpcListValues, rpcOption, rpcOptionValue, rpcRecord,
   rpcTriplePattern, termEquals, triple, RPC_UNIT, RPC_SUBJECT_EXISTING,
-  RPC_V1_HEADER_BYTES, RPC_V1_MAX_TERM_DEPTH,
+  RPC_V2_HEADER_BYTES, RPC_V2_MAX_TERM_DEPTH,
   type RpcRequest, type RpcResponse, type Term,
 } from "../src/framrpc-codec";
 import {
@@ -30,6 +30,9 @@ const SPACE = "north-coordination";
 const RESOURCE = "managed-agent-write:8f2a";
 const HOLDER = "north-sdk-writer";
 const FENCE = rpcFence(RESOURCE, HOLDER, 42);
+const TRANSACTION = triple(SPACE, kw("kernel/tx-sequence"), 46);
+const occurrence = (ordinal: number): FramTriple =>
+  triple(TRANSACTION, kw("kernel/op-ordinal"), ordinal);
 const CURSOR = rpcRecord(kw("query/cursor"), [
   42, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", 1,
   rpcRecord(kw("query/row"), [rpcList([7, triple("@agent:x", "role", "worker")])]),
@@ -94,7 +97,7 @@ const REQUEST_CASES: Array<[string, number, RpcRequest]> = [
     ),
   })],
   ["deep-term-request-256", 10, request({
-    op: kw("rpc/batch"), payload: nest(RPC_V1_MAX_TERM_DEPTH),
+    op: kw("rpc/batch"), payload: nest(RPC_V2_MAX_TERM_DEPTH),
   })],
 ];
 
@@ -130,9 +133,9 @@ const RESPONSE_CASES: Array<[string, number, RpcResponse]> = [
     op: kw("rpc/batch"), servedVersion: 46,
     payload: rpcRecord(kw("rpc/mutation-result"), [rpcList([
       rpcRecord(kw("rpc/action-result"), [
-        0, true, rpcList([triple("@agent:x", "role", "worker")]),
+        0, true, occurrence(0),
       ]),
-      rpcRecord(kw("rpc/action-result"), [1, false, rpcList([])]),
+      rpcRecord(kw("rpc/action-result"), [1, false, occurrence(1)]),
     ])]),
   })],
   ["conflict-error-response", 8, response({
@@ -274,8 +277,8 @@ test("a batch response decodes one ordered action-result per action", () => {
     decodeFrame(golden("batch-response")).response!.payload,
   );
   expect(results.map((r) => [r.inputIndex, r.changed])).toEqual([[0, true], [1, false]]);
-  expect(results[0]!.occurrences.length).toBe(1);
-  expect(results[1]!.occurrences).toEqual([]);
+  expect(termEquals(results[0]!.occurrence, occurrence(0))).toBe(true);
+  expect(termEquals(results[1]!.occurrence, occurrence(1))).toBe(true);
 });
 
 test("status decodes the served state, live count, engine, and cache", () => {
@@ -319,12 +322,12 @@ test("RPC lists and options are ordinary recursive triples", () => {
 function requestFrameWithPayloadBytes(payload: Uint8Array): Uint8Array {
   const template = encodeRequestFrame(10, request({ op: kw("rpc/batch"), payload: "leaf" }));
   const leaf = Uint8Array.from([1, 4, 0, 0, 0, 0x6c, 0x65, 0x61, 0x66]);
-  const body = template.subarray(RPC_V1_HEADER_BYTES);
+  const body = template.subarray(RPC_V2_HEADER_BYTES);
   const prefix = body.subarray(0, body.length - leaf.length);
-  const frame = new Uint8Array(RPC_V1_HEADER_BYTES + prefix.length + payload.length);
-  frame.set(template.subarray(0, RPC_V1_HEADER_BYTES));
-  frame.set(prefix, RPC_V1_HEADER_BYTES);
-  frame.set(payload, RPC_V1_HEADER_BYTES + prefix.length);
+  const frame = new Uint8Array(RPC_V2_HEADER_BYTES + prefix.length + payload.length);
+  frame.set(template.subarray(0, RPC_V2_HEADER_BYTES));
+  frame.set(prefix, RPC_V2_HEADER_BYTES);
+  frame.set(payload, RPC_V2_HEADER_BYTES + prefix.length);
   // Body length is header offset 14 (8 magic + 2 major + 2 minor + kind + flags).
   new DataView(frame.buffer).setUint32(14, prefix.length + payload.length, true);
   return frame;
@@ -345,20 +348,20 @@ function nestedPayloadBytes(depth: number): Uint8Array {
 
 test("term depth 256 encodes and decodes; 257 is refused on both sides", () => {
   expect(base64(encodeRequestFrame(10, request({
-    op: kw("rpc/batch"), payload: nest(RPC_V1_MAX_TERM_DEPTH),
+    op: kw("rpc/batch"), payload: nest(RPC_V2_MAX_TERM_DEPTH),
   })))).toBe(GOLDEN["deep-term-request-256"]);
   expect(decodeFrame(golden("deep-term-request-256")).request!.payload)
     .toBeInstanceOf(FramTriple);
   expect(() => encodeRequestFrame(10, request({
-    op: kw("rpc/batch"), payload: nest(RPC_V1_MAX_TERM_DEPTH + 1),
+    op: kw("rpc/batch"), payload: nest(RPC_V2_MAX_TERM_DEPTH + 1),
   }))).toThrow("recursive Term exceeds the TermCodecV1 depth bound");
   const tooDeep = requestFrameWithPayloadBytes(
-    nestedPayloadBytes(RPC_V1_MAX_TERM_DEPTH + 1),
+    nestedPayloadBytes(RPC_V2_MAX_TERM_DEPTH + 1),
   );
   expect(() => decodeFrame(tooDeep))
     .toThrow("recursive Term exceeds the TermCodecV1 depth bound");
   expect(decodeFrame(requestFrameWithPayloadBytes(
-    nestedPayloadBytes(RPC_V1_MAX_TERM_DEPTH),
+    nestedPayloadBytes(RPC_V2_MAX_TERM_DEPTH),
   )).request!.payload).toBeInstanceOf(FramTriple);
 });
 
@@ -588,11 +591,11 @@ async function withFramedServer(
     socket.on("data", (chunk) => {
       chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
-      if (buffer.length < RPC_V1_HEADER_BYTES) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES) return;
       const declared = new DataView(
         buffer.buffer, buffer.byteOffset, buffer.length,
       ).getUint32(14, true);
-      if (buffer.length < RPC_V1_HEADER_BYTES + declared) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES + declared) return;
       const bytes = reply(decodeFrame(Uint8Array.from(buffer)));
       if (bytes === null) socket.destroy();
       else socket.end(Buffer.from(bytes));

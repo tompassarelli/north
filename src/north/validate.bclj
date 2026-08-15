@@ -11,15 +11,16 @@
 (require fram.kernel-classify :as kc)
 (require north.projections :as proj)
 
-(def thread-ref-preds :- (Vec String) ["part_of" "depends_on" "relates_to"])
+(def thread-ref-preds (Vec String) ["part_of" "depends_on" "relates_to"])
 
 (defn- reachable?
-  [idx: proj/ProjectionIndex
-   predicate: String
-   target: String
-   frontier: (Vec String)] -> Bool
-  (loop [remaining: (Vec String) frontier
-         seen: (Map String Bool) {}]
+  [(idx proj/ProjectionIndex)
+   (predicate String)
+   (target String)
+   (frontier (Vec String))]
+  Bool
+  (loop [(remaining (Vec String)) frontier
+         (seen (Map String Bool)) {}]
     (cond
       [(empty? remaining) false]
       [(= target (first remaining)) true]
@@ -32,24 +33,17 @@
         (assoc seen (first remaining) true))])))
 
 (defn- cycle?
-  [idx: proj/ProjectionIndex
-   predicate: String
-   subject: String] -> Bool
+  [(idx proj/ProjectionIndex) (predicate String) (subject String)] Bool
   (reachable? idx predicate subject
               (proj/string-values-at idx subject predicate)))
 
 (defn structural-violations-i
-  [idx: proj/ProjectionIndex
-   subject: String] -> (Vec String)
+  [(idx proj/ProjectionIndex) (subject String)] (Vec String)
   (let [reference-violations
         (reduce
-         (fn
-           [violations: (Vec String)
-            predicate: String] -> (Vec String)
+         (fn [(violations (Vec String)) (predicate String)] (Vec String)
            (reduce
-            (fn
-              [found: (Vec String)
-               target: String] -> (Vec String)
+            (fn [(found (Vec String)) (target String)] (Vec String)
               (if (proj/subject? idx target)
                 found
                 (conj found
@@ -59,18 +53,14 @@
          []
          (proj/projectionindex-reference-predicates idx))]
     (reduce
-     (fn
-       [violations: (Vec String)
-        predicate: String] -> (Vec String)
+     (fn [(violations (Vec String)) (predicate String)] (Vec String)
        (if (cycle? idx predicate subject)
          (conj violations (str predicate " cycle"))
          violations))
      reference-violations
      (proj/projectionindex-acyclic-predicates idx))))
 
-(defn work-violations-i
-  [idx: proj/ProjectionIndex
-   te: String] -> (Vec String)
+(defn work-violations-i [(idx proj/ProjectionIndex) (te String)] (Vec String)
   (let [term? (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
         ;; entity refs. Fram verifies generic subject existence; North adds the
@@ -78,13 +68,9 @@
         ;; violation even when executable schema also classifies the predicate as
         ;; a generic ref; partial schema metadata cannot disable North integrity.
         v-thread (reduce
-                  (fn
-                    [acc :- (Vec String)
-                     p :- String] :- (Vec String)
+                  (fn [(acc (Vec String)) (p String)] (Vec String)
                     (reduce
-                     (fn
-                       [a :- (Vec String)
-                        rt :- String] :- (Vec String)
+                     (fn [(a (Vec String)) (rt String)] (Vec String)
                        (cond
                          [(and (proj/subject? idx rt)
                                (nil? (proj/string-value-at idx rt "title")))
@@ -99,9 +85,7 @@
         ;; a depends_on edge to a withdrawn (abandoned) target — only suspect for
         ;; a still-open thread (a resolved thread's stale deps don't matter).
         v-ab (reduce
-              (fn
-                [acc :- (Vec String)
-                 d :- String] :- (Vec String)
+              (fn [(acc (Vec String)) (d String)] (Vec String)
                 (if (and (not term?) (proj/withdrawn-i? idx d))
                   (conj acc (str "depends_on points at abandoned " d))
                   acc))
@@ -114,8 +98,6 @@
     v-ab))
 
 ;; Full North validation over one thread = executable-schema structure + work.
-(defn violations-i
-  [idx: proj/ProjectionIndex
-   te: String] -> (Vec String)
+(defn violations-i [(idx proj/ProjectionIndex) (te String)] (Vec String)
   (vec (concat (structural-violations-i idx te)
                (work-violations-i idx te))))

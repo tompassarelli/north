@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { kw } from "../src/coord-wire";
 import {
-  decodeFrame, encodeResponseFrame, rpcRecord, RPC_UNIT, RPC_V1_HEADER_BYTES,
+  decodeFrame, encodeResponseFrame, rpcRecord, RPC_UNIT, RPC_V2_HEADER_BYTES,
   type RpcResponse,
 } from "../src/framrpc-codec";
 import { admitExecution, admitPinnedProvider } from "../src/execution-admission";
@@ -62,11 +62,11 @@ async function withFramedServer(
     socket.on("data", (chunk) => {
       chunks.push(chunk);
       const buffer = Buffer.concat(chunks);
-      if (buffer.length < RPC_V1_HEADER_BYTES) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES) return;
       const bodyLength = new DataView(
         buffer.buffer, buffer.byteOffset, buffer.length,
       ).getUint32(14, true);
-      if (buffer.length < RPC_V1_HEADER_BYTES + bodyLength) return;
+      if (buffer.length < RPC_V2_HEADER_BYTES + bodyLength) return;
       const response = reply(decodeFrame(Uint8Array.from(buffer)));
       if (response === null) socket.destroy();
       else socket.end(Buffer.from(response));
