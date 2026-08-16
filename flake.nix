@@ -9,9 +9,15 @@
     nixpkgs-master.url = "github:NixOS/nixpkgs/master";
     flake-utils.url = "github:numtide/flake-utils";
 
+    # CI needs Fram's source for integration tests, not its runtime closure.
+    # Keep that identity exact and inert in North's package graph.
+    fram-test-source = {
+      url = "github:tompassarelli/fram/2c847bbf6f66fecab4d2df032c7c67fbadf704f1";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, fram-test-source }:
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [

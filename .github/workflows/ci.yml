@@ -54,9 +54,12 @@ jobs:
       - name: Resolve locked source inputs
         id: sources
         run: |
+          set -euo pipefail
+          fram_repository="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source repository)"
+          fram_ref="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source revision)"
           {
-            echo "fram_repository=$(north/bin/github-flake-input-pin north/flake.lock fram repository)"
-            echo "fram_ref=$(north/bin/github-flake-input-pin north/flake.lock fram revision)"
+            echo "fram_repository=$fram_repository"
+            echo "fram_ref=$fram_ref"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Fram engine (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

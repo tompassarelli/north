@@ -24,6 +24,10 @@ package_job="$(job_block package-x86_64-linux)"
 grep -Fq 'shellcheck --severity=warning' <<<"$lint_job"
 grep -Fq 'nix flake check --all-systems --no-build' <<<"$test_job"
 grep -Fq "'path:.#packages.x86_64-linux.default'" <<<"$test_job"
+grep -Fq 'fram_repository="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source repository)"' <<<"$test_job"
+grep -Fq 'fram_ref="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source revision)"' <<<"$test_job"
+grep -Fq 'echo "fram_repository=$fram_repository"' <<<"$test_job"
+grep -Fq 'echo "fram_ref=$fram_ref"' <<<"$test_job"
 if grep -Eq '^    needs:' <<<"$lint_job"; then
   echo 'lint must remain an independent root job' >&2
   exit 1

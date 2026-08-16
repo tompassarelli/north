@@ -67,12 +67,14 @@ for invalid_root in missing follows-array missing-node unsafe-input; do
   [[ -s "$TMP/invalid-root.err" ]]
 done
 
-# fram is the only repository this flake still takes as a root input; beagle
-# became transitive (fram/beagle) when north stopped declaring it directly.
-input=fram
+# Fram is a source-only test input. North's package graph must not regain Fram's
+# runtime closure merely to keep its integration tests content-addressed.
+input=fram-test-source
 current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
 current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
+[[ "$current_repository" == tompassarelli/fram ]]
 [[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
 [[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
+[[ "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].flake' "$ROOT/flake.lock")" == false ]]
 
 echo "github flake input pin tests: PASS"
