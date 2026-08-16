@@ -14,6 +14,15 @@ job_block() {
   ' "$WORKFLOW"
 }
 
+step_block() {
+  local step="$1"
+  awk -v step="      - name: $step" '
+    $0 == step { inside = 1; next }
+    inside && /^      - name: / { exit }
+    inside { print }
+  ' "$WORKFLOW"
+}
+
 lint_job="$(job_block lint)"
 test_job="$(job_block test)"
 package_job="$(job_block package-x86_64-linux)"
@@ -28,6 +37,17 @@ grep -Fq 'fram_repository="$(north/bin/github-flake-input-pin north/flake.lock f
 grep -Fq 'fram_ref="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source revision)"' <<<"$test_job"
 grep -Fq 'echo "fram_repository=$fram_repository"' <<<"$test_job"
 grep -Fq 'echo "fram_ref=$fram_ref"' <<<"$test_job"
+
+# The assignment form above fails closed only under errexit. Without this line
+# the pin helper's non-zero exit is discarded, empty values reach
+# $GITHUB_OUTPUT, and the job proceeds against an unpinned Fram while staying
+# green. Assert it inside this step, not merely somewhere in the job.
+resolve_step="$(step_block 'Resolve locked source inputs')"
+[[ -n "$resolve_step" ]]
+if ! grep -Fq 'set -euo pipefail' <<<"$resolve_step"; then
+  echo 'the locked-source-input step must keep set -euo pipefail' >&2
+  exit 1
+fi
 if grep -Eq '^    needs:' <<<"$lint_job"; then
   echo 'lint must remain an independent root job' >&2
   exit 1
