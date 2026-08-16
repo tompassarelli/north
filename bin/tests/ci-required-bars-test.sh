@@ -3,41 +3,146 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/ci.yml"
+RELEASE_WORKFLOW="$ROOT/.github/workflows/release.yml"
 DEADMAN_WORKFLOW="$ROOT/.github/workflows/ci-deadman.yml"
 
 job_block() {
   local job="$1"
+  local workflow="${2:-$WORKFLOW}"
   awk -v job="$job" '
     $0 == "  " job ":" { inside = 1; next }
     inside && /^  [A-Za-z0-9_-]+:$/ { exit }
     inside { print }
-  ' "$WORKFLOW"
+  ' "$workflow"
 }
 
 step_block() {
   local step="$1"
+  local workflow="${2:-$WORKFLOW}"
   awk -v step="      - name: $step" '
     $0 == step { inside = 1; next }
     inside && /^      - name: / { exit }
+    inside && /^  [A-Za-z0-9_-]+:$/ { exit }
     inside { print }
-  ' "$WORKFLOW"
+  ' "$workflow"
+}
+
+workflow_trigger_block() {
+  local workflow="$1"
+  awk '
+    $0 == "on:" { inside = 1; next }
+    inside && /^[A-Za-z0-9_-]+:/ { exit }
+    inside { print }
+  ' "$workflow"
+}
+
+dispatch_input_block() {
+  local input="$1"
+  local workflow="$2"
+  awk -v input="      $input:" '
+    $0 == input { inside = 1; next }
+    inside && /^      [A-Za-z0-9_-]+:$/ { exit }
+    inside && /^[^ ]/ { exit }
+    inside { print }
+  ' "$workflow"
 }
 
 lint_job="$(job_block lint)"
 test_job="$(job_block test)"
 package_job="$(job_block package-x86_64-linux)"
+lock_step="$(step_block 'Lock and packaged-helper boundaries')"
+release_trigger="$(workflow_trigger_block "$RELEASE_WORKFLOW")"
+release_tag_input="$(dispatch_input_block release_tag "$RELEASE_WORKFLOW")"
+candidate_commit_input="$(dispatch_input_block candidate_commit "$RELEASE_WORKFLOW")"
+release_preflight_job="$(job_block preflight "$RELEASE_WORKFLOW")"
+release_publish_job="$(job_block publish "$RELEASE_WORKFLOW")"
+release_checkout_step="$(step_block 'Checkout exact candidate' "$RELEASE_WORKFLOW")"
+release_authored_step="$(step_block 'Verify authored identity and notes' "$RELEASE_WORKFLOW")"
+release_identity_step="$(step_block 'Resolve annotated candidate identity' "$RELEASE_WORKFLOW")"
+release_green_step="$(step_block 'Verify exact green main gate' "$RELEASE_WORKFLOW")"
+release_history_step="$(step_block 'Refuse gaps in public final release history' "$RELEASE_WORKFLOW")"
 
 [[ -n "$lint_job" ]]
 [[ -n "$test_job" ]]
 [[ -n "$package_job" ]]
+[[ -n "$lock_step" ]]
 grep -Fq 'shellcheck --severity=warning' <<<"$lint_job"
 grep -Fq 'nix flake check --all-systems --no-build' <<<"$test_job"
 grep -Fq "'path:.#packages.x86_64-linux.default'" <<<"$test_job"
-grep -Fq 'bash bin/north-release-preflight "v$(jq -r '\''.version'\'' sdk/package.json)"' <<<"$test_job"
+grep -Fq 'bash bin/north-release-preflight "v$(jq -r '\''.version'\'' sdk/package.json)"' <<<"$lock_step"
+grep -Fxq '          bash bin/tests/north-release-preflight-test.sh' <<<"$lock_step"
 grep -Fq 'beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"' <<<"$test_job"
 grep -Fq 'beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"' <<<"$test_job"
 grep -Fq 'echo "beagle_repository=$beagle_repository"' <<<"$test_job"
 grep -Fq 'echo "beagle_ref=$beagle_ref"' <<<"$test_job"
+
+[[ -n "$release_trigger" ]]
+[[ -n "$release_tag_input" ]]
+[[ -n "$candidate_commit_input" ]]
+[[ -n "$release_preflight_job" ]]
+[[ -n "$release_publish_job" ]]
+[[ -n "$release_checkout_step" ]]
+[[ -n "$release_authored_step" ]]
+[[ -n "$release_identity_step" ]]
+[[ -n "$release_green_step" ]]
+[[ -n "$release_history_step" ]]
+grep -Fxq '  push:' <<<"$release_trigger"
+grep -Fxq '    tags:' <<<"$release_trigger"
+grep -Fxq "      - 'v*.*.*'" <<<"$release_trigger"
+grep -Fxq '  workflow_dispatch:' <<<"$release_trigger"
+grep -Fxq '        required: true' <<<"$release_tag_input"
+grep -Fxq '        type: string' <<<"$release_tag_input"
+grep -Fxq '        required: true' <<<"$candidate_commit_input"
+grep -Fxq '        type: string' <<<"$candidate_commit_input"
+grep -Fxq "    if: github.repository == 'tompassarelli/north'" <<<"$release_preflight_job"
+grep -Fxq '    needs: preflight' <<<"$release_publish_job"
+grep -Fxq "    if: github.repository == 'tompassarelli/north' && github.event_name == 'push'" \
+  <<<"$release_publish_job"
+grep -Fxq '          fetch-depth: 0' <<<"$release_checkout_step"
+# This is a literal workflow expression, not a shell expansion in this process.
+# shellcheck disable=SC2016
+grep -Fxq "          ref: \${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit || github.ref }}" \
+  <<<"$release_checkout_step"
+# shellcheck disable=SC2016
+grep -Fxq "          RELEASE_TAG: \${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}" \
+  <<<"$release_authored_step"
+grep -Fxq '        run: bash bin/north-release-preflight "$RELEASE_TAG"' \
+  <<<"$release_authored_step"
+# shellcheck disable=SC2016
+grep -Fxq "          RELEASE_TAG: \${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}" \
+  <<<"$release_identity_step"
+# shellcheck disable=SC2016
+grep -Fxq "          CANDIDATE_COMMIT: \${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit || github.ref }}" \
+  <<<"$release_identity_step"
+grep -Fq 'candidate_sha="$(git rev-parse "$CANDIDATE_COMMIT^{commit}")"' \
+  <<<"$release_identity_step"
+grep -Fq 'test "$candidate_sha" = "$(git rev-parse HEAD^{commit})"' \
+  <<<"$release_identity_step"
+grep -Fq '| git mktag' <<<"$release_identity_step"
+grep -Fq 'tagger North release preflight <release-preflight@north.invalid> 0 +0000' \
+  <<<"$release_identity_step"
+grep -Fq 'release_identity="refs/tags/$RELEASE_TAG"' <<<"$release_identity_step"
+grep -Fq 'test "$(git cat-file -t "$release_identity")" = tag' <<<"$release_identity_step"
+grep -Fq 'test "$(git rev-parse "$release_identity^{commit}")" = "$candidate_sha"' \
+  <<<"$release_identity_step"
+if grep -Eq '(^|[[:space:]])git[[:space:]]+(tag|update-ref|push)([[:space:]]|$)' \
+  <<<"$release_identity_step"; then
+  echo 'dispatch identity must stay an unreferenced git mktag object' >&2
+  exit 1
+fi
+if grep -Eq '^        if:' \
+  <<<"$release_identity_step$release_green_step$release_history_step"; then
+  echo 'identity, exact-CI, and release-history gates must run for push and dispatch' >&2
+  exit 1
+fi
+grep -Fq 'candidate_sha="$(git rev-parse "$RELEASE_IDENTITY^{commit}")"' \
+  <<<"$release_green_step"
+grep -Fq 'actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=$candidate_sha&per_page=1' \
+  <<<"$release_green_step"
+grep -Fq 'candidate_sha="$(git rev-parse "$RELEASE_IDENTITY^{commit}")"' \
+  <<<"$release_history_step"
+grep -Fq 'repos/$GITHUB_REPOSITORY/releases?per_page=100' <<<"$release_history_step"
+grep -Fq "done < <(git tag --list 'v*.*.*')" <<<"$release_history_step"
 
 # The assignment form above fails closed only under errexit. Without this line
 # the pin helper's non-zero exit is discarded, empty values reach
