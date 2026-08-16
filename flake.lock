@@ -18,6 +18,23 @@
         "type": "github"
       }
     },
+    "fram-test-source": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786834744,
+        "narHash": "sha256-Ifc4JS2IPULYPJmLJUvKZhKwImOIHULFimyPvqj/Vh0=",
+        "owner": "tompassarelli",
+        "repo": "fram",
+        "rev": "2c847bbf6f66fecab4d2df032c7c67fbadf704f1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tompassarelli",
+        "repo": "fram",
+        "rev": "2c847bbf6f66fecab4d2df032c7c67fbadf704f1",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1782467914,
@@ -53,6 +70,7 @@
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
+        "fram-test-source": "fram-test-source",
         "nixpkgs": "nixpkgs",
         "nixpkgs-master": "nixpkgs-master"
       }
