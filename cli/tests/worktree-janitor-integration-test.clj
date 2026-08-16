@@ -109,6 +109,9 @@
   (let [branch (str "lane-" handle)
         path (managed-clone-path repo handle)]
     (git! "clone" "-q" "--no-hardlinks" repo path)
+    ;; A clone inherits no committer identity; CI runners have none globally.
+    (git! "-C" path "config" "user.email" "janitor@example.invalid")
+    (git! "-C" path "config" "user.name" "Janitor Test")
     (git! "-C" path "checkout" "-qb" branch "HEAD")
     (git! "-C" path "remote" "set-url" "--push" "origin"
           "north-disabled://managed-clone-no-push")
