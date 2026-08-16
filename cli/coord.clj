@@ -546,12 +546,63 @@
    :proposition (proposition! subject predicate value)
    :policy (or policy :rpc/subject-any)})
 
+;; A batch whose acknowledgement is lost has an outcome only its exact subjects
+;; can answer. The comparison below is per (subject, predicate) VALUE PRESENCE
+;; rather than occurrence frequency, because that is the granularity North
+;; publications plan at: a frequency-exact readback would report a duplicate
+;; this batch never touched as a foreign write.
+
+(defn- action-subjects [actions]
+  (into (sorted-set) (map #(t/triple-t1 (:proposition %))) actions))
+
+(defn- subject-value-index! [client subjects]
+  (reduce
+   (fn [index subject]
+     (let [projection (rpc/subject-projection! client subject)]
+       (-> index
+           (assoc-in [:values subject]
+                     (into {}
+                           (map (fn [[predicate occurrences]]
+                                  [predicate (set (keys occurrences))]))
+                           (:occurrences projection)))
+           (update :version (fnil max 0) (:served-version projection)))))
+   {:values {} :version nil}
+   subjects))
+
+(defn- action-landed? [values action]
+  (let [proposition (:proposition action)
+        present (contains? (get-in values [(t/triple-t1 proposition)
+                                           (t/triple-t2 proposition)]
+                                   #{})
+                           (t/triple-t3 proposition))]
+    (if (= :rpc/assert (:op action)) present (not present))))
+
+(defn- exact-subject-resolver
+  "Resolve an unacknowledged batch from the exact subjects it names. A batch
+   applies whole or not at all, so every action landed is a commit and every
+   action still holding its inverse is a proven non-commit. A proven non-commit
+   re-sends the identical request: the pinned expected-version admits at most one
+   commit, and at value-set granularity a re-assert of an absent value and a
+   re-retract of a present one are the same write. Any other reading is another
+   writer inside this subject and is refused instead of guessed."
+  [actions]
+  (fn [client _request _error]
+    (let [{:keys [values version]}
+          (subject-value-index! client (action-subjects actions))
+          landed (map #(action-landed? values %) actions)]
+      (cond
+        (every? true? landed) {:resolution :committed :served-version version}
+        (every? false? landed) {:resolution :retry}
+        :else {:resolution :torn-subject :served-version version}))))
+
 (defn- mutation-envelope [operation]
   (try
     (let [result (operation)]
-      {:ok (:served-version result)
-       :changed? (boolean (some :changed? (:results result)))
-       :results (:results result)})
+      (if-let [resolved (:resolved result)]
+        {:ok (:served-version resolved) :changed? true :results []}
+        {:ok (:served-version result)
+         :changed? (boolean (some :changed? (:results result)))
+         :results (:results result)}))
     (catch clojure.lang.ExceptionInfo error
       (case (:type (ex-data error))
         :rpc/conflict {:reject :conflict
@@ -560,6 +611,10 @@
                                    :version (:served-version (ex-data error))}
         :rpc/lease-held {:reject :held
                          :version (:served-version (ex-data error))}
+        ;; The budget is exhausted only after every attempt was resolved as a
+        ;; proven non-commit, so nothing landed and replanning is safe.
+        :rpc/retry-exhausted {:reject :conflict
+                              :version (:served-version (ex-data error))}
         (throw error)))))
 
 (defn transact!
@@ -580,7 +635,7 @@
             (mutation-envelope
              #(rpc/batch!
                client actions
-               (cond-> {}
+               (cond-> {:ambiguity-resolver (exact-subject-resolver actions)}
                  (contains? options :expected-version)
                  (assoc :expected-version (:expected-version options))
                  (:fence options) (assoc :fence (fence-term (:fence options)))))))))))))
