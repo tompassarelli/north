@@ -18,6 +18,16 @@ normal="$(HOME="$normal_home" "$RUNNER" -- \
 [[ "$normal" == "$normal_home|unset" ]]
 [[ ! -s "$scratch/normal.err" ]]
 
+# The invocation is authoritative: an inherited sandbox flag never makes a
+# normal-mode run report sandbox mode, which is what a nested run inside
+# `test-suite --sandbox-home` does.
+# shellcheck disable=SC2016 # The child shell must read the runner's environment.
+nested="$(HOME="$normal_home" NORTH_TEST_SANDBOX_HOME=1 "$RUNNER" -- \
+  bash -c 'printf "%s|%s" "$HOME" "${NORTH_TEST_SANDBOX_HOME:-unset}"' \
+  2>"$scratch/nested.err")"
+[[ "$nested" == "$normal_home|unset" ]]
+[[ ! -s "$scratch/nested.err" ]]
+
 probe="$scratch/probe.sh"
 sed 's/^+//' >"$probe" <<'EOF'
 +#!/usr/bin/env bash
@@ -56,4 +66,4 @@ set -e
 failed_home="$(sed -n 's/^sandbox-home: HOME=//p' "$scratch/fail.out")"
 [[ -n "$failed_home" && ! -e "$failed_home" ]]
 
-printf 'test-suite: normal mode unchanged; sandbox HOME empty; exit preserved: PASS\n'
+printf 'test-suite: normal mode unchanged; invocation sets the mode; sandbox HOME empty; exit preserved: PASS\n'
