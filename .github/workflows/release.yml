@@ -11,6 +11,10 @@ on:
         required: true
         default: v0.1.0
         type: string
+      candidate_commit:
+        description: Exact commit to preflight without publishing
+        required: true
+        type: string
 
 permissions:
   actions: read
@@ -30,23 +34,43 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit || github.ref }}
 
       - name: Verify authored identity and notes
         env:
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
         run: bash bin/north-release-preflight "$RELEASE_TAG"
 
-      - name: Verify annotated tag and exact green main gate
-        if: github.event_name == 'push'
+      - name: Resolve annotated candidate identity
         env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+          CANDIDATE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit || github.ref }}
         run: |
           set -euo pipefail
-          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
-          candidate_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          candidate_sha="$(git rev-parse "$CANDIDATE_COMMIT^{commit}")"
           test "$candidate_sha" = "$(git rev-parse HEAD^{commit})"
+
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            release_identity="$(
+              printf 'object %s\ntype commit\ntag %s\ntagger North release preflight <release-preflight@north.invalid> 0 +0000\n\nNorth %s non-publishing preflight\n' \
+                "$candidate_sha" "$RELEASE_TAG" "$RELEASE_TAG" | git mktag
+            )"
+          else
+            release_identity="refs/tags/$RELEASE_TAG"
+          fi
+          test "$(git cat-file -t "$release_identity")" = tag
+          test "$(git rev-parse "$release_identity^{commit}")" = "$candidate_sha"
+          {
+            echo "RELEASE_TAG=$RELEASE_TAG"
+            echo "RELEASE_IDENTITY=$release_identity"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify exact green main gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse "$RELEASE_IDENTITY^{commit}")"
 
           exact_green="$(gh api \
             "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&head_sha=$candidate_sha&per_page=1" \
@@ -57,14 +81,12 @@ jobs:
           fi
 
       - name: Refuse gaps in public final release history
-        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           releases="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --slurp | jq 'add')"
-          candidate_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          candidate_sha="$(git rev-parse "$RELEASE_IDENTITY^{commit}")"
 
           exact_green_ci() {
             local revision="$1"

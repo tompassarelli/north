@@ -21,12 +21,35 @@ if [[ "$package_version" != "$version" ]]; then
   exit 1
 fi
 
-# The Nix package reads this same package identity. Refuse a release if that
-# single-source binding is removed and the two public version surfaces can drift.
-grep -Fq \
-  'northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;' \
-  "$ROOT/flake.nix"
-grep -Fq 'version = northVersion;' "$ROOT/flake.nix"
+# The Nix package reads this same package identity. Match the bindings at their
+# owning sites so a duplicate string elsewhere cannot conceal package drift.
+if ! awk '
+  previous == "        lib = pkgs.lib;" &&
+    $0 == "        northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;" {
+      matches++
+    }
+  { previous = $0 }
+  END { exit matches == 1 ? 0 : 1 }
+' "$ROOT/flake.nix"; then
+  echo "north-release-preflight: flake.nix must derive northVersion from sdk/package.json" >&2
+  exit 1
+fi
+if ! awk '
+  $0 == "        northPkg = pkgs.stdenvNoCC.mkDerivation {" {
+    blocks++
+    inside = 1
+    next
+  }
+  inside && $0 == "        };" {
+    inside = 0
+    next
+  }
+  inside && $0 == "          version = northVersion;" { matches++ }
+  END { exit blocks == 1 && matches == 1 ? 0 : 1 }
+' "$ROOT/flake.nix"; then
+  echo "north-release-preflight: flake.nix northPkg must use northVersion" >&2
+  exit 1
+fi
 
 notes="$ROOT/.github/release-notes/$tag.md"
 if [[ ! -s "$notes" ]]; then

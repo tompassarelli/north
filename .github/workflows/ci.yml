@@ -118,6 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           bash bin/north-release-preflight "v$(jq -r '.version' sdk/package.json)"
+          bash bin/tests/north-release-preflight-test.sh
           bash bin/tests/github-flake-input-pin-test.sh
           bash bin/tests/package-purity-check-test.sh
           bash bin/tests/ci-required-bars-test.sh
