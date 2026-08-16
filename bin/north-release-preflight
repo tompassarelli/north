@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Validate one final North release identity without publishing it.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+tag="${1:-}"
+
+if [[ ! "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo "north-release-preflight: release tag must be v-prefixed final SemVer" >&2
+  exit 2
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  echo "north-release-preflight: jq is required" >&2
+  exit 2
+fi
+
+version="${tag#v}"
+package_version="$(jq -er '.version | select(type == "string")' "$ROOT/sdk/package.json")"
+if [[ "$package_version" != "$version" ]]; then
+  echo "north-release-preflight: tag $tag disagrees with sdk/package.json $package_version" >&2
+  exit 1
+fi
+
+# The Nix package reads this same package identity. Refuse a release if that
+# single-source binding is removed and the two public version surfaces can drift.
+grep -Fq \
+  'northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;' \
+  "$ROOT/flake.nix"
+grep -Fq 'version = northVersion;' "$ROOT/flake.nix"
+
+notes="$ROOT/.github/release-notes/$tag.md"
+if [[ ! -s "$notes" ]]; then
+  echo "north-release-preflight: missing authored release notes at $notes" >&2
+  exit 1
+fi
+if [[ "$(sed -n '1p' "$notes")" != "# North $tag" ]]; then
+  echo "north-release-preflight: $notes must start with # North $tag" >&2
+  exit 1
+fi
+if ! grep -Eq '^## (Highlights|Changes)$' "$notes"; then
+  echo "north-release-preflight: $notes must contain a Highlights or Changes section" >&2
+  exit 1
+fi
+
+printf 'north release preflight: PASS (%s)\n' "$tag"

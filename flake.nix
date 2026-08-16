@@ -29,6 +29,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         lib = pkgs.lib;
+        northVersion = (builtins.fromJSON (builtins.readFile ./sdk/package.json)).version;
         codexPkgs = nixpkgs-master.legacyPackages.${system};
         codexExpectedIdentity = {
           version = "0.146.0";
@@ -555,7 +556,7 @@ EOF
         # second engine. NORTH_BIN points MCP at the wrapped CLI in this out.
         northPkg = pkgs.stdenvNoCC.mkDerivation {
           pname = "north";
-          version = "0.1.0";
+          version = northVersion;
           # Keep the package derivation tied only to files copied into the
           # runtime. Archived web sources, tests, and docs cannot invalidate or
           # leak into the closure.
