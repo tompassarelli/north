@@ -6,7 +6,9 @@ RUNNER="$ROOT/sdk/test/support/run-suite.sh"
 
 grep -Fq '"test": "bash ./test/support/run-suite.sh"' \
   "$ROOT/sdk/package.json"
-grep -Fq 'cd ~/code/north/main/sdk && bun run check && bun run test' "$ROOT/AGENTS.md"
+# The contract is the hermetic command pair, not a checkout layout. Pinning an
+# absolute ~/code/<repo>/main path made this bar false in every worktree.
+grep -Fq 'bun run check && bun run test' "$ROOT/AGENTS.md"
 grep -Eq '^[[:space:]]+bun run test[[:space:]]*$' "$ROOT/.github/workflows/ci.yml"
 grep -Fq "find ./test -maxdepth 1 -type f -name '*.test.ts' -print0" "$RUNNER"
 grep -Fq 'SDK test runner accepts no passthrough arguments' "$RUNNER"
