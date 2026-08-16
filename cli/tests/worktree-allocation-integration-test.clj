@@ -3,7 +3,8 @@
          '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
-         '[clojure.string :as str])
+         '[clojure.string :as str]
+         '[fram.types :as t])
 
 (def test-root
   (.getCanonicalPath
@@ -23,8 +24,26 @@
   (catch clojure.lang.ExceptionInfo error
     (when-not (str/starts-with? (.getMessage error) "usage:") (throw error))))
 
+;; The writer loaded the coordination facade, which loaded the FRAMRPC client;
+;; the transport seam below is the client's own injection point.
+(require '[north.framrpc-client :as rpc])
+
 (def checks (atom []))
 (defn check [label result] (swap! checks conj [label (boolean result)]))
+
+;; Failure evidence is diffed between two runs, so every container in the
+;; printed record is ordered: facts-of builds its map with zipmap over a set and
+;; its values are sets, both of which print in hash order.
+(defn diagnostic-child [result]
+  (sorted-map :exit (:exit result) :out (:out result) :err (:err result)))
+(defn diagnostic-snapshot [snapshot]
+  (into (sorted-map)
+        (map (fn [[predicate values]] [predicate (vec (sort-by pr-str values))]))
+        snapshot))
+(defn diagnostic-record! [record]
+  (binding [*out* *err* *print-length* nil *print-level* nil]
+    (prn (into (sorted-map) record))))
+
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
 (defn await-coordinator! [port]
@@ -152,13 +171,70 @@
                               "bb" writer-path (str port) "register"
                               (json/generate-string third-registration))
           left-result @left
-          right-result @right]
+          right-result @right
+          ;; Bound unconditionally: inline in the `and` below, short-circuiting
+          ;; threw away the very snapshot that says whether a failure lost facts
+          ;; or never committed them.
+          left-snapshot (facts-of port (get second-registration "subject"))
+          right-snapshot (facts-of port (get third-registration "subject"))
+          both-committed?
+          (and (zero? (:exit left-result)) (zero? (:exit right-result))
+               (= #{"worktree_allocation"} (get left-snapshot "kind"))
+               (= #{"worktree_allocation"} (get right-snapshot "kind")))]
+      (when-not both-committed?
+        (diagnostic-record!
+         {:check "concurrent allocation registrations both commit without lost facts"
+          :left-child (diagnostic-child left-result)
+          :left-snapshot (diagnostic-snapshot left-snapshot)
+          :left-subject (get second-registration "subject")
+          :right-child (diagnostic-child right-result)
+          :right-snapshot (diagnostic-snapshot right-snapshot)
+          :right-subject (get third-registration "subject")}))
       (check "concurrent allocation registrations both commit without lost facts"
-             (and (zero? (:exit left-result)) (zero? (:exit right-result))
-                  (= #{"worktree_allocation"}
-                     (get (facts-of port (get second-registration "subject")) "kind"))
-                  (= #{"worktree_allocation"}
-                     (get (facts-of port (get third-registration "subject")) "kind")))))
+             both-committed?))
+
+    ;; The raced check above reproduces the flake only when the interleaving
+    ;; cooperates. This one reproduces its exact disposition every run: the
+    ;; reservation batch is the first mutation a registration issues, and its
+    ;; acknowledgement is destroyed at the transport seam INSTEAD of being
+    ;; delivered, so the write is provably absent while the writer can only
+    ;; observe an answer it never received. Proving that absence and replanning
+    ;; within the deadline is the whole difference from giving up.
+    (let [ambiguous-registration
+          (registration "99999999-9999-4999-8999-999999999999" "9")
+          subject (get ambiguous-registration "subject")
+          desired (registration-facts ambiguous-registration)
+          first-batch? (atom true)
+          outcome (try
+                    (binding [rpc/*round-trip!*
+                              (fn [client request]
+                                (when (and (= :rpc/batch (t/rpcrequest-op request))
+                                           (compare-and-set! first-batch? true false))
+                                  (throw (java.net.SocketTimeoutException.
+                                          "injected lost batch acknowledgement")))
+                                (rpc/transport-round-trip! client request))]
+                      (register! port ambiguous-registration))
+                    (catch Exception error {:error error}))
+          snapshot (facts-of port subject)
+          ;; An injection that never fired would make this check pass whether or
+          ;; not the ambiguity is handled, so spending it is part of the claim.
+          replanned? (and (false? @first-batch?)
+                          (:ok outcome)
+                          (= "committed" (:result outcome))
+                          (committed-registration? snapshot desired
+                                                   (:manifest outcome)))]
+      (when-not replanned?
+        (diagnostic-record!
+         {:check "sent-ambiguous registration batch is proven absent and replanned"
+          :injection-spent? (false? @first-batch?)
+          :outcome (if-let [error (:error outcome)]
+                     (sorted-map :data (pr-str (ex-data error))
+                                 :message (ex-message error))
+                     (into (sorted-map) outcome))
+          :snapshot (diagnostic-snapshot snapshot)
+          :subject subject}))
+      (check "sent-ambiguous registration batch is proven absent and replanned"
+             replanned?))
 
     (let [same-left (registration "66666666-6666-4666-8666-666666666666" "6")
           same-right (registration "77777777-7777-4777-8777-777777777777" "6")
