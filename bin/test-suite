@@ -7,6 +7,10 @@ usage: bin/test-suite [--sandbox-home] -- COMMAND [ARG ...]
 
 Runs COMMAND unchanged by default. --sandbox-home gives it a newly created,
 empty HOME and removes ambient XDG home overrides for the duration of the run.
+
+The invocation is the sole authority on the mode: NORTH_TEST_SANDBOX_HOME
+reports this run's mode to COMMAND and is never read back in as input, so a
+nested run without --sandbox-home is normal mode even inside a sandboxed one.
 EOF
   exit 2
 }
@@ -21,7 +25,7 @@ shift
 (($# > 0)) || usage
 
 if ((sandbox_home == 0)); then
-  exec "$@"
+  exec env -u NORTH_TEST_SANDBOX_HOME "$@"
 fi
 
 scratch="$(mktemp -d -t north-test-home.XXXXXX)"
