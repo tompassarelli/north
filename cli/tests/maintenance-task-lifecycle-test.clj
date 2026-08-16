@@ -1,14 +1,25 @@
 #!/usr/bin/env bb
 ;; Whole-run lifecycle regression for one independently scheduled maintenance
-;; task. Fixtures use a private wire stub; canonical coordination state is never
-;; started or mutated.
-(require '[babashka.process :as proc]
-         '[clojure.edn :as edn]
+;; task. The fixture coordinator answers in canonical FRAMRPC v2 through the
+;; locked Fram wire namespace; canonical coordination state is never started or
+;; mutated.
+(require '[babashka.classpath :as classpath]
+         '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
+(def fram
+  (.getCanonicalPath
+   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
+                (System/getenv "FRAM_HOME")
+                "/home/tom/code/fram/main"))))
+
+(classpath/add-classpath (str fram "/out"))
+(require '[framrpc :as wire]
+         '[fram.types :as t])
+
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def checks (atom []))
 
@@ -41,7 +52,7 @@
    "NORTH_MAINTENANCE_TASK_TIMEOUT_MS" (str timeout-ms)
    "NORTH_MAINTENANCE_TASK_RETRY_MS" "50"
    "NORTH_COORD_CONNECT_TIMEOUT_MS" "50"
-   "NORTH_COORD_READ_TIMEOUT_MS" "10000"})
+   "NORTH_FRAMRPC_READ_TIMEOUT_MS" "10000"})
 
 (defn start-task
   ([environment] (start-task environment true))
@@ -58,18 +69,75 @@
          "bb" maintenance-host "stale-concerns"
          (when dry? ["--dry-run"])))
 
-(defn empty-coordinator-response [envelope]
-  (let [request (:request envelope)]
-    (case (:op request)
-      :version {:version 0}
-      :resolved {:value nil :members 0 :ambiguous? false :values [] :version 0}
-      :query (if (:query-max-rows request)
-               {:ok [] :version 0 :engine "index"}
-               {:ok []})
-      :query-page {:ok [] :more false :next nil :version 0 :engine "scan"}
-      :facts {:facts [] :version 0}
-      :show {:rows [] :version 0}
-      {:ok true :version 0})))
+(defn read-exact! [input bytes offset length]
+  (loop [position offset remaining length]
+    (if (zero? remaining)
+      true
+      (let [read-count (.read input bytes position remaining)]
+        (if (neg? read-count)
+          false
+          (recur (+ position read-count) (- remaining read-count)))))))
+
+(defn read-request-frame!
+  "Read one bounded FRAMRPC v2 request frame. The declared body length lives at
+   header offset 14 and is never trusted past the shared 1 MiB bound."
+  [input]
+  (let [header (byte-array wire/rpc-v2-header-bytes)]
+    (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
+      (throw (ex-info "FRAMRPC request ended inside its header"
+                      {:type :rpc-truncated})))
+    (let [buffer (doto (java.nio.ByteBuffer/wrap header)
+                   (.order java.nio.ByteOrder/LITTLE_ENDIAN)
+                   (.position 14))
+          body-length (Integer/toUnsignedLong (.getInt buffer))]
+      (when (> body-length wire/rpc-v2-max-body-bytes)
+        (throw (ex-info "FRAMRPC request exceeds the body limit"
+                        {:type :rpc-frame-too-large :body-length body-length})))
+      (let [body (byte-array (int body-length))
+            frame (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
+        (when-not (read-exact! input body 0 (int body-length))
+          (throw (ex-info "FRAMRPC request ended inside its body"
+                          {:type :rpc-truncated})))
+        (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
+        (System/arraycopy body 0 frame wire/rpc-v2-header-bytes (int body-length))
+        (wire/decode-rpc-frame-v2! frame)))))
+
+(def fixture-served-version 0)
+
+(defn typed-payload
+  "Canonical empty payload per operation. nil means the fixture does not serve
+   that operation, and the caller answers with a typed error instead."
+  [operation]
+  (case operation
+    :rpc/version wire/rpc-unit
+    :rpc/status (wire/rpc-status! :ready 0 :rpc/jvm
+                                  (wire/rpc-record! :rpc/result-cache [0 0 0 0]))
+    :rpc/scan (wire/rpc-triples! [])
+    :rpc/query (wire/rpc-query-rows! [])
+    nil))
+
+(defn empty-coordinator-response [request]
+  (if-let [payload (typed-payload (t/rpcrequest-op request))]
+    {:payload payload}
+    {:error (wire/rpc-error!
+             :rpc/unsupported-operation false
+             "fixture coordinator serves only the lifecycle read operations"
+             nil)}))
+
+(defn response-frame
+  "Build the v2 response frame. SpaceId and op must echo the request or the
+   client rejects the answer as a response/request identity mismatch."
+  [frame request {:keys [payload error]}]
+  (wire/rpc-response-frame
+   (t/rpcframev2-request-id frame)
+   (wire/rpc-response!
+    (t/rpcrequest-space request)
+    (t/rpcrequest-op request)
+    fixture-served-version
+    (when (and (nil? error) (t/rpcrequest-page request))
+      (wire/rpc-page-response! 0 nil true))
+    error
+    payload)))
 
 (defn start-coordinator
   ([port] (start-coordinator port empty-coordinator-response))
@@ -87,13 +155,16 @@
                      (future
                        (swap! sockets conj socket)
                        (try
-                         (with-open [socket socket
-                                     reader (io/reader socket)
-                                     writer (io/writer socket)]
-                           (when-let [line (.readLine ^java.io.BufferedReader reader)]
-                             (.write ^java.io.Writer writer
-                                     (str (pr-str (response-for (edn/read-string line))) "\n"))
-                             (.flush ^java.io.Writer writer)))
+                         ;; The daemon owns one request per socket.
+                         (with-open [socket socket]
+                           (let [frame (read-request-frame! (.getInputStream socket))
+                                 request (t/rpcframev2-request frame)
+                                 output (.getOutputStream socket)]
+                             (.write output
+                                     (wire/encode-rpc-frame-v2!
+                                      (response-frame frame request
+                                                      (response-for request))))
+                             (.flush output)))
                          (catch Throwable _ nil)))]
                  (swap! handlers conj handler))
                (catch java.net.SocketException _ nil))))]
@@ -157,18 +228,23 @@
                output))
       (finally ((:stop coordinator)))))
 
+  ;; A typed :query-time-limit is retryable, so one answer is absorbed inside the
+  ;; FRAMRPC client and proves nothing about the host. Serving exactly
+  ;; client-retry-budget of them escapes the same-question budget ONCE, so the
+  ;; task completes only because the outer coordinator retry re-asked.
   (let [port (free-port)
+        ;; Must stay equal to coord.clj's :max-attempts for the escape to occur.
+        client-retry-budget 3
         log (doto (io/file tmp "query-limit.log") (spit ""))
-        stopped-once? (atom false)
+        queries (atom 0)
         response-for
-        (fn [envelope]
-          (let [request (:request envelope)]
-            (if (and (= :query (:op request))
-                     (:query-max-rows request)
-                     (compare-and-set! stopped-once? false true))
-              {:error ["query evaluation stopped: query-time-limit"]
-               :code :query-time-limit :version 0 :engine "index"}
-              (empty-coordinator-response envelope))))
+        (fn [request]
+          (if (and (= :rpc/query (t/rpcrequest-op request))
+                   (<= (swap! queries inc) client-retry-budget))
+            {:error (wire/rpc-error!
+                     :query-time-limit true
+                     "query evaluation stopped: query-time-limit" nil)}
+            (empty-coordinator-response request)))
         environment (common-env tmp port log (io/file tmp "query-limit.lock") 5000)
         coordinator (start-coordinator port response-for)]
     (try
@@ -176,7 +252,7 @@
             output (str (:out result) (:err result))]
         (check "indexed query timeout retries as a coordinator condition"
                (and (zero? (:exit result))
-                    @stopped-once?
+                    (> @queries client-retry-budget)
                     (str/includes? output "coordinator unavailable")
                     (str/includes? output "terminal=completed"))
                output))
