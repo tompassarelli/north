@@ -44,6 +44,28 @@
   (binding [*out* *err* *print-length* nil *print-level* nil]
     (prn (into (sorted-map) record))))
 
+(defn injected-ambiguous-transact! [port actions readback!]
+  (let [batch-attempts (atom 0)
+        outcome
+        (try
+          {:value
+           (with-redefs [rpc/subject-projection!
+                         (fn [_ subject] (readback! subject))]
+             (binding [rpc/*round-trip!*
+                       (fn [client request]
+                         (if (= :rpc/batch (t/rpcrequest-op request))
+                           (if (= 1 (swap! batch-attempts inc))
+                             (throw (java.net.SocketTimeoutException.
+                                     "injected lost batch acknowledgement"))
+                             (rpc/transport-round-trip! client request))
+                           (rpc/transport-round-trip! client request)))]
+               (north.coord/transact! port actions)))}
+          (catch Throwable error {:error error}))]
+    (assoc outcome :batch-attempts @batch-attempts)))
+
+(defn injected-projection [subject occurrences]
+  {:subject subject :served-version 4242 :occurrences occurrences})
+
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
 (defn await-coordinator! [port]
@@ -235,6 +257,70 @@
           :subject subject}))
       (check "sent-ambiguous registration batch is proven absent and replanned"
              replanned?))
+
+    ;; Exercise every disposition of transact!'s exact-subject resolver without
+    ;; a scheduler or a second writer. Each case loses the first batch answer;
+    ;; the injected projection is therefore the only evidence allowed to decide
+    ;; whether the same request committed, may be resent, or must stop.
+    (let [actions-for
+          (fn [subject]
+            [{:op :assert :subject subject :predicate "kind"
+              :value "ambiguity_resolved"}
+             {:op :retract :subject subject :predicate "worktree_head_oid"
+              :value "old"}])
+          committed-subject "@worktree-allocation:resolver-committed"
+          committed
+          (injected-ambiguous-transact!
+           port (actions-for committed-subject)
+           #(injected-projection
+             % {"kind" {"ambiguity_resolved" 1}}))
+          retry-subject "@worktree-allocation:resolver-retry"
+          seeded (north.coord/transact!
+                  port [{:op :assert :subject retry-subject
+                         :predicate "worktree_head_oid" :value "old"}])
+          retried
+          (injected-ambiguous-transact!
+           port (actions-for retry-subject)
+           #(injected-projection
+             % {"worktree_head_oid" {"old" 1}}))
+          retried-rows (set (north.coord/show-rows port retry-subject))
+          mixed
+          (injected-ambiguous-transact!
+           port (actions-for "@worktree-allocation:resolver-mixed")
+           #(injected-projection
+             % {"kind" {"ambiguity_resolved" 1}
+                "worktree_head_oid" {"old" 1}}))
+          readback-error
+          (fn [type]
+            (injected-ambiguous-transact!
+             port (actions-for (str "@worktree-allocation:resolver-" (name type)))
+             (fn [_]
+               (throw (ex-info "injected resolver readback refusal"
+                               {:type type})))))]
+      (check "all intended actions observed resolves the ambiguity as committed"
+             (and (= 1 (:batch-attempts committed))
+                  (= 4242 (get-in committed [:value :ok]))
+                  (true? (get-in committed [:value :changed?]))
+                  (nil? (:error committed))))
+      (check "all action inverses observed proves noncommit and replans successfully"
+             (and (:ok seeded)
+                  (= 2 (:batch-attempts retried))
+                  (:ok (:value retried))
+                  (= #{["kind" "ambiguity_resolved"]} retried-rows)))
+      (check "mixed intended and inverse actions fail closed as torn-subject"
+             (let [data (some-> mixed :error ex-data)]
+               (and (= 1 (:batch-attempts mixed))
+                    (= :rpc/ambiguous-write (:type data))
+                    (= :torn-subject (:resolution data)))))
+      (doseq [[label type]
+              [["unavailable resolver readback fails closed" :readback-unavailable]
+               ["foreign resolver readback fails closed" :foreign-writer]
+               ["durability-ambiguous resolver readback fails closed"
+                :durability-ambiguous]]]
+        (let [result (readback-error type)]
+          (check label
+                 (and (= 1 (:batch-attempts result))
+                      (= type (some-> result :error ex-data :type)))))))
 
     (let [same-left (registration "66666666-6666-4666-8666-666666666666" "6")
           same-right (registration "77777777-7777-4777-8777-777777777777" "6")
