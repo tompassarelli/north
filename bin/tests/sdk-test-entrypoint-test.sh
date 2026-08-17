@@ -63,6 +63,15 @@ printf '%s\n' \
   >"$tmp/bin/bun"
 chmod +x "$tmp/bin/bun"
 
+mkdir -p "$tmp/fram/bin"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tmp/fram/bin/fram-server"
+chmod +x "$tmp/fram/bin/fram-server"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'printf "clojure %s\n" "$*" >> "${NORTH_SDK_TEST_TRACE:?}"' \
+  >"$tmp/bin/clojure"
+chmod +x "$tmp/bin/clojure"
+
 trace="$tmp/trace"
 if ! PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/pass.out"; then
@@ -76,9 +85,10 @@ grep -Eq '^SDK tests: 2 files · 2 pass · 0 skip · 0 fail · 4 expects · [0-9
 
 printf '%s\n' '// isolated Fram server fixture' >"$tmp/sdk/test/mcp-driver-lifetime-integration.test.ts"
 : >"$trace"
-PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" \
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" FRAM_TEST_CHECKOUT="$tmp/fram" \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/server-lane.out"
 grep -Eq '^SDK tests: 3 files · 3 pass · 0 skip · 0 fail · 6 expects · [0-9]+s$' "$tmp/server-lane.out"
+grep -Fxq 'clojure -P -M server.clj' "$trace"
 [[ "$(tail -n 1 "$trace")" == *'./test/mcp-driver-lifetime-integration.test.ts' ]]
 rm "$tmp/sdk/test/mcp-driver-lifetime-integration.test.ts"
 
