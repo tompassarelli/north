@@ -15,7 +15,7 @@
   {:id :agents :title "AGENTS"}
   {:id :system :title "SYSTEM"}]
  :passthrough
- "any other verb passes through to the fram engine (ask, watch, …)"
+ "any other verb passes through to the Beagle Store engine (ask, watch, …)"
  :commands
  [;; ---------------------------------------------------------------- work
   {:verb "capture" :form "north capture \"<title>\" [owner]" :topic :work
@@ -71,7 +71,7 @@
    :summary "landing reconciliation: harvest lane refs already merged to main"}
   {:verb "linear" :form "north linear get|import|plan|sync" :topic :work
    :summary "mechanical Linear bridge (sync is plan-only unless --apply)"}
-  {:verb "merge" :form "north merge <from> <to>" :topic :work :dispatch :fram
+  {:verb "merge" :form "north merge <from> <to>" :topic :work :dispatch :store
    :summary "fold one node into another; refs follow"}
 
   ;; -------------------------------------------------------------- agents
@@ -189,14 +189,14 @@
   {:verb "json" :form "north json <view>" :topic :store
    :summary "machine-readable projections (plate, ready, show, …)"}
   {:verb "tools" :form "north tools" :topic :store
-   :summary "the curated MCP tool surface + the fram engine core"}
+   :summary "the curated MCP tool surface + the Beagle Store engine core"}
   {:verb "boot" :form "north boot" :topic :store
    :summary "session orientation from the live coordination projection"}
-  {:verb "import" :form "north import" :topic :store :dispatch :fram
+  {:verb "import" :form "north import" :topic :store :dispatch :store
    :summary "fold threads/ file edits into the log (idempotent, safe anytime)"}
-  {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :fram
+  {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :store
    :summary "regenerate threads/ from the log — never during concurrent work"}
-  {:verb "set" :form "north set …" :topic :store :dispatch :fram :status :legacy
+  {:verb "set" :form "north set …" :topic :store :dispatch :store :status :legacy
    :summary "direct log append — single-writer/offline only; races otherwise"}
   ;; ----------------------------------------------------------------- ops
   {:verb "dashboard" :form "north dashboard [--once]" :topic :ops
@@ -234,6 +234,6 @@
   {:verb "stream-distill" :form "north stream-distill --project-root DIR --stream-thread ID [--lineage SHA256]" :topic :ops
    :summary "claim one settled mirror and publish its Tier 1 distillation"}
   {:verb "panic" :form "north panic" :topic :ops :dispatch :pre-case
-   :summary "minimal recovery path; works with bb/fram/coordinator down"}
+   :summary "minimal recovery path; works with bb/Store/coordinator down"}
   {:verb "help" :form "north help [<topic>|--all]" :topic :ops
    :summary "the card; a topic page; or the complete reference"}]}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; spend-cli-test.clj — the spend-guard LEDGER against a real Fram daemon.
+;; spend-cli-test.clj — the spend-guard LEDGER against a real Beagle Store daemon.
 ;;
 ;; The concurrent-reservation RACE is the point of build-order step 2: two (here
 ;; ten) reservers contend for headroom sufficient for only some — exactly the
@@ -15,10 +15,10 @@
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH")
-                        "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "Beagle branch-core engine not found; set FRAM_PATH to Beagle's branch-core directory" {:fram fram})))
+           (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                        "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/spend-cli.clj"))
 
@@ -51,16 +51,16 @@
       log (io/file dir "facts.framlog")
       daemon (proc/process
               {:dir fram :out :string :err :string
-               :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                           "FRAM_SERVER_QUIET" "1"
-                           "FRAM_SERVER_XMX" "1g"}}
-              (str fram "/bin/fram-server") "serve" (str port)
+               :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                           "BEAGLE_STORE_SERVER_QUIET" "1"
+                           "BEAGLE_STORE_SERVER_XMX" "1g"}}
+              (str fram "/bin/beagle-store-server") "serve" (str port)
               (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value] (swap! checks conj [label (boolean value)]))]
   (alter-var-root #'north.coord/expected-log (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check! "current Fram server starts"
+    (check! "current Beagle Store server starts"
             (eventually #(= :ready (:state (north.coord/status port)))))
 
     ;; --- fail-closed: missing cardinality declaration --------------------------
@@ -154,7 +154,7 @@
     ;; --- CLI override guardrails (48h expiry cap, mandatory reason) -------------
     (let [run (fn [& a] (apply proc/shell
                                {:dir root :out :string :err :string :continue true
-                                :extra-env {"NORTH_PORT" (str port) "FRAM_LOG" (.getCanonicalPath log) "NORTH_AUTHOR" "test"}}
+                                :extra-env {"NORTH_PORT" (str port) "BEAGLE_STORE_LOG" (.getCanonicalPath log) "NORTH_AUTHOR" "test"}}
                                "bb" "cli/spend-cli.clj" a))
           far (.toString (.plusSeconds (java.time.Instant/now) (* 49 60 60)))
           near (.toString (.plusSeconds (java.time.Instant/now) (* 24 60 60)))]

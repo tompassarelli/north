@@ -30,10 +30,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import type { ProviderPreference, RoutingDecision } from "./providers/types";
 
 const SOURCE_ROOT = resolve(import.meta.dir, "..", "..");
@@ -155,20 +155,20 @@ function allocationBb(): string {
 
 export const defaultWorktreeAllocationWriter: WorktreeAllocationWriter = {
   register(registration) {
-    execFileSync(allocationBb(), framBabashkaArguments([
+    execFileSync(allocationBb(), beagleStoreBabashkaArguments([
       ALLOCATION_WRITER,
       process.env.NORTH_PORT ?? "7977",
       "register",
       JSON.stringify(registration),
     ]), {
       encoding: "utf8",
-      env: framEngineEnvironment(),
-      timeout: framCoordinatorChildTimeout(15_000),
+      env: beagleStoreEnvironment(),
+      timeout: beagleStoreCoordinatorChildTimeout(15_000),
       stdio: ["ignore", "pipe", "pipe"],
     });
   },
   event(subject, event) {
-    execFileSync(allocationBb(), framBabashkaArguments([
+    execFileSync(allocationBb(), beagleStoreBabashkaArguments([
       ALLOCATION_WRITER,
       process.env.NORTH_PORT ?? "7977",
       "event",
@@ -176,8 +176,8 @@ export const defaultWorktreeAllocationWriter: WorktreeAllocationWriter = {
       JSON.stringify(event),
     ]), {
       encoding: "utf8",
-      env: framEngineEnvironment(),
-      timeout: framCoordinatorChildTimeout(15_000),
+      env: beagleStoreEnvironment(),
+      timeout: beagleStoreCoordinatorChildTimeout(15_000),
       stdio: ["ignore", "pipe", "pipe"],
     });
   },

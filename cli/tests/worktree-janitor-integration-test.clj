@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Production worktree-janitor regression. A throwaway Git repository and a
-;; separately fenced Fram coordinator exercise the scheduled worktree task
+;; separately fenced Beagle Store coordinator exercise the scheduled worktree task
 ;; twice; no janitor function is called directly.
 (require '[babashka.fs :as fs]
          '[babashka.process :as proc]
@@ -11,13 +11,13 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-source
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (def fram
   (.getCanonicalPath (io/file fram-source)))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/coord.clj"))
@@ -156,10 +156,10 @@
   (apply proc/shell
          {:out :string :err :string :continue true
           :extra-env (merge environment
-                            {"FRAM_PORT" (str port)
-                             "FRAM_LOG" @test-log
+                            {"BEAGLE_STORE_PORT" (str port)
+                             "BEAGLE_STORE_LOG" @test-log
                              "NORTH_TELEMETRY_PARTITION" "0"
-                             "FRAM_TELEMETRY_LOG" ""})}
+                             "BEAGLE_STORE_TELEMETRY_LOG" ""})}
          "bb" maintenance-host "worktrees" flags))
 
 ;; ---- unregistered <container>/worktrees/ census fixture ---------------------
@@ -241,15 +241,15 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))]
   (reset! test-log (.getCanonicalPath log))
   (try
     (when-not (await-up port)
-      (throw (ex-info "throwaway Fram coordinator did not start"
+      (throw (ex-info "throwaway Beagle Store coordinator did not start"
                       {:stdout (deref (:out daemon))
                        :stderr (deref (:err daemon))})))
 

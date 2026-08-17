@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; spend-breaker-test.clj — the spend-guard circuit breaker + burn/kill/reap
-;; primitives (build-order step 3) against a REAL Fram daemon. Reuses the step-2
+;; primitives (build-order step 3) against a REAL Beagle Store daemon. Reuses the step-2
 ;; harness (temp daemon + temp log). Covers, in dependency order (the breaker is
 ;; GLOBAL, so trip/reset ordering is explicit):
 ;;   1. dead-lane settlement is idempotent (re-sweep never double-settles);
@@ -10,17 +10,17 @@
 ;;   5. the reset ceremony refuses under a live trip condition, the --force path
 ;;      works with the typed confirmation, provenance facts land, and a non-human
 ;;      actor is flagged for needs-review.
-;;   bb cli/tests/spend-breaker-test.clj   (FRAM_PATH or Beagle branch-core)
+;;   bb cli/tests/spend-breaker-test.clj   (BEAGLE_STORE_PATH or Beagle store)
 (require '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[cheshire.core :as json])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH")
-                        "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "Beagle branch-core engine not found; set FRAM_PATH to Beagle's branch-core directory" {:fram fram})))
+           (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                        "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/spend-cli.clj"))   ; also loads spend-breaker.clj
 
@@ -54,10 +54,10 @@
       ring (io/file dir "burn-ring.json")
       daemon (proc/process
               {:dir fram :out :string :err :string
-               :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                           "FRAM_SERVER_QUIET" "1"
-                           "FRAM_SERVER_XMX" "1g"}}
-              (str fram "/bin/fram-server") "serve" (str port)
+               :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                           "BEAGLE_STORE_SERVER_QUIET" "1"
+                           "BEAGLE_STORE_SERVER_XMX" "1g"}}
+              (str fram "/bin/beagle-store-server") "serve" (str port)
               (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       procs  (atom [])
@@ -66,7 +66,7 @@
   (alter-var-root #'north.coord/expected-log (constantly (fn [] (.getCanonicalPath log))))
   (alter-var-root #'north.spend-breaker/ring-file (constantly (fn [_] ring)))
   (try
-    (check! "current Fram server starts"
+    (check! "current Beagle Store server starts"
             (eventually #(= :ready (:state (north.coord/status port)))))
 
     ;; ============ 1. DEAD-LANE SETTLEMENT IS IDEMPOTENT ======================
@@ -138,7 +138,7 @@
                 (apply proc/shell
                        {:dir root :out :string :err :string :continue true
                         :extra-env {"NORTH_PORT" (str port)
-                                    "FRAM_LOG" (.getCanonicalPath log)
+                                    "BEAGLE_STORE_LOG" (.getCanonicalPath log)
                                     "NORTH_SPEND_BURN_STATE" (.getCanonicalPath ring)
                                     "NORTH_AUTHOR" author}}
                        "bb" "cli/spend-cli.clj" a))]

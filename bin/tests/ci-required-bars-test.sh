@@ -40,7 +40,7 @@ grep -Fq 'echo "beagle_ref=$beagle_ref"' <<<"$test_job"
 
 # The assignment form above fails closed only under errexit. Without this line
 # the pin helper's non-zero exit is discarded, empty values reach
-# $GITHUB_OUTPUT, and the job proceeds against an unpinned Fram while staying
+# $GITHUB_OUTPUT, and the job proceeds against an unpinned Beagle Store while staying
 # green. Assert it inside this step, not merely somewhere in the job.
 resolve_step="$(step_block 'Resolve locked source inputs')"
 [[ -n "$resolve_step" ]]
@@ -115,13 +115,13 @@ done
 
 # These are literal workflow expressions, not shell expansions in this process.
 # shellcheck disable=SC2016
-grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/beagle/branch-core' "$WORKFLOW"
+grep -Fq 'BEAGLE_STORE_TEST_CHECKOUT: ${{ github.workspace }}/beagle/store' "$WORKFLOW"
 # shellcheck disable=SC2016
 grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration' "$WORKFLOW"
-grep -Fq 'FRAM_HOME=$GITHUB_WORKSPACE/beagle/branch-core' "$WORKFLOW"
-grep -Fq 'FRAM_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
-grep -Fq 'NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
-grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
+grep -Fq 'BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store' "$WORKFLOW"
+grep -Fq 'BEAGLE_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
+grep -Fq 'NORTH_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
+grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
 if grep -Eq '/home/tom/code/(fram|beagle)' "$WORKFLOW"; then
   echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local engine path' >&2
   exit 1

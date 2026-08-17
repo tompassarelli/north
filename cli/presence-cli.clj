@@ -1,11 +1,11 @@
 ;; presence-cli.clj — presence-as-facts (North gate-2 #30).
 ;;
-;; Presence is a renewable Fram lease. Liveness is judged by Fram's clock,
+;; Presence is a renewable Beagle Store lease. Liveness is judged by Beagle Store's clock,
 ;; never a self-stamped wall-clock heartbeat. This kills
 ;; agentchat's heartbeat clock-skew AND its separate reaper in one move: a dead
 ;; agent's lease simply lapses and online? flips false on its own.
 ;;
-;; A live presence descriptor is @agent:<handle>; read-only rosters scan Fram's
+;; A live presence descriptor is @agent:<handle>; read-only rosters scan Beagle Store's
 ;; canonical :kernel/lease projection. Exact epochs stay with the owning SDK.
 ;;
 ;; usage:
@@ -143,7 +143,7 @@
                  (<= (:epoch grant) max-safe-integer)
                  (integer? (:exp grant)) (pos? (:exp grant))
                  (<= (:exp grant) max-safe-integer))
-    (throw (ex-info "Fram returned an invalid session lease grant"
+    (throw (ex-info "Beagle Store returned an invalid session lease grant"
                     {:type :invalid-presence-grant :handle handle})))
   (canonical-fence grant))
 
@@ -354,7 +354,7 @@
     "identify"                              ; <uuid> [model] [effort] [context_tokens] [lifecycle] [supervisor]
     ;; NOTE: these agent-card fields are registry-single (one value per agent) and the
     ;; intended semantics is last-writer-wins, hence put!. They are not yet in the
-    ;; engine's FRAM_SINGLE_VALUED set, so the engine still treats them as multi — put!
+    ;; engine's BEAGLE_STORE_SINGLE_VALUED set, so the engine still treats them as multi — put!
     ;; here is presently wire-identical to a bare append; the LWW becomes native once
     ;; thread B folds these into the engine cardinality FACT. Verb names the intent.
     (let [[h model effort ctx life sup] args, ae (str "@agent:" h)]

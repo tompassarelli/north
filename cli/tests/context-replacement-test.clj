@@ -10,9 +10,9 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 (def fram-out (str fram "/out"))
 (cp/add-classpath (str root "/out:" fram-out))
 (load-file (str root "/cli/coord.clj"))
@@ -43,10 +43,10 @@
       server
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                    "FRAM_SERVER_QUIET" "1"
-                    "FRAM_SERVER_XMX" "1g"}}
-       (str fram "/bin/fram-server") "serve" (str port) log space)]
+        :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                    "BEAGLE_STORE_SERVER_QUIET" "1"
+                    "BEAGLE_STORE_SERVER_XMX" "1g"}}
+       (str fram "/bin/beagle-store-server") "serve" (str port) log space)]
   (try
     (check! "scratch canonical FRAMRPC server starts"
             (eventually
@@ -60,11 +60,11 @@
             :out :string
             :err :string
             :extra-env
-            {"FRAM_HOME" fram
-             "FRAM_BIN" (str fram "/bin")
-             "FRAM_OUT" fram-out
-             "NORTH_FRAMRPC_OUT" fram-out
-             "FRAM_SPACE_ID" space
+            {"BEAGLE_STORE_HOME" fram
+             "BEAGLE_STORE_BIN" (str fram "/bin")
+             "BEAGLE_STORE_OUT" fram-out
+             "NORTH_STORE_OUT" fram-out
+             "BEAGLE_STORE_SPACE_ID" space
              "NORTH_PORT" (str port)}}
            "bb" "-cp" (str root "/out:" fram-out)
            (str root "/cli/dispatch-guard.clj")

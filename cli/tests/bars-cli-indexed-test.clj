@@ -2,17 +2,17 @@
 ;; bb -cp <fram-out> cli/tests/bars-cli-indexed-test.clj
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
-         '[fram.types :as t])
+         '[store.types :as t])
 
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 
 (load-file (str root "/cli/bars-cli.clj"))
-;; bars-cli.clj loads framrpc-client.clj lazily (only when a connect actually
+;; bars-cli.clj loads store-rpc-client.clj lazily (only when a connect actually
 ;; runs); the test harness needs it loaded up front so with-redefs can stub it.
-(load-file (str root "/cli/framrpc-client.clj"))
-(require '[north.framrpc-client :as rpc])
+(load-file (str root "/cli/store-rpc-client.clj"))
+(require '[north.store-rpc-client :as rpc])
 
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
@@ -118,7 +118,7 @@
          (and (str/includes? entrypoint "\"${NORTH_BARS[@]}\" echo \"$2\"")
               (not (str/includes? entrypoint
                                   "\"${NORTH_MAIN[@]}\" done-bars \"$2\""))))
-  (check "the bars entrypoint carries the Fram classpath the native wire needs"
+  (check "the bars entrypoint carries the Beagle Store classpath the native wire needs"
          (str/includes? entrypoint
                         "NORTH_BARS=(\"$BB\" -cp \"$NORTH_RUNTIME_CLASSPATH\" \"$NORTH/cli/bars-cli.clj\")")))
 

@@ -14,10 +14,10 @@
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -35,7 +35,7 @@ export interface DeathContext {
 interface DeathCommand {
   cmd: string;
   args: string[];
-  framChild?: true;
+  storeChild?: true;
 }
 
 // Normalize any thrown value to a short, single-line reason. The SDK's exitError messages
@@ -97,8 +97,8 @@ export function deathCommands(
   if (ctx.coordinator) {
     cmds.push({
       cmd: "bb",
-      args: framBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${detail} (${ts})`]),
-      framChild: true,
+      args: beagleStoreBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "AGENT DEATH", `${detail} (${ts})`]),
+      storeChild: true,
     });
   }
   return cmds;
@@ -121,7 +121,7 @@ export function notifyDeath(
   // the short reason.
   const chain = causeChain(err, 8, 1200);
   const startedAt = performance.now();
-  for (const { cmd, args, framChild } of deathCommands(agentId, reason, ctx, undefined, chain)) {
+  for (const { cmd, args, storeChild } of deathCommands(agentId, reason, ctx, undefined, chain)) {
     try {
       const remaining = Math.max(
         1,
@@ -129,8 +129,8 @@ export function notifyDeath(
       );
       execFileSync(cmd, args, {
         encoding: "utf8",
-        ...(framChild ? { env: framEngineEnvironment() } : {}),
-        timeout: framChild ? framCoordinatorChildTimeout(remaining) : remaining,
+        ...(storeChild ? { env: beagleStoreEnvironment() } : {}),
+        timeout: storeChild ? beagleStoreCoordinatorChildTimeout(remaining) : remaining,
         stdio: ["ignore", "ignore", "ignore"],
       });
     } catch {

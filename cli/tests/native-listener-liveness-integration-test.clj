@@ -11,9 +11,9 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
@@ -95,7 +95,7 @@
          (> (:exp lease) (System/currentTimeMillis)))))
 
 (defn isolated-env [port _log]
-  {"FRAM_SPACE_ID" test-space
+  {"BEAGLE_STORE_SPACE_ID" test-space
    "NORTH_FRAMRPC_HOST" "127.0.0.1"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_LISTENER_LEASE_TTL_MS" "600"
@@ -174,12 +174,12 @@
        {:dir fram
         :out :string
         :err :string
-        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                    "FRAM_SERVER_QUIET" "1"
-                    "FRAM_SERVER_XMX" "1g"}}
-       (str fram "/bin/fram-server") "serve" (str port) log test-space)]
+        :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                    "BEAGLE_STORE_SERVER_QUIET" "1"
+                    "BEAGLE_STORE_SERVER_XMX" "1g"}}
+       (str fram "/bin/beagle-store-server") "serve" (str port) log test-space)]
   (try
-    (check "throwaway current Fram FRAMRPC server starts"
+    (check "throwaway current Beagle Store FRAMRPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
                                 (:space-id (north.coord/status port))))))

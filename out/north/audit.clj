@@ -9,7 +9,7 @@
 (defn driftgroup-forms [r] (:forms r))
 
 (defn tally [idx ^String pred]
-  (reduce (fn [m ^String te] (reduce (fn [mm ^String v] (assoc mm v (+ 1 (get mm v 0)))) m (proj/string-values-at idx te pred))) {} (proj/thread-subjects idx)))
+  (reduce (fn [m ^String te] (reduce (fn [mm ^String v] (assoc mm v (+ 1 (int (get mm v 0))))) m (proj/string-values-at idx te pred))) {} (proj/thread-subjects idx)))
 
 (defn- ^String norm-repo [^String v]
   (let [low (str/lower-case v)]

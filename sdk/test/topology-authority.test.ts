@@ -274,7 +274,7 @@ test("MCP generic tell cannot emulate a peer goal update under worker topology",
       AGENT_TOPOLOGY: "worker",
       AGENT_ID: "worker-self",
       NORTH_BIN: resolve(north, "bin/north"),
-      FRAM_HOME: "/definitely/absent",
+      BEAGLE_STORE_HOME: "/definitely/absent",
     },
   });
   expect(result.status).toBe(0);
@@ -302,7 +302,7 @@ test("MCP generic tell cannot bypass the run-scoped evidence writer", () => {
       AGENT_TOPOLOGY: "worker",
       AGENT_ID: "worker-self",
       NORTH_BIN: resolve(north, "bin/north"),
-      FRAM_HOME: "/definitely/absent",
+      BEAGLE_STORE_HOME: "/definitely/absent",
     },
   });
   expect(result.status).toBe(0);

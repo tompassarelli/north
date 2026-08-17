@@ -18,15 +18,15 @@
 
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 (def coordination-space "north-coordination")
 (def telemetry-space "north-telemetry")
 
 (classpath/add-classpath (str fram "/out"))
-(require '[framrpc :as wire]
-         '[fram.types :as t])
+(require '[store.rpc :as wire]
+         '[store.types :as t])
 
 (def checks (atom []))
 (defn check! [label value]
@@ -243,14 +243,14 @@
           :err :string
           :extra-env
           (merge
-           {"FRAM_HOME" fram
-            "FRAM_BIN" (str fram "/bin")
-            "FRAM_OUT" (str fram "/out")
-            "FRAM_SERVER_CONNECT" "127.0.0.1"
-            "FRAM_SERVER_PORT" port
-            "FRAM_SPACE_ID" coordination-space
+           {"BEAGLE_STORE_HOME" fram
+            "BEAGLE_STORE_BIN" (str fram "/bin")
+            "BEAGLE_STORE_OUT" (str fram "/out")
+            "BEAGLE_STORE_SERVER_CONNECT" "127.0.0.1"
+            "BEAGLE_STORE_SERVER_PORT" port
+            "BEAGLE_STORE_SPACE_ID" coordination-space
             "NORTH_FRAMRPC_HOST" "127.0.0.1"
-            "NORTH_FRAMRPC_OUT" (str fram "/out")
+            "NORTH_STORE_OUT" (str fram "/out")
             "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
             "NORTH_TELEMETRY_SPACE_ID" telemetry-space

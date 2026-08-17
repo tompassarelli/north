@@ -1,10 +1,10 @@
-# engine sources symlinked in for the Beagle build (Fram is the source of truth)
+# engine sources symlinked in for the Beagle build (Beagle Store is the source of truth)
 src/fram
 
 # tenant registry holds token hashes + topology — keep it out of git
 
 # NOTE: the compiled Clojure in out/ IS committed (North runs on bare
-# babashka, no Beagle needed at runtime — mirrors Fram). Rebuild with ./build.sh
+# babashka, no Beagle needed at runtime — mirrors Beagle Store). Rebuild with ./build.sh
 # and commit the result when the .bclj sources change.
 
 # npm-generated lockfile in bun projects (bun.lock is the source of truth)

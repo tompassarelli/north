@@ -23,7 +23,7 @@ rev=0123456789abcdef0123456789abcdef01234567
 write_lock fram github example fram "$rev" 'sha256-YWJjZA=='
 [[ "$("$PIN" "$TMP/flake.lock" fram repository)" == example/fram ]]
 [[ "$("$PIN" "$TMP/flake.lock" fram revision)" == "$rev" ]]
-[[ "$("$PIN" "$TMP/flake.lock" fram url)" == https://github.com/example/fram.git ]]
+[[ "$("$PIN" "$TMP/flake.lock" fram url)" == https://github.com/example/store.git ]]
 "$PIN" "$TMP/flake.lock" fram json |
   jq -e --arg rev "$rev" \
     '.input == "fram" and .repository == "example/fram" and .rev == $rev and .narHash == "sha256-YWJjZA=="' \
@@ -73,7 +73,7 @@ input=beagle-engine-source
 current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
 current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
 [[ "$current_repository" == tompassarelli/beagle ]]
-[[ "$current_revision" == db33a4e70718dc9a1b1cff57e33128ad44b6bcb9 ]]
+[[ "$current_revision" == e55dbf48617aa71d85da9383b9cb2ac7230456bd ]]
 [[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
 [[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
 [[ "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].flake' "$ROOT/flake.lock")" == false ]]

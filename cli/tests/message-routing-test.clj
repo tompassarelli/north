@@ -7,8 +7,8 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-out
-  (str (or (System/getenv "FRAM_HOME")
-           "/home/tom/code/beagle/main/branch-core")
+  (str (or (System/getenv "BEAGLE_STORE_HOME")
+           "/home/tom/code/beagle/main/store")
        "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-routing.clj"))

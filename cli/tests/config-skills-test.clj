@@ -194,7 +194,7 @@
 (defn readout-case []
   (spit claude-mcp "{\"mcpServers\":{\"north\":{}}}")
   (spit claude-settings "{\"enabledPlugins\":{\"orchestration@orchestration\":true}}")
-  (spit codex-config "[mcp_servers.fram]\n[plugins.example]\n")
+  (spit codex-config "[mcp_servers.beagle-store]\n[plugins.example]\n")
   (let [before (run-cli "list")
         synced (run-cli "sync")
         after (run-cli "list")
@@ -208,7 +208,7 @@
                 (str/includes? (:out after) "published farm: READY")))
     (check "status prints provider MCP and plugin inverse commands"
            (every? #(str/includes? (:out status) %)
-                   ["claude mcp remove north" "codex mcp remove fram"
+                   ["claude mcp remove north" "codex mcp remove beagle-store"
                     "claude plugin uninstall orchestration@orchestration"
                     "codex plugin uninstall example"
                     "published: READY · target:" "generation: gen-"]))))

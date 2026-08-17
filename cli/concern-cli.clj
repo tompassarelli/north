@@ -241,7 +241,7 @@
 
 (defn indexed-subjects-for
   "Bounded predicate/object lookup for automatic workers. This must stay on
-   Fram's predicate/object index; an automatic path may not warm the
+   Beagle Store's predicate/object index; an automatic path may not warm the
    whole-corpus query cache."
   [port predicate object]
   (->> (north.coord/bounded-query-in-domain

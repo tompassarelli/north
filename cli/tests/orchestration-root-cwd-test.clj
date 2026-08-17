@@ -8,7 +8,7 @@
 ;; nor NORTH_HOME was set. A `bb` subprocess spawned by execFileSync (e.g.
 ;; sdk/src/orchestration-policy-pin.ts) inherits the CALLER's cwd, so
 ;; dispatching `north delegate` from any directory other than the north
-;; checkout (e.g. ~/code/beagle/main/branch-core) walked to <caller-cwd>/orchestration/scripts/
+;; checkout (e.g. ~/code/beagle/main/store) walked to <caller-cwd>/orchestration/scripts/
 ;; selection-assessment.mjs, which does not exist, and died at admission with
 ;; ERR_MODULE_NOT_FOUND before any provider call.
 ;;

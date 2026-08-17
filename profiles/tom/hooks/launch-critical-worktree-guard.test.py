@@ -66,7 +66,7 @@ def check(label, condition):
 
 
 NORTH = "/home/tom/code/north/main"
-FRAM = "/home/tom/code/fram/main"
+STORE = "/home/tom/code/fram/main"
 
 print("--- must DENY: what actually happened on 2026-07-29 ---")
 
@@ -83,7 +83,7 @@ check("git reset --hard against the fram primary via -C",
       run(bash("git -C /home/tom/code/fram/main reset --hard origin/main")))
 
 check("git add of many paths from inside the fram primary",
-      run(bash("FILES=$(cat list); git add $FILES", cwd=FRAM)))
+      run(bash("FILES=$(cat list); git add $FILES", cwd=STORE)))
 
 check("git push from inside the primary",
       run(bash("git push origin main", cwd=NORTH)))
@@ -502,7 +502,7 @@ print("--- apply_patch envelopes: every header form ---")
 
 add_main = ENV.format(verb="Add", path=f"{NORTH}/cli/x.clj", body="+x\n")
 update_relative = ENV.format(verb="Update", path="cli/x.clj", body="@@\n-a\n+b\n")
-delete_fram = ENV.format(verb="Delete", path=f"{FRAM}/x.clj", body="")
+delete_fram = ENV.format(verb="Delete", path=f"{STORE}/x.clj", body="")
 move_main = ENV.format(
     verb="Update", path="/home/tom/code/north/worktrees/abc/a.clj",
     body=f"*** Move to: {NORTH}/a.clj\n@@\n-a\n+b\n")

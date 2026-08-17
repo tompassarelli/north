@@ -88,13 +88,13 @@ STORE — the fact corpus and its schema
   north audit                     corpus-health report
   north history <id>              a subject's full fact history from the log
   north json <view>               machine-readable projections (plate, ready, show, …)
-  north tools                     the curated MCP tool surface + the fram engine core
+  north tools                     the curated MCP tool surface + the Beagle Store engine core
   north boot                      session orientation from the live coordination projection
   north import                    fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>          regenerate threads/ from the log — never during concurrent work
   north set …                     legacy — direct log append — single-writer/offline only; races otherwise
 
-  any other verb passes through to the fram engine (ask, watch, …)
+  any other verb passes through to the Beagle Store engine (ask, watch, …)
 
 OPS — daemons, health, deployment
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
@@ -118,5 +118,5 @@ OPS — daemons, health, deployment
   north stream-sync                             cursor-based transcript log-shipping
   north stream-distill --project-root DIR --stream-thread ID [--lineage SHA256]
                                                 claim one settled mirror and publish its Tier 1 distillation
-  north panic                                   minimal recovery path; works with bb/fram/coordinator down
+  north panic                                   minimal recovery path; works with bb/Store/coordinator down
   north help [<topic>|--all]                    the card; a topic page; or the complete reference

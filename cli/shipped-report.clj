@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; `north report` is a bounded Fram projection: it enumerates run subjects, then
+;; `north report` is a bounded Beagle Store projection: it enumerates run subjects, then
 ;; reads the exact run and thread subjects in two batched operations.
 (ns north.shipped-report
   (:require [clojure.string :as str])

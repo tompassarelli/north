@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Real Fram socket gate for north.delivery-evidence-internal/record! under
+;; Real Beagle Store socket gate for north.delivery-evidence-internal/record! under
 ;; concurrent write traffic (thread 019f9f12-b5fa).
 ;;
 ;; The bug: run-bound evidence publication raced every unrelated coordinator
@@ -16,12 +16,12 @@
            (io/file (.getParent (io/file *file*)) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
+   (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
   (throw
    (ex-info
-    "Beagle branch-core engine not found; set FRAM_PATH to Beagle's branch-core directory"
+    "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory"
     {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
@@ -34,9 +34,9 @@
                 (constantly (fn [] false)))
 
 (defn scratch-coordinator-env [port dir log]
-  {"FRAM_LOG" (.getPath log)
-   "FRAM_SPACE_ID" "north-coordination"
-   "FRAM_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.framlog"))
+  {"BEAGLE_STORE_LOG" (.getPath log)
+   "BEAGLE_STORE_SPACE_ID" "north-coordination"
+   "BEAGLE_STORE_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.framlog"))
    "NORTH_PORT" (str port)
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
@@ -68,10 +68,10 @@
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                    "FRAM_SERVER_QUIET" "1"
-                    "FRAM_SERVER_XMX" "1g"}}
-       (str fram "/bin/fram-server") "serve" (str port)
+        :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                    "BEAGLE_STORE_SERVER_QUIET" "1"
+                    "BEAGLE_STORE_SERVER_XMX" "1g"}}
+       (str fram "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value]
@@ -79,7 +79,7 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check! "current Fram server starts"
+    (check! "current Beagle Store server starts"
             (eventually
              #(let [status (north.coord/status port)]
                 (and (= :ready (:state status))

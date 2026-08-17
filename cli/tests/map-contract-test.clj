@@ -6,7 +6,7 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def cli (str root "/cli/north-map.clj"))
-(def fram (or (System/getenv "FRAM_HOME")
+(def fram (or (System/getenv "BEAGLE_STORE_HOME")
               (.getCanonicalPath (io/file root ".." ".." "fram" "main"))))
 (def fram-out (str fram "/out"))
 (def orchestration (or (System/getenv "NORTH_ORCHESTRATION_HOME")

@@ -7,7 +7,7 @@
 (ns north.wip-cli
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [fram.types :as t]
+            [store.types :as t]
             [north.projections :as proj]))
 
 (load-file

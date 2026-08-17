@@ -38,7 +38,7 @@ import { causeChain } from "../src/death";
 import { kw } from "../src/coord-wire";
 import {
   decodeFrame, encodeResponseFrame, rpcRecord, RPC_V2_HEADER_BYTES,
-} from "../src/framrpc-codec";
+} from "../src/store-rpc-codec";
 import {
   WireEventWriter,
   wireEventId,
@@ -106,7 +106,7 @@ function expectedCodexFeatureArgs(web: boolean): string[] {
 }
 
 // When this suite runs inside a managed north lane, the ambient graph identity
-// (AGENT_COORDINATOR, FRAM_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
+// (AGENT_COORDINATOR, BEAGLE_STORE_*, NORTH_AUTHOR/DRIVER/LEAD/…) is on the harness MCP
 // env whitelist and leaks into the compiled Codex MCP args, breaking the exact
 // hermetic env assertion below. Scrub the inherited pollution around every test;
 // each test that needs specific graph state sets it explicitly afterward.
@@ -1466,8 +1466,8 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   process.env.AGENT_LAWS = "on";
   process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
   process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
-  process.env.FRAM_SERVER_PORT = process.env.NORTH_PORT;
-  process.env.FRAM_SPACE_ID = "north-coordination";
+  process.env.BEAGLE_STORE_SERVER_PORT = process.env.NORTH_PORT;
+  process.env.BEAGLE_STORE_SPACE_ID = "north-coordination";
   process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
   const codexHome = join(home, ".codex");
   mkdirSync(codexHome);

@@ -51,10 +51,10 @@ import {
   type EnvironmentArtifact, type EnvironmentReceipt, type PromptReceipt,
 } from "./composition-receipt";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import {
   loadPresenceFence, parsePresenceFence, persistPresenceFence, presenceFenceJson,
 } from "./presence-fence";
@@ -181,12 +181,12 @@ export function sendPeerCommand(
   }
   validatePeerCommandArgs(op, args);
   const commandArgs = { ...args };
-  return execFileSync(peerBb(), framBabashkaArguments([
+  return execFileSync(peerBb(), beagleStoreBabashkaArguments([
     MSG_CLI, northPort(), "send-cmd", self, to, op, ednArgs(commandArgs),
   ]), {
     encoding: "utf8",
-    env: framEngineEnvironment(),
-    timeout: framCoordinatorChildTimeout(),
+    env: beagleStoreEnvironment(),
+    timeout: beagleStoreCoordinatorChildTimeout(),
   });
 }
 
@@ -421,13 +421,13 @@ function registerPresence(self: string, cwd: string): void {
   // Registration is a bounded synchronous admission edge. A detached child can
   // otherwise land its lease after a fast provider-preflight terminal has
   // already withdrawn presence, resurrecting a 30-minute ghost roster row.
-  const output = execFileSync(presenceBb(), framBabashkaArguments([
+  const output = execFileSync(presenceBb(), beagleStoreBabashkaArguments([
     `${REPO}/cli/presence-cli.clj`, northPort(), "register", self, cwd, self,
   ]), {
-    env: framEngineEnvironment(),
+    env: beagleStoreEnvironment(),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: framCoordinatorChildTimeout(5_000),
+    timeout: beagleStoreCoordinatorChildTimeout(5_000),
   });
   persistPresenceFence(self, process.env.NORTH_IDENTITY_TEST_REDIRECT === "1"
     ? { resource: `session:${self}`, holder: self, epoch: 1 }
@@ -458,13 +458,13 @@ function renewPresence(self: string): void {
   try {
     const fence = loadPresenceFence(self);
     const fenceJson = presenceFenceJson(fence);
-    const output = execFileSync(presenceBb(), framBabashkaArguments([
+    const output = execFileSync(presenceBb(), beagleStoreBabashkaArguments([
       `${REPO}/cli/presence-cli.clj`, northPort(), "renew", self, fenceJson,
     ]), {
-      env: framEngineEnvironment(),
+      env: beagleStoreEnvironment(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: framCoordinatorChildTimeout(5_000),
+      timeout: beagleStoreCoordinatorChildTimeout(5_000),
     });
     const renewed = process.env.NORTH_IDENTITY_TEST_REDIRECT === "1"
       ? fence

@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Integration regression for the canonical dispatch-driver claim protocol. Every
-;; assertion runs against an isolated Fram coordinator rather than a mocked command.
+;; assertion runs against an isolated Beagle Store coordinator rather than a mocked command.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
          '[clojure.java.io :as io]
@@ -10,9 +10,9 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (def acquire-cli (str root "/cli/acquire-cli.clj"))
@@ -48,8 +48,8 @@
 
 (defn acquire [port verb thread holder]
   (proc/shell {:continue true :out :string :err :string
-               :extra-env {"FRAM_LOG" @test-log
-                           "FRAM_SPACE_ID" "north-coordination"
+               :extra-env {"BEAGLE_STORE_LOG" @test-log
+                           "BEAGLE_STORE_SPACE_ID" "north-coordination"
                            "NORTH_TELEMETRY_PARTITION" "0"}}
               "bb" "-cp" runtime-classpath acquire-cli
               (str port) verb thread holder))
@@ -65,22 +65,22 @@
       unknown (str "@" unknown-id)
       first-holder "agent:first"
       second-holder "agent:second"
-      daemon-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                  "FRAM_SERVER_QUIET" "1"
-                  "FRAM_SERVER_XMX" "1g"
-                  "FRAM_SINGLE_VALUED" "title driver"}
+      daemon-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                  "BEAGLE_STORE_SERVER_QUIET" "1"
+                  "BEAGLE_STORE_SERVER_XMX" "1g"
+                  "BEAGLE_STORE_SINGLE_VALUED" "title driver"}
       daemon (proc/process {:dir fram
                             :out :string
                             :err :string
                             :extra-env daemon-env}
-                           (str fram "/bin/fram-server") "serve" (str port)
+                           (str fram "/bin/beagle-store-server") "serve" (str port)
                            (.getCanonicalPath log) "north-coordination")]
   (reset! test-log (.getCanonicalPath log))
   (try
     (let [started? (await-up port)]
-      (check "throwaway Fram coordinator starts" started?)
+      (check "throwaway Beagle Store coordinator starts" started?)
       (when-not started?
-        (throw (ex-info "throwaway Fram coordinator did not start"
+        (throw (ex-info "throwaway Beagle Store coordinator did not start"
                         {:stdout (deref (:out daemon))
                          :stderr (deref (:err daemon))})))
 

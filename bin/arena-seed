@@ -7,7 +7,7 @@
 ;; renders + updates live. The graph arm uses fewer tokens and less wall time;
 ;; the control arm burns extra attempts and usage, one task blocks, one fails.
 ;;
-;; One process speaking canonical FRAMRPC to the current Fram server.
+;; One process speaking canonical FRAMRPC to the current Beagle Store server.
 ;; Re-drivable: each run mints a FRESH exp id unless one is passed.
 ;;
 ;;   usage: bin/arena-seed [exp_id]
@@ -17,22 +17,22 @@
 (def ROOT
   (some-> (System/getProperty "babashka.file")
           io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def FRAM
+(def STORE
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
-(def FRAM-OUT
+   (io/file (or (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
+(def STORE-OUT
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_OUT") (str FRAM "/out")))))
+   (io/file (or (System/getenv "BEAGLE_STORE_OUT") (str STORE "/out")))))
 
-(when-not (.isDirectory (io/file FRAM-OUT))
-  (throw (ex-info "current Fram output is unavailable"
-                  {:fram-home FRAM :fram-out FRAM-OUT})))
+(when-not (.isDirectory (io/file STORE-OUT))
+  (throw (ex-info "current Beagle Store output is unavailable"
+                  {:fram-home STORE :fram-out STORE-OUT})))
 
-(classpath/add-classpath FRAM-OUT)
-(load-file (str ROOT "/cli/framrpc-client.clj"))
-(require '[fram.types :as t]
-         '[north.framrpc-client :as rpc])
+(classpath/add-classpath STORE-OUT)
+(load-file (str ROOT "/cli/store-rpc-client.clj"))
+(require '[store.types :as t]
+         '[north.store-rpc-client :as rpc])
 
 (defn parse-port [raw]
   (when-not (and (string? raw) (re-matches #"[1-9][0-9]{0,4}" raw))
@@ -49,7 +49,7 @@
 (def HOST
   (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1"))
 (def SPACE-ID
-  (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination"))
+  (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination"))
 (def exp (or (first *command-line-args*)
              (str "EXP-025-demo-"
                   (.format (java.time.LocalTime/now)

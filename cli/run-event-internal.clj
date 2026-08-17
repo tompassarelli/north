@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Retry-idempotent exact WireEvent publication. Every fact projection retains
-;; the canonical event bytes; Fram serializes each append and rejects forks.
+;; the canonical event bytes; Beagle Store serializes each append and rejects forks.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.java.shell :as shell]

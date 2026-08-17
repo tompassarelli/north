@@ -905,10 +905,10 @@ function setup(mode = "ok") {
         if (mode === "project-disabled-tracked" || mode === "project-disabled-no-warning"
             || mode === "nested-project-warning") {
           current.layers[1].config = {
-            mcp_servers: { fram: {
-              command: "/home/tom/code/beagle/main/branch-core/bin/fram-mcp",
+            mcp_servers: { "beagle-store": {
+              command: "/home/tom/code/beagle/main/store/bin/beagle-store-mcp",
               args: [],
-              env: { FRAM_FLIP: "1", FRAM_GRAPH_EDIT: "1" },
+              env: { BEAGLE_STORE_FLIP: "1", BEAGLE_STORE_GRAPH_EDIT: "1" },
             } },
           };
           current.layers[1].disabledReason = `${projectRoot} is marked as untrusted in ${codexHome}/config.toml. To load project-local config, hooks, and exec policies, mark it trusted.`;

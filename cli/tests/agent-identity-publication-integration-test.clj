@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Exact managed-identity publication against a throwaway Fram coordinator.
+;; Exact managed-identity publication against a throwaway Beagle Store coordinator.
 (require '[babashka.process :as proc]
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
@@ -9,10 +9,10 @@
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+   (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
@@ -43,7 +43,7 @@
   ([port operation subject value extra-env]
    (let [result (proc/shell {:out :string :err :string :continue true
                              :extra-env (assoc extra-env
-                                               "FRAM_LOG" @test-log)}
+                                               "BEAGLE_STORE_LOG" @test-log)}
                             "bb" writer (str port) operation subject value)]
      {:exit (:exit result) :out (:out result) :err (:err result)})))
 (defn run-managed-writer
@@ -54,7 +54,7 @@
    (let [result
          (proc/shell
           {:out :string :err :string :continue true
-           :extra-env {"FRAM_LOG" @test-log}}
+           :extra-env {"BEAGLE_STORE_LOG" @test-log}}
           "bb" writer (str port) operation subject value holder operation-id
           (if desired (json/generate-string desired) "")
           (if expected (json/generate-string expected) "")
@@ -124,10 +124,10 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       subject "@agent:identity-publication-probe"
       preset {"kind" "lane" "role" "integrator" "model" "claude-opus-4-8"
@@ -158,7 +158,7 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
   (try
-    (check "throwaway current Fram server starts"
+    (check "throwaway current Beagle Store server starts"
            (eventually
             #(try
                (let [status (north.coord/status port)]
@@ -1185,7 +1185,7 @@
             (proc/shell {:out :string :err :string :continue true
                          :extra-env {"AGENT_ID" "delivery-verifier"
                                      "NORTH_PORT" (str port)
-                                     "FRAM_LOG" @test-log}}
+                                     "BEAGLE_STORE_LOG" @test-log}}
                         (str root "/bin/north") "delivery" "attest"
                         "delivery-worker")
             stored (scalar-facts (entity-facts port worker-subject))]

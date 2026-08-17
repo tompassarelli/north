@@ -9,7 +9,7 @@ import {
   terminalPublicationBudgetMs,
   TerminalPublicationBudget,
 } from "../src/terminal-notification";
-import { framBabashkaArguments } from "../src/fram-engine";
+import { beagleStoreBabashkaArguments } from "../src/beagle-store";
 import {
   WireEventWriter,
   wireEventId,
@@ -90,7 +90,7 @@ test("success completes while a preflight refusal reports an honest blocked term
         runPublication: "recorded",
       },
     );
-    expect(command?.args.slice(0, 4)).toEqual(framBabashkaArguments([
+    expect(command?.args.slice(0, 4)).toEqual(beagleStoreBabashkaArguments([
       expect.stringMatching(/\/cli\/msg-cli\.clj$/),
       expect.any(String),
     ]));

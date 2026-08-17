@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Whole-run lifecycle regression for one independently scheduled maintenance
 ;; task. The fixture coordinator answers in canonical FRAMRPC v2 through the
-;; locked Fram wire namespace; canonical coordination state is never started or
+;; locked Beagle Store wire namespace; canonical coordination state is never started or
 ;; mutated.
 (require '[babashka.classpath :as classpath]
          '[babashka.process :as proc]
@@ -12,13 +12,13 @@
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 
 (classpath/add-classpath (str fram "/out"))
-(require '[framrpc :as wire]
-         '[fram.types :as t])
+(require '[store.rpc :as wire]
+         '[store.types :as t])
 
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def checks (atom []))
@@ -44,8 +44,8 @@
 
 (defn common-env [tmp port log lock timeout-ms]
   {"HOME" (.getCanonicalPath (io/file tmp "home"))
-   "FRAM_PORT" (str port)
-   "FRAM_LOG" (.getCanonicalPath log)
+   "BEAGLE_STORE_PORT" (str port)
+   "BEAGLE_STORE_LOG" (.getCanonicalPath log)
    "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath (io/file tmp "agent-logs"))
    "NORTH_WORKER_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
    "NORTH_MAINTENANCE_TASK_LOCK_PATH" (.getCanonicalPath lock)

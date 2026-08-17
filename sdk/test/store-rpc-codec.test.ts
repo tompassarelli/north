@@ -1,12 +1,12 @@
-// Golden frames in fixtures/framrpc-golden-frames.json were produced by Fram's
-// own encoder (`bb -cp "$FRAM_OUT"` loading `framrpc`), so an
+// Golden frames in fixtures/framrpc-golden-frames.json were produced by Beagle Store's
+// own encoder (`bb -cp "$BEAGLE_STORE_OUT"` loading `framrpc`), so an
 // assertion here is a cross-check against the server's wire authority,
 // not against this module's own idea of the format.
 import { expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { kw, Keyword, framSpaceId, nativeRouteForSubject } from "../src/coord-wire";
+import { kw, Keyword, storeSpaceId, nativeRouteForSubject } from "../src/coord-wire";
 import {
   decodeFrame, decodeLeaseCheck, decodeLeaseGrant, decodeLeaseReleased,
   decodeMutationResult, decodeStatus, decodeTriples, encodeRequestFrame,
@@ -16,11 +16,11 @@ import {
   rpcTriplePattern, termEquals, triple, RPC_UNIT, RPC_SUBJECT_EXISTING,
   RPC_V2_HEADER_BYTES, RPC_V2_MAX_TERM_DEPTH,
   type RpcRequest, type RpcResponse, type Term,
-} from "../src/framrpc-codec";
+} from "../src/store-rpc-codec";
 import {
   FramRpcClient, FramRpcServerError, FramRpcTransportError, socketRoundTrip,
   type FramRpcTransportInput,
-} from "../src/framrpc-client";
+} from "../src/store-rpc-client";
 
 const GOLDEN: Record<string, string> = JSON.parse(readFileSync(
   join(import.meta.dir, "fixtures", "framrpc-golden-frames.json"), "utf8",
@@ -667,16 +667,16 @@ test("a mismatched response identity is a transport failure, not a result", asyn
 
 // --- environment ------------------------------------------------------------
 
-test("FRAM_SPACE_ID selects the space and defaults to north-coordination", () => {
-  const previous = process.env.FRAM_SPACE_ID;
+test("BEAGLE_STORE_SPACE_ID selects the space and defaults to north-coordination", () => {
+  const previous = process.env.BEAGLE_STORE_SPACE_ID;
   try {
-    delete process.env.FRAM_SPACE_ID;
-    expect(framSpaceId()).toBe("north-coordination");
-    process.env.FRAM_SPACE_ID = "north-graph-lane-abc";
-    expect(framSpaceId()).toBe("north-graph-lane-abc");
+    delete process.env.BEAGLE_STORE_SPACE_ID;
+    expect(storeSpaceId()).toBe("north-coordination");
+    process.env.BEAGLE_STORE_SPACE_ID = "north-graph-lane-abc";
+    expect(storeSpaceId()).toBe("north-graph-lane-abc");
     expect(nativeRouteForSubject("@agent:x").spaceId).toBe("north-graph-lane-abc");
   } finally {
-    if (previous === undefined) delete process.env.FRAM_SPACE_ID;
-    else process.env.FRAM_SPACE_ID = previous;
+    if (previous === undefined) delete process.env.BEAGLE_STORE_SPACE_ID;
+    else process.env.BEAGLE_STORE_SPACE_ID = previous;
   }
 });

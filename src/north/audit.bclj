@@ -14,7 +14,7 @@
 (defn tally [(idx proj/ProjectionIndex) (pred String)] (Map String Int)
   (reduce (fn [(m (Map String Int)) (te String)] (Map String Int)
             (reduce (fn [(mm (Map String Int)) (v String)] (Map String Int)
-                      (assoc mm v (+ 1 (get mm v 0))))
+                      (assoc mm v (+ 1 (int (get mm v 0)))))
                     m (proj/string-values-at idx te pred)))
           {} (proj/thread-subjects idx)))
 

@@ -12,9 +12,9 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_HOME")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      "/home/tom/code/beagle/main/store"))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
@@ -47,7 +47,7 @@
          ".shadow-reviewer." (subs (sha256 source-agent-id) 0 12))))
 
 (defn test-env [port]
-  {"FRAM_SPACE_ID" test-space
+  {"BEAGLE_STORE_SPACE_ID" test-space
    "NORTH_FRAMRPC_HOST" "127.0.0.1"
    "BABASHKA_CLASSPATH" (str root "/out:" fram "/out")
    "NORTH_TELEMETRY_PARTITION" "0"
@@ -80,7 +80,7 @@
   (let [result (deref server 5000 nil)]
     (throw
      (ex-info
-      "throwaway Fram server failed to start"
+      "throwaway Beagle Store server failed to start"
       {:exit (:exit result)
        :stdout (or (:out result) "<unavailable>")
        :stderr (or (:err result) "<unavailable>")}))))
@@ -199,17 +199,17 @@
                 (.getCanonicalPath log) test-space)
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) test-space))]
   (try
     (let [started?
           (await-server-boot
            #(and (port-open? port)
                  (= test-space (:space-id (north.coord/status port)))))]
-      (check "throwaway current Fram FRAMRPC server starts" started?)
+      (check "throwaway current Beagle Store FRAMRPC server starts" started?)
       (when-not started?
         (fail-server-boot! server)))
 

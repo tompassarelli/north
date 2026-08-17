@@ -55,7 +55,7 @@ check deny "$HOME/code/fram/main"                        "the checkout root itse
 # --- 2. the sanctioned destinations are NOT denied ---------------------------
 check allow "$HOME/code/fram/worktrees/topic/server.clj"       "a lane is where agents are TOLD to work"
 check allow "/tmp/north-lane-abc123/cli/x.clj"                 "managed lane worktree"
-check allow "/tmp/fram-indexed-show-lane/bin/fram-fast.clj"    "ad-hoc lane worktree"
+check allow "/tmp/beagle-store-indexed-show-lane/bin/beagle-store-cli.clj"    "ad-hoc lane worktree"
 
 # T4 — the pre-filter gate. This payload contains NO literal `main` and names no
 # launch-critical container, so without `*pins*` in the cheap bash pre-filter the
@@ -68,7 +68,7 @@ check deny "$HOME/code/gjoa/pins/0123456789abcdef0123456789abcdef01234567/index.
 
 # --- 2b. gitignored paths are exempt ----------------------------------------
 # A gitignored file can never make the tree tracked-dirty, so it cannot cause
-# either failure this guard prevents (a runtime reading a dirty Fram checkout,
+# either failure this guard prevents (a runtime reading a dirty Beagle Store checkout,
 # or a rebuild publishing only committed state). Blocking them bought
 # nothing and stopped agents writing docs/private/ notes — which is exactly
 # where policy says internal notes belong.

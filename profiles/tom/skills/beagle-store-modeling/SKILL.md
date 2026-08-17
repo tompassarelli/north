@@ -1,0 +1,1 @@
+../../../../../../beagle/main/store/integrations/north/skills/beagle-store-modeling/SKILL.md

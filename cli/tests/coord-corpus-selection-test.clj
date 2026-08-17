@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; FRAM_LOG selects WHICH CORPUS. FRAM_TELEMETRY_LOG only says where telemetry
+;; BEAGLE_STORE_LOG selects WHICH CORPUS. BEAGLE_STORE_TELEMETRY_LOG only says where telemetry
 ;; goes and must never veto that selection: every direct-bb client (the presence
 ;; hooks) fences on this answer, and a wrong one is rejected :log-mismatch.
 (require '[babashka.process :as p]
@@ -36,32 +36,32 @@
 (let [facts (str state "/facts.log")
       split (str state "/coordination.log")]
   (check "with no split log present, the default corpus is facts.log"
-         (= facts (selected {:unset ["FRAM_LOG" "FRAM_TELEMETRY_LOG"]
+         (= facts (selected {:unset ["BEAGLE_STORE_LOG" "BEAGLE_STORE_TELEMETRY_LOG"]
                              :set {"HOME" tmp}})))
 
   (spit split "")
 
   (check "a present split log is selected over facts.log"
-         (= split (selected {:unset ["FRAM_LOG" "FRAM_TELEMETRY_LOG"]
+         (= split (selected {:unset ["BEAGLE_STORE_LOG" "BEAGLE_STORE_TELEMETRY_LOG"]
                              :set {"HOME" tmp}})))
 
-  (check "FRAM_TELEMETRY_LOG does not veto split-log corpus selection"
-         (= split (selected {:unset ["FRAM_LOG"]
+  (check "BEAGLE_STORE_TELEMETRY_LOG does not veto split-log corpus selection"
+         (= split (selected {:unset ["BEAGLE_STORE_LOG"]
                              :set {"HOME" tmp
-                                   "FRAM_TELEMETRY_LOG" (str state "/telemetry.log")}})))
+                                   "BEAGLE_STORE_TELEMETRY_LOG" (str state "/telemetry.log")}})))
 
   (check "a partitioned deployment still selects the split log"
-         (= split (selected {:unset ["FRAM_LOG"]
+         (= split (selected {:unset ["BEAGLE_STORE_LOG"]
                              :set {"HOME" tmp
                                    "NORTH_TELEMETRY_PARTITION" "1"
                                    "NORTH_TELEMETRY_PORT" "7978"
-                                   "FRAM_TELEMETRY_LOG" (str state "/telemetry.log")}})))
+                                   "BEAGLE_STORE_TELEMETRY_LOG" (str state "/telemetry.log")}})))
 
-  (check "an explicitly pinned FRAM_LOG still wins"
+  (check "an explicitly pinned BEAGLE_STORE_LOG still wins"
          (= facts (selected {:unset []
                              :set {"HOME" tmp
-                                   "FRAM_LOG" facts
-                                   "FRAM_TELEMETRY_LOG" (str state "/telemetry.log")}}))))
+                                   "BEAGLE_STORE_LOG" facts
+                                   "BEAGLE_STORE_TELEMETRY_LOG" (str state "/telemetry.log")}}))))
 
 (let [failed (remove second @checks)]
   (println (str "coord corpus selection: " (- (count @checks) (count failed))

@@ -154,7 +154,7 @@ as facts about the predicate, which is itself an entity with subject `@<pred>`:
 - `@<pred> acyclic true` — the edge may not form a cycle (`depends_on`, `part_of`).
 
 Precedence when the engine classifies a predicate is **fact > env > legacy
-fallback**: a `cardinality` fact in the log wins over the `FRAM_SINGLE_VALUED`
+fallback**: a `cardinality` fact in the log wins over the `BEAGLE_STORE_SINGLE_VALUED`
 env list, which wins over the built-in default. Read a predicate's metadata the
 same way you read any thread — `north show <pred>` (e.g. `north show title`).
 
@@ -177,7 +177,7 @@ per-predicate tool catalog to memorize; `north show <pred>` reveals a predicate.
 
 ### FRAMRPC and FRAMLOG
 
-North clients address the canonical Fram server by host, port, and SpaceId.
+North clients address the canonical Beagle Store server by host, port, and SpaceId.
 They never select or fold a physical log. The installed wrappers inherit the
 selected FRAMRPC environment; missing endpoint identity fails closed.
 Coordination and telemetry remain separate logical
@@ -545,7 +545,7 @@ fine. The system handles both.
 ## The CLI: `north`
 
 One binary. Run it via the north wrapper: **`~/code/north/main/bin/north`**.
-The installed wrapper inherits the sealed current-Fram FRAMRPC endpoint and
+The installed wrapper inherits the sealed current-Beagle Store FRAMRPC endpoint and
 sets capture provenance defaults. `~/code/north/main/bin/north-mcp` forwards
 that exact inherited endpoint to managed children and refuses to invent a
 default when the wrapper contract is absent.

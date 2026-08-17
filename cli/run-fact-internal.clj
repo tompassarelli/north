@@ -1153,7 +1153,7 @@
           actual))
 
 (defn publish-summary-chunks! [port subject lease body-facts]
-  ;; Fram fences are SpaceId-local: the writer lease lives in :coordination,
+  ;; Beagle Store fences are SpaceId-local: the writer lease lives in :coordination,
   ;; while @run facts live in :telemetry. The lease serializes cooperative
   ;; writers; each telemetry chunk uses its own expected-version CAS.
   (when-not (:valid? (north.coord/check-lease! port lease))

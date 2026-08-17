@@ -23,8 +23,8 @@ export function telemetryPort(): number {
   return value;
 }
 
-export function framSpaceId(): string {
-  return process.env.FRAM_SPACE_ID || "north-coordination";
+export function storeSpaceId(): string {
+  return process.env.BEAGLE_STORE_SPACE_ID || "north-coordination";
 }
 
 export function telemetrySpaceId(): string {
@@ -39,5 +39,5 @@ export function nativeRouteForSubject(subject: string): { port: number; spaceId:
   if (telemetryPartitionEnabled() && isTelemetrySubject(subject)) {
     return { port: telemetryPort(), spaceId: telemetrySpaceId() };
   }
-  return { port: coordPort(), spaceId: framSpaceId() };
+  return { port: coordPort(), spaceId: storeSpaceId() };
 }

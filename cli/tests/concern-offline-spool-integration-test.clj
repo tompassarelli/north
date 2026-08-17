@@ -14,9 +14,9 @@
    (io/file (or (System/getenv "NORTH_TEST_SUBJECT_ROOT") test-root))))
 (def fram-root
   (or (System/getenv "NORTH_TEST_FRAM_ROOT")
-      (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+      (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (def runtime-classpath (str test-root "/out:" fram-root "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str test-root "/cli/coord.clj"))
@@ -111,8 +111,8 @@
   (let [env
         (merge
          {"NORTH_PORT" (str port)
-          "FRAM_LOG" (.getCanonicalPath log)
-          "FRAM_SPACE_ID" "north-coordination"
+          "BEAGLE_STORE_LOG" (.getCanonicalPath log)
+          "BEAGLE_STORE_SPACE_ID" "north-coordination"
           "NORTH_TELEMETRY_PARTITION" "0"
           "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
           "NORTH_CONCERN_DECLARE_TRANSPORT_TIMEOUT_MS" "300"}
@@ -139,8 +139,8 @@
   (let [env
         (merge
          {"NORTH_PORT" (str port)
-          "FRAM_LOG" (.getCanonicalPath log)
-          "FRAM_SPACE_ID" "north-coordination"
+          "BEAGLE_STORE_LOG" (.getCanonicalPath log)
+          "BEAGLE_STORE_SPACE_ID" "north-coordination"
           "NORTH_TELEMETRY_PARTITION" "0"
           "NORTH_CONCERN_SPOOL_DIR" (.getCanonicalPath spool)
           "NORTH_COORD_CONNECT_TIMEOUT_MS" "100"
@@ -405,18 +405,18 @@
       telemetry-log (io/file tmp "telemetry.framlog")
       port (free-port)
       env
-      {"FRAM_LOG" (.getCanonicalPath log)
-       "FRAM_SPACE_ID" "north-coordination"
-       "FRAM_TELEMETRY_LOG" (.getCanonicalPath telemetry-log)
+      {"BEAGLE_STORE_LOG" (.getCanonicalPath log)
+       "BEAGLE_STORE_SPACE_ID" "north-coordination"
+       "BEAGLE_STORE_TELEMETRY_LOG" (.getCanonicalPath telemetry-log)
        "NORTH_TELEMETRY_PARTITION" "0"
        "NORTH_TELEMETRY_PORT" (str port)
-       "FRAM_SERVER_RUNTIME" "jvm-dev"
-       "FRAM_SERVER_QUIET" "1"
-       "FRAM_SERVER_XMX" "1g"}
+       "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+       "BEAGLE_STORE_SERVER_QUIET" "1"
+       "BEAGLE_STORE_SERVER_XMX" "1g"}
       daemon
       (p/process
        {:dir fram-root :out :string :err :string :extra-env env}
-       (str fram-root "/bin/fram-server") "serve" (str port)
+       (str fram-root "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")]
   (try
     (check "strict live coordinator fixture starts" (await-port port daemon))

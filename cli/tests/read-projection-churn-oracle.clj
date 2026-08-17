@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Deterministic reliability oracle for North read projections under write churn.
 ;;
-;; The harness always creates a temporary FRAMLOG and an isolated current Fram
+;; The harness always creates a temporary FRAMLOG and an isolated current Beagle Store
 ;; FRAMRPC server. It refuses port 7977 at every socket boundary. Defaults exercise
 ;; three corpus sizes, three writer counts, and five trials per combination.
 (require '[babashka.classpath :as cp]
@@ -79,9 +79,9 @@
                                      (System/getProperty "babashka.file"))))
             "../..")))
 (def fram-root
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_HOME")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      "/home/tom/code/beagle/main/store"))
 (def north-out (str north-root "/out"))
 (def fram-out (str fram-root "/out"))
 (def read-classpath (str north-out java.io.File/pathSeparator fram-out))
@@ -91,12 +91,12 @@
                 (constantly (fn [] false)))
 (load-file (str fram-root "/database.clj"))
 (require '[database :as database]
-         '[fram.store :as store]
-         '[fram.types :as t])
+         '[store.store :as store]
+         '[store.types :as t])
 (load-file (str north-root "/cli/agent-provenance.clj"))
 
-(when-not (.isFile (io/file fram-root "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine lacks bin/fram-server"
+(when-not (.isFile (io/file fram-root "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine lacks bin/beagle-store-server"
                   {:fram fram-root})))
 (when-not (.isDirectory (io/file north-out))
   (throw (ex-info "North output directory is missing; run ./build.sh"
@@ -214,9 +214,9 @@
 
 (defn server-env []
   (merge (isolated-environment)
-         {"FRAM_SERVER_RUNTIME" "jvm-dev"
-          "FRAM_SERVER_QUIET" "1"
-          "FRAM_SERVER_XMX" "2g"}))
+         {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+          "BEAGLE_STORE_SERVER_QUIET" "1"
+          "BEAGLE_STORE_SERVER_XMX" "2g"}))
 
 (defn start-server! [port log server-output]
   (require-scratch-port! port)
@@ -225,12 +225,12 @@
     :out server-output
     :err :out
     :env (server-env)}
-   (str fram-root "/bin/fram-server") "serve" (str port) log test-space))
+   (str fram-root "/bin/beagle-store-server") "serve" (str port) log test-space))
 
 (defn process-env [port _log]
   (merge
    (server-env)
-   {"FRAM_SPACE_ID" test-space
+   {"BEAGLE_STORE_SPACE_ID" test-space
     "NORTH_FRAMRPC_HOST" "127.0.0.1"
     "NORTH_TELEMETRY_PARTITION" "0"
     "NORTH_PORT" (str (require-scratch-port! port))
@@ -545,7 +545,7 @@
           (str "north-read-projection-oracle-" corpus "-")
           (make-array java.nio.file.attribute.FileAttribute 0)))
         log (require-scratch-log! directory (io/file directory "facts.framlog"))
-        server-output (io/file directory "fram-server.log")
+        server-output (io/file directory "beagle-store-server.log")
         port (free-high-port)
         seed (seed-log! log corpus)
         server (start-server! port log server-output)]
@@ -555,7 +555,7 @@
         #(let [status (north.coord/status port)]
            (and (= :ready (:state status))
                 (= test-space (:space-id status)))))
-        (throw (ex-info "scratch current Fram server did not become ready"
+        (throw (ex-info "scratch current Beagle Store server did not become ready"
                         {:port port :log log :server-log (str server-output)})))
       (let [served-facts (:live-count (north.coord/status port))]
         (println

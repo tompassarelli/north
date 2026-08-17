@@ -3,11 +3,11 @@
 import { createHash } from "node:crypto";
 import {
   FramRpcClient, FramRpcServerError, FramRpcTransportError,
-} from "./framrpc-client";
-import type { BatchAction, Term } from "./framrpc-codec";
+} from "./store-rpc-client";
+import type { BatchAction, Term } from "./store-rpc-codec";
 import {
   FramTriple, RPC_SUBJECT_ANY, rpcFence, termEquals, triple,
-} from "./framrpc-codec";
+} from "./store-rpc-codec";
 import type { ManagedWriteResult } from "./identity";
 
 // ---------------------------------------------------------------------------

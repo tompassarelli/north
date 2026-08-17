@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import type { Fact } from "./north-client";
 import {
   boundedDoneBars, canonicalDoneBars, MAX_DELIVERY_BARS,
@@ -371,12 +371,12 @@ function invokeWriter(
 ): string {
   const invocation = deliveryWriterInvocation(operation, request, port);
   try {
-    return execFileSync("bb", framBabashkaArguments(invocation.argv), {
+    return execFileSync("bb", beagleStoreBabashkaArguments(invocation.argv), {
       encoding: "utf8",
-      env: framEngineEnvironment(),
+      env: beagleStoreEnvironment(),
       input: invocation.stdin,
       stdio: ["pipe", "pipe", "pipe"],
-      timeout: framCoordinatorChildTimeout(operation === "reserve"
+      timeout: beagleStoreCoordinatorChildTimeout(operation === "reserve"
         ? DELIVERY_RESERVATION_WRITER_TIMEOUT_MS
         : DELIVERY_EVIDENCE_WRITER_TIMEOUT_MS),
     }).trim();

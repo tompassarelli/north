@@ -9,9 +9,9 @@
    (io/file (.getParent (io/file test-script)) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [result @(proc/process

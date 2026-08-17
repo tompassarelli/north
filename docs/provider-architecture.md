@@ -414,7 +414,7 @@ remain writable because workers need to report outcomes and request replanning.
 
 This is an application authorization boundary, not a same-UID security sandbox.
 Code already holding an unrestricted user shell can bypass an application by
-invoking Fram's coordinator protocol directly, opening North's sockets, or
+invoking Beagle Store's coordinator protocol directly, opening North's sockets, or
 editing user-owned state. Those are unsupported integrity violations and may be
 detected by audit/validation; North does not claim to make them impossible.
 Hostile-code isolation requires an OS/container boundary outside this harness.

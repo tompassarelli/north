@@ -114,7 +114,7 @@ explicit North thread or deterministically creates one. The thread retains a
 `linear <KEY>` compatibility alias, but aliases are never used as identity or
 auto-matched: duplicate historical aliases are common. The canonical reverse
 handle is the ref-valued `linear_link @link:...`. Its target is the
-fact-bearing integration-link entity, not a thread. Fram validates generic
+fact-bearing integration-link entity, not a thread. Beagle Store validates generic
 refs against any fact-bearing entity; North alone applies thread-only rules to
 its thread predicates. `north linear doctor` mechanically migrates the one
 adapter-owned legacy workaround from `linear_link value_kind literal` to `ref`.
@@ -276,7 +276,7 @@ write and before final graph publication.
 Fenced values travel to the local lease helper over private stdin, never argv,
 environment variables, or temporary files. Caller and helper both enforce one
 160 KiB UTF-8 byte ceiling—above Linux's per-argument ceiling, while a
-worst-case escaped EDN value plus bounded metadata remains under Fram's 1 MiB
+worst-case escaped EDN value plus bounded metadata remains under Beagle Store's 1 MiB
 request-line limit. The shared coordinator client also measures the actual
 serialized request and rejects an oversized line before connecting. Helper stderr is drained
 but never retained or surfaced, and helper failures use fixed diagnostics so

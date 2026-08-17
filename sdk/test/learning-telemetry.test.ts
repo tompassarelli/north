@@ -169,11 +169,11 @@ test("terminal wire telemetry preserves hashed learning provenance without priva
 				source: "fixture",
 				coverage: "exact",
 				totalCalls: 3,
-				tools: [{ server: "fram", tool: "show", count: 3 }],
+				tools: [{ server: "beagle-store", tool: "show", count: 3 }],
 				operationReceipts: [
-					{ tool: "fram/show", operation: "reasoning.inspect", durationMs: 2, resultSize: 1, outcome: "ok" },
-					{ tool: "fram/show", operation: "reasoning.inspect", durationMs: 3, resultSize: 1, outcome: "ok" },
-					{ tool: "fram/show", operation: "reasoning.inspect", durationMs: 4, resultSize: 1, outcome: "typed_failure" },
+					{ tool: "beagle-store/show", operation: "reasoning.inspect", durationMs: 2, resultSize: 1, outcome: "ok" },
+					{ tool: "beagle-store/show", operation: "reasoning.inspect", durationMs: 3, resultSize: 1, outcome: "ok" },
+					{ tool: "beagle-store/show", operation: "reasoning.inspect", durationMs: 4, resultSize: 1, outcome: "typed_failure" },
 				],
 				operationAggregates: [{
 					operation: "reasoning.inspect",

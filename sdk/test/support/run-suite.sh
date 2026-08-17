@@ -46,12 +46,12 @@ if ((${#files[@]} == 0)); then
   exit 2
 fi
 
-# Fram-server startup is CPU-sensitive. Keep files that own an isolated server
+# Beagle Store-server startup is CPU-sensitive. Keep files that own an isolated server
 # out of the ordinary unit-file wave while preserving their per-file deadline.
 server_files=()
 parallel_files=()
 for file in "${files[@]}"; do
-  if grep -Fq 'isolated Fram server' "$file"; then
+  if grep -Fq 'isolated Beagle Store server' "$file"; then
     server_files+=("$file")
   else
     parallel_files+=("$file")
@@ -60,21 +60,21 @@ done
 
 warm_isolated_fram_server() {
   local fram_home fram_server
-  fram_home="${FRAM_TEST_CHECKOUT:-${FRAM_HOME:-}}"
+  fram_home="${BEAGLE_STORE_TEST_CHECKOUT:-${BEAGLE_STORE_HOME:-}}"
   if [[ -z "$fram_home" ]]; then
-    echo "isolated Fram server warm-up requires FRAM_TEST_CHECKOUT or FRAM_HOME" >&2
+    echo "isolated Beagle Store server warm-up requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME" >&2
     exit 2
   fi
-  fram_server="$fram_home/bin/fram-server"
+  fram_server="$fram_home/bin/beagle-store-server"
   if [[ ! -x "$fram_server" ]]; then
-    echo "isolated Fram server warm-up requires $fram_server" >&2
+    echo "isolated Beagle Store server warm-up requires $fram_server" >&2
     exit 1
   fi
   if ! (
     cd "$fram_home"
-    FRAM_SERVER_RUNTIME=jvm-dev clojure -P -M server.clj
+    BEAGLE_STORE_SERVER_RUNTIME=jvm-dev clojure -P -M server.clj
   ); then
-    echo "isolated Fram server dependency preparation failed" >&2
+    echo "isolated Beagle Store server dependency preparation failed" >&2
     exit 1
   fi
 }

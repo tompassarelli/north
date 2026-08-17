@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Translate systemd socket activation into Fram's engine-neutral pre-bound-fd
+# Translate systemd socket activation into Beagle Store's engine-neutral pre-bound-fd
 # contract. The exec preserves both PID and descriptor number.
 set -euo pipefail
 
@@ -15,8 +15,8 @@ if (($# == 0)); then
   exit 2
 fi
 
-if [[ -n "${FRAM_LISTEN_FD:-}" ]]; then
-  fail_activation "FRAM_LISTEN_FD is launcher-owned"
+if [[ -n "${BEAGLE_STORE_LISTEN_FD:-}" ]]; then
+  fail_activation "BEAGLE_STORE_LISTEN_FD is launcher-owned"
 fi
 
 listen_fds=${LISTEN_FDS:-0}
@@ -43,6 +43,6 @@ if [[ ! -r /proc/self/fd/3 ]] ||
   fail_activation "descriptor 3 is not an open socket"
 fi
 
-export FRAM_LISTEN_FD=3
+export BEAGLE_STORE_LISTEN_FD=3
 unset LISTEN_PID LISTEN_FDS LISTEN_FDNAMES
 exec "$@"

@@ -134,7 +134,7 @@ export function resolveManagedGuardChain(
 // CLI hook protocol delivers it ({tool_name, tool_input:{file_path|command,...},
 // cwd, session_id, ...}), and interpret the result per the protocol above.
 // Inherits the parent process env (default spawn behavior — NOT overridden) so the
-// guards see FRAM_LOG, CLAUDE_NO_AUTHORING_HOOKS, and the rest of the killswitch env.
+// guards see BEAGLE_STORE_LOG, CLAUDE_NO_AUTHORING_HOOKS, and the rest of the killswitch env.
 export function runGuardScript(
   scriptPath: string,
   hookInput: unknown,

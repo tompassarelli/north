@@ -1,12 +1,12 @@
 ;; msg-cli.clj — messaging-as-facts (North gate-2, primitive 3) + command-as-facts.
 ;; A message = @msg:<id> facts (human mail); a COMMAND = @cmd:<id> facts (op/target/args
 ;; each a separate fact, NEVER an opaque {:op :args} body blob). ack = a fact (acked_by);
-;; inbox/done/pending = derived queries. Fram stores and notifies; routing stays
+;; inbox/done/pending = derived queries. Beagle Store stores and notifies; routing stays
 ;; in North.
 (require '[cheshire.core :as json]
          '[clojure.edn :as edn] '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; Reply validation uses Fram's commit-time closed-vocabulary, cardinality, and
+;; Reply validation uses Beagle Store's commit-time closed-vocabulary, cardinality, and
 ;; dangling-reference rules. A rejected fact is an invalid reply.
 
 ;; Shared cardinality-aware publication and command queries live in cli/coord.clj.
@@ -229,7 +229,7 @@
     :else (str value)))
 
 (defn wake-command! [port command target]
-  ;; Fram's scoped subscription contract routes only commits whose predicate is
+  ;; Beagle Store's scoped subscription contract routes only commits whose predicate is
   ;; `to` or `target`. A fresh wake subject preserves command history while its
   ;; target fact supplies the address-bearing activation edge.
   (let [wake (str "@cmd-wake:" (java.util.UUID/randomUUID))]
@@ -323,7 +323,7 @@
             (north.message-audience/snapshot-broadcast! port e from))]
       (if msg-admission
         ;; This is the message acceptance linearization point. Every
-        ;; load-bearing route read follows the global BASE capture, then Fram
+        ;; load-bearing route read follows the global BASE capture, then Beagle Store
         ;; compares BASE + lands `to` in one serialized writer turn. A freeze
         ;; between validation and this assert conflicts, retries the whole
         ;; route read, and cannot leave an accepted post-freeze message.

@@ -10,8 +10,8 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      "/home/tom/code/beagle/main/store"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (def msg-cli (str root "/cli/msg-cli.clj"))
@@ -37,7 +37,7 @@
       :else (do (Thread/sleep 25) (recur (inc attempt))))))
 
 (defn await-daemon-boot [predicate]
-  ;; Fram cold starts can exceed 20 seconds under ordinary host contention.
+  ;; Beagle Store cold starts can exceed 20 seconds under ordinary host contention.
   ;; Match the established msg-cli integration-test budget instead of turning
   ;; a slow fixture into a product failure.
   (loop [attempt 0]
@@ -59,11 +59,11 @@
   (north.coord/resolved port subject predicate))
 
 (defn isolated-env [port log]
-  {"FRAM_LOG" log
-   "FRAM_TELEMETRY_LOG"
+  {"BEAGLE_STORE_LOG" log
+   "BEAGLE_STORE_TELEMETRY_LOG"
    (.getCanonicalPath
     (io/file (.getParentFile (io/file log)) "telemetry.framlog"))
-   "FRAM_SPACE_ID" "north-coordination"
+   "BEAGLE_STORE_SPACE_ID" "north-coordination"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 
@@ -112,13 +112,13 @@
           :extra-env
           (merge
            (isolated-env port log)
-           {"FRAM_SERVER_RUNTIME" "jvm-dev"
-            "FRAM_SERVER_QUIET" "1"
-            "FRAM_SERVER_XMX" "1g"
-            "FRAM_SINGLE_VALUED"
+           {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+            "BEAGLE_STORE_SERVER_QUIET" "1"
+            "BEAGLE_STORE_SERVER_XMX" "1g"
+            "BEAGLE_STORE_SINGLE_VALUED"
             (str "title from subject body sent_at to attention_kind "
                  "delivery_class requires_ack about agent dir session_id started_at")})}
-         (str fram "/bin/fram-server") "serve" (str port) log
+         (str fram "/bin/beagle-store-server") "serve" (str port) log
          "north-coordination")]
     (try
       (let [started?
@@ -127,7 +127,7 @@
                                 (catch Throwable _ nil))]
                 (and (= :ready (:state status))
                      (= "north-coordination" (:space-id status)))))]
-        (check "throwaway Fram coordinator starts" started?)
+        (check "throwaway Beagle Store coordinator starts" started?)
         (when started?
           (body port log tmp)))
       (finally
@@ -208,8 +208,8 @@
            (proc/process
             {:out listener-log
              :err listener-log
-            :extra-env {"FRAM_LOG" log
-                        "FRAM_SPACE_ID" "north-coordination"
+            :extra-env {"BEAGLE_STORE_LOG" log
+                        "BEAGLE_STORE_SPACE_ID" "north-coordination"
                         "NO_COLOR" "1"}}
             "bb" "-cp" runtime-classpath listener-cli
             (str port) "live-reviewer"
@@ -259,9 +259,9 @@
     (merge
      {"HOME" (.getCanonicalPath tmp)
       "XDG_CONFIG_HOME" (str (.getCanonicalPath tmp) "/config")
-      "FRAM_HOME" "/test/fram"
-      "FRAM_BIN" "/test/fram/bin"
-      "FRAM_OUT" "/test/fram/out"
+      "BEAGLE_STORE_HOME" "/test/fram"
+      "BEAGLE_STORE_BIN" "/test/fram/bin"
+      "BEAGLE_STORE_OUT" "/test/fram/out"
       "NORTH_BB" "/run/current-system/sw/bin/echo"
       "NORTH_PORT" "47891"}
      env)}

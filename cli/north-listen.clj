@@ -4,7 +4,7 @@
 ;;   self-channel : a direct commit to {uuid} ∪ {roles it HOLDS}, or a broadcast
 ;;                  whose finite send-time audience contains uuid
 ;;   watched thread: a commit whose SUBJECT is a thread it watches                  — that thread moved
-;; You ADDRESS a role (e.g. `to fram-engine`) and it routes to the current holder — agents are
+;; You ADDRESS a role (e.g. `to beagle-store`) and it routes to the current holder — agents are
 ;; fungible, roles are the stable address. holds/watches are facts (@agent:<uuid> holds @role:…
 ;; / watches @thread), so assign/unassign/watch/unwatch updates the scope on the
 ;; next bounded occurrence poll without reconnecting.

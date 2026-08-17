@@ -13,7 +13,7 @@
 (def concern-cli (str cli-dir "/concern-cli.clj"))
 (def port
   (or (System/getenv "NORTH_PORT")
-      (System/getenv "FRAM_PORT")
+      (System/getenv "BEAGLE_STORE_PORT")
       "7977"))
 (def spool-dir
   (io/file

@@ -11,7 +11,7 @@ import {
   type AvailabilityRow,
 } from "../src/failover";
 import { runFailoverCli } from "../src/failover-cli";
-import { framBabashkaArguments } from "../src/fram-engine";
+import { beagleStoreBabashkaArguments } from "../src/beagle-store";
 
 const reset = "2026-07-29T00:00:00.000Z";
 const observedAt = "2026-07-28T05:00:00.000Z";
@@ -312,7 +312,7 @@ test("dry-run composition is complete and execution remains injectable", () => {
   expect(spawn.context.brief.content).toBe("succession context");
   expect(spawn.context.threadMap.map(({ id }) => id)).toEqual(["root", "child"]);
   expect(spawn.prompt).toContain("THREAD MAP");
-  expect(spawn.notification.args).toEqual(framBabashkaArguments([
+  expect(spawn.notification.args).toEqual(beagleStoreBabashkaArguments([
     "/fixture/msg-cli.clj", "9000", "send", "coordinator", "human",
     "PROVIDER FAILOVER FIRED",
     "@root -> openai/codex-heir/gpt-5.6-sol (senior); reason=provider-recovery",
@@ -452,7 +452,7 @@ describe("failover CLI", () => {
     expect(commands[0]).toEqual(["/fixture/north", expect.arrayContaining(["spawn", "team-lead"])]);
     expect(commands[1]?.[0]).toBe("/fixture/bb");
     expect(commands[1]?.[1].slice(0, 4)).toEqual(
-      framBabashkaArguments(["/fixture/msg-cli.clj", "9000"], env),
+      beagleStoreBabashkaArguments(["/fixture/msg-cli.clj", "9000"], env),
     );
   });
 

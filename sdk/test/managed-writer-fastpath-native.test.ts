@@ -3,12 +3,12 @@ import { kw, Keyword } from "../src/coord-wire";
 import {
   FramRpcClient, FramRpcTransportError,
   type FramRpcTransportInput,
-} from "../src/framrpc-client";
+} from "../src/store-rpc-client";
 import {
   FramTriple, RPC_SUBJECT_ANY, framInstant, rpcFence, rpcList, rpcListValues,
   rpcOption, rpcOptionValue, rpcRecord, rpcRecordFields, termEquals, triple,
   type BatchAction, type RpcErrorTerm, type RpcResponse, type Term,
-} from "../src/framrpc-codec";
+} from "../src/store-rpc-codec";
 import {
   fastPublish, identityMarker, normalizeAgentEntity, writeLeaseResource,
 } from "../src/managed-writer-fastpath";

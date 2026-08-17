@@ -165,7 +165,7 @@
     (for [[unit {:keys [active socket memory]}] services
           :let [name (str/replace unit #"\.service$" "")
                 current (get memory "memory.current") max (get memory "memory.max")]]
-      (str "  " name " :" (if (= name "north-fram") "7977" "7978")
+      (str "  " name " :" (if (= name "north-store") "7977" "7978")
            "  process " (if active "up" "down") " · socket " (if socket "ok" "down")
            " · mem " (bytes current) "/" (bytes max)))
     ["  collecting…"]))

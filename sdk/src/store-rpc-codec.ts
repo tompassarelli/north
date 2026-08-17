@@ -1,6 +1,6 @@
 // Binary FRAMRPC v2 codec. Every byte here MUST match fram:src/
-// framrpc.bclj (TermCodecV1 + FRAMRPC v2) — one server decoder parses
-// this module and north:cli/framrpc-client.clj alike; test/fixtures golden
+// store/rpc.bclj (TermCodecV1 + FRAMRPC v2) — one server decoder parses
+// this module and north:cli/store-rpc-client.clj alike; test/fixtures golden
 // frames come from that Clojure encoder.
 // Framing only: no IO, no retry, no publication orchestration.
 // Fail-closed divergences: an Int outside Number.MAX_SAFE_INTEGER is refused
@@ -46,7 +46,7 @@ function fail(code: string, message: string): never {
   throw new FramRpcCodecError(code, message);
 }
 
-// --- limits (fram:src/framrpc.bclj FRAMRPC v2) -------------------------------
+// --- limits (fram:src/store/rpc.bclj FRAMRPC v2) -------------------------------
 export const RPC_V2_MAJOR = 2;
 export const RPC_V2_MINOR = 0;
 export const RPC_V2_HEADER_BYTES = 26;

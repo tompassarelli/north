@@ -12,14 +12,14 @@ const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
 // legitimately consume the 30s server budget. Keep Bun's ceiling above that
 // boundary, matching the client-side rationale in src/north-client.ts.
 const MCP_PROCESS_TEST_TIMEOUT_MS = 45_000;
-function framRpcEnvironment(root: string, port = "7977"): Record<string, string> {
+function storeRpcEnvironment(root: string, port = "7977"): Record<string, string> {
   return {
-    FRAM_HOME: join(root, "fram"),
-    FRAM_BIN: join(root, "fram/bin"),
-    FRAM_OUT: join(root, "fram/out"),
-    NORTH_FRAMRPC_OUT: join(root, "fram/out"),
-    FRAM_SPACE_ID: "north-coordination",
-    FRAM_SERVER_PORT: port,
+    BEAGLE_STORE_HOME: join(root, "fram"),
+    BEAGLE_STORE_BIN: join(root, "fram/bin"),
+    BEAGLE_STORE_OUT: join(root, "fram/out"),
+    NORTH_STORE_OUT: join(root, "fram/out"),
+    BEAGLE_STORE_SPACE_ID: "north-coordination",
+    BEAGLE_STORE_SERVER_PORT: port,
     NORTH_PORT: port,
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
     NORTH_TELEMETRY_PORT: port === "65535" ? "65534" : String(Number(port) + 1),
@@ -64,10 +64,10 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   chmodSync(fakeNorth, 0o755);
 
   const selectors = [
-    "FRAM_THREADS", "NORTH_PORT",
-    "NORTH_FRAMRPC_OUT", "NORTH_TELEMETRY_PARTITION",
+    "BEAGLE_STORE_THREADS", "NORTH_PORT",
+    "NORTH_STORE_OUT", "NORTH_TELEMETRY_PARTITION",
     "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
-    "FRAM_BIN", "FRAM_HOME", "FRAM_OUT", "FRAM_SERVER_PORT", "FRAM_SPACE_ID",
+    "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
     "AGENT_MODEL", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER",
     "AGENT_REASONING", "AGENT_EFFORT", "AGENT_POSTURE", "AGENT_COMPOSITION",
     "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS", "AGENT_TOPOLOGY",
@@ -77,7 +77,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
   const env = Object.fromEntries(
     Object.entries(process.env)
       .filter(([key, value]) => value !== undefined
-        && !key.startsWith("FRAM_") && !selectors.includes(key)),
+        && !key.startsWith("BEAGLE_STORE_") && !selectors.includes(key)),
   ) as Record<string, string>;
   Object.assign(env, {
     HOME: home,
@@ -87,12 +87,12 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
     NO_COLOR: "1",
-    FRAM_HOME: join(directory, "fram"),
-    FRAM_BIN: join(directory, "fram/bin"),
-    FRAM_OUT: join(directory, "fram/out"),
-    NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
-    FRAM_SPACE_ID: "north-coordination",
-    FRAM_SERVER_PORT: "7977",
+    BEAGLE_STORE_HOME: join(directory, "fram"),
+    BEAGLE_STORE_BIN: join(directory, "fram/bin"),
+    BEAGLE_STORE_OUT: join(directory, "fram/out"),
+    NORTH_STORE_OUT: join(directory, "fram/out"),
+    BEAGLE_STORE_SPACE_ID: "north-coordination",
+    BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
     NORTH_TELEMETRY_PORT: "7978",
@@ -343,20 +343,20 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
 
 test("MCP SDK launches forward the inherited canonical FRAMRPC instance exactly", () => {
   const launched = mcpSpawnEnvironment((home, env) => {
-    env.FRAM_THREADS = join(home, "custom-threads");
+    env.BEAGLE_STORE_THREADS = join(home, "custom-threads");
   });
   expect(launched.childEnv).toMatchObject({
-    FRAM_HOME: join(launched.home, "../fram"),
-    FRAM_BIN: join(launched.home, "../fram/bin"),
-    FRAM_OUT: join(launched.home, "../fram/out"),
-    NORTH_FRAMRPC_OUT: join(launched.home, "../fram/out"),
-    FRAM_SPACE_ID: "north-coordination",
-    FRAM_SERVER_PORT: "7977",
+    BEAGLE_STORE_HOME: join(launched.home, "../fram"),
+    BEAGLE_STORE_BIN: join(launched.home, "../fram/bin"),
+    BEAGLE_STORE_OUT: join(launched.home, "../fram/out"),
+    NORTH_STORE_OUT: join(launched.home, "../fram/out"),
+    BEAGLE_STORE_SPACE_ID: "north-coordination",
+    BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
     NORTH_TELEMETRY_PORT: "7978",
     NORTH_TELEMETRY_PARTITION: "1",
-    FRAM_THREADS: join(launched.home, "custom-threads"),
+    BEAGLE_STORE_THREADS: join(launched.home, "custom-threads"),
   });
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
@@ -372,17 +372,17 @@ test("MCP launch fails closed when the inherited FRAMRPC environment is incomple
     HOME: directory,
     NORTH_MCP_BUN: fakeBun,
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
-    FRAM_HOME: join(directory, "fram"),
-    FRAM_BIN: join(directory, "fram/bin"),
-    FRAM_OUT: join(directory, "fram/out"),
-    NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
-    FRAM_SERVER_PORT: "7977",
+    BEAGLE_STORE_HOME: join(directory, "fram"),
+    BEAGLE_STORE_BIN: join(directory, "fram/bin"),
+    BEAGLE_STORE_OUT: join(directory, "fram/out"),
+    NORTH_STORE_OUT: join(directory, "fram/out"),
+    BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
     NORTH_TELEMETRY_PORT: "7978",
     NORTH_TELEMETRY_PARTITION: "1",
   };
-  delete environment.FRAM_SPACE_ID;
+  delete environment.BEAGLE_STORE_SPACE_ID;
   const request = `${JSON.stringify({
     jsonrpc: "2.0", id: 1, method: "tools/call",
     params: { name: "spawn", arguments: {
@@ -395,7 +395,7 @@ test("MCP launch fails closed when the inherited FRAMRPC environment is incomple
   expect(result.status, result.stderr).toBe(0);
   const response = JSON.parse(result.stdout.trim());
   expect(response.result.isError).toBe(true);
-  expect(response.result.content[0].text).toContain("missing FRAM_SPACE_ID");
+  expect(response.result.content[0].text).toContain("missing BEAGLE_STORE_SPACE_ID");
   expect(() => readFileSync(marker)).toThrow();
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
@@ -412,7 +412,7 @@ case "$*" in
   *mcp-route-preflight.ts*) exit 0 ;;
 esac
 printf 'spawn:%s\n' "$AGENT_ID" >> "$NORTH_MCP_EVENTS"
-printf '%s|%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$FRAM_SPACE_ID" "$FRAM_SERVER_PORT" "$*" > "$NORTH_MCP_CAPTURE"
+printf '%s|%s|%s|%s|%s|%s|%s\n' "$AGENT_TARGET" "$AGENT_PROVIDER" "$AGENT_ID" "$NORTH_DISPATCH_DRIVER_PRECLAIMED" "$BEAGLE_STORE_SPACE_ID" "$BEAGLE_STORE_SERVER_PORT" "$*" > "$NORTH_MCP_CAPTURE"
 thread="\${@: -1}"
 NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json show "$thread" >/dev/null || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
 children="$(NORTH_SDK_PREFLIGHT=1 "$NORTH_BIN" json children "$thread")" || { printf '%s\n' NORTH_READ_UNAVAILABLE >&2; exit 17; }
@@ -462,7 +462,7 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     encoding: "utf8",
     env: {
       ...process.env,
-      ...framRpcEnvironment(directory),
+      ...storeRpcEnvironment(directory),
       HOME: directory,
       NORTH_MCP_BUN: fakeBun,
       NORTH_MCP_BB: fakeBb,
@@ -471,12 +471,12 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       NORTH_BIN: fakeNorth,
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
-      FRAM_HOME: join(directory, "fram"),
-      FRAM_BIN: join(directory, "fram/bin"),
-      FRAM_OUT: join(directory, "fram/out"),
-      NORTH_FRAMRPC_OUT: join(directory, "fram/out"),
-      FRAM_SPACE_ID: "north-coordination",
-      FRAM_SERVER_PORT: "49321",
+      BEAGLE_STORE_HOME: join(directory, "fram"),
+      BEAGLE_STORE_BIN: join(directory, "fram/bin"),
+      BEAGLE_STORE_OUT: join(directory, "fram/out"),
+      NORTH_STORE_OUT: join(directory, "fram/out"),
+      BEAGLE_STORE_SPACE_ID: "north-coordination",
+      BEAGLE_STORE_SERVER_PORT: "49321",
       NORTH_PORT: "49321",
       NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
       NORTH_TELEMETRY_PORT: "49322",
@@ -625,7 +625,7 @@ test("MCP spawn reports pre-identity construction failure instead of fabricating
     encoding: "utf8",
     env: {
       ...process.env,
-      ...framRpcEnvironment(directory),
+      ...storeRpcEnvironment(directory),
       HOME: directory,
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_BIN: fakeNorth,
@@ -668,7 +668,7 @@ exit 3
         ...presetRequest("verifier"),
       } } })}\n`,
     encoding: "utf8",
-    env: { ...process.env, ...framRpcEnvironment(directory),
+    env: { ...process.env, ...storeRpcEnvironment(directory),
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
       NORTH_MCP_BUN: fakeBun, NORTH_MCP_BB: fakeBb, NORTH_MCP_MARKER: marker },
   });
@@ -883,8 +883,8 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
     },
   ];
   let id = 100;
-  const framOut = process.env.NORTH_FRAMRPC_OUT
-    ?? "/home/tom/code/beagle/main/branch-core/out";
+  const framOut = process.env.NORTH_STORE_OUT
+    ?? "/home/tom/code/beagle/main/store/out";
   const framRoot = resolve(framOut, "..");
   for (const name of ["spawn", "dispatch"]) {
     for (const shape of shapes) {
@@ -899,11 +899,11 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
         encoding: "utf8",
         env: {
           ...process.env,
-          ...framRpcEnvironment(north, "59319"),
-          FRAM_HOME: framRoot,
-          FRAM_BIN: join(framRoot, "bin"),
-          FRAM_OUT: framOut,
-          NORTH_FRAMRPC_OUT: framOut,
+          ...storeRpcEnvironment(north, "59319"),
+          BEAGLE_STORE_HOME: framRoot,
+          BEAGLE_STORE_BIN: join(framRoot, "bin"),
+          BEAGLE_STORE_OUT: framOut,
+          NORTH_STORE_OUT: framOut,
           AGENT_TOPOLOGY: "orchestrator",
           AGENT_ID: "parent-director",
           NORTH_MCP_BUN: "/bin/false",

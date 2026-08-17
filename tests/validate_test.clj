@@ -6,8 +6,8 @@
 ;; surfaces both. North also owns the stronger thread-only target shape for
 ;; part_of/depends_on/relates_to; generic refs may target any fact-bearing
 ;; entity. (The generic half is covered in fram/tests/kernel_violations_test.clj.)
-;;   bb -cp out:$FRAM/out tests/validate_test.clj      (run from the repo root)
-(require '[fram.types :as t] '[north.projections :as proj]
+;;   bb -cp out:$STORE/out tests/validate_test.clj      (run from the repo root)
+(require '[store.types :as t] '[north.projections :as proj]
          '[north.validate :as val])
 
 (defn idx-of [facts] (proj/index-triples facts))
@@ -77,7 +77,7 @@
    (t/triple "@w7" "title" "W7")
    (t/triple "@w7" "linear_link" "@link:linear:missing")])
 
-;; Once any value_kind metadata exists, Fram intentionally uses only the declared
+;; Once any value_kind metadata exists, Beagle Store intentionally uses only the declared
 ;; ref predicates. North's thread-only rules must remain complete even during a
 ;; partial schema migration where depends_on has not been declared yet.
 (def partial-schema-thread-ref

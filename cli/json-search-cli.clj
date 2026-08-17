@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Literal search over the canonical live Fram projection.
+;; Literal search over the canonical live Beagle Store projection.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.string :as str])

@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import {
   learningAssignmentFacts, type LearningAssignment,
 } from "./learning-regime";
@@ -29,14 +29,14 @@ export function publishLearningAssignment(
   const facts = learningAssignmentFacts(assignment);
   return new Promise((resolvePublication, rejectPublication) => {
     try {
-      execFile("bb", framBabashkaArguments([
+      execFile("bb", beagleStoreBabashkaArguments([
         WRITER,
         process.env.NORTH_PORT ?? "7977",
         runId,
         JSON.stringify(facts),
       ]), {
-        env: framEngineEnvironment(),
-        timeout: framCoordinatorChildTimeout(timeoutMs),
+        env: beagleStoreEnvironment(),
+        timeout: beagleStoreCoordinatorChildTimeout(timeoutMs),
       }, (error, _stdout, stderr) => {
         if (!error) {
           resolvePublication("recorded");

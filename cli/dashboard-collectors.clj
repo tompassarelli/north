@@ -276,7 +276,7 @@
                [k (or (when cg (try (str/trim (slurp (io/file base k))) (catch Exception _ nil)))
                       "unavailable")]))))
 (defn health []
-  {:services (into {} (for [[unit port] [["north-fram.service" 7977] ["north-telemetry-coord.service" 7978]]]
+  {:services (into {} (for [[unit port] [["north-store.service" 7977] ["north-telemetry-coord.service" 7978]]]
                         [unit {:active (= "active" (str/trim (or (:data (run ["systemctl" "--user" "is-active" unit] 1500)) "")))
                                :socket (socket-up? port) :memory (cgroup unit)}]))})
 (defn board [] (let [r (run [(str north-root "/bin/north") "board" "--fresh"] 120000)] (if (= :ok (:status r)) (assoc r :data {:text (:data r)}) r)))

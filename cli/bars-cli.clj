@@ -24,11 +24,11 @@
 
 (load-file (str (.getParent (io/file *file*)) "/terminal-projection.clj"))
 
-;; framrpc-client.clj is loaded lazily so a stale classpath fails at connect!
+;; store-rpc-client.clj is loaded lazily so a stale classpath fails at connect!
 ;; (clean refusal), never at namespace load.
 (defn- ensure-native-client! []
-  (when-not (find-ns 'north.framrpc-client)
-    (load-file (str (.getParent (io/file *file*)) "/framrpc-client.clj"))))
+  (when-not (find-ns 'north.store-rpc-client)
+    (load-file (str (.getParent (io/file *file*)) "/store-rpc-client.clj"))))
 
 (def ^:private usage
   (str "usage:\n"
@@ -46,31 +46,31 @@
 (defn- connect! []
   (let [host (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
         port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
-        space (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination")]
+        space (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination")]
     (try
       (ensure-native-client!)
-      ((ns-resolve 'north.framrpc-client 'connect)
+      ((ns-resolve 'north.store-rpc-client 'connect)
        host port space {:connect-timeout-ms 2000 :read-timeout-ms 30000})
       (catch Exception error
         (die! (str "coordinator at " host ":" port " did not answer for space "
                    space " (" (.getMessage error) ")"))))))
 
 (defn- rpc-close! [client]
-  ((ns-resolve 'north.framrpc-client 'close!) client))
+  ((ns-resolve 'north.store-rpc-client 'close!) client))
 
 (defn- rpc-scan-all! [client subject predicate object]
-  ((ns-resolve 'north.framrpc-client 'scan-all!) client subject predicate object))
+  ((ns-resolve 'north.store-rpc-client 'scan-all!) client subject predicate object))
 
 (defn- rpc-retract-projected! [client triple]
-  ((ns-resolve 'north.framrpc-client 'retract-projected!) client triple))
+  ((ns-resolve 'north.store-rpc-client 'retract-projected!) client triple))
 
-;; fram.types is only resolved once framrpc-client.clj (which requires it)
+;; store.types is only resolved once store-rpc-client.clj (which requires it)
 ;; has loaded, i.e. after a successful ensure-native-client! — never at
 ;; bars-cli's own namespace analysis.
-(defn- triple-t2 [triple] ((ns-resolve 'fram.types 'triple-t2) triple))
-(defn- triple-t3 [triple] ((ns-resolve 'fram.types 'triple-t3) triple))
+(defn- triple-t2 [triple] ((ns-resolve 'store.types 'triple-t2) triple))
+(defn- triple-t3 [triple] ((ns-resolve 'store.types 'triple-t3) triple))
 (defn- new-triple [subject predicate object]
-  ((ns-resolve 'fram.types 'triple) subject predicate object))
+  ((ns-resolve 'store.types 'triple) subject predicate object))
 
 (defn- thread-entity [raw]
   (let [value (str raw)

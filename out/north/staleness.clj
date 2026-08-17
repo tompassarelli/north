@@ -1,6 +1,6 @@
 (ns north.staleness
   (:require [clojure.string :as str]
-            [fram.kernel-classify :as kc]
+            [store.kernel-classify :as kc]
             [north.projections :as proj]))
 
 (defrecord Review [te pred detail])

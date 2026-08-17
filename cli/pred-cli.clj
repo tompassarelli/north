@@ -1,4 +1,4 @@
-;; pred-cli.clj — the human and lint surface over Fram's executable predicate
+;; pred-cli.clj — the human and lint surface over Beagle Store's executable predicate
 ;; entities.  A predicate named p is represented only by @p; cardinality,
 ;; value_kind, acyclic, doc, entity_kind, and extension metadata all live there.
 ;; The historical @pred:p descriptive registry is intentionally never read.
@@ -64,8 +64,8 @@
 ;; ============================================================================
 (def VOCAB
   [;; --- executable schema meta-predicates (the schema describes itself) ---
-   ["cardinality" "single" "literal" "executable Fram cardinality: single or multi"]
-   ["value_kind" "single" "literal" "executable Fram object kind: literal or ref"]
+   ["cardinality" "single" "literal" "executable Beagle Store cardinality: single or multi"]
+   ["value_kind" "single" "literal" "executable Beagle Store object kind: literal or ref"]
    ["acyclic" "single" "literal" "true makes a ref-valued edge cycle-free"]
    ["entity_kind" "single" "literal" "open structural taxonomy; extensions use namespace/name"]
    ["entity_kind_name" "single" "literal" "canonical value represented by an @entity-kind:* definition"]
@@ -782,7 +782,7 @@
    (concat (fill-absent-actions port (seed-registration-specs))
            (teaching-actions))))
 
-;; Executable predicate identity is exact.  A same_as edge cannot make Fram use
+;; Executable predicate identity is exact.  A same_as edge cannot make Beagle Store use
 ;; another entity's cardinality, so aliases are never followed here.
 (defn canonical [_port nm] nm)
 
@@ -893,7 +893,7 @@
     "alias"
     (do
       (binding [*out* *err*]
-        (println "predicate alias REFUSED — Fram executes the exact @<predicate> entity; migrate fact uses explicitly instead"))
+        (println "predicate alias REFUSED — Beagle Store executes the exact @<predicate> entity; migrate fact uses explicitly instead"))
       (System/exit 2))
 
     "ls"

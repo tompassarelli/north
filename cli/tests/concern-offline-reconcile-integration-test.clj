@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Canonical offline concern recovery against one current Fram FRAMRPC server.
+;; Canonical offline concern recovery against one current Beagle Store FRAMRPC server.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
          '[clojure.edn :as edn]
@@ -10,9 +10,9 @@
       .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram
   (or (System/getenv "NORTH_TEST_FRAM_ROOT")
-      (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+      (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/concern-spool.clj"))
@@ -53,10 +53,10 @@
     :out :string
     :err :string
     :extra-env
-    {"FRAM_SERVER_RUNTIME" "jvm-dev"
-     "FRAM_SERVER_QUIET" "1"
-     "FRAM_SERVER_XMX" "1g"}}
-   (str fram "/bin/fram-server") "serve" (str port)
+    {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+     "BEAGLE_STORE_SERVER_QUIET" "1"
+     "BEAGLE_STORE_SERVER_XMX" "1g"}}
+   (str fram "/bin/beagle-store-server") "serve" (str port)
    (.getCanonicalPath log) "north-coordination"))
 
 (def operation-sequence (atom 0))
@@ -150,9 +150,9 @@
       daemon (start-fram port log)]
   (try
     (let [ready? (await-ready port daemon)]
-      (check "current Fram serves the scratch SpaceId over FRAMRPC" ready?)
+      (check "current Beagle Store serves the scratch SpaceId over FRAMRPC" ready?)
       (when-not ready?
-        (throw (ex-info "scratch Fram server failed"
+        (throw (ex-info "scratch Beagle Store server failed"
                         {:result (deref daemon 1000 nil)}))))
 
     (let [item (operation log "settle-once")

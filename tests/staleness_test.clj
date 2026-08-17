@@ -5,7 +5,7 @@
 ;; (serialization, not causality) yet fires on a genuine later edit.
 ;;
 ;;   bb -cp out tests/staleness_test.clj      (run from the repo root)
-(require '[fram.types :as t]
+(require '[store.types :as t]
          '[north.projections :as proj]
          '[north.staleness :as stale])
 

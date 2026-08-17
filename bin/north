@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # North — the life app. Routes LIFE verbs to the North CLI (north.main,
-# run against the Fram engine on the classpath) and ENGINE verbs to the Fram CLI.
+# run against the Beagle Store engine on the classpath) and ENGINE verbs to the Beagle Store CLI.
 # Both operate on the same private XDG coordination data. Supplies North's lifecycle
 # configuration and capture provenance; executable predicate schema lives in
 # the coordination graph itself.
@@ -21,12 +21,12 @@ _north_home_dir="${0%/*}"
 [ "$_north_home_dir" = "$0" ] && _north_home_dir="."
 export NORTH_HOME="${NORTH_HOME:-$(cd "$_north_home_dir/.." && pwd)}"
 
-export FRAM_THREADS="${FRAM_THREADS:-$HOME/.local/state/north/threads}"
-# North DECLARES its lifecycle vocab to the (now genericized) Fram kernel —
+export BEAGLE_STORE_THREADS="${BEAGLE_STORE_THREADS:-$HOME/.local/state/north/threads}"
+# North DECLARES its lifecycle vocab to the (now genericized) Beagle Store kernel —
 # value-identical to the kernel default, so this is the explicit-config form of
-# what was previously baked in (Fram >= ec7ef90: FRAM_TERMINAL_PREDS/WITHDRAWN_PREDS).
-export FRAM_TERMINAL_PREDS="${FRAM_TERMINAL_PREDS:-outcome abandoned superseded_by}"
-export FRAM_WITHDRAWN_PREDS="${FRAM_WITHDRAWN_PREDS:-abandoned}"
+# what was previously baked in (Beagle Store >= ec7ef90: BEAGLE_STORE_TERMINAL_PREDS/WITHDRAWN_PREDS).
+export BEAGLE_STORE_TERMINAL_PREDS="${BEAGLE_STORE_TERMINAL_PREDS:-outcome abandoned superseded_by}"
+export BEAGLE_STORE_WITHDRAWN_PREDS="${BEAGLE_STORE_WITHDRAWN_PREDS:-abandoned}"
 export NORTH_SOURCE="${NORTH_SOURCE:-tom}"
 export NORTH_AUTHOR="${NORTH_AUTHOR:-tom_passarelli}"
 export NORTH_LEAD="${NORTH_LEAD:-tom_passarelli}"
@@ -38,7 +38,7 @@ _north_self_dir="${0%/*}"
 [ "$_north_self_dir" = "$0" ] && _north_self_dir="."
 NORTH="$(cd "$_north_self_dir/.." && pwd)"
 
-# Help is answered before any interpreter, Fram, or coordinator is resolved,
+# Help is answered before any interpreter, Beagle Store, or coordinator is resolved,
 # using shell builtins only: it must work on a completely empty PATH.
 north_help() {
     # THE CARD + topic pages — projections of cli/surface.edn (regenerate:
@@ -73,20 +73,20 @@ case "${1:-}" in
 esac
 
 # Panic is deliberately the first route after locating this checkout. It must
-# remain usable when bb, Fram, the coordination data store, and the coordinator are unavailable.
+# remain usable when bb, Beagle Store, the coordination data store, and the coordinator are unavailable.
 if [ "${1:-}" = "panic" ]; then
   exec "$NORTH/bin/north-panic" "${@:2}"
 fi
 
 # Export is a local, read-only projection over immutable Bridge Wire journals.
-# Keep it independent of Fram and the coordinator so archived runs remain usable
+# Keep it independent of Beagle Store and the coordinator so archived runs remain usable
 # during an engine outage; the URL fragment key is emitted only by this process.
 if [ "${1:-}" = "run-share" ]; then
   exec "${NORTH_BUN:-bun}" run "$NORTH/sdk/src/run-share-cli.ts" "${@:2}"
 fi
 
 # The PreToolUse dispatch guard needs these two policy answers before every
-# shell call. Keep this read-only probe independent of Fram so a missing or
+# shell call. Keep this read-only probe independent of Beagle Store so a missing or
 # restarting engine cannot disable the harness itself. Full `north config`
 # remains engine-backed below.
 if [ "${1:-}" = "config" ] && [ "${2:-}" = "dispatch" ] \
@@ -121,16 +121,6 @@ if [ "${1:-}" = "config" ] && [ "${2:-}" = "dispatch" ] \
   exit 0
 fi
 
-# A pin published before FRAMRPC carries no wire, so it cannot address a coordinator
-# that speaks one; the checkout that does wins. Composed, never literal: flake.nix's
-# package-purity scan rejects an embedded checkout path in any packaged file.
-_north_fram_checkout="$HOME/code/beagle/main/branch-core"
-_north_fram_wire="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-${FRAM_HOME:-}/out}}"
-if [ ! -f "$_north_fram_wire/framrpc.clj" ] \
-   && [ -f "$_north_fram_checkout/out/framrpc.clj" ]; then
-  FRAM_HOME="$_north_fram_checkout"
-  unset FRAM_BIN FRAM_OUT NORTH_FRAMRPC_OUT
-fi
 # Both sandboxed paths — managed Codex exec and the read-only shell — refuse to run
 # without bwrap, and an interactive PATH rarely carries one. The provider packages
 # already declare it, so take it from the closure that requires it.
@@ -148,21 +138,22 @@ if [ -z "${NORTH_BWRAP_BIN:-}" ] && ! command -v bwrap >/dev/null 2>&1; then
   fi
   unset _north_codex_bin _north_codex_pkg _north_ref
 fi
-FRAM="${FRAM_HOME:?north requires the Nix-published FRAMRPC environment or explicit FRAM_HOME}"
-FRAM_BIN="${FRAM_BIN:-$FRAM/bin}"
-FRAM_OUT="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-$FRAM/out}}"
-NORTH_FRAMRPC_OUT="${NORTH_FRAMRPC_OUT:-$FRAM_OUT}"
-export FRAM_HOME="$FRAM" FRAM_BIN FRAM_OUT NORTH_FRAMRPC_OUT
-export FRAM_SPACE_ID="${FRAM_SPACE_ID:-north-coordination}"
+STORE="${BEAGLE_STORE_HOME:?north requires the Nix-published FRAMRPC environment or explicit BEAGLE_STORE_HOME}"
+BEAGLE_STORE_BIN="${BEAGLE_STORE_BIN:-$STORE/bin}"
+BEAGLE_STORE_OUT="${BEAGLE_STORE_OUT:-${NORTH_STORE_OUT:-$STORE/out}}"
+NORTH_STORE_OUT="${NORTH_STORE_OUT:-$BEAGLE_STORE_OUT}"
+BEAGLE_STORE_CLI="${BEAGLE_STORE_CLI:-${STORE%/store}/bin/beagle}"
+export BEAGLE_STORE_HOME="$STORE" BEAGLE_STORE_BIN BEAGLE_STORE_OUT NORTH_STORE_OUT
+export BEAGLE_STORE_SPACE_ID="${BEAGLE_STORE_SPACE_ID:-north-coordination}"
 # Launch admission requires NORTH_PORT explicitly; export it with the same default.
 export NORTH_PORT="${NORTH_PORT:-7977}"
-export FRAM_SERVER_PORT="${FRAM_SERVER_PORT:-$NORTH_PORT}"
+export BEAGLE_STORE_SERVER_PORT="${BEAGLE_STORE_SERVER_PORT:-$NORTH_PORT}"
 export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
 # A checkout owns its Orchestration contract; the packaged tree ships none, so its env pin stands.
 if [ -d "$NORTH/orchestration" ]; then
   export NORTH_ORCHESTRATION_HOME="$NORTH/orchestration"
 fi
-NORTH_RUNTIME_CLASSPATH="$NORTH/out:$FRAM_OUT"
+NORTH_RUNTIME_CLASSPATH="$NORTH/out:$BEAGLE_STORE_OUT"
 BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
 export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
 
@@ -303,20 +294,20 @@ deny_generic_run_mutation "$@" || exit 1
 # configured SpaceId and never reads or folds the projected corpus.
 coord_runtime_ready() {
   local runtime_root
-  runtime_root="${XDG_STATE_HOME:-$HOME/.local/state}/north/framrpc-runtime"
+  runtime_root="${XDG_STATE_HOME:-$HOME/.local/state}/north/store-runtime"
   "$BB" "$NORTH/cli/coord.clj" "${NORTH_PORT:-7977}" coordination \
     >/dev/null || return $?
   "$BB" "$NORTH/cli/runtime-attestation.clj" \
-    "${NORTH_PORT:-7977}" "$FRAM_LOG" "$FRAM_SPACE_ID" \
-    "$runtime_root/north-fram.runtime" north-fram.service \
+    "${NORTH_PORT:-7977}" "$BEAGLE_STORE_LOG" "$BEAGLE_STORE_SPACE_ID" \
+    "$runtime_root/north-store.runtime" north-store.service \
     >/dev/null || return $?
   if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-    env -u FRAM_TELEMETRY_LOG \
+    env -u BEAGLE_STORE_TELEMETRY_LOG \
       NORTH_TELEMETRY_PARTITION=0 \
       "$BB" "$NORTH/cli/coord.clj" "$NORTH_TELEMETRY_PORT" telemetry \
       >/dev/null || return $?
     "$BB" "$NORTH/cli/runtime-attestation.clj" \
-      "$NORTH_TELEMETRY_PORT" "$FRAM_TELEMETRY_LOG" \
+      "$NORTH_TELEMETRY_PORT" "$BEAGLE_STORE_TELEMETRY_LOG" \
       "$NORTH_TELEMETRY_SPACE_ID" \
       "$runtime_root/north-telemetry-coord.runtime" \
       north-telemetry-coord.service >/dev/null
@@ -498,7 +489,7 @@ case "${1:-}" in
   wip)
     # Presence-derived managed lanes + reservation thread bindings, coordinator
     # floor, and the ready/leverage pull queue. Read-only. cli/wip-cli.clj.
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/wip-cli.clj" "${@:2}" ;;
+    exec "$BB" -cp "$NORTH/out:$BEAGLE_STORE_OUT" "$NORTH/cli/wip-cli.clj" "${@:2}" ;;
   stream-sync)
     # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
     # plain bash script, not a north.main verb, so it execs directly.
@@ -509,12 +500,12 @@ case "${1:-}" in
     exec "$BUN" run "$NORTH/sdk/src/tier1-distiller-cli.ts" "${@:2}" ;;
   bridge)
     # Durable local execution host. It does not read or write the coordinator;
-    # replay remains available when Fram is down.
+    # replay remains available when Beagle Store is down.
     exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" "${@:2}" ;;
   queue)
     # Ready-lane ordering is a coordinator CAS over one single-valued thread
     # receipt; the queue never owns or mutates lifecycle condition.
-    exec "$BB" -cp "$NORTH/out:$FRAM_OUT" "$NORTH/cli/queue-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
+    exec "$BB" -cp "$NORTH/out:$BEAGLE_STORE_OUT" "$NORTH/cli/queue-cli.clj" "${NORTH_PORT:-7977}" "${@:2}" ;;
   listen)
     # Real-time interrupt listener — RUN AS A BACKGROUND TASK. Dormant (zero
     # tokens) until a peer addresses you, then prints the message and exits:
@@ -536,31 +527,31 @@ case "${1:-}" in
     echo "usage: north worktree lander [repository]" >&2
     exit 2 ;;
   show|history)
-    # Stage A gives telemetry subjects an independent sole writer. Generic Fram
+    # Stage A gives telemetry subjects an independent sole writer. Generic Beagle Store
     # reads otherwise ask only the coordination writer and turn a real telemetry
     # subject into a false "no facts" result. Exact namespace-qualified reads
     # follow the same subject router as writes and fail closed when that writer
-    # is unavailable; partition-off (A1/rollback) keeps the prior Fram surface.
+    # is unavailable; partition-off (A1/rollback) keeps the prior Beagle Store surface.
     if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
       case "${2#@}" in
         run:*|session:*|mine:*|guard_denial:*)
-          exec env FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
-            FRAM_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
-            "$FRAM_BIN/fram" "$@"
+          exec env BEAGLE_STORE_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
+            BEAGLE_STORE_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
+            "$BEAGLE_STORE_CLI" store "$@"
           ;;
       esac
     fi
-    exec "$FRAM_BIN/fram" "$@" ;;
+    exec "$BEAGLE_STORE_CLI" store "$@" ;;
   tell|untell|retract)
     # `retract` is the primary agent-facing retraction verb (R&N TELL/RETRACT);
-    # `untell` is an accepted legacy alias. Both map onto fram's `untell` CLI verb
+    # `untell` is an accepted legacy alias. Both map onto Store's `untell` CLI verb
     # (whose wire op is already "retract") at the boundary below.
-    # Handles (and @ids) are a NORTH concern: fram is handle-blind and re-adds
+    # Handles (and @ids) are a NORTH concern: Store is handle-blind and re-adds
     # the leading @ to the bare subject it's handed. So resolve the SUBJECT ref to
     # its canonical id here first — that's what makes `north tell @perf ...`
-    # land on the right thread — then pass fram the bare canonical id. Only rewrite
+    # land on the right thread — then pass Store the bare canonical id. Only rewrite
     # when the full `tell <id> <pred> <value>` shape is present; otherwise pass
-    # through untouched so fram's own usage/arg checks are unchanged.
+    # through untouched so Store's own usage/arg checks are unchanged.
     if [ "$#" -ge 4 ]; then
       north_exact_subject=0
       # FAIL-CLOSED: an unresolvable id-like ref (or a dead resolver) aborts the
@@ -568,7 +559,7 @@ case "${1:-}" in
       # truncated id and strand the facts (2026-07-03 incident: 19 orphans).
       bare_subject="${2#@}"
       if [[ "$bare_subject" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-        # Exact UUID writes use Fram's one-request atomic operation below. It
+        # Exact UUID writes use Beagle Store's one-request atomic operation below. It
         # checks existence and commits in one coordinator turn, and never
         # renders/scans provenance merely to prove that the subject exists.
         canon="@$bare_subject"
@@ -582,33 +573,33 @@ case "${1:-}" in
         *)      set -- "$1" "${canon#@}" "${@:3}" ;;
       esac
     fi
-    framverb="$1"; [ "$framverb" = retract ] && framverb=untell
+    store_verb="$1"; [ "$store_verb" = retract ] && store_verb=untell
     # Done-bars echo (friction gradient): closing a barred thread SEES its bars
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
     # silent for bar-less threads; failures never block the write.
-    if [ "$framverb" = tell ] && [ "${3:-}" = outcome ]; then
+    if [ "$store_verb" = tell ] && [ "${3:-}" = outcome ]; then
       "${NORTH_BARS[@]}" echo "$2" 2>/dev/null || true
     fi
     # Reserve-limit echo: bars accumulate across runs, so the Nth done_when is
     # what silently makes future managed runs unable to reserve delivery
     # evidence. Warn at write time (advisory, never a reject) and name the
     # one-step recovery. Runs only for done_when tells.
-    if [ "$framverb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
+    if [ "$store_verb" = tell ] && [ "${3:-}" = done_when ] && [ -n "${4:-}" ]; then
       "${NORTH_BARS[@]}" check "$2" "$4" || true
     fi
     case "${2#@}" in
       run:*|session:*|mine:*|guard_denial:*)
         if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
-          exec env -u FRAM_TELEMETRY_LOG \
-            FRAM_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
-            FRAM_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
-            FRAM_LOG="$FRAM_TELEMETRY_LOG" \
-            "$FRAM_BIN/fram" "$framverb" "${@:2}"
+          exec env -u BEAGLE_STORE_TELEMETRY_LOG \
+            BEAGLE_STORE_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}" \
+            BEAGLE_STORE_SERVER_PORT="$NORTH_TELEMETRY_PORT" \
+            BEAGLE_STORE_LOG="$BEAGLE_STORE_TELEMETRY_LOG" \
+            "$BEAGLE_STORE_CLI" store "$store_verb" "${@:2}"
         fi ;;
     esac
     if [ "${north_exact_subject:-0}" = 1 ]; then
       existing_output="$(
-        "$FRAM_BIN/fram" "${framverb}-existing" "${@:2}" 2>&1
+        "$BEAGLE_STORE_CLI" store "${store_verb}-existing" "${@:2}" 2>&1
       )"
       existing_status=$?
       case "$existing_status" in
@@ -630,7 +621,7 @@ case "${1:-}" in
           ;;
       esac
     fi
-    exec "$FRAM_BIN/fram" "$framverb" "${@:2}" ;;
+    exec "$BEAGLE_STORE_CLI" store "$store_verb" "${@:2}" ;;
   *)  # engine verbs: import/export/set/merge/watch
-    exec "$FRAM_BIN/fram" "$@" ;;
+    exec "$BEAGLE_STORE_CLI" store "$@" ;;
 esac

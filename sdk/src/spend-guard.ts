@@ -2,10 +2,10 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { getThreadFacts, type Fact, type NorthReadOptions } from "./north-client";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 /**
  * Spend guard — build-order step 1: the classification tripwire.
@@ -184,14 +184,14 @@ function runSpendCli(args: string[], options: SpendCliOptions): unknown {
   const command = options.command;
   const bin = command ?? (process.env.NORTH_MCP_BB ?? process.env.NORTH_BB ?? "bb");
   const env = options.port ? { ...process.env, NORTH_PORT: options.port } : process.env;
-  const argv = command ? args : framBabashkaArguments([SPEND_CLI, ...args], env);
+  const argv = command ? args : beagleStoreBabashkaArguments([SPEND_CLI, ...args], env);
   const out = execFileSync(bin, argv, {
     encoding: "utf-8",
     timeout: command
       ? options.timeoutMs ?? 10_000
-      : framCoordinatorChildTimeout(options.timeoutMs),
+      : beagleStoreCoordinatorChildTimeout(options.timeoutMs),
     stdio: ["ignore", "pipe", "pipe"],
-    env: command ? env : framEngineEnvironment(env),
+    env: command ? env : beagleStoreEnvironment(env),
   });
   return JSON.parse(out.trim());
 }

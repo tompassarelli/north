@@ -9,7 +9,7 @@ import {
   type DispatchDriverCommand,
 } from "../src/dispatch-driver";
 import { InvalidNorthEntityIdError } from "../src/north-client";
-import { MIN_FRAM_COORDINATOR_CHILD_TIMEOUT_MS } from "../src/fram-engine";
+import { MIN_BEAGLE_STORE_COORDINATOR_CHILD_TIMEOUT_MS } from "../src/beagle-store";
 
 test("canonical dispatch claims once and releases exactly once", () => {
   const calls: string[] = [];
@@ -163,7 +163,7 @@ test("a driver failure is explained on stderr without leaking coordinator output
   expect(emitted).toContain("dispatch driver claim failed on :7977");
   expect(emitted).toContain("errno=ETIMEDOUT");
   expect(emitted).toContain("shell.readonly");
-  expect(emitted).toContain(`${MIN_FRAM_COORDINATOR_CHILD_TIMEOUT_MS}ms`);
+  expect(emitted).toContain(`${MIN_BEAGLE_STORE_COORDINATOR_CHILD_TIMEOUT_MS}ms`);
 
   // The boundary still holds — coordinator stderr reaches NEITHER surface.
   expect(emitted).not.toContain(hostile);

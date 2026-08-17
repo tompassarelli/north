@@ -39,7 +39,7 @@ sed 's/^+//' >"$probe" <<'EOF'
 +[[ -z "${XDG_CONFIG_HOME:-}" ]]
 +[[ -z "${XDG_DATA_HOME:-}" ]]
 +[[ -z "${XDG_STATE_HOME:-}" ]]
-+[[ -z "${FRAM_LOG:-}" ]]
++[[ -z "${BEAGLE_STORE_LOG:-}" ]]
 +[[ -z "${NORTH_STATE_ROOT:-}" ]]
 +[[ -z "${CODEX_HOME:-}" ]]
 +printf 'probe-home=%s\n' "$HOME"
@@ -51,7 +51,7 @@ XDG_CACHE_HOME="$normal_home/cache" \
 XDG_CONFIG_HOME="$normal_home/config" \
 XDG_DATA_HOME="$normal_home/data" \
 XDG_STATE_HOME="$normal_home/state" \
-FRAM_LOG="$normal_home/facts.log" \
+BEAGLE_STORE_LOG="$normal_home/facts.log" \
 NORTH_STATE_ROOT="$normal_home/north-state" \
 CODEX_HOME="$normal_home/codex" \
   "$RUNNER" --sandbox-home -- "$probe" >"$scratch/sandbox.out"

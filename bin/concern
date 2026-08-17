@@ -8,7 +8,7 @@
 set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 BOARD="${NORTH_PORT:?concern requires the canonical FRAMRPC port}"
-FRAMRPC_OUT="${NORTH_FRAMRPC_OUT:?concern requires the canonical FRAMRPC classpath}"
+FRAMRPC_OUT="${NORTH_STORE_OUT:?concern requires the canonical FRAMRPC classpath}"
 NORTH_RUNTIME_CLASSPATH="$ROOT/out:$FRAMRPC_OUT"
 export NORTH_RUNTIME_CLASSPATH
 # See bin/north for the resolution-chain rationale: a promoted deployment's

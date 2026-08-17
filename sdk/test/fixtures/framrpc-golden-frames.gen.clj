@@ -1,10 +1,10 @@
 #!/usr/bin/env bb
-;; Regenerate framrpc-golden-frames.json from Fram's own encoder — the frames MUST
+;; Regenerate framrpc-golden-frames.json from Beagle Store's own encoder — the frames MUST
 ;; come from the server's wire authority, never from the SDK codec:
-;;   bb -cp "$FRAM_OUT" sdk/test/fixtures/framrpc-golden-frames.gen.clj \
+;;   bb -cp "$BEAGLE_STORE_OUT" sdk/test/fixtures/framrpc-golden-frames.gen.clj \
 ;;     > sdk/test/fixtures/framrpc-golden-frames.json
-(require '[framrpc :as w]
-         '[fram.types :as t]
+(require '[store.rpc :as w]
+         '[store.types :as t]
          '[cheshire.core :as json])
 
 (def space "north-coordination")

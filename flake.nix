@@ -12,13 +12,13 @@
     # CI needs the Beagle-provided engine source for integration tests, not its
     # runtime closure. Keep that identity exact and inert in North's package graph.
     beagle-engine-source = {
-      url = "github:tompassarelli/beagle/db33a4e70718dc9a1b1cff57e33128ad44b6bcb9";
+      url = "github:tompassarelli/beagle/e55dbf48617aa71d85da9383b9cb2ac7230456bd";
       flake = false;
     };
   };
 
   outputs = { self, nixpkgs, nixpkgs-master, flake-utils, beagle-engine-source }:
-    assert builtins.pathExists (beagle-engine-source + "/branch-core/out/framrpc.clj");
+    assert builtins.pathExists (beagle-engine-source + "/store/out/store/rpc.clj");
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -502,7 +502,7 @@ PY
 
         # The checkout launcher and immutable package have one runtime contract.
         # Keep the contract data-only here so neither can drift from the other.
-        framRpcEnvironment = "/home/tom/.local/state/north/framrpc.env";
+        storeRpcEnvironment = "/home/tom/.local/state/north/beagle-store.env";
         northRuntimeVariables = {
           NORTH_ORCHESTRATION_HOME = orchestrationContract;
           NORTH_BB = "${pkgs.babashka}/bin/bb";
@@ -536,7 +536,7 @@ set -euo pipefail
 
 ${northRuntimeExports}
 
-source ${framRpcEnvironment}
+source ${storeRpcEnvironment}
 
 export NORTH_HOME="''${NORTH_HOME:-$PWD}"
 export NORTH_BIN="''${NORTH_BIN:-$NORTH_HOME/bin/north}"
@@ -615,13 +615,13 @@ EOF
 
             wrapProgram $out/bin/north \
               ${lib.escapeShellArgs (northWrapperArgs northRuntimeVariables)} \
-              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
+              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
               --set NORTH_HOME "$out" \
               --set NORTH_BIN "$out/bin/north"
 
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
-              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
+              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
               --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
@@ -658,7 +658,7 @@ EOF
 
             wrapProgram $out/bin/concern \
               --prefix PATH : ${runtimePath} \
-              --run ${lib.escapeShellArg "source ${framRpcEnvironment}"} \
+              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
               --set NORTH_HOME $out \
               --set NORTH_BB ${pkgs.babashka}/bin/bb
 
@@ -684,7 +684,7 @@ EOF
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
             # FRAMRPC identity file. It is data authority, not executable code.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern):[0-9]+:source /home/tom/[.]local/state/north/framrpc[.]env$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
@@ -696,10 +696,10 @@ EOF
             # Exercise every packaged TypeScript CLI entrypoint with hermetic
             # subscription/auth fixtures. These probes never make a model turn.
             smoke=$(mktemp -d)
-            export FRAM_HOME="$smoke/fram"
-            export FRAM_BIN="$FRAM_HOME/bin"
-            export FRAM_OUT="$FRAM_HOME/out"
-            export NORTH_FRAMRPC_OUT="$FRAM_OUT"
+            export BEAGLE_STORE_HOME="$smoke/beagle-store"
+            export BEAGLE_STORE_BIN="$BEAGLE_STORE_HOME/bin"
+            export BEAGLE_STORE_OUT="$BEAGLE_STORE_HOME/out"
+            export NORTH_STORE_OUT="$BEAGLE_STORE_OUT"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/poison-home" \
               NORTH_HOME="$out" \
@@ -741,9 +741,9 @@ EOF
               test "$(grep -Fc 'NORTH_MANAGED_CODEX_BIN=' "$wrapper")" -eq 1
               test "$(grep -Fxc "$expected_mkfifo_export" "$wrapper")" -eq 1
               test "$(grep -Fc 'NORTH_MKFIFO_BIN=' "$wrapper")" -eq 1
-              test "$(grep -Fxc 'source ${framRpcEnvironment}' "$wrapper")" -eq 1
+              test "$(grep -Fxc 'source ${storeRpcEnvironment}' "$wrapper")" -eq 1
             done
-            test "$(grep -Fxc 'source ${framRpcEnvironment}' "$out/bin/concern")" -eq 1
+            test "$(grep -Fxc 'source ${storeRpcEnvironment}' "$out/bin/concern")" -eq 1
             mkdir -p "$smoke/home/.local/state/north/threads"
             client_repo="$smoke/home/code/client/smoke/widget"
             mkdir -p "$client_repo"
@@ -751,8 +751,8 @@ EOF
             # Every public executable must work with no ambient PATH or checkout.
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_HOME="$out" \
-              FRAM_HOME="$FRAM_HOME" FRAM_BIN="$FRAM_BIN" \
-              FRAM_OUT="$FRAM_OUT" NORTH_FRAMRPC_OUT="$NORTH_FRAMRPC_OUT" \
+              BEAGLE_STORE_HOME="$BEAGLE_STORE_HOME" BEAGLE_STORE_BIN="$BEAGLE_STORE_BIN" \
+              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" NORTH_STORE_OUT="$NORTH_STORE_OUT" \
               $out/bin/.north-wrapped help > "$smoke/help.out"
             grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
             ${pkgs.coreutils}/bin/env -i \
@@ -916,8 +916,8 @@ EOF
             grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
               ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= NORTH_HOME="$out" \
-              FRAM_HOME="$FRAM_HOME" FRAM_BIN="$FRAM_BIN" \
-              FRAM_OUT="$FRAM_OUT" NORTH_FRAMRPC_OUT="$NORTH_FRAMRPC_OUT" \
+              BEAGLE_STORE_HOME="$BEAGLE_STORE_HOME" BEAGLE_STORE_BIN="$BEAGLE_STORE_BIN" \
+              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" NORTH_STORE_OUT="$NORTH_STORE_OUT" \
               $out/bin/.north-mcp-wrapped > "$smoke/north-mcp-tools.json"
             ${pkgs.jq}/bin/jq -e \
               '([.result.tools[] | select(.name | startswith("linear_")) | .name] | sort) == ["linear_get", "linear_import", "linear_plan", "linear_sync"]' \

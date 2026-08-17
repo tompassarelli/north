@@ -30,9 +30,9 @@
 (def output (str (:out result) (:err result)))
 (def ok? (and (not (str/includes? output "Unable to resolve symbol"))
               (not (str/includes? output "EOF while reading"))
-              (str/includes? output "Fram server :59999 unreachable")))
+              (str/includes? output "Beagle Store server :59999 unreachable")))
 
-(check "trace CLI loads before its unavailable-Fram-server boundary" ok?)
+(check "trace CLI loads before its unavailable-Beagle Store-server boundary" ok?)
 (when-not ok?
   (println output))
 (check "identity rendering keeps model and effort as separate exact fields"

@@ -4,7 +4,7 @@
 ;; Command schema: :verb dispatch word · :form typed invocation · :summary ·
 ;; :topic · :card {:section :form :text} = bare-card row · :aliases · :status
 ;; :legacy|:unavailable (labeled, last)|:internal (never rendered) · :dispatch
-;; :case (default)|:pre-case|:fram (passthrough) · :details extra topic lines.
+;; :case (default)|:pre-case|:store (passthrough) · :details extra topic lines.
 
 (require '[clojure.edn :as edn]
          '[clojure.string :as str]
@@ -30,7 +30,7 @@
         (throw (ex-info (str "unknown :card :section for verb " (:verb c)) c))))
     (when-not (contains? #{nil :legacy :unavailable :internal} (:status c))
       (throw (ex-info (str "unknown :status for verb " (:verb c)) c)))
-    (when-not (contains? #{nil :case :pre-case :fram} (:dispatch c))
+    (when-not (contains? #{nil :case :pre-case :store} (:dispatch c))
       (throw (ex-info (str "unknown :dispatch for verb " (:verb c)) c))))
   (when-not (apply distinct? verbs)
     (throw (ex-info "duplicate :verb entries" {:dups (for [[v n] (frequencies verbs) :when (> n 1)] v)}))))
@@ -72,7 +72,7 @@
 
 (defn topic-body [{:keys [id]}]
   (let [lines (rows->lines "  " (topic-rows id))]
-    ;; The store topic ends with the engine-passthrough note: the fram verbs
+    ;; The store topic ends with the engine-passthrough note: Store verbs
     ;; reachable through bin/north's `*` arm have no case arm to register.
     (if (= id :store)
       (concat lines ["" (str "  " (:passthrough surface))])

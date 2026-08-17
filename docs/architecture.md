@@ -6,13 +6,13 @@ change X."
 
 ## The layer stack
 
-**Engine** → [Fram](https://github.com/Autonymy/fram), selected by the installed
+**Engine** → [Beagle Store](https://github.com/Autonymy/fram), selected by the installed
 wrapper through the sealed FRAMRPC environment.
-Fram is a slot-addressable, typed-triple substrate: the triple store, the
+Beagle Store is a slot-addressable, typed-triple substrate: the triple store, the
 Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it,
 fork it, or package it: [`flake.nix`](../flake.nix) deliberately does not select
 a second engine, and both the checkout launcher and the installed package source
-the host-published `framrpc.env` for the engine's identity. That one sealed
+the host-published `beagle-store.env` for the engine's identity. That one sealed
 environment is the single place the engine revision is decided.
 
 **Coordination domain** → [`src/north/*.bclj`](../src/north). The vocabulary
@@ -31,11 +31,11 @@ These are authored in [Beagle](https://github.com/Autonymy/beagle) and compiled
 to Clojure under [`out/`](../out), which is committed — see
 [building-and-testing.md](building-and-testing.md).
 
-**CLI** → [`bin/north`](../bin/north). It aims the Fram engine at your data,
+**CLI** → [`bin/north`](../bin/north). It aims the Beagle Store engine at your data,
 sets capture provenance, and dispatches: life and coordination verbs
 (`ready`/`threads`/`capture`/`agents`/`spawn`/`delegate`/`watch`/
 `trace`/`config`) route to `north.main` or a [`cli/`](../cli) handler; engine
-verbs (`import`/`show`/`tell`) pass through to Fram. Any verb the registry does
+verbs (`import`/`show`/`tell`) pass through to Beagle Store. Any verb the registry does
 not claim passes through to the engine. `validate` is the exception that proves
 the split: it is **North-handled**, running the full check — the engine's
 generic integrity rules plus North's work rules in `north.validate` — because
@@ -62,11 +62,11 @@ host. `northd.ts` is the daemon, `journal.ts` its append-and-replay log,
 `protocol.ts` the wire between them, and `app.bjs` the terminal UI. It owns
 `north bridge` and fronts `north dashboard` — the dashboard verb runs through
 the bridge CLI, which re-execs [`cli/dashboard-cli.clj`](../cli/dashboard-cli.clj).
-The bridge does not read or write the coordinator, so replay survives a Fram
+The bridge does not read or write the coordinator, so replay survives a Beagle Store
 outage.
 
 **MCP** → [`bin/north-mcp`](../bin/north-mcp), the AI-facing edge. Every tool
-maps to a tested CLI operation through the Fram server write path, so in-harness
+maps to a tested CLI operation through the Beagle Store server write path, so in-harness
 agents dispatch through `mcp__north__dispatch` / `spawn` rather than the shell
 verbs.
 
@@ -75,18 +75,18 @@ state and are **not** part of this repository.
 
 ## The write path
 
-Every **coordination-graph** write serializes through one current Fram server,
+Every **coordination-graph** write serializes through one current Beagle Store server,
 which rule-checks it before it lands. The configured server listens locally on
 `127.0.0.1:7977` (`NORTH_PORT`); canonical FRAMRPC requests carry the selected
 SpaceId, and `north:cli/runtime-attestation.clj` binds the live listener to the
-sealed Fram release `FRAM_HOME` names — its receipt's revision and tree, its
+sealed Beagle Store release `BEAGLE_STORE_HOME` names — its receipt's revision and tree, its
 Native artifact, database, and service owner.
 
 Two writes are deliberately carved out of that path. Telemetry subjects
 (`run:`/`session:`/`mine:`/`guard_denial:`) route to the telemetry partition on
 its own port and space when `NORTH_TELEMETRY_PARTITION=1`
 ([`bin/north`](../bin/north)); and the Bridge journal is a local
-append-and-replay log that keeps working while Fram is down. Neither is a
+append-and-replay log that keeps working while Beagle Store is down. Neither is a
 coordination fact, and neither is exempt from rule-checking once it becomes one.
 
 ## Routing: who versus where
@@ -101,7 +101,7 @@ through the chosen provider's catalog. See
 
 ## Emergency recovery
 
-`north panic` is a Bash-only kill switch that works when babashka, Fram, or the
+`north panic` is a Bash-only kill switch that works when babashka, Beagle Store, or the
 FRAMRPC server are unavailable. It writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves the other keys, and prints the
 exact restore commands. Use it to return to stock native operation while
@@ -111,5 +111,5 @@ routine surface.
 ## Hosting
 
 The same architecture runs on a laptop or on a server you own: the runtime is
-the Fram server plus North's coordination workers, and nothing above assumes a
+the Beagle Store server plus North's coordination workers, and nothing above assumes a
 particular host. There is no separate hosting guide yet.
