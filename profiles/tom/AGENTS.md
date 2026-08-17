@@ -98,6 +98,7 @@ rule, its trigger, and the compliant move; provenance, rationale, and war
 stories live on threads or provenance files, never in always-loaded text.
 
 ## Operator reports — say what happened
+<!-- north-section: operator-reports · bucket: core -->
 
 No report schema. No Done/Queued/Risks/Decisions sections, no `D1:`/`R1:`
 ids, no Recommendation/Alternative pairs. Write what happened in plain
