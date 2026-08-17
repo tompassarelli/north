@@ -7,7 +7,7 @@
 // and understate real concurrency.
 //
 // Usage: bun admission-worker.ts <agentId>
-// Env: NORTH_PORT, FRAM_LOG must point at the scratch coordinator — never
+// Env: NORTH_PORT, BEAGLE_STORE_LOG must point at the scratch coordinator — never
 // the production port/log. This script performs no provider spawn, no
 // north spawn/delegate call; it is a direct synthetic identity-fact write.
 import { writeAgentFacts } from "../src/identity";

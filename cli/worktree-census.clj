@@ -1,6 +1,6 @@
 ;; Shared read model behind `north worktrees` and the scheduled unregistered
 ;; sweep. Library, not a command; filesystem state derives from Git at read time,
-;; while graph ownership comes from Fram's indexed coordination API.
+;; while graph ownership comes from Beagle Store's indexed coordination API.
 (ns north.worktree-census
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]

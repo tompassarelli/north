@@ -1,12 +1,12 @@
 #lang beagle/clj
 (ns north.projections
-  "Read-only dependency-derived views over canonical Fram Triples.")
+  "Read-only dependency-derived views over canonical Beagle Store Triples.")
 
-(require fram.types :as t)
-(require fram.kernel-classify :as kc)
+(require store.types :as t)
+(require store.kernel-classify :as kc)
 (require clojure.string :as str)
 
-;; Triple slots are Any because Fram's recursive Term ABI cannot be expressed
+;; Triple slots are Any because Beagle Store's recursive Term ABI cannot be expressed
 ;; in-place. The Triple constructor validates the recursive Term boundary.
 (defalias TermKey (Vec Any))
 (defalias SingleIndex (Map TermKey Any))
@@ -142,7 +142,7 @@
   (contains? (projectionindex-subject-set index) subject))
 
 (def configured-single-predicates (Vec String)
-  (let [(configured String?) (System/getenv "FRAM_SINGLE_VALUED")]
+  (let [(configured String?) (System/getenv "BEAGLE_STORE_SINGLE_VALUED")]
     (if (and (some? configured) (not (str/blank? configured)))
       (vec (str/split configured #"\s+"))
       [])))
@@ -172,21 +172,21 @@
    []
    (get (projectionindex-reverse-dependencies index) subject no-terms)))
 
-;; --- lifecycle vocab + derivation (moved out of the fram kernel) -------------
+;; --- lifecycle vocab + derivation (moved out of the Store kernel) -------------
 ;; Lifecycle is DERIVED, never a stored status: the engine stores the facts but
 ;; north OWNS the derivation. terminal = resolved (outcome/abandoned/
 ;; superseded_by); withdrawn = a depends_on target that's suspect to depend on
 ;; (abandoned). The vocab mirrors the env contract bin/north exports
-;; (FRAM_TERMINAL_PREDS / FRAM_WITHDRAWN_PREDS); the defaults ARE the north
+;; (BEAGLE_STORE_TERMINAL_PREDS / BEAGLE_STORE_WITHDRAWN_PREDS); the defaults ARE the north
 ;; lifecycle vocab.
 (def terminal-preds (Vec String)
-  (let [(env String?) (System/getenv "FRAM_TERMINAL_PREDS")]
+  (let [(env String?) (System/getenv "BEAGLE_STORE_TERMINAL_PREDS")]
     (if (and (some? env) (not (= env "")))
       (vec (str/split env #"\s+"))
       ["outcome" "abandoned" "superseded_by"])))
 
 (def withdrawn-preds (Vec String)
-  (let [(env String?) (System/getenv "FRAM_WITHDRAWN_PREDS")]
+  (let [(env String?) (System/getenv "BEAGLE_STORE_WITHDRAWN_PREDS")]
     (if (and (some? env) (not (= env "")))
       (vec (str/split env #"\s+"))
       ["abandoned"])))
@@ -204,7 +204,7 @@
 (defn withdrawn-i? [(idx ProjectionIndex) (te String)] Bool
   (any-of-i? idx te withdrawn-preds))
 
-;; --- work-thread set (moved out of the fram kernel) --------------------------
+;; --- work-thread set (moved out of the Store kernel) --------------------------
 ;; WORK semantics, not a structural engine concern: which titled nodes are
 ;; actionable work vs grouping anchors. A grouping anchor is a node synthesized
 ;; only to be a relates_to target (former tags), never authored work — a valid
@@ -250,7 +250,7 @@
 ;; `do_on` (start date strictly after today) — it drops out of ready/next until
 ;; its date. A past/equal do_on is NOT dormant (it's live/overdue). today/before?
 ;; are threaded through callers exactly as staleness.bclj does (before? =
-;; fram.rt/str-lt?); projections has no clock access of its own.
+;; store.rt/str-lt?); projections has no clock access of its own.
 (defn dormant?
   [(idx ProjectionIndex)
    (te String)

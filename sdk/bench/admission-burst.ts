@@ -2,7 +2,7 @@
 //
 // SAFETY ENVELOPE (binding, see docs/private/admission-benchmark-brief.md):
 //   - NEVER targets :7977 / the production log. Requires NORTH_PORT and
-//     FRAM_LOG to be explicitly set to a scratch coordinator and refuses to
+//     BEAGLE_STORE_LOG to be explicitly set to a scratch coordinator and refuses to
 //     run against the production defaults.
 //   - Drives the identity-fact-write path synthetically (writeAgentFacts, the
 //     exact function a real managed-lane spawn calls). No provider spawn, no
@@ -18,7 +18,7 @@ import { loadavg } from "node:os";
 import { readFileSync } from "node:fs";
 
 const NORTH_PORT = process.env.NORTH_PORT;
-const FRAM_LOG = process.env.FRAM_LOG;
+const BEAGLE_STORE_LOG = process.env.BEAGLE_STORE_LOG;
 const WORKER = new URL("./admission-worker.ts", import.meta.url).pathname;
 
 function failClosed(message: string): never {
@@ -29,11 +29,11 @@ function failClosed(message: string): never {
 if (!NORTH_PORT || NORTH_PORT === "7977") {
   failClosed("NORTH_PORT must be set to a scratch coordinator port (never 7977/unset)");
 }
-if (!FRAM_LOG || FRAM_LOG === `${process.env.HOME}/.local/state/north/coordination.log`) {
-  failClosed("FRAM_LOG must be set to a scratch log path (never the production coordination.log)");
+if (!BEAGLE_STORE_LOG || BEAGLE_STORE_LOG === `${process.env.HOME}/.local/state/north/coordination.log`) {
+  failClosed("BEAGLE_STORE_LOG must be set to a scratch log path (never the production coordination.log)");
 }
-if (!FRAM_LOG.startsWith("/tmp/")) {
-  failClosed(`FRAM_LOG must live under /tmp/ for this benchmark (got ${FRAM_LOG})`);
+if (!BEAGLE_STORE_LOG.startsWith("/tmp/")) {
+  failClosed(`BEAGLE_STORE_LOG must live under /tmp/ for this benchmark (got ${BEAGLE_STORE_LOG})`);
 }
 
 const MATRIX = (process.env.BENCH_MATRIX ?? "1,10,25,50,100")
@@ -55,7 +55,7 @@ async function runBurst(n: number, label: string) {
     return Bun.spawn({
       cmd: ["bun", WORKER, agentId],
       cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, NORTH_PORT, FRAM_LOG },
+      env: { ...process.env, NORTH_PORT, BEAGLE_STORE_LOG },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -91,7 +91,7 @@ async function runBurst(n: number, label: string) {
 }
 
 async function main() {
-  console.log(`# admission-burst — NORTH_PORT=${NORTH_PORT} FRAM_LOG=${FRAM_LOG}`);
+  console.log(`# admission-burst — NORTH_PORT=${NORTH_PORT} BEAGLE_STORE_LOG=${BEAGLE_STORE_LOG}`);
   console.log(`# matrix=${MATRIX.join(",")} trials=${TRIALS} explore=${EXPLORE ?? "none"}`);
   const rows: Array<Record<string, unknown>> = [];
   for (const n of MATRIX) {

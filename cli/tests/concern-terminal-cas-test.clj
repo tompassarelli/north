@@ -34,20 +34,20 @@
     (catch Exception _ true)))
 
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
       (.getCanonicalPath
        (io/file (System/getProperty "user.home") "code" "fram" "main"))))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
-;; A silent skip in CI is a gate that can never fail; CI must set FRAM_TEST_CHECKOUT
-;; (or FRAM_PATH) so this always runs there — an absent Fram under CI is a hard error.
+;; A silent skip in CI is a gate that can never fail; CI must set BEAGLE_STORE_TEST_CHECKOUT
+;; (or BEAGLE_STORE_PATH) so this always runs there — an absent Beagle Store under CI is a hard error.
 (when-not (.isDirectory (io/file fram "out"))
   (if (System/getenv "CI")
-    (do (println "FAIL — compiled Fram out/ is absent under CI (FRAM_TEST_CHECKOUT/FRAM_PATH unset or wrong)")
+    (do (println "FAIL — compiled Beagle Store out/ is absent under CI (BEAGLE_STORE_TEST_CHECKOUT/BEAGLE_STORE_PATH unset or wrong)")
         (System/exit 1))
-    (do (println "SKIP — compiled Fram out/ is absent")
+    (do (println "SKIP — compiled Beagle Store out/ is absent")
         (System/exit 0))))
 
 (def port
@@ -60,17 +60,17 @@
 (def log (io/file tmp "facts.framlog"))
 (def canonical-log (.getCanonicalPath log))
 (def isolated-env
-  {"FRAM_LOG" canonical-log
-   "FRAM_SPACE_ID" "north-coordination"
+  {"BEAGLE_STORE_LOG" canonical-log
+   "BEAGLE_STORE_SPACE_ID" "north-coordination"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
   (p/process {:dir fram :out :string :err :string
               :extra-env (assoc isolated-env
-                                "FRAM_SERVER_RUNTIME" "jvm-dev"
-                                "FRAM_SERVER_QUIET" "1"
-                                "FRAM_SERVER_XMX" "1g")}
-             (str fram "/bin/fram-server") "serve" (str port)
+                                "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                                "BEAGLE_STORE_SERVER_QUIET" "1"
+                                "BEAGLE_STORE_SERVER_XMX" "1g")}
+             (str fram "/bin/beagle-store-server") "serve" (str port)
              canonical-log "north-coordination"))
 
 (defn cleanup []

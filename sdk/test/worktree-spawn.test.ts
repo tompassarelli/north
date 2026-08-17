@@ -15,7 +15,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
+import { BEAGLE_STORE_RUNTIME_HOME } from "../src/beagle-store";
 import type {
   WorktreeAllocationEvent,
   WorktreeAllocationRegistration,
@@ -36,7 +36,7 @@ const MANAGED_ENV = [
   "AGENT_TOPOLOGY", "AGENT_TASK_GRADE", "AGENT_REASONING", "AGENT_POSTURE",
   "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER", "AGENT_IDENTITY_ROLE",
   "AGENT_DOMAIN_REQUIREMENTS", "AGENT_COMPOSITION",
-  "NORTH_STALL_MS", "FRAM_HOME", "FRAM_BIN", "FRAM_OUT",
+  "NORTH_STALL_MS", "BEAGLE_STORE_HOME", "BEAGLE_STORE_BIN", "BEAGLE_STORE_OUT",
 ] as const;
 const origEnv: Record<string, string | undefined> = {};
 for (const k of MANAGED_ENV) origEnv[k] = process.env[k];
@@ -122,9 +122,9 @@ exit 2
   delete process.env.AGENT_DOMAIN_REQUIREMENTS;
   delete process.env.AGENT_COMPOSITION;
   process.env.AGENT_COORDINATOR = TEST_COORDINATOR;
-  delete process.env.FRAM_HOME;
-  delete process.env.FRAM_BIN;
-  delete process.env.FRAM_OUT;
+  delete process.env.BEAGLE_STORE_HOME;
+  delete process.env.BEAGLE_STORE_BIN;
+  delete process.env.BEAGLE_STORE_OUT;
 
   // Scratch git repo the opt-in lane cuts its worktree from. basename must be unique so the
   // /tmp/<basename>-lane-<id> path can't collide with a real repo's worktree.
@@ -317,7 +317,7 @@ test("explicit worktree provisioning failure aborts before provider, admission, 
   const delta = afterLog.slice(beforeLog.length).trim().split("\n");
   expect(delta).toHaveLength(3);
   const allocationWriter = resolve(import.meta.dir, "../../cli/worktree-allocation-internal.clj");
-  const allocationPrefix = `bb -cp ${join(FRAM_RUNTIME_HOME, "out")} ${allocationWriter} 59999`;
+  const allocationPrefix = `bb -cp ${join(BEAGLE_STORE_RUNTIME_HOME, "out")} ${allocationWriter} 59999`;
   expect(delta[0]).toStartWith(`${allocationPrefix} register `);
   expect(delta[1]).toContain('"type":"quarantined"');
   expect(delta[1]).toContain('"code":"durable_ref_collision"');

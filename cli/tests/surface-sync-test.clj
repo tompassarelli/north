@@ -51,7 +51,7 @@
 
 (let [arms (disj arm-tokens "*")]
   (if (contains? arm-tokens "*")
-    (pass "fram passthrough arm present")
+    (pass "Store passthrough arm present")
     (fail! "no `*` passthrough arm in bin/north"))
   (if (str/includes? bin-src "\"panic\"")
     (pass "pre-case panic route present")

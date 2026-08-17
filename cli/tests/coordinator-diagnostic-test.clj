@@ -13,7 +13,7 @@
 
 (check! "unreachable FRAMRPC server names the configured service remedy"
         (and (str/includes? down "FRAMRPC SERVER UNREACHABLE")
-             (str/includes? down "Start the configured Fram service")
+             (str/includes? down "Start the configured Beagle Store service")
              (not (str/includes? down "FRAMRPC SPACE MISMATCH"))))
 (check! "wrong SpaceId names the selected FRAMLOG database"
         (and (str/includes? mismatch "FRAMRPC SPACE MISMATCH")
@@ -23,7 +23,7 @@
              (not (str/includes? mismatch "SERVER UNREACHABLE"))))
 (check! "incompatible FRAMRPC protocol has a matched-release remedy"
         (and (str/includes? incompatible "FRAMRPC PROTOCOL INCOMPATIBLE")
-             (str/includes? incompatible "matched North + Fram release")
+             (str/includes? incompatible "matched North + Beagle Store release")
              (not= mismatch incompatible)))
 
 (if (zero? @failures)

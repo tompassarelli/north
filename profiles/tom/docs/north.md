@@ -14,7 +14,7 @@ Agent conduct remains owned by the profile that linked this document.
 ## Writing safely under concurrent agents
 
 North threads are backed by the North coordination graph — recursive Triples with
-assertion history (engine `beagle:branch-core/`). North's rows are performative, so
+assertion history (engine `beagle:store/`). North's rows are performative, so
 calling them facts is honest; the stored unit is the Triple plus its occurrence. Work
 and telemetry have separate configured origins; their paths and writer
 lifecycle belong to the deployment, not to an agent session. Do not infer a

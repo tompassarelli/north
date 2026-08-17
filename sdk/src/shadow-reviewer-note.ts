@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import {
-	framBabashkaArguments,
-	framEngineEnvironment,
-	settleFramCoordinatorChild,
-} from "./fram-engine";
+	beagleStoreBabashkaArguments,
+	beagleStoreEnvironment,
+	settleBeagleStoreCoordinatorChild,
+} from "./beagle-store";
 import {
 	shadowReviewerAgentId,
 	type ShadowReviewerNote,
@@ -56,7 +56,7 @@ export function shadowReviewerNoteCommand(
 ): ShadowReviewerNoteCommand {
 	return Object.freeze({
 		executable: trustedNorthBabashkaExecutable(),
-		args: Object.freeze(framBabashkaArguments([
+		args: Object.freeze(beagleStoreBabashkaArguments([
 			MSG_CLI,
 			env.NORTH_PORT ?? "7977",
 			"review",
@@ -64,7 +64,7 @@ export function shadowReviewerNoteCommand(
 			sourceAgentId,
 			noteBody(note),
 		], env)),
-		env: framEngineEnvironment({
+		env: beagleStoreEnvironment({
 			...env,
 			AGENT_ID: sourceAgentId,
 			AGENT_TOPOLOGY: "worker",
@@ -86,7 +86,7 @@ async function publishCommand(
 	});
 	child.stdin.write(command.stdin);
 	child.stdin.end();
-	const outcome = await settleFramCoordinatorChild(
+	const outcome = await settleBeagleStoreCoordinatorChild(
 		child,
 		PUBLISH_TIMEOUT_MS,
 		{ signal },

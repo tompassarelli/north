@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; End-to-end durability contract for the managed SDK live-input feed.
-;; A throwaway Fram coordinator keeps every assertion isolated from live North.
+;; A throwaway Beagle Store coordinator keeps every assertion isolated from live North.
 (require '[babashka.classpath :as cp]
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
@@ -11,15 +11,15 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (def live-feed-cli (str root "/cli/north-live-feed.clj"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-audience.clj"))
 (load-file (str root "/cli/agent-provenance.clj"))
-(require '[north.framrpc-client :as rpc])
+(require '[north.store-rpc-client :as rpc])
 (def checks (atom []))
 (def feeds (atom []))
 (def test-space "north-coordination")
@@ -52,7 +52,7 @@
         status
 
         (>= attempt 800)
-        (throw (ex-info "scratch Fram FRAMRPC server did not become ready"
+        (throw (ex-info "scratch Beagle Store FRAMRPC server did not become ready"
                         {:port port :space test-space}))
 
         :else (do (Thread/sleep 25) (recur (inc attempt)))))))
@@ -134,7 +134,7 @@
         builder (ProcessBuilder. ^java.util.List command)
         _ (.directory builder (io/file root))
         environment (.environment builder)
-        _ (.put environment "FRAM_SPACE_ID" test-space)
+        _ (.put environment "BEAGLE_STORE_SPACE_ID" test-space)
         _ (.put environment "NORTH_FRAMRPC_HOST" "127.0.0.1")
         process (.start builder)
         output (io/reader (.getInputStream process))
@@ -298,30 +298,30 @@
             "north-live-feed"
             (make-array java.nio.file.attribute.FileAttribute 0)))
       facts (io/file tmp "history.framlog")
-      daemon-output (io/file tmp "fram-server.log")
+      daemon-output (io/file tmp "beagle-store-server.log")
       daemon
       (let [builder
             (doto
              (ProcessBuilder.
               ^java.util.List
-              [(str fram "/bin/fram-server") "serve" (str port)
+              [(str fram "/bin/beagle-store-server") "serve" (str port)
                (.getCanonicalPath facts) test-space])
              (.directory (io/file fram))
              (.redirectErrorStream true)
              (.redirectOutput daemon-output))
             environment (.environment builder)]
-        (doseq [name ["FRAM_LOG" "FRAM_THREADS" "FRAM_TELEMETRY_LOG"
-                      "FRAM_GRAPH_EDIT" "FRAM_FLIP" "FRAM_MCP_PROFILE"
-                      "FRAM_SERVER_TLS"]]
+        (doseq [name ["BEAGLE_STORE_LOG" "BEAGLE_STORE_THREADS" "BEAGLE_STORE_TELEMETRY_LOG"
+                      "BEAGLE_STORE_GRAPH_EDIT" "BEAGLE_STORE_FLIP" "BEAGLE_STORE_MCP_PROFILE"
+                      "BEAGLE_STORE_SERVER_TLS"]]
           (.remove environment name))
-        (.put environment "FRAM_SERVER_RUNTIME" "jvm-dev")
-        (.put environment "FRAM_SERVER_QUIET" "1")
-        (.put environment "FRAM_SERVER_XMX" "1g")
-        (.put environment "FRAM_SNAPSHOT_BOOT" "0")
+        (.put environment "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev")
+        (.put environment "BEAGLE_STORE_SERVER_QUIET" "1")
+        (.put environment "BEAGLE_STORE_SERVER_XMX" "1g")
+        (.put environment "BEAGLE_STORE_SNAPSHOT_BOOT" "0")
         (.start builder))]
   (try
     (let [status (await-fram-ready! port)]
-      (check "throwaway Beagle branch-core engine serves binary FRAMRPC"
+      (check "throwaway Beagle store engine serves binary FRAMRPC"
              (and (= test-space (:space-id status))
                   (= :ready (:state status))
                   (= :rpc/jvm (:engine status)))))

@@ -31,7 +31,7 @@
   (loop [remaining 8]
     (let [base (north.coord/cur-ver port)]
       (when-not (integer? base)
-        (throw (ex-info "Fram version unavailable" {})))
+        (throw (ex-info "Beagle Store version unavailable" {})))
       (let [cur (driver-of port thread)]
         (if (not= cur me)
           {:state :noop :driver cur}

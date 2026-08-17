@@ -39,7 +39,7 @@
 (def port
   (Integer/parseInt
    (or (System/getenv "NORTH_PORT")
-       (System/getenv "FRAM_PORT")
+       (System/getenv "BEAGLE_STORE_PORT")
        "7977")))
 
 ;; A bounded sweep owns every subprocess it starts. The outer deadline and the
@@ -415,7 +415,7 @@
               :body [{:rel "triple"
                       :args [{:var "e"} "agent" h]}]}]}
            ;; Ask for one sentinel row beyond the accepted bound. This simple
-          ;; one-literal shape routes through Fram's warm predicate/object
+          ;; one-literal shape routes through Beagle Store's warm predicate/object
           ;; index. query-page would rebuild a whole-corpus Datalog fixpoint
           ;; once per lane before applying its wire-page bound.
            (inc max-lane-run-candidates))

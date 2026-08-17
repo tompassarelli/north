@@ -1,18 +1,18 @@
-// One-shot FRAMRPC v2 client, mirroring north:cli/framrpc-client.clj. The server
+// One-shot FRAMRPC v2 client, mirroring north:cli/store-rpc-client.clj. The server
 // serves ONE request per connection. A mutation whose bytes reached the socket is
 // never auto-retried: the caller gets `requestSent` and owns the resolution.
 import { connect as netConnect, type Socket } from "node:net";
-import { coordPort, framSpaceId, kw, Keyword } from "./coord-wire";
+import { coordPort, storeSpaceId, kw, Keyword } from "./coord-wire";
 import type {
   ActionResult, BatchAction, LeaseCheck, LeaseGrant, RpcPageRequest,
   RpcPageResponse, RpcRequest, RpcResponse, RpcStatus, Term,
-} from "./framrpc-codec";
+} from "./store-rpc-codec";
 import {
   decodeFrame, decodeFrameHeader, decodeLeaseCheck, decodeLeaseGrant,
   decodeLeaseReleased, decodeMutationResult, decodeStatus, decodeTriples,
   encodeRequestFrame, rpcBatch, rpcLeaseAcquire, rpcLeaseRenew,
   rpcTriplePattern, RPC_UNIT, RPC_V2_HEADER_BYTES,
-} from "./framrpc-codec";
+} from "./store-rpc-codec";
 
 /** A typed refusal the server put on the wire. */
 export class FramRpcServerError extends Error {
@@ -255,7 +255,7 @@ export class FramRpcClient {
   static create(options: FramRpcClientOptions = {}): FramRpcClient {
     const host = options.host ?? process.env.NORTH_FRAMRPC_HOST ?? "127.0.0.1";
     if (host.length === 0) throw new Error("FRAMRPC host must be nonblank");
-    const spaceId = options.spaceId ?? framSpaceId();
+    const spaceId = options.spaceId ?? storeSpaceId();
     if (spaceId.length === 0) throw new Error("FRAMRPC SpaceId must be nonblank");
     return new FramRpcClient(
       host,

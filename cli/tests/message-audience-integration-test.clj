@@ -11,16 +11,16 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      "/home/tom/code/beagle/main/store"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def peek-cli (str root "/cli/inbox-peek.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
 (def north-wrapper (str root "/bin/north"))
 (def north-arm (str root "/bin/north-arm"))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def children (atom []))
@@ -28,8 +28,8 @@
 (def test-telemetry-log (atom nil))
 
 (defn test-env [port]
-  {"FRAM_LOG" @test-log
-   "FRAM_TELEMETRY_LOG" @test-telemetry-log
+  {"BEAGLE_STORE_LOG" @test-log
+   "BEAGLE_STORE_TELEMETRY_LOG" @test-telemetry-log
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 
@@ -56,7 +56,7 @@
   (let [result (deref daemon 5000 nil)]
     (throw
      (ex-info
-      "throwaway Fram coordinator failed to start"
+      "throwaway Beagle Store coordinator failed to start"
       {:exit (:exit result)
        :stdout (or (:out result) "<unavailable>")
        :stderr (or (:err result) "<unavailable>")}))))
@@ -122,10 +122,10 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath facts) "north-coordination"))]
   (reset! test-log (.getCanonicalPath facts))
   (reset! test-telemetry-log (.getCanonicalPath telemetry))
@@ -134,7 +134,7 @@
                     #(try
                        (= :ready (:state (north.coord/status port)))
                        (catch Exception _ false)))]
-      (check "throwaway current Fram server starts" started?)
+      (check "throwaway current Beagle Store server starts" started?)
       (when-not started?
         (fail-daemon-boot! daemon)))
     (let [wrapper-probe
@@ -330,7 +330,7 @@
            (zero? (:exit (run-cli presence-cli port "forget" "racer"))))
 
     ;; The hook intentionally leaves messages whose complete rendering exceeds
-    ;; its 24 KiB output budget unacknowledged. Its persisted Fram cursor must
+    ;; its 24 KiB output budget unacknowledged. Its persisted Beagle Store cursor must
     ;; still make deterministic progress past more than one full candidate page,
     ;; or a large prefix permanently starves bounded mail behind it.
     (let [runtime (io/file tmp "peek-cursor-runtime")

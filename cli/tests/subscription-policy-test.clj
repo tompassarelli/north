@@ -8,9 +8,9 @@
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
@@ -18,7 +18,7 @@
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 
 (when-not (.exists (io/file fram "out"))
-  (check (str "compiled Fram test dependency is required at " fram "/out") false))
+  (check (str "compiled Beagle Store test dependency is required at " fram "/out") false))
 
 ;; Exercise the public report against a throwaway coordinator.
 (when (.exists (io/file fram "out"))
@@ -34,10 +34,10 @@
   (def log (io/file tmp "facts.framlog"))
   (def canonical-log (.getCanonicalPath log))
   (def daemon (proc/process {:dir fram :out :string :err :string
-                             :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                                         "FRAM_SERVER_QUIET" "1"
-                                         "FRAM_SERVER_XMX" "1g"}}
-                            (str fram "/bin/fram-server") "serve" (str port)
+                             :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                                         "BEAGLE_STORE_SERVER_QUIET" "1"
+                                         "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                            (str fram "/bin/beagle-store-server") "serve" (str port)
                             canonical-log "north-coordination"))
   (defn await-up []
     (loop [n 0]
@@ -55,7 +55,7 @@
     (let [started? (await-up)]
       (check "throwaway telemetry coordinator starts" started?)
       (when-not started?
-        (throw (ex-info "throwaway Fram server did not start"
+        (throw (ex-info "throwaway Beagle Store server did not start"
                         {:result (deref daemon 1000 nil)}))))
     (let [runs
           {"@run-exact-anthropic"
@@ -134,14 +134,14 @@
     ;; identity and therefore cannot enter the report or influence a decision.
     (fact! "@run-historical" (str "cost" "_usd") "99.99")
     (let [full (proc/shell {:out :string :err :string :continue true
-                            :extra-env {"FRAM_LOG" canonical-log
-                                        "FRAM_SPACE_ID" "north-coordination"
+                            :extra-env {"BEAGLE_STORE_LOG" canonical-log
+                                        "BEAGLE_STORE_SPACE_ID" "north-coordination"
                                         "NORTH_TELEMETRY_PARTITION" "0"}}
                            "bb" "-cp" runtime-classpath
                            (str root "/cli/north-reconcile.clj") (str port) "full")
           recent (proc/shell {:out :string :err :string :continue true
-                              :extra-env {"FRAM_LOG" canonical-log
-                                          "FRAM_SPACE_ID" "north-coordination"
+                              :extra-env {"BEAGLE_STORE_LOG" canonical-log
+                                          "BEAGLE_STORE_SPACE_ID" "north-coordination"
                                           "NORTH_TELEMETRY_PARTITION" "0"}}
                              "bb" "-cp" runtime-classpath
                              (str root "/cli/north-reconcile.clj") (str port) "recent" "10")]

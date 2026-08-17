@@ -10,12 +10,12 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      "/home/tom/code/beagle/main/store"))
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def test-log (atom nil))
@@ -64,7 +64,7 @@
   (apply proc/shell
          {:continue true :out :string :err :string
           :extra-env {"AGENT_TOPOLOGY" "orchestrator"
-                      "FRAM_LOG" @test-log}}
+                      "BEAGLE_STORE_LOG" @test-log}}
          "bb" msg-cli (str port) args))
 (defn sent-command [result]
   (second (re-find #"sent cmd (@cmd:[^ ]+)" (:out result))))
@@ -79,14 +79,14 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath facts) "north-coordination"))]
   (reset! test-log (.getCanonicalPath facts))
   (try
-    (check "throwaway current Fram server starts"
+    (check "throwaway current Beagle Store server starts"
            (await-predicate #(try
                                (= :ready (:state (north.coord/status port)))
                                (catch Exception _ false))))
@@ -95,7 +95,7 @@
     (assert-fact! port "@cmd:vocab" "known_op" "spawn")
     (let [listener (proc/process {:out listener-log :err listener-log
                                   :extra-env {"AGENT_TOPOLOGY" "orchestrator"
-                                              "FRAM_LOG" @test-log}}
+                                              "BEAGLE_STORE_LOG" @test-log}}
                                  "bb" listener-cli (str port) self "--react")]
       (try
         (check "listener establishes its scoped subscription"

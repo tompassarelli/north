@@ -5,15 +5,15 @@
 (ns north.coord
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [framrpc :as wire]
-            [fram.types :as t]))
+            [store.rpc :as wire]
+            [store.types :as t]))
 
 (def cli-dir (.getParentFile (io/file *file*)))
-(load-file (str cli-dir "/framrpc-client.clj"))
-(require '[north.framrpc-client :as rpc])
+(load-file (str cli-dir "/store-rpc-client.clj"))
+(require '[north.store-rpc-client :as rpc])
 
 (def PORT (or (System/getenv "NORTH_PORT")
-              (System/getenv "FRAM_SERVER_PORT")
+              (System/getenv "BEAGLE_STORE_SERVER_PORT")
               "7977"))
 (def query-page-row-limit 4096)
 (def lease-max-safe-integer 9007199254740991)
@@ -98,7 +98,7 @@
   (if (and (= domain :telemetry) (telemetry-partition-enabled?))
     (or (not-empty (System/getenv "NORTH_TELEMETRY_SPACE_ID"))
         "north-telemetry")
-    (or (not-empty (System/getenv "FRAM_SPACE_ID"))
+    (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID"))
         "north-coordination")))
 
 (defn- client-for [port domain]
@@ -127,14 +127,14 @@
 (defn expected-log []
   (let [home (or (System/getenv "HOME") (System/getProperty "user.home"))]
     (canonical-log-path
-     (or (System/getenv "FRAM_LOG")
+     (or (System/getenv "BEAGLE_STORE_LOG")
          (str home "/.local/state/north/coordination.framlog")))))
 
 (defn telemetry-log-path []
   (when (telemetry-partition-enabled?)
     (canonical-log-path
-     (or (System/getenv "FRAM_TELEMETRY_LOG")
-         (throw (ex-info "FRAM_TELEMETRY_LOG is required for partitioned telemetry"
+     (or (System/getenv "BEAGLE_STORE_TELEMETRY_LOG")
+         (throw (ex-info "BEAGLE_STORE_TELEMETRY_LOG is required for partitioned telemetry"
                          {:type :missing-telemetry-log}))))))
 
 (defn- triple-row! [triple]

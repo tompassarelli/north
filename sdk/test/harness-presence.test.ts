@@ -5,7 +5,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harnessOptions } from "../src/harness";
-import { framEngineSelection } from "../src/fram-engine";
+import { beagleStoreSelection } from "../src/beagle-store";
 import { presenceFencePath } from "../src/presence-fence";
 
 async function capturedLines(path: string, count: number): Promise<string[]> {
@@ -65,7 +65,7 @@ fi
 
     const registrations = await capturedLines(log, 2);
     expect(registrations).toHaveLength(2);
-    const framPrefix = `-cp ${framEngineSelection().out} `;
+    const framPrefix = `-cp ${beagleStoreSelection().out} `;
     for (const expected of [
       `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${self} ${process.cwd()} ${self}`,
       `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,

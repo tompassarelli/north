@@ -11,7 +11,7 @@ import {
   type InputAdmission,
   type SubscriptionRuntime,
 } from "../src/coordination";
-import { framEngineSelection } from "../src/fram-engine";
+import { beagleStoreSelection } from "../src/beagle-store";
 
 const protocol = "north-live-feed-v1";
 const frozenEpoch = "00000000-0000-4000-8000-000000000042";
@@ -81,14 +81,14 @@ function harness(options: {
 } = {}) {
   const children: FakeChild[] = [];
   const timers: FakeTimer[] = [];
-  const fram = framEngineSelection();
+  const store = beagleStoreSelection();
   let clock = 0;
   const runtime = {
     spawn: ((command: string, args: string[], spawnOptions: unknown) => {
       expect(command).toBe(trustedBb);
       expect(args.slice(0, 3)).toEqual([
         "-cp",
-        fram.out,
+        store.out,
         expect.stringMatching(/\/cli\/north-live-feed\.clj$/),
       ]);
       expect(args.slice(3)).toEqual([
@@ -101,9 +101,9 @@ function harness(options: {
       ]);
       expect(spawnOptions).toMatchObject({
         env: {
-          FRAM_HOME: fram.home,
-          FRAM_BIN: fram.bin,
-          FRAM_OUT: fram.out,
+          BEAGLE_STORE_HOME: store.home,
+          BEAGLE_STORE_BIN: store.bin,
+          BEAGLE_STORE_OUT: store.out,
         },
         stdio: ["pipe", "pipe", "ignore"],
       });

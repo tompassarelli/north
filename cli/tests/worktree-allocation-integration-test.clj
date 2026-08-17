@@ -4,17 +4,17 @@
          '[cheshire.core :as json]
          '[clojure.java.io :as io]
          '[clojure.string :as str]
-         '[fram.types :as t])
+         '[store.types :as t])
 
 (def test-root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram-root
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_HOME")
-      "/home/tom/code/beagle/main/branch-core"))
-(when-not (.isFile (io/file fram-root "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram-root})))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      "/home/tom/code/beagle/main/store"))
+(when-not (.isFile (io/file fram-root "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram-root})))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI
@@ -26,7 +26,7 @@
 
 ;; The writer loaded the coordination facade, which loaded the FRAMRPC client;
 ;; the transport seam below is the client's own injection point.
-(require '[north.framrpc-client :as rpc])
+(require '[north.store-rpc-client :as rpc])
 
 (def checks (atom []))
 (defn check [label result] (swap! checks conj [label (boolean result)]))
@@ -113,7 +113,7 @@
 
 (defn shell [log & args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" (.getCanonicalPath (io/file log))}}
+                     :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath (io/file log))}}
          args))
 
 (let [port (free-port)
@@ -124,10 +124,10 @@
       daemon (do
                (proc/process
                 {:dir fram-root :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram-root "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram-root "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       first-registration (registration "11111111-1111-4111-8111-111111111111" "1")
       second-registration (registration "22222222-2222-4222-8222-222222222222" "2")
@@ -135,7 +135,7 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check "throwaway current Fram server is ready" (await-coordinator! port))
+    (check "throwaway current Beagle Store server is ready" (await-coordinator! port))
 
     (let [encoded (json/generate-string first-registration)
           committed (shell log "bb" writer-path (str port) "register" encoded)
@@ -185,11 +185,11 @@
                              (canonical-json event)))))
 
     (let [left (proc/process {:out :string :err :string
-                              :extra-env {"FRAM_LOG" (.getCanonicalPath log)}}
+                              :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
                              "bb" writer-path (str port) "register"
                              (json/generate-string second-registration))
           right (proc/process {:out :string :err :string
-                               :extra-env {"FRAM_LOG" (.getCanonicalPath log)}}
+                               :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
                               "bb" writer-path (str port) "register"
                               (json/generate-string third-registration))
           left-result @left
@@ -325,11 +325,11 @@
     (let [same-left (registration "66666666-6666-4666-8666-666666666666" "6")
           same-right (registration "77777777-7777-4777-8777-777777777777" "6")
           left (proc/process {:out :string :err :string
-                              :extra-env {"FRAM_LOG" (.getCanonicalPath log)}}
+                              :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
                              "bb" writer-path (str port) "register"
                              (json/generate-string same-left))
           right (proc/process {:out :string :err :string
-                               :extra-env {"FRAM_LOG" (.getCanonicalPath log)}}
+                               :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
                               "bb" writer-path (str port) "register"
                               (json/generate-string same-right))
           results [@left @right]

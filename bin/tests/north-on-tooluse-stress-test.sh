@@ -7,7 +7,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-FRAM_OUT="${FRAM_OUT:-/home/tom/code/beagle/main/branch-core/out}"
+BEAGLE_STORE_OUT="${BEAGLE_STORE_OUT:-/home/tom/code/beagle/main/store/out}"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"
@@ -422,7 +422,7 @@ mkdir -p "$TMP/flush-runtime"
 timeout --signal=TERM --kill-after=0.1s 0.7s \
   env XDG_RUNTIME_DIR="$TMP/flush-runtime" NORTH_TEST_ROOT="$ROOT" \
   NORTH_TEST_STATUS="$STATUS_FILE" \
-  bb -cp "$FRAM_OUT" "$TMP/ack-stall-fixture.clj" \
+  bb -cp "$BEAGLE_STORE_OUT" "$TMP/ack-stall-fixture.clj" \
     >"$TMP/flush.out" 2>"$TMP/flush.err"
 flush_rc=$?
 set -e

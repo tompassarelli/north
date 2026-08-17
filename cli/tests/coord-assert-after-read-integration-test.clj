@@ -9,10 +9,10 @@
    (io/file (.getParent (io/file *file*)) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+   (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 
 (defn free-port []
@@ -35,17 +35,17 @@
       explicit-log-probe
       (proc/shell
        {:out :string :err :string :continue true
-        :extra-env {"FRAM_LOG" (.getCanonicalPath log)}}
+        :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
        "bb" "-cp" (str fram "/out") "-e"
        (str "(load-file " (pr-str (str root "/cli/coord.clj")) ")"
             "(print (north.coord/expected-log))"))
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                    "FRAM_SERVER_QUIET" "1"
-                    "FRAM_SERVER_XMX" "1g"}}
-       (str fram "/bin/fram-server") "serve" (str port)
+        :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                    "BEAGLE_STORE_SERVER_QUIET" "1"
+                    "BEAGLE_STORE_SERVER_XMX" "1g"}}
+       (str fram "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value]
@@ -53,11 +53,11 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] (.getCanonicalPath log))))
   (try
-    (check! "explicit FRAM_LOG remains the canonical migration identity"
+    (check! "explicit BEAGLE_STORE_LOG remains the canonical migration identity"
             (and (zero? (:exit explicit-log-probe))
                  (= (.getCanonicalPath log)
                     (str/trim (:out explicit-log-probe)))))
-    (check! "current Fram server is ready on the expected SpaceId"
+    (check! "current Beagle Store server is ready on the expected SpaceId"
             (eventually
              #(let [status (north.coord/status port)]
                 (and (= :ready (:state status))

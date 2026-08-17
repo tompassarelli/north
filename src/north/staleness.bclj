@@ -15,7 +15,7 @@
    derived views (ready/blocked/active) recompute and so can't go stale either.")
 
 (require clojure.string :as str)
-(require fram.kernel-classify :as kc)
+(require store.kernel-classify :as kc)
 (require north.projections :as proj)
 
 ;; te = the thread, pred = which judgment, detail = why it needs review.

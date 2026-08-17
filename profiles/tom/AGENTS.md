@@ -201,7 +201,7 @@ Every repo: agent notes, status, scratch, and handoffs go in gitignored
 <!-- north-section: global-agent-config · bucket: nixos -->
 
 → `~/code/nixos-config/main/modules/north-profile/firn/docs/nixos-config-rules.md`
-Personal policy lives in North's `profiles/tom`; Beagle, Fram, and Firn keep
+Personal policy lives in North's `profiles/tom`; Beagle, Beagle Store, and Firn keep
 their integration-specific files in their owner roots and enter the profile by
 relative links. `~/.agents` is the composed live projection. Claude Code and
 Codex configuration are thin adapters to that projection, never additional
@@ -283,11 +283,11 @@ is already committed to another language; a platform boundary demands one
 (nix module, CI config, browser-only); or a one-liner where shell/python is
 objectively the smaller move.
 
-**Native Core gradient inside the bias.** System-layer Fram engine/store/coord
+**Native Core gradient inside the bias.** System-layer Beagle Store engine/store/coord
 primitives and Beagle machinery target the target-neutral **Beagle Native
 Core** profile: target-independent typed/effect/region/layout/control/
 capability/ABI semantics. Their authoritative lowered program is an immutable
-**validated Native Core program**. Fram stays entirely Beagle. Materializers are disposable projections:
+**validated Native Core program**. Beagle Store stays entirely Beagle. Materializers are disposable projections:
 restricted C11 for bootstrap/reference/sanitizers, QBE as the first
 direct-native and anti-C-capture check, Wasm/WASI for capability sandboxing, and
 LLVM/Cranelift/direct codegen only when measurement justifies them. Coverage

@@ -1,14 +1,14 @@
 (ns north.runtime-attestation
-  "Bind one canonical FRAMRPC listener to the sealed Fram release the live
+  "Bind one canonical FRAMRPC listener to the sealed Beagle Store release the live
   selection names, its Native READY artifact, FRAMLOG, SpaceId, and systemd
   owner."
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]
             [clojure.string :as str]))
 
-(def attestation-format "north-framrpc-runtime-attestation/v1")
-(def active-runtime-record-format "north-framrpc-runtime/v1")
-(def release-receipt-format "north-fram-release/v1")
+(def attestation-format "north-store-runtime-attestation/v1")
+(def active-runtime-record-format "north-store-runtime/v1")
+(def release-receipt-format "north-store-release/v1")
 (def release-receipt-name "RELEASE")
 (def release-receipt-read-limit 4096)
 ;; The receipt's own field order, which is what a sealed release publishes.
@@ -16,10 +16,10 @@
   ["format" "source" "revision" "tree" "native_artifact_dir"
    "native_closure_sha256" "server_artifact_sha256" "created"])
 (def runtime-record-order
-  ["FORMAT" "FRAM_SOURCE" "FRAM_REVISION" "FRAM_TREE"
-   "FRAM_NATIVE_ARTIFACT_DIR" "FRAM_NATIVE_CLOSURE_SHA256"
-   "FRAM_SERVER_ARTIFACT" "FRAM_SERVER_ARTIFACT_SHA256"
-   "FRAM_SPACE_ID" "FRAM_PORT" "FRAM_LOG" "PID" "PID_BIRTH"
+  ["FORMAT" "BEAGLE_STORE_SOURCE" "BEAGLE_STORE_REVISION" "BEAGLE_STORE_TREE"
+   "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" "BEAGLE_STORE_NATIVE_CLOSURE_SHA256"
+   "BEAGLE_STORE_SERVER_ARTIFACT" "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"
+   "BEAGLE_STORE_SPACE_ID" "BEAGLE_STORE_PORT" "BEAGLE_STORE_LOG" "PID" "PID_BIRTH"
    "CONTROLLER_UNIT" "CONTROLLER_MAIN_PID"])
 (def runtime-record-keys (set runtime-record-order))
 (def proc-read-limit (* 16 1024 1024))
@@ -116,7 +116,7 @@
     (let [payload (java.nio.file.Files/readAllBytes (.toPath (io/file canonical)))
           after (unix-file-state! "Native READY receipt" canonical)
           expected
-          (.getBytes (str "fram-native-build/v1 " closure-sha256 "\n")
+          (.getBytes (str "beagle-store-native-build/v1 " closure-sha256 "\n")
                      java.nio.charset.StandardCharsets/UTF_8)]
       (when-not (and (= before after)
                      (= (:size before) (alength payload))
@@ -290,48 +290,48 @@
      {} (remove str/blank? (str/split text #"\u0000")))))
 
 (defn sealed-release-home
-  "The sealed Fram release the live selection names. A pointer names an
+  "The sealed Beagle Store release the live selection names. A pointer names an
    immutable snapshot: nothing here may name a checkout or a worktree."
   []
-  (let [home (System/getenv "FRAM_HOME")]
+  (let [home (System/getenv "BEAGLE_STORE_HOME")]
     (when (str/blank? (str home))
-      (fail! "FRAM_HOME must name the sealed Fram release"
+      (fail! "BEAGLE_STORE_HOME must name the sealed Beagle Store release"
              :runtime-release-unselected))
     home))
 
 (defn sealed-release-identity!
   "Read the sealed release's own receipt. The receipt is the immutable record
-   of which Fram revision and tree were sealed into this release, so expected
+   of which Beagle Store revision and tree were sealed into this release, so expected
    identity is derived from the selected snapshot instead of a literal any
    later engine generation would silently invalidate. `source` names the
    checkout the release was CUT FROM; it is provenance only and is never
    resolved — that checkout is mutable and may not exist."
   [home]
-  (let [directory (canonical-directory! "sealed Fram release" home)
+  (let [directory (canonical-directory! "sealed Beagle Store release" home)
         receipt-path (.getPath (io/file directory release-receipt-name))
         {canonical :path before :state}
-        (canonical-regular-file! "sealed Fram release receipt" receipt-path)]
+        (canonical-regular-file! "sealed Beagle Store release receipt" receipt-path)]
     (when (> (:size before) release-receipt-read-limit)
-      (fail! "sealed Fram release receipt exceeds its read bound"
+      (fail! "sealed Beagle Store release receipt exceeds its read bound"
              :runtime-release-invalid
              {:path canonical :bytes (:size before)
               :limit release-receipt-read-limit}))
     (let [payload (java.nio.file.Files/readAllBytes (.toPath (io/file canonical)))
-          after (unix-file-state! "sealed Fram release receipt" canonical)]
+          after (unix-file-state! "sealed Beagle Store release receipt" canonical)]
       (when-not (and (= before after) (= (:size before) (alength payload)))
-        (fail! "sealed Fram release receipt changed while it was read"
+        (fail! "sealed Beagle Store release receipt changed while it was read"
                :runtime-release-raced {:path canonical}))
       (when (or (zero? (alength payload))
                 (not= 10 (bit-and 255 (aget payload (dec (alength payload)))))
                 (some #(= 13 (bit-and 255 %)) payload))
-        (fail! "sealed Fram release receipt must be canonical LF text"
+        (fail! "sealed Beagle Store release receipt must be canonical LF text"
                :runtime-release-invalid {:path canonical}))
       (let [pairs
             (mapv
              (fn [line]
                (let [index (str/index-of line "=")]
                  (when-not (and index (pos? index))
-                   (fail! "sealed Fram release receipt has a malformed line"
+                   (fail! "sealed Beagle Store release receipt has a malformed line"
                           :runtime-release-invalid {:path canonical :line line}))
                  [(subs line 0 index) (subs line (inc index))]))
              (str/split-lines
@@ -342,7 +342,7 @@
                        (= (count release-receipt-order) (count values))
                        (not-any? str/blank? (vals values))
                        (= release-receipt-format (get values "format")))
-          (fail! "sealed Fram release receipt has the wrong exact field set"
+          (fail! "sealed Beagle Store release receipt has the wrong exact field set"
                  :runtime-release-invalid
                  {:path canonical :fields (mapv first pairs)}))
         (let [revision (get values "revision")
@@ -355,7 +355,7 @@
                                      (get values "server_artifact_sha256"))
                          (str/starts-with? (get values "native_artifact_dir") "/")
                          (str/starts-with? (get values "source") "/"))
-            (fail! "sealed Fram release receipt lacks exact identity"
+            (fail! "sealed Beagle Store release receipt lacks exact identity"
                    :runtime-release-invalid {:path canonical}))
           {:source directory
            :revision revision
@@ -429,11 +429,11 @@
 (defn- runtime-identity-environment [environment]
   (into {}
         (filter (fn [[key _]]
-                  (or (str/starts-with? key "FRAM_")
+                  (or (str/starts-with? key "BEAGLE_STORE_")
                       (str/starts-with? key "NORTH_"))))
         environment))
 
-;; A unit that loads the selection file carries more FRAM_/NORTH_ variables
+;; A unit that loads the selection file carries more BEAGLE_STORE_/NORTH_ variables
 ;; than the seven that name identity, so exact-set equality would reject the
 ;; supported launch shape. What must never disagree is any variable that can
 ;; select a different engine, artifact, FRAMLOG, port, or SpaceId: required
@@ -445,24 +445,24 @@
            server-artifact-sha256]}
    {:keys [space-id port log controller-unit server-artifact]}]
   {:required
-   {"FRAM_HOME" source
-    "FRAM_SERVER_RUNTIME" "native"
-    "FRAM_NATIVE_ARTIFACT_DIR" native-artifact-dir
-    "FRAM_SPACE_ID" space-id
-    "FRAM_SERVER_PORT" (str port)
-    "FRAM_LOG" log
+   {"BEAGLE_STORE_HOME" source
+    "BEAGLE_STORE_SERVER_RUNTIME" "native"
+    "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" native-artifact-dir
+    "BEAGLE_STORE_SPACE_ID" space-id
+    "BEAGLE_STORE_SERVER_PORT" (str port)
+    "BEAGLE_STORE_LOG" log
     "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
    :constrained
-   {"FRAM_BIN" (.getPath (io/file source "bin"))
-    "FRAM_OUT" (.getPath (io/file source "out"))
-    "NORTH_FRAMRPC_OUT" (.getPath (io/file source "out"))
-    "FRAM_SERVER_ARTIFACT" server-artifact
-    "FRAM_SERVER_ARTIFACT_SHA256" server-artifact-sha256
-    "FRAM_NATIVE_CLOSURE_SHA256" native-closure-sha256
+   {"BEAGLE_STORE_BIN" (.getPath (io/file source "bin"))
+    "BEAGLE_STORE_OUT" (.getPath (io/file source "out"))
+    "NORTH_STORE_OUT" (.getPath (io/file source "out"))
+    "BEAGLE_STORE_SERVER_ARTIFACT" server-artifact
+    "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" server-artifact-sha256
+    "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" native-closure-sha256
     "NORTH_PORT" (str port)}
    :forbidden
-   #{"FRAM_JAVA" "FRAM_SERVER_CLASSPATH_FILE" "FRAM_GRAAL_ARTIFACT"
-     "FRAM_LISTEN_FD"}})
+   #{"BEAGLE_STORE_JAVA" "BEAGLE_STORE_SERVER_CLASSPATH_FILE" "BEAGLE_STORE_GRAAL_ARTIFACT"
+     "BEAGLE_STORE_LISTEN_FD"}})
 
 (defn- environment-disagreements [expectation environment]
   (let [{:keys [required constrained forbidden]} expectation]
@@ -488,48 +488,48 @@
   (let [release (sealed-release-identity! (sealed-release-home))
         sealed (read-record! record-path)
         values (:values sealed)
-        record-port (parse-positive-long! "FRAM_PORT" (get values "FRAM_PORT"))
+        record-port (parse-positive-long! "BEAGLE_STORE_PORT" (get values "BEAGLE_STORE_PORT"))
         pid (parse-positive-long! "PID" (get values "PID"))
         main-pid (parse-positive-long! "CONTROLLER_MAIN_PID"
                                        (get values "CONTROLLER_MAIN_PID"))
-        source-field (get values "FRAM_SOURCE")
+        source-field (get values "BEAGLE_STORE_SOURCE")
         source (.getCanonicalPath (io/file source-field))
-        closure-sha256 (get values "FRAM_NATIVE_CLOSURE_SHA256")
+        closure-sha256 (get values "BEAGLE_STORE_NATIVE_CLOSURE_SHA256")
         _ (when-not (re-matches #"[0-9a-f]{64}" closure-sha256)
             (fail! "Native closure SHA-256 is not canonical"
                    :runtime-record-invalid {:sha256 closure-sha256}))
         artifact-directory
         (canonical-directory! "Native READY artifact directory"
-                              (get values "FRAM_NATIVE_ARTIFACT_DIR"))
+                              (get values "BEAGLE_STORE_NATIVE_ARTIFACT_DIR"))
         ready-path (.getPath (io/file artifact-directory "READY"))
         manifest-path (.getPath (io/file artifact-directory "input.manifest"))
         expected-server-path
-        (.getPath (io/file artifact-directory "bin" "fram-server-native"))
+        (.getPath (io/file artifact-directory "bin" "beagle-store-server-native"))
         ready (ready-record! ready-path closure-sha256)
         input-manifest (artifact-record "Native input manifest" manifest-path)
         server-artifact
-        (artifact-record "sealed Native Fram server" expected-server-path)
-        log (.getCanonicalPath (io/file (get values "FRAM_LOG")))
+        (artifact-record "sealed Native Beagle Store server" expected-server-path)
+        log (.getCanonicalPath (io/file (get values "BEAGLE_STORE_LOG")))
         requested-log (.getCanonicalPath (io/file served-log))]
     (when-not (and (= (:source release) source-field source)
-                   (= (:revision release) (get values "FRAM_REVISION"))
-                   (= (:tree release) (get values "FRAM_TREE"))
+                   (= (:revision release) (get values "BEAGLE_STORE_REVISION"))
+                   (= (:tree release) (get values "BEAGLE_STORE_TREE"))
                    (= (:native-artifact-dir release) artifact-directory
-                      (get values "FRAM_NATIVE_ARTIFACT_DIR"))
+                      (get values "BEAGLE_STORE_NATIVE_ARTIFACT_DIR"))
                    (= (:native-closure-sha256 release) closure-sha256)
                    (= (:server-artifact-sha256 release)
-                      (get values "FRAM_SERVER_ARTIFACT_SHA256"))
+                      (get values "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"))
                    (= expected-server-path
-                      (get values "FRAM_SERVER_ARTIFACT")
+                      (get values "BEAGLE_STORE_SERVER_ARTIFACT")
                       (:path server-artifact))
                    (= closure-sha256 (:sha256 input-manifest))
                    (= (long port) record-port)
                    (= requested-log log)
-                   (= space-id (get values "FRAM_SPACE_ID"))
+                   (= space-id (get values "BEAGLE_STORE_SPACE_ID"))
                    (= controller-unit (get values "CONTROLLER_UNIT"))
                    (= pid main-pid)
                    (= (:sha256 server-artifact)
-                      (get values "FRAM_SERVER_ARTIFACT_SHA256"))
+                      (get values "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"))
                    (.canExecute (io/file expected-server-path)))
       (fail! "FRAMRPC runtime record does not bind the requested canonical writer"
              :runtime-record-invalid
@@ -591,11 +591,11 @@
         (try
           (attest-active-runtime! (:request attestation))
           (catch Throwable error
-            (fail! "selected frozen Fram authority changed"
+            (fail! "selected frozen Beagle Store authority changed"
                    :runtime-authority-lost
                    {:cause (.getMessage error) :cause-data (ex-data error)})))]
     (when-not (= attestation current)
-      (fail! "selected frozen Fram authority changed"
+      (fail! "selected frozen Beagle Store authority changed"
              :runtime-authority-lost
              {:expected attestation :actual current}))
     true))

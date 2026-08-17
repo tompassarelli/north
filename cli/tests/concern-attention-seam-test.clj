@@ -12,8 +12,8 @@
   (-> (io/file test-script)
       .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
       (.getCanonicalPath
        (io/file (System/getProperty "user.home") "code" "fram" "main"))))
 (def runtime-classpath (str root "/out:" fram "/out"))
@@ -68,9 +68,9 @@
 (def canonical-log (.getCanonicalPath log))
 (def canonical-telemetry-log (.getCanonicalPath telemetry))
 (def isolated-env
-  {"FRAM_LOG" canonical-log
-   "FRAM_SPACE_ID" "north-coordination"
-   "FRAM_TELEMETRY_LOG" canonical-telemetry-log
+  {"BEAGLE_STORE_LOG" canonical-log
+   "BEAGLE_STORE_SPACE_ID" "north-coordination"
+   "BEAGLE_STORE_TELEMETRY_LOG" canonical-telemetry-log
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
@@ -78,10 +78,10 @@
               :out :string
               :err :string
               :extra-env (assoc isolated-env
-                                "FRAM_SERVER_RUNTIME" "jvm-dev"
-                                "FRAM_SERVER_QUIET" "1"
-                                "FRAM_SERVER_XMX" "1g")}
-             (str fram "/bin/fram-server") "serve" (str port)
+                                "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                                "BEAGLE_STORE_SERVER_QUIET" "1"
+                                "BEAGLE_STORE_SERVER_XMX" "1g")}
+             (str fram "/bin/beagle-store-server") "serve" (str port)
              canonical-log "north-coordination"))
 
 (defn cleanup []

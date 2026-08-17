@@ -4,10 +4,10 @@ import type { ExecutionTerminal } from "./execution-outcome";
 import type { TerminalPublicationStatus } from "./identity";
 import type { RunPublicationStatus } from "./telemetry";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -106,7 +106,7 @@ export function terminalNotificationCommand(
   ].filter(Boolean).join(" — ");
   return {
     cmd: peerBb(),
-    args: framBabashkaArguments([
+    args: beagleStoreBabashkaArguments([
       MSG_CLI,
       port(),
       "send",
@@ -129,8 +129,8 @@ export function notifyTerminalSettlement(
   try {
     execFileSync(command.cmd, command.args, {
       encoding: "utf8",
-      env: framEngineEnvironment(),
-      timeout: framCoordinatorChildTimeout(timeoutMs),
+      env: beagleStoreEnvironment(),
+      timeout: beagleStoreCoordinatorChildTimeout(timeoutMs),
       stdio: ["ignore", "ignore", "ignore"],
     });
   } catch {

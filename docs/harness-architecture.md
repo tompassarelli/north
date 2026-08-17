@@ -160,7 +160,7 @@ instructions, skill links, and governed hooks. It does not control repository
 
 - model `claude-fable-5[1m]`
 - effort `xhigh`
-- North/Fram/Firn authoring and lifecycle hooks
+- North/Beagle Store/Firn authoring and lifecycle hooks
 - North status-line integration
 - enabled Rust and TypeScript language plugins
 - no Orchestration plugin or marketplace; that surface is switchboard-owned
@@ -206,7 +206,7 @@ A fresh session can receive context from:
 - `north`
 - `linear-mcp-msa-new`
 
-The activation source configures Fram and North as local command transports and Linear as `https://mcp.linear.app/mcp`.
+The activation source configures Beagle Store and North as local command transports and Linear as `https://mcp.linear.app/mcp`.
 
 Presence in `~/.claude.json` proves declaration, not successful authentication or server health.
 
@@ -269,11 +269,11 @@ The intended managed lifecycle includes Beagle and North SessionStart hooks, aut
 
 ### MCP
 
-[Observed] The global store-managed `~/.codex/config.toml` declares North, Fram, and Linear MCP servers.
+[Observed] The global store-managed `~/.codex/config.toml` declares North, Beagle Store, and Linear MCP servers.
 
 [Observed] Direct interactive launches replace `CODEX_HOME` with an account root whose inspected config did not contain those MCP declarations. Therefore the global declarations are not sufficient evidence that a plain account-selected Codex session receives them.
 
-Managed North-dispatched Codex lanes are different: the SDK constructs a temporary `CODEX_HOME` and injects an explicit North/Fram/Linear MCP set into the launch configuration.
+Managed North-dispatched Codex lanes are different: the SDK constructs a temporary `CODEX_HOME` and injects an explicit North/Beagle Store/Linear MCP set into the launch configuration.
 
 ### Managed lanes are not interactive sessions
 
@@ -364,7 +364,7 @@ Excluded:
 - `~/.agents` constitution, docs, hooks, and skills
 - provider account settings other than subscription authentication
 - user and project instruction files
-- North/Firn/Fram/Beagle hooks
+- North/Firn/Beagle Store/Beagle hooks
 - `/etc/codex/requirements.toml` and `/etc/codex/hooks`
 - provider-installed plugins and marketplaces
 - North and provider MCP declarations

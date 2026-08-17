@@ -27,7 +27,7 @@
       ;; A `message`-subject send drives require-live-message! before any write.
       result (proc/shell
               {:continue true :out :string :err :string
-               :extra-env {"FRAM_LOG" "/tmp/north-msg-gate-test.log"
+               :extra-env {"BEAGLE_STORE_LOG" "/tmp/north-msg-gate-test.log"
                            ;; Pass the topology-authority gate so the flow reaches
                            ;; the lifecycle READ — that is the surface under test.
                            "AGENT_TOPOLOGY" "orchestrator"

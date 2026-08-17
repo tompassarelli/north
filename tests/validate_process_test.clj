@@ -13,11 +13,11 @@
       .getParentFile
       .getParentFile
       .getCanonicalPath))
-(def fram-home (or (System/getenv "FRAM_TEST_CHECKOUT")
-                   (System/getenv "FRAM_HOME")))
+(def fram-home (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                   (System/getenv "BEAGLE_STORE_HOME")))
 (when-not fram-home
   (binding [*out* *err*]
-    (println "validate process test requires FRAM_TEST_CHECKOUT or FRAM_HOME"))
+    (println "validate process test requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME"))
   (System/exit 2))
 (def fram (.getCanonicalPath (java.io.File. fram-home)))
 (def root
@@ -44,11 +44,11 @@
     :dir repo
     :out :string
     :err :string
-    :extra-env {"FRAM_HOME" fram
-                "FRAM_LOG" log
-                "FRAM_TELEMETRY_LOG" ""
-                "FRAM_THREADS" threads-dir
-                "FRAM_PORT" "1"}}
+    :extra-env {"BEAGLE_STORE_HOME" fram
+                "BEAGLE_STORE_LOG" log
+                "BEAGLE_STORE_TELEMETRY_LOG" ""
+                "BEAGLE_STORE_THREADS" threads-dir
+                "BEAGLE_STORE_PORT" "1"}}
    (str repo "/bin/north") "validate"))
 
 (def clean-result (validate-process clean-log))

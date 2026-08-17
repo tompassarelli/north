@@ -26,7 +26,7 @@ selector_lock=$state_parent/.${project}-runtime.selector.lock
 port=${NORTH_PORT:-7977}
 bb=${NORTH_BB:-bb}
 cli_root=${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}
-fram_out=${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-}}
+fram_out=${BEAGLE_STORE_OUT:-${NORTH_STORE_OUT:-}}
 north_runtime_classpath=$cli_root/out${fram_out:+:$fram_out}
 
 record_format=north-runtime/v1

@@ -9,7 +9,7 @@ calls=$scratch/calls
 bb_calls=$scratch/bb-calls
 mkdir -p "$fake_fram"
 
-# The single-quoted arguments are the source of the fake Fram executable.
+# The single-quoted arguments are the source of the fake Beagle Store executable.
 # shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
@@ -39,7 +39,7 @@ chmod +x "$scratch/bb"
 
 common_env=(
   HOME="$scratch/home"
-  FRAM_BIN="$fake_fram"
+  BEAGLE_STORE_BIN="$fake_fram"
   NORTH_BB="$scratch/bb"
   TEST_CALLS="$calls"
   TEST_BB_CALLS="$bb_calls"

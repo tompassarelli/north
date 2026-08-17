@@ -9,17 +9,17 @@
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
 (def fram-source
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_PATH")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_PATH")
+      "/home/tom/code/beagle/main/store"))
 (def fram
   (.getCanonicalPath (io/file fram-source)))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str fram "/database.clj"))
 (require '[database :as database]
-         '[fram.types :as t])
+         '[store.types :as t])
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def checks (atom []))
 (def control-subject-count 1352)
@@ -116,10 +116,10 @@
         daemon
         (proc/process
          {:dir fram :out :string :err :string
-          :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                      "FRAM_SERVER_QUIET" "1"
-                      "FRAM_SERVER_XMX" "2g"}}
-         (str fram "/bin/fram-server") "serve" (str port)
+          :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                      "BEAGLE_STORE_SERVER_QUIET" "1"
+                      "BEAGLE_STORE_SERVER_XMX" "2g"}}
+         (str fram "/bin/beagle-store-server") "serve" (str port)
          (.getCanonicalPath log) "north-coordination")]
     (try
       (when-not (await-up port)
@@ -133,10 +133,10 @@
              {:dir root :out :string :err :string :continue true
               :extra-env
               {"HOME" (.getCanonicalPath home)
-               "FRAM_PORT" (str port)
-               "FRAM_LOG" (.getCanonicalPath log)
+               "BEAGLE_STORE_PORT" (str port)
+               "BEAGLE_STORE_LOG" (.getCanonicalPath log)
                "NORTH_TELEMETRY_PARTITION" "0"
-               "FRAM_TELEMETRY_LOG" ""
+               "BEAGLE_STORE_TELEMETRY_LOG" ""
                "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath agent-logs)
                "NORTH_WORKER_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
                "NORTH_MAINTENANCE_TASK_LOCK_PATH" (.getCanonicalPath (io/file tmp "task.lock"))

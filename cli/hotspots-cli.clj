@@ -69,7 +69,7 @@
   #"slow read :(\S+) (\d+)ms = reload (\d+)ms \+ lock-wait (\d+)ms \+ execute (\d+)ms")
 
 (defn coordinator-reads [since]
-  (->> (sh "journalctl" "--user" "-u" "north-fram.service" "--since" since "--no-pager")
+  (->> (sh "journalctl" "--user" "-u" "north-store.service" "--since" since "--no-pager")
        str/split-lines
        (keep #(re-find slow-read-re %))
        (map (fn [[_ route total reload lock execute]]
@@ -80,7 +80,7 @@
                :execute (parse-long execute)}))))
 
 (defn render-coordinator [rows]
-  (println (bold "COORDINATOR READS") (dim "— source: journalctl north-fram.service, slow-read attribution"))
+  (println (bold "COORDINATOR READS") (dim "— source: journalctl north-store.service, slow-read attribution"))
   (if (empty? rows)
     (println (dim "  no slow reads in window (either healthy, or the journal is unavailable)"))
     (doseq [[route rs] (sort-by (comp - count val) (group-by :route rows))]

@@ -17,10 +17,10 @@ import {
 import type { AccountAvailabilityRow } from "./account-availability";
 import type { ProviderId } from "./providers/types";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const DEFAULT_THRESHOLD = 80;
@@ -583,7 +583,7 @@ export function composeFailoverSpawn(
     },
     notification: {
       executable: runtime.peerBb ?? env.NORTH_PEER_BB ?? "bb",
-      args: framBabashkaArguments([
+      args: beagleStoreBabashkaArguments([
         runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
         port,
         "send",
@@ -620,8 +620,8 @@ export function fireFailover(spawn: FailoverSpawn, runtime: FailoverRuntime = {}
     const runNotification = runtime.run ?? ((executable: string, args: string[]) =>
       spawnSync(executable, args, {
         encoding: "utf8",
-        env: framEngineEnvironment(runtime.env ?? process.env),
-        timeout: framCoordinatorChildTimeout(),
+        env: beagleStoreEnvironment(runtime.env ?? process.env),
+        timeout: beagleStoreCoordinatorChildTimeout(),
         stdio: ["ignore", "pipe", "pipe"],
       }));
     runNotification(spawn.notification.executable, spawn.notification.args);
@@ -702,7 +702,7 @@ export function failoverWarningCommands(
     ].filter(Boolean).join("/");
     commands.push({
       executable: runtime.peerBb ?? env.NORTH_PEER_BB ?? "bb",
-      args: framBabashkaArguments([
+      args: beagleStoreBabashkaArguments([
         runtime.msgCli ?? `${REPO}/cli/msg-cli.clj`,
         env.NORTH_PORT ?? "7977",
         "send",
@@ -727,8 +727,8 @@ function runBestEffort(
     const run = runtime.run ?? ((command: string, commandArgs: string[]) =>
       spawnSync(command, commandArgs, {
         encoding: "utf8",
-        env: framEngineEnvironment(runtime.env ?? process.env),
-        timeout: framCoordinatorChildTimeout(10_000),
+        env: beagleStoreEnvironment(runtime.env ?? process.env),
+        timeout: beagleStoreCoordinatorChildTimeout(10_000),
         stdio: ["ignore", "ignore", "ignore"],
       }));
     run(executable, args);

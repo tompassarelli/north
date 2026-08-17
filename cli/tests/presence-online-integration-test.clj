@@ -12,12 +12,12 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_HOME")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      "/home/tom/code/beagle/main/store"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def test-log (atom nil))
@@ -38,7 +38,7 @@
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
 (defn run-presence [port & args]
   (apply proc/sh {:out :string :err :string :continue true
-                  :extra-env {"FRAM_LOG" @test-log
+                  :extra-env {"BEAGLE_STORE_LOG" @test-log
                               "NORTH_TELEMETRY_PARTITION" "0"}}
          "bb" presence-cli (str port) args))
 
@@ -51,14 +51,14 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 log "north-coordination"))]
   (reset! test-log log)
   (try
-    (check "throwaway current Fram server starts"
+    (check "throwaway current Beagle Store server starts"
            (and (await-port port)
                 (= :ready (:state (north.coord/status port)))))
     (let [live-registration

@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 (require '[babashka.fs :as fs]
          '[clojure.java.io :as io]
-         '[framrpc :as wire]
-         '[fram.types :as t])
+         '[store.rpc :as wire]
+         '[store.types :as t])
 
 (def root
   (.getCanonicalPath
@@ -10,16 +10,16 @@
             "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 
 (when-not (.isFile (io/file fram "server.clj"))
-  (throw (ex-info "pinned Fram target checkout is unavailable"
+  (throw (ex-info "pinned Beagle Store target checkout is unavailable"
                   {:fram fram})))
 
-(load-file (str root "/cli/framrpc-client.clj"))
-(require '[north.framrpc-client :as rpc])
+(load-file (str root "/cli/store-rpc-client.clj"))
+(require '[north.store-rpc-client :as rpc])
 (load-file (str fram "/database.clj"))
 (require '[database :as database])
 
@@ -79,11 +79,11 @@
 (def scratch
   (.toFile
    (java.nio.file.Files/createTempDirectory
-    (.toPath private-root) "framrpc-client-test-"
+    (.toPath private-root) "store-rpc-client-test-"
     (make-array java.nio.file.attribute.FileAttribute 0))))
 (def log-path (.getCanonicalPath (io/file scratch "stage1.framlog")))
-(def server-output (io/file scratch "fram-server.log"))
-(def space-id "north-framrpc-client-stage1")
+(def server-output (io/file scratch "beagle-store-server.log"))
+(def space-id "north-storerpc-client-stage1")
 (def port (free-port))
 (def client (atom nil))
 (def server (atom nil))
@@ -93,15 +93,15 @@
   (let [builder
         (doto (ProcessBuilder.
                ^java.util.List
-               [(str fram "/bin/fram-server") "serve" (str port)
+               [(str fram "/bin/beagle-store-server") "serve" (str port)
                 log-path space-id])
           (.directory (io/file fram))
           (.redirectErrorStream true)
           (.redirectOutput server-output))
         environment (.environment builder)]
-    (.put environment "FRAM_SERVER_RUNTIME" "jvm-dev")
-    (.put environment "FRAM_SERVER_QUIET" "1")
-    (.put environment "FRAM_SERVER_XMX" "1g")
+    (.put environment "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev")
+    (.put environment "BEAGLE_STORE_SERVER_QUIET" "1")
+    (.put environment "BEAGLE_STORE_SERVER_XMX" "1g")
     (.put environment "CLJ_CACHE" (str (io/file scratch "clj-cache")))
     (reset! server (.start builder)))
 
@@ -114,7 +114,7 @@
                           :retry-delay-ms 0
                           :jitter-ms 0})))
   (when-not @client
-    (throw (ex-info "pinned Fram server did not become ready"
+    (throw (ex-info "pinned Beagle Store server did not become ready"
                     {:type :server-start-failed
                      :server-output (when (.exists server-output)
                                       (slurp server-output))})))
@@ -315,13 +315,13 @@
 
   (rpc/reset-cardinality-cache!)
   (let [graph-silent
-        (binding [rpc/*env* {"FRAM_SINGLE_VALUED" "owner lead driver"}]
+        (binding [rpc/*env* {"BEAGLE_STORE_SINGLE_VALUED" "owner lead driver"}]
           (rpc/cardinality-of @client "lead"))
         graph-wins
-        (binding [rpc/*env* {"FRAM_SINGLE_VALUED" "note"}]
+        (binding [rpc/*env* {"BEAGLE_STORE_SINGLE_VALUED" "note"}]
           (rpc/reset-cardinality-cache!)
           (rpc/cardinality-of @client "note"))]
-    (check! "FRAM_SINGLE_VALUED decides cardinality while the graph is silent"
+    (check! "BEAGLE_STORE_SINGLE_VALUED decides cardinality while the graph is silent"
             (= :one graph-silent))
     (check! "a graph multi declaration outranks the launcher export"
             (= :many graph-wins)))

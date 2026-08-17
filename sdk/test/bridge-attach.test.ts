@@ -131,7 +131,7 @@ test("attach maps its one-based cursor to exact zero-based wire replay, then tai
   await attached.closed;
 });
 
-test("a restarted northd replays terminal wire bytes without provider or Fram", async () => {
+test("a restarted northd replays terminal wire bytes without provider or Beagle Store", async () => {
   const paths = fixture();
   const provider: BridgeProviderExecution = {
     async open(context) {

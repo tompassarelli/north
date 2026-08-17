@@ -172,7 +172,7 @@
                 (str id " has a live address; lane completions can wake it"))
            (= :unavailable (:live route))
            (row "listener" "listener.armed" :warn
-                (str "liveness for " id " is unreadable (Fram server degraded): "
+                (str "liveness for " id " is unreadable (Beagle Store server degraded): "
                      (truncate 120 (some-> route :error .getMessage)))
                 (str "north listen " id))
            :else

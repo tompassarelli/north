@@ -12,20 +12,20 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  framBabashkaArguments,
-  framEngineEnvironment,
-} from "../src/fram-engine";
-import { FramRpcClient } from "../src/framrpc-client";
-import { triple } from "../src/framrpc-codec";
+  beagleStoreBabashkaArguments,
+  beagleStoreEnvironment,
+} from "../src/beagle-store";
+import { FramRpcClient } from "../src/store-rpc-client";
+import { triple } from "../src/store-rpc-codec";
 import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
 const orchestration = resolve(north, "orchestration");
 const acquireCli = resolve(north, "cli/acquire-cli.clj");
 const thread = "019fa4ec-d2e6-7f8f-b375-a4f2ea407a0c";
-const frozenFramHome = process.env.FRAM_TEST_CHECKOUT
-  ?? process.env.FRAM_HOME
-  ?? "/home/tom/code/beagle/main/branch-core";
+const frozenStoreHome = process.env.BEAGLE_STORE_TEST_CHECKOUT
+  ?? process.env.BEAGLE_STORE_HOME
+  ?? "/home/tom/code/beagle/main/store";
 
 async function unusedPort(): Promise<number> {
   const server = createServer();
@@ -40,7 +40,7 @@ async function unusedPort(): Promise<number> {
   return address.port;
 }
 
-async function waitForFramServer(port: number, spaceId: string): Promise<FramRpcClient> {
+async function waitForStoreServer(port: number, spaceId: string): Promise<FramRpcClient> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
       return await FramRpcClient.connect({
@@ -50,18 +50,18 @@ async function waitForFramServer(port: number, spaceId: string): Promise<FramRpc
     } catch {}
     await Bun.sleep(25);
   }
-  throw new Error("isolated Fram server did not become FRAMRPC-ready");
+  throw new Error("isolated Beagle Store server did not become FRAMRPC-ready");
 }
 
-function framServerFixture(): {
+function storeServerFixture(): {
   home: string; bin: string; out: string; server: string;
 } {
-  const home = frozenFramHome;
+  const home = frozenStoreHome;
   const bin = resolve(home, "bin");
   const out = resolve(home, "out");
-  const server = resolve(bin, "fram-server");
+  const server = resolve(bin, "beagle-store-server");
   if (!existsSync(server))
-    throw new Error("frozen Fram bin/fram-server is unavailable for the MCP fixture");
+    throw new Error("frozen Beagle Store bin/beagle-store-server is unavailable for the MCP fixture");
   return { home, bin, out, server };
 }
 
@@ -69,7 +69,7 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
   const scratch = mkdtempSync(join(tmpdir(), "north-mcp-driver-lifetime-"));
   const log = join(scratch, "history.framlog");
   const spaceId = "north-mcp-driver-lifetime";
-  const fram = framServerFixture();
+  const store = storeServerFixture();
   const fakeBun = join(scratch, "bun");
   const fakeNorth = join(scratch, "north");
   const verifyResult = join(scratch, "verify-result");
@@ -79,31 +79,31 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
     "sdk/test/fixtures/mcp-preclaimed-driver-child.ts",
   );
   const port = await unusedPort();
-  const coordinationEnvironment = framEngineEnvironment({
+  const coordinationEnvironment = beagleStoreEnvironment({
     ...process.env,
     NORTH_PORT: String(port),
-    FRAM_SERVER_PORT: String(port),
-    FRAM_LOG: log,
-    FRAM_SPACE_ID: spaceId,
+    BEAGLE_STORE_SERVER_PORT: String(port),
+    BEAGLE_STORE_LOG: log,
+    BEAGLE_STORE_SPACE_ID: spaceId,
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
     NORTH_TELEMETRY_PORT: String(port === 65535 ? port - 1 : port + 1),
     NORTH_TELEMETRY_PARTITION: "0",
-    FRAM_HOME: fram.home,
-    FRAM_BIN: fram.bin,
-    FRAM_OUT: fram.out,
-    BABASHKA_CLASSPATH: fram.out,
-    FRAM_SINGLE_VALUED: "title driver",
+    BEAGLE_STORE_HOME: store.home,
+    BEAGLE_STORE_BIN: store.bin,
+    BEAGLE_STORE_OUT: store.out,
+    BABASHKA_CLASSPATH: store.out,
+    BEAGLE_STORE_SINGLE_VALUED: "title driver",
   });
   const serverProcess = Bun.spawn([
-    fram.server, "serve", String(port), log, spaceId,
+    store.server, "serve", String(port), log, spaceId,
   ], {
-    cwd: fram.home,
+    cwd: store.home,
     env: {
       ...coordinationEnvironment,
-      FRAM_SERVER_RUNTIME: "jvm-dev",
-      FRAM_SERVER_QUIET: "1",
-      FRAM_SERVER_XMX: "1g",
-      FRAM_SNAPSHOT_BOOT: "0",
+      BEAGLE_STORE_SERVER_RUNTIME: "jvm-dev",
+      BEAGLE_STORE_SERVER_QUIET: "1",
+      BEAGLE_STORE_SERVER_XMX: "1g",
+      BEAGLE_STORE_SNAPSHOT_BOOT: "0",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -111,7 +111,7 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
 
   let serverClient: FramRpcClient | undefined;
   try {
-    serverClient = await waitForFramServer(port, spaceId);
+    serverClient = await waitForStoreServer(port, spaceId);
     const seeded = await serverClient.batch([{
       op: "assert",
       proposition: triple(
@@ -138,7 +138,7 @@ exec "$NORTH_TEST_REAL_BUN" "$NORTH_TEST_CHILD_FIXTURE" "$thread"
         arguments: { id: thread, ...presetRequest("verifier") },
       },
     })}\n`;
-    const result = spawnSync("bb", framBabashkaArguments([
+    const result = spawnSync("bb", beagleStoreBabashkaArguments([
       resolve(north, "bin/north-mcp"),
     ], coordinationEnvironment), {
       input: request,
@@ -171,7 +171,7 @@ exec "$NORTH_TEST_REAL_BUN" "$NORTH_TEST_CHILD_FIXTURE" "$thread"
     // retract its exact holder after observing the detached exit receipt.
     const status = spawnSync(
       "bb",
-      framBabashkaArguments(
+      beagleStoreBabashkaArguments(
         [acquireCli, String(port), "status", thread, "unused"],
         coordinationEnvironment,
       ),

@@ -970,18 +970,18 @@
   (when-not (str/blank? raw) (payload raw)))
 
 (defn ensure-native-client! []
-  (when-not (find-ns 'north.framrpc-client)
-    (load-file (str writer-root "/framrpc-client.clj"))))
+  (when-not (find-ns 'north.store-rpc-client)
+    (load-file (str writer-root "/store-rpc-client.clj"))))
 
 (defn native-rpc! [operation & args]
   (ensure-native-client!)
-  (apply (or (ns-resolve 'north.framrpc-client operation)
+  (apply (or (ns-resolve 'north.store-rpc-client operation)
              (fail! "native writer primitive is unavailable"
                     {:operation operation}))
          args))
 
 (defn native-triple-predicate [triple]
-  ((or (ns-resolve 'fram.types 'triple-t2)
+  ((or (ns-resolve 'store.types 'triple-t2)
        (fail! "native triple accessor is unavailable" {}))
    triple))
 
@@ -989,7 +989,7 @@
   (native-rpc! 'connect
                (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
                port
-               (or (not-empty (System/getenv "FRAM_SPACE_ID")) "north-coordination")
+               (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination")
                {:connect-timeout-ms 2000
                 :read-timeout-ms writer-timeout-bound-ms
                 :max-attempts 1}))

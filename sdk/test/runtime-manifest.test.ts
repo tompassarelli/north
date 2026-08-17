@@ -40,13 +40,13 @@ const filesystemSafeUnicodePaths = [
 const input: RuntimeManifestInputV1 = {
   commits: {
     north: commit("1"),
-    fram: commit("2"),
+    beagleStore: commit("2"),
     orchestration: commit("3"),
     firnAgentConfig: commit("4"),
   },
   artifacts: {
     north: { path: store("a".repeat(32), "north-sdk"), sha256: digest("5") },
-    fram: { path: store("b".repeat(32), "fram-runtime"), sha256: digest("6") },
+    beagleStore: { path: store("b".repeat(32), "store-runtime"), sha256: digest("6") },
     orchestration: { path: store("c".repeat(32), "orchestration-catalog") + "/catalog.json", sha256: digest("7") },
     firnAgentConfig: { path: store("d".repeat(32), "agent-config"), sha256: digest("8") },
   },
@@ -55,7 +55,7 @@ const input: RuntimeManifestInputV1 = {
 test("runtime manifest v1 has deterministic timestamp-free canonical identity", () => {
   const manifest = createRuntimeManifest(input);
   expect(manifest.version).toBe(RUNTIME_MANIFEST_VERSION);
-  expect(manifest.identity).toBe("889354cbb96d6f88c15dbf7eb5cb8fb79a313c1bf7569cc6ab1c2b194678a242");
+  expect(manifest.identity).toBe("6c3259ebb50c27971756de6587ec26ec172dcca7a3f7b10569802cc11acd90d5");
   expect(manifest.identity).toBe(createRuntimeManifest(structuredClone(input)).identity);
   expect(Object.keys(manifest)).toEqual(["version", "identity", "commits", "artifacts"]);
   expect(Object.keys(manifest)).not.toContain("createdAt");
@@ -85,14 +85,14 @@ test("strict parser round-trips canonical serialization and recomputes identity"
   expect(parseRuntimeManifest(reordered)).toEqual(manifest);
 
   const forged = structuredClone(manifest);
-  forged.commits.fram = commit("9");
+  forged.commits.beagleStore = commit("9");
   expect(() => parseRuntimeManifest(JSON.stringify(forged))).toThrow("identity mismatch");
 });
 
 test("every pinned commit, artifact path, and digest participates in identity", () => {
   const baseline = createRuntimeManifest(input).identity;
   const mutations: RuntimeManifestInputV1[] = [];
-  for (const component of ["north", "fram", "orchestration", "firnAgentConfig"] as const) {
+  for (const component of ["north", "beagleStore", "orchestration", "firnAgentConfig"] as const) {
     const changedCommit = structuredClone(input);
     changedCommit.commits[component] = commit("9");
     mutations.push(changedCommit);
@@ -184,7 +184,7 @@ test("published JSON schema names exact v1 fields and rejects extensions", () =>
     "version", "identity", "commits", "artifacts",
   ]);
   expect(RUNTIME_MANIFEST_JSON_SCHEMA.properties.commits.required).toEqual([
-    "north", "fram", "orchestration", "firnAgentConfig",
+    "north", "beagleStore", "orchestration", "firnAgentConfig",
   ]);
   expect(RUNTIME_MANIFEST_JSON_SCHEMA.properties.artifacts.additionalProperties).toBe(false);
   const pathPattern = new RegExp(

@@ -1,7 +1,7 @@
 // Hermetic managed-graph env for tests that assert on harness-built MCP env or
 // spawn authority.
 //
-// A real managed north run exports lane identity, FRAM instance selection, and
+// A real managed north run exports lane identity, STORE instance selection, and
 // attribution/provenance selectors. The harness forwards a whitelisted subset
 // (MANAGED_NORTH_MCP_ENV_KEYS) into the child North MCP env. When the test
 // process is itself a managed lane, that ambient state leaks into the built

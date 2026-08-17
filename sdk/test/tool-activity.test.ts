@@ -64,7 +64,7 @@ test("identity loss remains sticky across reopened continuation coverage", () =>
 
 test("operation receipts are ordered, bounded, and aggregate exact fixture totals", () => {
   const activity = new McpActivityAccumulator("fixture");
-  const identity = normalizeCodexMcpIdentity("fram", "set-body")!;
+  const identity = normalizeCodexMcpIdentity("beagle-store", "set-body")!;
   activity.observe("one", identity, { operation: "authoring.write", durationMs: 4, resultSize: 12, batchSize: 2, outcome: "ok" });
   activity.observe("two", identity, { operation: "authoring.write", durationMs: 6, resultSize: 8, outcome: "typed_failure" });
   for (let index = 0; index < 511; index++)

@@ -21,10 +21,10 @@ import type { LiveInputCapability, ProviderId } from "./providers/types";
 import { canonicalWriteModel } from "./providers/catalog";
 import { fastPublish } from "./managed-writer-fastpath";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import {
   loadPresenceFence, removePresenceFence, presenceFenceJson, type PresenceFence,
 } from "./presence-fence";
@@ -99,10 +99,10 @@ export interface ManagedWriterRuntime {
 const defaultManagedWriterRuntime: ManagedWriterRuntime = {
   now: () => performance.now(),
   execute: (args, timeoutMs, env) => {
-    const childTimeoutMs = framCoordinatorChildTimeout(timeoutMs);
-    return execFileSync("bb", framBabashkaArguments(args, env), {
+    const childTimeoutMs = beagleStoreCoordinatorChildTimeout(timeoutMs);
+    return execFileSync("bb", beagleStoreBabashkaArguments(args, env), {
       encoding: "utf8",
-      env: framEngineEnvironment({
+      env: beagleStoreEnvironment({
         ...env,
         NORTH_IDENTITY_WRITER_TIMEOUT_MS: String(childTimeoutMs),
         NORTH_IDENTITY_WRITE_LEASE_TTL_MS: String(internalWriteLeaseTtlMs(childTimeoutMs)),
@@ -340,23 +340,23 @@ function writeHarnessAgentOperation(
         });
       }
       const agentId = subject.replace(/^agent:/, "");
-      execFileSync(lifecycleBb(), framBabashkaArguments([resolve(REPO, "cli/presence-cli.clj"),
+      execFileSync(lifecycleBb(), beagleStoreBabashkaArguments([resolve(REPO, "cli/presence-cli.clj"),
         process.env.NORTH_PORT ?? "7977", "forget", agentId,
         presenceFenceJson(recovery.presenceFence!)], {
         ...process.env,
       }), {
-        env: framEngineEnvironment(),
+        env: beagleStoreEnvironment(),
         stdio: "ignore",
-        timeout: framCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
+        timeout: beagleStoreCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
       });
       if (recovery.terminalThreadId) {
-        execFileSync(lifecycleBb(), framBabashkaArguments([resolve(REPO, "cli/acquire-cli.clj"),
+        execFileSync(lifecycleBb(), beagleStoreBabashkaArguments([resolve(REPO, "cli/acquire-cli.clj"),
           process.env.NORTH_PORT ?? "7977", "release", recovery.terminalThreadId, agentId], {
           ...process.env,
         }), {
-          env: framEngineEnvironment(),
+          env: beagleStoreEnvironment(),
           stdio: "ignore",
-          timeout: framCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
+          timeout: beagleStoreCoordinatorChildTimeout(timeoutMs - (performance.now() - startedAt)),
         });
       }
       return { status: "committed", operationId: recovery.operationId };

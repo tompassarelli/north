@@ -15,7 +15,7 @@
 (def concern-bin
   (.getPath (io/file (.getParentFile (io/file here)) "bin" "concern")))
 (def port (Integer/parseInt (or (System/getenv "NORTH_PORT")
-                                (System/getenv "FRAM_PORT")
+                                (System/getenv "BEAGLE_STORE_PORT")
                                 "7977")))
 (def join-timeout-ms
   (or (some-> (System/getenv "NORTH_WORKTREES_JOIN_TIMEOUT_MS") str/trim parse-long)

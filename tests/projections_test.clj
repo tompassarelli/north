@@ -1,9 +1,9 @@
 ;; projections_test.clj — deterministic contract for the one lifecycle
 ;; classifier and every pull-eligibility view derived from it.
 ;;
-;;   bb -cp out:$FRAM/out tests/projections_test.clj      (run from the repo root)
-(require '[fram.types :as t]
-         '[fram.rt]
+;;   bb -cp out:$STORE/out tests/projections_test.clj      (run from the repo root)
+(require '[store.types :as t]
+         '[store.rt]
          '[north.projections :as proj]
          '[north.main])
 
@@ -119,7 +119,7 @@
    (asrt 40 "@driverless" "title" "Driverless" "test")
    (asrt 41 "@driverless" "updated_at" "2026-06-15T12:00:00" "test")])
 (def liveness-idx (proj/index-triples liveness-asserts))
-(def liveness-now (fram.rt/iso-to-seconds "2026-06-16T12:00:00"))
+(def liveness-now (store.rt/iso-to-seconds "2026-06-16T12:00:00"))
 (def liveness-window (* 14 86400))
 (def driver-live-fn (ns-resolve 'north.main 'driver-live?))
 (def next-item-fn (ns-resolve 'north.main 'next-item))

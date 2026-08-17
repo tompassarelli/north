@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Dependency-free recovery path: restore the stock native dispatcher and turn
-# authoring guards off without loading North, Fram, bb, or the coordinator.
+# authoring guards off without loading North, Beagle Store, bb, or the coordinator.
 set -euo pipefail
 
 if [ "$#" -ne 0 ]; then

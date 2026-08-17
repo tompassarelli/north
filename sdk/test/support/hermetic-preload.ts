@@ -103,14 +103,14 @@ for (const key of ["NORTH_PEER_BB", "NORTH_BB", "NORTH_MCP_BB"]) delete process.
 for (const key of ["NORTH_RUN_ID", "NORTH_THREAD_ID", "NORTH_RUN_CAPABILITY"])
   delete process.env[key];
 
-// Same leak, Fram side, and this one is a WRITE hazard rather than just a slow read.
-// A managed lane exports FRAM_TELEMETRY_LOG=~/.local/state/north/telemetry.framlog.
-// Canonical process fixtures launch `bin/fram-server` with their own FRAMLOG and
+// Same leak, Beagle Store side, and this one is a WRITE hazard rather than just a slow read.
+// A managed lane exports BEAGLE_STORE_TELEMETRY_LOG=~/.local/state/north/telemetry.framlog.
+// Canonical process fixtures launch `bin/beagle-store-server` with their own FRAMLOG and
 // SpaceId, and test children must not inherit a second endpoint that targets the
 // operator's telemetry space. Delete it; partition tests set their own telemetry
-// endpoint. FRAM_LOG is deliberately left alone because fixtures select their own
+// endpoint. BEAGLE_STORE_LOG is deliberately left alone because fixtures select their own
 // FRAMLOG explicitly.
-delete process.env.FRAM_TELEMETRY_LOG;
+delete process.env.BEAGLE_STORE_TELEMETRY_LOG;
 // Scrub the routing switch with its endpoint; partition tests set both.
 delete process.env.NORTH_TELEMETRY_PARTITION;
 delete process.env.NORTH_TELEMETRY_PORT;

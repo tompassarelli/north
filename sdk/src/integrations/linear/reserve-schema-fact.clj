@@ -29,7 +29,7 @@
   (and (map? value) (= (set (keys value)) expected)))
 
 (defn values-of [port subject predicate]
-  ;; `cardinality` and `value_kind` live in Fram's schema-as-facts client view,
+  ;; `cardinality` and `value_kind` live in Beagle Store's schema-as-facts client view,
   ;; not in the reified domain group served by :resolved. Query the public fact
   ;; relation so the CAS validates the same schema facts that `north show` sees.
   (let [rows

@@ -8,7 +8,7 @@ import { spawn as procSpawn, type ChildProcess } from "node:child_process";
 import { resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
 import { trustedNorthBabashkaExecutable } from "./trusted-runtime";
-import { framBabashkaArguments, framEngineEnvironment } from "./fram-engine";
+import { beagleStoreBabashkaArguments, beagleStoreEnvironment } from "./beagle-store";
 import type { WireUserInputFrame } from "./wire/query";
 
 const REPO = resolve(import.meta.dir, "..", "..");
@@ -677,8 +677,8 @@ function subscribeFeedMode(
     const startedAt = now();
     let child: ChildProcess;
     try {
-      const childEnv = framEngineEnvironment();
-      child = spawn(bbExecutable, framBabashkaArguments([
+      const childEnv = beagleStoreEnvironment();
+      child = spawn(bbExecutable, beagleStoreBabashkaArguments([
         LIVE_FEED,
         feedPort,
         self,

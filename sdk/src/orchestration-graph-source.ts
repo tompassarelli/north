@@ -15,10 +15,10 @@ import {
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 /**
  * Dual-read seam for the Orchestration -> North Orchestration migration
@@ -57,11 +57,11 @@ function port(): string {
 function project(args: string[]): unknown {
   let out: string;
   try {
-    out = execFileSync(bb(), framBabashkaArguments([projectorCli, port(), ...args]), {
+    out = execFileSync(bb(), beagleStoreBabashkaArguments([projectorCli, port(), ...args]), {
       encoding: "utf8",
-      env: framEngineEnvironment(),
+      env: beagleStoreEnvironment(),
       stdio: ["ignore", "pipe", "pipe"],
-      timeout: framCoordinatorChildTimeout(30_000),
+      timeout: beagleStoreCoordinatorChildTimeout(30_000),
     });
   } catch (error) {
     // The projector fails LOUD on a timed-out query or a malformed graph row,

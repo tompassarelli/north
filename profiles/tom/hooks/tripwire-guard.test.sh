@@ -322,7 +322,7 @@ run allow 'dd to /dev/null' 'dd if=big.bin of=/dev/null bs=1M'
 run allow 'systemctl --user' 'systemctl --user restart north-agent.service'
 run allow 'systemctl stop system unit' 'systemctl stop nginx.service'
 run allow 'sudo systemctl disable system unit' 'sudo systemctl disable sshd'
-run allow 'systemctl runtime-mask deployment units' 'sudo systemctl mask --runtime greywrought-authority.service greywrought-fram.service'
+run allow 'systemctl runtime-mask deployment units' 'sudo systemctl mask --runtime greywrought-authority.service greywrought-store.service'
 run allow 'systemctl status' 'systemctl status nginx'
 run allow 'protected words inside a search pattern' "rg -n 'systemctl stop nginx' ./src"
 run allow 'chmod -R 755' 'chmod -R 755 .'

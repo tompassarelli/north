@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 import { normalizeNorthEntityId, northEntitySubject } from "./north-client";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
@@ -120,12 +120,12 @@ function reportDriverFailure(
 
 function commandAt(port: string): DispatchDriverCommand {
   return (verb, threadId, agentId) => spawnSync(
-    "bb", framBabashkaArguments([ACQUIRE_CLI, port, verb, threadId, agentId]),
+    "bb", beagleStoreBabashkaArguments([ACQUIRE_CLI, port, verb, threadId, agentId]),
     {
       encoding: "utf8",
-      env: framEngineEnvironment(),
+      env: beagleStoreEnvironment(),
       stdio: "pipe",
-      timeout: framCoordinatorChildTimeout(DRIVER_TIMEOUT_MS),
+      timeout: beagleStoreCoordinatorChildTimeout(DRIVER_TIMEOUT_MS),
     },
   );
 }

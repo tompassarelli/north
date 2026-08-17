@@ -67,18 +67,18 @@
 
 (let [temp (.toFile
             (java.nio.file.Files/createTempDirectory
-             "north-framrpc-runtime-attestation-"
+             "north-store-runtime-attestation-"
              (make-array java.nio.file.attribute.FileAttribute 0)))
       source (.getCanonicalPath (io/file temp "fram"))
       artifact-directory (.getCanonicalPath (io/file temp "native-build"))
       artifact (.getCanonicalPath
-                (io/file artifact-directory "bin" "fram-server-native"))
+                (io/file artifact-directory "bin" "beagle-store-server-native"))
       ready (.getCanonicalPath (io/file artifact-directory "READY"))
       input-manifest
       (.getCanonicalPath (io/file artifact-directory "input.manifest"))
       receipt (.getCanonicalPath (io/file source attestation/release-receipt-name))
       log (.getCanonicalPath (io/file temp "coordination.framlog"))
-      record (.getCanonicalPath (io/file temp "north-fram.runtime"))
+      record (.getCanonicalPath (io/file temp "north-store.runtime"))
       revision (apply str (repeat 40 "a"))
       tree (apply str (repeat 40 "b"))
       manifest-payload "sealed Native input manifest fixture\n"
@@ -86,7 +86,7 @@
       port 47977
       pid 4242
       birth "proc:987654"
-      unit "north-fram.service"
+      unit "north-store.service"
       closure-sha256
       (atom nil)
       values
@@ -103,7 +103,7 @@
     (.mkdirs (.getParentFile (io/file artifact)))
     (spit input-manifest manifest-payload)
     (reset! closure-sha256 (sha256-file input-manifest))
-    (spit ready (str "fram-native-build/v1 " @closure-sha256 "\n"))
+    (spit ready (str "beagle-store-native-build/v1 " @closure-sha256 "\n"))
     (set-mode! ready record-permissions)
     (spit artifact "sealed executable fixture\n")
     (set-mode! artifact artifact-permissions)
@@ -120,28 +120,28 @@
     (reset!
      values
      {"FORMAT" attestation/active-runtime-record-format
-      "FRAM_SOURCE" source
-      "FRAM_REVISION" revision
-      "FRAM_TREE" tree
-      "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
-      "FRAM_NATIVE_CLOSURE_SHA256" @closure-sha256
-      "FRAM_SERVER_ARTIFACT" artifact
-      "FRAM_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
-      "FRAM_SPACE_ID" space-id
-      "FRAM_PORT" (str port)
-      "FRAM_LOG" log
+      "BEAGLE_STORE_SOURCE" source
+      "BEAGLE_STORE_REVISION" revision
+      "BEAGLE_STORE_TREE" tree
+      "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" artifact-directory
+      "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" @closure-sha256
+      "BEAGLE_STORE_SERVER_ARTIFACT" artifact
+      "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
+      "BEAGLE_STORE_SPACE_ID" space-id
+      "BEAGLE_STORE_PORT" (str port)
+      "BEAGLE_STORE_LOG" log
       "PID" (str pid)
       "PID_BIRTH" birth
       "CONTROLLER_UNIT" unit
       "CONTROLLER_MAIN_PID" (str pid)})
     (write-record! record @values)
     (let [environment
-          {"FRAM_HOME" source
-           "FRAM_SERVER_RUNTIME" "native"
-           "FRAM_NATIVE_ARTIFACT_DIR" artifact-directory
-           "FRAM_SPACE_ID" space-id
-           "FRAM_SERVER_PORT" (str port)
-           "FRAM_LOG" log
+          {"BEAGLE_STORE_HOME" source
+           "BEAGLE_STORE_SERVER_RUNTIME" "native"
+           "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" artifact-directory
+           "BEAGLE_STORE_SPACE_ID" space-id
+           "BEAGLE_STORE_SERVER_PORT" (str port)
+           "BEAGLE_STORE_LOG" log
            "NORTH_COORD_SYSTEMD_UNIT" unit}
           valid-redefs
           {#'attestation/sealed-release-home (fn [] source)
@@ -197,14 +197,14 @@
                       (assoc valid-redefs #'attestation/process-environment
                              (fn [_]
                                (assoc environment
-                                      "FRAM_SERVER_ARTIFACT" artifact
-                                      "FRAM_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
-                                      "FRAM_NATIVE_CLOSURE_SHA256" @closure-sha256
-                                      "FRAM_BIN" (str source "/bin")
-                                      "FRAM_OUT" (str source "/out")
-                                      "NORTH_FRAMRPC_OUT" (str source "/out")
+                                      "BEAGLE_STORE_SERVER_ARTIFACT" artifact
+                                      "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" (sha256-file artifact)
+                                      "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" @closure-sha256
+                                      "BEAGLE_STORE_BIN" (str source "/bin")
+                                      "BEAGLE_STORE_OUT" (str source "/out")
+                                      "NORTH_STORE_OUT" (str source "/out")
                                       "NORTH_PORT" (str port)
-                                      "FRAM_MAX_ACTIVE_CLIENTS" "64"
+                                      "BEAGLE_STORE_MAX_ACTIVE_CLIENTS" "64"
                                       "NORTH_TELEMETRY_PORT" "7978")))
                       #(attestation/attest-active-runtime! request))))
 
@@ -213,7 +213,7 @@
                  (with-redefs-fn
                    (assoc valid-redefs #'attestation/process-environment
                           (fn [_] (assoc environment
-                                         "FRAM_SERVER_ARTIFACT" "/tmp/other-server")))
+                                         "BEAGLE_STORE_SERVER_ARTIFACT" "/tmp/other-server")))
                    #(denied-type
                      (fn [] (attestation/attest-active-runtime! request))))))
 
@@ -221,7 +221,7 @@
               (= :runtime-process-attestation-failed
                  (with-redefs-fn
                    (assoc valid-redefs #'attestation/process-environment
-                          (fn [_] (assoc environment "FRAM_LISTEN_FD" "3")))
+                          (fn [_] (assoc environment "BEAGLE_STORE_LISTEN_FD" "3")))
                    #(denied-type
                      (fn [] (attestation/attest-active-runtime! request))))))
 
@@ -257,18 +257,18 @@
                    #(denied-type
                      (fn [] (attestation/assert-current! verified)))))))
 
-    (write-record! record (assoc @values "FRAM_SERVER_ARTIFACT_SHA256"
+    (write-record! record (assoc @values "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"
                                  (apply str (repeat 64 "0"))))
     (check! "artifact digest disagreement is rejected"
             (= :runtime-record-invalid
                (denied-type attest-record!)))
 
     (write-record! record @values)
-    (spit ready (str "fram-native-build/v1 " @closure-sha256))
+    (spit ready (str "beagle-store-native-build/v1 " @closure-sha256))
     (check! "READY receipt must have the exact closure and final LF"
             (= :runtime-record-invalid
                (denied-type attest-record!)))
-    (spit ready (str "fram-native-build/v1 " @closure-sha256 "\n"))
+    (spit ready (str "beagle-store-native-build/v1 " @closure-sha256 "\n"))
 
     (spit input-manifest "changed Native input manifest fixture\n")
     (check! "input manifest must hash to the READY closure"
@@ -278,7 +278,7 @@
 
     (spit record
           (str "FORMAT=" attestation/active-runtime-record-format "\n"
-               "FRAM_SOURCE=" source "\n"))
+               "BEAGLE_STORE_SOURCE=" source "\n"))
     (set-mode! record record-permissions)
     (check! "partial runtime identity is rejected before process trust"
             (= :runtime-record-invalid
@@ -300,7 +300,7 @@
             (= :runtime-record-invalid
                (denied-type attest-record!)))
 
-    (spit receipt "format=north-fram-release/v1\nrevision=nope\n")
+    (spit receipt "format=north-store-release/v1\nrevision=nope\n")
     (check! "a malformed sealed release receipt is rejected"
             (= :runtime-release-invalid
                (denied-type attest-record!)))

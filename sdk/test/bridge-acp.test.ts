@@ -387,7 +387,7 @@ test("north acp keeps stdout as newline-delimited ACP only", async () => {
   const child = Bun.spawn([north, "acp"], {
     env: {
       ...process.env,
-      FRAM_HOME: root,
+      BEAGLE_STORE_HOME: root,
       NORTH_BB: process.execPath,
       NORTH_BUN: process.execPath,
     },

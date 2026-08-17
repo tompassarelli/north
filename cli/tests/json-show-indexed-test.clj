@@ -17,13 +17,13 @@
 
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
-                (System/getenv "FRAM_HOME")
-                "/home/tom/code/beagle/main/branch-core"))))
+   (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+                (System/getenv "BEAGLE_STORE_HOME")
+                "/home/tom/code/beagle/main/store"))))
 
 (classpath/add-classpath (str fram "/out"))
-(require '[framrpc :as wire]
-         '[fram.types :as t])
+(require '[store.rpc :as wire]
+         '[store.types :as t])
 
 (def checks (atom []))
 (defn check! [label value]
@@ -172,15 +172,15 @@
           :err :string
           :extra-env
           (merge
-           {"FRAM_HOME" fram
-            "FRAM_BIN" (str fram "/bin")
-            "FRAM_OUT" (str fram "/out")
-            "FRAM_LOG" "/tmp/north-json-show-indexed-coordination.log"
-            "FRAM_SERVER_CONNECT" "127.0.0.1"
-            "FRAM_SERVER_PORT" port
-            "FRAM_SPACE_ID" "north-coordination"
+           {"BEAGLE_STORE_HOME" fram
+            "BEAGLE_STORE_BIN" (str fram "/bin")
+            "BEAGLE_STORE_OUT" (str fram "/out")
+            "BEAGLE_STORE_LOG" "/tmp/north-json-show-indexed-coordination.log"
+            "BEAGLE_STORE_SERVER_CONNECT" "127.0.0.1"
+            "BEAGLE_STORE_SERVER_PORT" port
+            "BEAGLE_STORE_SPACE_ID" "north-coordination"
             "NORTH_FRAMRPC_HOST" "127.0.0.1"
-            "NORTH_FRAMRPC_OUT" (str fram "/out")
+            "NORTH_STORE_OUT" (str fram "/out")
             "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
             "NORTH_TELEMETRY_SPACE_ID" "north-telemetry"
@@ -238,7 +238,7 @@
        {:version 19 :rows [["kind" "run"]]}
        {"NORTH_TELEMETRY_PARTITION" "1"
         "NORTH_TELEMETRY_PORT" "$SERVER_PORT"
-        "FRAM_TELEMETRY_LOG" telemetry-log})]
+        "BEAGLE_STORE_TELEMETRY_LOG" telemetry-log})]
   (check! "telemetry subjects retain Stage-A routing"
           (and (zero? (:exit result))
                (nil? worker-error)
@@ -247,7 +247,7 @@
 (let [directory
       (.toFile
        (java.nio.file.Files/createTempDirectory
-        "north-framrpc-show-"
+        "north-storerpc-show-"
         (make-array java.nio.file.attribute.FileAttribute 0)))
       telemetry-log (.getCanonicalPath (io/file directory "telemetry.fifo"))]
   (try
@@ -259,7 +259,7 @@
            {:version 20 :rows [["kind" "run"] ["run_task" "bounded read"]]}
            {"NORTH_TELEMETRY_PARTITION" "1"
             "NORTH_TELEMETRY_PORT" "$SERVER_PORT"
-            "FRAM_TELEMETRY_LOG" telemetry-log})]
+            "BEAGLE_STORE_TELEMETRY_LOG" telemetry-log})]
       (check! "plain telemetry show renders exact rows without opening the origin log"
               (and (zero? (:exit result))
                    (= "  kind  run\n  run_task  bounded read\n" (:out result))))

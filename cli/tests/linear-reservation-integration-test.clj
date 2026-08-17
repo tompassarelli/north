@@ -9,10 +9,10 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file *file*)) "../..")))
 (def fram (.getCanonicalPath
-           (io/file (or (System/getenv "FRAM_PATH")
-                        "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+           (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                        "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 
 (defn free-port []
@@ -70,7 +70,7 @@
   (let [result
         (apply proc/shell
                {:out :string :err :string :continue true
-                :extra-env {"FRAM_LOG" log}}
+                :extra-env {"BEAGLE_STORE_LOG" log}}
                "bb" args)]
     (when-not (zero? (:exit result))
       (throw (ex-info "Linear helper process failed" {:result result :args args})))
@@ -133,10 +133,10 @@
       daemon
       (proc/process
        {:dir fram :out :string :err :string
-        :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                    "FRAM_SERVER_QUIET" "1"
-                    "FRAM_SERVER_XMX" "1g"}}
-       (str fram "/bin/fram-server") "serve" (str port)
+        :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                    "BEAGLE_STORE_SERVER_QUIET" "1"
+                    "BEAGLE_STORE_SERVER_XMX" "1g"}}
+       (str fram "/bin/beagle-store-server") "serve" (str port)
        log "north-coordination")
       reserve (str root "/sdk/src/integrations/linear/reserve-link.clj")
       schema (str root "/sdk/src/integrations/linear/reserve-schema-fact.clj")
@@ -159,7 +159,7 @@
       check! (fn [label value] (swap! checks conj [label (boolean value)]))]
   (alter-var-root #'north.coord/expected-log (constantly (fn [] log)))
   (try
-    (check! "current Fram server starts"
+    (check! "current Beagle Store server starts"
             (eventually #(= :ready (:state (north.coord/status port)))))
     (let [e-holder "evidence-v1"
           i-holder "identity-v1"

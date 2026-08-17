@@ -12,11 +12,11 @@ import { assertWellFormedUnicode, parseStrictJson } from "../../strict-json";
 import { createLinearSyncBaseline, validateLinearSyncBaseline } from "./reconcile";
 import { parseManagedLinearDescription } from "./projection";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-  framExecutable,
-} from "../../fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+  beagleStoreExecutable,
+} from "../../beagle-store";
 import type {
   LinearIssueIdentity, LinearIssueSnapshot, LinearRemoteComment, LinearSyncBaseline,
   LinearSyncFields, NorthCommentKind, NorthLifecycleCategory, NorthThreadSyncSource,
@@ -139,8 +139,8 @@ export function parseBootstrapElection(value: string): LinearBootstrapElection {
   return election;
 }
 
-function defaultFramExecutable(): string {
-  return framExecutable();
+function defaultBeagleStoreExecutable(): string {
+  return beagleStoreExecutable();
 }
 
 export interface GraphFact { predicate: string; value: string }
@@ -214,16 +214,16 @@ async function command(
   return result.stdout.trim();
 }
 
-async function framCommand(
+async function storeCommand(
   file: string,
   args: readonly string[],
   options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string> {
-  const env = framEngineEnvironment(options.env ?? process.env);
-  return command(file, framBabashkaArguments(args, env), {
+  const env = beagleStoreEnvironment(options.env ?? process.env);
+  return command(file, beagleStoreBabashkaArguments(args, env), {
     ...options,
     env,
-    timeout: framCoordinatorChildTimeout(options.timeout),
+    timeout: beagleStoreCoordinatorChildTimeout(options.timeout),
   });
 }
 
@@ -323,17 +323,17 @@ async function commandWithPrivateStdin(
   });
 }
 
-async function framCommandWithPrivateStdin(
+async function storeCommandWithPrivateStdin(
   file: string,
   args: readonly string[],
   value: string,
   options: { timeout?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string> {
-  const env = framEngineEnvironment(options.env ?? process.env);
-  return commandWithPrivateStdin(file, framBabashkaArguments(args, env), value, {
+  const env = beagleStoreEnvironment(options.env ?? process.env);
+  return commandWithPrivateStdin(file, beagleStoreBabashkaArguments(args, env), value, {
     ...options,
     env,
-    timeout: framCoordinatorChildTimeout(options.timeout),
+    timeout: beagleStoreCoordinatorChildTimeout(options.timeout),
   });
 }
 
@@ -413,7 +413,7 @@ export interface NorthGraphStoreOptions {
 export class NorthGraphStore implements GraphStore {
   private leaseInvokeOverride?: (args: readonly string[], stdin?: string) => Promise<string>;
   private leaseHelperCommand: string;
-  private leaseHelperUsesFramSelection: boolean;
+  private leaseHelperUsesStoreSelection: boolean;
   private reservationCli: string;
   private reservationInvokeOverride?: (args: readonly string[]) => Promise<string>;
   private bootstrapFinderCli: string;
@@ -423,17 +423,17 @@ export class NorthGraphStore implements GraphStore {
 
   constructor(
     private northBin = process.env.NORTH_BIN ?? resolve(NORTH_ROOT, "bin/north"),
-    // FRAM_BIN is the stable directory contract shared with bin/north and the
-    // Nix wrappers. A caller that needs a test/program override passes the
-    // executable itself through this distinct constructor parameter.
-    private framExecutable = defaultFramExecutable(),
+    // BEAGLE_STORE_HOME locates the Store subtree; its public CLI is the parent
+    // Beagle dispatcher's bin/beagle. A caller that needs a test/program override
+    // passes the executable itself through this distinct constructor parameter.
+    private beagleStoreExecutable = defaultBeagleStoreExecutable(),
     private leaseCli = resolve(NORTH_ROOT, "cli/lease-cli.clj"),
     private port = process.env.NORTH_PORT ?? "7977",
     options: NorthGraphStoreOptions = {},
   ) {
     this.leaseInvokeOverride = options.leaseInvokeOverride;
     this.leaseHelperCommand = options.leaseHelperCommand ?? "bb";
-    this.leaseHelperUsesFramSelection = options.leaseHelperCommand === undefined;
+    this.leaseHelperUsesStoreSelection = options.leaseHelperCommand === undefined;
     this.reservationCli = options.reservationCli ?? resolve(import.meta.dir, "reserve-link.clj");
     this.reservationInvokeOverride = options.reservationInvokeOverride;
     this.bootstrapFinderCli = options.bootstrapFinderCli ?? resolve(import.meta.dir, "find-bootstrap-links.clj");
@@ -484,7 +484,7 @@ export class NorthGraphStore implements GraphStore {
       const args = [this.port, connector, createdAt];
       output = this.bootstrapFinderInvokeOverride
         ? await this.bootstrapFinderInvokeOverride(args)
-        : await framCommand("bb", [this.bootstrapFinderCli, ...args]);
+        : await storeCommand("bb", [this.bootstrapFinderCli, ...args]);
     } catch {
       throw new Error("Linear bootstrap evidence lookup failed");
     }
@@ -502,7 +502,10 @@ export class NorthGraphStore implements GraphStore {
 
   async put(subject: string, predicate: string, value: string): Promise<void> {
     const bare = subject.replace(/^@/, "");
-    const output = await command(this.framExecutable, ["tell", bare, predicate, value]);
+    const output = await command(
+      this.beagleStoreExecutable,
+      ["store", "tell", bare, predicate, value],
+    );
     if (!output.startsWith("committed via coordinator"))
       throw new Error(`coordinator rejected @${bare} ${predicate}: ${output || "no response"}`);
   }
@@ -523,7 +526,7 @@ export class NorthGraphStore implements GraphStore {
     ];
     const output = this.schemaReservationInvokeOverride
       ? await this.schemaReservationInvokeOverride(args)
-      : await framCommand("bb", [this.schemaReservationCli, ...args]);
+      : await storeCommand("bb", [this.schemaReservationCli, ...args]);
     const response = coordinatorObject(output);
     if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
     if (response && hasExactKeys(response, ["reject"])
@@ -558,7 +561,7 @@ export class NorthGraphStore implements GraphStore {
     ];
     const output = this.reservationInvokeOverride
       ? await this.reservationInvokeOverride(args)
-      : await framCommand("bb", [this.reservationCli, ...args]);
+      : await storeCommand("bb", [this.reservationCli, ...args]);
     const response = coordinatorObject(output);
     if (response && hasExactKeys(response, ["ok"]) && positiveSafeInteger(response.ok)) return;
     if (response && hasExactKeys(response, ["reject"]) && typeof response.reject === "string" && response.reject)
@@ -579,8 +582,8 @@ export class NorthGraphStore implements GraphStore {
     try {
       output = this.leaseInvokeOverride
         ? await this.leaseInvokeOverride(args, value)
-        : await (this.leaseHelperUsesFramSelection
-          ? framCommandWithPrivateStdin(
+        : await (this.leaseHelperUsesStoreSelection
+          ? storeCommandWithPrivateStdin(
             this.leaseHelperCommand,
             [this.leaseCli, this.port, "--json", ...args],
             value,
@@ -621,7 +624,7 @@ export class CoordinatorSyncLeaseManager implements SyncLeaseManager {
   private invoke(args: readonly string[]): Promise<string> {
     return this.invokeOverride
       ? this.invokeOverride(args)
-      : framCommand("bb", [this.leaseCli, this.port, "--json", ...args]);
+      : storeCommand("bb", [this.leaseCli, this.port, "--json", ...args]);
   }
 
   async acquire(resource: string): Promise<SyncLease> {
@@ -708,7 +711,7 @@ export const LINEAR_SCHEMA_FACTS = [
   ["conflict_field", "cardinality", "multi"],
   ["linked_thread", "value_kind", "ref"],
   // Integration links are fact-bearing entities even though they are not
-  // threads. Fram validates this as an entity ref; North owns thread-only refs.
+  // threads. Beagle Store validates this as an entity ref; North owns thread-only refs.
   ["linear_link", "value_kind", "ref"],
   ["canonical_link", "value_kind", "ref"],
 ] as const;

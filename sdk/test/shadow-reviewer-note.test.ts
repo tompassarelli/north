@@ -35,9 +35,9 @@ test("validated notes enter the self-only durable managed follow-up producer", a
 		{
 			env: {
 				NORTH_PORT: "9000",
-				FRAM_HOME: "/fixture/fram",
-				FRAM_BIN: "/fixture/fram/bin",
-				FRAM_OUT: "/fixture/fram/out",
+				BEAGLE_STORE_HOME: "/fixture/fram",
+				BEAGLE_STORE_BIN: "/fixture/fram/bin",
+				BEAGLE_STORE_OUT: "/fixture/fram/out",
 			},
 			publish: async (command) => {
 				observed = command;

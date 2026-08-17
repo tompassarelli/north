@@ -7,9 +7,9 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      (System/getenv "FRAM_HOME")
-      "/home/tom/code/beagle/main/branch-core"))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      (System/getenv "BEAGLE_STORE_HOME")
+      "/home/tom/code/beagle/main/store"))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (def assignment-writer (str root "/cli/learning-assignment-internal.clj"))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
@@ -36,7 +36,7 @@
           :else (do (Thread/sleep 25) (recur (inc attempt))))))
 (defn shell [port & args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_SPACE_ID" test-space
+                     :extra-env {"BEAGLE_STORE_SPACE_ID" test-space
                                  "NORTH_FRAMRPC_HOST" "127.0.0.1"
                                  "NORTH_PORT" (str port)
                                  "NORTH_TELEMETRY_PARTITION" "0"}}
@@ -98,22 +98,22 @@
                      (make-array java.nio.file.attribute.FileAttribute 0)))
       log-file (io/file temp "facts.framlog")
       log (.getCanonicalPath log-file)
-      server-output (io/file temp "fram-server.log")
+      server-output (io/file temp "beagle-store-server.log")
       server (do
                (database/create-triple-log! log test-space)
                (proc/process
                 {:dir fram :out server-output :err :out
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port) log test-space))
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port) log test-space))
       run "@run:learning-assignment-fixture"
       omitted-run "@run:learning-assignment-omitted"
       invalid-run "@run:learning-assignment-invalid"
       late-run "@run:learning-assignment-late"
       control (assignment "control")]
   (try
-    (check "throwaway current Fram FRAMRPC server starts"
+    (check "throwaway current Beagle Store FRAMRPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
                                 (:space-id (north.coord/status port))))))

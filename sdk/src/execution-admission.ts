@@ -15,7 +15,7 @@ import {
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
-import { FramRpcClient } from "./framrpc-client";
+import { FramRpcClient } from "./store-rpc-client";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
@@ -28,7 +28,7 @@ const admissionReceipts = new WeakMap<object, Set<ProviderId>>();
  * Provider CLIs still receive their own scrubbed account environment, but MCP
  * servers are a separate authority boundary: never forward the ambient process
  * environment (which may contain credentials or unrelated provider settings).
- * Keep only lane identity, North/Fram instance selection, routing runtime knobs,
+ * Keep only lane identity, North/Beagle Store instance selection, routing runtime knobs,
  * and attribution/provenance selectors required by the North executable.
  */
 export const MANAGED_NORTH_MCP_ENV_KEYS = [
@@ -39,7 +39,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "AGENT_COORDINATOR",
   "NORTH_PORT",
   "NORTH_FRAMRPC_HOST",
-  "NORTH_FRAMRPC_OUT",
+  "NORTH_STORE_OUT",
   "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT",
   "NORTH_TELEMETRY_SPACE_ID",
@@ -67,16 +67,16 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "NORTH_MKFIFO_BIN",
   "NORTH_GIT_BIN",
   "NORTH_PEER_BB",
-  "FRAM_BIN",
-  "FRAM_HOME",
-  "FRAM_OUT",
-  "FRAM_SERVER_CONNECT",
-  "FRAM_SERVER_PORT",
-  "FRAM_SPACE_ID",
-  "FRAM_SINGLE_VALUED",
-  "FRAM_TERMINAL_PREDS",
-  "FRAM_THREADS",
-  "FRAM_WITHDRAWN_PREDS",
+  "BEAGLE_STORE_BIN",
+  "BEAGLE_STORE_HOME",
+  "BEAGLE_STORE_OUT",
+  "BEAGLE_STORE_SERVER_CONNECT",
+  "BEAGLE_STORE_SERVER_PORT",
+  "BEAGLE_STORE_SPACE_ID",
+  "BEAGLE_STORE_SINGLE_VALUED",
+  "BEAGLE_STORE_TERMINAL_PREDS",
+  "BEAGLE_STORE_THREADS",
+  "BEAGLE_STORE_WITHDRAWN_PREDS",
   "NORTH_ORCHESTRATION_HOME",
   "ORCHESTRATION_STAFFING_CATALOG",
   "NORTH_ROUTING_POLICY",
@@ -395,7 +395,7 @@ async function requireCoordinator(
     throw new ExecutionAdmissionError("north_coordination_contract_missing");
   const environment = northEnvironment as Record<string, unknown>;
   const portValue = environment.NORTH_PORT;
-  const serverPortValue = environment.FRAM_SERVER_PORT;
+  const serverPortValue = environment.BEAGLE_STORE_SERVER_PORT;
   if (typeof portValue !== "string" || !portValue.trim()
       || typeof serverPortValue !== "string" || !serverPortValue.trim())
     throw new ExecutionAdmissionError("north_coordination_port_missing");
@@ -406,12 +406,12 @@ async function requireCoordinator(
     throw new ExecutionAdmissionError("north_coordination_port_invalid");
   if (port !== serverPort)
     throw new ExecutionAdmissionError("north_coordination_port_identity_mismatch");
-  const spaceValue = environment.FRAM_SPACE_ID;
+  const spaceValue = environment.BEAGLE_STORE_SPACE_ID;
   if (typeof spaceValue !== "string" || !spaceValue.trim())
     throw new ExecutionAdmissionError("north_coordination_space_missing");
   if (spaceValue.trim() !== spaceValue)
     throw new ExecutionAdmissionError("north_coordination_space_invalid");
-  const hostValue = environment.NORTH_FRAMRPC_HOST ?? environment.FRAM_SERVER_CONNECT
+  const hostValue = environment.NORTH_FRAMRPC_HOST ?? environment.BEAGLE_STORE_SERVER_CONNECT
     ?? "127.0.0.1";
   if (typeof hostValue !== "string" || !hostValue.trim()
       || hostValue.trim() !== hostValue)

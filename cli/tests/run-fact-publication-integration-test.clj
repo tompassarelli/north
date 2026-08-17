@@ -8,10 +8,10 @@
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (.getCanonicalPath
-   (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/beagle/main/branch-core"))))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+   (io/file (or (System/getenv "BEAGLE_STORE_PATH")
+                "/home/tom/code/beagle/main/store"))))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (def evidence-writer (str root "/cli/delivery-evidence-internal.clj"))
 (def north-mcp (str root "/bin/north-mcp"))
@@ -44,23 +44,23 @@
             rows)))
 (defn shell [& args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" @test-log}}
+                     :extra-env {"BEAGLE_STORE_LOG" @test-log}}
          args))
 (defn bars-cli [port & args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" @test-log "NORTH_PORT" (str port)}}
+                     :extra-env {"BEAGLE_STORE_LOG" @test-log "NORTH_PORT" (str port)}}
          "bb" (str root "/cli/bars-cli.clj") args))
 (defn north-cli
   "The real bash entrypoint, so verb wiring and pre-write hooks are covered."
   [port & args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" @test-log "NORTH_PORT" (str port)}}
+                     :extra-env {"BEAGLE_STORE_LOG" @test-log "NORTH_PORT" (str port)}}
          (str root "/bin/north") args))
 (defn evidence-cli
   "The real agent-facing CLI with NO run reservation in its environment."
   [port args]
   (apply proc/shell {:out :string :err :string :continue true
-                     :extra-env {"FRAM_LOG" @test-log
+                     :extra-env {"BEAGLE_STORE_LOG" @test-log
                                  "NORTH_PORT" (str port)
                                  "AGENT_ID" "lane-unreserved-probe"
                                  "AGENT_TOPOLOGY" "worker"}}
@@ -72,7 +72,7 @@
         result
         (proc/shell {:out :string :err :string :continue true
                      :in (str request "\n")
-                     :extra-env (merge {"FRAM_LOG" @test-log} environment)}
+                     :extra-env (merge {"BEAGLE_STORE_LOG" @test-log} environment)}
                     "bb" north-mcp)
         output (str/trim (:out result))]
     (assoc result :response
@@ -167,10 +167,10 @@
       daemon (do
                (proc/process
                 {:dir fram :out :string :err :string
-                 :extra-env {"FRAM_SERVER_RUNTIME" "jvm-dev"
-                             "FRAM_SERVER_QUIET" "1"
-                             "FRAM_SERVER_XMX" "1g"}}
-                (str fram "/bin/fram-server") "serve" (str port)
+                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                             "BEAGLE_STORE_SERVER_XMX" "1g"}}
+                (str fram "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       run "@run-publication-v2"
       thread "@thread-publication-v2"
@@ -180,7 +180,7 @@
   (alter-var-root #'north.coord/expected-log
                   (constantly (fn [] @test-log)))
   (try
-    (check "throwaway current Fram server starts"
+    (check "throwaway current Beagle Store server starts"
            (eventually
             #(try
                (let [status (north.coord/status port)]
@@ -451,7 +451,7 @@
            "NORTH_RUN_ID" (subs mcp-run 1)
            "NORTH_THREAD_ID" (subs mcp-thread 1)
            "NORTH_RUN_CAPABILITY" mcp-capability
-           "FRAM_LOG" @test-log}]
+           "BEAGLE_STORE_LOG" @test-log}]
       (north.coord/append! port mcp-thread "title" "MCP evidence binding")
       (north.coord/append! port mcp-thread "done_when" mcp-bar)
       (let [reserved
@@ -474,7 +474,7 @@
             after-forgery (facts-of port mcp-run)
             wrong-log
             (mcp-request
-             (assoc mcp-environment "FRAM_LOG" (str @test-log ".wrong"))
+             (assoc mcp-environment "BEAGLE_STORE_LOG" (str @test-log ".wrong"))
              "tools/call"
              {"name" "evidence_record"
               "arguments" {"bar" mcp-bar "observed" "exit 0"}})
@@ -500,7 +500,7 @@
         (check "evidence_record rejects caller-supplied run identity fields"
                (and (true? (get-in forged [:response "result" "isError"]))
                     (empty? (get after-forgery "run_bar_evidence" #{}))))
-        (check "evidence_record preserves the managed Fram log fence"
+        (check "evidence_record preserves the managed Beagle Store log fence"
                (and (true? (get-in wrong-log [:response "result" "isError"]))
                     (empty? (get after-wrong-log "run_bar_evidence" #{}))))
         (check "read-only worker records evidence through MCP end-to-end"

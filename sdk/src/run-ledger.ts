@@ -1,10 +1,10 @@
 import * as path from "node:path";
 
 import {
-	framBabashkaArguments,
-	framEngineEnvironment,
-	settleFramCoordinatorChild,
-} from "./fram-engine";
+	beagleStoreBabashkaArguments,
+	beagleStoreEnvironment,
+	settleBeagleStoreCoordinatorChild,
+} from "./beagle-store";
 import {
 	WIRE_MAX_EVENTS_PER_RUN,
 	WIRE_VERSION,
@@ -251,19 +251,19 @@ async function runWriter(
 	const payload = projectionPayload(projections);
 	const child = Bun.spawn([
 		"bb",
-		...framBabashkaArguments([
+		...beagleStoreBabashkaArguments([
 			INTERNAL_WRITER,
 			env.NORTH_PORT ?? "7977",
 		], env),
 	], {
-		env: framEngineEnvironment(env),
+		env: beagleStoreEnvironment(env),
 		stdin: "pipe",
 		stdout: "ignore",
 		stderr: "ignore",
 	});
 	child.stdin.write(payload);
 	child.stdin.end();
-	const outcome = await settleFramCoordinatorChild(child, timeoutMs);
+	const outcome = await settleBeagleStoreCoordinatorChild(child, timeoutMs);
 	return !outcome.timedOut && outcome.exitCode === 0 ? "recorded" : "unavailable";
 }
 

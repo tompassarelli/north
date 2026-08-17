@@ -127,7 +127,7 @@
   (let [result (proc/shell {:out :string :err :string :continue true
                             :extra-env {"AGENT_TOPOLOGY" "worker"
                                         "AGENT_ID" "worker-self"
-                                        "FRAM_HOME" "/definitely/absent"}}
+                                        "BEAGLE_STORE_HOME" "/definitely/absent"}}
                            (str root "/bin/north") verb "agent:peer-agent" predicate "probe")]
     (check (str "generic " verb " denies peer agent authority predicate " predicate)
            (and (not (zero? (:exit result)))
@@ -137,7 +137,7 @@
 (let [result (proc/shell {:out :string :err :string :continue true
                           :extra-env {"AGENT_TOPOLOGY" "worker"
                                       "AGENT_ID" "worker-self"
-                                      "FRAM_HOME" "/definitely/absent"}}
+                                      "BEAGLE_STORE_HOME" "/definitely/absent"}}
                          (str root "/bin/north") "tell" "agent:worker-self" "provider" "self-publish")]
   (check "generic self identity mutation is denied before graph access"
          (and (not (zero? (:exit result)))
@@ -148,7 +148,7 @@
   (let [result (proc/shell {:out :string :err :string :continue true
                             :extra-env {"AGENT_TOPOLOGY" topology
                                         "AGENT_ID" (str topology "-self")
-                                        "FRAM_HOME" "/definitely/absent"}}
+                                        "BEAGLE_STORE_HOME" "/definitely/absent"}}
                            (str root "/bin/north") "tell"
                            "run-other-lane" "run_bar_evidence" "{}")]
     (check (str "generic run mutation is denied for managed " topology " topology")
@@ -189,7 +189,7 @@
                           :extra-env {"AGENT_TOPOLOGY" "worker"
                                       "AGENT_ID" "worker-self"
                                       "NORTH_TRUSTED_HARNESS_WRITE" "1"
-                                      "FRAM_HOME" "/definitely/absent"}}
+                                      "BEAGLE_STORE_HOME" "/definitely/absent"}}
                          (str root "/bin/north") "tell" "agent:worker-self" "provider" "trusted")]
   (check "legacy trusted-write environment cannot bypass the generic worker guard"
          (and (str/includes? (:err result) "worker topology cannot mutate agent identity")
@@ -198,7 +198,7 @@
 (let [result (proc/shell {:out :string :err :string :continue true
                           :extra-env {"AGENT_TOPOLOGY" "worker"
                                       "AGENT_ID" "worker-self"
-                                      "FRAM_HOME" "/definitely/absent"}}
+                                      "BEAGLE_STORE_HOME" "/definitely/absent"}}
                          (str root "/bin/north") "tell" "thread-probe" "goal" "ordinary-fact")]
   (check "ordinary thread fact writes pass the topology boundary"
          (and (not (str/includes? (:err result) "worker topology cannot mutate"))

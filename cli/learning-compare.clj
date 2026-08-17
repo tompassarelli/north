@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Deterministic, read-only comparison of immutable learning/run facts. This is
-;; a descriptive projection: it neither mutates Fram nor infers causal effects.
+;; a descriptive projection: it neither mutates Beagle Store nor infers causal effects.
 (ns north.learning-compare
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]

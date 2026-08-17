@@ -21,8 +21,8 @@
 ;; this file lives in north/cli — NORTH is its repo root.
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def FRAM (or (System/getenv "FRAM_HOME")
-              (str HOME "/code/beagle/main/branch-core")))
+(def STORE (or (System/getenv "BEAGLE_STORE_HOME")
+              (str HOME "/code/beagle/main/store")))
 (def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
@@ -37,7 +37,7 @@
 (def CACHE-DIR (str HOME "/.cache/north"))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def CACHE-SCOPE
-  (str (hash (str (or (System/getenv "FRAM_SPACE_ID") "north-coordination") "|"
+  (str (hash (str (or (System/getenv "BEAGLE_STORE_SPACE_ID") "north-coordination") "|"
                   (or (System/getenv "NORTH_TELEMETRY_SPACE_ID") "north-telemetry") "|"
                   PORT))))
 
@@ -504,7 +504,7 @@
   `ss -tlnp` reports no `pid=` for it — the unit is the reliable source. `ss`
   remains a fallback for a coordinator started outside systemd."
   [port]
-  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-fram.service"
+  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-store.service"
                                    "-p" "MainPID" "--value"] :timeout 3000)
             pid (some-> out str/trim)]
         (when (and ok (seq pid) (not= pid "0")) pid))
@@ -795,7 +795,7 @@
   ;; installed closure; a checkout HEAD is only source context, not proof that a
   ;; separately installed store path contains that tree.
   (println (bold "  runtime source identity"))
-  (doseq [[name repo] [["north" NORTH] ["fram" FRAM] ["beagle" BEAGLE]]]
+  (doseq [[name repo] [["north" NORTH] ["fram" STORE] ["beagle" BEAGLE]]]
     (let [{:keys [revision origin package-mode]} (source-revision name repo)
           command-result (run ["bash" "-c" "command -v \"$1\"" "north-doctor" name] :timeout 1500)
           which (when (:ok command-result)

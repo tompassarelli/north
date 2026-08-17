@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Real Fram + production replay-loop proof that a pending backlog larger than
+;; Real Beagle Store + production replay-loop proof that a pending backlog larger than
 ;; the retired 4096 hard ceiling drains through bounded first pages.
 (require '[babashka.process :as proc]
          '[clojure.edn :as edn]
@@ -12,16 +12,16 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
 (def fram
-  (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/beagle/main/branch-core"))
-(when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
+  (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+      "/home/tom/code/beagle/main/store"))
+(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
 (load-file (str fram "/database.clj"))
 (require '[database :as database]
-         '[fram.types :as t])
+         '[store.types :as t])
 (defn pagination-process-env
   [overrides]
-  (merge (dissoc (into {} (System/getenv)) "FRAM_TELEMETRY_LOG")
+  (merge (dissoc (into {} (System/getenv)) "BEAGLE_STORE_TELEMETRY_LOG")
          overrides))
 (def inbox-peek (str root "/cli/inbox-peek.clj"))
 (System/setProperty "north.live-feed.lib" "1")
@@ -178,15 +178,15 @@
         :out :string
         :err :string
         :env (pagination-process-env
-              {"FRAM_SERVER_RUNTIME" "jvm-dev"
-               "FRAM_SERVER_QUIET" "1"
-               "FRAM_SERVER_XMX" "2g"})}
-       (str fram "/bin/fram-server") "serve" (str port)
+              {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
+               "BEAGLE_STORE_SERVER_QUIET" "1"
+               "BEAGLE_STORE_SERVER_XMX" "2g"})}
+       (str fram "/bin/beagle-store-server") "serve" (str port)
        canonical-log "north-coordination")
       page-sizes (atom [])
       original-page north.message-audience/pending-message-page]
   (try
-    (check! "throwaway current Fram server is ready"
+    (check! "throwaway current Beagle Store server is ready"
             (await-coordinator! port))
     (let [status (north.coord/status port)
           daemon-pid (.pid ^Process (:proc daemon))]
@@ -201,7 +201,7 @@
     ;; and acknowledgements make forward progress across turns.
     (with-redefs [north.coord/expected-log (constantly canonical-log)]
       (let [_warm-page
-            ;; Fram's first relational query builds its local index. Production
+            ;; Beagle Store's first relational query builds its local index. Production
             ;; coordinators are long-lived; warm that engine boundary outside
             ;; the hook deadline so this bar measures North's bounded replay
             ;; path rather than one-time daemon index construction.
@@ -219,7 +219,7 @@
                     :err :string
                     :env
                     (pagination-process-env
-                     {"FRAM_LOG" canonical-log
+                     {"BEAGLE_STORE_LOG" canonical-log
                       "XDG_RUNTIME_DIR" (.getCanonicalPath runtime)})}
                    "timeout" "--signal=TERM" "--kill-after=0.1s" "2s"
                    "bb" inbox-peek (str port) recipient)]

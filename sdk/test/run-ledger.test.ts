@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { FramRpcClient } from "../src/framrpc-client";
-import { FramTriple } from "../src/framrpc-codec";
+import { FramRpcClient } from "../src/store-rpc-client";
+import { FramTriple } from "../src/store-rpc-codec";
 import {
 	AGENT_RUN_LEDGER_CONTRACT,
 	AGENT_RUN_LEDGER_VERSION,
@@ -224,15 +224,15 @@ describe("event-native wire ledger", () => {
 	});
 });
 
-function framFixture(): { readonly home: string; readonly bin: string; readonly out: string; readonly server: string } {
-	const home = process.env.FRAM_TEST_CHECKOUT
-		?? process.env.FRAM_HOME
-		?? "/home/tom/code/beagle/main/branch-core";
+function storeFixture(): { readonly home: string; readonly bin: string; readonly out: string; readonly server: string } {
+	const home = process.env.BEAGLE_STORE_TEST_CHECKOUT
+		?? process.env.BEAGLE_STORE_HOME
+		?? "/home/tom/code/beagle/main/store";
 	return {
 		home,
 		bin: path.resolve(home, "bin"),
 		out: path.resolve(home, "out"),
-		server: path.resolve(home, "bin/fram-server"),
+		server: path.resolve(home, "bin/beagle-store-server"),
 	};
 }
 
@@ -243,7 +243,7 @@ function unusedPort(): number {
 	return port;
 }
 
-async function waitForFram(port: number, spaceId: string): Promise<FramRpcClient> {
+async function waitForStore(port: number, spaceId: string): Promise<FramRpcClient> {
 	for (let attempt = 0; attempt < 400; attempt += 1) {
 		try {
 			return await FramRpcClient.connect({
@@ -258,13 +258,13 @@ async function waitForFram(port: number, spaceId: string): Promise<FramRpcClient
 		} catch {}
 		await Bun.sleep(25);
 	}
-	throw new Error("isolated Fram server did not become ready");
+	throw new Error("isolated Beagle Store server did not become ready");
 }
 
 test("Clojure accepts exact essential events with ECMAScript numbers and retries them idempotently", async () => {
-	const fram = framFixture();
-	if (!(await Bun.file(fram.server).exists())) {
-		throw new Error("frozen Fram server is unavailable for the wire-ledger fixture");
+	const store = storeFixture();
+	if (!(await Bun.file(store.server).exists())) {
+		throw new Error("frozen Beagle Store server is unavailable for the wire-ledger fixture");
 	}
 	const root = await fs.mkdtemp(path.join(os.tmpdir(), "north-wire-ledger-"));
 	roots.push(root);
@@ -273,34 +273,34 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 	const environment = {
 		...process.env,
 		NORTH_PORT: String(port),
-		FRAM_LOG: path.join(root, "history.framlog"),
-		FRAM_SPACE_ID: spaceId,
-		FRAM_HOME: fram.home,
-		FRAM_BIN: fram.bin,
-		FRAM_OUT: fram.out,
+		BEAGLE_STORE_LOG: path.join(root, "history.framlog"),
+		BEAGLE_STORE_SPACE_ID: spaceId,
+		BEAGLE_STORE_HOME: store.home,
+		BEAGLE_STORE_BIN: store.bin,
+		BEAGLE_STORE_OUT: store.out,
 		NORTH_TELEMETRY_PARTITION: "0",
 	};
 	const server = Bun.spawn([
-		fram.server,
+		store.server,
 		"serve",
 		String(port),
-		environment.FRAM_LOG,
+		environment.BEAGLE_STORE_LOG,
 		spaceId,
 	], {
-		cwd: fram.home,
+		cwd: store.home,
 		env: {
 			...environment,
-			FRAM_SERVER_RUNTIME: "jvm-dev",
-			FRAM_SERVER_QUIET: "1",
-			FRAM_SERVER_XMX: "1g",
-			FRAM_SNAPSHOT_BOOT: "0",
+			BEAGLE_STORE_SERVER_RUNTIME: "jvm-dev",
+			BEAGLE_STORE_SERVER_QUIET: "1",
+			BEAGLE_STORE_SERVER_XMX: "1g",
+			BEAGLE_STORE_SNAPSHOT_BOOT: "0",
 		},
 		stdout: "ignore",
 		stderr: "ignore",
 	});
 	let client: FramRpcClient | undefined;
 	try {
-		client = await waitForFram(port, spaceId);
+		client = await waitForStore(port, spaceId);
 		const invalidRunId = "run:self-consistent-invalid";
 		const invalid = [
 			uncheckedProjection({
@@ -330,7 +330,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		const invalidWriter = Bun.spawn([
 			"bb",
 			"-cp",
-			fram.out,
+			store.out,
 			path.resolve(import.meta.dir, "../../cli/run-event-internal.clj"),
 			String(port),
 		], {
@@ -456,7 +456,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 			const child = Bun.spawn([
 				"bb",
 				"-cp",
-				fram.out,
+				store.out,
 				path.resolve(import.meta.dir, "../../cli/run-fact-internal.clj"),
 				String(port),
 				subject,

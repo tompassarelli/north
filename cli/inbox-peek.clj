@@ -2,13 +2,13 @@
 ;; Usage: bb inbox-peek.clj <port> <agent-id>
 ;;
 ;; The local spool is only a scheduling hint: it stores a bounded page of IDs
-;; and a lossless EDN encoding of the continuation Term Fram issued. The graph
+;; and a lossless EDN encoding of the continuation Term Beagle Store issued. The graph
 ;; remains authority.
 ;; Every cached ID is claimed and re-read before output, and only a complete,
 ;; flushed rendering is acknowledged.
 (require '[clojure.edn :as edn]
          '[clojure.java.io :as io]
-         '[fram.types :as t])
+         '[store.types :as t])
 
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
@@ -299,7 +299,7 @@
      :snapshot-version (:served-version page)
      :created-at-ms now
      :ids ids
-     ;; Preserve Fram's Term structurally. Never derive a cursor from an ID.
+     ;; Preserve Beagle Store's Term structurally. Never derive a cursor from an ID.
      :cursor (when-not (:done? page)
                (cursor-term->edn (:cursor page)))}))
 

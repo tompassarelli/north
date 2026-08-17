@@ -22,10 +22,10 @@ import type { RoutingRequest } from "./routing-metadata";
 import { parseStrictJson } from "./strict-json";
 import { laneResolvedByFacts } from "./terminal-projection";
 import {
-  framBabashkaArguments,
-  framCoordinatorChildTimeout,
-  framEngineEnvironment,
-} from "./fram-engine";
+  beagleStoreBabashkaArguments,
+  beagleStoreCoordinatorChildTimeout,
+  beagleStoreEnvironment,
+} from "./beagle-store";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const MSG_CLI = `${REPO}/cli/msg-cli.clj`;
@@ -665,7 +665,7 @@ export interface EarlyExitCtx {
   coordinator?: string;
 }
 
-type Cmd = { cmd: string; args: string[]; framChild?: true };
+type Cmd = { cmd: string; args: string[]; storeChild?: true };
 
 // PURE: the command specs an early-exit-with-live-children emits — a durable
 // `early_exit_children` fact on @agent:<id> (queryable, like agent_death/stalled) + a
@@ -685,9 +685,9 @@ export function earlyExitCommands(
   if (ctx.coordinator) {
     cmds.push({
       cmd: "bb",
-      args: framBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "EARLY EXIT WITH LIVE CHILDREN",
+      args: beagleStoreBabashkaArguments([MSG_CLI, port(), "send", agentId, ctx.coordinator, "EARLY EXIT WITH LIVE CHILDREN",
         `${liveIds.length} live child(ren): ${ids} (${ts})`]),
-      framChild: true,
+      storeChild: true,
     });
   }
   return cmds;
@@ -703,7 +703,7 @@ export function notifyEarlyExitChildren(
 ): void {
   if (!liveIds.length) return;
   const startedAt = performance.now();
-  for (const { cmd, args, framChild } of earlyExitCommands(agentId, liveIds, ctx)) {
+  for (const { cmd, args, storeChild } of earlyExitCommands(agentId, liveIds, ctx)) {
     try {
       const remaining = Math.max(
         1,
@@ -711,8 +711,8 @@ export function notifyEarlyExitChildren(
       );
       execFileSync(cmd, args, {
         encoding: "utf8",
-        ...(framChild ? { env: framEngineEnvironment() } : {}),
-        timeout: framChild ? framCoordinatorChildTimeout(remaining) : remaining,
+        ...(storeChild ? { env: beagleStoreEnvironment() } : {}),
+        timeout: storeChild ? beagleStoreCoordinatorChildTimeout(remaining) : remaining,
         stdio: ["ignore", "ignore", "ignore"],
       });
     } catch {

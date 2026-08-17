@@ -55,7 +55,7 @@
          (= dirty-revision (:revision dirty)))
   (check "dirty checkout remains checkout provenance"
          (= "checkout rev" (:origin dirty)))
-  (check "Fram identity comes from its current checkout"
+  (check "Beagle Store identity comes from its current checkout"
          (= {:revision "tree-head" :origin "tree HEAD"}
             (identity "fram" {})))
   (check "Beagle package identity remains unchanged"

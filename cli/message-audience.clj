@@ -340,7 +340,7 @@
     :args [{:var "e"} msg-manifest-predicate {:var "manifest"}]}))
 
 (defn pending-message-page
-  "Read one bounded deterministic pending page. AFTER is a Fram cursor for
+  "Read one bounded deterministic pending page. AFTER is a Beagle Store cursor for
    stable read-only consumers; delivery replay intentionally restarts at nil
    after settling each page."
   ([port recipient direct-addresses]
@@ -360,7 +360,7 @@
      (let [rows (->> (:rows response)
                      (filter #(canonical-message-id? (first %)))
                      vec)]
-       ;; Preserve Fram's cursor/version exactly. Filtering only the returned
+       ;; Preserve Beagle Store's cursor/version exactly. Filtering only the returned
        ;; relation keeps any other routed coordination subjects out of
        ;; hook/live-feed consumers without inventing a client-derived cursor.
        (assoc response :rows rows :messages (mapv first rows))))))

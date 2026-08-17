@@ -2,13 +2,13 @@
 (ns north.validate
   "North's integrity check over its executable predicate schema. Reference
   existence, acyclicity, thread shape, and lifecycle are application rules, so
-  they live over North's Triple projection instead of the target-neutral Fram
+  they live over North's Triple projection instead of the target-neutral Beagle Store
   kernel.
 
   Actor refs (lead/driver/proposed_by) are NOT integrity-checked; see the note
   in work-violations-i for why.")
 
-(require fram.kernel-classify :as kc)
+(require store.kernel-classify :as kc)
 (require north.projections :as proj)
 
 (def thread-ref-preds (Vec String) ["part_of" "depends_on" "relates_to"])
@@ -63,7 +63,7 @@
 (defn work-violations-i [(idx proj/ProjectionIndex) (te String)] (Vec String)
   (let [term? (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
-        ;; entity refs. Fram verifies generic subject existence; North adds the
+        ;; entity refs. Beagle Store verifies generic subject existence; North adds the
         ;; stronger title-bearing target rule. A missing target remains a thread
         ;; violation even when executable schema also classifies the predicate as
         ;; a generic ref; partial schema metadata cannot disable North integrity.

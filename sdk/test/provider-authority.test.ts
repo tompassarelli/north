@@ -42,10 +42,10 @@ const north = join(import.meta.dir, "../..");
 const temporary: string[] = [];
 const envKeys = [
   "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "NORTH_PORT",
-  "NORTH_FRAMRPC_HOST", "NORTH_FRAMRPC_OUT", "NORTH_TELEMETRY_PARTITION",
+  "NORTH_FRAMRPC_HOST", "NORTH_STORE_OUT", "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
-  "FRAM_BIN", "FRAM_HOME", "FRAM_OUT", "FRAM_SERVER_PORT", "FRAM_SPACE_ID",
-  "FRAM_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
+  "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
+  "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
   "NORTH_RUN_ARTIFACT_DIR",
@@ -373,19 +373,19 @@ test("managed provider shells resolve North from the admitted package before amb
   }
 });
 
-test("both providers receive the exact custom North and Fram instance selectors without ambient secrets", () => {
+test("both providers receive the exact custom North and Beagle Store instance selectors without ambient secrets", () => {
   process.env.NORTH_PORT = "64129";
   process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
-  process.env.NORTH_FRAMRPC_OUT = "/tmp/north-authority-fram/out";
+  process.env.NORTH_STORE_OUT = "/tmp/north-authority-fram/out";
   process.env.NORTH_TELEMETRY_PARTITION = "1";
   process.env.NORTH_TELEMETRY_PORT = "64130";
   process.env.NORTH_TELEMETRY_SPACE_ID = "north-telemetry";
-  process.env.FRAM_BIN = "/tmp/north-authority-fram/bin";
-  process.env.FRAM_HOME = "/tmp/north-authority-fram";
-  process.env.FRAM_OUT = "/tmp/north-authority-fram/out";
-  process.env.FRAM_SERVER_PORT = "64129";
-  process.env.FRAM_SPACE_ID = "north-coordination";
-  process.env.FRAM_THREADS = "/tmp/north-authority-threads";
+  process.env.BEAGLE_STORE_BIN = "/tmp/north-authority-fram/bin";
+  process.env.BEAGLE_STORE_HOME = "/tmp/north-authority-fram";
+  process.env.BEAGLE_STORE_OUT = "/tmp/north-authority-fram/out";
+  process.env.BEAGLE_STORE_SERVER_PORT = "64129";
+  process.env.BEAGLE_STORE_SPACE_ID = "north-coordination";
+  process.env.BEAGLE_STORE_THREADS = "/tmp/north-authority-threads";
   process.env.UNRELATED_SECRET_CANARY = "must-not-cross-mcp-boundary";
 
   for (const provider of ["anthropic", "openai"] as const) {
@@ -394,16 +394,16 @@ test("both providers receive the exact custom North and Fram instance selectors 
     expect(env).toMatchObject({
       NORTH_PORT: "64129",
       NORTH_FRAMRPC_HOST: "127.0.0.1",
-      NORTH_FRAMRPC_OUT: "/tmp/north-authority-fram/out",
+      NORTH_STORE_OUT: "/tmp/north-authority-fram/out",
       NORTH_TELEMETRY_PARTITION: "1",
       NORTH_TELEMETRY_PORT: "64130",
       NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
-      FRAM_BIN: "/tmp/north-authority-fram/bin",
-      FRAM_HOME: "/tmp/north-authority-fram",
-      FRAM_OUT: "/tmp/north-authority-fram/out",
-      FRAM_SERVER_PORT: "64129",
-      FRAM_SPACE_ID: "north-coordination",
-      FRAM_THREADS: "/tmp/north-authority-threads",
+      BEAGLE_STORE_BIN: "/tmp/north-authority-fram/bin",
+      BEAGLE_STORE_HOME: "/tmp/north-authority-fram",
+      BEAGLE_STORE_OUT: "/tmp/north-authority-fram/out",
+      BEAGLE_STORE_SERVER_PORT: "64129",
+      BEAGLE_STORE_SPACE_ID: "north-coordination",
+      BEAGLE_STORE_THREADS: "/tmp/north-authority-threads",
     });
     expect(env).not.toHaveProperty("UNRELATED_SECRET_CANARY");
     expect(Object.keys(env).every((key) =>
@@ -418,9 +418,9 @@ test("both providers receive the exact custom North and Fram instance selectors 
   // MCP state enter only the same-process app-server layer that attests them.
   const preview = codexHarnessArguments(openai).join("\n");
   expect(preview).not.toContain("NORTH_PORT");
-  expect(preview).not.toContain("FRAM_SERVER_PORT");
-  expect(preview).not.toContain("FRAM_SPACE_ID");
-  expect(preview).not.toContain("FRAM_THREADS");
+  expect(preview).not.toContain("BEAGLE_STORE_SERVER_PORT");
+  expect(preview).not.toContain("BEAGLE_STORE_SPACE_ID");
+  expect(preview).not.toContain("BEAGLE_STORE_THREADS");
   expect(preview).not.toContain("UNRELATED_SECRET_CANARY");
 
   const tainted = {

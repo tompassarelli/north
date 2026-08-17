@@ -1,10 +1,10 @@
 import * as path from "node:path";
 
 import {
-	framBabashkaArguments,
-	framEngineEnvironment,
-	settleFramCoordinatorChild,
-} from "./fram-engine";
+	beagleStoreBabashkaArguments,
+	beagleStoreEnvironment,
+	settleBeagleStoreCoordinatorChild,
+} from "./beagle-store";
 import {
 	AGENT_RUN_LEDGER_CONTRACT,
 	AGENT_RUN_LEDGER_VERSION,
@@ -308,7 +308,7 @@ async function runTelemetryWriter(
 	timeoutMs: number,
 	environment: NodeJS.ProcessEnv,
 ): Promise<RunPublicationStatus> {
-	const env = framEngineEnvironment(environment);
+	const env = beagleStoreEnvironment(environment);
 	applyTerminalCoordinatorReadTimeout(env);
 	const payload = JSON.stringify(projection.facts);
 	if (new TextEncoder().encode(payload).byteLength
@@ -317,7 +317,7 @@ async function runTelemetryWriter(
 	}
 	const child = Bun.spawn([
 		"bb",
-		...framBabashkaArguments([
+		...beagleStoreBabashkaArguments([
 			INTERNAL_WRITER,
 			environment.NORTH_PORT ?? "7977",
 			projection.subject,
@@ -325,7 +325,7 @@ async function runTelemetryWriter(
 	], { env, stdin: "pipe", stdout: "ignore", stderr: "ignore" });
 	child.stdin.write(payload);
 	child.stdin.end();
-	const result = await settleFramCoordinatorChild(child, timeoutMs);
+	const result = await settleBeagleStoreCoordinatorChild(child, timeoutMs);
 	return !result.timedOut && result.exitCode === 0 ? "recorded" : "unavailable";
 }
 

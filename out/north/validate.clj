@@ -1,5 +1,5 @@
 (ns north.validate
-  (:require [fram.kernel-classify :as kc]
+  (:require [store.kernel-classify :as kc]
             [north.projections :as proj]))
 
 (def thread-ref-preds ["part_of" "depends_on" "relates_to"])

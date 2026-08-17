@@ -18,7 +18,7 @@ grep -Fq 'timeout --kill-after="${kill_after_s}s" "${file_timeout_s}s"' "$RUNNER
 # shellcheck disable=SC2016
 grep -Fq -- '--only-failures "$file" >"$log" 2>&1' "$RUNNER"
 grep -Fq 'NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE' "$RUNNER"
-grep -Fq "grep -Fq 'isolated Fram server'" "$RUNNER"
+grep -Fq "grep -Fq 'isolated Beagle Store server'" "$RUNNER"
 
 if grep -Eq '^[[:space:]]+bun test[[:space:]]*$' "$ROOT/.github/workflows/ci.yml"; then
   echo "CI bypasses the SDK package's hermetic test entrypoint" >&2
@@ -64,8 +64,8 @@ printf '%s\n' \
 chmod +x "$tmp/bin/bun"
 
 mkdir -p "$tmp/fram/bin"
-printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tmp/fram/bin/fram-server"
-chmod +x "$tmp/fram/bin/fram-server"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tmp/fram/bin/beagle-store-server"
+chmod +x "$tmp/fram/bin/beagle-store-server"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'printf "clojure %s\n" "$*" >> "${NORTH_SDK_TEST_TRACE:?}"' \
@@ -83,9 +83,9 @@ grep -Fxq 'test --isolate --preload ./test/support/hermetic-preload.ts --only-fa
 grep -Fxq 'test --isolate --preload ./test/support/hermetic-preload.ts --only-failures ./test/b.test.ts' "$trace"
 grep -Eq '^SDK tests: 2 files · 2 pass · 0 skip · 0 fail · 4 expects · [0-9]+s$' "$tmp/pass.out"
 
-printf '%s\n' '// isolated Fram server fixture' >"$tmp/sdk/test/mcp-driver-lifetime-integration.test.ts"
+printf '%s\n' '// isolated Beagle Store server fixture' >"$tmp/sdk/test/mcp-driver-lifetime-integration.test.ts"
 : >"$trace"
-PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" FRAM_TEST_CHECKOUT="$tmp/fram" \
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" BEAGLE_STORE_TEST_CHECKOUT="$tmp/fram" \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/server-lane.out"
 grep -Eq '^SDK tests: 3 files · 3 pass · 0 skip · 0 fail · 6 expects · [0-9]+s$' "$tmp/server-lane.out"
 grep -Fxq 'clojure -P -M server.clj' "$trace"

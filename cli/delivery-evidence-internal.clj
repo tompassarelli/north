@@ -4,7 +4,7 @@
 ;; environment, and the per-run capability correlates the supported writer call
 ;; with the reservation committed before provider execution. This is an
 ;; application-integrity guard, not a same-UID security boundary: a process that
-;; speaks Fram's loopback protocol directly can bypass this writer.
+;; speaks Beagle Store's loopback protocol directly can bypass this writer.
 (ns north.delivery-evidence-internal
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
@@ -19,7 +19,7 @@
   (when (:reject result)
     (fail! (if (or (= :deadline (:reject result)) (:deadline result))
              "delivery evidence publication deadline exceeded"
-             "Fram rejected delivery evidence write")
+             "Beagle Store rejected delivery evidence write")
            {:operation operation}))
   result)
 
@@ -67,7 +67,7 @@
   (try
     (north.coord/query-rows port query)
     (catch Exception error
-      (fail! "Fram did not answer a delivery evidence read"
+      (fail! "Beagle Store did not answer a delivery evidence read"
              {:subject subject :cause (.getMessage error)}))))
 
 (defn facts-of [port subject]
@@ -342,7 +342,7 @@
             ;; A typo in an observation used to burn the bar's only slot for the
             ;; life of the run. The correction supersedes in place: the cap is
             ;; not re-checked because the record COUNT does not grow, and the
-            ;; superseded text stays in the append-only Fram log.
+            ;; superseded text stays in the append-only Beagle Store log.
             {:supersede (first existing)
              :superseded-observed (get (second existing) "observed")
              :stored stored}
@@ -450,7 +450,7 @@
           (catch Exception error
             (if (str/starts-with?
                  (.getMessage error)
-                 "Fram did not answer a delivery evidence read")
+                 "Beagle Store did not answer a delivery evidence read")
               (proof-transport-failure!
                run bar :confirm (.getMessage error))
               (throw error))))]

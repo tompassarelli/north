@@ -12,7 +12,7 @@ threads too, so a running lane, its run ledger, its done-bar evidence, and the
 intention it was spawned to serve all sit in the same graph as your own work,
 and one query reads both. North supplies the coordination vocabulary and the
 lifecycle derivations; the storage engine underneath is
-[Fram](https://github.com/Autonymy/fram), a slot-addressable typed-triple
+[Beagle Store](https://github.com/Autonymy/fram), a slot-addressable typed-triple
 substrate.
 
 ## Documentation
@@ -73,12 +73,12 @@ the registry, the rendered pages, and `bin/north`'s dispatch disagree.
 `north help <topic>` opens one of six topic pages; `north help --all` prints
 the whole surface.
 
-The ledger needs [babashka](https://babashka.org) and Beagle's `branch-core/`
-engine root on `FRAM_HOME`; the agent SDK and MCP edge also need [Bun](https://bun.sh). See
+The ledger needs [babashka](https://babashka.org) and Beagle's `store/`
+engine root on `BEAGLE_STORE_HOME`; the agent SDK and MCP edge also need [Bun](https://bun.sh). See
 [docs/building-and-testing.md](docs/building-and-testing.md).
 
 The flake is not yet portable: the packaged entrypoint sources a hard-coded
-`framrpc.env` path under one machine's state directory
+`beagle-store.env` path under one machine's state directory
 ([`flake.nix`](flake.nix)), so `nix run github:tompassarelli/north` will not
 work off that host until the engine identity is parameterized.
 
@@ -105,7 +105,7 @@ work off that host until the engine identity is parameterized.
   [`cli/lease-cli.clj`](cli/lease-cli.clj),
   [`cli/msg-cli.clj`](cli/msg-cli.clj)).
 - **One serialized write path.** Every coordination-graph write goes through the
-  current Fram server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and
+  current Beagle Store server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and
   rule-checks each publication through canonical FRAMRPC. The two carve-outs are
   deliberate and not coordination facts: the telemetry partition and the Bridge
   journal's local replay log
@@ -119,7 +119,7 @@ work off that host until the engine identity is parameterized.
 North is pre-1.0: surfaces change between releases and there are no
 back-compatibility shims. Your data is not in this repository — canonical
 FRAMLOG databases live in your own state directory and are projected at
-runtime. When the Fram server or its runtime is unavailable, `north panic` is a
+runtime. When the Beagle Store server or its runtime is unavailable, `north panic` is a
 Bash-only recovery path that writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves other keys, and prints the exact
 restore commands.

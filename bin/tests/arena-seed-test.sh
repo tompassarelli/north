@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FRAM="${FRAM_HOME:-/home/tom/code/beagle/main/branch-core}"
+STORE="${BEAGLE_STORE_HOME:-/home/tom/code/beagle/main/store}"
 TMP="$(mktemp -d)"
 LOG="$TMP/history.framlog"
 SERVER_LOG="$TMP/server.log"
@@ -23,9 +23,9 @@ while ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q .; do
   PORT=$((PORT + 1))
 done
 
-FRAM_SINGLE_VALUED="title exp_id arm task_id state tokens wall_s updated" \
-FRAM_SERVER_RUNTIME=jvm-dev \
-  "$FRAM/bin/fram-server" serve "$PORT" "$LOG" "$SPACE" \
+BEAGLE_STORE_SINGLE_VALUED="title exp_id arm task_id state tokens wall_s updated" \
+BEAGLE_STORE_SERVER_RUNTIME=jvm-dev \
+  "$STORE/bin/beagle-store-server" serve "$PORT" "$LOG" "$SPACE" \
   >"$SERVER_LOG" 2>&1 &
 PID=$!
 
@@ -41,23 +41,23 @@ for _ in $(seq 1 160); do
 done
 ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q . || {
   cat "$SERVER_LOG" >&2
-  echo "arena seed test: Fram server did not listen" >&2
+  echo "arena seed test: Beagle Store server did not listen" >&2
   exit 1
 }
 
 EXP="arena-seed-test-$$"
 OUTPUT="$(
-  FRAM_HOME="$FRAM" FRAM_OUT="$FRAM/out" FRAM_SPACE_ID="$SPACE" \
+  BEAGLE_STORE_HOME="$STORE" BEAGLE_STORE_OUT="$STORE/out" BEAGLE_STORE_SPACE_ID="$SPACE" \
     NORTH_PORT="$PORT" NORTH_ARENA_NO_SLEEP=1 \
     timeout 30s "$ROOT/bin/arena-seed" "$EXP"
 )"
 grep -Fq "done. control landed 3/5" <<<"$OUTPUT"
 
 RESULT="$(
-  bb -cp "$ROOT/out:$FRAM/out" -e '
-    (load-file (str (first *command-line-args*) "/cli/framrpc-client.clj"))
-    (require (quote [fram.types :as t])
-             (quote [north.framrpc-client :as rpc]))
+  bb -cp "$ROOT/out:$STORE/out" -e '
+    (load-file (str (first *command-line-args*) "/cli/store-rpc-client.clj"))
+    (require (quote [store.types :as t])
+             (quote [north.store-rpc-client :as rpc]))
     (let [port (parse-long (second *command-line-args*))
           space (nth *command-line-args* 2)
           exp (nth *command-line-args* 3)
@@ -77,4 +77,4 @@ RESULT="$(
 )"
 [[ "$RESULT" == '["green" "failed" "blocked"]' ]]
 
-echo "arena seed test: PASS (canonical FRAMRPC/FRAMLOG, current Fram main, no 60s delay)"
+echo "arena seed test: PASS (canonical FRAMRPC/FRAMLOG, current Beagle Store main, no 60s delay)"

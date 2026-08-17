@@ -44,7 +44,7 @@
 ;; --- the slow-read parse ----------------------------------------------------
 ;; The phase split is the diagnosis, so every field must survive parsing.
 (def REAL-LINE
-  "Jul 29 05:31:16 whiterabbit fram-server-native[3221912]: [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
+  "Jul 29 05:31:16 whiterabbit beagle-store-server-native[3221912]: [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
 
 (let [[_ route total reload lock execute] (re-find slow-read-re REAL-LINE)]
   (check! "parses the route" (= "fenced-query" route))
@@ -62,7 +62,7 @@
 (def leverage-source (slurp (str (.getParent (java.io.File. (System/getProperty "babashka.file")))
                         "/../hotspots-cli.clj")))
 (check! "coordinator section names its source"
-        (str/includes? leverage-source "source: journalctl north-fram.service"))
+        (str/includes? leverage-source "source: journalctl north-store.service"))
 (check! "lane section names its source"
         (str/includes? leverage-source "source: ~/.local/state/north/agents"))
 (check! "the tail-vs-population caveat is stated to the reader"

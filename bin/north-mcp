@@ -8,7 +8,7 @@
 ;;
 ;; Config (per instance, via env — the same vars the engine reads):
 ;;   NORTH_BIN   path to the engine wrapper to invoke (default: sibling `north`)
-;;   canonical FRAMRPC endpoint + FRAM_THREADS / provenance vars passed through
+;;   canonical FRAMRPC endpoint + BEAGLE_STORE_THREADS / provenance vars passed through
 ;;
 ;; Transport here is stdio (local, zero-setup). HTTP/SSE + auth is the next layer.
 (require '[cheshire.core :as json]
@@ -214,7 +214,7 @@
              :required ["id" "predicate" "value"]}
     :argv (fn [a] ["tell" (get a "id") (get a "predicate") (get a "value")])}
    {:name "evidence_record"
-    :desc "Record an observed result for one exact done_when bar on this managed run. Run, thread, reporter, capability, North port, and Fram log are derived from the managed environment; callers supply only bar and observed."
+    :desc "Record an observed result for one exact done_when bar on this managed run. Run, thread, reporter, capability, North port, and Beagle Store log are derived from the managed environment; callers supply only bar and observed."
     :schema {:type "object"
              :properties {:bar {:type "string" :minLength 1}
                           :observed {:type "string" :minLength 1}}
@@ -482,8 +482,8 @@
 ;;   3. NORTH_AGENT_ID — a pinned session id (last, so an inherited pin never beats #2).
 ;; Captured from `env` BEFORE cmd-env reassigns AGENT_ID to the new lane.
 (def required-framrpc-instance-keys
-  ["FRAM_HOME" "FRAM_BIN" "FRAM_OUT" "NORTH_FRAMRPC_OUT"
-   "FRAM_SPACE_ID" "FRAM_SERVER_PORT" "NORTH_PORT"
+  ["BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT" "NORTH_STORE_OUT"
+   "BEAGLE_STORE_SPACE_ID" "BEAGLE_STORE_SERVER_PORT" "NORTH_PORT"
    "NORTH_TELEMETRY_SPACE_ID" "NORTH_TELEMETRY_PORT"
    "NORTH_TELEMETRY_PARTITION"])
 
@@ -503,13 +503,13 @@
                :missing missing})))
     (let [home (or (not-empty (get source "HOME"))
                    (System/getProperty "user.home"))
-          classpath (str root "/out:" (get source "NORTH_FRAMRPC_OUT"))]
+          classpath (str root "/out:" (get source "NORTH_STORE_OUT"))]
       (assoc source
              "HOME" home
              "BABASHKA_CLASSPATH" classpath
              "NORTH_RUNTIME_CLASSPATH" classpath
-             "FRAM_THREADS"
-             (or (not-empty (get source "FRAM_THREADS"))
+             "BEAGLE_STORE_THREADS"
+             (or (not-empty (get source "BEAGLE_STORE_THREADS"))
                  (.getCanonicalPath
                   (io/file home ".local" "state" "north" "threads")))))))
 

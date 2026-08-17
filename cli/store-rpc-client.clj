@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
-(ns north.framrpc-client
+(ns north.store-rpc-client
   (:require [clojure.string :as str]
-            [framrpc :as wire]
-            [fram.types :as t])
+            [store.rpc :as wire]
+            [store.types :as t])
   (:import [java.io IOException]
            [java.net InetSocketAddress Socket SocketTimeoutException]
            [java.nio ByteBuffer ByteOrder]
@@ -11,7 +11,7 @@
 
 (def max-body-bytes wire/rpc-v2-max-body-bytes)
 (def effective-page-limit 200)
-;; Must stay equal to the Fram server's own retryable set;
+;; Must stay equal to the Beagle Store server's own retryable set;
 ;; a code the server marks retryable but the client omits fails a caller that
 ;; the server expected to ask again.
 (def retryable-error-codes
@@ -719,7 +719,7 @@
 
 ;; --- predicate cardinality: which assertion supersedes -----------------------
 ;; Authority order is graph (`@<name> cardinality`, written by pred-cli) then
-;; bin/north's FRAM_SINGLE_VALUED mirror, then Fram's own default of multi.
+;; bin/north's BEAGLE_STORE_SINGLE_VALUED mirror, then Beagle Store's own default of multi.
 
 (def ^:dynamic *env* #(System/getenv %))
 
@@ -738,7 +738,7 @@
 (defn- env-single-valued []
   (into #{}
         (remove str/blank?)
-        (str/split (or (*env* "FRAM_SINGLE_VALUED") "") #"\s+")))
+        (str/split (or (*env* "BEAGLE_STORE_SINGLE_VALUED") "") #"\s+")))
 
 (defn- declared-cardinality [client predicate]
   (let [rows (:rows (scan-all! client (str "@" (predicate-name predicate))

@@ -5,7 +5,7 @@ import { kw } from "../src/coord-wire";
 import {
   decodeFrame, encodeResponseFrame, rpcRecord, RPC_UNIT, RPC_V2_HEADER_BYTES,
   type RpcResponse,
-} from "../src/framrpc-codec";
+} from "../src/store-rpc-codec";
 import { admitExecution, admitPinnedProvider } from "../src/execution-admission";
 import { gatedTest } from "./support/capabilities";
 
@@ -28,8 +28,8 @@ function canonicalEnvironment(
 ): Record<string, string> {
   return {
     NORTH_PORT: String(port),
-    FRAM_SERVER_PORT: String(port),
-    FRAM_SPACE_ID: "north-coordination",
+    BEAGLE_STORE_SERVER_PORT: String(port),
+    BEAGLE_STORE_SPACE_ID: "north-coordination",
     NORTH_FRAMRPC_HOST: "127.0.0.1",
     ...overrides,
   };
@@ -172,8 +172,8 @@ gatedTest("loopback-bind", "admission rejects contradictory endpoint identity be
     async (port) => {
       const cases = [
         canonicalEnvironment(port, { NORTH_PORT: "not-a-port" }),
-        canonicalEnvironment(port, { FRAM_SERVER_PORT: String(port + 1) }),
-        canonicalEnvironment(port, { FRAM_SPACE_ID: " " }),
+        canonicalEnvironment(port, { BEAGLE_STORE_SERVER_PORT: String(port + 1) }),
+        canonicalEnvironment(port, { BEAGLE_STORE_SPACE_ID: " " }),
         canonicalEnvironment(port, { NORTH_FRAMRPC_HOST: " " }),
       ];
       for (const environment of cases) {

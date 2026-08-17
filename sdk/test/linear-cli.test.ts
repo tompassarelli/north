@@ -38,7 +38,7 @@ import {
   decodeFrame, encodeResponseFrame, rpcList, rpcRecord, triple,
   RPC_UNIT, RPC_V2_HEADER_BYTES,
   type RpcFrame, type RpcPageResponse, type RpcResponse, type Term,
-} from "../src/framrpc-codec";
+} from "../src/store-rpc-codec";
 import { gatedTest } from "./support/capabilities";
 
 class FakeGraph implements GraphStore {
@@ -4172,26 +4172,28 @@ test("NorthGraphStore never mistakes a no-coordinator message for a commit", asy
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("NorthGraphStore resolves FRAM_BIN as its public bin-directory contract", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "north-linear-fram-bin-"));
-  const previousFramBin = process.env.FRAM_BIN;
+test("NorthGraphStore resolves BEAGLE_STORE_HOME through the Beagle dispatcher", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-linear-store-home-"));
+  const previousStoreHome = process.env.BEAGLE_STORE_HOME;
   try {
     const north = join(directory, "north");
-    const framBin = join(directory, "bin");
-    const fram = join(framBin, "fram");
-    const calls = join(directory, "fram-calls");
-    mkdirSync(framBin);
+    const beagleBin = join(directory, "beagle", "bin");
+    const storeHome = join(directory, "beagle", "store");
+    const beagle = join(beagleBin, "beagle");
+    const calls = join(directory, "store-calls");
+    mkdirSync(beagleBin, { recursive: true });
+    mkdirSync(storeHome);
     writeFileSync(north, "#!/bin/sh\nprintf '[]\\n'\n");
-    writeFileSync(fram, `#!/bin/sh\nprintf '%s\\n' "$*" > '${calls}'\nprintf '%s\\n' 'committed via coordinator v1'\n`);
+    writeFileSync(beagle, `#!/bin/sh\nprintf '%s\\n' "$*" > '${calls}'\nprintf '%s\\n' 'committed via coordinator v1'\n`);
     chmodSync(north, 0o700);
-    chmodSync(fram, 0o700);
-    process.env.FRAM_BIN = framBin;
+    chmodSync(beagle, 0o700);
+    process.env.BEAGLE_STORE_HOME = storeHome;
 
     await new NorthGraphStore(north).put("link:x", "kind", "integration_link");
-    expect(readFileSync(calls, "utf8").trim()).toBe("tell link:x kind integration_link");
+    expect(readFileSync(calls, "utf8").trim()).toBe("store tell link:x kind integration_link");
   } finally {
-    if (previousFramBin === undefined) delete process.env.FRAM_BIN;
-    else process.env.FRAM_BIN = previousFramBin;
+    if (previousStoreHome === undefined) delete process.env.BEAGLE_STORE_HOME;
+    else process.env.BEAGLE_STORE_HOME = previousStoreHome;
     rmSync(directory, { recursive: true, force: true });
   }
 });

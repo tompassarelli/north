@@ -54,7 +54,7 @@
       (let [result
             (apply proc/shell
                    {:out :string :err :string :continue true
-                    :extra-env {"FRAM_LOG" log}}
+                    :extra-env {"BEAGLE_STORE_LOG" log}}
                    "bb" script (str port) args)]
         (when-not (zero? (:exit result))
           (throw (ex-info "Linear helper process failed" {:result result})))

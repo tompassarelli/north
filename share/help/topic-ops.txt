@@ -21,7 +21,7 @@ north help ops — daemons, health, deployment
   north stream-sync                             cursor-based transcript log-shipping
   north stream-distill --project-root DIR --stream-thread ID [--lineage SHA256]
                                                 claim one settled mirror and publish its Tier 1 distillation
-  north panic                                   minimal recovery path; works with bb/fram/coordinator down
+  north panic                                   minimal recovery path; works with bb/Store/coordinator down
   north help [<topic>|--all]                    the card; a topic page; or the complete reference
 
   north help --all — the complete reference · bare `north` — the daily card

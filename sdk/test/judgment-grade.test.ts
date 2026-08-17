@@ -55,20 +55,22 @@ test("generic write boundaries reserve judgment_grade for ambient humans and orc
   temporary.push(directory);
   const calls = join(directory, "calls");
   const fakeBb = join(directory, "bb");
-  const framDir = join(directory, "fram-bin");
-  const fakeFram = join(framDir, "fram");
-  mkdirSync(framDir, { recursive: true });
+  const storeDir = join(directory, "store");
+  const fakeBeagle = join(directory, "beagle");
+  mkdirSync(storeDir, { recursive: true });
   writeFileSync(fakeBb, "#!/usr/bin/env bash\nprintf '@thread-probe\\n'\n");
-  writeFileSync(fakeFram, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(calls)}\n`);
+  writeFileSync(fakeBeagle, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(calls)}\n`);
   chmodSync(fakeBb, 0o755);
-  chmodSync(fakeFram, 0o755);
+  chmodSync(fakeBeagle, 0o755);
   const north = resolve(import.meta.dir, "../../bin/north");
   const baseEnv = {
     ...process.env,
     NORTH_BB: fakeBb,
     NORTH_BUN: process.execPath,
-    FRAM_BIN: framDir,
-    FRAM_OUT: directory,
+    BEAGLE_STORE_HOME: storeDir,
+    BEAGLE_STORE_BIN: join(storeDir, "bin"),
+    BEAGLE_STORE_OUT: directory,
+    BEAGLE_STORE_CLI: fakeBeagle,
   };
 
   for (const verb of ["tell", "set", "retract"] as const) {
@@ -100,8 +102,8 @@ test("generic write boundaries reserve judgment_grade for ambient humans and orc
     expect(result.status).toBe(0);
   }
   const written = readFileSync(calls, "utf8");
-  expect(written).toContain("tell thread-probe judgment_grade s");
-  expect(written).toContain("tell thread-probe judgment_grade l");
-  expect(written).toContain("set thread-probe judgment_grade m");
-  expect(written).toContain("untell thread-probe judgment_grade legacy-medium");
+  expect(written).toContain("store tell thread-probe judgment_grade s");
+  expect(written).toContain("store tell thread-probe judgment_grade l");
+  expect(written).toContain("store set thread-probe judgment_grade m");
+  expect(written).toContain("store untell thread-probe judgment_grade legacy-medium");
 });

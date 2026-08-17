@@ -1,6 +1,6 @@
 (ns north.projections
-  (:require [fram.types :as t]
-            [fram.kernel-classify :as kc]
+  (:require [store.types :as t]
+            [store.kernel-classify :as kc]
             [clojure.string :as str]))
 
 (defrecord ProjectionIndex [single many subjects subject-set reverse-dependencies reference-predicates acyclic-predicates])
@@ -68,7 +68,7 @@
 (defn ^Boolean subject? [^ProjectionIndex index ^String subject]
   (contains? (projectionindex-subject-set index) subject))
 
-(def configured-single-predicates (let [configured (System/getenv "FRAM_SINGLE_VALUED")]
+(def configured-single-predicates (let [configured (System/getenv "BEAGLE_STORE_SINGLE_VALUED")]
   (if (and (some? configured) (not (str/blank? configured))) (vec (str/split configured #"\s+")) [])))
 
 (defn ^Boolean single-valued? [^ProjectionIndex index ^String predicate]
@@ -81,10 +81,10 @@
 (defn dependents-of [^ProjectionIndex index ^String subject]
   (reduce (fn [subjects candidate] (if (string? candidate) (conj subjects candidate) subjects)) [] (get (projectionindex-reverse-dependencies index) subject no-terms)))
 
-(def terminal-preds (let [env (System/getenv "FRAM_TERMINAL_PREDS")]
+(def terminal-preds (let [env (System/getenv "BEAGLE_STORE_TERMINAL_PREDS")]
   (if (and (some? env) (not (= env ""))) (vec (str/split env #"\s+")) ["outcome" "abandoned" "superseded_by"])))
 
-(def withdrawn-preds (let [env (System/getenv "FRAM_WITHDRAWN_PREDS")]
+(def withdrawn-preds (let [env (System/getenv "BEAGLE_STORE_WITHDRAWN_PREDS")]
   (if (and (some? env) (not (= env ""))) (vec (str/split env #"\s+")) ["abandoned"])))
 
 (defn- ^Boolean any-of-i? [^ProjectionIndex idx ^String te preds]

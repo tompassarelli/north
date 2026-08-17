@@ -380,7 +380,7 @@
       (when (or run-selector thread-selector)
         (let [probe (try (cur-ver PORT) (catch Exception _ ::down))]
           (when (= probe ::down)
-            (println (red (str "north trace — Fram server :" PORT " unreachable")))
+            (println (red (str "north trace — Beagle Store server :" PORT " unreachable")))
             (System/exit 1))
           (forensic-main! (if run-selector :run :thread)
                           (or run-selector thread-selector))
@@ -388,7 +388,7 @@
     (let [id (str/replace raw #"^@?(agent:)?" "")
           probe (try (cur-ver PORT) (catch Exception _ ::down))]
       (when (= probe ::down)
-        (println (red (str "north trace — Fram server :" PORT " unreachable"))) (System/exit 1))
+        (println (red (str "north trace — Beagle Store server :" PORT " unreachable"))) (System/exit 1))
       (let [facts (agent-facts id)
             kind (get facts "kind")
             online (online-session? id)

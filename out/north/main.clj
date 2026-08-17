@@ -1,30 +1,30 @@
 (ns north.main
   (:gen-class)
-  (:require [fram.kernel-classify :as kc]
-            [fram.types :as t]
-            [fram.export :as exp]
+  (:require [store.kernel-classify :as kc]
+            [store.types :as t]
+            [store.export :as exp]
             [north.projections :as proj]
             [north.validate :as val]
             [north.staleness :as stale]
             [north.audit :as audit]
             [clojure.string :as str]
             [cheshire.core :as core]
-            [fram.rt :as rt])
+            [store.rt :as rt])
   (:import [java.util Random]
            [java.util UUID]))
 
 (defn- ^String getenv-or [^String name ^String default]
-  (let [value (fram.rt/getenv name)]
+  (let [value (store.rt/getenv name)]
   (if (nil? value) default value)))
 
 (defn- ^String to-json [value]
   (cheshire.core/generate-string value))
 
 (defn- ^String threads-dir []
-  (getenv-or "FRAM_THREADS" (str (System/getProperty "user.dir") "/threads")))
+  (getenv-or "BEAGLE_STORE_THREADS" (str (System/getProperty "user.dir") "/threads")))
 
 (defn- ^String log-path []
-  (getenv-or "FRAM_LOG" (str (System/getProperty "user.dir") "/coordination.log")))
+  (getenv-or "BEAGLE_STORE_LOG" (str (System/getProperty "user.dir") "/coordination.log")))
 
 (defn- ^String string-term [value]
   (if (string? value) value (throw (ex-info "North coordination data requires String Triple terms" {:type :north/non-string-triple}))))
@@ -79,7 +79,7 @@
   (if (some? c) c ""))
    tc (let [c (proj/string-value-at idx te "created_at")]
   (if (some? c) c ""))]
-  (if (fram.rt/str-lt? bc tc) te best)))) "" matches)))))
+  (if (store.rt/str-lt? bc tc) te best)))) "" matches)))))
 
 (defn- ^String trunc [^String s n]
   (if (> (count s) n) (str (subs s 0 (- n 1)) "…") s))
@@ -161,7 +161,7 @@
 (defn- queue-directive [idx ^String te]
   (let [raw (proj/string-value-at idx te "queue_rank")
    parts (if (some? raw) (vec (str/split raw #"\|")) [])
-   version (if (= (count parts) 4) (fram.rt/parse-int (nth parts 1)) -1)
+   version (if (= (count parts) 4) (store.rt/parse-int (nth parts 1)) -1)
    position (if (= (count parts) 4) (nth parts 2) "")
    anchor-token (if (= (count parts) 4) (nth parts 3) "")
    anchor (if (= anchor-token "_") "" anchor-token)
@@ -236,9 +236,9 @@
   (= code -3) (str "FRAMRPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
   :else (str "FRAMRPC preflight failed on 127.0.0.1:" port " (code " code ")"))
    remedy (cond
-  (= code -1) "Start the configured Fram service"
+  (= code -1) "Start the configured Beagle Store service"
   (= code -2) "Select the intended FRAMLOG database and SpaceId before retrying"
-  (= code -3) "Use one matched North + Fram release"
+  (= code -3) "Use one matched North + Beagle Store release"
   :else "Inspect `north doctor` before retrying")]
   (str summary (if (str/blank? consequence) "" (str " — " consequence)) ". " remedy ".")))
 
@@ -311,9 +311,9 @@
 
 (defn- ^Boolean cleanup-partial-capture [port ^String log ^String te ^String path facts results]
   (let [retracted (retract-committed-capture-facts port log facts results 0)
-   _ (fram.rt/delete-file path)
+   _ (store.rt/delete-file path)
    remaining (filterv (fn [fact] (= te (triple-subject fact))) (coord-live-propositions port))]
-  (and retracted (empty? remaining) (not (fram.rt/file-exists path)))))
+  (and retracted (empty? remaining) (not (store.rt/file-exists path)))))
 
 (defn cmd-capture [^String threads-dir ^String log ^String title ^String owner]
   (let [source (getenv-or "NORTH_SOURCE" "self")
@@ -325,11 +325,11 @@
   (ctrl? owner) (println "capture: owner must be a single line")
   (or (ctrl? source) (ctrl? author) (ctrl? lead) (ctrl? proposed)) (println "capture: NORTH_SOURCE/AUTHOR/LEAD/PROPOSED_BY must each be a single line")
   :else (do
-  (fram.rt/ensure-dir threads-dir)
+  (store.rt/ensure-dir threads-dir)
   (let [id (uuidv7)
-   slug (fram.rt/slugify title)
-   today (fram.rt/today-iso)
-   created-at (fram.rt/now-iso)
+   slug (store.rt/slugify title)
+   today (store.rt/today-iso)
+   created-at (store.rt/now-iso)
    te (str "@" id)
    path (str threads-dir "/" id "-" slug ".md")
    port (coord-port)
@@ -338,7 +338,7 @@
    results (mapv (fn [c] (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5)) facts)
    oks (count (filterv (fn [^String r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
-  (fram.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
+  (store.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
   (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
   (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files.")))))))))))
@@ -386,13 +386,13 @@
    v (proj/string-value-at idx (str "@lease:session:" handle) "lease")]
   (if (nil? v) -1 (let [parts (str/split v #"\|")]
   (if (< (count parts) 2) -1 (let [expms (nth parts 1)]
-  (if (> (count expms) 3) (fram.rt/parse-int (subs expms 0 (- (count expms) 3))) -1)))))))
+  (if (> (count expms) 3) (store.rt/parse-int (subs expms 0 (- (count expms) 3))) -1)))))))
 
 (defn- dt->secs [^String s]
   (cond
-  (fram.rt/is-iso-datetime-19 s) (fram.rt/iso-to-seconds s)
-  (fram.rt/is-iso-datetime-16 s) (fram.rt/iso-to-seconds s)
-  (and (= 10 (count s)) (fram.rt/is-iso-datetime-19 (str s "T00:00:00"))) (fram.rt/iso-to-seconds (str s "T00:00:00"))
+  (store.rt/is-iso-datetime-19 s) (store.rt/iso-to-seconds s)
+  (store.rt/is-iso-datetime-16 s) (store.rt/iso-to-seconds s)
+  (and (= 10 (count s)) (store.rt/is-iso-datetime-19 (str s "T00:00:00"))) (store.rt/iso-to-seconds (str s "T00:00:00"))
   :else -1))
 
 (defn- ^Boolean driver-live? [idx ^String te now-secs window-secs]
@@ -403,14 +403,14 @@
   (and (> us 0) (< (- now-secs us) window-secs))))))))))
 
 (defn- driver-stale-window-secs []
-  (let [d (fram.rt/parse-int (getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
+  (let [d (store.rt/parse-int (getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
   (* (if (> d 0) d 14) 86400)))
 
 (defn- live-driver-pred [now-secs window-secs]
   (fn [idx ^String te] (driver-live? idx te now-secs window-secs)))
 
 (defn- default-live? []
-  (live-driver-pred (fram.rt/iso-to-seconds (fram.rt/now-iso)) (driver-stale-window-secs)))
+  (live-driver-pred (store.rt/iso-to-seconds (store.rt/now-iso)) (driver-stale-window-secs)))
 
 (defn- ^Boolean parked-assignment? [idx ^String te live?]
   (and (proj/assigned? idx te) (not (live? idx te))))
@@ -420,9 +420,9 @@
 
 (defn cmd-ready [^String log ^Boolean all]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
+   today (store.rt/today-iso)
    live? (default-live?)
-   raw (proj/ready idx today fram.rt/str-lt? live?)
+   raw (proj/ready idx today store.rt/str-lt? live?)
    rs (if all raw (filterv (fn [^String te] (= (kind-of idx te) "thread")) raw))
    ranked (queue-order idx rs)
    shown (if all ranked (vec (take 15 ranked)))]
@@ -435,8 +435,8 @@
 
 (defn cmd-blocked [^String log]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)
    bs (filterv (fn [^String te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx))]
   (println (str "BLOCKED — " (count bs)))
@@ -456,7 +456,7 @@
   (let [lev (proj/leverage-score idx te)
    doo (proj/string-value-at idx te "do_on")
    urg (if (some? doo) (cond
-  (fram.rt/str-lt? doo today) 5
+  (store.rt/str-lt? doo today) 5
   (= doo today) 3
   :else 0) 0)
    mom (if (some? (proj/string-value-at idx te "driver")) 2 0)
@@ -468,8 +468,8 @@
 
 (defn cmd-next [^String log]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)
    items (mapv (fn [^String te] (next-item idx te today before? live?)) (proj/ready idx today before? live?))
    score-order (mapv (fn [^NextItem it] (:te it)) (vec (sort-by (fn [^NextItem it] (- 0 (:score it))) items)))
@@ -485,13 +485,13 @@
 
 (defn cmd-agenda [^String log]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
+   today (store.rt/today-iso)
    cands (filterv (fn [^String te] (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on")))) (proj/work-thread-ids-i idx))
    items (mapv (fn [^String te] (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")]
   (if (some? d) d "")))) cands)
-   overdue (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (fram.rt/str-lt? (:do_on it) today)) items)))
+   overdue (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (store.rt/str-lt? (:do_on it) today)) items)))
    todayb (filterv (fn [^AgendaItem it] (= (:do_on it) today)) items)
-   upcoming (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (fram.rt/str-lt? today (:do_on it))) items)))]
+   upcoming (vec (sort-by (fn [^AgendaItem it] (:do_on it)) (filterv (fn [^AgendaItem it] (store.rt/str-lt? today (:do_on it))) items)))]
   (println (str "AGENDA — " today))
   (println (str "OVERDUE (" (count overdue) ")"))
   (doseq [it overdue]
@@ -563,8 +563,8 @@
 
 (defn cmd-board [^String log ^Boolean all]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)
    nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (if all (board-full idx today before? live? nonterm) (board-curated idx today before? live? nonterm))))
@@ -687,8 +687,8 @@
 (defn- cmd-json-database [^String log ^String what ^String arg ^Boolean all?]
   (let [facts (live-facts log)
    idx (proj/index-triples facts)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)]
   (cond
   (or (= what "board") (= what "plate")) (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
@@ -716,8 +716,8 @@
 
 (defn cmd-needs-review [^String log]
   (let [live-idx-now (live-idx log)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)
    reviews (canonical-grooming-reviews live-idx-now live-idx-now today before? live?)
    promo (stale/promotable live-idx-now)]
@@ -744,12 +744,12 @@
   (reduce (fn [^EntryPoint best ^String te] (let [note (entry-note idx te)]
   (if (str/blank? note) best (let [c (let [cc (proj/string-value-at idx te "created_at")]
   (if (some? cc) cc ""))]
-  (if (or (str/blank? (:te best)) (fram.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (proj/thread-subjects idx)))
+  (if (or (str/blank? (:te best)) (store.rt/str-lt? (:created best) c)) (->EntryPoint te note c) best))))) (->EntryPoint "" "" "") (proj/thread-subjects idx)))
 
 (defn cmd-boot [^String log]
   (let [idx (live-idx log)
-   today (fram.rt/today-iso)
-   before? fram.rt/str-lt?
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
    live? (default-live?)]
   (let [e (find-entry idx)]
   (if (str/blank? (:te e)) (println "\nENTRY POINT — none (no thread carries a `SESSION ENTRY POINT` note)") (do
@@ -778,7 +778,7 @@
   (println "  agents     : dispatch · spawn")
   (println "  view       : presentation")
   (println "")
-  (println "Engine core underneath: fram = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
+  (println "Engine core underneath: Beagle Store = 10 tools (tell/retract/show/ask/validate + 5 graph-edit verbs).")
   (println "Vocabulary is DATA, not tools: `north show <pred>` reveals metadata and connected teaching facts")
   (println "(cardinality/value_kind/acyclic/predicate_example facts). Govern it with `north predicate`.")))
 
@@ -804,18 +804,18 @@
   (let [subj-list (proj/all-subjects idx)
    skind (reduce (fn [m ^String s] (assoc m s (kind-of idx s))) {} subj-list)
    ksub (reduce (fn [m ^String s] (let [kd (get skind s "other")]
-  (assoc m kd (+ 1 (get m kd 0))))) {} subj-list)
+  (assoc m kd (+ 1 (int (get m kd 0)))))) {} subj-list)
    kfacts (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")]
-  (assoc m kd (+ 1 (get m kd 0))))) {} facts)
+  (assoc m kd (+ 1 (int (get m kd 0)))))) {} facts)
    kpreds (reduce (fn [m c] (let [kd (get skind (triple-subject c) "other")
    kk (str kd KP-SEP (triple-predicate c))]
-  (assoc m kk (+ 1 (get m kk 0))))) {} facts)
+  (assoc m kk (+ 1 (int (get m kk 0)))))) {} facts)
    kp-keys (vec (sort (set (keys kpreds))))
    stats (mapv (fn [^String kd] (let [pfx (str kd KP-SEP)
    off (+ (count kd) 1)
-   plist (mapv (fn [^String kk] (->PredCount (subs kk off) (get kpreds kk 0))) (filterv (fn [^String kk] (str/starts-with? kk pfx)) kp-keys))
+   plist (mapv (fn [^String kk] (->PredCount (subs kk off) (int (get kpreds kk 0)))) (filterv (fn [^String kk] (str/starts-with? kk pfx)) kp-keys))
    ptop (vec (take 8 (sort-by (fn [^PredCount pc] (- 0 (:n pc))) plist)))]
-  (->KindStat kd (get ksub kd 0) (get kfacts kd 0) ptop))) (vec (sort (set (keys ksub)))))]
+  (->KindStat kd (int (get ksub kd 0)) (int (get kfacts kd 0)) ptop))) (vec (sort (set (keys ksub)))))]
   (vec (sort-by (fn [^KindStat ks] (- 0 (:facts ks))) stats))))
 
 (def ^String SP24 "                        ")
@@ -838,7 +838,7 @@
 
 (defn- coverage [facts subjset]
   (:pc (reduce (fn [^CovAcc a c] (if (get subjset (triple-subject c) false) (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
-  (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (triple-predicate c) (+ 1 (get (:pc a) (triple-predicate c) 0)))))) a)) (->CovAcc {} {}) facts)))
+  (if (get (:seen a) sk false) a (->CovAcc (assoc (:seen a) sk true) (assoc (:pc a) (triple-predicate c) (+ 1 (int (get (:pc a) (triple-predicate c) 0))))))) a)) (->CovAcc {} {}) facts)))
 
 (defrecord FieldStat [pred subs pct required])
 
@@ -855,7 +855,7 @@
    total (count ksubs)
    subjset (reduce (fn [m ^String s] (assoc m s true)) {} ksubs)
    pc (coverage facts subjset)
-   stats (mapv (fn [^String p] (let [n (get pc p 0)
+   stats (mapv (fn [^String p] (let [n (int (get pc p 0))
    pct (if (> total 0) (quot (* 100 n) total) 0)
    req (if (> total 0) (>= (* n 100) (* total 98)) false)]
   (->FieldStat p n pct req))) (vec (sort (set (keys pc)))))]
@@ -946,7 +946,7 @@
   (= cmd "tools") (cmd-tools)
   (= cmd "boot") (cmd-boot log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to fram; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to Beagle Store; untell = legacy alias of retract)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond

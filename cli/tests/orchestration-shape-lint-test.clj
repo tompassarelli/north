@@ -54,7 +54,7 @@
 (def SHAPE-ALLOWED (north.orchestration-shape/allowed-by-kind SHAPES))
 
 (def default-log
-  (or (System/getenv "FRAM_LOG") (str (System/getenv "HOME") "/.local/state/north/coordination.log")))
+  (or (System/getenv "BEAGLE_STORE_LOG") (str (System/getenv "HOME") "/.local/state/north/coordination.log")))
 
 (defn fold-subject-state
   "Two-pass-equivalent single fold over the corpus log: {subject {predicate #{active-values}}}."

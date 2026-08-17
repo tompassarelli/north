@@ -9,11 +9,11 @@
 (def pred-cli (str root "/cli/pred-cli.clj"))
 (def fram-out
   (or (some #(when (and % (.isDirectory (io/file %))) %)
-            [(System/getenv "FRAM_OUT")
-             (some-> (System/getenv "FRAM_TEST_CHECKOUT") (str "/out"))])
+            [(System/getenv "BEAGLE_STORE_OUT")
+             (some-> (System/getenv "BEAGLE_STORE_TEST_CHECKOUT") (str "/out"))])
       (do
         (binding [*out* *err*]
-          (println "predicate test requires FRAM_OUT or FRAM_TEST_CHECKOUT"))
+          (println "predicate test requires BEAGLE_STORE_OUT or BEAGLE_STORE_TEST_CHECKOUT"))
         (System/exit 2))))
 (def checks (atom []))
 
@@ -23,7 +23,7 @@
 (let [{:keys [exit out err]}
       (if fram-out
         (shell/sh "bb" "-cp" fram-out pred-cli "7977" "lint-offline" "--strict" :dir root)
-        {:exit 1 :out "" :err "Fram classpath is unavailable"})]
+        {:exit 1 :out "" :err "Beagle Store classpath is unavailable"})]
   (check "offline predicate lint executes the production registry" (zero? exit))
   (check "every fixed v2 projection predicate is registered"
          (and (str/includes? out "clean against bootstrap inventory")
