@@ -30,7 +30,7 @@ afterEach(() => {
   }
 });
 
-const preset = (role: string): RoutingMetadata => applyOrchestrationStaffing({ role });
+const template = (role: string): RoutingMetadata => applyOrchestrationStaffing({ role });
 // Only the network_proxy half varies, and it tracks the declared `web`
 // capability, not the sandbox. Enabled is expressible only through structured
 // `-c` overrides — Codex's `--enable network_proxy` is boolean shorthand.
@@ -57,7 +57,7 @@ const bespoke: RoutingMetadata = {
     kind: "bespoke",
     id: "migration-forensics",
     nearestTemplate: "analyst",
-    bespokeReason: "the preset has the wrong authority boundary",
+    bespokeReason: "the template has the wrong authority boundary",
     promotionCandidate: true,
     contract: {
       responsibility: "trace the historical migration without changing it",
@@ -71,18 +71,18 @@ const bespoke: RoutingMetadata = {
   },
 };
 
-test("preset roles receive the exact canonical role contract and fail closed when it is absent", () => {
-  const composed = orchestrationAppendix(preset("integrator"), north);
-  expect(composed.appendix).toContain("## Orchestration role contract — preset:integrator");
+test("template roles receive the exact canonical role contract and fail closed when it is absent", () => {
+  const composed = orchestrationAppendix(template("integrator"), north);
+  expect(composed.appendix).toContain("## Orchestration role contract — template:integrator");
   expect(composed.appendix).toContain("ROLE: INTEGRATOR. Deliverable: a working change across seams");
-  expect(composed.evidence).toMatchObject({ roleKind: "preset", roleId: "integrator" });
+  expect(composed.evidence).toMatchObject({ roleKind: "template", roleId: "integrator" });
 
   const empty = mkdtempSync(join(tmpdir(), "north-orchestration-missing-"));
   try {
     cpSync(resolve(north, "orchestration/providers"), resolve(empty, "providers"), { recursive: true });
     process.env.NORTH_STAFFING_SOURCE = "file";
     process.env.NORTH_ORCHESTRATION_HOME = empty;
-    expect(() => orchestrationAppendix(preset("integrator"), north))
+    expect(() => orchestrationAppendix(template("integrator"), north))
       .toThrow("Orchestration contract unavailable: role:integrator");
   } finally { rmSync(empty, { recursive: true, force: true }); }
 });
@@ -117,7 +117,7 @@ test("topology controls prompt and tools with positive-only orchestration author
   process.env.AGENT_LAWS = "off";
   const worker = harnessOptions({
     self: "worker-topology", provider: "openai", model: "gpt-5.6-sol",
-    presenceRegistrar: false, routingMetadata: preset("integrator"),
+    presenceRegistrar: false, routingMetadata: template("integrator"),
   }) as any;
   expect(worker.systemPrompt).toContain("TOPOLOGY: WORKER");
   expect(worker.allowedTools).not.toContain("Agent");
@@ -135,7 +135,7 @@ test("topology controls prompt and tools with positive-only orchestration author
   const orchestrator = harnessOptions({
     self: "orchestrator-topology", provider: "openai", model: "gpt-5.6-sol",
     presenceRegistrar: false,
-    routingMetadata: preset("director"),
+    routingMetadata: template("director"),
   }) as any;
   expect(orchestrator.systemPrompt).toContain("TOPOLOGY: ORCHESTRATOR");
   expect(orchestrator.allowedTools).toContain("mcp__north__spawn");
@@ -154,7 +154,7 @@ test("Orchestration capabilities compile to exact provider authority before work
   process.env.AGENT_LAWS = "off";
   const designer = harnessOptions({
     self: "capability-designer", provider: "anthropic", model: "opus", cwd: north,
-    presenceRegistrar: false, routingMetadata: preset("designer"),
+    presenceRegistrar: false, routingMetadata: template("designer"),
   }) as any;
   expect(designer.northCapabilities).toEqual([
     "filesystem.read", "filesystem.search", "shell.readonly",
@@ -191,7 +191,7 @@ test("Orchestration capabilities compile to exact provider authority before work
 
   const director = harnessOptions({
     self: "capability-director", provider: "openai", model: "gpt-5.6-sol", cwd: north,
-    presenceRegistrar: false, routingMetadata: preset("director"),
+    presenceRegistrar: false, routingMetadata: template("director"),
   }) as any;
   expect(director.allowedTools).toEqual(expect.arrayContaining([
     "Read", "Grep", "Glob", READONLY_SHELL_TOOL, "WebSearch", "WebFetch",
@@ -212,7 +212,7 @@ test("Orchestration capabilities compile to exact provider authority before work
 
   const integrator = harnessOptions({
     self: "capability-integrator", provider: "openai", model: "gpt-5.6-sol", cwd: north,
-    presenceRegistrar: false, routingMetadata: preset("integrator"),
+    presenceRegistrar: false, routingMetadata: template("integrator"),
   }) as any;
   expect(integrator.allowedTools).toEqual(expect.arrayContaining([
     "Read", "Grep", "Glob", "Edit", "Write", "Bash",
@@ -226,7 +226,7 @@ test("Orchestration capabilities compile to exact provider authority before work
 
 test("managed capacity resolves from the complete request before the provider seal", () => {
   process.env.AGENT_LAWS = "off";
-  const request = preset("designer");
+  const request = template("designer");
   for (const provider of ["openai", "anthropic"] as const) {
     const resolved = resolveTier(provider, request.tier, undefined, request.reasoning);
     const options = harnessOptions({
@@ -252,7 +252,7 @@ test("model calibration uses exact catalog keys and never applies stale alias de
   const opus = harnessOptions({
     self: "delta-opus", provider: "anthropic", model: "opus",
     presenceRegistrar: false,
-    routingMetadata: preset("integrator"),
+    routingMetadata: template("integrator"),
   });
   expect(opus.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(opus)?.modelDelta).toMatchObject({
@@ -270,13 +270,13 @@ test("model calibration uses exact catalog keys and never applies stale alias de
   expect(() => harnessOptions({
     self: "delta-substring", provider: "anthropic", model: "custom-opus-lookalike",
     presenceRegistrar: false,
-    routingMetadata: preset("integrator"),
+    routingMetadata: template("integrator"),
   })).toThrow("provider anthropic does not declare model custom-opus-lookalike");
 
   const fable = harnessOptions({
     self: "delta-fable", provider: "anthropic", model: "fable",
     presenceRegistrar: false,
-    routingMetadata: preset("designer"),
+    routingMetadata: template("designer"),
   });
   expect(fable.systemPrompt).toContain("Orchestration exact-model delta — anthropic:claude-fable-5");
   expect(harnessCompositionEvidence(fable)?.modelDelta).toMatchObject({
@@ -289,7 +289,7 @@ test("cross-model escalation omits calibration explicitly instead of retaining s
   const options = harnessOptions({
     self: "delta-escalating", provider: "anthropic", model: "opus",
     presenceRegistrar: false,
-    routingMetadata: preset("integrator"), omitModelDeltaReason: "cross_model_escalation_enabled",
+    routingMetadata: template("integrator"), omitModelDeltaReason: "cross_model_escalation_enabled",
   });
   expect(options.systemPrompt).not.toContain("Orchestration exact-model delta");
   expect(harnessCompositionEvidence(options)?.modelDelta).toEqual({
@@ -337,7 +337,7 @@ test("composition evidence proves a bespoke contract without exposing its text",
   expect(JSON.stringify(composed.evidence)).not.toContain(canary);
 });
 
-test("preset override rationale is preserved as requested audit and hashed applied evidence", () => {
+test("template override rationale is preserved as requested audit and hashed applied evidence", () => {
   const metadata = applyOrchestrationStaffing({
     role: "integrator",
     tier: "frontier",
@@ -352,6 +352,6 @@ test("preset override rationale is preserved as requested audit and hashed appli
     overrides: ["tier", "reasoning"],
     overrideReason: "this integrator owns the cross-seam reduction",
   });
-  expect(composed.evidence.presetOverrides).toEqual(["tier", "reasoning"]);
-  expect(composed.evidence.presetOverrideReasonHash).toMatch(/^[a-f0-9]{64}$/);
+  expect(composed.evidence.templateOverrides).toEqual(["tier", "reasoning"]);
+  expect(composed.evidence.templateOverrideReasonHash).toMatch(/^[a-f0-9]{64}$/);
 });
