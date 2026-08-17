@@ -2585,10 +2585,6 @@
                     :else (cmd-spawn args))
         "delegate" (cmd-delegate args)
         "bind-child-thread" (cmd-bind-child-thread args)
-        ;; delegation unified to ONE verb; request/fork/req teach, don't alias.
-        "request" (do (println "renamed: north delegate") (System/exit 1))
-        "fork"    (do (println "renamed: north delegate") (System/exit 1))
-        "req"     (do (println "renamed: north delegate") (System/exit 1))
         "watch"   (cmd-watch args)
         "msg"   (let [status (cmd-tell-agent args)]
                     (when (pos? status) (System/exit status)))

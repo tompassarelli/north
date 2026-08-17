@@ -232,7 +232,7 @@ north_slot_exec() {
 # `set` is included because the generic engine passthrough would otherwise bypass
 # the coordinated tell policy (and remains discouraged under concurrency).
 guard_judgment_grade_write() {
-  case "${1:-}" in tell|retract|untell|set) ;; *) return 0 ;; esac
+  case "${1:-}" in tell|retract|set) ;; *) return 0 ;; esac
   [ "${3:-}" = judgment_grade ] || return 0
   case "${AGENT_TOPOLOGY:-}" in
     ""|orchestrator) ;;
@@ -265,7 +265,7 @@ guard_judgment_grade_write "$@" || exit 1
 # an authorization boundary, and installed MCP `tell`/`retract` routes here too.
 deny_worker_agent_mutation() {
   case "${AGENT_TOPOLOGY:-}" in ""|orchestrator) return 0 ;; esac
-  case "${1:-}" in tell|retract|untell) ;; *) return 0 ;; esac
+  case "${1:-}" in tell|retract) ;; *) return 0 ;; esac
   local subject="${2:-}" predicate="${3:-}"
   subject="${subject#@}"
   case "$subject" in agent:*) ;; *) return 0 ;; esac
@@ -280,7 +280,7 @@ deny_worker_agent_mutation "$@" || exit 1
 # generic facts must not bypass the capability-bound writer or poison another
 # lane's write-once run subject.
 deny_generic_run_mutation() {
-  case "${1:-}" in tell|retract|untell) ;; *) return 0 ;; esac
+  case "${1:-}" in tell|retract) ;; *) return 0 ;; esac
   local subject="${2:-}" predicate="${3:-}"
   subject="${subject#@}"
   case "$subject" in run-*|run:*) ;; *) return 0 ;; esac
@@ -324,17 +324,17 @@ case "${1:-}" in
     # Kind-scoped noun command: the THREAD-kind overview (threads are one kind
     # among several in the store — see `north schema`; people/concerns/runs are
     # not threads). Same projection the kanban-metaphor aliases render: active
-    # drivers + top-ready by leverage + counts. `board`/`plate` = legacy aliases.
+    # drivers + top-ready by leverage + counts.
     # Future kinds follow the pattern (`north people` when a person registry lands).
-    if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec board "${@:2}"; fi
-    exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" board "${@:2}" ;;
-  ready|next|board|report)
+    if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec threads "${@:2}"; fi
+    exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" threads "${@:2}" ;;
+  ready|next|report)
     if [ "$1" = report ] && [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then
       exec "$BB" "$NORTH/cli/shipped-report.clj" "${@:2}"
     fi
     if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec "$@"; fi
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
-  blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|tools|boot)
+  blocked|leverage|agenda|capture|json|needs-review|audit|resolve|validate|schema|tools|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the Beagle Store CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
@@ -450,7 +450,7 @@ case "${1:-}" in
   lanes)
     # Durable local lifecycle receipts remain readable during coordinator faults.
     exec "$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/lanes-cli.clj" "${@:2}" ;;
-  agents|templates|spawn|delegate|request|fork|req|watch|msg|goal|escalate)
+  agents|templates|spawn|delegate|watch|msg|goal|escalate)
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec "$BB" "$NORTH/cli/agents-cli.clj" "$@" ;;
@@ -542,10 +542,10 @@ case "${1:-}" in
       esac
     fi
     exec "$BEAGLE_STORE_CLI" store "$@" ;;
-  tell|untell|retract)
+  tell|retract)
     # `retract` is the primary agent-facing retraction verb (R&N TELL/RETRACT);
-    # `untell` is an accepted legacy alias. Both map onto Store's `untell` CLI verb
-    # (whose wire op is already "retract") at the boundary below.
+    # Both map onto Store's `untell` CLI verb (whose wire op is already "retract")
+    # at the boundary below.
     # Handles (and @ids) are a NORTH concern: Store is handle-blind and re-adds
     # the leading @ to the bare subject it's handed. So resolve the SUBJECT ref to
     # its canonical id here first — that's what makes `north tell @perf ...`

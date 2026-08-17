@@ -123,7 +123,7 @@
                           ["tell" "role"] ["tell" "holds"]
                           ["tell" "provider_target"] ["tell" "composition_contract_sha256"]
                           ["tell" "future_identity_axis"] ["tell" "supervisor"] ["tell" "lifecycle"]
-                          ["retract" "composition_id"] ["untell" "outcome"]]]
+                          ["retract" "composition_id"] ["retract" "outcome"]]]
   (let [result (proc/shell {:out :string :err :string :continue true
                             :extra-env {"AGENT_TOPOLOGY" "worker"
                                         "AGENT_ID" "worker-self"

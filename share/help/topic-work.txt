@@ -3,8 +3,8 @@ north help work — threads: thought → fact → outcome
   north capture "<title>" [owner]               mint a committed thread from one thought (zero ceremony)
   north show <id|slug|substring>                one thread's facts + body; resolves id, slug, substring
   north tell <id> <pred> <value>                assert a fact through the fact server (serialized, rule-checked)
-  north retract <id> <pred> <value>             retract a fact through the fact server  (alias: untell)
-  north threads [--all]                         thread-kind overview: active drivers, top ready, counts  (aliases: board, plate)
+  north retract <id> <pred> <value>             retract a fact through the fact server
+  north threads [--all]                         thread-kind overview: active drivers, top ready, counts
   north ready [--all]                           committed + unblocked work; manual queue order, leverage fallback
   north queue move <thread> <before|after|first|last> [anchor]
                                                 durably reorder the derived ready lane without mutating status

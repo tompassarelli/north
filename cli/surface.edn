@@ -31,10 +31,8 @@
    :card {:section :work :form "north tell <id> <pred> <val>"
           :text "assert a fact (retract removes)"}}
   {:verb "retract" :form "north retract <id> <pred> <value>" :topic :work
-   :aliases ["untell"]
    :summary "retract a fact through the fact server"}
   {:verb "threads" :form "north threads [--all]" :topic :work
-   :aliases ["board" "plate"]
    :summary "thread-kind overview: active drivers, top ready, counts"
    :card {:section :work :form "north threads"
           :text "active / ready / blocked overview"}}
@@ -125,9 +123,6 @@
    :details ["--summary/--checkpoint/--seam/--propose — the structured payload"]}
   {:verb "listen" :form "north listen <agent-id>" :topic :agents
    :summary "arm the real-time interrupt listener (background task; dormant)"}
-  {:verb "request" :form "north request|fork|req" :topic :agents
-   :aliases ["fork" "req"] :status :legacy
-   :summary "legacy spawn aliases"}
   {:verb "delivery" :form "north delivery attest <agent-id>" :topic :agents
    :status :unavailable
    :summary "unavailable until verifier lanes have OS isolation"}

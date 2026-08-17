@@ -4,7 +4,7 @@
 ;; reads. A separate code store is admitted only through an explicit FRAMRPC
 ;; endpoint; the current port/log-only configuration fails closed.
 ;;
-;; usage (port = north board, 7977):
+;; usage (port = north threads, 7977):
 ;;   declare <agent> <repo> "<intent>" <foot,foot,...> [--about <@thread>]
 ;;                                                     mint a concern (+ shows overlaps)
 ;;       footprint entries are canonical paths.

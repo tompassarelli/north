@@ -382,7 +382,7 @@ implemented today.**
 > handoff on the SDK-lane lineage (pattern C's contract + a prepended
 > parent-context brief), so it gets the full invariant spine (id mint · identity
 > facts · presence · completion/death ping). (The delegation surface unified
-> 2026-07-10: the earlier `north fork` / `/offload` verbs merged into `delegate`,
+> 2026-07-10: the earlier context-carrying delegation forms merged into `delegate`,
 > carrying context is now a binary trailing flag.)
 > The harness-native `/fork` itself remains unmanaged (F4 still applies to it);
 > `/delegate` is the managed alternative to reach for, not a shadow of the builtin
@@ -615,7 +615,7 @@ below are its rule set.
 | harness/presence | `north:sdk/src/harness.ts` | `registerPresence` / `renewHarnessPresence` (:7977), the MCP tool surface, `command_peer` server |
 | identity facts | `north:sdk/src/identity.ts` | `@agent:<id>` predicate set + `display_name` render |
 | session hook | `north:bin/north-on-spawn` | session id de-alias, presence, `kind=session` facts, concern-protocol inject |
-| agent CLI | `north:cli/agents-cli.clj` | `spawn`/`req`/`agents`/`watch`/`msg`/`goal`, dial-table parse |
+| agent CLI | `north:cli/agents-cli.clj` | `spawn`/`delegate`/`agents`/`watch`/`msg`/`goal`, dial-table parse |
 | presence/lease | `north:cli/presence-cli.clj` | 30-min TTL, `presence` projection, `slackers`, `pin` |
 | mail/commands | `north:cli/msg-cli.clj` | `send`/`inbox`/`ack`/`send-cmd` (@cmd facts), derived inbox |
 | listener | `north:cli/north-listen.clj` | dormant-until-pinged pub/sub; role-addressing |
