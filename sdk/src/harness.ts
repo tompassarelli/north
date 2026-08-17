@@ -1545,7 +1545,7 @@ export function orchestrationAppendix(
       throw new Error(`Orchestration composition ${composition.id} does not match role ${admitted.role}`);
     if (composition.kind === "template") {
       const role = exactSectionFence(resolve(orchestrationDocs(env), "roles.md"), admitted.role, `role:${admitted.role}`);
-      blocks.push(`## Orchestration role contract — preset:${admitted.role}\n${role}`);
+      blocks.push(`## Orchestration role contract — template:${admitted.role}\n${role}`);
       if (composition.overrides.length) {
         blocks.push([
           "## Orchestration template override",
