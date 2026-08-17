@@ -295,9 +295,9 @@ test("public spawn consumes a managed Codex respawn settlement before replacemen
 
   expect(result).toBe("spawn recovered answer");
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain(`tell agent:${agentId} outcome ran`);
   expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
-  expect(logged).not.toContain(`tell agent:${agentId} outcome provider_error`);
+  expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
+  expect(logged).not.toContain(`tell agent:${agentId} process_outcome provider_error`);
 
   const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
   expect(replay.events.filter((event) => event.kind === "model-call.completed").map((event) => ({
@@ -344,9 +344,9 @@ test("public dispatch consumes a managed Codex respawn settlement before replace
   }
 
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain(`tell agent:${agentId} outcome ran`);
   expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
-  expect(logged).not.toContain(`tell agent:${agentId} outcome provider_error`);
+  expect(logged).toContain(`tell agent:${agentId} process_outcome ran`);
+  expect(logged).not.toContain(`tell agent:${agentId} process_outcome provider_error`);
 
   const replay = await readWireJsonl(join(dir, `agent-${agentId}.stream.jsonl`));
   expect(replay.events.filter((event) => event.kind === "model-call.completed").map((event) => ({
@@ -491,9 +491,9 @@ test("a terminal live-feed drain failure AFTER a completed provider turn preserv
 
   expect(result).toBe("turn completed");
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-drain-safe-completion outcome ran");
   expect(logged).toContain("tell agent:test-drain-safe-completion process_outcome ran");
-  expect(logged).not.toContain("tell agent:test-drain-safe-completion outcome died");
+  expect(logged).toContain("tell agent:test-drain-safe-completion process_outcome ran");
+  expect(logged).not.toContain("tell agent:test-drain-safe-completion process_outcome died");
   expect(logged).not.toContain("tell agent:test-drain-safe-completion delivery_outcome blocked");
   expect(logged).not.toContain("agent_death");
 });
@@ -520,11 +520,11 @@ test("a spawn feed reap timeout cannot become a clean terminal on teardown retry
   expect(result).toBe("provider completed");
   expect(counter.stops).toBe(1);
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-spawn-reap-timeout outcome died");
+  expect(logged).toContain("tell agent:test-spawn-reap-timeout process_outcome died");
   expect(logged).toContain("tell agent:test-spawn-reap-timeout process_outcome died");
   expect(logged).toContain("tell agent:test-spawn-reap-timeout delivery_outcome blocked");
   expect(logged).toContain("North live feed did not reap after bounded termination");
-  expect(logged).not.toContain("tell agent:test-spawn-reap-timeout outcome ran");
+  expect(logged).not.toContain("tell agent:test-spawn-reap-timeout process_outcome ran");
 });
 
 test("a dispatch feed reap timeout cannot become a clean terminal on teardown retry", async () => {
@@ -561,11 +561,11 @@ test("a dispatch feed reap timeout cannot become a clean terminal on teardown re
   }
   expect(counter.stops).toBe(1);
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-dispatch-reap-timeout outcome died");
+  expect(logged).toContain("tell agent:test-dispatch-reap-timeout process_outcome died");
   expect(logged).toContain("tell agent:test-dispatch-reap-timeout process_outcome died");
   expect(logged).toContain("tell agent:test-dispatch-reap-timeout delivery_outcome blocked");
   expect(logged).toContain("North live feed did not reap after bounded termination");
-  expect(logged).not.toContain("tell agent:test-dispatch-reap-timeout outcome ran");
+  expect(logged).not.toContain("tell agent:test-dispatch-reap-timeout process_outcome ran");
 });
 
 // The fail-closed peer of the test above: when the provider itself never
@@ -604,7 +604,7 @@ test("a terminal live-feed drain failure with NO completed provider result stays
 
   expect(threw).toBe(false); // supervision, not fail-fast
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-drain-fail-closed outcome died");
+  expect(logged).toContain("tell agent:test-drain-fail-closed process_outcome died");
   expect(logged).toContain("tell agent:test-drain-fail-closed process_outcome died");
   expect(logged).toContain("tell agent:test-drain-fail-closed delivery_outcome blocked");
   expect(logged).toContain("agent_death");
@@ -645,7 +645,7 @@ test("public spawn mints one full-entropy ID across admission, harness, and iden
     expect(harnessId).toMatch(/^lane-[a-z0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     const logged = readFileSync(log, "utf8");
     expect(logged).toContain(`tell agent:${harnessId} kind lane`);
-    expect(logged).toContain(`tell agent:${harnessId} outcome ran`);
+    expect(logged).toContain(`tell agent:${harnessId} process_outcome ran`);
     const envelopeState = JSON.parse(readFileSync(accounting, "utf8"));
     expect(Object.values(envelopeState.scopes)[0]).toMatchObject({ runs: 1, active: {} });
   } finally {

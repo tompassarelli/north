@@ -247,11 +247,11 @@ test("worker + read-only capabilities + provider-process death -> exactly one re
   // agent id — it mints a fresh one (identity.ts writeAgentTerminal rejects a
   // second publish against an already terminal-committed @agent: subject).
   // The dead original keeps its own honest (died) terminal, never rewritten...
-  expect(logged).toContain("tell agent:test-retry-eligible outcome died");
+  expect(logged).toContain("tell agent:test-retry-eligible process_outcome died");
   // ...while the fresh retry identity carries retry_of_agent provenance back
   // to the original (bare id, no @) and its own terminal reflects recovery.
   expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ retry_of_agent test-retry-eligible/);
-  expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ outcome ran/);
+  expect(logged).toMatch(/tell agent:(?!test-retry-eligible\b)\S+ process_outcome ran/);
 });
 
 test("a retry closes each query attempt without cancelling the shared session hard cap", async () => {
@@ -356,7 +356,7 @@ test("persistent 529 retries its sibling once then remains a clean blocked provi
   expect(calls.n).toBe(2);
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("provider_target anthropic-sibling");
-  expect((logged.match(/tell agent:\S+ outcome provider_error/g) ?? []).length).toBe(2);
+  expect((logged.match(/tell agent:\S+ process_outcome provider_error/g) ?? []).length).toBe(2);
 });
 
 test("orchestrator topology never retries a provider-process death, even with read-only capabilities", async () => {
@@ -377,7 +377,7 @@ test("orchestrator topology never retries a provider-process death, even with re
   expect(calls.n).toBe(1); // no retry — child obligations make retry semantics wrong
   const logged = readFileSync(log, "utf8");
   expect(stderrLines.some((l) => l.includes("retrying once as a fresh run"))).toBe(false);
-  expect(logged).toContain("tell agent:test-retry-orchestrator outcome died");
+  expect(logged).toContain("tell agent:test-retry-orchestrator process_outcome died");
 });
 
 test("a writable worker (filesystem.write/shell) never retries a provider-process death", async () => {
@@ -398,7 +398,7 @@ test("a writable worker (filesystem.write/shell) never retries a provider-proces
   expect(calls.n).toBe(1); // a writable lane may have mutated; never re-run it
   const logged = readFileSync(log, "utf8");
   expect(stderrLines.some((l) => l.includes("retrying once as a fresh run"))).toBe(false);
-  expect(logged).toContain("tell agent:test-retry-writable outcome died");
+  expect(logged).toContain("tell agent:test-retry-writable process_outcome died");
 });
 
 test("a retry that also dies records BOTH runs; the original death is never overwritten", async () => {
@@ -424,12 +424,12 @@ test("a retry that also dies records BOTH runs; the original death is never over
   expect(runKindWrites).toBe(2);
   expect(logged).toMatch(/\["retry_of_run","@run:[^"]+"\]/);
   // Original terminal-committed identity keeps its own honest died terminal...
-  expect(logged).toContain("tell agent:test-retry-still-dies outcome died");
+  expect(logged).toContain("tell agent:test-retry-still-dies process_outcome died");
   // ...and the retry minted a DISTINCT fresh identity (never reusing the
   // terminal-committed original) that also honestly reports died, linked back
   // by retry_of_agent provenance.
   expect(logged).toMatch(/tell agent:(?!test-retry-still-dies\b)\S+ retry_of_agent test-retry-still-dies/);
-  expect(logged).toMatch(/tell agent:(?!test-retry-still-dies\b)\S+ outcome died/);
+  expect(logged).toMatch(/tell agent:(?!test-retry-still-dies\b)\S+ process_outcome died/);
 });
 
 test("eligibility gate: only outcome=died (provider-process-level) + worker + read-only capabilities retries", async () => {

@@ -311,7 +311,7 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   const logged = readFileSync(log, "utf8");
   // The terminal body lands on the lane via the NORTH_BIN-honoring sync write.
   // Coordinator integration separately proves the production digest marker.
-  expect(logged).toContain("tell agent:test-done-ok outcome ran");
+  expect(logged).toContain("tell agent:test-done-ok process_outcome ran");
   expect(logged).toContain("tell agent:test-done-ok process_outcome ran");
   expect(logged).toContain("tell agent:test-done-ok delivery_outcome unverified");
   expect(logged).toContain(`send test-done-ok ${TEST_COORDINATOR} AGENT COMPLETE`);
@@ -493,7 +493,7 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
   await spawn({ prompt: "dies", agentId: "test-done-died", routingMetadata: presetRequest("integrator"), queryFn: dyingQuery });
 
   const logged = readFileSync(log, "utf8");
-  expect(logged).toContain("tell agent:test-done-died outcome died");
+  expect(logged).toContain("tell agent:test-done-died process_outcome died");
   expect(logged).toContain("tell agent:test-done-died process_outcome died");
   expect(logged).toContain("tell agent:test-done-died delivery_outcome blocked");
   expect(logged).toContain("tell @swarm agent_death"); // death path still fires
@@ -514,7 +514,7 @@ test("a synchronous provider-construction failure records run telemetry", async 
   expect(result).toBe("");
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell @swarm agent_death");
-  expect(logged).toContain("tell agent:test-sync-construction-failure outcome died");
+  expect(logged).toContain("tell agent:test-sync-construction-failure process_outcome died");
   const projection = await waitForRunFactProjection("test-sync-construction-failure");
   expect(projection).toContainEqual(["thread", "@thread-sync-construction"]);
   expect(projection.find(([predicate]) => predicate === "duration_ms")?.[1]).toMatch(/^\d+$/);
@@ -772,7 +772,7 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
   });
   const publicationOrder = readFileSync(log, "utf8");
   expect(publicationOrder.indexOf("QUERY_CLOSED spawn")).toBeLessThan(
-    publicationOrder.indexOf("tell agent:test-empty-spawn outcome provider_error"),
+    publicationOrder.indexOf("tell agent:test-empty-spawn process_outcome provider_error"),
   );
 });
 
@@ -826,7 +826,7 @@ test("an empty dispatch provider stream is a blocked provider error, never ran",
   expect(lines.some((line) => line.includes("@@test-empty-dispatch"))).toBe(false);
   const publicationOrder = readFileSync(log, "utf8");
   expect(publicationOrder.indexOf("QUERY_CLOSED dispatch")).toBeLessThan(
-    publicationOrder.indexOf("tell agent:test-empty-dispatch-agent outcome provider_error"),
+    publicationOrder.indexOf("tell agent:test-empty-dispatch-agent process_outcome provider_error"),
   );
 });
 
