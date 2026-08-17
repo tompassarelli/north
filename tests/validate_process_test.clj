@@ -13,10 +13,13 @@
       .getParentFile
       .getParentFile
       .getCanonicalPath))
-(def fram
-  (.getCanonicalPath
-   (java.io.File. (or (System/getenv "FRAM_HOME")
-                      "/home/tom/code/beagle/main/branch-core"))))
+(def fram-home (or (System/getenv "FRAM_TEST_CHECKOUT")
+                   (System/getenv "FRAM_HOME")))
+(when-not fram-home
+  (binding [*out* *err*]
+    (println "validate process test requires FRAM_TEST_CHECKOUT or FRAM_HOME"))
+  (System/exit 2))
+(def fram (.getCanonicalPath (java.io.File. fram-home)))
 (def root
   (.toFile
    (java.nio.file.Files/createTempDirectory
