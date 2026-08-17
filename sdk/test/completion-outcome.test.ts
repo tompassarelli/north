@@ -346,7 +346,6 @@ test("spawn runs its assigned shadow reviewer, publishes the note, and records t
     const result = await spawnUnderTest({
       prompt: "exercise the spawn shadow reviewer",
       agentId: "test-shadow-reviewer-spawn",
-      role: "scout",
       routingMetadata: presetRequest("scout"),
       routingAssessment: LOW_RISK_ASSESSMENT,
       provider: "anthropic",
