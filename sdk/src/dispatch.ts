@@ -390,9 +390,9 @@ async function runDispatch(
     role,
     compositionKind: composition.kind,
     compositionId: composition.id,
-    compositionOverrides: composition.kind === "preset" ? composition.overrides : undefined,
-    compositionOverrideReason: composition.kind === "preset" ? composition.overrideReason : undefined,
-    compositionNearestPreset: composition.kind === "bespoke" ? composition.nearestPreset : undefined,
+    compositionOverrides: composition.kind === "template" ? composition.overrides : undefined,
+    compositionOverrideReason: composition.kind === "template" ? composition.overrideReason : undefined,
+    compositionNearestTemplate: composition.kind === "bespoke" ? composition.nearestTemplate : undefined,
     compositionBespokeReason: composition.kind === "bespoke" ? composition.bespokeReason : undefined,
     compositionPromotionCandidate: composition.kind === "bespoke" ? composition.promotionCandidate : undefined,
     compositionContractFingerprint: composition.kind === "bespoke"

@@ -56,7 +56,7 @@ const bespoke: RoutingMetadata = {
   composition: {
     kind: "bespoke",
     id: "migration-forensics",
-    nearestPreset: "analyst",
+    nearestTemplate: "analyst",
     bespokeReason: "the preset has the wrong authority boundary",
     promotionCandidate: true,
     contract: {
@@ -87,7 +87,7 @@ test("preset roles receive the exact canonical role contract and fail closed whe
   } finally { rmSync(empty, { recursive: true, force: true }); }
 });
 
-test("bespoke composition executes its structured contract without impersonating nearest preset", () => {
+test("bespoke composition executes its structured contract without impersonating nearest template", () => {
   const composed = orchestrationAppendix(bespoke, north);
   expect(composed.appendix).toContain("## Orchestration role contract — bespoke:migration-forensics");
   expect(composed.appendix).toContain("Responsibility: trace the historical migration without changing it");
@@ -343,7 +343,7 @@ test("preset override rationale is preserved as requested audit and hashed appli
     tier: "frontier",
     reasoning: "xhigh",
     composition: {
-      kind: "preset", id: "integrator", overrides: ["tier", "reasoning"],
+      kind: "template", id: "integrator", overrides: ["tier", "reasoning"],
       overrideReason: "this integrator owns the cross-seam reduction",
     },
   });

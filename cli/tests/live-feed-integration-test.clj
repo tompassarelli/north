@@ -267,7 +267,7 @@
               "live_input_epoch" epoch
               "model" "claude-opus-4-8"
               "effort" "xhigh"
-              "composition_kind" "preset"
+              "composition_kind" "template"
               "composition_id" "integrator"
               "composition_overrides" "[]"
               "repo" "~/code/north"

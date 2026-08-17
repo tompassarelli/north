@@ -45,7 +45,7 @@ what could not be verified from source.
 | **concern** | a declared work footprint (files + intent); a coordination signal, **not a lock** — declaring never blocks |
 | **presence / lease** | a heartbeat registration on the `:7977` coordinator with a **30-min TTL**; renewed (in session agents) on tool use |
 | **posture** | how a lane works (`explore` / `deliver` / `evaluate` / `preserve`); `evaluate` orders evidence quality, decision correctness, coverage, speed, then polish; derived from thread facts by `dispatch`, or passed on `spawn` |
-| **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"preset"` on the compatibility wire; never a mandatory worker identity |
+| **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"template"`; never a mandatory worker identity |
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
 | **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`orchestration/docs/task-grades.md`); not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |

@@ -284,9 +284,9 @@ Roster composition provenance has five deliberate states:
   label is only their compact projection.
 - `orchestration:bespoke:<id>` — a first-class bespoke composition was selected. It
   carries responsibility, deliverable, canonical capabilities,
-  authority/escalation bounds, done-bars, and report contract. `nearestPreset`
+  authority/escalation bounds, done-bars, and report contract. `nearestTemplate`
   is optional reference provenance, never a
-  requirement to pretend a novel composition resembles an existing preset.
+  requirement to pretend a novel composition resembles an existing template.
 - `orchestration:not-selected` — a provider-native Claude Code or Codex session did
   not pass through North staffing. This state is valid only for native sessions.
 - `orchestration:legacy-debt` — a historical or malformed managed lane lacks enough

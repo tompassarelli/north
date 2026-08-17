@@ -125,7 +125,7 @@ test("terminal wire telemetry preserves hashed learning provenance without priva
 				reasoning: "high",
 				posture: "deliver",
 				composition: {
-					kind: "preset",
+					kind: "template",
 					id: "implementer",
 					overrides: ["tier"],
 					overrideReason: rawDiagnosticCanary,

@@ -11,7 +11,7 @@ domains, tier, reasoning, or posture change but its fixed topology/capability
 boundary still fits. A topology change is never a template override. Any change
 to responsibility, deliverable, capability/authority boundary, done criteria,
 or report shape requires a bespoke composition. Machine payloads retain v2
-`kind: "preset"` and `nearestPreset` keys.
+`kind: "template"` and `nearestTemplate` keys.
 For a bespoke composition, assemble the payload from this plugin's blocks and
 pass it through the selected adapter's documented spawn surface.
 
@@ -91,14 +91,14 @@ pass it through the selected adapter's documented spawn surface.
    posture/grade; role, topology, and comms are never trimmed.
    Done: every block above the task; payload minus task ≤ 170 lines.
 6. If no block fits, write a bespoke role contract and record: an optional
-   `nearestPreset` stock-template reference when useful, why a stock template
+   `nearestTemplate` stock-template reference when useful, why a stock template
    was not used,
    responsibility, deliverable, canonical `capabilities[]`, `mayDecide[]`, `mustEscalate[]`,
    `doneWhen[]`, report contract, and a stable composition name. Record either
    `promotionCandidate` status (false by default; `--promotion-candidate`
    nominates explicitly);
    recurrence is logged evidence and never auto-promotes the role.
-   Without `nearestPreset`, explicitly set task grade, topology, tier,
+   Without `nearestTemplate`, explicitly set task grade, topology, tier,
    deliberation, and posture; domain requirements may be an explicit empty
    list. Done: the bespoke reason and contract are present, with promotion
    status and no implicit routing defaults.
@@ -116,6 +116,6 @@ await spawn(`${prompt}\n\nTASK: ${task}`, {
   role: 'implementer', taskGrade: 'mid', topology: 'worker',
   posture: 'deliver',
   domainRequirements: ['repository conventions'],
-  composition: {kind: 'preset', id: 'implementer', overrides: []}
+  composition: {kind: 'template', id: 'implementer', overrides: []}
 })
 ```

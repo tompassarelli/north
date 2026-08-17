@@ -74,7 +74,7 @@
     "run_envelope_version" "run_envelope_sha256"
     "requested_role" "routing_tier" "requested_reasoning" "routing_posture"
     "task_grade" "topology" "domain_requirement" "composition_kind"
-    "composition_id" "composition_override" "nearest_preset" "promotion_candidate"
+    "composition_id" "composition_override" "nearest_template" "promotion_candidate"
     "routing_admission_receipt_version" "routing_request_sha256"
     "staffing_catalog_sha256" "provider_catalogs_sha256" "routing_policy_sha256"
     "orchestration_policy_pin_sha256" "orchestration_catalog_digest_sha256"
@@ -100,7 +100,7 @@
     "applied_bespoke_contract_sha256"
     "applied_bespoke_contract_fingerprint_version"
     "applied_bespoke_contract_fingerprint_domain"
-    "applied_preset_override" "applied_preset_override_reason_sha256"
+    "applied_template_override" "applied_template_override_reason_sha256"
     "applied_capability" "applied_comms_contract_sha256" "applied_task_grade"
     "applied_topology" "applied_routing_tier" "applied_reasoning"
     "applied_posture" "applied_domain_requirement"
@@ -141,7 +141,7 @@
     "mcp_operation_receipt" "mcp_operation_aggregate" "native_command_completion"
     "domain_requirement"
     "composition_override" "routing_receipt_override" "routing_rule_code"
-    "routing_pin" "applied_preset_override" "applied_capability"
+    "routing_pin" "applied_template_override" "applied_capability"
     "applied_domain_requirement" "struggle" "provider_turn_key"})
 
 (def required-predicates

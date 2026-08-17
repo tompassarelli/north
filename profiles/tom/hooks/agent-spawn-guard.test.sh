@@ -28,13 +28,13 @@ printf '%s\n' \
   'case "$verdict" in deny|allow) printf "%s\n" "$verdict" ;; *) exit 65 ;; esac' \
   >"$NORTH_HOME/bin/north"
 chmod +x "$NORTH_HOME/bin/north"
-printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"preset","id":"integrator","overrides":[]}} -->' \
+printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
   >"$SCRATCH/home/code/north/main/orchestration/agents/integrator.md"
-printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"preset","id":"integrator","overrides":[]}} -->' \
+printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
   >"$SCRATCH/home/code/north/main/orchestration/agents/role-mismatch.md"
-printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"missing-reasoning","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","posture":"deliver","composition":{"kind":"preset","id":"missing-reasoning","overrides":[]}} -->' \
+printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"missing-reasoning","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","posture":"deliver","composition":{"kind":"template","id":"missing-reasoning","overrides":[]}} -->' \
   >"$SCRATCH/home/code/north/main/orchestration/agents/missing-reasoning.md"
-printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"researcher","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"preset","id":"researcher","overrides":[]}} -->' \
+printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"researcher","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"researcher","overrides":[]}} -->' \
   >"$SCRATCH/home/code/north/main/orchestration/agents/researcher.md"
 
 pass=0 fail=0
@@ -295,7 +295,7 @@ if jq -e '
   .role == "integrator" and .taskGrade == "senior" and
   .domainRequirements == [] and .topology == "worker" and
   .tier == "senior" and .reasoning == "high" and .posture == "deliver" and
-  .composition == {kind:"preset",id:"integrator",overrides:[]}
+  .composition == {kind:"template",id:"integrator",overrides:[]}
 ' <<<"$routing_json" >/dev/null; then
   pass=$((pass + 1)); echo 'PASS  route  generated Orchestration redirect carries all eight semantic fields'
 else

@@ -18,8 +18,8 @@ use a justified template override when task grade, domains, tier,
 reasoning, or posture change but its fixed topology/capability boundary still
 fits. A topology change is never a preset override. Any change to
 responsibility, deliverable, capability/authority boundary, done criteria, or
-report shape requires a bespoke composition. Machine payloads retain v2
-`kind:"preset"` and `nearestPreset` keys for compatibility.
+report shape requires a bespoke composition. Machine payloads use
+`kind:"template"` and `nearestTemplate` keys.
 
 Dispatch-surface selection belongs to the harness, not the Orchestration
 request. `native` pins the provider-native surface, `managed` pins the
@@ -343,7 +343,7 @@ not requirements: borrow the comms norms and only the exact concrete model's
 calibrated delta when its provider catalog supplies one; an explicit `none`
 never inherits a neighboring model's delta. Borrow role/posture when they fit,
 then write the domain-specific remainder freely. Record an optional
-`nearestPreset` only when a template is a useful reference, why a template was
+`nearestTemplate` only when a template is a useful reference, why a template was
 not used,
 and a structured contract: responsibility, deliverable, canonical capabilities,
 mayDecide, mustEscalate, doneWhen, and report. A nearest template may seed

@@ -116,7 +116,7 @@ test("new max reasoning fails closed without canonical exceptional assessment", 
   const request = applyOrchestrationStaffing({
     role: "executor", tier: "frontier", reasoning: "max",
     composition: {
-      kind: "preset", id: "executor", overrides: ["tier", "reasoning"],
+      kind: "template", id: "executor", overrides: ["tier", "reasoning"],
       overrideReason: "exceptional deliberation required",
     },
   });

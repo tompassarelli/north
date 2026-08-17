@@ -231,11 +231,11 @@ export function applyOrchestrationStaffing(
   const preset = catalog.presets.find(({ name }) => name === role);
   if (!preset) {
     const composition = metadata.composition;
-    const nearest = composition?.kind === "bespoke" && composition.nearestPreset
-      ? catalog.presets.find(({ name }) => name === composition.nearestPreset)
+    const nearest = composition?.kind === "bespoke" && composition.nearestTemplate
+      ? catalog.presets.find(({ name }) => name === composition.nearestTemplate)
       : undefined;
     const nearestKnown = composition?.kind === "bespoke"
-      && (composition.nearestPreset === undefined || nearest !== undefined);
+      && (composition.nearestTemplate === undefined || nearest !== undefined);
     const missing = ["taskGrade", "topology", "tier", "reasoning", "posture"]
       .filter((field) =>
         metadata[field as keyof RoutingMetadata] === undefined
@@ -246,7 +246,7 @@ export function applyOrchestrationStaffing(
       const detail = missing.length ? `; missing executable axes: ${missing.join(", ")}` : "";
       throw new Error(
         `unknown Orchestration role ${role} requires composition.kind=bespoke, composition.id=${role}, `
-        + "an optional-but-valid nearestPreset, composition.bespokeReason, explicit promotionCandidate, "
+        + "an optional-but-valid nearestTemplate, composition.bespokeReason, explicit promotionCandidate, "
         + `structured contract, and all unseeded routing axes${detail}`,
       );
     }
@@ -266,15 +266,15 @@ export function applyOrchestrationStaffing(
     requireProviderNeutralRoute(request.tier, request.reasoning);
     return parseCompleteRoutingRequest(request, "Orchestration request composer");
   }
-  if (metadata.composition && (metadata.composition.kind !== "preset" || metadata.composition.id !== role)) {
+  if (metadata.composition && (metadata.composition.kind !== "template" || metadata.composition.id !== role)) {
     throw new Error(
-      `known Orchestration role ${role} requires composition.kind=preset and composition.id=${role}; `
+      `known Orchestration role ${role} requires composition.kind=template and composition.id=${role}; `
       + "use a distinct role name for a bespoke composition",
     );
   }
   // Stock-template topology is fixed by the preset, not an overridable axis: a
   // different topology is a different capability boundary and requires a
-  // bespoke composition, never a preset override.
+  // bespoke composition, never a template override.
   if (metadata.topology !== undefined && metadata.topology !== preset.topology) {
     throw new Error(
       `stock-template topology is fixed at '${preset.topology}'; project a different topology through a bespoke composition`,
@@ -303,16 +303,16 @@ export function applyOrchestrationStaffing(
   const composition = metadata.composition;
   if (actualOverrides.length && !composition) {
     throw new Error(
-      `known Orchestration role ${role} overrides ${actualOverrides.join(", ")}; supply preset composition.overrides and composition.overrideReason`,
+      `known Orchestration role ${role} overrides ${actualOverrides.join(", ")}; supply template composition.overrides and composition.overrideReason`,
     );
   }
-  if (composition?.kind === "preset") {
+  if (composition?.kind === "template") {
     const declared = [...composition.overrides].sort();
     const actual = [...actualOverrides].sort();
     if (!same(declared, actual))
-      throw new Error(`composition.overrides must exactly record changed preset axes: ${actual.join(", ") || "none"}`);
+      throw new Error(`composition.overrides must exactly record changed template axes: ${actual.join(", ") || "none"}`);
     if (actualOverrides.length && !composition.overrideReason)
-      throw new Error("preset axis overrides require composition.overrideReason");
+      throw new Error("template axis overrides require composition.overrideReason");
     if (!actualOverrides.length && composition.overrideReason !== undefined)
       throw new Error("unchanged preset must omit composition.overrideReason");
   }
@@ -329,7 +329,7 @@ export function applyOrchestrationStaffing(
     tier: metadata.tier ?? base.tier as RoutingMetadata["tier"],
     reasoning: metadata.reasoning ?? base.reasoning as RoutingMetadata["reasoning"],
     posture: metadata.posture ?? base.posture as RoutingMetadata["posture"],
-    composition: composition ?? { kind: "preset", id: role, overrides: [] },
+    composition: composition ?? { kind: "template", id: role, overrides: [] },
   } as RoutingRequest;
   requireProviderNeutralRoute(request.tier, request.reasoning);
   return parseCompleteRoutingRequest(request, "Orchestration request composer");

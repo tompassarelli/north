@@ -556,13 +556,13 @@ function routingFacts(context: WireRunProvenance): RunProvenanceFact[] {
 		for (const domain of request.domainRequirements) facts.push(["domain_requirement", domain]);
 		facts.push(["composition_kind", request.composition.kind]);
 		facts.push(["composition_id", request.composition.id]);
-		if (request.composition.kind === "preset") {
+		if (request.composition.kind === "template") {
 			for (const field of request.composition.overrides) {
 				facts.push(["composition_override", field]);
 			}
 		} else {
-			if (request.composition.nearestPreset) {
-				facts.push(["nearest_preset", request.composition.nearestPreset]);
+			if (request.composition.nearestTemplate) {
+				facts.push(["nearest_template", request.composition.nearestTemplate]);
 			}
 			facts.push(["promotion_candidate", String(request.composition.promotionCandidate)]);
 		}
@@ -669,9 +669,9 @@ function promptCompositionFacts(applied: HarnessCompositionEvidence): RunProvena
 			applied.bespokeContractFingerprintDomain,
 		]);
 	}
-	for (const field of applied.presetOverrides ?? []) facts.push(["applied_preset_override", field]);
-	if (applied.presetOverrideReasonHash) {
-		facts.push(["applied_preset_override_reason_sha256", applied.presetOverrideReasonHash]);
+	for (const field of applied.templateOverrides ?? []) facts.push(["applied_template_override", field]);
+	if (applied.templateOverrideReasonHash) {
+		facts.push(["applied_template_override_reason_sha256", applied.templateOverrideReasonHash]);
 	}
 	const order = new Map(ORCHESTRATION_CAPABILITIES.map((capability, index) => [capability, index]));
 	for (const capability of [...(applied.capabilities ?? [])]

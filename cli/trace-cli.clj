@@ -449,7 +449,7 @@
           (when (= lineage :sdk-lane)
             (println (str "    composition  " (:label provenance)))
             (case (:kind provenance)
-              "preset" (when (seq (:overrides provenance))
+              "template" (when (seq (:overrides provenance))
                          (println (str "    override     " (str/join "," (:overrides provenance))
                                        " · why: " (:override-reason provenance))))
               "bespoke" (do

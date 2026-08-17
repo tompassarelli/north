@@ -71,7 +71,7 @@ export function resolveBridgeLaunchSelection(
     tier,
     reasoning: effort,
     composition: {
-      kind: "preset", id: base.role, overrides,
+      kind: "template", id: base.role, overrides,
       overrideReason: "Bridge launch selection",
     },
   });

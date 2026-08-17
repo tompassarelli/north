@@ -12,7 +12,7 @@
     "live_input_state" "live_input_epoch" "effort"
     "shadow_reviewer_note_capability_sha256"
     "composition_kind" "composition_id" "composition_overrides"
-    "composition_override_reason" "nearest_preset" "bespoke_reason"
+    "composition_override_reason" "nearest_template" "bespoke_reason"
     "promotion_candidate" "composition_contract_sha256"
     "composition_contract_fingerprint_version" "composition_contract_fingerprint_domain"
     "repo" "goal"
@@ -141,7 +141,7 @@
         reason (known (get facts "composition_override_reason"))
         {:keys [valid value]} (composition-overrides facts)]
     (cond-> []
-      (nil? raw) (conj "composition_overrides(required for preset)")
+      (nil? raw) (conj "composition_overrides(required for template)")
       (and (some? raw) (not valid)) (conj "composition_overrides(valid unique routing axes)")
       (and valid (not= (boolean (seq value)) (boolean reason)))
       (conj "composition_override_reason(exactly when overrides nonempty)"))))
@@ -180,8 +180,8 @@
                   (when conflicts [(str "single-valued identity predicates(" (str/join "," (sort conflicts)) ")")])
                   (when (and (some? kind) (not= "lane" kind)) ["kind(lane)"])
                   (when (and (some? composition-kind)
-                             (not (contains? #{"preset" "bespoke"} composition-kind)))
-                    ["composition_kind(preset|bespoke)"])
+                             (not (contains? #{"template" "bespoke"} composition-kind)))
+                    ["composition_kind(template|bespoke)"])
                   (when (and (known role) (known composition-id) (not= role composition-id))
                     ["composition_id(matches role)"])
                   (when (and (some? role) (not (safe-role-id? role))) ["role(safe Orchestration id)"])
@@ -203,7 +203,7 @@
                   (when (and (some? composition-id) (not (safe-role-id? composition-id)))
                     ["composition_id(safe Orchestration id)"])
                   (case composition-kind
-                    "preset" (preset-evidence-defects facts)
+                    "template" (preset-evidence-defects facts)
                     "bespoke" (bespoke-evidence-defects facts)
                     [])
                   (when (and marker (not= marker (manifest-sha256 facts)))
@@ -218,7 +218,7 @@
   (cond
     (= kind "session") "orchestration:not-selected"
     (not (managed-valid? facts)) "orchestration:legacy-debt"
-    (= composition_kind "preset")
+    (= composition_kind "template")
     (let [{:keys [value]} (composition-overrides facts)
           base (str "orchestration:" composition_id)]
       (if (seq value) (str base "+override(" (str/join "," value) ")") base))
@@ -229,11 +229,11 @@
   (let [kind (get facts "composition_kind")
         {:keys [value]} (composition-overrides facts)]
     (cond-> {:label (orchestration-provenance facts) :kind kind}
-      (= kind "preset")
+      (= kind "template")
       (assoc :overrides value :override-reason (known (get facts "composition_override_reason")))
       (= kind "bespoke")
       (assoc :why (known (get facts "bespoke_reason"))
-             :nearest-reference-only (known (get facts "nearest_preset"))
+             :nearest-reference-only (known (get facts "nearest_template"))
              :promotion-candidate (get facts "promotion_candidate")
              :contract-sha256 (known (get facts "composition_contract_sha256"))
              :contract-fingerprint-version (known (get facts "composition_contract_fingerprint_version"))

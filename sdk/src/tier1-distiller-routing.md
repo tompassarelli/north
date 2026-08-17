@@ -9,7 +9,7 @@
   "composition": {
     "kind": "bespoke",
     "id": "tier1-distiller",
-    "nearestPreset": "scout",
+    "nearestTemplate": "scout",
     "bespokeReason": "One-session compression needs bounded synthesis without authoring, network, or coordination authority.",
     "promotionCandidate": false,
     "contract": {

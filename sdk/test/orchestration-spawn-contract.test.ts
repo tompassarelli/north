@@ -29,7 +29,7 @@ test("Orchestration composition survives North validation", () => {
   expect(metadata).toEqual({
     role: "integrator", taskGrade: "staff", domainRequirements: ["Nix", "Beagle"],
     topology: "worker", tier: "frontier", reasoning: "xhigh", posture: "preserve",
-    composition: { kind: "preset", id: "integrator",
+    composition: { kind: "template", id: "integrator",
       overrides: ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"],
       overrideReason: "cross-provider foundational contract" },
   });
@@ -61,19 +61,19 @@ test("spawn bootstrap derives the Codex turn deadline without replacing caller a
 test("SDK presets inherit catalog axes while declared compatible overrides win independently", () => {
   const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "integrator", tier: "frontier" }, catalog))
-    .toThrow("supply preset composition.overrides");
+    .toThrow("supply template composition.overrides");
   expect(applyOrchestrationStaffing({ role: "integrator", tier: "frontier", reasoning: "xhigh",
-    composition: { kind: "preset", id: "integrator", overrides: ["tier", "reasoning"],
+    composition: { kind: "template", id: "integrator", overrides: ["tier", "reasoning"],
       overrideReason: "cross-seam direction" } }, catalog)).toEqual({
     role: "integrator", taskGrade: "senior", domainRequirements: [], topology: "worker",
     tier: "frontier", reasoning: "xhigh", posture: "deliver",
-    composition: { kind: "preset", id: "integrator", overrides: ["tier", "reasoning"],
+    composition: { kind: "template", id: "integrator", overrides: ["tier", "reasoning"],
       overrideReason: "cross-seam direction" },
   });
   expect(applyOrchestrationStaffing({ role: "director" }, catalog)).toEqual({
     role: "director", taskGrade: "staff", domainRequirements: [], topology: "orchestrator",
     tier: "frontier", reasoning: "xhigh", posture: "deliver",
-    composition: { kind: "preset", id: "director", overrides: [] },
+    composition: { kind: "template", id: "director", overrides: [] },
   });
   // The retirement is the invariant; the successor list is naming churn. The
   // CLI-facing wording stays pinned in agents-cli-routing.test.ts.
@@ -97,7 +97,7 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
   expect(result.stdout).toContain("AGENT_DOMAIN_REQUIREMENTS=[\"computer-science\"]");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
-  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"preset\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal research direction\"}");
+  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal research direction\"}");
 });
 
 test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
@@ -105,12 +105,12 @@ test("North rejects unlogged bespoke roles and composition identity mismatches",
   expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
     .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
   expect(() => validateRoutingMetadata({
-    role: "integrator", composition: { kind: "preset", id: "scout", overrides: [] },
+    role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
   })).toThrow("composition.id must match canonical role integrator");
   expect(() => applyOrchestrationStaffing({
     role: "special", taskGrade: "staff", domainRequirements: [], topology: "worker",
     tier: "frontier", reasoning: "xhigh", posture: "explore",
-    composition: { kind: "bespoke", id: "special", nearestPreset: "analyst",
+    composition: { kind: "bespoke", id: "special", nearestTemplate: "analyst",
       bespokeReason: "novel one-off", promotionCandidate: false, contract: JSON.parse(contract) },
   }, catalog)).not.toThrow();
 });
@@ -129,7 +129,7 @@ test("bespoke Orchestration composition rationale survives North validation", ()
     bespokeReason: "provenance tracing plus schema recovery",
     promotionCandidate: false,
   });
-  expect(metadata.composition).not.toHaveProperty("nearestPreset");
+  expect(metadata.composition).not.toHaveProperty("nearestTemplate");
 });
 
 test("North MCP advertises the complete composition contract", () => {

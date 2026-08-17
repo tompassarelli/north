@@ -36,7 +36,7 @@
    {"name" "reasoning" "required" true  "doc" "deliberation budget; = derived minimum on the preset fast path"}
    {"name" "posture"   "required" true  "doc" "explore | evaluate | deliver | preserve — what yields when values collide"}
    {"name" "domainRequirements" "required" true "doc" "provider-neutral capability requirements (array; [] when none)"}
-   {"name" "composition" "required" true "doc" "{kind:preset|bespoke, id, ...}; preset overrides must record exactly the changed axes"}
+   {"name" "composition" "required" true "doc" "{kind:template|bespoke, id, ...}; template overrides must record exactly the changed axes"}
    {"name" "signals"   "required" false "doc" "optional 7-signal routing assessment; required only to select ABOVE the derived minimum"}])
 
 ;; Rejection classes — the real admission failures a caller recovers from by
@@ -46,7 +46,7 @@
   [{"code" "unknown-field"          "doc" "payload carries a field outside this contract"}
    {"code" "incomplete-request"     "doc" "the complete eight-field Orchestration request is missing one or more axes"}
    {"code" "role-unknown"           "doc" "role is not a stock template and lacks a complete bespoke composition"}
-   {"code" "override-undeclared"    "doc" "a preset axis changed without composition.overrides + overrideReason"}
+   {"code" "override-undeclared"    "doc" "a template axis changed without composition.overrides + overrideReason"}
    {"code" "topology-fixed"         "doc" "attempt to change a stock template's fixed topology through a preset"}
    {"code" "above-minimum-uncoded"  "doc" "selected exceeds the derived minimum without a coded exception (R7)"}
    {"code" "missing-thread"         "doc" "no explicit child thread id in the payload"}])
@@ -61,7 +61,7 @@
    "reasoning" "high"
    "posture" "evaluate"
    "domainRequirements" []
-   "composition" {"kind" "preset" "id" "verifier" "overrides" []}})
+   "composition" {"kind" "template" "id" "verifier" "overrides" []}})
 
 ;; canonical JSON (sorted keys) so a field/example/code fact is byte-stable.
 (defn- canon [x]

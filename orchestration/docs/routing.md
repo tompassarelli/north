@@ -70,7 +70,7 @@ field is rejected below max. The assessment is not part of `RoutingRequest`.
   "tier": "senior",
   "reasoning": "high",
   "posture": "deliver",
-  "composition": { "kind": "preset", "id": "integrator", "overrides": [] }
+  "composition": { "kind": "template", "id": "integrator", "overrides": [] }
 }
 ```
 
@@ -87,9 +87,9 @@ type RoutingRequest = {
   reasoning: "low" | "medium" | "high" | "xhigh" | "max";    // deliberation
   posture: "explore" | "deliver" | "preserve" | "evaluate";
   composition:
-    | { kind: "preset"; id: string; overrides: OverrideField[]; overrideReason?: string }
+    | { kind: "template"; id: string; overrides: OverrideField[]; overrideReason?: string }
     | {
-        kind: "bespoke"; id: string; nearestPreset?: string;
+        kind: "bespoke"; id: string; nearestTemplate?: string;
         bespokeReason: string; promotionCandidate: boolean;
         contract: {
           responsibility: string; deliverable: string;
@@ -210,7 +210,7 @@ Stock-template values are defaults only: every changed overrideable axis
 replaces only itself and is auditable. Their topology is fixed. Unknown roles
 are valid bespoke compositions only with a reason, promotion status,
 structured authority / deliverable / done contract, and an optional
-`nearestPreset` reference when a stock template genuinely helps explain or
+`nearestTemplate` reference when a stock template genuinely helps explain or
 seed the composition. Without `--nearest`, the composer requires explicit task
 grade, topology, tier, deliberation, and posture; an assessment may supply the
 selected tier and deliberation but never the other axes. It never fills an unknown role
@@ -222,7 +222,7 @@ domains, tier, reasoning, or posture change but its fixed topology/capability
 boundary still fits. A topology change is never a preset override. Any change
 to responsibility, deliverable, capability/authority boundary, done criteria,
 or report shape requires a bespoke/custom composition. Machine payloads retain
-the v2 `presets`, `kind: "preset"`, and `nearestPreset` names for compatibility.
+the v2 `presets`, `kind: "template"`, and `nearestTemplate` names .
 
 ## Tier × deliberation resolution
 
@@ -318,8 +318,8 @@ equivalent between providers.
 
 Composition provenance has five deliberately distinct presentation states:
 
-- `orchestration:<preset>` — an unchanged stock template.
-- `orchestration:<preset>+override` — a stock template with recorded axis changes and
+- `orchestration:<template>` — an unchanged stock template.
+- `orchestration:<template>+override` — a stock template with recorded axis changes and
   an `overrideReason`.
 - `orchestration:bespoke:<id>` — an improvised, structured composition with its own
   capabilities and authority contract.
@@ -333,11 +333,11 @@ label. A refreshed legacy record should be reclassified into one of the first
 four states; it is never guessed into a stock template.
 
 Every bespoke composition supplies `composition.kind = "bespoke"`, a stable
-`id`, an optional `nearestPreset` stock-template reference, a one-line
+`id`, an optional `nearestTemplate` stock-template reference, a one-line
 `bespokeReason`, a boolean
 `promotionCandidate` (false by default; nomination is explicit), and a structured contract: responsibility, deliverable,
 canonical `capabilities[]`, `mayDecide[]`, `mustEscalate[]`, `doneWhen[]`, and
-report. The capabilities are explicit even when `nearestPreset` is present:
+report. The capabilities are explicit even when `nearestTemplate` is present:
 the nearest stock template can seed composition defaults but never grants authority by
 implication. A harness records the
 requested composition beside the resolved route and evidence-backed outcome. Repeated

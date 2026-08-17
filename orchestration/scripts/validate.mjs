@@ -711,15 +711,15 @@ for (const fixture of routingFixtures.invalid) {
 }
 {
   const request = structuredClone(routingFixtures.valid.find(
-    ({ name }) => name === "unchanged preset",
+    ({ name }) => name === "unchanged template",
   )?.request);
-  if (!request) throw new Error("unchanged preset routing fixture is missing");
+  if (!request) throw new Error("unchanged template routing fixture is missing");
   request.composition.overrides = ["topology"];
   try {
     validateRoutingRequest(request, staffing);
-    throw new Error("topology was accepted as a preset override field");
+    throw new Error("topology was accepted as a template override field");
   } catch (error) {
-    if (error.message === "topology was accepted as a preset override field" ||
+    if (error.message === "topology was accepted as a template override field" ||
         !error.message.includes("composition.overrides may contain only")) throw error;
   }
 }
@@ -750,9 +750,9 @@ for (const badId of roleIdCases.filter(([, expected]) => !expected).map(([id]) =
 }
 {
   const request = structuredClone(safeBespoke);
-  request.composition.nearestPreset = "bad/preset";
-  try { validateRoutingRequest(request, staffing); throw new Error("unsafe nearestPreset was accepted"); }
-  catch (error) { if (error.message === "unsafe nearestPreset was accepted") throw error; }
+  request.composition.nearestTemplate = "bad/template";
+  try { validateRoutingRequest(request, staffing); throw new Error("unsafe nearestTemplate was accepted"); }
+  catch (error) { if (error.message === "unsafe nearestTemplate was accepted") throw error; }
 }
 
 // The generator owns preset validation so its rules cannot drift from what it
@@ -828,9 +828,9 @@ for (const path of generatedAgentPaths) {
 }
 
 // ---- composition matrix ----
-// Drive the real composition CLI over every preset, alias, a bespoke role, and
+// Drive the real composition CLI over every template, alias, a bespoke role, and
 // independent single-axis overrides. Every request retains exactly eight
-// top-level fields while composition records why its shape differs from a preset.
+// top-level fields while composition records why its shape differs from a template.
 const compose = (argv) => {
   const r = spawnSync(process.execPath, [resolve(root, "scripts/compose-routing.mjs"), ...argv], { encoding: "utf8" });
   return { status: r.status, stderr: r.stderr, payload: r.status === 0 ? JSON.parse(r.stdout) : null };
@@ -920,7 +920,7 @@ for (const preset of staffing.presets) {
   if (status !== 0 || !payload) throw new Error(`preset ${preset.name} failed to compose: ${stderr}`);
   if (payload.role !== preset.name || payload.taskGrade !== preset.taskGrade || payload.tier !== preset.tier ||
       payload.reasoning !== preset.deliberation || payload.topology !== preset.topology ||
-      payload.composition?.kind !== "preset" || payload.composition?.id !== preset.name ||
+      payload.composition?.kind !== "template" || payload.composition?.id !== preset.name ||
       payload.composition?.overrides?.length !== 0 || payload.composition?.overrideReason !== undefined)
     throw new Error(`preset ${preset.name} payload drifts from its preset`);
   if (!resolvableDeliberations(payload.tier).has(payload.reasoning))
@@ -969,7 +969,7 @@ for (const preset of staffing.presets) {
     throw new Error("generated director carries a worker/orchestrator contradiction");
 }
 
-// Every alias composes to its canonical preset without adding a ninth wire
+// Every alias composes to its canonical template without adding a ninth wire
 // field. The canonical composition id is sufficient provenance for execution.
 for (const alias of staffing.aliases) {
   const { status, payload, stderr } = compose([alias.name]);
@@ -1044,7 +1044,7 @@ for (const alias of staffing.aliases) {
   const novel = compose(["novel-systems-inquiry", ...explicitAxes,
     "--rationale", "no existing stock template is a truthful reference",
     "--contract", contract]);
-  if (novel.status !== 0 || novel.payload.composition.nearestPreset !== undefined ||
+  if (novel.status !== 0 || novel.payload.composition.nearestTemplate !== undefined ||
       novel.payload.composition.promotionCandidate !== false)
     throw new Error(`truly novel bespoke composition must not invent nearest-template provenance: ${novel.stderr}`);
   for (const flag of [
@@ -1069,7 +1069,7 @@ for (const alias of staffing.aliases) {
     const ordinary = compose(["migration-forensics", "--nearest", "analyst", "--rationale", "specialized trace",
       "--contract", `@${path}`, "--no-promotion-candidate"]);
     if (ordinary.status !== 0 || ordinary.payload.composition.promotionCandidate !== false ||
-        ordinary.payload.composition.nearestPreset !== "analyst")
+        ordinary.payload.composition.nearestTemplate !== "analyst")
       throw new Error(`bespoke @file contract or explicit false promotion failed: ${ordinary.stderr}`);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
@@ -1219,7 +1219,7 @@ for (const tier of staffing.vocabulary.semanticTiers) {
     throw new Error("preset override without a reason was accepted");
   const fakeReason = compose(["integrator", "--override-reason", "no actual change"]);
   if (fakeReason.status === 0 || !fakeReason.stderr.includes("must not carry --override-reason"))
-    throw new Error("unchanged preset accepted a fake override reason");
+    throw new Error("unchanged template accepted a fake override reason");
   for (const args of [
     ["integrator", "--nearest", "analyst"],
     ["integrator", "--rationale", "not applicable"],
@@ -1440,7 +1440,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       !northAdapter.includes("one existing integrated aggregate check") ||
       !northAdapter.includes("explicitly ask for assurance"))
     throw new Error("generated North adapter lost reviewer, topology, or delivery boundaries");
-  for (const provenanceState of ["orchestration:<preset>", "orchestration:<preset>+override", "orchestration:bespoke:<id>",
+  for (const provenanceState of ["orchestration:<template>", "orchestration:<template>+override", "orchestration:bespoke:<id>",
     "orchestration:not-selected", "orchestration:legacy-debt"])
     if (!northAdapter.includes(provenanceState) || !routing.includes(provenanceState))
       throw new Error(`composition provenance state is not documented across adapters: ${provenanceState}`);

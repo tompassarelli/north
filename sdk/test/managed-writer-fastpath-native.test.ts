@@ -24,7 +24,7 @@ const PRESET: Record<string, string> = {
   live_input_epoch: "00000000-0000-4000-8000-000000000303",
   model: "gpt-5.6-sol",
   effort: "high",
-  composition_kind: "preset",
+  composition_kind: "template",
   composition_id: "integrator",
   composition_overrides: "[]",
   repo: "north",

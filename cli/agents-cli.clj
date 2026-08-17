@@ -157,7 +157,7 @@
                  (let [name (:name r)]
                    [name (-> (merge defaults r)
                              (assoc :role name :orchestration-preset true
-                                    :composition {:kind "preset" :id name :overrides []}))])))
+                                    :composition {:kind "template" :id name :overrides []}))])))
           presets)))
 
 (defn orchestration-templates []
@@ -187,7 +187,7 @@
       (do
         (println (bold "ORCHESTRATION STOCK TEMPLATES — reusable starting points, not limits"))
         (println (dim "Selection ladder: exact template → justified axis override → bespoke composition."))
-        (println (dim "Machine payloads retain composition.kind=preset; this view uses the human word template."))
+        (println (dim "Machine payloads retain composition.kind=template; this view uses the human word template."))
         (doseq [{:keys [name tagline taskGrade tier deliberation topology posture
                         capabilities description]} templates]
           (println)
@@ -621,7 +621,7 @@
 
 (defn- role-axis [facts]
   (when (and (fact-one facts "role")
-             (not (#{"preset" "bespoke"} (fact-one facts "composition_kind"))))
+             (not (#{"template" "bespoke"} (fact-one facts "composition_kind"))))
     (str " · role:" (slug (fact-one facts "role")))))
 
 (defn semantic-handle [id facts]
@@ -968,7 +968,7 @@
     (println "  Without --nearest, explicitly set task grade, topology, tier, reasoning, and posture.")
     (println "  Domain requirements remain an explicit empty list when --domain is omitted.")
     (println "  --promotion-candidate nominates recurrence for human review; default is false.")
-    (println "  --composition JSON|@file is the advanced full payload form (machine kinds: preset|bespoke).")
+    (println "  --composition JSON|@file is the advanced full payload form (machine kinds: template|bespoke).")
     (println)
     (println "Routing and control:")
     (println "  Mutation-capable compositions default to a managed worktree lane.")
@@ -1109,7 +1109,7 @@
   (let [role (first positionals)
         templates (or (orchestration-routing) {})
         supplied-composition (parse-json-input "--composition" composition)
-        nearest-role (or nearest (:nearestPreset supplied-composition))
+        nearest-role (or nearest (:nearestTemplate supplied-composition))
         base (or (get templates role) (get templates nearest-role))]
     (or topology (:topology base))))
 
@@ -1327,13 +1327,13 @@
         routing-assessment (parse-json-input "--assessment" assessment)
         pin-evidence (parse-json-input "--pin-evidence" pinEvidence)
         override-reason-conflict
-        (and (= "preset" (:kind raw-supplied-composition))
+        (and (= "template" (:kind raw-supplied-composition))
              overrideReason
              (contains? raw-supplied-composition :overrideReason)
              (not= overrideReason (:overrideReason raw-supplied-composition)))
         supplied-composition
         (cond-> raw-supplied-composition
-          (and (= "preset" (:kind raw-supplied-composition))
+          (and (= "template" (:kind raw-supplied-composition))
                overrideReason
                (not (contains? raw-supplied-composition :overrideReason)))
           (assoc :overrideReason overrideReason))
@@ -1341,7 +1341,7 @@
         canonical (get dt invoked-role)
         bespoke? (and invoked-role (nil? canonical))
         bespoke-reason (or rationale (:bespokeReason supplied-composition))
-        nearest-role (or nearest (:nearestPreset supplied-composition))
+        nearest-role (or nearest (:nearestTemplate supplied-composition))
         nearest-template (get dt nearest-role)
         contract-value (or supplied-contract (:contract supplied-composition))
         catalog-capability-order (vec (get-in catalog [:vocabulary :capabilities]))
@@ -1383,8 +1383,8 @@
                                 (cond-> {:kind "bespoke" :id invoked-role
                                          :bespokeReason bespoke-reason :promotionCandidate promotion-value
                                          :contract contract-value}
-                                  nearest-role (assoc :nearestPreset nearest-role))
-                                (cond-> {:kind "preset" :id selected-role
+                                  nearest-role (assoc :nearestTemplate nearest-role))
+                                (cond-> {:kind "template" :id selected-role
                                          :overrides actual-overrides}
                                   (seq actual-overrides) (assoc :overrideReason overrideReason)))
         selected-composition (or supplied-composition generated-composition)
@@ -1397,8 +1397,8 @@
                              (topology-capability-problem selected-topology normalized-selected-capabilities))
         composition-kind (when (map? selected-composition) (:kind selected-composition))
         allowed-composition-fields (case composition-kind
-                                     "preset" #{:kind :id :overrides :overrideReason}
-                                     "bespoke" #{:kind :id :nearestPreset :bespokeReason :promotionCandidate :contract}
+                                     "template" #{:kind :id :overrides :overrideReason}
+                                     "bespoke" #{:kind :id :nearestTemplate :bespokeReason :promotionCandidate :contract}
                                      #{})
         unknown-composition-fields (when (map? selected-composition)
                                      (seq (remove allowed-composition-fields (keys selected-composition))))
@@ -1431,12 +1431,12 @@
       (do (println (red "--topology applies only to bespoke compositions; stock-template topology is fixed"))
           (System/exit 1))
       (and bespoke? overrideReason)
-      (do (println (red "--override-reason applies only to preset axis overrides")) (System/exit 1))
+      (do (println (red "--override-reason applies only to template axis overrides")) (System/exit 1))
       override-reason-conflict
       (do (println (red "--override-reason conflicts with composition.overrideReason"))
           (System/exit 1))
       (and bespoke? nearest-role (nil? nearest-template))
-      (do (println (red (str "unknown nearest preset: " nearest-role))) (System/exit 1))
+      (do (println (red (str "unknown nearest template: " nearest-role))) (System/exit 1))
       missing-bespoke-axes
       (do (println (red (str "bespoke composition without --nearest must explicitly set: "
                             (str/join ", " missing-bespoke-axes))))
@@ -1447,8 +1447,8 @@
       (do (println (red (str "bespoke role " invoked-role " requires --contract JSON|@file or composition.contract"))) (System/exit 1))
       (and supplied-composition rationale (not= rationale (:bespokeReason supplied-composition)))
       (do (println (red "--rationale conflicts with composition.bespokeReason")) (System/exit 1))
-      (and supplied-composition nearest (not= nearest (:nearestPreset supplied-composition)))
-      (do (println (red "--nearest conflicts with composition.nearestPreset")) (System/exit 1))
+      (and supplied-composition nearest (not= nearest (:nearestTemplate supplied-composition)))
+      (do (println (red "--nearest conflicts with composition.nearestTemplate")) (System/exit 1))
       (and supplied-composition supplied-contract (not= supplied-contract (:contract supplied-composition)))
       (do (println (red "--contract conflicts with composition.contract")) (System/exit 1))
       (and supplied-composition promotion-specified? (not= promotionCandidate (:promotionCandidate supplied-composition)))
@@ -1471,20 +1471,20 @@
       (do (println (red "composition must be a JSON object")) (System/exit 1))
       unknown-composition-fields
       (do (println (red (str "composition contains unknown fields: " (str/join ", " (map name unknown-composition-fields))))) (System/exit 1))
-      (and canonical (or (not= "preset" composition-kind) (not= selected-role (:id selected-composition))))
-      (do (println (red (str "known role " invoked-role " requires preset composition id " selected-role))) (System/exit 1))
+      (and canonical (or (not= "template" composition-kind) (not= selected-role (:id selected-composition))))
+      (do (println (red (str "known role " invoked-role " requires template composition id " selected-role))) (System/exit 1))
       (and canonical (not (valid-string-list? declared-overrides false)))
-      (do (println (red "preset composition.overrides must be an array of unique routing-axis names")) (System/exit 1))
+      (do (println (red "template composition.overrides must be an array of unique routing-axis names")) (System/exit 1))
       (and canonical (some #(not (routing-override-fields %)) declared-overrides))
       (do (println (red (str "composition.overrides may contain only: "
                             (str/join ", " (sort routing-override-fields)))))
           (System/exit 1))
       (and canonical (not= (set actual-overrides) (set declared-overrides)))
-      (do (println (red (str "composition.overrides must exactly record changed preset axes: "
+      (do (println (red (str "composition.overrides must exactly record changed template axes: "
                             (if (seq actual-overrides) (str/join ", " actual-overrides) "none"))))
           (System/exit 1))
       (and canonical (seq actual-overrides) (not (non-empty-string? (:overrideReason selected-composition))))
-      (do (println (red (str "preset axis override requires --override-reason (changed: "
+      (do (println (red (str "template axis override requires --override-reason (changed: "
                             (str/join ", " actual-overrides) ")"))) (System/exit 1))
       (and canonical (empty? actual-overrides) (contains? selected-composition :overrideReason))
       (do (println (red "unchanged preset must not carry --override-reason")) (System/exit 1))
@@ -1595,14 +1595,14 @@
                                             "effort" (or (:effort dry-route) selected-reasoning)
                                             "composition_kind" (:kind spawn-composition)
                                             "composition_id" (:id spawn-composition)
-                                            "composition_overrides" (when (= "preset" (:kind spawn-composition))
+                                            "composition_overrides" (when (= "template" (:kind spawn-composition))
                                                                       (json/generate-string (:overrides spawn-composition)))
-                                            "composition_override_reason" (when (= "preset" (:kind spawn-composition))
+                                            "composition_override_reason" (when (= "template" (:kind spawn-composition))
                                                                             (:overrideReason spawn-composition))
                                             "bespoke_reason" (when (= "bespoke" (:kind spawn-composition))
                                                                (:bespokeReason spawn-composition))
-                                            "nearest_preset" (when (= "bespoke" (:kind spawn-composition))
-                                                               (:nearestPreset spawn-composition))
+                                            "nearest_template" (when (= "bespoke" (:kind spawn-composition))
+                                                               (:nearestTemplate spawn-composition))
                                             "promotion_candidate" (when (= "bespoke" (:kind spawn-composition))
                                                                     (str (:promotionCandidate spawn-composition)))
                                             "composition_contract_sha256" contract-sha256

@@ -31,7 +31,7 @@
    "live_input_epoch" "00000000-0000-4000-8000-000000000101"
    "model" "gpt-5.6-sol"
    "effort" "high"
-   "composition_kind" "preset"
+   "composition_kind" "template"
    "composition_id" "verifier"
    "composition_overrides" "[]"
    "repo" "north"
@@ -65,7 +65,7 @@
               (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_id" "designer")))))
 
   (check "managed startup defects name invalid Orchestration provenance"
-         (= ["composition_kind(preset|bespoke)"]
+         (= ["composition_kind(template|bespoke)"]
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))
 

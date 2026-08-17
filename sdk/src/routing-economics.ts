@@ -358,7 +358,7 @@ function graphCatalogPin(): CatalogGraphPin {
 }
 
 function stockAxes(request: RoutingRequest): RoutingAdmissionReceipt["stockAxes"] {
-  if (request.composition.kind !== "preset") return undefined;
+  if (request.composition.kind !== "template") return undefined;
   const catalog = JSON.parse(readFileSync(
     process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH, "utf8",
   )) as { presets?: Array<Record<string, unknown>> };
@@ -416,7 +416,7 @@ export function admitRoutingEconomics(args: {
     openai: fileDigest(resolve(orchestrationRoot, "providers/openai.json")),
   };
   const stock = stockAxes(args.request);
-  const overrides = args.request.composition.kind === "preset"
+  const overrides = args.request.composition.kind === "template"
     ? [...args.request.composition.overrides] : [];
   const receipt: RoutingAdmissionReceipt = {
     version: 1,

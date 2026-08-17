@@ -73,7 +73,7 @@ function applyRouteAssignment(
   }
   const field = assignment.axis === "model-tier" ? "tier" : "reasoning";
   const nextValue = assignment.armId as RoutingTier | ReasoningLevel;
-  const composition = request.composition.kind === "preset"
+  const composition = request.composition.kind === "template"
     ? {
       ...request.composition,
       overrides: [...new Set([...request.composition.overrides, field])],

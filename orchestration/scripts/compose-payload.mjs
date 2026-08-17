@@ -94,7 +94,7 @@ function main() {
     role, taskGrade: preset.taskGrade, domainRequirements: [],
     topology: preset.topology, tier, reasoning: resolved.reasoning,
     posture: preset.posture,
-    composition: { kind: "preset", id: role, overrides },
+    composition: { kind: "template", id: role, overrides },
   };
 
   const parts = [

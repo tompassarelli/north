@@ -19,7 +19,7 @@ const IDENTITY_PREDICATES = [
   "kind", "role", "model", "provider", "provider_target", "live_input",
   "live_input_state", "live_input_epoch", "effort",
   "composition_kind", "composition_id", "composition_overrides",
-  "composition_override_reason", "nearest_preset", "bespoke_reason",
+  "composition_override_reason", "nearest_template", "bespoke_reason",
   "promotion_candidate", "composition_contract_sha256",
   "composition_contract_fingerprint_version", "composition_contract_fingerprint_domain",
   "repo", "goal", "worktree", "branch", "coordinator", "spawned_at",
@@ -110,7 +110,7 @@ export function validPublishProjection(projection: Record<string, string>): bool
     "bespoke_reason", "promotion_candidate", "composition_contract_sha256",
     "composition_contract_fingerprint_version", "composition_contract_fingerprint_domain",
   ];
-  if (projection.composition_kind === "preset") {
+  if (projection.composition_kind === "template") {
     if (!("composition_overrides" in projection)) return false;
     if (bespokeOnly.some((p) => p in projection)) return false;
   } else if (projection.composition_kind === "bespoke") {

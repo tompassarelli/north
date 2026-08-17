@@ -323,7 +323,7 @@
            {:online true}
            (managed
             {"kind" "lane" "provider" "anthropic" "model" "opus" "effort" "xhigh"
-             "composition_kind" "preset" "role" "designer" "composition_id" "designer"
+             "composition_kind" "template" "role" "designer" "composition_id" "designer"
              "composition_overrides" "[]" "goal" "Stale lane goal"
              "display_name" "STALE presentation receipt"})
            {"current_thread" "Current session task"})))
@@ -333,7 +333,7 @@
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "anthropic" "model" "claude-opus-4-8"
-                                "effort" "xhigh" "composition_kind" "preset"
+                                "effort" "xhigh" "composition_kind" "template"
                                 "role" "designer" "composition_id" "designer"
                                 "composition_overrides" "[]" "goal" "build the roster"}))))
 
@@ -357,7 +357,7 @@
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "openai" "provider_target" "codex-work"
-                                "model" "gpt-5.6-sol" "effort" "high" "composition_kind" "preset"
+                                "model" "gpt-5.6-sol" "effort" "high" "composition_kind" "template"
                                 "role" "designer" "composition_id" "designer"
                                 "composition_overrides" "[]" "goal" "trace schema"}))))
 
@@ -366,7 +366,7 @@
           (agent-primary-line {:online true}
                               (managed
                                {"kind" "lane" "provider" "openai" "model" "gpt-5.6-sol"
-                                "effort" "xhigh" "composition_kind" "preset"
+                                "effort" "xhigh" "composition_kind" "template"
                                 "role" "integrator" "composition_id" "integrator"
                                 "composition_overrides" "[\"tier\",\"reasoning\"]"
                                 "composition_override_reason" "high leverage seam"
@@ -377,7 +377,7 @@
         (agent-primary-line {:online true}
                             (managed
                              {"kind" "lane" "provider" "openai" "model" "gpt-5.6-sol"
-                              "effort" "xhigh" "composition_kind" "preset"
+                              "effort" "xhigh" "composition_kind" "template"
                               "role" "integrator" "composition_id" "integrator"
                               "composition_overrides" "[\"tier\"]"}))
         "orchestration:legacy-debt"))
@@ -387,7 +387,7 @@
         (agent-primary-line {:online true}
                             (managed
                              {"kind" "lane" "provider" "anthropic" "provider_target" "anthropic"
-                              "model" "opus" "effort" "high" "composition_kind" "preset"
+                              "model" "opus" "effort" "high" "composition_kind" "template"
                               "role" "integrator" "composition_id" "integrator"
                               "composition_overrides" "[]"}))
         "anthropic:ambient · opus · high · orchestration:integrator"))
@@ -605,7 +605,7 @@
           (semantic-handle "sdk-a205e9ce"
                            (managed
                             {"kind" "lane" "provider" "openai" "model" "gpt-5.6-sol"
-                             "effort" "xhigh" "composition_kind" "preset"
+                             "effort" "xhigh" "composition_kind" "template"
                              "role" "designer" "composition_id" "designer"
                              "composition_overrides" "[]"
                              "display_handle" "openai-sol-high-designer-a205e9ce"}))))
@@ -668,13 +668,13 @@
                           {:agents
                            {"lane-active" {"kind" "lane" "provider" "openai"
                                            "model" "gpt-5.6-sol" "effort" "high"
-                                           "role" "integrator" "composition_kind" "preset"
+                                           "role" "integrator" "composition_kind" "template"
                                            "composition_id" "integrator" "composition_overrides" "[]"}
                             "session-active" {"kind" "session" "provider" "anthropic"
                                               "model" "claude-opus-4-8" "effort" "xhigh"}
                             "lane-done" {"kind" "lane" "provider" "openai"
                                          "model" "gpt-5.6-sol" "effort" "high"
-                                         "role" "designer" "composition_kind" "preset"
+                                         "role" "designer" "composition_kind" "template"
                                          "composition_id" "designer" "composition_overrides" "[]"
                                          "process_outcome" "ran"
                                          "delivery_outcome" "unverified"
@@ -805,7 +805,7 @@
                              "exact template → justified axis override → bespoke composition")
               (str/includes? (:out templates) "integrator")
               (str/includes? (:out templates) "grade senior · senior/high · worker · deliver")
-              (str/includes? (:out templates) "composition.kind=preset"))))
+              (str/includes? (:out templates) "composition.kind=template"))))
 
 (let [card (proc/shell {:out :string :err :string :continue true}
                        (str root "/bin/north") "help")]

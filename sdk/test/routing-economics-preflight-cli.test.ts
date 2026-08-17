@@ -21,7 +21,7 @@ function executorRequest() {
   return {
     role: "executor", taskGrade: "novice", domainRequirements: [], topology: "worker",
     tier: "economy", reasoning: "low", posture: "deliver",
-    composition: { kind: "preset", id: "executor", overrides: [] },
+    composition: { kind: "template", id: "executor", overrides: [] },
   };
 }
 
