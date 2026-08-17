@@ -58,6 +58,23 @@ for file in "${files[@]}"; do
   fi
 done
 
+warm_isolated_fram_server() {
+  local fram_home fram_server
+  fram_home="${FRAM_TEST_CHECKOUT:-${FRAM_HOME:-/home/tom/code/fram/main}}"
+  fram_server="$fram_home/bin/fram-server"
+  if [[ ! -x "$fram_server" ]]; then
+    echo "isolated Fram server warm-up requires $fram_server" >&2
+    exit 1
+  fi
+  if ! (
+    cd "$fram_home"
+    FRAM_SERVER_RUNTIME=jvm-dev clojure -P -M server.clj
+  ); then
+    echo "isolated Fram server dependency preparation failed" >&2
+    exit 1
+  fi
+}
+
 scratch="$(mktemp -d -t north-sdk-tests.XXXXXX)"
 cleanup() {
   rm -rf "${scratch:?}"
@@ -183,6 +200,9 @@ done
 }
 
 run_lane "${parallel_files[@]}"
+if ((${#server_files[@]} != 0)); then
+  warm_isolated_fram_server
+fi
 file_concurrency=1 run_lane "${server_files[@]}"
 
 if [[ "$installed_smoke" == 1 ]] && \
