@@ -115,7 +115,6 @@ test("raw SDK spawn and dispatch reject workers before admission, driver, or pro
     const { spawn, spawnParallel } = await import("./support/spawn");
     await expect(spawn({
       prompt: "must not execute",
-      role: "director",
       routingMetadata: { role: "director", topology: "orchestrator" },
       queryFn: () => {
         providerCalls++;

@@ -615,7 +615,6 @@ async function runDispatch(
       self: agentId,
       extraTools: postureTools,
       model: resolved.model,
-      effort: resolved.effort,
       provider: routing.provider,
       modelAvailability: {
         exactModelPinned: requestedModel !== undefined,
