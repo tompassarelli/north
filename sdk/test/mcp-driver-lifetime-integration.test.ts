@@ -91,6 +91,7 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
     BEAGLE_STORE_HOME: store.home,
     BEAGLE_STORE_BIN: store.bin,
     BEAGLE_STORE_OUT: store.out,
+    NORTH_STORE_OUT: store.out,
     BABASHKA_CLASSPATH: store.out,
     BEAGLE_STORE_SINGLE_VALUED: "title driver",
   });
