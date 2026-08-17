@@ -164,8 +164,6 @@
    :summary "API-billing budget: cap, reserved, settled, headroom"}
   {:verb "ccr" :form "north ccr prepare|retrieve" :topic :routing
    :summary "default-off structured-output CCR canary"}
-  {:verb "handoff" :form "north handoff" :topic :routing :status :legacy
-   :summary "renamed — use north failover"}
   {:verb "provider-observe" :form "north provider-observe" :topic :routing
    :status :internal
    :summary "machine-ingestion surface for provider telemetry"}

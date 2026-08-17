@@ -78,7 +78,6 @@ ROUTING — providers, accounts, dispatch posture
                                                 fire --thread ID --brief PATH [--dry-run] — only fire may launch
   north spend status|init|override              API-billing budget: cap, reserved, settled, headroom
   north ccr prepare|retrieve                    default-off structured-output CCR canary
-  north handoff                                 legacy — renamed — use north failover
 
 STORE — the fact corpus and its schema
   north schema                    vocabulary census: subjects/facts by kind + predicate metadata
