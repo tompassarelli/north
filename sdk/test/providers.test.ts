@@ -158,13 +158,11 @@ test("explicit provider wins but exhausted explicit entitlement errors", () => {
 test("target pressure is independent and auto considers every configured account", () => {
   const decision = selectProviderFromAvailability("auto", accountAvailability, accountPolicy({
     targetPressures: { "claude-personal": "exhausted", "claude-work": "low", "codex-personal": "normal" },
-    targetPressures: { anthropic: "exhausted", openai: "normal" },
   }));
   expect(decision.target).toBe("claude-work");
   expect(decision.provider).toBe("anthropic");
   expect(decision.entitlementPressure).toBe("low");
   expect(decision.targetEntitlementPressures["claude-personal"]).toBe("exhausted");
-  expect(decision.entitlementPressures.anthropic).toBe("exhausted");
   expect(decision.fallbackTargets).toEqual(["codex-personal"]);
   expect(decision.fallbackProviders).toEqual(["openai"]);
 });
@@ -573,9 +571,9 @@ test("reserved allocation preserves a frontier provider for non-frontier work", 
   const normal = selectProviderFromAvailability("auto", available, reserved, "standard", "normal");
   const frontier = selectProviderFromAvailability("auto", available, reserved, "frontier", "frontier");
   expect(normal.provider).toBe("openai");
-  expect(normal.reason).toContain("preserving frontier reserve=anthropic");
+  expect(normal.selectionReason).toContain("preserving frontier reserve=anthropic");
   expect(frontier.provider).toBe("anthropic");
-  expect(frontier.reason).toContain("frontier reserve=anthropic");
+  expect(frontier.selectionReason).toContain("frontier reserve=anthropic");
 });
 
 test("reserved allocation exhausts non-reserve fallbacks before the frontier account", () => {
