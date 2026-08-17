@@ -140,6 +140,20 @@ function fakeTerminationHost() {
   };
 }
 
+function readyFeedSubscription(): FeedSubscription {
+  return Object.assign(async () => {}, {
+    ready: Promise.resolve(),
+    caughtUp: Promise.resolve(),
+    replay: async () => {},
+    drain: async () => {},
+    isArmed: () => true,
+  });
+}
+
+function subscribeReadyFeed(): FeedSubscription {
+  return readyFeedSubscription();
+}
+
 async function eventuallyTrue(
   predicate: () => boolean,
   label: string,
@@ -1157,6 +1171,7 @@ test("dispatch repairs one empty managed-Codex terminal in the retained iterator
       routingMetadata: presetRequest("integrator"),
       pinEvidence: pinEvidence("openai"),
       queryFn,
+      feedSubscriber: subscribeReadyFeed,
       claimDriver: () => ({ release: () => true }),
       loadThreadFacts: () => [
         { predicate: "title", value: "Finish after an empty first turn" },
@@ -2005,6 +2020,7 @@ test("a spawn orchestrator gets a provider reduction turn after child settlement
     role: "director",
           routingMetadata: presetRequest("director"),
     queryFn,
+    feedSubscriber: subscribeReadyFeed,
     childSettlementReader: () =>
       settlements[Math.min(settlementIndex++, settlements.length - 1)]!,
   });
@@ -2045,6 +2061,7 @@ test("an orchestrator reduction continuation racing a closing provider stream bl
     routingMetadata: presetRequest("director"),
     coordinator: TEST_COORDINATOR,
     queryFn,
+    feedSubscriber: subscribeReadyFeed,
     childSettlementReader: () => settlement,
   });
 
@@ -2733,6 +2750,7 @@ test("spawn and dispatch force a zero-child director to dispatch two children be
         role: "director",
         routingMetadata: presetRequest("director"),
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         childSettlementReader,
       });
     } else {
@@ -2741,6 +2759,7 @@ test("spawn and dispatch force a zero-child director to dispatch two children be
         routingMetadata: presetRequest("director"),
         claimDriver: (() => ({ release() {} })) as any,
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         loadThreadFacts: () => [
           { predicate: "title", value: "Coordinate two independent children" },
           { predicate: "planned", value: "true" },
@@ -2779,6 +2798,7 @@ test("a spawn orchestrator hits a bounded no-progress cap as incomplete, never r
           routingMetadata: presetRequest("director"),
       coordinator: TEST_COORDINATOR,
       queryFn,
+      feedSubscriber: subscribeReadyFeed,
       childSettlementReader: () => ({
         kind: "live", children: ["@agent:stuck-child"], live: ["@agent:stuck-child"],
       }),
@@ -2884,6 +2904,7 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
           role: "director",
           routingMetadata: presetRequest("director"),
           queryFn,
+          feedSubscriber: subscribeReadyFeed,
           childSettlementReader,
         });
       } else {
@@ -2892,6 +2913,7 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
           routingMetadata: presetRequest("director"),
           claimDriver: (() => ({ release() {} })) as any,
           queryFn,
+          feedSubscriber: subscribeReadyFeed,
           loadThreadFacts: () => [
             { predicate: "title", value: "Reduce settled child results" },
             { predicate: "planned", value: "true" },
@@ -2951,6 +2973,7 @@ test("spawn and dispatch block a previously live child disappearing from the gra
         role: "director",
           routingMetadata: presetRequest("director"),
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         childSettlementReader,
       });
     } else {
@@ -2959,6 +2982,7 @@ test("spawn and dispatch block a previously live child disappearing from the gra
         routingMetadata: presetRequest("director"),
         claimDriver: (() => ({ release() {} })) as any,
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         loadThreadFacts: () => [
           { predicate: "title", value: "Observe a disappearing child" },
           { predicate: "planned", value: "true" },
@@ -3018,6 +3042,7 @@ test("spawn and dispatch final gates reject a child disappearing after reduction
         role: "director",
           routingMetadata: presetRequest("director"),
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         childSettlementReader,
       });
     } else {
@@ -3026,6 +3051,7 @@ test("spawn and dispatch final gates reject a child disappearing after reduction
         routingMetadata: presetRequest("director"),
         claimDriver: (() => ({ release() {} })) as any,
         queryFn,
+        feedSubscriber: subscribeReadyFeed,
         loadThreadFacts: () => [
           { predicate: "title", value: "Exercise the post-reduction final race" },
           { predicate: "planned", value: "true" },
@@ -3111,6 +3137,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
           role: "director",
           routingMetadata: presetRequest("director"),
           queryFn: reducedTerminalQuery,
+          feedSubscriber: subscribeReadyFeed,
           childSettlementReader,
         });
       } else {
@@ -3119,6 +3146,7 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
           routingMetadata: presetRequest("director"),
           claimDriver: (() => ({ release() {} })) as any,
           queryFn: reducedTerminalQuery,
+          feedSubscriber: subscribeReadyFeed,
           loadThreadFacts: () => [
             { predicate: "title", value: "Exercise dispatch child gate" },
             { predicate: "planned", value: "true" },
