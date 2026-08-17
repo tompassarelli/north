@@ -82,8 +82,12 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
   const coordinationEnvironment = framEngineEnvironment({
     ...process.env,
     NORTH_PORT: String(port),
+    FRAM_SERVER_PORT: String(port),
     FRAM_LOG: log,
     FRAM_SPACE_ID: spaceId,
+    NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
+    NORTH_TELEMETRY_PORT: String(port === 65535 ? port - 1 : port + 1),
+    NORTH_TELEMETRY_PARTITION: "0",
     FRAM_HOME: fram.home,
     FRAM_BIN: fram.bin,
     FRAM_OUT: fram.out,
