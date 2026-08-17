@@ -33,6 +33,17 @@
               :ruleCodes ["reasoning-shape:deterministic"]}
     :selected {:tier "economy" :reasoning "low"}}))
 
+(let [captured (atom nil)]
+  (with-redefs [run (fn [_ & options]
+                      (reset! captured (apply hash-map options))
+                      {:ok true :out "{\"version\":1}"})]
+    (preflight-routing-economics! {:role "executor"} nil nil nil nil nil true)
+    (check "spawn dry-run preflight validates against the canonical file source before graph import"
+           (= "file" (get-in @captured [:env "NORTH_STAFFING_SOURCE"])))
+    (preflight-routing-economics! {:role "executor"} nil nil nil nil nil false)
+    (check "real spawn preflight retains its graph-selected environment"
+           (nil? (:env @captured)))))
+
 (let [scratch (.toFile (java.nio.file.Files/createTempDirectory
                         "north-watch-test-"
                         (make-array java.nio.file.attribute.FileAttribute 0)))

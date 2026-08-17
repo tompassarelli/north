@@ -1073,7 +1073,7 @@
            " without writing a reason to stdout or stderr"))))
 
 (defn- preflight-routing-economics!
-  [routing-metadata routing-assessment pin-evidence provider target model]
+  [routing-metadata routing-assessment pin-evidence provider target model dry?]
   (let [payload (cond-> {:routingMetadata routing-metadata}
                   routing-assessment (assoc :routingAssessment routing-assessment)
                   pin-evidence (assoc :pinEvidence pin-evidence)
@@ -1082,6 +1082,11 @@
                   model (assoc :model model))
         result (run [POLICY-BUN "run" ROUTING-ECONOMICS-PREFLIGHT-CLI]
                     :timeout routing-economics-preflight-timeout-ms
+                    ;; A dry run never publishes or consumes its receipt. Keep
+                    ;; its admission checks runnable before a coordinator has
+                    ;; imported the graph catalog; real spawns stay graph-pinned.
+                    :env (when dry?
+                           (assoc (into {} (System/getenv)) "NORTH_STAFFING_SOURCE" "file"))
                     :in (json/generate-string payload))]
     (when-not (:ok result)
       (println (red (preflight-failure-message
@@ -1515,7 +1520,7 @@
                               :tier selected-tier :reasoning selected-reasoning
                               :posture selected-posture :composition spawn-composition}
             _receipt (preflight-routing-economics!
-                      routing-metadata routing-assessment pin-evidence provider target model)
+                      routing-metadata routing-assessment pin-evidence provider target model dry?)
             _capabilities (require-pinned-provider-capabilities!
                            provider target normalized-selected-capabilities)
             struggle-policy (resolve-struggle-policy! selected-topology)
