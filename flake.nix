@@ -639,10 +639,16 @@ EOF
               --set NORTH_HOME $out \
               --set NORTH_BB ${pkgs.babashka}/bin/bb
 
-            for hook in north-mark-delegated north-on-spawn north-on-stop \
-              north-on-tooluse; do
+            for hook in north-mark-delegated north-on-stop; do
               wrapProgram "$out/bin/$hook" \
                 --prefix PATH : ${runtimePath} \
+                --set NORTH_HOME $out
+            done
+
+            for hook in north-on-spawn north-on-tooluse; do
+              wrapProgram "$out/bin/$hook" \
+                --prefix PATH : ${runtimePath} \
+                --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
                 --set NORTH_HOME $out
             done
 
@@ -684,7 +690,7 @@ EOF
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
             # FRAMRPC identity file. It is data authority, not executable code.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
@@ -699,7 +705,6 @@ EOF
             export BEAGLE_STORE_HOME="$smoke/beagle-store"
             export BEAGLE_STORE_BIN="$BEAGLE_STORE_HOME/bin"
             export BEAGLE_STORE_OUT="$BEAGLE_STORE_HOME/out"
-            export NORTH_STORE_OUT="$BEAGLE_STORE_OUT"
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/poison-home" \
               NORTH_HOME="$out" \
@@ -752,7 +757,7 @@ EOF
             ${pkgs.coreutils}/bin/env -i \
               HOME="$smoke/home" PATH= NORTH_HOME="$out" \
               BEAGLE_STORE_HOME="$BEAGLE_STORE_HOME" BEAGLE_STORE_BIN="$BEAGLE_STORE_BIN" \
-              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" NORTH_STORE_OUT="$NORTH_STORE_OUT" \
+              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" \
               $out/bin/.north-wrapped help > "$smoke/help.out"
             grep -q 'north — coordinate work, agents, and time' "$smoke/help.out"
             ${pkgs.coreutils}/bin/env -i \
@@ -917,7 +922,7 @@ EOF
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
               ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= NORTH_HOME="$out" \
               BEAGLE_STORE_HOME="$BEAGLE_STORE_HOME" BEAGLE_STORE_BIN="$BEAGLE_STORE_BIN" \
-              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" NORTH_STORE_OUT="$NORTH_STORE_OUT" \
+              BEAGLE_STORE_OUT="$BEAGLE_STORE_OUT" \
               $out/bin/.north-mcp-wrapped > "$smoke/north-mcp-tools.json"
             ${pkgs.jq}/bin/jq -e \
               '([.result.tools[] | select(.name | startswith("linear_")) | .name] | sort) == ["linear_get", "linear_import", "linear_plan", "linear_sync"]' \

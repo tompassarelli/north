@@ -4175,6 +4175,8 @@ test("NorthGraphStore never mistakes a no-coordinator message for a commit", asy
 test("NorthGraphStore resolves BEAGLE_STORE_HOME through the Beagle dispatcher", async () => {
   const directory = mkdtempSync(join(tmpdir(), "north-linear-store-home-"));
   const previousStoreHome = process.env.BEAGLE_STORE_HOME;
+  const previousStoreBin = process.env.BEAGLE_STORE_BIN;
+  const previousStoreOut = process.env.BEAGLE_STORE_OUT;
   try {
     const north = join(directory, "north");
     const beagleBin = join(directory, "beagle", "bin");
@@ -4188,12 +4190,18 @@ test("NorthGraphStore resolves BEAGLE_STORE_HOME through the Beagle dispatcher",
     chmodSync(north, 0o700);
     chmodSync(beagle, 0o700);
     process.env.BEAGLE_STORE_HOME = storeHome;
+    process.env.BEAGLE_STORE_BIN = beagleBin;
+    process.env.BEAGLE_STORE_OUT = join(storeHome, "out");
 
     await new NorthGraphStore(north).put("link:x", "kind", "integration_link");
     expect(readFileSync(calls, "utf8").trim()).toBe("store tell link:x kind integration_link");
   } finally {
     if (previousStoreHome === undefined) delete process.env.BEAGLE_STORE_HOME;
     else process.env.BEAGLE_STORE_HOME = previousStoreHome;
+    if (previousStoreBin === undefined) delete process.env.BEAGLE_STORE_BIN;
+    else process.env.BEAGLE_STORE_BIN = previousStoreBin;
+    if (previousStoreOut === undefined) delete process.env.BEAGLE_STORE_OUT;
+    else process.env.BEAGLE_STORE_OUT = previousStoreOut;
     rmSync(directory, { recursive: true, force: true });
   }
 });

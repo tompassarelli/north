@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-STORE="${BEAGLE_STORE_HOME:-/home/tom/code/beagle/main/store}"
+STORE="${BEAGLE_STORE_HOME:?arena-seed-test requires the explicit Beagle Store selection}"
 TMP="$(mktemp -d)"
 LOG="$TMP/history.framlog"
 SERVER_LOG="$TMP/server.log"

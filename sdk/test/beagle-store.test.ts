@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
-import { join } from "node:path";
 import {
-  BEAGLE_STORE_RUNTIME_HOME,
   MIN_BEAGLE_STORE_COORDINATOR_CHILD_TIMEOUT_MS,
   beagleStoreBabashkaArguments,
   beagleStoreCoordinatorChildTimeout,
@@ -11,7 +9,7 @@ import {
   settleBeagleStoreCoordinatorChild,
 } from "../src/beagle-store";
 
-test("Beagle Store engine selectors honor explicit environment independently", () => {
+test("Beagle Store uses one explicit home, bin, and out selection", () => {
   const env = {
     BEAGLE_STORE_HOME: "/explicit/home",
     BEAGLE_STORE_BIN: "/independent/bin",
@@ -34,26 +32,47 @@ test("Beagle Store engine selectors honor explicit environment independently", (
   ]);
 });
 
-test("unset Beagle Store engine selectors default independently to the promoted runtime", () => {
-  const selection = beagleStoreSelection({ HOME: "/different/home" });
-  expect(selection).toEqual({
-    home: BEAGLE_STORE_RUNTIME_HOME,
-    bin: join(BEAGLE_STORE_RUNTIME_HOME, "bin"),
-    out: join(BEAGLE_STORE_RUNTIME_HOME, "out"),
-  });
-  expect(beagleStoreSelection({ HOME: "/home/tom", BEAGLE_STORE_HOME: "/only/home" })).toEqual({
-    home: "/only/home",
-    bin: join(BEAGLE_STORE_RUNTIME_HOME, "bin"),
-    out: join(BEAGLE_STORE_RUNTIME_HOME, "out"),
-  });
-  expect(beagleStoreSelection({
-    HOME: "/home/tom",
-    BEAGLE_STORE_HOME: "   ",
-    BEAGLE_STORE_BIN: " ",
-    BEAGLE_STORE_OUT: "\t",
-  })).toEqual({ home: "   ", bin: " ", out: "\t" });
-  expect(beagleStoreExecutable({ BEAGLE_STORE_HOME: "/exact/beagle/store" }))
-    .toBe("/exact/beagle/bin/beagle");
+test("the Store selection matrix has explicit, installed, and absent cases", () => {
+  const matrix = [
+    {
+      name: "explicit",
+      env: {
+        BEAGLE_STORE_HOME: "/explicit/home",
+        BEAGLE_STORE_BIN: "/explicit/home/bin",
+        BEAGLE_STORE_OUT: "/explicit/home/out",
+      },
+      expected: {
+        home: "/explicit/home", bin: "/explicit/home/bin", out: "/explicit/home/out",
+      },
+    },
+    {
+      name: "installed",
+      env: {
+        BEAGLE_STORE_HOME: "/nix/store/beagle/store",
+        BEAGLE_STORE_BIN: "/nix/store/beagle/store/bin",
+        BEAGLE_STORE_OUT: "/nix/store/beagle/store/out",
+      },
+      expected: {
+        home: "/nix/store/beagle/store", bin: "/nix/store/beagle/store/bin",
+        out: "/nix/store/beagle/store/out",
+      },
+    },
+  ] as const;
+  for (const current of matrix) {
+    expect(beagleStoreSelection(current.env), current.name).toEqual(current.expected);
+  }
+  expect(() => beagleStoreSelection({ HOME: "/home/tom" }), "absent")
+    .toThrow("BEAGLE_STORE_HOME, BEAGLE_STORE_BIN, BEAGLE_STORE_OUT");
+  expect(() => beagleStoreSelection({
+    BEAGLE_STORE_HOME: " ", BEAGLE_STORE_BIN: "/bin", BEAGLE_STORE_OUT: "/out",
+  })).toThrow("BEAGLE_STORE_HOME");
+  expect(() => beagleStoreExecutable({ BEAGLE_STORE_HOME: "/exact/beagle/store" }))
+    .toThrow("BEAGLE_STORE_BIN");
+  expect(beagleStoreExecutable({
+    BEAGLE_STORE_HOME: "/exact/beagle/store",
+    BEAGLE_STORE_BIN: "/exact/beagle/bin",
+    BEAGLE_STORE_OUT: "/exact/beagle/out",
+  })).toBe("/exact/beagle/bin/beagle");
 });
 
 test("coordinator children retain at least thirty seconds for fencing stalls", () => {

@@ -17,13 +17,13 @@
 (def ROOT
   (some-> (System/getProperty "babashka.file")
           io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def STORE
-  (.getCanonicalPath
-   (io/file (or (System/getenv "BEAGLE_STORE_HOME")
-                "/home/tom/code/beagle/main/store"))))
-(def STORE-OUT
-  (.getCanonicalPath
-   (io/file (or (System/getenv "BEAGLE_STORE_OUT") (str STORE "/out")))))
+(defn required-store-selection [key]
+  (or (not-empty (System/getenv key))
+      (throw (ex-info (str "canonical Beagle Store selection is incomplete; missing " key)
+                      {:missing key}))))
+(def STORE (.getCanonicalPath (io/file (required-store-selection "BEAGLE_STORE_HOME"))))
+(required-store-selection "BEAGLE_STORE_BIN")
+(def STORE-OUT (.getCanonicalPath (io/file (required-store-selection "BEAGLE_STORE_OUT"))))
 
 (when-not (.isDirectory (io/file STORE-OUT))
   (throw (ex-info "current Beagle Store output is unavailable"

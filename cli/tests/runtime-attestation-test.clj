@@ -202,7 +202,6 @@
                                       "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" @closure-sha256
                                       "BEAGLE_STORE_BIN" (str source "/bin")
                                       "BEAGLE_STORE_OUT" (str source "/out")
-                                      "NORTH_STORE_OUT" (str source "/out")
                                       "NORTH_PORT" (str port)
                                       "BEAGLE_STORE_MAX_ACTIVE_CLIENTS" "64"
                                       "NORTH_TELEMETRY_PORT" "7978")))

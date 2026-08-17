@@ -21,8 +21,13 @@
 ;; this file lives in north/cli — NORTH is its repo root.
 (def SCRIPT (or (System/getProperty "babashka.file") *file*))
 (def NORTH (some-> SCRIPT io/file .getCanonicalFile .getParentFile .getParentFile str))
-(def STORE (or (System/getenv "BEAGLE_STORE_HOME")
-              (str HOME "/code/beagle/main/store")))
+(defn required-store-selection [key]
+  (or (not-empty (System/getenv key))
+      (throw (ex-info (str "canonical Beagle Store selection is incomplete; missing " key)
+                      {:missing key}))))
+(def STORE (required-store-selection "BEAGLE_STORE_HOME"))
+(required-store-selection "BEAGLE_STORE_BIN")
+(required-store-selection "BEAGLE_STORE_OUT")
 (def BEAGLE (or (System/getenv "BEAGLE_HOME") (str HOME "/code/beagle/main")))
 (def NIXCFG (or (System/getenv "NIXOS_CONFIG_HOME") (str HOME "/code/nixos-config")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))

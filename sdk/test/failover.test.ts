@@ -15,6 +15,11 @@ import { beagleStoreBabashkaArguments } from "../src/beagle-store";
 
 const reset = "2026-07-29T00:00:00.000Z";
 const observedAt = "2026-07-28T05:00:00.000Z";
+const storeSelection = {
+  BEAGLE_STORE_HOME: "/fixture/store",
+  BEAGLE_STORE_BIN: "/fixture/store/bin",
+  BEAGLE_STORE_OUT: "/fixture/store/out",
+};
 
 function row(
   account: string,
@@ -297,7 +302,10 @@ test("dry-run composition is complete and execution remains injectable", () => {
     northBin: "/fixture/north",
     peerBb: "/fixture/bb",
     msgCli: "/fixture/msg-cli.clj",
-    env: { AGENT_ID: "coordinator", NORTH_PORT: "9000" },
+    env: {
+      ...storeSelection,
+      AGENT_ID: "coordinator", NORTH_PORT: "9000",
+    },
     readBrief: () => "succession context",
     getChildren: () => ["child"],
     getFacts: (id) => facts.get(id) ?? [],
@@ -316,7 +324,7 @@ test("dry-run composition is complete and execution remains injectable", () => {
     "/fixture/msg-cli.clj", "9000", "send", "coordinator", "human",
     "PROVIDER FAILOVER FIRED",
     "@root -> openai/codex-heir/gpt-5.6-sol (senior); reason=provider-recovery",
-  ], { AGENT_ID: "coordinator", NORTH_PORT: "9000" }));
+  ], { ...storeSelection, AGENT_ID: "coordinator", NORTH_PORT: "9000" }));
 
   const commands: Array<[string, string[]]> = [];
   fireFailover(spawn, {
@@ -361,6 +369,7 @@ describe("failover CLI", () => {
     openaiHeir,
   ];
   const env = {
+    ...storeSelection,
     AGENT_PROVIDER: "anthropic",
     AGENT_TARGET: "claude-active",
     AGENT_MODEL: "claude-opus-5",
@@ -487,6 +496,7 @@ describe("warn-first usage detection", () => {
     openaiHeir,
   ];
   const baseEnv = {
+    ...storeSelection,
     AGENT_PROVIDER: "anthropic",
     AGENT_TARGET: "claude-active",
     AGENT_MODEL: "claude-opus-5",

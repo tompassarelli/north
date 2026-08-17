@@ -143,12 +143,11 @@ if [ -z "${NORTH_BWRAP_BIN:-}" ] && ! command -v bwrap >/dev/null 2>&1; then
   fi
   unset _north_codex_bin _north_codex_pkg _north_ref
 fi
-STORE="${BEAGLE_STORE_HOME:?north requires the Nix-published FRAMRPC environment or explicit BEAGLE_STORE_HOME}"
-BEAGLE_STORE_BIN="${BEAGLE_STORE_BIN:-$STORE/bin}"
-BEAGLE_STORE_OUT="${BEAGLE_STORE_OUT:-${NORTH_STORE_OUT:-$STORE/out}}"
-NORTH_STORE_OUT="${NORTH_STORE_OUT:-$BEAGLE_STORE_OUT}"
+STORE="${BEAGLE_STORE_HOME:?north requires the sealed Beagle Store selection}"
+: "${BEAGLE_STORE_BIN:?north requires the sealed Beagle Store selection (BEAGLE_STORE_BIN)}"
+: "${BEAGLE_STORE_OUT:?north requires the sealed Beagle Store selection (BEAGLE_STORE_OUT)}"
 BEAGLE_STORE_CLI="${BEAGLE_STORE_CLI:-${STORE%/store}/bin/beagle}"
-export BEAGLE_STORE_HOME="$STORE" BEAGLE_STORE_BIN BEAGLE_STORE_OUT NORTH_STORE_OUT
+export BEAGLE_STORE_HOME="$STORE" BEAGLE_STORE_BIN BEAGLE_STORE_OUT
 export BEAGLE_STORE_SPACE_ID="${BEAGLE_STORE_SPACE_ID:-north-coordination}"
 # Launch admission requires NORTH_PORT explicitly; export it with the same default.
 export NORTH_PORT="${NORTH_PORT:-7977}"

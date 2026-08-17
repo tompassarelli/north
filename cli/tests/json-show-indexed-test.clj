@@ -180,7 +180,6 @@
             "BEAGLE_STORE_SERVER_PORT" port
             "BEAGLE_STORE_SPACE_ID" "north-coordination"
             "NORTH_FRAMRPC_HOST" "127.0.0.1"
-            "NORTH_STORE_OUT" (str fram "/out")
             "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
             "NORTH_TELEMETRY_SPACE_ID" "north-telemetry"

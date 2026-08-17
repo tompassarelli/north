@@ -8,10 +8,10 @@ set -uo pipefail
 umask 077
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-# Composed, never literal: the packaged tree's purity scan rejects a checkout path.
-BEAGLE_STORE_HOME="${BEAGLE_STORE_HOME:-$HOME/code/beagle/main/store}"
-BEAGLE_STORE_BIN="${BEAGLE_STORE_BIN:-$BEAGLE_STORE_HOME/bin}"
-BEAGLE_STORE_OUT="${BEAGLE_STORE_OUT:-$BEAGLE_STORE_HOME/out}"
+# The installed wrapper sources the one host-published selection before this hook.
+: "${BEAGLE_STORE_HOME:?north-on-spawn requires the sealed Beagle Store selection}"
+: "${BEAGLE_STORE_BIN:?north-on-spawn requires BEAGLE_STORE_BIN}"
+: "${BEAGLE_STORE_OUT:?north-on-spawn requires BEAGLE_STORE_OUT}"
 NORTH_RUNTIME_CLASSPATH="$NORTH_HOME/out:$BEAGLE_STORE_OUT"
 BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
 export NORTH_HOME BEAGLE_STORE_HOME BEAGLE_STORE_BIN BEAGLE_STORE_OUT

@@ -42,7 +42,7 @@ const north = join(import.meta.dir, "../..");
 const temporary: string[] = [];
 const envKeys = [
   "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "NORTH_PORT",
-  "NORTH_FRAMRPC_HOST", "NORTH_STORE_OUT", "NORTH_TELEMETRY_PARTITION",
+  "NORTH_FRAMRPC_HOST", "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
   "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
   "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
@@ -376,7 +376,6 @@ test("managed provider shells resolve North from the admitted package before amb
 test("both providers receive the exact custom North and Beagle Store instance selectors without ambient secrets", () => {
   process.env.NORTH_PORT = "64129";
   process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
-  process.env.NORTH_STORE_OUT = "/tmp/north-authority-fram/out";
   process.env.NORTH_TELEMETRY_PARTITION = "1";
   process.env.NORTH_TELEMETRY_PORT = "64130";
   process.env.NORTH_TELEMETRY_SPACE_ID = "north-telemetry";
@@ -394,7 +393,6 @@ test("both providers receive the exact custom North and Beagle Store instance se
     expect(env).toMatchObject({
       NORTH_PORT: "64129",
       NORTH_FRAMRPC_HOST: "127.0.0.1",
-      NORTH_STORE_OUT: "/tmp/north-authority-fram/out",
       NORTH_TELEMETRY_PARTITION: "1",
       NORTH_TELEMETRY_PORT: "64130",
       NORTH_TELEMETRY_SPACE_ID: "north-telemetry",

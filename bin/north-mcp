@@ -479,7 +479,7 @@
 ;;   3. NORTH_AGENT_ID — a pinned session id (last, so an inherited pin never beats #2).
 ;; Captured from `env` BEFORE cmd-env reassigns AGENT_ID to the new lane.
 (def required-framrpc-instance-keys
-  ["BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT" "NORTH_STORE_OUT"
+  ["BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT"
    "BEAGLE_STORE_SPACE_ID" "BEAGLE_STORE_SERVER_PORT" "NORTH_PORT"
    "NORTH_TELEMETRY_SPACE_ID" "NORTH_TELEMETRY_PORT"
    "NORTH_TELEMETRY_PARTITION"])
@@ -500,7 +500,7 @@
                :missing missing})))
     (let [home (or (not-empty (get source "HOME"))
                    (System/getProperty "user.home"))
-          classpath (str root "/out:" (get source "NORTH_STORE_OUT"))]
+          classpath (str root "/out:" (get source "BEAGLE_STORE_OUT"))]
       (assoc source
              "HOME" home
              "BABASHKA_CLASSPATH" classpath

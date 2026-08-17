@@ -455,7 +455,6 @@
    :constrained
    {"BEAGLE_STORE_BIN" (.getPath (io/file source "bin"))
     "BEAGLE_STORE_OUT" (.getPath (io/file source "out"))
-    "NORTH_STORE_OUT" (.getPath (io/file source "out"))
     "BEAGLE_STORE_SERVER_ARTIFACT" server-artifact
     "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" server-artifact-sha256
     "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" native-closure-sha256

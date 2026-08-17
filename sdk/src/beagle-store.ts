@@ -1,11 +1,8 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-// The runtime selector is stable while promotions replace its current target.
-// Keep each selector independently overrideable so explicit caller environment wins.
-export const BEAGLE_STORE_RUNTIME_HOME = join(
-  homedir(), ".local/state/north/store-runtime/active/current",
-);
+export const BEAGLE_STORE_SELECTION_KEYS = [
+  "BEAGLE_STORE_HOME", "BEAGLE_STORE_BIN", "BEAGLE_STORE_OUT",
+] as const;
 
 export const MIN_BEAGLE_STORE_COORDINATOR_CHILD_TIMEOUT_MS = 30_000;
 
@@ -15,17 +12,22 @@ export interface BeagleStoreSelection {
   out: string;
 }
 
-function selected(value: string | undefined, fallback: string): string {
-  return value === undefined || value.length === 0 ? fallback : value;
-}
-
 export function beagleStoreSelection(
   env: NodeJS.ProcessEnv = process.env,
 ): BeagleStoreSelection {
+  const missing = BEAGLE_STORE_SELECTION_KEYS.filter((key) => {
+    const value = env[key];
+    return value === undefined || value.trim().length === 0;
+  });
+  if (missing.length > 0) {
+    throw new Error(
+      `canonical Beagle Store selection is incomplete; missing ${missing.join(", ")}`,
+    );
+  }
   return {
-    home: selected(env.BEAGLE_STORE_HOME, BEAGLE_STORE_RUNTIME_HOME),
-    bin: selected(env.BEAGLE_STORE_BIN, join(BEAGLE_STORE_RUNTIME_HOME, "bin")),
-    out: selected(env.BEAGLE_STORE_OUT, join(BEAGLE_STORE_RUNTIME_HOME, "out")),
+    home: env.BEAGLE_STORE_HOME!,
+    bin: env.BEAGLE_STORE_BIN!,
+    out: env.BEAGLE_STORE_OUT!,
   };
 }
 
