@@ -509,7 +509,7 @@
   `ss -tlnp` reports no `pid=` for it — the unit is the reliable source. `ss`
   remains a fallback for a coordinator started outside systemd."
   [port]
-  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-store.service"
+  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-fram.service"
                                    "-p" "MainPID" "--value"] :timeout 3000)
             pid (some-> out str/trim)]
         (when (and ok (seq pid) (not= pid "0")) pid))

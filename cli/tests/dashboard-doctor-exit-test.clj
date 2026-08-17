@@ -243,7 +243,14 @@
          (and (str/includes? doctor-source "(coord-safety-probe)")
               (str/includes? doctor-source "\"coord-safety\"")
               (str/includes? doctor-source "(cache-get \"health.edn\" 300000)")
-              (not (str/includes? doctor-source "north-health")))))
+              (not (str/includes? doctor-source "north-health"))))
+  (check "doctor attests the deployed North controller unit"
+         (str/includes? (slurp (str root "/bin/north")) "north-fram.service"))
+  (check "doctor resolves the deployed North controller PID"
+         (str/includes? public-source "\"north-fram.service\""))
+  (check "dashboard status collects the deployed North controller unit"
+         (str/includes? (slurp (str root "/cli/dashboard-collectors.clj"))
+                        "\"north-fram.service\"")))
 
 (let [failed (remove second @checks)]
   (println (str "dashboard doctor exit: " (- (count @checks) (count failed))
