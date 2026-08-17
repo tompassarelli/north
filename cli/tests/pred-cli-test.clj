@@ -8,10 +8,13 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def pred-cli (str root "/cli/pred-cli.clj"))
 (def fram-out
-  (some #(when (and % (.isDirectory (io/file %))) %)
-        [(System/getenv "FRAM_OUT")
-         (some-> (System/getenv "FRAM_TEST_CHECKOUT") (str "/out"))
-         "/home/tom/code/beagle/main/branch-core/out"]))
+  (or (some #(when (and % (.isDirectory (io/file %))) %)
+            [(System/getenv "FRAM_OUT")
+             (some-> (System/getenv "FRAM_TEST_CHECKOUT") (str "/out"))])
+      (do
+        (binding [*out* *err*]
+          (println "predicate test requires FRAM_OUT or FRAM_TEST_CHECKOUT"))
+        (System/exit 2))))
 (def checks (atom []))
 
 (defn check [label passed?]
