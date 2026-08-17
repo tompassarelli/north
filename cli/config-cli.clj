@@ -13,8 +13,7 @@
 ;; (self-references now read `north config`); the slash command renders it verbatim.
 ;;
 ;; Provider-neutral posture state lives at ~/.local/state/north/harness.conf.
-;; ~/.claude/my-config.state is a read-only migration fallback until the first
-;; canonical write. The kill-switch precedence below is a faithful inline copy
+;; The kill-switch precedence below is a faithful inline copy
 ;; of hooks/lib/authoring-killswitch.sh so report and enforcement agree.
 
 (require '[clojure.string :as str]
@@ -30,7 +29,6 @@
                     (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
                 "/cli/harness-dial.clj"))
 (def STATE           (north.harness-state/canonical-path home))
-(def LEGACY-STATE    (north.harness-state/legacy-path home))
 (def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
@@ -1518,7 +1516,7 @@
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
  dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
- state: ~/.local/state/north/harness.conf · legacy read fallback: ~/.claude/my-config.state · descriptions + advice: north config help"))
+ state: ~/.local/state/north/harness.conf · descriptions + advice: north config help"))
     (print-provider-readouts)))
 
 (defn help []

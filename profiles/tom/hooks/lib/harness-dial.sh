@@ -29,7 +29,7 @@ north_harness_state_path() {
   elif [[ -f "$HOME/.local/state/north/harness.conf" ]]; then
     builtin printf '%s\n' "$HOME/.local/state/north/harness.conf"
   else
-    builtin printf '%s\n' "$HOME/.claude/my-config.state"
+    builtin printf '%s\n' "$HOME/.local/state/north/harness.conf"
   fi
 }
 

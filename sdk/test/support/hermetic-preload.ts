@@ -279,17 +279,11 @@ if (!process.env.AGENT_LAWS_PATH) {
 // unless a test explicitly opts into its own fixture.
 //
 // No `guards=` key: authoringGuardsOff() reads that prefix only, so the file pins
-// the dispatch mode without touching guards. The legacy path is pinned too —
-// source-path falls back to ~/.claude/my-config.state when canonical is absent.
+// the dispatch mode without touching guards.
 if (!process.env.NORTH_HARNESS_STATE && !process.env.AUTHORING_KILLSWITCH_STATE) {
   const state = join(tmpdir(), `north-sdk-harness-state-${process.pid}.conf`);
   writeFileSync(state, "dispatch=managed\n");
   process.env.NORTH_HARNESS_STATE = state;
-}
-if (!process.env.NORTH_LEGACY_HARNESS_STATE) {
-  process.env.NORTH_LEGACY_HARNESS_STATE = join(
-    tmpdir(), `north-sdk-no-legacy-harness-state-${process.pid}.conf`,
-  );
 }
 
 // Snapshotted while PATH is still pristine, under a name nothing in src/ reads: a

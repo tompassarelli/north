@@ -27,8 +27,7 @@
    {:out :string :err :string :continue true
     :extra-env {"HOME" home-path
                 "NORTH_HOME" root
-                "NORTH_HARNESS_STATE" state
-                "NORTH_LEGACY_HARNESS_STATE" (str (io/file home "legacy.conf"))}}
+                "NORTH_HARNESS_STATE" state}}
    (concat ["bb" (str root "/cli/config-cli.clj")] args)))
 
 (try

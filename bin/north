@@ -98,9 +98,6 @@ if [ "${1:-}" = "config" ] && [ "${2:-}" = "dispatch" ] \
   && [ "$#" -eq 3 ] \
   && { [ "$3" = "--guard-action" ] || [ "$3" = "--managed-admission" ]; }; then
   NORTH_DISPATCH_STATE="${NORTH_HARNESS_STATE:-$HOME/.local/state/north/harness.conf}"
-  if [ ! -f "$NORTH_DISPATCH_STATE" ]; then
-    NORTH_DISPATCH_STATE="${NORTH_LEGACY_HARNESS_STATE:-$HOME/.claude/my-config.state}"
-  fi
   NORTH_DISPATCH_MODE=managed
   if [ -r "$NORTH_DISPATCH_STATE" ]; then
     while IFS= read -r NORTH_DISPATCH_LINE || [ -n "$NORTH_DISPATCH_LINE" ]; do
@@ -390,8 +387,7 @@ case "${1:-}" in
     # Personal-stack posture + durable provider routing policy.
     # + the no-arg full report. Ported from dotfiles/bin/my-agent-config (bash)
     # 2026-07-10: north is the settings surface. Provider-neutral state lives at
-    # ~/.local/state/north/harness.conf; the Claude-era path is a read-only
-    # migration fallback. cli/config-cli.clj.
+    # ~/.local/state/north/harness.conf. cli/config-cli.clj.
     exec "$BB" "$NORTH/cli/config-cli.clj" "${@:2}" ;;
   providers)
     exec "$BUN" run "$NORTH/sdk/src/providers-cli.ts" "${@:2}" ;;

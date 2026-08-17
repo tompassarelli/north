@@ -115,16 +115,9 @@ Missing keys use code defaults:
 - learning: frozen/default policy
 - routing: balanced when no routing state exists
 
-[Observed] `~/.claude/my-config.state` still exists and says:
+Harness posture state is stored at `~/.local/state/north/harness.conf`.
 
-```text
-dispatch=warn
-guards=on
-```
-
-`north:cli/harness-state.clj` reads the canonical file first and consults the legacy file only when the canonical file is absent. Any consumer that reads the legacy file directly is wrong.
-
-State writes are locked, private, and atomic. The first canonical write can seed values from the legacy file.
+State writes are locked, private, and atomic.
 
 ## A fresh Claude Code session
 
@@ -345,7 +338,7 @@ The existing `claude-native` and `codex-native` profiles are persistent profiles
 
 As of this snapshot:
 
-- Canonical state says `dispatch=auto`, while the legacy Claude state says `dispatch=warn`.
+- Canonical state says `dispatch=auto`.
 - The shared North skills farm is absent even though the source inventory contains four skills.
 - The historical Orchestration plugin files remain as archive material but no
   provider settings enable them.

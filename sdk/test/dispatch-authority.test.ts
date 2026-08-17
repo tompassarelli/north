@@ -11,9 +11,7 @@ import { spawn } from "../src/spawn";
 
 const scratch = mkdtempSync(join(tmpdir(), "north-dispatch-authority-"));
 const state = join(scratch, "state", "harness.conf");
-const legacy = join(scratch, "legacy.conf");
 const priorState = process.env.NORTH_HARNESS_STATE;
-const priorLegacy = process.env.NORTH_LEGACY_HARNESS_STATE;
 const priorTelemetryPartition = process.env.NORTH_TELEMETRY_PARTITION;
 const priorTelemetryPort = process.env.NORTH_TELEMETRY_PORT;
 
@@ -28,13 +26,11 @@ function environment(mode: string): NodeJS.ProcessEnv {
     ...process.env,
     HOME: scratch,
     NORTH_HARNESS_STATE: state,
-    NORTH_LEGACY_HARNESS_STATE: legacy,
   };
 }
 
 beforeAll(() => {
   process.env.NORTH_HARNESS_STATE = state;
-  process.env.NORTH_LEGACY_HARNESS_STATE = legacy;
   // The canonical suite may itself run in a partitioned managed lane. This
   // fixture exercises only dispatch admission, so do not inherit an unrelated
   // wrapper precondition after hermetic-preload removes the ambient telemetry
@@ -46,8 +42,6 @@ beforeAll(() => {
 afterAll(() => {
   if (priorState === undefined) delete process.env.NORTH_HARNESS_STATE;
   else process.env.NORTH_HARNESS_STATE = priorState;
-  if (priorLegacy === undefined) delete process.env.NORTH_LEGACY_HARNESS_STATE;
-  else process.env.NORTH_LEGACY_HARNESS_STATE = priorLegacy;
   if (priorTelemetryPartition === undefined) delete process.env.NORTH_TELEMETRY_PARTITION;
   else process.env.NORTH_TELEMETRY_PARTITION = priorTelemetryPartition;
   if (priorTelemetryPort === undefined) delete process.env.NORTH_TELEMETRY_PORT;
