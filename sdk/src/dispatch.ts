@@ -214,8 +214,6 @@ const DISPATCH_DEPENDENCY_FIELDS = new Set([
   "routingMetadata", "routingAssessment", "pinEvidence", "agentId", "tokenTarget",
 ]);
 
-let bootstrapLegacyPinCompatibilityGranted = false;
-
 function allowlistedDispatchDependencies(
   value: DispatchDependencies,
 ): DispatchDependencies {
@@ -1389,7 +1387,6 @@ export async function dispatch(
     provider: process.env.AGENT_PROVIDER,
     target: process.env.AGENT_TARGET,
     model: process.env.AGENT_MODEL,
-    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
     surface: "managed North dispatch routing economics",
   });
   // The detector policy is an admission input: reject malformed overrides before
@@ -1452,7 +1449,6 @@ export async function dispatch(
     provider: process.env.AGENT_PROVIDER,
     target: process.env.AGENT_TARGET,
     model: process.env.AGENT_MODEL,
-    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
     surface: "managed North dispatch learning admission",
   });
   const termination = new ManagedQueryTermination(
@@ -1537,7 +1533,6 @@ if (import.meta.main) {
   // The Clojure adapter checked the caller before replacing its environment
   // with the composed child identity. Direct library calls retain both checks.
   bootstrapAuthorityGranted = true;
-  bootstrapLegacyPinCompatibilityGranted = true;
   const threadId = process.argv[2];
   if (!threadId) {
     console.error("usage: bun run src/dispatch.ts <thread-id>");

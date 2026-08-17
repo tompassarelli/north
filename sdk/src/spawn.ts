@@ -389,11 +389,6 @@ interface RetryContext {
   retryOfAgent: string;
 }
 
-// Only the executable bootstrap can classify selectors inherited from a
-// serialized pre-evidence envelope as legacy. Programmatic callers cannot opt
-// themselves into the compatibility warning path.
-let bootstrapLegacyPinCompatibilityGranted = false;
-
 function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
   routingMetadata: RoutingRequest;
   routingEconomics: AdmittedRoutingEconomics;
@@ -422,7 +417,6 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
     provider: opts.provider,
     target: opts.target,
     model: opts.model,
-    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
     surface: "managed North spawn routing economics",
   });
   const worktree = opts.worktree
@@ -1875,7 +1869,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     provider: composed.provider,
     target: composed.target,
     model: composed.model,
-    allowLegacyMissingPinEvidence: bootstrapLegacyPinCompatibilityGranted,
     surface: "managed North spawn learning admission",
   });
   const requestedTier = composed.tier;
@@ -2078,7 +2071,6 @@ if (import.meta.main) {
   // Caller authority was enforced by the invoking adapter before it composed
   // this process's env with the child identity — see bootstrapAuthorityGranted.
   bootstrapAuthorityGranted = true;
-  bootstrapLegacyPinCompatibilityGranted = true;
   const prompt = process.argv.slice(2).join(" ");
   if (!prompt) {
     console.error("usage: bun run src/spawn.ts <prompt>");

@@ -105,7 +105,7 @@ export interface RoutingAdmissionReceipt {
     status: "none" | "composition-only" | "assessment-exception";
     exceptionCode?: RoutingExceptionCode;
   };
-  pinEvidenceStatus: "none" | "missing" | "legacy-missing" | "current";
+  pinEvidenceStatus: "none" | "current";
   /**
    * §3.2 digest pin: present only when the staffing source is the graph (the
    * Phase 2 default). It is the verified three-way-equal digest of the
@@ -379,8 +379,6 @@ export function admitRoutingEconomics(args: {
   model?: string;
   now?: Date;
   surface?: string;
-  /** Compatibility only for selectors inherited from a legacy process envelope. */
-  allowLegacyMissingPinEvidence?: boolean;
 }): AdmittedRoutingEconomics {
   const surface = args.surface ?? "managed North routing economics";
   const assessment = admitRoutingAssessment(args.routingAssessment, args.request, surface);
@@ -397,8 +395,7 @@ export function admitRoutingEconomics(args: {
       `${surface} reasoning=max requires a canonical routingAssessment with exceptional deliberation`,
     );
   }
-  if (Object.keys(explicitPins).length > 0 && !pinEvidence
-      && !args.allowLegacyMissingPinEvidence) {
+  if (Object.keys(explicitPins).length > 0 && !pinEvidence) {
     throw new Error(
       `${surface} explicit provider/account/model selectors require current typed pinEvidence`,
     );
@@ -446,8 +443,7 @@ export function admitRoutingEconomics(args: {
         ? "assessment-exception" : overrides.length ? "composition-only" : "none",
       ...(assessment?.exception ? { exceptionCode: assessment.exception.code } : {}),
     },
-    pinEvidenceStatus: Object.keys(explicitPins).length === 0
-      ? "none" : pinEvidence ? "current" : "legacy-missing",
+    pinEvidenceStatus: Object.keys(explicitPins).length === 0 ? "none" : "current",
     ...(policyPin ? { orchestrationPolicyPinSha256: policyPin } : {}),
     ...(catalogPin ? {
       orchestrationCatalogDigestSha256: catalogPin.catalogDigestSha256,
@@ -477,7 +473,6 @@ export function routingEconomicsFromEnv(request: RoutingRequest): AdmittedRoutin
     provider: process.env.AGENT_PROVIDER,
     target: process.env.AGENT_TARGET,
     model: process.env.AGENT_MODEL,
-    allowLegacyMissingPinEvidence: true,
     surface: "managed North environment routing economics",
   });
 }
