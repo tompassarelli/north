@@ -68,7 +68,7 @@ describe("managed dispatch authority", () => {
 
   test("unknown persisted values fail closed with the parser diagnostic", () => {
     expect(() => admitManagedDispatchAuthority(environment("surprise")))
-      .toThrow(/managed_dispatch_authority_unavailable: invalid dispatch mode "surprise"/);
+      .toThrow("managed_dispatch_authority_unavailable: north: invalid dispatch mode: surprise");
   });
 
   test("spawn and dispatch reject native before request or provider admission", async () => {
