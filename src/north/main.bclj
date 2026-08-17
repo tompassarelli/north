@@ -3,7 +3,7 @@
   "North life CLI: the lifecycle/projection verbs (ready, blocked, leverage,
   next, agenda, board, capture, needs-review, audit, boot, json). Runs on
   the Beagle Store engine (store.*); engine verbs (tell/set/import/...) are routed to
-  the fram CLI by the bin/north wrapper."
+  the Beagle Store CLI by the bin/north wrapper."
   (:gen-class))
 
 (require store.kernel-classify :as kc)
@@ -121,7 +121,7 @@
 
 ;; --- ref resolution: @id OR @handle -> canonical @id ------------------------
 ;; The view/boundary concern. An id is an opaque immutable key; a handle is an
-;; optional mutable human alias. fram NEVER sees a handle — capture/tell/CLI hand
+;; optional mutable human alias. Beagle Store NEVER sees a handle — capture/tell/CLI hand
 ;; it a ref, this maps it to the canonical id first. Passthrough when the ref
 ;; already names a thread (has a title); else find a thread whose `handle` fact
 ;; equals the ref (sans @), latest created_at winning ties; else ref unchanged.

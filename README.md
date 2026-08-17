@@ -12,7 +12,7 @@ threads too, so a running lane, its run ledger, its done-bar evidence, and the
 intention it was spawned to serve all sit in the same graph as your own work,
 and one query reads both. North supplies the coordination vocabulary and the
 lifecycle derivations; the storage engine underneath is
-[Beagle Store](https://github.com/Autonymy/fram), a slot-addressable typed-triple
+[Beagle Store](https://github.com/tompassarelli/beagle), a slot-addressable typed-triple
 substrate.
 
 ## Documentation
