@@ -1181,22 +1181,6 @@
       (let [self-result (run-writer port "attest" worker-subject
                                     (json/generate-string {"actor" worker-subject}))]
         (check "delivery worker cannot self-attest" (not (zero? (:exit self-result)))))
-      (let [attested-result
-            (proc/shell {:out :string :err :string :continue true
-                         :extra-env {"AGENT_ID" "delivery-verifier"
-                                     "NORTH_PORT" (str port)
-                                     "BEAGLE_STORE_LOG" @test-log}}
-                        (str root "/bin/north") "delivery" "attest"
-                        "delivery-worker")
-            stored (scalar-facts (entity-facts port worker-subject))]
-        (check "public north delivery attest fails closed under shared-UID lanes"
-               (and (not (zero? (:exit attested-result)))
-                    (= "reported"
-                       (north.terminal-projection/terminal-delivery-outcome stored))
-                    (nil? (get stored "delivery_attestation"))))
-        (check "failed attestation leaves the reported terminal manifest intact"
-               (= (get stored "terminal_manifest_sha256")
-                  (north.terminal-projection/terminal-manifest-sha256 stored)))))
     (finally
       (proc/destroy-tree daemon)
       (try @daemon (catch Exception _ nil))

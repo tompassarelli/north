@@ -415,10 +415,6 @@ case "${1:-}" in
     # (each prints the primitive it runs); reserve/settle/headroom are machine
     # verbs the admission + terminal seams shell out to.
     exec "$BB" "$NORTH/cli/spend-cli.clj" "${@:2}" ;;
-  delivery)
-    # Historical attestation surface. Shared-UID agents cannot establish an
-    # independent verifier boundary, so promotion fails closed.
-    exec "$BUN" run "$NORTH/sdk/src/delivery-attest.ts" "${@:2}" ;;
   evidence)
     # Capability-bound self-reporting surface. Run/thread/reporter are inherited
     # from the managed child environment; callers supply only exact bar + result.

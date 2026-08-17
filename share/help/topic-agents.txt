@@ -1,31 +1,30 @@
 north help agents — delegate work, drive and observe agents
 
-  north delegate "<task>"           hand work to a new lane; intake classifies atomic vs composite
-                                    --role <worker> — atomic: exactly one selected worker
-                                    --composite — 2+ independent pieces: hydrates an orchestrator
-                                    --thread <id> — bind an existing thread
-                                    in chat, /delegate does this with session context riding along
-  north agents [--json]             live agents now + the stable machine roster
-  north lanes                       last 24h lane receipts: done, failed, working, killed, or never acknowledged
-  north spawn <role> "<prompt>"     compose a worker from Orchestration's staffing catalog
-                                    --provider auto|anthropic|openai — select or auto-route the provider
-                                    --taskGrade/--domain — independently override stock staffing axes
-                                    --topology — bespoke compositions only; stock topology is fixed
-                                    --tier/--reasoning/--posture — capability, deliberation, posture
-                                    --assessment JSON|@file — selection sidecar (required for max)
-                                    --pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins
-                                    --rationale "why" — required for a bespoke role
-                                    --doctor [--deep|--canary|--json] — test every dispatch invariant at once
-                                    in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
-  north templates                   Orchestration's reusable stock templates and routing defaults
-  north watch <id>                  tail an agent's transcript
-  north msg <id> "<msg>"            inject a message into a running agent
-  north goal <id> "<goal>"          redirect a running agent's goal
-  north trace <id>                  diagnose one agent's lifecycle; flags the first failing stage
-  north wip [--check]               live managed lanes vs floor (--check: exit 3 on shortfall)
-  north escalate needs-replan …     checkpoint scope overrun; route it up the live parent chain
-                                    --summary/--checkpoint/--seam/--propose — the structured payload
-  north listen <agent-id>           arm the real-time interrupt listener (background task; dormant)
-  north delivery attest <agent-id>  unavailable — unavailable until verifier lanes have OS isolation
+  north delegate "<task>"        hand work to a new lane; intake classifies atomic vs composite
+                                 --role <worker> — atomic: exactly one selected worker
+                                 --composite — 2+ independent pieces: hydrates an orchestrator
+                                 --thread <id> — bind an existing thread
+                                 in chat, /delegate does this with session context riding along
+  north agents [--json]          live agents now + the stable machine roster
+  north lanes                    last 24h lane receipts: done, failed, working, killed, or never acknowledged
+  north spawn <role> "<prompt>"  compose a worker from Orchestration's staffing catalog
+                                 --provider auto|anthropic|openai — select or auto-route the provider
+                                 --taskGrade/--domain — independently override stock staffing axes
+                                 --topology — bespoke compositions only; stock topology is fixed
+                                 --tier/--reasoning/--posture — capability, deliberation, posture
+                                 --assessment JSON|@file — selection sidecar (required for max)
+                                 --pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins
+                                 --rationale "why" — required for a bespoke role
+                                 --doctor [--deep|--canary|--json] — test every dispatch invariant at once
+                                 in-harness agents dispatch via MCP: mcp__north__dispatch / spawn
+  north templates                Orchestration's reusable stock templates and routing defaults
+  north watch <id>               tail an agent's transcript
+  north msg <id> "<msg>"         inject a message into a running agent
+  north goal <id> "<goal>"       redirect a running agent's goal
+  north trace <id>               diagnose one agent's lifecycle; flags the first failing stage
+  north wip [--check]            live managed lanes vs floor (--check: exit 3 on shortfall)
+  north escalate needs-replan …  checkpoint scope overrun; route it up the live parent chain
+                                 --summary/--checkpoint/--seam/--propose — the structured payload
+  north listen <agent-id>        arm the real-time interrupt listener (background task; dormant)
 
   north help --all — the complete reference · bare `north` — the daily card
