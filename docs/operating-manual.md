@@ -171,7 +171,7 @@ themselves.
 
 The AI tool surface reflects this. `north tools` lists NORTH's **curated** verbs
 (the MCP surface: `ready`/`next`/`threads`/…/`tell`/`show`/`dispatch`/`spawn`);
-the fram engine core underneath is **10 tools** (`tell`/`retract`/`show`/`ask`/
+the Beagle Store engine core underneath is **10 tools** (`tell`/`retract`/`show`/`ask`/
 `validate` + 5 graph-edit verbs). Vocabulary is data, not tools — there is no
 per-predicate tool catalog to memorize; `north show <pred>` reveals a predicate.
 

@@ -27,7 +27,7 @@
 
 (when-not (.isDirectory (io/file STORE-OUT))
   (throw (ex-info "current Beagle Store output is unavailable"
-                  {:fram-home STORE :fram-out STORE-OUT})))
+                  {:store-home STORE :store-out STORE-OUT})))
 
 (classpath/add-classpath STORE-OUT)
 (load-file (str ROOT "/cli/store-rpc-client.clj"))

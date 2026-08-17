@@ -194,7 +194,7 @@ NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" --init "$NORTH/cli/coord.clj" -
 # FAILS LOUDLY. Proceeding anyway would recreate the pile-up the gate exists
 # to prevent.
 #
-# Interactive/streaming paths (watch, listen, fram passthrough) do not route
+# Interactive/streaming paths (watch, listen, Beagle Store passthrough) do not route
 # through these exec sites and are unaffected.
 NORTH_VERB_SLOTS="${NORTH_VERB_SLOTS:-8}"
 NORTH_VERB_SLOT_WAIT="${NORTH_VERB_SLOT_WAIT:-120}"
@@ -336,7 +336,7 @@ case "${1:-}" in
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
   blocked|leverage|agenda|plate|capture|json|needs-review|audit|resolve|validate|schema|tools|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
-    # north.validate) — the fram CLI `validate` is generic-only since the work
+    # north.validate) — the Beagle Store CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.
     #
     # `json show` is already an exact-subject operation. Sending it through
