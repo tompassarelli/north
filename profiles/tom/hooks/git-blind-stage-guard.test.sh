@@ -19,7 +19,7 @@ run() {
   local expect="$1" desc="$2" cmd="$3"; shift 3
   local input out decision ok=0
   input="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")"
-  out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS -u CLAUDE_NO_AUTHORING_HOOKS \
+  out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
     HOME="$SCRATCH/home" "$@" "$HOOK" 2>&1)"
   decision="$(python3 -c 'import json,sys
 try:

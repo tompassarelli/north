@@ -69,7 +69,7 @@ run() {
     json="$(jq -n --arg c "$c" --arg d "$wd" \
       '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d}')"
   fi
-  set -- env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE -u XDG_CACHE_HOME \
+  set -- env -u SAFE_PUSH_ACTIVE -u XDG_CACHE_HOME \
     HOME="$FH" TMPDIR=/tmp \
     TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
     NORTH_BIN=/bin/true
@@ -107,7 +107,7 @@ runm() {
 raw() {
   local expect="$1" desc="$2" payload="$3" rc want
   printf '%s' "$payload" |
-    env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE HOME="$FH" \
+    env -u SAFE_PUSH_ACTIVE HOME="$FH" \
       TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
       NORTH_BIN=/bin/true \
       "$HOOK" >/dev/null 2>&1
@@ -237,7 +237,7 @@ runm default allow 'gitignored dir inside this lane -> allow (no ask spam)' 'rm 
 # two personal targets ACCUMULATE into ONE ask envelope naming both.
 macc="$(jq -n --arg c "rm -rf $FH/Documents/notes $FH/Pictures/Screenshots" --arg d "$REPO_CWD" --arg pm default \
   '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d, permission_mode:$pm}' |
-  env -u CLAUDE_NO_AUTHORING_HOOKS -u SAFE_PUSH_ACTIVE HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
+  env -u SAFE_PUSH_ACTIVE HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
     AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" NORTH_BIN=/bin/true "$HOOK" 2>/dev/null)"
 mrc=$?
 if [ "$mrc" = 0 ] &&
@@ -339,7 +339,6 @@ echo "== plumbing: fail-open + kill-switch + deny log =="
 raw allow 'garbage stdin (fail-open)' 'this is not json rm -rf /'
 raw allow 'empty stdin' ''
 run allow 'payload without command key' '' # empty command -> exit 0
-run allow 'kill-switch CLAUDE_NO_AUTHORING_HOOKS' 'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=1
 if [ -s "$SCRATCH/tripwire.log" ] && grep -q 'rm -rf ~/Pictures/Screenshots' "$SCRATCH/tripwire.log"; then
   pass=$((pass + 1))
   echo 'PASS  plumb  deny decisions are logged (ts, cwd, reason, cmd head)'
@@ -357,10 +356,6 @@ echo "== kill-switch: shared value-aware semantics (lib/authoring-killswitch.sh)
 # (The env=1 allow case lives in the plumbing block above.)
 # env 0/false force guards LIVE -> guard runs -> deny. The old presence-only check
 # (`[ -n "$VAR" ] && exit 0`) would have ALLOWED these — the bug this rewire fixes.
-run deny 'env CLAUDE_NO_AUTHORING_HOOKS=0 forces guards live (old bug allowed)' \
-  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
-run deny 'env CLAUDE_NO_AUTHORING_HOOKS=false forces guards live' \
-  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=false
 # Persistent state `guards=off` (env unset) -> guards OFF -> allow.
 printf 'guards=off\n' >"$SCRATCH/killswitch.state"
 run allow 'north config guards off -> personal delete allowed' 'rm -rf ~/Pictures/Screenshots'
@@ -370,7 +365,7 @@ run allow "north config guards off -> another lane's worktree allowed (human's c
   "rm -rf $OTHER_WT"
 # State off BUT env=0 -> env force-live BEATS state -> deny.
 run deny 'env=0 force-live beats state guards=off' \
-  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" CLAUDE_NO_AUTHORING_HOOKS=0
+  'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" AGENT_NO_AUTHORING_HOOKS=0
 rm -f "${SCRATCH:?}/killswitch.state" # restore neutral state for the benches below
 
 echo "== latency (fast path = prescreen miss; slow path = parse, allow) =="

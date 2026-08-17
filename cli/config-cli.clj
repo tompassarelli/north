@@ -228,9 +228,7 @@
 ;;   env non-empty (other) → engaged this session
 ;;   unset/empty  → state file `guards=off` decides
 ;; Delegates to the shared resolver rather than keeping a second copy. The
-;; copy this replaced read only CLAUDE_NO_AUTHORING_HOOKS, so a session
-;; launched with the canonical AGENT_NO_AUTHORING_HOOKS ran with guards
-;; disabled while this report cheerfully printed "guards LIVE".
+;; report and hooks both use the shared canonical authoring dial.
 (defn effective-ks []
   (case (north.harness-dial/authoring-env)
     "on"  "env force-live — guards LIVE (state ignored this session)"
@@ -1477,7 +1475,7 @@
     " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-guard") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "beagle-session-start") " beagle-session
     [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
-    [launch] one session → CLAUDE_NO_AUTHORING_HOOKS=1 claude   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
+    [launch] one session → AGENT_NO_AUTHORING_HOOKS=1 provider   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
  4  ROUTING    provider targets + entitlement envelopes
     " (routing-summary (routing-read)) "
@@ -1549,8 +1547,8 @@
    [launch] env override — single session, launch ONLY; mid-session flip
    impossible; per-command env prefix does nothing (claude reads it at
    start, then frozen for the session):
-     CLAUDE_NO_AUTHORING_HOOKS=1 claude     authoring guards OFF this session; dispatch unchanged
-     CLAUDE_NO_AUTHORING_HOOKS=0 claude     force-live (state ignored)
+     AGENT_NO_AUTHORING_HOOKS=1 provider    authoring guards OFF this session; dispatch unchanged
+     AGENT_NO_AUTHORING_HOOKS=0 provider    force-live (state ignored)
    Any non-empty value other than 0/false kills guards; 0 or false forces
    them live. This never changes native-vs-North agent topology; `north config
    dispatch` owns that independent axis. Env beats state. Semantics live in the shared lib sourced by

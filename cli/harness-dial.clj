@@ -66,8 +66,7 @@
    the alias — as this report did until 2026-07-30 — makes the report claim
    guards are live in a session where they are not."
   []
-  (env-decision (or (not-empty (or (System/getenv "AGENT_NO_AUTHORING_HOOKS") ""))
-                    (not-empty (or (System/getenv "CLAUDE_NO_AUTHORING_HOOKS") "")))))
+  (env-decision (not-empty (or (System/getenv "AGENT_NO_AUTHORING_HOOKS") ""))))
 
 ;; --- communications protocol ---------------------------------------------
 

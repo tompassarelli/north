@@ -12,7 +12,7 @@
 # messages and heredoc bodies: only a command-position invocation is denied.
 #
 # Kill-switch: persistent `north config guards off` (state) OR env
-# CLAUDE_NO_AUTHORING_HOOKS / AGENT_NO_AUTHORING_HOOKS (any value but
+# AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================
 set -uo pipefail

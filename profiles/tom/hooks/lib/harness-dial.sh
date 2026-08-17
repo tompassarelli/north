@@ -100,7 +100,7 @@ north_dial_resolve() {
 north_dial_authoring_env() {
   local -n __env_out=$1
   __env_out=''
-  case "${AGENT_NO_AUTHORING_HOOKS:-${CLAUDE_NO_AUTHORING_HOOKS:-}}" in
+  case "${AGENT_NO_AUTHORING_HOOKS:-}" in
     0|false) __env_out=on ;;
     ?*)      __env_out=off ;;
   esac

@@ -5,7 +5,7 @@
 # observed outputs/timings, dates, incident references) belongs in the commit
 # message, not the file. This guard flags likely narrative/bloat at write
 # time — it NEVER denies. Same env kill-switch as the other authoring hooks
-# (AGENT_NO_AUTHORING_HOOKS / legacy CLAUDE_NO_AUTHORING_HOOKS).
+# (AGENT_NO_AUTHORING_HOOKS).
 #
 # Scope: only ADDED text (tool_input.new_string for Edit, .content for Write,
 # each edits[].new_string for MultiEdit) — an unrelated pre-existing bloated
