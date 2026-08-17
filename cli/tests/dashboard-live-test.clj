@@ -110,7 +110,7 @@
             providers {:providers [{:targets [{:id "openai-main" :routing "eligible" :usage {:windows [{:usedPercent 5 :resetsAt "2026-08-04T10:00:00Z"}]}}
                                              {:id "openai-backup" :routing "exhausted" :usage {:windows [{:usedPercent 35 :resetsAt "2026-08-04T10:00:00Z"}]}}]}]}]
         (north.dashboard.state/record! :lanes {:status :ok :data {:lanes many}})
-        (north.dashboard.state/record! :health {:status :ok :data {:services {"north-store.service" {:active true :socket true :memory {"memory.current" "2254857830" "memory.max" "19327352832"}}}}})
+        (north.dashboard.state/record! :health {:status :ok :data {:services {"north-fram.service" {:active true :socket true :memory {"memory.current" "2254857830" "memory.max" "19327352832"}}}}})
         (north.dashboard.state/record! :board {:status :ok :data {:text board}})
         (north.dashboard.state/record! :providers {:status :ok :data providers})
         (let [out (north.dashboard.render/render) lines (str/split-lines out)]
