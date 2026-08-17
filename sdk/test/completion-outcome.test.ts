@@ -1569,14 +1569,10 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
       close: async () => {},
       [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
         return (async function*(): AsyncGenerator<WireEvent> {
-          await new Promise<void>((resolveDelay) => {
-            const pulse = setInterval(() =>
-              activity.record("provider", "provider.codex.command.interaction"), 8);
-            setTimeout(() => {
-              clearInterval(pulse);
-              resolveDelay();
-            }, 65);
-          });
+          for (let pulse = 0; pulse < 8; pulse++) {
+            await Bun.sleep(8);
+            activity.record("provider", "provider.codex.command.interaction");
+          }
           yield* wireTurnEvents(args, {
             output: "native activity completed", turns: 1, providerDurationMs: 1,
           });
