@@ -15,7 +15,7 @@
   {:id :agents :title "AGENTS"}
   {:id :system :title "SYSTEM"}]
  :passthrough
- "any other verb passes through to the Beagle Store engine (ask, watch, …)"
+ "supported unregistered verbs pass through to the Beagle Store engine (ask, watch, …)"
  :commands
  [;; ---------------------------------------------------------------- work
   {:verb "capture" :form "north capture \"<title>\" [owner]" :topic :work
@@ -180,7 +180,7 @@
   {:verb "history" :form "north history <id>" :topic :store
    :summary "a subject's full fact history from the log"}
   {:verb "json" :form "north json <view>" :topic :store
-   :summary "machine-readable projections (plate, ready, show, …)"}
+   :summary "machine-readable projections (ready, show, …)"}
   {:verb "tools" :form "north tools" :topic :store
    :summary "the curated MCP tool surface + the Beagle Store engine core"}
   {:verb "boot" :form "north boot" :topic :store
@@ -189,8 +189,6 @@
    :summary "fold threads/ file edits into the log (idempotent, safe anytime)"}
   {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :store
    :summary "regenerate threads/ from the log — never during concurrent work"}
-  {:verb "set" :form "north set …" :topic :store :dispatch :store :status :legacy
-   :summary "direct log append — single-writer/offline only; races otherwise"}
   ;; ----------------------------------------------------------------- ops
   {:verb "dashboard" :form "north dashboard [--once]" :topic :ops
    :summary "live fleet, health, board, and accounts snapshots"

@@ -799,8 +799,7 @@ new daemons.
 
 North serializes live writes through the coordinator. Create threads with
 `north capture`; mutate existing subjects with `north tell` and `north
-retract`. `north set` is an offline/single-writer primitive and does not belong
-in a concurrent client path. File import/export changes or regenerates a whole
+retract`. File import/export changes or regenerates a whole
 projection and is therefore an explicit operator migration/recovery action,
 not routine synchronization. Writer lifecycle is external to client commands;
 an unavailable runtime is reported rather than implicitly restarted.
@@ -1027,8 +1026,6 @@ verification posture come from the active global profile and repository
 - **Free-string tags.** Relate to a `@topic-*` thread (`relates_to @topic-x`).
 - **Dangling refs.** Every `@`-ref must point at a node that exists; `validate`
   rejects otherwise.
-- **`north set` under concurrency.** Use `tell`/`retract` through the
-  coordinator.
 - **`north export` during concurrent work.** It clobbers un-imported edits.
 - **A `project` field or `projects/` subfolder.** A project is a thread with
   `part_of` children.

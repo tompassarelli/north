@@ -85,14 +85,13 @@ STORE — the fact corpus and its schema
   north validate                  full integrity check: engine rules + north work rules
   north audit                     corpus-health report
   north history <id>              a subject's full fact history from the log
-  north json <view>               machine-readable projections (plate, ready, show, …)
+  north json <view>               machine-readable projections (ready, show, …)
   north tools                     the curated MCP tool surface + the Beagle Store engine core
   north boot                      session orientation from the live coordination projection
   north import                    fold threads/ file edits into the log (idempotent, safe anytime)
   north export <out-dir>          regenerate threads/ from the log — never during concurrent work
-  north set …                     legacy — direct log append — single-writer/offline only; races otherwise
 
-  any other verb passes through to the Beagle Store engine (ask, watch, …)
+  supported unregistered verbs pass through to the Beagle Store engine (ask, watch, …)
 
 OPS — daemons, health, deployment
   north dashboard [--once]                      live fleet, health, board, and accounts snapshots
