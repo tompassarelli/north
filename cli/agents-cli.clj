@@ -2013,18 +2013,18 @@
   (let [{:keys [task mode role context thread forward]} (parse-delegate-args args)
         _ (when-not mode
             (delegate-die "delegate needs an explicit intake decision: --role for atomic work or --composite"))
-        parsed-spawn (parse-spawn-args
-                      (into [(if (= mode :composite) "director" role) task] forward))
-        effective-topology (resolved-spawn-topology parsed-spawn)
-        _ (when (and (= mode :atomic)
-                     (= "orchestrator" effective-topology))
-            (delegate-die "--role is an atomic terminal-worker handoff; use --composite for orchestrator work"))
         ctx-file context
         ctx (when ctx-file
               (let [f (io/file ctx-file)]
                 (when-not (.exists f)
                   (delegate-die (str "context file not found: " ctx-file)))
                 (str/trim (slurp f))))
+        parsed-spawn (parse-spawn-args
+                      (into [(if (= mode :composite) "director" role) task] forward))
+        effective-topology (resolved-spawn-topology parsed-spawn)
+        _ (when (and (= mode :atomic)
+                     (= "orchestrator" effective-topology))
+            (delegate-die "--role is an atomic terminal-worker handoff; use --composite for orchestrator work"))
         spawn-role (if (= mode :composite) "director" role)
         inherited-notify (and (not (some #{"--notify"} forward))
                               (System/getenv "NORTH_NOTIFY"))]

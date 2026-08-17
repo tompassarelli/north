@@ -44,6 +44,22 @@
     (check "real spawn preflight retains its graph-selected environment"
            (nil? (:env @captured)))))
 
+(let [routing-resolved? (atom false)
+      missing-context "/tmp/north-delegate-cli-missing-context.md"
+      message (try
+                (with-redefs [north.topology-authority/require-coordination! (fn [_] nil)
+                              resolved-spawn-topology (fn [_]
+                                                        (reset! routing-resolved? true)
+                                                        "worker")
+                              delegate-die (fn [m] (throw (ex-info m {:delegate-die true})))]
+                  (cmd-delegate ["probe task" "--role" "analyst"
+                                 "--context" missing-context]))
+                ::no-error
+                (catch clojure.lang.ExceptionInfo e (.getMessage e)))]
+  (check "delegate validates a missing context file before routing can invoke the catalog projector"
+         (and (= (str "context file not found: " missing-context) message)
+              (false? @routing-resolved?))))
+
 (let [scratch (.toFile (java.nio.file.Files/createTempDirectory
                         "north-watch-test-"
                         (make-array java.nio.file.attribute.FileAttribute 0)))
