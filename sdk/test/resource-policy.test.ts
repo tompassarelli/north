@@ -222,7 +222,7 @@ test("routing combines live telemetry sources conservatively without letting unk
   const result = applyProviderUsageObservations(manual, knownAndUnknown, now);
   expect(result.targetPressures?.["claude-primary"]).toBe("normal");
   expect(result.automatedPressureObservationSets?.["claude-primary"]?.[0]?.source)
-    .toBe("claude-agent-sdk:usage-control-experimental");
+    .toBe("claude-code:statusline");
 
   const exhaustedEvent = parseProviderUsageObservations({ version: 1, observations: [
     ...knownAndUnknown.observations,
