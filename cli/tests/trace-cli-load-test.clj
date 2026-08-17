@@ -82,7 +82,8 @@
       (set/union
        (set north.terminal-projection/terminal-projection-predicates)
        #{"identity_manifest_sha256" "terminal_manifest_sha256"
-         "live_input" "live_input_state" "live_input_epoch"})]
+         "live_input" "live_input_state" "live_input_epoch"
+         "shadow_reviewer_note_capability_sha256"})]
   (check "shared lifecycle vocabularies exactly cover canonical agent/run/thread evidence"
          (and (= expected-agent
                  (set north.lifecycle-projection/managed-agent-predicates))
@@ -144,8 +145,7 @@
                          "model")
               (= #{"ran" "died"} (get facts "process_outcome")))))
 
-(let [terminal {"outcome" "ran"
-                "process_outcome" "ran"
+(let [terminal {"process_outcome" "ran"
                 "delivery_outcome" "unverified"
                 "delivery_reason" "provider_terminal_success_without_external_verification"}
       modern (assoc terminal "terminal_manifest_sha256"
@@ -155,8 +155,7 @@
       conflict (north.agent-provenance/fold-fact folded "process_outcome" "died")
       corrupt-marker (north.agent-provenance/fold-fact
                       folded "terminal_manifest_sha256" "corrupt")
-      blocked-terminal {"outcome" "blocked_preflight"
-                        "process_outcome" "blocked_preflight"
+      blocked-terminal {"process_outcome" "blocked_preflight"
                         "delivery_outcome" "blocked"
                         "delivery_reason" "execution_preflight_blocked"}
       blocked-modern
@@ -219,12 +218,8 @@
                         "at" "2026-07-20T09:00:00Z"})
       run [{:subject "@run:trace-agent-terminal" :facts run-facts}]
       death [{:reason "transport exited" :ms 0}]]
-  (check "true legacy singleton outcome remains terminal"
-         (= {:outcome "ran" :source :agent :terminal? true :kind :ran
-             :death-notifications 0}
-            (select-keys
-             (execution-terminal-state "trace-agent" {"outcome" "ran"} [] [])
-             [:outcome :source :terminal? :kind :death-notifications])))
+  (check "outcome-only historical terminal remains unresolved"
+         (not (:terminal? (execution-terminal-state "trace-agent" {"outcome" "ran"} [] []))))
   (check "valid modern terminal resolves from folded multi-cardinality rows"
          (= :ran (:kind (execution-terminal-state "trace-agent" folded [] []))))
   (check "partial modern terminal blocks secondary run fallback"

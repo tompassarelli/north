@@ -20,7 +20,6 @@ export interface TerminalPublication {
 }
 
 const TERMINAL_PREDICATES = [
-  "outcome",
   "process_outcome",
   "delivery_outcome",
   "delivery_reason",
@@ -159,10 +158,9 @@ export function terminalManifestValid(
   facts: readonly TerminalFact[],
 ): boolean {
   const process = singletonValue(facts, "process_outcome");
-  const legacyAlias = singletonValue(facts, "outcome");
   const marker = singletonValue(facts, "terminal_manifest_sha256");
   const expected = terminalManifestSha256(facts);
-  return Boolean(process && legacyAlias && process === legacyAlias
+  return Boolean(process
     && marker && expected && marker === expected
     && terminalDeliveryProjectionValid(facts)
     && terminalPublicationProjectionValid(facts));
@@ -171,12 +169,9 @@ export function terminalManifestValid(
 export function terminalProcessOutcome(
   facts: readonly TerminalFact[],
 ): string | undefined {
-  if (factPresent(facts, "process_outcome")) {
-    return terminalManifestValid(facts)
-      ? singletonValue(facts, "process_outcome")?.trim()
-      : undefined;
-  }
-  return singletonValue(facts, "outcome")?.trim();
+  return factPresent(facts, "process_outcome") && terminalManifestValid(facts)
+    ? singletonValue(facts, "process_outcome")?.trim()
+    : undefined;
 }
 
 export function terminalDeliveryOutcome(
@@ -193,7 +188,7 @@ export function committedRunProcessOutcome(
   if (singletonValue(facts, "kind") !== "run") return undefined;
   return factPresent(facts, "process_outcome")
     ? singletonValue(facts, "process_outcome")?.trim()
-    : singletonValue(facts, "outcome")?.trim();
+    : undefined;
 }
 
 function committedRunCanResolveWithoutLane(

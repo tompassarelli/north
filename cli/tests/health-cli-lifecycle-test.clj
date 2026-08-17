@@ -16,15 +16,15 @@
         (System/clearProperty "babashka.file")))))
 
 (def terminal
-  {"outcome" #{"ran"}
-   "process_outcome" #{"ran"}
+  {"process_outcome" #{"ran"}
    "delivery_outcome" #{"unverified"}
    "delivery_reason" #{"provider_terminal_success_without_external_verification"}})
 (def modern-terminal
   (assoc terminal "terminal_manifest_sha256"
          #{(north.terminal-projection/terminal-manifest-sha256 terminal)}))
 (def committed-run
-  {"kind" #{"run"} "agent" #{"sdk-health"} "outcome" #{"ran"} "at" #{"2026-07-17T00:00:00Z"}})
+  (merge {"kind" #{"run"} "agent" #{"sdk-health"} "at" #{"2026-07-17T00:00:00Z"}}
+         modern-terminal))
 (def concern-now 2000000)
 (def concern-facts
   {"@concern-stale"
@@ -47,9 +47,9 @@
        (run-row-from-facts "@run-legacy" committed-run))]
    ["run without kind=run commit marker is invisible"
     (nil? (run-row-from-facts "@run-partial" (dissoc committed-run "kind")))]
-   ["conflicting run outcomes fail closed"
+   ["conflicting run process outcomes fail closed"
     (nil? (run-row-from-facts
-           "@run-conflict" (assoc committed-run "outcome" #{"ran" "died"})))]
+           "@run-conflict" (assoc committed-run "process_outcome" #{"ran" "died"})))]
    ["valid modern lane terminal remains visible"
     (= ["@agent:sdk-health" "ran"]
        (lane-outcome-from-facts
@@ -63,10 +63,9 @@
            (-> modern-terminal
                (assoc "kind" #{"lane"})
                (assoc "process_outcome" #{"ran" "died"}))))]
-   ["singleton lane outcome remains visible"
-    (= ["@agent:legacy" "died-unreported"]
-       (lane-outcome-from-facts
-        "@agent:legacy" {"kind" #{"lane"} "outcome" #{"died-unreported"}}))]
+   ["outcome-only historical lane is invisible"
+    (nil? (lane-outcome-from-facts
+           "@agent:legacy" {"kind" #{"lane"} "outcome" #{"died-unreported"}}))]
    ["predicate batches preserve genuine live conflicts"
     (= {"@agent:conflict" {"outcome" #{"ran" "died"}}}
        (add-predicate-rows

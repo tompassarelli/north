@@ -17,15 +17,20 @@ function committed(facts: TerminalFact[]): TerminalFact[] {
   }];
 }
 
-test("old four-field unverified terminals remain valid", () => {
+test("manifested process terminals remain valid", () => {
   const facts = committed([
-    { predicate: "outcome", value: "ran" },
     { predicate: "process_outcome", value: "ran" },
     { predicate: "delivery_outcome", value: "unverified" },
     { predicate: "delivery_reason", value: "provider_terminal_success_without_external_verification" },
   ]);
   expect(terminalProcessOutcome(facts)).toBe("ran");
   expect(terminalDeliveryOutcome(facts)).toBe("unverified");
+});
+
+test("outcome-only historical terminals are no longer resolved", () => {
+  expect(terminalProcessOutcome([
+    { predicate: "outcome", value: "ran" },
+  ])).toBeUndefined();
 });
 
 test("reported terminal is accepted only with digest-bound evidence", () => {
@@ -44,7 +49,6 @@ test("reported terminal is accepted only with digest-bound evidence", () => {
   }]);
   if (assessment.deliveryOutcome !== "reported") throw new Error("expected reported");
   const body: TerminalFact[] = [
-    { predicate: "outcome", value: "ran" },
     { predicate: "process_outcome", value: "ran" },
     { predicate: "delivery_outcome", value: "reported" },
     { predicate: "delivery_reason", value: assessment.deliveryReason },
@@ -64,7 +68,6 @@ test("reported terminal is accepted only with digest-bound evidence", () => {
 
 test("status text cannot manufacture verified without an attestation", () => {
   const body: TerminalFact[] = [
-    { predicate: "outcome", value: "ran" },
     { predicate: "process_outcome", value: "ran" },
     { predicate: "delivery_outcome", value: "verified" },
     { predicate: "delivery_reason", value: "independent_managed_verifier_attested" },
@@ -75,7 +78,6 @@ test("status text cannot manufacture verified without an attestation", () => {
 
 test("delivery state must agree with the provider process terminal", () => {
   const diedReported: TerminalFact[] = [
-    { predicate: "outcome", value: "died" },
     { predicate: "process_outcome", value: "died" },
     { predicate: "delivery_outcome", value: "reported" },
     { predicate: "delivery_reason", value: "complete_run_scoped_done_bar_evidence_self_reported" },
@@ -83,7 +85,6 @@ test("delivery state must agree with the provider process terminal", () => {
   expect(terminalProcessOutcome(committed(diedReported))).toBeUndefined();
 
   const ranBlocked: TerminalFact[] = [
-    { predicate: "outcome", value: "ran" },
     { predicate: "process_outcome", value: "ran" },
     { predicate: "delivery_outcome", value: "blocked" },
     { predicate: "delivery_reason", value: "provider_process_died" },

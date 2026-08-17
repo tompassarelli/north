@@ -266,8 +266,7 @@
 (defn marked-terminal
   ([facts] (marked-terminal facts "ran" "unverified"))
   ([facts process delivery]
-   (let [terminal {"outcome" process
-                   "process_outcome" process
+   (let [terminal {"process_outcome" process
                    "delivery_outcome" delivery
                    "delivery_reason" (if (= delivery "unverified")
                                        "provider_terminal_success_without_external_verification"
@@ -413,9 +412,6 @@
 (check "roster lifecycle categories do not call terminal TTL rows active"
        (and (= :active-agent (roster-category {"kind" "lane"}))
             (= :native-session (roster-category {"kind" "session"}))
-            (= :recently-finished (roster-category {"kind" "lane" "outcome" "ran"}))
-            (= :inconsistent
-               (roster-category {"kind" "lane" "process_outcome" "ran" "outcome" "ran"}))
             (= :recently-finished
                (roster-category (marked-terminal {"kind" "lane"})))
             (= :unclassified (roster-category {}))))
@@ -514,11 +510,7 @@
              (agent-primary-line
               {:online true}
               (marked-terminal {"kind" "lane" "goal" "attempt delivery"}))
-             "finished(process:ran, delivery:unverified)")
-            (str/includes?
-             (agent-primary-line {:online true}
-                                 {"kind" "lane" "outcome" "ran" "goal" "legacy"})
-             "finished(process:ran, delivery:unrecorded)")))
+             "finished(process:ran, delivery:unverified)")))
 
 (check "legacy same-UID verified projection is lifecycle-inconsistent, never finished or active"
        (let [evidence (json/generate-string
@@ -543,7 +535,7 @@
                            "role" "verifier"
                            "authority" "managed-independent-verifier"
                            "attestedAt" "2026-07-18T10:01:00Z"})
-             terminal {"outcome" "ran" "process_outcome" "ran"
+             terminal {"process_outcome" "ran"
                        "delivery_outcome" "verified"
                        "delivery_reason" "independent_managed_verifier_attested"
                        "delivery_evidence" evidence
@@ -684,13 +676,12 @@
                                          "model" "gpt-5.6-sol" "effort" "high"
                                          "role" "designer" "composition_kind" "preset"
                                          "composition_id" "designer" "composition_overrides" "[]"
-                                         "outcome" "ran" "process_outcome" "ran"
+                                         "process_outcome" "ran"
                                          "delivery_outcome" "unverified"
                                          "delivery_reason" "provider_terminal_success_without_external_verification"
                                          "terminal_manifest_sha256"
                                          (north.terminal-projection/terminal-manifest-sha256
-                                          {"outcome" "ran"
-                                           "process_outcome" "ran"
+                                          {"process_outcome" "ran"
                                            "delivery_outcome" "unverified"
                                            "delivery_reason" "provider_terminal_success_without_external_verification"})}}
                            :sessions {}})

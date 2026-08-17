@@ -3,14 +3,13 @@
 
   A managed lane terminal is committed by terminal_manifest_sha256 after its
   base process/delivery facts and any status-required proof projection. A run
-  is committed by kind=run, which its scoped writer publishes last. Legacy lane
-  rows remain readable only when they have no process_outcome fact at all.")
+  is committed by kind=run, which its scoped writer publishes last.")
 
 (require '[cheshire.core :as json]
          '[clojure.string :as str])
 
 (def terminal-predicates
-  ["outcome" "process_outcome" "delivery_outcome" "delivery_reason"])
+  ["process_outcome" "delivery_outcome" "delivery_reason"])
 (def delivery-proof-predicates
   ["delivery_evidence" "delivery_evidence_sha256"
    "delivery_attestation" "delivery_attestation_sha256"])
@@ -541,10 +540,8 @@
   [facts]
   (let [marker (singleton-value facts "terminal_manifest_sha256")
         process (singleton-value facts "process_outcome")
-        legacy-alias (singleton-value facts "outcome")
         expected (terminal-manifest-sha256 facts)]
-    (boolean (and marker process legacy-alias expected
-                  (= process legacy-alias)
+    (boolean (and marker process expected
                   (= marker expected)
                   (delivery-projection-valid? facts)))))
 
@@ -555,15 +552,11 @@
     (some-> (singleton-value facts "delivery_outcome") str/trim)))
 
 (defn terminal-process-outcome
-  "Resolve a lane terminal. The presence of process_outcome selects the modern
-  protocol and therefore requires a valid terminal manifest; it never falls
-  back to the concurrently published legacy alias. A true legacy row is
-  accepted only when process_outcome is absent."
+  "Resolve a lane terminal from a valid process_outcome manifest."
   [facts]
-  (if (fact-present? facts "process_outcome")
-    (when (terminal-manifest-valid? facts)
-      (some-> (singleton-value facts "process_outcome") str/trim))
-    (some-> (singleton-value facts "outcome") str/trim)))
+  (when (and (fact-present? facts "process_outcome")
+             (terminal-manifest-valid? facts))
+    (some-> (singleton-value facts "process_outcome") str/trim)))
 
 (defn committed-run?
   "kind=run is the run writer's last-write commit marker."
@@ -571,26 +564,13 @@
   (= "run" (singleton-value facts "kind")))
 
 (defn committed-run-process-outcome
-  "Resolve a run terminal only after kind=run committed the row. Modern run
-  rows require a complete proof-valid process/delivery projection; committed
-  historical rows may carry only outcome."
+  "Resolve a run terminal only after kind=run committed the row."
   [facts]
   (when (committed-run? facts)
-    (if (fact-present? facts "process_outcome")
-      (let [process (singleton-value facts "process_outcome")
-            legacy-alias (singleton-value facts "outcome")]
-        (when (and process legacy-alias
-                   (= process legacy-alias)
-                   (terminal-manifest-sha256 facts)
-                   (delivery-projection-valid? facts))
-          (str/trim process)))
-      ;; A historical run is legacy only when no modern terminal residue is
-      ;; present. Partial modern publication must never downgrade to the old
-      ;; outcome-only protocol.
-      (when-not (some #(fact-present? facts %)
-                      (concat (remove #{"outcome"} terminal-predicates)
-                              delivery-proof-predicates))
-        (some-> (singleton-value facts "outcome") str/trim)))))
+    (when (and (fact-present? facts "process_outcome")
+               (terminal-manifest-sha256 facts)
+               (delivery-projection-valid? facts))
+      (some-> (singleton-value facts "process_outcome") str/trim))))
 
 (defn- terminal-body-present?
   [facts]

@@ -38,7 +38,7 @@ const MARKER_PREDICATE = "identity_manifest_sha256";
 const TERMINAL_MARKER_PREDICATE = "terminal_manifest_sha256";
 // Terminal bodies must be absent for a clean fresh publish; presence forces fallback.
 const TERMINAL_PREDICATES = [
-  "outcome", "process_outcome", "delivery_outcome", "delivery_reason",
+  "process_outcome", "delivery_outcome", "delivery_reason",
   "delivery_evidence", "delivery_evidence_sha256",
   "delivery_attestation", "delivery_attestation_sha256",
 ];
