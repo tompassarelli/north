@@ -16,6 +16,5 @@ north help routing — providers, accounts, dispatch posture
                                                 fire --thread ID --brief PATH [--dry-run] — only fire may launch
   north spend status|init|override              API-billing budget: cap, reserved, settled, headroom
   north ccr prepare|retrieve                    default-off structured-output CCR canary
-  north handoff                                 legacy — renamed — use north failover
 
   north help --all — the complete reference · bare `north` — the daily card

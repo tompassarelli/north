@@ -404,10 +404,6 @@ case "${1:-}" in
     # Provider-recovery control surface. Availability is read through the stable
     # cached JSON boundary; only `fire` without --dry-run may launch an heir.
     exec "$BUN" run "$NORTH/sdk/src/failover-cli.ts" "${@:2}" ;;
-  handoff)
-    # Renamed to `failover` (2026-07-30): "handoff" is doctrine vocabulary.
-    echo "renamed: use \`north failover\`" >&2
-    exit 1 ;;
   spend)
     # API-billing budget LEDGER (spend-guard step 2). Owns schema declaration,
     # the cap-checked CAS reservation, terminal settlement, and human overrides
