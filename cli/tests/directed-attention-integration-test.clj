@@ -11,7 +11,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (def msg-cli (str root "/cli/msg-cli.clj"))

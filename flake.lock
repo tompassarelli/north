@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "beagle-engine-source": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786955951,
+        "narHash": "sha256-1Y4J44cIbq7d1k1bmhunX0Gcyay1xFmG6lEMtfC0WHY=",
+        "owner": "tompassarelli",
+        "repo": "beagle",
+        "rev": "db33a4e70718dc9a1b1cff57e33128ad44b6bcb9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tompassarelli",
+        "repo": "beagle",
+        "rev": "db33a4e70718dc9a1b1cff57e33128ad44b6bcb9",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -15,23 +32,6 @@
       "original": {
         "owner": "numtide",
         "repo": "flake-utils",
-        "type": "github"
-      }
-    },
-    "fram-test-source": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1786834744,
-        "narHash": "sha256-Ifc4JS2IPULYPJmLJUvKZhKwImOIHULFimyPvqj/Vh0=",
-        "owner": "tompassarelli",
-        "repo": "fram",
-        "rev": "2c847bbf6f66fecab4d2df032c7c67fbadf704f1",
-        "type": "github"
-      },
-      "original": {
-        "owner": "tompassarelli",
-        "repo": "fram",
-        "rev": "2c847bbf6f66fecab4d2df032c7c67fbadf704f1",
         "type": "github"
       }
     },
@@ -69,8 +69,8 @@
     },
     "root": {
       "inputs": {
+        "beagle-engine-source": "beagle-engine-source",
         "flake-utils": "flake-utils",
-        "fram-test-source": "fram-test-source",
         "nixpkgs": "nixpkgs",
         "nixpkgs-master": "nixpkgs-master"
       }

@@ -9,7 +9,7 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 # Composed, never literal: the packaged tree's purity scan rejects a checkout path.
-FRAM_HOME="${FRAM_HOME:-$HOME/code/fram/main}"
+FRAM_HOME="${FRAM_HOME:-$HOME/code/beagle/main/branch-core}"
 FRAM_BIN="${FRAM_BIN:-$FRAM_HOME/bin}"
 FRAM_OUT="${FRAM_OUT:-$FRAM_HOME/out}"
 NORTH_RUNTIME_CLASSPATH="$NORTH_HOME/out:$FRAM_OUT"

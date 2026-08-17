@@ -13,7 +13,10 @@
       .getParentFile
       .getParentFile
       .getCanonicalPath))
-(def fram (.getCanonicalPath (java.io.File. repo "../fram")))
+(def fram
+  (.getCanonicalPath
+   (java.io.File. (or (System/getenv "FRAM_HOME")
+                      "/home/tom/code/beagle/main/branch-core"))))
 (def root
   (.toFile
    (java.nio.file.Files/createTempDirectory

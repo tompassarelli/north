@@ -9,9 +9,9 @@
 (def fram
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (def evidence-writer (str root "/cli/delivery-evidence-internal.clj"))
 (def north-mcp (str root "/bin/north-mcp"))

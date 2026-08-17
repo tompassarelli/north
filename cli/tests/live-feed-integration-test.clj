@@ -13,7 +13,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (def live-feed-cli (str root "/cli/north-live-feed.clj"))
 (load-file (str root "/cli/coord.clj"))
@@ -321,7 +321,7 @@
         (.start builder))]
   (try
     (let [status (await-fram-ready! port)]
-      (check "throwaway current-main Fram serves binary FRAMRPC"
+      (check "throwaway Beagle branch-core engine serves binary FRAMRPC"
              (and (= test-space (:space-id status))
                   (= :ready (:state status))
                   (= :rpc/jvm (:engine status)))))

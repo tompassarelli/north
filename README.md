@@ -73,8 +73,8 @@ the registry, the rendered pages, and `bin/north`'s dispatch disagree.
 `north help <topic>` opens one of six topic pages; `north help --all` prints
 the whole surface.
 
-The ledger needs [babashka](https://babashka.org) and a Fram checkout on
-`FRAM_HOME`; the agent SDK and MCP edge also need [Bun](https://bun.sh). See
+The ledger needs [babashka](https://babashka.org) and Beagle's `branch-core/`
+engine root on `FRAM_HOME`; the agent SDK and MCP edge also need [Bun](https://bun.sh). See
 [docs/building-and-testing.md](docs/building-and-testing.md).
 
 The flake is not yet portable: the packaged entrypoint sources a hard-coded

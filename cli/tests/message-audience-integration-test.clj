@@ -12,7 +12,7 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def peek-cli (str root "/cli/inbox-peek.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
@@ -20,7 +20,7 @@
 (def north-wrapper (str root "/bin/north"))
 (def north-arm (str root "/bin/north-arm"))
 (when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def children (atom []))

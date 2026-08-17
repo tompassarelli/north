@@ -17,11 +17,11 @@
 (def fram
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (when-not (.isFile (io/file fram "bin/fram-server"))
   (throw
    (ex-info
-    "Fram checkout not found; set FRAM_PATH or clone it beside North"
+    "Beagle branch-core engine not found; set FRAM_PATH to Beagle's branch-core directory"
     {:fram fram})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))

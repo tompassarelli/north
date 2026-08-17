@@ -8,7 +8,7 @@
 ;; Asserts: fresh lease => live; expired lease falls through to recency; a human
 ;; (no lease) rides recency; stale on both axes => parked; no driver => not-active;
 ;; a garbage updated_at never crashes.
-;;   bb -cp out:../fram/out tests/board_active_test.clj      (run from the repo root)
+;;   bb -cp out:/home/tom/code/beagle/main/branch-core/out tests/board_active_test.clj
 (require '[fram.types :as t] '[north.projections :as proj]
          '[north.main :as m] '[fram.rt :as rt])
 

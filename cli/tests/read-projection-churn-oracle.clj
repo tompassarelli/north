@@ -81,7 +81,7 @@
 (def fram-root
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (def north-out (str north-root "/out"))
 (def fram-out (str fram-root "/out"))
 (def read-classpath (str north-out java.io.File/pathSeparator fram-out))
@@ -96,7 +96,7 @@
 (load-file (str north-root "/cli/agent-provenance.clj"))
 
 (when-not (.isFile (io/file fram-root "bin/fram-server"))
-  (throw (ex-info "current Fram checkout lacks bin/fram-server"
+  (throw (ex-info "current Beagle branch-core engine lacks bin/fram-server"
                   {:fram fram-root})))
 (when-not (.isDirectory (io/file north-out))
   (throw (ex-info "North output directory is missing; run ./build.sh"

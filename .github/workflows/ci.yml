@@ -50,32 +50,32 @@ jobs:
       - name: Expose hermetic test runner
         run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
-      # Resolve the exact Fram source used by CI.
+      # Resolve the exact Beagle source that provides the Fram engine used by CI.
       - name: Resolve locked source inputs
         id: sources
         run: |
           set -euo pipefail
-          fram_repository="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source repository)"
-          fram_ref="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source revision)"
+          beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"
+          beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"
           {
-            echo "fram_repository=$fram_repository"
-            echo "fram_ref=$fram_ref"
+            echo "beagle_repository=$beagle_repository"
+            echo "beagle_ref=$beagle_ref"
           } >> "$GITHUB_OUTPUT"
-      - name: Checkout Fram engine (pinned)
+      - name: Checkout Beagle engine source (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          repository: ${{ steps.sources.outputs.fram_repository }}
-          ref: ${{ steps.sources.outputs.fram_ref }}
-          path: fram
+          repository: ${{ steps.sources.outputs.beagle_repository }}
+          ref: ${{ steps.sources.outputs.beagle_ref }}
+          path: beagle
 
-      - name: Bind tests to locked Fram
+      - name: Bind tests to Beagle branch-core
         run: |
           {
-            echo "FRAM_HOME=$GITHUB_WORKSPACE/fram"
-            echo "FRAM_BIN=$GITHUB_WORKSPACE/fram/bin"
-            echo "FRAM_OUT=$GITHUB_WORKSPACE/fram/out"
-            echo "NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/fram/out"
-            echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out"
+            echo "FRAM_HOME=$GITHUB_WORKSPACE/beagle/branch-core"
+            echo "FRAM_BIN=$GITHUB_WORKSPACE/beagle/branch-core/bin"
+            echo "FRAM_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out"
+            echo "NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out"
+            echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/branch-core/out"
           } >> "$GITHUB_ENV"
 
       - name: Install babashka
@@ -90,7 +90,7 @@ jobs:
           test "$(bb --version)" = "babashka v1.12.218"
           rm -f "$asset"
 
-      # Current-main Fram integration tests launch bin/fram-server through the
+      # Beagle branch-core integration tests launch bin/fram-server through the
       # checkout-only JVM development route.
       - name: Install Clojure CLI for Fram server integration tests
         run: |
@@ -105,7 +105,7 @@ jobs:
 
       # Pre-download the current Fram server's JVM development dependencies.
       - name: Warm Fram JVM deps
-        working-directory: fram
+        working-directory: beagle/branch-core
         run: clojure -P
 
       # package-purity-check-test mirrors the in-sandbox guard, which scans with rg.
@@ -130,10 +130,10 @@ jobs:
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
-          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/beagle/branch-core
         run: |
           set -euo pipefail
-          CP="out:../fram/out"
+          CP="out:../beagle/branch-core/out"
           bb -cp "$CP" tests/staleness_test.clj
           bb tests/reap_test.clj      # lifecycle-reap verdict (server-free; guards the @run-join false positive)
           bb cli/tests/worker-policy-test.clj  # Native Core worker decisions projected into the hosted runtime
@@ -149,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           bb cli/tests/concern-code-response-test.clj
-          FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/fram" \
+          FRAM_TEST_CHECKOUT="$GITHUB_WORKSPACE/beagle/branch-core" \
             bb cli/tests/concern-terminal-cas-test.clj  # terminal transition commits under concurrent coordination writes
           bb cli/tests/context-replacement-test.clj
           bb cli/tests/mine-verbosity-test.clj
@@ -160,7 +160,7 @@ jobs:
           bb tests/dashboard_cache_test.clj
           bb cli/tests/dashboard-live-test.clj
           bb cli/tests/dashboard-promoted-runtime-test.clj  # promoted-runtime selector reading + code-adoption gauge
-          BABASHKA_CLASSPATH="out:../fram/out" bb cli/tests/wip-cli-test.clj
+          BABASHKA_CLASSPATH="out:../beagle/branch-core/out" bb cli/tests/wip-cli-test.clj
           bb cli/tests/linear-helper-protocol-test.clj
           bb cli/tests/routing-preflight-failure-naming-test.clj  # no admission may die with an unnamed reason
           bb cli/tests/learning-compare-test.clj  # retry-deduped exact cohorts preserve exclusions and unknowns
@@ -175,7 +175,7 @@ jobs:
           timeout --foreground 120s bash bin/tests/north-mark-delegated-test.sh
           timeout --foreground 120s bash bin/tests/identity-alias-test.sh
           timeout --foreground 120s bash bin/tests/native-identity-test.sh
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" timeout --foreground 180s \
+          FRAM_PATH="$GITHUB_WORKSPACE/beagle/branch-core" timeout --foreground 180s \
             bb cli/tests/agent-identity-publication-integration-test.clj
           timeout --foreground 120s bb cli/tests/spawn-process-integration-test.clj
 
@@ -199,7 +199,7 @@ jobs:
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
-          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/beagle/branch-core
         run: |
           set -euo pipefail
           timeout --foreground 180s bb cli/tests/live-feed-integration-test.clj
@@ -216,13 +216,13 @@ jobs:
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-cli-test.clj
-          FRAM_PATH="$GITHUB_WORKSPACE/fram" bb cli/tests/spend-breaker-test.clj
+          FRAM_PATH="$GITHUB_WORKSPACE/beagle/branch-core" bb cli/tests/spend-cli-test.clj
+          FRAM_PATH="$GITHUB_WORKSPACE/beagle/branch-core" bb cli/tests/spend-breaker-test.clj
 
       - name: Arena FRAMRPC integration
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        run: FRAM_HOME="$GITHUB_WORKSPACE/fram" bash bin/tests/arena-seed-test.sh
+        run: FRAM_HOME="$GITHUB_WORKSPACE/beagle/branch-core" bash bin/tests/arena-seed-test.sh
 
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -271,7 +271,7 @@ jobs:
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
           NORTH_TEST_AGENT_HOOKS_DIR: ${{ github.workspace }}/north/profiles/tom/hooks
-          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram
+          FRAM_TEST_CHECKOUT: ${{ github.workspace }}/beagle/branch-core
         run: |
           set -euo pipefail
           test "$(bun --version)" = 1.3.13

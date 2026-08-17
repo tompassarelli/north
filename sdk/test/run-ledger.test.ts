@@ -227,7 +227,7 @@ describe("event-native wire ledger", () => {
 function framFixture(): { readonly home: string; readonly bin: string; readonly out: string; readonly server: string } {
 	const home = process.env.FRAM_TEST_CHECKOUT
 		?? process.env.FRAM_HOME
-		?? "/home/tom/code/fram/main";
+		?? "/home/tom/code/beagle/main/branch-core";
 	return {
 		home,
 		bin: path.resolve(home, "bin"),

@@ -6,8 +6,8 @@ first section.
 ## Running
 
 Running the ledger needs only [babashka](https://babashka.org): the compiled
-Clojure is committed under [`out/`](../out), so no Beagle toolchain is required
-at runtime — the same arrangement Fram uses.
+Clojure is committed under [`out/`](../out), so no Beagle compiler is required
+at runtime.
 
 You also need the Fram engine selected by the host-published
 `~/.local/state/north/framrpc.env`. The installed wrapper sources that exact
@@ -25,32 +25,35 @@ $ nix run github:tompassarelli/north
 ## Rebuilding from source
 
 Only needed when you change a `.bclj` source. This requires
-[Beagle](https://github.com/Autonymy/beagle), the typed Lisp North is written
-in, in addition to Fram.
+[Beagle](https://github.com/tompassarelli/beagle), the typed Lisp North is
+written in and the repository that provides the Fram engine under
+`branch-core/`.
 
 ```console
 $ ./build.sh
   built north/projections
   ...
-north built -> /path/to/north/out  (engine: /path/to/fram/out on classpath at runtime)
+north built -> /path/to/north/out  (engine: /path/to/beagle/branch-core/out on classpath at runtime)
 ```
 
-[`build.sh`](../build.sh) symlinks the engine's Beagle sources into `src/fram`
-(gitignored) so the type checker resolves `fram.*` with full types, then
-compiles each coordination-domain module into `out/`. **Commit the result** —
+[`build.sh`](../build.sh) declares North's `src` and the engine's `src`
+directories as the `north/src` and `branch-core/src` module roots so the type
+checker resolves both namespaces with full types, then compiles each
+coordination-domain module into `out/`. **Commit the result** —
 `out/` is a checked-in build product, and a source change that ships without it
 is a change that does not take effect for anyone running from the checkout.
 
-`build.sh` reads `BEAGLE_HOME` (default `~/code/beagle`) and `FRAM_HOME`
-(default `~/code/fram`). Set both explicitly if your checkouts do not sit at
-those authoring defaults.
+`build.sh` reads `BEAGLE_HOME` (default `~/code/beagle/main`) and `FRAM_HOME`
+(default `$BEAGLE_HOME/branch-core`). Set them explicitly if your checkout does
+not sit at that authoring default.
 
 ## Tests
 
-Set `FRAM_HOME` first so the classpath resolves the matching Fram output.
+Set `FRAM_HOME` to Beagle's `branch-core/` first so the classpath resolves the
+matching engine output.
 
 ```console
-$ export FRAM_HOME=/path/to/the/exact-fram-checkout
+$ export FRAM_HOME=/path/to/the/exact-beagle-checkout/branch-core
 $ CP="out:$FRAM_HOME/out"
 $ bb -cp "$CP" tests/clock_test.clj
 $ bb -cp "$CP" tests/staleness_test.clj

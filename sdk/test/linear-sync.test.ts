@@ -58,12 +58,12 @@ test("normalization makes projection and payload hashes stable", () => {
   const first = projectNorthThread(source({
     body: "North remains canonical.\r\n",
     doneWhen: ["round trip is idempotent", null, " another bar "],
-    repos: ["~/code/north", "~/code/fram"],
+    repos: ["~/code/north", "~/code/beagle"],
   }));
   const second = projectNorthThread(source({
     body: "North remains canonical.\n",
     doneWhen: ["another bar", "round trip is idempotent"],
-    repos: ["~/code/fram", "~/code/north", "~/code/fram"],
+    repos: ["~/code/beagle", "~/code/north", "~/code/beagle"],
   }));
   expect(second.fields).toEqual(first.fields);
   expect(second.hash).toBe(first.hash);

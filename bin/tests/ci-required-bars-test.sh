@@ -33,10 +33,10 @@ package_job="$(job_block package-x86_64-linux)"
 grep -Fq 'shellcheck --severity=warning' <<<"$lint_job"
 grep -Fq 'nix flake check --all-systems --no-build' <<<"$test_job"
 grep -Fq "'path:.#packages.x86_64-linux.default'" <<<"$test_job"
-grep -Fq 'fram_repository="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source repository)"' <<<"$test_job"
-grep -Fq 'fram_ref="$(north/bin/github-flake-input-pin north/flake.lock fram-test-source revision)"' <<<"$test_job"
-grep -Fq 'echo "fram_repository=$fram_repository"' <<<"$test_job"
-grep -Fq 'echo "fram_ref=$fram_ref"' <<<"$test_job"
+grep -Fq 'beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"' <<<"$test_job"
+grep -Fq 'beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"' <<<"$test_job"
+grep -Fq 'echo "beagle_repository=$beagle_repository"' <<<"$test_job"
+grep -Fq 'echo "beagle_ref=$beagle_ref"' <<<"$test_job"
 
 # The assignment form above fails closed only under errexit. Without this line
 # the pin helper's non-zero exit is discarded, empty values reach
@@ -115,15 +115,15 @@ done
 
 # These are literal workflow expressions, not shell expansions in this process.
 # shellcheck disable=SC2016
-grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/fram' "$WORKFLOW"
+grep -Fq 'FRAM_TEST_CHECKOUT: ${{ github.workspace }}/beagle/branch-core' "$WORKFLOW"
 # shellcheck disable=SC2016
 grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration' "$WORKFLOW"
-grep -Fq 'FRAM_HOME=$GITHUB_WORKSPACE/fram' "$WORKFLOW"
-grep -Fq 'FRAM_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
-grep -Fq 'NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
-grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/fram/out' "$WORKFLOW"
-if grep -Fq '/home/tom/code/fram' "$WORKFLOW"; then
-  echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local Fram path' >&2
+grep -Fq 'FRAM_HOME=$GITHUB_WORKSPACE/beagle/branch-core' "$WORKFLOW"
+grep -Fq 'FRAM_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
+grep -Fq 'NORTH_FRAMRPC_OUT=$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
+grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/branch-core/out' "$WORKFLOW"
+if grep -Eq '/home/tom/code/(fram|beagle)' "$WORKFLOW"; then
+  echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local engine path' >&2
   exit 1
 fi
 # The patched executable's behavioral smoke must remain connected all the way

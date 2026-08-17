@@ -11,7 +11,7 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (cp/add-classpath (str root "/out:" fram "/out"))
 (load-file (str root "/cli/learning-compare.clj"))
 

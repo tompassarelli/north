@@ -16,7 +16,7 @@
   (or (System/getenv "NORTH_TEST_FRAM_ROOT")
       (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_PATH")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (def runtime-classpath (str test-root "/out:" fram-root "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str test-root "/cli/coord.clj"))

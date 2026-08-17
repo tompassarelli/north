@@ -12,9 +12,9 @@
 (def fram-root
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_HOME")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (when-not (.isFile (io/file fram-root "bin/fram-server"))
-  (throw (ex-info "current Fram checkout is required" {:fram fram-root})))
+  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram-root})))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI

@@ -12,7 +12,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 
 (when-not (.isFile (io/file fram "server.clj"))
   (throw (ex-info "pinned Fram target checkout is unavailable"

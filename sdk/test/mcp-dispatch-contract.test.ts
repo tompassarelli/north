@@ -884,7 +884,7 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
   ];
   let id = 100;
   const framOut = process.env.NORTH_FRAMRPC_OUT
-    ?? "/home/tom/code/fram/main/out";
+    ?? "/home/tom/code/beagle/main/branch-core/out";
   const framRoot = resolve(framOut, "..");
   for (const name of ["spawn", "dispatch"]) {
     for (const shape of shapes) {
