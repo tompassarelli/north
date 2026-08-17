@@ -1,6 +1,6 @@
 ---
 name: "analyst"
-description: "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count. Task grade: senior."
+description: "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; honest-zero findings are valid. Falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count. Task grade: senior."
 model: "claude-opus-5"
 effort: "high"
 tools: "Read, Grep, Glob, WebSearch, WebFetch"

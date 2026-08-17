@@ -100,19 +100,31 @@ close the item-specific holes. Before dispatching, the orchestrator checks:
 - **B6 — Done-bars per step + terminal report shape** (standard house
   discipline; the family block enforces conformance at the end).
 
-## Model-tier guidance (within the openai catalog)
+## Model-tier allocation guidance (within the openai catalog)
 
-- `gpt-5.6-sol` xhigh (frontier): planning/design/diagnosis quality at or
-  near reference when steered; the delta is defaults, not depth. Use for
-  plan-shaped, diagnosis-shaped, and verification-shaped lanes.
-- `gpt-5.6-sol` medium/high (senior): the workhorse for integrate/fix
-  lanes; the two live pilots (blind-board diagnosis + fix) ran here and
-  delivered landing-grade work under composed briefs.
-- `gpt-5.6-terra` (standard): mechanical extraction and implementation in
-  known patterns; held schema discipline across a 16-lane mining fan-out
-  with zero drift under a tight brief.
-- `gpt-5.6-luna` (economy): bounded mechanical work only; locality ceiling
-  is real (its delta §4) — never hand it cross-seam work.
+- `gpt-5.6-sol` xhigh (frontier): reserve for the hardest closures. Also use
+  it for iterative debugging under contended resources: a failed cheap-model
+  round costs the resource cycle, not only tokens. Planning/design/diagnosis
+  quality is at or near reference when steered; the delta is defaults, not
+  depth.
+- `gpt-5.6-luna` (workhorse): bounded and mid-size work with a tight work
+  order; its locality ceiling is real (its delta §4), so never hand it
+  cross-seam work. The two live pilots (blind-board diagnosis + fix) ran on
+  the higher senior rung and delivered landing-grade work under composed
+  briefs.
+- `gpt-5.6-terra` (standard): read-only planning, survey, mechanical
+  extraction, and known-pattern implementation; honest-zero findings are
+  valuable outcomes. It held schema discipline across a 16-lane mining
+  fan-out with zero drift under a tight brief.
+- Comparable assignments may be mixed stochastically, with outcomes tracked in
+  `~/code/todo/model-assignment-ledger.md`.
+
+Operational heuristics: VALIDATE-BEFORE-LOCK dry-probes command shape outside
+ any contended resource before taking the lock. ESCALATE-AFTER-REPEATED-SHAKEOUT
+ escalates after two or more consecutive cheap-model rounds each find one setup
+ defect, and mandates offline validation before another contended attempt.
+Forcing evidence: 2026-08-18 session — three luna mint rounds found one defect
+ per lock cycle.
 - Capacity errors ("at capacity") are transient: retry with backoff,
   bound concurrent lanes per account (observed threshold ~6–9 concurrent).
 

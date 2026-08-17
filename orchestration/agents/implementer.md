@@ -1,6 +1,6 @@
 ---
 name: "implementer"
-description: "Implement-shaped tasks — one feature or fix inside known patterns. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer. Task grade: mid."
+description: "Implement-shaped tasks — bounded or mid-size work inside known patterns, with a tight work order. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer. Task grade: mid."
 model: "claude-sonnet-5"
 effort: "medium"
 tools: "Read, Grep, Glob, Edit, Write, Bash"
