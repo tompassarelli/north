@@ -72,6 +72,11 @@ case "${1:-}" in
   ""|help|-h|--help) north_help "$@" ;;
 esac
 
+if [ "${1:-}" = "set" ]; then
+  echo "north: direct Store writes are not supported; use tell or retract" >&2
+  exit 1
+fi
+
 # Panic is deliberately the first route after locating this checkout. It must
 # remain usable when bb, Beagle Store, the coordination data store, and the coordinator are unavailable.
 if [ "${1:-}" = "panic" ]; then
@@ -229,10 +234,8 @@ north_slot_exec() {
 # worker thread writes remain available, but managed workers cannot tell,
 # retract, or cold-set this predicate. New values pass the one canonical parser;
 # malformed legacy values can still be retracted by an ambient human/orchestrator.
-# `set` is included because the generic engine passthrough would otherwise bypass
-# the coordinated tell policy (and remains discouraged under concurrency).
 guard_judgment_grade_write() {
-  case "${1:-}" in tell|retract|set) ;; *) return 0 ;; esac
+  case "${1:-}" in tell|retract) ;; *) return 0 ;; esac
   [ "${3:-}" = judgment_grade ] || return 0
   case "${AGENT_TOPOLOGY:-}" in
     ""|orchestrator) ;;
@@ -241,7 +244,7 @@ guard_judgment_grade_write() {
       return 1 ;;
   esac
   case "$1" in
-    tell|set)
+    tell)
       if [ "$#" -ne 4 ]; then
         echo "north: $1 REFUSED — judgment_grade requires exactly one value: s, m, or l" >&2
         return 1
@@ -618,6 +621,6 @@ case "${1:-}" in
       esac
     fi
     exec "$BEAGLE_STORE_CLI" store "$store_verb" "${@:2}" ;;
-  *)  # engine verbs: import/export/set/merge/watch
+  *)  # engine verbs: import/export/merge/watch
     exec "$BEAGLE_STORE_CLI" store "$@" ;;
 esac

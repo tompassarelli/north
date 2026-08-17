@@ -24,8 +24,6 @@ log path or start, restart, import, or export a live corpus as routine setup.
 - Change facts through `north tell <id> <pred> <value>` and `north retract <id>
   <pred> <value>`. These writes are serialized and rule-checked by the
   coordinator.
-- Do not use `north set` during concurrent work; it is an offline/single-writer
-  primitive.
 - Treat thread-file editing and `north import`/`north export` as explicit
   operator migration or recovery operations, never ordinary coordination.
 - If the substrate is unavailable or slow, report the exact command and
