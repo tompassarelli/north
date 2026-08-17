@@ -46,6 +46,18 @@ if ((${#files[@]} == 0)); then
   exit 2
 fi
 
+# Fram-server startup is CPU-sensitive. Keep files that own an isolated server
+# out of the ordinary unit-file wave while preserving their per-file deadline.
+server_files=()
+parallel_files=()
+for file in "${files[@]}"; do
+  if grep -Fq 'isolated Fram server' "$file"; then
+    server_files+=("$file")
+  else
+    parallel_files+=("$file")
+  fi
+done
+
 scratch="$(mktemp -d -t north-sdk-tests.XXXXXX)"
 cleanup() {
   rm -rf "${scratch:?}"
@@ -79,17 +91,26 @@ total_expect=0
 total_tests=0
 index=0
 
-while ((index < ${#files[@]})); do
+run_lane() {
+  local -a lane_files=("$@")
+  local file log normalized pass skip fail expect ran status batch_index lane_index=0
+  local -a batch_files batch_indices batch_pids batch_statuses
+  local batch_slot slot
+
+while ((lane_index < ${#lane_files[@]})); do
   batch_indices=()
   batch_pids=()
-  for ((slot = 0; slot < file_concurrency && index < ${#files[@]}; slot += 1)); do
+  batch_files=()
+  for ((slot = 0; slot < file_concurrency && lane_index < ${#lane_files[@]}; slot += 1)); do
+    ((lane_index += 1))
     ((index += 1))
-    file="${files[index - 1]}"
+    file="${lane_files[lane_index - 1]}"
     printf -v log '%s/%03d.log' "$scratch" "$index"
     timeout --kill-after="${kill_after_s}s" "${file_timeout_s}s" \
       bun test --isolate --preload ./test/support/hermetic-preload.ts \
         --only-failures "$file" >"$log" 2>&1 &
     batch_indices+=("$index")
+    batch_files+=("$file")
     batch_pids+=("$!")
   done
 
@@ -103,7 +124,7 @@ while ((index < ${#files[@]})); do
   for batch_slot in "${!batch_indices[@]}"; do
     batch_index="${batch_indices[batch_slot]}"
     status="${batch_statuses[batch_slot]}"
-    file="${files[batch_index - 1]}"
+    file="${batch_files[batch_slot]}"
     if ((status != 0)); then
       printf 'FAILED %s (status %d)\n' "$file" "$status" >&2
       cat "$scratch/$(printf '%03d' "$batch_index").log" >&2
@@ -159,6 +180,10 @@ while ((index < ${#files[@]})); do
     printf 'ok %02d %s pass=%d skip=%d\n' "$batch_index" "$file" "$pass" "$skip"
   done
 done
+}
+
+run_lane "${parallel_files[@]}"
+file_concurrency=1 run_lane "${server_files[@]}"
 
 if [[ "$installed_smoke" == 1 ]] && \
    ((total_skip != 0 || total_pass != total_tests)); then
