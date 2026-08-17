@@ -123,10 +123,6 @@
    :details ["--summary/--checkpoint/--seam/--propose — the structured payload"]}
   {:verb "listen" :form "north listen <agent-id>" :topic :agents
    :summary "arm the real-time interrupt listener (background task; dormant)"}
-  {:verb "delivery" :form "north delivery attest <agent-id>" :topic :agents
-   :status :unavailable
-   :summary "unavailable until verifier lanes have OS isolation"}
-
   ;; --------------------------------------------------------------- comms
   {:verb "inbox" :form "north inbox [--as <recipient>]" :topic :comms
    :aliases ["notifications"]
