@@ -11,11 +11,13 @@ fi
 
 file_timeout_s="${NORTH_TEST_SDK_FILE_TIMEOUT_SECONDS:-180}"
 kill_after_s="${NORTH_TEST_SDK_KILL_AFTER_SECONDS:-5}"
+file_concurrency="${NORTH_TEST_SDK_FILE_CONCURRENCY:-4}"
 installed_smoke="${NORTH_RUN_INSTALLED_CODEX_SIGNAL_SMOKE:-0}"
 sandbox_home="${NORTH_TEST_SANDBOX_HOME:-0}"
 for setting in \
   "NORTH_TEST_SDK_FILE_TIMEOUT_SECONDS:$file_timeout_s" \
-  "NORTH_TEST_SDK_KILL_AFTER_SECONDS:$kill_after_s"; do
+  "NORTH_TEST_SDK_KILL_AFTER_SECONDS:$kill_after_s" \
+  "NORTH_TEST_SDK_FILE_CONCURRENCY:$file_concurrency"; do
   name="${setting%%:*}"
   value="${setting#*:}"
   if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
@@ -77,22 +79,40 @@ total_expect=0
 total_tests=0
 index=0
 
-for file in "${files[@]}"; do
-  ((index += 1))
-  printf -v log '%s/%03d.log' "$scratch" "$index"
-  set +e
-  timeout --kill-after="${kill_after_s}s" "${file_timeout_s}s" \
-    bun test --isolate --preload ./test/support/hermetic-preload.ts \
-      --only-failures "$file" >"$log" 2>&1
-  status=$?
-  set -e
-  if ((status != 0)); then
-    printf 'FAILED %s (status %d)\n' "$file" "$status" >&2
-    cat "$log" >&2
-    exit "$status"
-  fi
+while ((index < ${#files[@]})); do
+  batch_indices=()
+  batch_pids=()
+  for ((slot = 0; slot < file_concurrency && index < ${#files[@]}; slot += 1)); do
+    ((index += 1))
+    file="${files[index - 1]}"
+    printf -v log '%s/%03d.log' "$scratch" "$index"
+    timeout --kill-after="${kill_after_s}s" "${file_timeout_s}s" \
+      bun test --isolate --preload ./test/support/hermetic-preload.ts \
+        --only-failures "$file" >"$log" 2>&1 &
+    batch_indices+=("$index")
+    batch_pids+=("$!")
+  done
 
-  normalized="$scratch/$index.normalized"
+  for batch_slot in "${!batch_pids[@]}"; do
+    set +e
+    wait "${batch_pids[batch_slot]}"
+    batch_statuses[batch_slot]=$?
+    set -e
+  done
+
+  for batch_slot in "${!batch_indices[@]}"; do
+    batch_index="${batch_indices[batch_slot]}"
+    status="${batch_statuses[batch_slot]}"
+    file="${files[batch_index - 1]}"
+    if ((status != 0)); then
+      printf 'FAILED %s (status %d)\n' "$file" "$status" >&2
+      cat "$scratch/$(printf '%03d' "$batch_index").log" >&2
+      exit "$status"
+    fi
+
+    log="$scratch/$(printf '%03d' "$batch_index").log"
+
+    normalized="$scratch/$batch_index.normalized"
   tr -d '\r' <"$log" >"$normalized"
   if ! pass="$(summary_count "$normalized" '^[[:space:]]*[0-9]+ pass$' -1 pass)" || \
      ! skip="$(summary_count "$normalized" '^[[:space:]]*[0-9]+ skip$' 0 skip)" || \
@@ -136,7 +156,8 @@ for file in "${files[@]}"; do
   total_skip=$((total_skip + skip))
   total_expect=$((total_expect + expect))
   total_tests=$((total_tests + ran))
-  printf 'ok %02d %s pass=%d skip=%d\n' "$index" "$file" "$pass" "$skip"
+    printf 'ok %02d %s pass=%d skip=%d\n' "$batch_index" "$file" "$pass" "$skip"
+  done
 done
 
 if [[ "$installed_smoke" == 1 ]] && \
