@@ -191,12 +191,13 @@ test("a failed model terminal renders typed evidence, never assistant prose", ()
     turns: { unit: "provider-turn", count: 1, toolItems: 4, comparable: false },
     failure: {
       landed: { completedTurns: 0, toolItems: 4, mcpCalls: 3, nativeCommands: 1 },
-      detail: "provider turn error: stream disconnected before completion",
+      detail: "provider_error",
     },
   }));
   expect(detail).toContain("status=failed");
   expect(detail).toContain("code=provider_error");
-  expect(detail).toContain("stream disconnected before completion");
+  expect(detail).toContain("failure=provider_error");
+  expect(detail).not.toContain("stream disconnected before completion");
   expect(detail).toContain(
     "landed=[0 completed turn(s), 4 tool item(s), 3 MCP call(s), 1 native command(s)]",
   );
@@ -206,11 +207,11 @@ test("a failed model terminal renders typed evidence, never assistant prose", ()
 });
 
 test("provider_error detail is bounded, single-line, and honest when there is nothing to say", () => {
-  const huge = describeProviderErrorTerminal(modelTerminalSnapshot("huge", "failed", {
-    failure: { detail: "large failure ".repeat(80).trim() },
-  }));
-  expect(huge.length).toBeLessThanOrEqual(PROVIDER_ERROR_DETAIL_MAX_LEN);
-  expect(huge).not.toContain("\n");
+  const bounded = describeProviderErrorTerminal(modelTerminalSnapshot("bounded", "failed", {
+    failure: { detail: "provider_error" },
+  }), 32);
+  expect(bounded.length).toBeLessThanOrEqual(32);
+  expect(bounded).not.toContain("\n");
 
   const noTerminal = new WireEventWriter({ runId: wireRunId("run:terminal-none") });
   noTerminal.append({ kind: "run.started", lifecycle: "running" });
