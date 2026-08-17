@@ -24,7 +24,7 @@ execution controls and the prompt:
   "tier": "standard",
   "reasoning": "medium",
   "posture": "deliver",
-  "composition": {"kind": "preset", "id": "implementer", "overrides": []}
+  "composition": {"kind": "template", "id": "implementer", "overrides": []}
 }
 ```
 

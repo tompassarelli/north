@@ -317,7 +317,7 @@ test("atomic delegate forwards first-class bespoke composition options", () => {
   expect(result.stdout).toContain("AGENT_ROLE=migration-forensics");
   expect(result.stdout).toContain("orchestration:bespoke:migration-forensics");
   expect(result.stdout).toContain("AGENT_COMPOSITION=REDACTED_BESPOKE_CONTRACT");
-  expect(result.stdout).not.toContain('"nearestPreset":"analyst"');
+  expect(result.stdout).not.toContain('"nearestTemplate":"analyst"');
 });
 
 test("delegate context remains an orthogonal handoff payload", () => {

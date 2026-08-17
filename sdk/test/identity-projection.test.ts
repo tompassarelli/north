@@ -40,7 +40,7 @@ function observedIdentity(facts: Record<string, string>): ObservedAgentIdentity 
     compositionOverrides: facts.composition_overrides === undefined
       ? undefined : JSON.parse(facts.composition_overrides),
     compositionOverrideReason: facts.composition_override_reason,
-    compositionNearestPreset: facts.nearest_preset,
+    compositionNearestTemplate: facts.nearest_template,
     compositionBespokeReason: facts.bespoke_reason,
     compositionPromotionCandidate: promotion,
     compositionContractFingerprint: facts.composition_contract_sha256,
@@ -65,14 +65,14 @@ test("shared roster fixtures preserve semantic identity across provider adapters
 test("semantic handles keep provider-specific model families and stable control suffixes", () => {
   expect(semanticHandle("sdk-a205e9ce", {
     kind: "lane", provider: "openai", model: "gpt-5.6-sol", effort: "xhigh",
-    role: "designer", compositionKind: "preset", compositionId: "designer", compositionOverrides: [],
+    role: "designer", compositionKind: "template", compositionId: "designer", compositionOverrides: [],
   })).toBe("openai-sol-xhigh-orchestration-designer-a205e9ce");
 });
 
 test("managed identity exposes the exact account target and Orchestration template", () => {
   const identity = {
     kind: "lane" as const, provider: "openai", providerTarget: "codex-work",
-    model: "gpt-5.6-sol", effort: "xhigh", compositionKind: "preset" as const,
+    model: "gpt-5.6-sol", effort: "xhigh", compositionKind: "template" as const,
     role: "designer", compositionId: "designer", compositionOverrides: [],
     goal: "Build the account-aware roster",
   };
@@ -87,7 +87,7 @@ test("managed identity exposes the exact account target and Orchestration templa
 
 test("fallback route facts replace provider target and refresh public identity", () => {
   const base = {
-    kind: "lane" as const, model: "opus", effort: "high", compositionKind: "preset" as const,
+    kind: "lane" as const, model: "opus", effort: "high", compositionKind: "template" as const,
     role: "integrator", compositionId: "integrator", compositionOverrides: [], goal: "Integrate the change",
   };
   const initial = Object.fromEntries(agentRouteFacts("lane-route", {
@@ -103,12 +103,12 @@ test("fallback route facts replace provider target and refresh public identity",
 
 test("Orchestration provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
   expect(orchestrationProvenance({
-    kind: "lane", role: "designer", compositionKind: "preset",
+    kind: "lane", role: "designer", compositionKind: "template",
     compositionId: "designer", compositionOverrides: [],
   }))
     .toBe("orchestration:designer");
   expect(orchestrationProvenance({
-    kind: "lane", role: "integrator", compositionKind: "preset", compositionId: "integrator",
+    kind: "lane", role: "integrator", compositionKind: "template", compositionId: "integrator",
     compositionOverrides: ["tier", "reasoning"], compositionOverrideReason: "high leverage seam",
   })).toBe("orchestration:integrator+override(tier,reasoning)");
   expect(orchestrationProvenance({
@@ -123,7 +123,7 @@ test("Orchestration provenance distinguishes exact, overridden, bespoke, native,
     .toBe("orchestration:not-selected");
   expect(orchestrationProvenance({ kind: "lane" })).toBe("orchestration:legacy-debt");
   expect(orchestrationProvenance({
-    kind: "lane", compositionKind: "preset", compositionId: "integrator",
+    kind: "lane", compositionKind: "template", compositionId: "integrator",
     compositionOverrides: ["tier"],
   })).toBe("orchestration:legacy-debt");
 });

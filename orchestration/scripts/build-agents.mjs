@@ -72,7 +72,7 @@ function render(r) {
     tier: r.tier,
     reasoning: r.deliberation,
     posture: effectivePosture,
-    composition: { kind: "preset", id: r.routingRole || r.name, overrides: [] },
+    composition: { kind: "template", id: r.routingRole || r.name, overrides: [] },
   });
   const fm = [
     "---",
@@ -189,8 +189,8 @@ OpenAI orchestration is currently ineligible and fails pre-turn; with
 Claude plugin-agent frontmatter cannot encode a hard sandbox, so the generated
 plugin adapter withholds Bash for \`shell.readonly\` stock templates rather
 than claiming a boundary it cannot provide.
-North presents composition provenance as \`orchestration:<preset>\`,
-\`orchestration:<preset>+override\`, or \`orchestration:bespoke:<id>\`. A native session that
+North presents composition provenance as \`orchestration:<template>\`,
+\`orchestration:<template>+override\`, or \`orchestration:bespoke:<id>\`. A native session that
 did not select Orchestration is \`orchestration:not-selected\`; only pre-contract records may
 use \`orchestration:legacy-debt\`. Never collapse these states to \`orchestration:none\`.
 Comparable successful bespoke recurrence is evidence for review, never

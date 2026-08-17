@@ -546,7 +546,7 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
       tier: "standard",
       reasoning: "low",
       composition: {
-        kind: "preset",
+        kind: "template",
         id: "scout",
         overrides: ["tier"],
         overrideReason: "exercise the Terra prompt-composition preflight boundary",
@@ -3983,7 +3983,7 @@ test("public spawn composes justified explicit axes before Orchestration hydrati
     role: "director", tier: "economy", effort: "low", posture: "preserve",
     routingMetadata: applyOrchestrationStaffing({
       role: "director", tier: "economy", reasoning: "low", posture: "preserve",
-      composition: { kind: "preset", id: "director",
+      composition: { kind: "template", id: "director",
         overrides: ["tier", "reasoning", "posture"],
         overrideReason: "exercise the explicit public-dial composition boundary" },
     }), provider: "anthropic", pinEvidence: pinEvidence("anthropic"), queryFn,
@@ -4082,7 +4082,7 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
     "tell agent:test-role-only-integrator provider_target anthropic",
     "tell agent:test-role-only-integrator model claude-opus-5",
     "tell agent:test-role-only-integrator effort high",
-    "tell agent:test-role-only-integrator composition_kind preset",
+    "tell agent:test-role-only-integrator composition_kind template",
     "tell agent:test-role-only-integrator composition_id integrator",
     "tell agent:test-role-only-integrator display_handle anthropic-ambient-opus-high-orchestration-integrator-integrator",
   ]) expect(logged).toContain(fact);

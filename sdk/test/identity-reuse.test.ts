@@ -35,7 +35,7 @@ printf '%s\\n' "$*" >> "${log}"
     liveInputState: "frozen",
     liveInputEpoch: "00000000-0000-4000-8000-000000000020",
     compositionKind: "bespoke", compositionId: "migration-cartographer",
-    compositionNearestPreset: "analyst", compositionBespokeReason: "schema archaeology",
+    compositionNearestTemplate: "analyst", compositionBespokeReason: "schema archaeology",
     compositionPromotionCandidate: false,
   });
   const commands = readFileSync(log, "utf8").trim().split("\n");
@@ -46,7 +46,7 @@ printf '%s\\n' "$*" >> "${log}"
   expect(firstTell).toBeGreaterThan(0);
   expect(commands.slice(0, firstTell).every((command) => command.startsWith("retract "))).toBe(true);
   expect(commands[firstTell]).toBe("tell agent:stable-id kind lane");
-  expect(commands).toContain("tell agent:stable-id nearest_preset analyst");
+  expect(commands).toContain("tell agent:stable-id nearest_template analyst");
   expect(commands).toContain("tell agent:stable-id bespoke_reason schema archaeology");
   expect(commands).toContain("tell agent:stable-id promotion_candidate false");
 });

@@ -15,7 +15,7 @@
    "provider" "openai" "provider_target" "codex-a" "effort" "high"
    "live_input" "turn-framed" "live_input_state" "frozen"
    "live_input_epoch" "00000000-0000-4000-8000-000000000101"
-   "composition_kind" "preset" "composition_id" "integrator"
+   "composition_kind" "template" "composition_id" "integrator"
    "composition_overrides" "[]" "repo" "north"
    "goal" "native writer probe" "spawned_at" "2026-08-04T00:00:00Z"
    "display_handle" "native-writer-probe"

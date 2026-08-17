@@ -31,14 +31,14 @@ describe("Orchestration routing metadata boundary", () => {
     process.env.AGENT_REASONING = "xhigh";
     process.env.AGENT_POSTURE = "explore";
     process.env.AGENT_COMPOSITION = JSON.stringify({
-      kind: "bespoke", id: "migration-forensics", nearestPreset: "analyst",
+      kind: "bespoke", id: "migration-forensics", nearestTemplate: "analyst",
       bespokeReason: "crosses provenance and schema recovery", promotionCandidate: true,
       contract: bespokeContract,
     });
     expect(routingMetadataFromEnv()).toEqual({
       role: "migration-forensics", taskGrade: "staff", domainRequirements: ["distributed-systems", "Nix"],
       topology: "orchestrator", tier: "frontier", reasoning: "xhigh", posture: "explore",
-      composition: { kind: "bespoke", id: "migration-forensics", nearestPreset: "analyst",
+      composition: { kind: "bespoke", id: "migration-forensics", nearestTemplate: "analyst",
         bespokeReason: "crosses provenance and schema recovery", promotionCandidate: true,
         contract: bespokeContract },
     });
@@ -55,7 +55,7 @@ describe("Orchestration routing metadata boundary", () => {
     expect(() => validateRoutingMetadata({ topology: "verifier" as any })).toThrow("topology");
     expect(() => validateRoutingMetadata({ role: "x", composition: { kind: "bespoke", id: "x" } as any })).toThrow("bespokeReason");
     expect(() => validateRoutingMetadata({
-      role: "x", composition: { kind: "bespoke", id: "x", nearestPreset: "analyst",
+      role: "x", composition: { kind: "bespoke", id: "x", nearestTemplate: "analyst",
         bespokeReason: "one-off", promotionCandidate: false, contract: bespokeContract },
     })).toThrow("bespoke composition requires all routing axes");
   });
@@ -76,10 +76,10 @@ describe("Orchestration routing metadata boundary", () => {
         .toThrow("routing metadata has unknown field");
     }
     expect(() => validateRoutingMetadata({
-      role: "integrator", composition: { kind: "preset", id: "scout", overrides: [] },
+      role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
     })).toThrow("composition.id must match canonical role integrator");
     expect(() => validateRoutingMetadata({
-      role: "integrator", composition: { kind: "preset", id: "integrator", overrides: [], extra: true } as any,
+      role: "integrator", composition: { kind: "template", id: "integrator", overrides: [], extra: true } as any,
     })).toThrow("composition has unknown field");
   });
 

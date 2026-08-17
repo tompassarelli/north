@@ -26,7 +26,7 @@ try {
     liveInput: "unsupported",
     liveInputState: "frozen",
     liveInputEpoch: "00000000-0000-4000-8000-000000000020",
-    compositionKind: "preset",
+    compositionKind: "template",
     compositionId: "bench-role",
     compositionOverrides: [],
     provider: "anthropic",

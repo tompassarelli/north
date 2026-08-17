@@ -122,7 +122,7 @@
                (when (= id "openai-turn-framed") (sha256 reviewer-capability))
                "model" (if (= provider "anthropic") "claude-opus-4-8" "gpt-5.6-sol")
                "effort" "xhigh"
-               "composition_kind" "preset"
+               "composition_kind" "template"
                "composition_id" "integrator"
                "composition_overrides" "[]"
                "repo" "~/code/north"

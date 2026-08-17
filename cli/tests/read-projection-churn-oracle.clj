@@ -150,7 +150,7 @@
          "live_input_epoch" "00000000-0000-4000-8000-000000000001"
          "model" "oracle-model"
          "effort" "high"
-         "composition_kind" "preset"
+         "composition_kind" "template"
          "composition_id" "implementer"
          "composition_overrides" "[]"
          "repo" north-root

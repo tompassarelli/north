@@ -36,7 +36,7 @@ test("peer command accepts a complete Orchestration envelope, never role-only or
     tier: "senior",
     reasoning: "high",
     posture: "evaluate",
-    composition: { kind: "preset", id: "verifier", overrides: [] },
+    composition: { kind: "template", id: "verifier", overrides: [] },
   })).not.toThrow();
   expect(() => validatePeerCommandArgs("spawn", {
     prompt: "probe", role: "verifier",

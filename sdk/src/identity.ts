@@ -127,11 +127,11 @@ export interface ObservedAgentIdentity {
   /** SHA-256 of the host-only capability authorizing shadow-reviewer follow-up mail. */
   shadowReviewerNoteCapabilitySha256?: string;
   effort?: string;
-  compositionKind?: "preset" | "bespoke" | "none";
+  compositionKind?: "template" | "bespoke" | "none";
   compositionId?: string;
   compositionOverrides?: string[];
   compositionOverrideReason?: string;
-  compositionNearestPreset?: string;
+  compositionNearestTemplate?: string;
   compositionBespokeReason?: string;
   compositionPromotionCandidate?: boolean;
   compositionContractFingerprint?: string;
@@ -160,7 +160,7 @@ export interface ManagedLaneIdentity extends ObservedAgentIdentity {
   liveInput: LiveInputCapability;
   liveInputState: LiveInputState;
   liveInputEpoch: string;
-  compositionKind: "preset" | "bespoke";
+  compositionKind: "template" | "bespoke";
   compositionId: string;
 }
 
@@ -254,7 +254,7 @@ export function orchestrationProvenance(f: AgentIdentity): string {
   if (!role || !compositionId || !SAFE_ROLE_ID.test(role)
       || !SAFE_ROLE_ID.test(compositionId) || role !== compositionId)
     return "orchestration:legacy-debt";
-  if (f.compositionKind === "preset") {
+  if (f.compositionKind === "template") {
     const overrides = validPresetOverrides(f);
     if (!overrides) return "orchestration:legacy-debt";
     const base = `orchestration:${compositionId}`;
@@ -493,7 +493,7 @@ export function agentIdentityFacts(
     ["composition_overrides", f.compositionOverrides === undefined
       ? undefined : JSON.stringify(f.compositionOverrides)],
     ["composition_override_reason", f.compositionOverrideReason],
-    ["nearest_preset", f.compositionNearestPreset],
+    ["nearest_template", f.compositionNearestTemplate],
     ["bespoke_reason", f.compositionBespokeReason],
     ["promotion_candidate", f.compositionPromotionCandidate === undefined
       ? undefined : String(f.compositionPromotionCandidate)],

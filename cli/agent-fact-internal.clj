@@ -214,14 +214,14 @@
       (fail! "managed role and Orchestration composition id must agree"
              {:role (get facts "role") :composition-id (get facts "composition_id")}))
     (case (get facts "composition_kind")
-      "preset" (do
+      "template" (do
                  (when-not (contains? facts "composition_overrides")
-                   (fail! "preset identity requires composition_overrides" {}))
+                   (fail! "template identity requires composition_overrides" {}))
                  (when (some #(contains? facts %)
                              ["bespoke_reason" "promotion_candidate" "composition_contract_sha256"
                               "composition_contract_fingerprint_version"
                               "composition_contract_fingerprint_domain"])
-                   (fail! "preset identity carries bespoke-only evidence" {})))
+                   (fail! "template identity carries bespoke-only evidence" {})))
       "bespoke" (do
                   (doseq [predicate ["bespoke_reason" "promotion_candidate"
                                      "composition_contract_sha256"
@@ -240,7 +240,7 @@
                   (when-not (= "north:bespoke-contract:v1"
                                (get facts "composition_contract_fingerprint_domain"))
                     (fail! "unsupported bespoke contract fingerprint domain" {})))
-      (fail! "managed identity composition_kind must be preset or bespoke"
+      (fail! "managed identity composition_kind must be template or bespoke"
              {:composition-kind (get facts "composition_kind")}))))
 
 (defn commit-marker! [port subject facts]

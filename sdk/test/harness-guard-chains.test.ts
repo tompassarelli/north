@@ -94,7 +94,7 @@ function composeLane(routingMetadata?: unknown) {
 const ORCHESTRATOR_ROUTE = {
   role: "director", taskGrade: "staff", domainRequirements: [], topology: "orchestrator",
   tier: "frontier", reasoning: "xhigh", posture: "deliver",
-  composition: { kind: "preset", id: "director", overrides: [] },
+  composition: { kind: "template", id: "director", overrides: [] },
 };
 
 async function decide(hook: Hook, input: unknown) {

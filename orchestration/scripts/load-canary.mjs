@@ -58,7 +58,7 @@ const presetCases = initial.staffing.presets.map((preset) => ({
     tier: preset.tier,
     reasoning: preset.deliberation,
     posture: preset.posture,
-    composition: { kind: "preset", id: preset.name, overrides: [] },
+    composition: { kind: "template", id: preset.name, overrides: [] },
   },
 }));
 const cases = [
@@ -176,7 +176,7 @@ const receipt = {
     shape: "North preflight burst across provider candidates",
     validationSurface: [
       "staffing catalog/schema", "provider catalog/schema", "routing request",
-      "preset composition", "bespoke composition", "exact candidate route",
+      "template composition", "bespoke composition", "exact candidate route",
     ],
   },
   envelope: ENVELOPE,

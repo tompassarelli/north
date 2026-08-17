@@ -103,7 +103,7 @@
                                       (str/includes? (slurp listener-log) "listening"))))
 
         (let [args {:id "@thread:peer-tell" :pred "note" :value "hello"
-                    :composition {:kind "preset" :id "verifier" :overrides []}}
+                    :composition {:kind "template" :id "verifier" :overrides []}}
               first-result (run-msg port "send-cmd" "producer" self "tell" (pr-str args))
               first-command (sent-command first-result)]
           (check "tell producer accepts a repeat-safe operation" (and (zero? (:exit first-result)) first-command))
@@ -117,7 +117,7 @@
                         (seq (values-of port first-command "reply"))
                         (contains? (values-of port first-command "acked_by") self))))
           (check "structured command arguments are canonical JSON facts"
-                 (= {:kind "preset" :id "verifier" :overrides []}
+                 (= {:kind "template" :id "verifier" :overrides []}
                     (json/parse-string (value-of port first-command "composition") true)))
 
           (let [valid-grade (run-msg port "send-cmd" "producer" self "tell"

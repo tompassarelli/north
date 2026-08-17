@@ -9,7 +9,7 @@
   "composition": {
     "kind": "bespoke",
     "id": "shadow-reviewer",
-    "nearestPreset": "scout",
+    "nearestTemplate": "scout",
     "bespokeReason": "Passive comparison needs bounded evaluation of supplied data without authoring, network, filesystem, or coordination authority.",
     "promotionCandidate": false,
     "contract": {

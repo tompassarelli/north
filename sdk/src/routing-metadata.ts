@@ -11,7 +11,7 @@ export type TaskGrade = typeof TASK_GRADES[number];
 export const TOPOLOGIES = ["worker", "orchestrator"] as const;
 export type Topology = typeof TOPOLOGIES[number];
 
-export const COMPOSITION_KINDS = ["preset", "bespoke"] as const;
+export const COMPOSITION_KINDS = ["template", "bespoke"] as const;
 export type CompositionKind = typeof COMPOSITION_KINDS[number];
 export const SEMANTIC_TIERS = ["economy", "standard", "senior", "frontier"] as const;
 export type RoutingTier = typeof SEMANTIC_TIERS[number];
@@ -35,8 +35,8 @@ export interface BespokeContract {
   report: string;
 }
 
-export interface PresetComposition {
-  kind: "preset";
+export interface TemplateComposition {
+  kind: "template";
   id: string;
   overrides: RoutingOverrideField[];
   overrideReason?: string;
@@ -45,12 +45,12 @@ export interface PresetComposition {
 export interface BespokeComposition {
   kind: "bespoke";
   id: string;
-  nearestPreset?: string;
+  nearestTemplate?: string;
   bespokeReason: string;
   promotionCandidate: boolean;
   contract: BespokeContract;
 }
-export type AgentComposition = PresetComposition | BespokeComposition;
+export type AgentComposition = TemplateComposition | BespokeComposition;
 
 /** The executable routing contract carried by every managed North boundary. */
 export interface RoutingRequest {
@@ -76,9 +76,9 @@ export type RoutingMetadata = RoutingDraft;
 const ROUTING_FIELDS = new Set([
   "role", "taskGrade", "domainRequirements", "topology", "tier", "reasoning", "posture", "composition",
 ]);
-const PRESET_COMPOSITION_FIELDS = new Set(["kind", "id", "overrides", "overrideReason"]);
+const TEMPLATE_COMPOSITION_FIELDS = new Set(["kind", "id", "overrides", "overrideReason"]);
 const BESPOKE_COMPOSITION_FIELDS = new Set([
-  "kind", "id", "nearestPreset", "bespokeReason", "promotionCandidate", "contract",
+  "kind", "id", "nearestTemplate", "bespokeReason", "promotionCandidate", "contract",
 ]);
 const CONTRACT_FIELDS = new Set([
   "responsibility", "deliverable", "capabilities", "mayDecide", "mustEscalate", "doneWhen", "report",
@@ -141,24 +141,24 @@ export function validateRoutingMetadata(value: RoutingDraft): RoutingDraft {
     const compositionId = nonEmptyString(rawComposition.id, "composition.id");
     if (compositionId !== normalizedRole)
       throw new Error(`composition.id must match canonical role ${normalizedRole}`);
-    if (kind === "preset") {
-      rejectUnknownFields(rawComposition, PRESET_COMPOSITION_FIELDS, "composition");
+    if (kind === "template") {
+      rejectUnknownFields(rawComposition, TEMPLATE_COMPOSITION_FIELDS, "composition");
       const overrides = nonEmptyStrings(rawComposition.overrides, "composition.overrides") as RoutingOverrideField[];
       if (overrides.some((field) => !ROUTING_OVERRIDE_FIELDS.includes(field)))
         throw new Error(`composition.overrides may contain only: ${ROUTING_OVERRIDE_FIELDS.join(", ")}`);
       if (overrides.length) nonEmptyString(rawComposition.overrideReason, "composition.overrideReason");
       else if (rawComposition.overrideReason !== undefined)
-        throw new Error("unchanged preset must omit composition.overrideReason");
+        throw new Error("unchanged template must omit composition.overrideReason");
       normalizedComposition = {
-        kind: "preset", id: compositionId, overrides,
+        kind: "template", id: compositionId, overrides,
         ...(overrides.length
           ? { overrideReason: nonEmptyString(rawComposition.overrideReason, "composition.overrideReason") }
           : {}),
       };
     } else {
       rejectUnknownFields(rawComposition, BESPOKE_COMPOSITION_FIELDS, "composition");
-      const nearestPreset = rawComposition.nearestPreset === undefined
-        ? undefined : nonEmptyString(rawComposition.nearestPreset, "composition.nearestPreset");
+      const nearestTemplate = rawComposition.nearestTemplate === undefined
+        ? undefined : nonEmptyString(rawComposition.nearestTemplate, "composition.nearestTemplate");
       const bespokeReason = nonEmptyString(rawComposition.bespokeReason, "composition.bespokeReason");
       if (typeof rawComposition.promotionCandidate !== "boolean")
         throw new Error("composition.promotionCandidate must be boolean");
@@ -180,7 +180,7 @@ export function validateRoutingMetadata(value: RoutingDraft): RoutingDraft {
         topology!, contract.capabilities, "composition.contract.capabilities",
       );
       normalizedComposition = {
-        kind, id: compositionId, ...(nearestPreset ? { nearestPreset } : {}), bespokeReason,
+        kind, id: compositionId, ...(nearestTemplate ? { nearestTemplate } : {}), bespokeReason,
         promotionCandidate: rawComposition.promotionCandidate, contract,
       };
     }

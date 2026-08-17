@@ -134,7 +134,7 @@
               "provider" "anthropic" "provider_target" "claude-a" "effort" "high"
               "live_input" "streaming" "live_input_state" "armed"
               "live_input_epoch" "00000000-0000-4000-8000-000000000101"
-              "composition_kind" "preset" "composition_id" "integrator"
+              "composition_kind" "template" "composition_id" "integrator"
               "composition_overrides" "[\"tier\"]"
               "composition_override_reason" "critical seam" "repo" "north"
               "goal" "prove atomic publication" "spawned_at" "2026-07-17T01:00:00Z"
@@ -145,7 +145,7 @@
                "live_input" "turn-framed" "live_input_state" "frozen"
                "live_input_epoch" "00000000-0000-4000-8000-000000000102"
                "composition_kind" "bespoke" "composition_id" "migration-forensics"
-               "nearest_preset" "analyst" "bespoke_reason" "cross-schema archaeology"
+               "nearest_template" "analyst" "bespoke_reason" "cross-schema archaeology"
                "promotion_candidate" "false"
                "composition_contract_sha256" (apply str (repeat 64 "a"))
                "composition_contract_fingerprint_version" "v1"
@@ -309,7 +309,7 @@
                   (nil? (get raw-stored "process_outcome"))
                   (nil? (get raw-stored "delivery_outcome"))
                   (nil? (get raw-stored "terminal_manifest_sha256"))
-                  (= #{"analyst"} (get raw-stored "nearest_preset"))))
+                  (= #{"analyst"} (get raw-stored "nearest_template"))))
       (check "every managed identity predicate has exactly one live value"
              (every? #(= 1 (count %))
                      (vals (select-keys raw-stored north.agent-provenance/identity-predicates))))

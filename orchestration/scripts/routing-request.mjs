@@ -52,7 +52,7 @@ export function effectivePreset(preset, catalog) {
   };
 }
 
-export function presetOverrides(request, preset, catalog) {
+export function templateOverrides(request, preset, catalog) {
   const base = effectivePreset(preset, catalog);
   return OVERRIDE_FIELDS.filter((field) => !equal(request[field], base[field]));
 }
@@ -90,7 +90,7 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
   if (canonicalRole !== role) throw new Error(`role must use canonical stock-template name ${canonicalRole}`);
   const preset = catalog.presets.find(({ name }) => name === role);
 
-  if (composition.kind === "preset") {
+  if (composition.kind === "template") {
     keysExactly(composition, composition.overrideReason === undefined
       ? ["kind", "id", "overrides"] : ["kind", "id", "overrides", "overrideReason"], "composition");
     if (!preset) throw new Error(`unknown role ${role} requires a bespoke composition`);
@@ -101,7 +101,7 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
     const declared = stringList(composition.overrides, "composition.overrides");
     if (declared.some((field) => !OVERRIDE_FIELDS.includes(field)))
       throw new Error(`composition.overrides may contain only: ${OVERRIDE_FIELDS.join(", ")}`);
-    const actual = presetOverrides(request, preset, catalog);
+    const actual = templateOverrides(request, preset, catalog);
     if (!equal([...declared].sort(), [...actual].sort()))
       throw new Error(`composition.overrides must exactly record changed stock-template axes: ${actual.join(", ") || "none"}`);
     if (actual.length) nonEmptyString(composition.overrideReason, "composition.overrideReason");
@@ -109,19 +109,19 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
       throw new Error("unchanged stock template must omit composition.overrideReason");
     validateTopologyCapabilities(request.topology, preset.capabilities, `routing stock template ${role}`);
   } else if (composition.kind === "bespoke") {
-    const allowed = ["kind", "id", "nearestPreset", "bespokeReason", "promotionCandidate", "contract"];
+    const allowed = ["kind", "id", "nearestTemplate", "bespokeReason", "promotionCandidate", "contract"];
     const unknown = Object.keys(composition).filter((key) => !allowed.includes(key));
     const missing = ["kind", "id", "bespokeReason", "promotionCandidate", "contract"]
       .filter((key) => !Object.hasOwn(composition, key));
     if (unknown.length) throw new Error(`composition has unknown field(s): ${unknown.join(", ")}`);
     if (missing.length) throw new Error(`composition is missing field(s): ${missing.join(", ")}`);
-    if (preset) throw new Error(`known stock-template role ${role} requires composition.kind "preset"`);
+    if (preset) throw new Error(`known stock-template role ${role} requires composition.kind "template"`);
     const compositionId = canonicalRoleId(composition.id, "composition.id");
     if (compositionId !== role) throw new Error(`composition.id must match canonical role ${role}`);
-    if (composition.nearestPreset !== undefined) {
-      const nearest = canonicalRoleId(composition.nearestPreset, "composition.nearestPreset");
+    if (composition.nearestTemplate !== undefined) {
+      const nearest = canonicalRoleId(composition.nearestTemplate, "composition.nearestTemplate");
       if (!catalog.presets.some(({ name }) => name === nearest))
-        throw new Error(`composition.nearestPreset must name a canonical stock template`);
+        throw new Error(`composition.nearestTemplate must name a canonical stock template`);
     }
     nonEmptyString(composition.bespokeReason, "composition.bespokeReason");
     if (typeof composition.promotionCandidate !== "boolean")
@@ -129,7 +129,7 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
     validateContract(composition.contract, catalog);
     validateTopologyCapabilities(request.topology, composition.contract.capabilities, `routing bespoke ${role}`);
   } else {
-    throw new Error("composition.kind must be preset or bespoke");
+    throw new Error("composition.kind must be template or bespoke");
   }
   return request;
 }

@@ -21,7 +21,7 @@
     "posture": { "enum": ["explore", "deliver", "preserve", "evaluate"] },
     "composition": {
       "oneOf": [
-        { "$ref": "#/$defs/presetComposition" },
+        { "$ref": "#/$defs/templateComposition" },
         { "$ref": "#/$defs/bespokeComposition" }
       ]
     }
@@ -30,12 +30,12 @@
     "overrideField": {
       "enum": ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"]
     },
-    "presetComposition": {
+    "templateComposition": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "id", "overrides"],
       "properties": {
-        "kind": { "const": "preset" },
+        "kind": { "const": "template" },
         "id": { "$ref": "#/$defs/roleId" },
         "overrides": {
           "type": "array", "uniqueItems": true,
@@ -75,7 +75,7 @@
       "properties": {
         "kind": { "const": "bespoke" },
         "id": { "$ref": "#/$defs/roleId" },
-        "nearestPreset": { "$ref": "#/$defs/roleId" },
+        "nearestTemplate": { "$ref": "#/$defs/roleId" },
         "bespokeReason": { "type": "string", "minLength": 1 },
         "promotionCandidate": { "type": "boolean" },
         "contract": { "$ref": "#/$defs/bespokeContract" }

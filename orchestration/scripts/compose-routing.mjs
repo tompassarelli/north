@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadStaffingCatalog } from "./staffing-catalog.mjs";
 import { readFileSync } from "node:fs";
-import { presetOverrides, validateRoutingRequest } from "./routing-request.mjs";
+import { templateOverrides, validateRoutingRequest } from "./routing-request.mjs";
 import { canonicalRoleId } from "./role-id.mjs";
 import { assertAssessmentSelection, validateSelectionAssessment } from "./selection-assessment.mjs";
 
@@ -27,7 +27,7 @@ Without --nearest, a bespoke composition must explicitly set --task-grade,
 requirements remain an explicit empty list when no --domain is supplied.
 
 Prints one provider-neutral ORCHESTRATION_ROUTING JSON payload. Machine output retains
-the v2 keys kind:"preset" and nearestPreset for compatibility.`;
+the v2 keys kind:"template" and nearestTemplate .`;
 
 function die(message) { console.error(message); console.error(usage); process.exit(1); }
 
@@ -133,10 +133,10 @@ const payload = {
   posture: selected.posture,
   reasoning: selected.deliberation,
   composition: preset
-    ? { kind: "preset", id: canonicalRole, overrides: [] }
+    ? { kind: "template", id: canonicalRole, overrides: [] }
     : {
         kind: "bespoke", id: args.role,
-        ...(nearest ? { nearestPreset: nearest.name } : {}),
+        ...(nearest ? { nearestTemplate: nearest.name } : {}),
         bespokeReason: args.rationale.trim(),
         promotionCandidate: args.promotionCandidate,
         contract: parseContract(args.contract),
@@ -144,7 +144,7 @@ const payload = {
 };
 
 if (preset) {
-  const overrides = presetOverrides(payload, preset, catalog);
+  const overrides = templateOverrides(payload, preset, catalog);
   payload.composition.overrides = overrides;
   if (overrides.length && !args.overrideReason?.trim())
     die(`stock-template axis override requires --override-reason (changed: ${overrides.join(", ")})`);

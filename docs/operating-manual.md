@@ -662,7 +662,7 @@ dashboard` execs through. This manual does not yet document the app; see
 
 `north templates` is the human view of Orchestration's stock library. It deliberately
 says **template** while the versioned machine contract retains `presets`,
-`composition.kind="preset"`, and `nearestPreset`. Templates are reusable
+`composition.kind="template"`, and `nearestTemplate`. Templates are reusable
 starting points, not limits: select an exact template, justify an axis override,
 or author a complete bespoke composition. Empirical promotion remains paused
 until North has an independently enforceable verifier boundary. Recorded run

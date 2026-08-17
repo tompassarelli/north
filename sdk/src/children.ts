@@ -233,7 +233,7 @@ export type ChildFinalizationDecision =
 
 export function requiredDirectChildCount(routing: RoutingRequest): number {
   if (routing.topology !== "orchestrator") return 0;
-  return routing.composition.kind === "preset"
+  return routing.composition.kind === "template"
       && routing.composition.id === "director"
     ? 2
     : 1;

@@ -1124,13 +1124,13 @@ export interface ModelDeltaEvidence {
 }
 
 export interface HarnessCompositionEvidence {
-  roleKind?: "preset" | "bespoke";
+  roleKind?: "template" | "bespoke";
   roleId?: string;
   bespokeContractHash?: string;
   bespokeContractFingerprintVersion?: string;
   bespokeContractFingerprintDomain?: string;
-  presetOverrides?: RoutingOverrideField[];
-  presetOverrideReasonHash?: string;
+  templateOverrides?: RoutingOverrideField[];
+  templateOverrideReasonHash?: string;
   capabilities?: OrchestrationCapability[];
   commsContractHash?: string;
   taskGrade?: string;
@@ -1543,17 +1543,17 @@ export function orchestrationAppendix(
     const composition = admitted.composition;
     if (composition.id !== admitted.role)
       throw new Error(`Orchestration composition ${composition.id} does not match role ${admitted.role}`);
-    if (composition.kind === "preset") {
+    if (composition.kind === "template") {
       const role = exactSectionFence(resolve(orchestrationDocs(env), "roles.md"), admitted.role, `role:${admitted.role}`);
       blocks.push(`## Orchestration role contract — preset:${admitted.role}\n${role}`);
       if (composition.overrides.length) {
         blocks.push([
-          "## Orchestration preset override",
+          "## Orchestration template override",
           `Axes changed: ${composition.overrides.join(", ")}.`,
           `Reason: ${composition.overrideReason}`,
         ].join("\n"));
-        evidence.presetOverrides = [...composition.overrides];
-        evidence.presetOverrideReasonHash = createHash("sha256")
+        evidence.templateOverrides = [...composition.overrides];
+        evidence.templateOverrideReasonHash = createHash("sha256")
           .update(composition.overrideReason!).digest("hex");
       }
     } else {

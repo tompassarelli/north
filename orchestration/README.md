@@ -190,7 +190,7 @@ domains, tier, reasoning, or posture change but the fixed topology/capability
 boundary still fits. Topology is never a template override. Use a bespoke
 composition when topology, responsibility, deliverable, capability/authority
 boundary, done criteria, or report shape differs. The v2 machine schema
-retains `presets`, `kind: "preset"`, and `nearestPreset` for compatibility.
+retains `presets`, `kind: "template"`, and `nearestTemplate` .
 
 Each template is a transparent starting composition, not an identity
 constraint:

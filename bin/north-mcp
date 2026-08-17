@@ -330,7 +330,7 @@
 (def composition-schema
   {:oneOf
    [{:type "object"
-     :properties {:kind {:const "preset"}
+     :properties {:kind {:const "template"}
                   :id {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
                   :overrides {:type "array" :uniqueItems true
                               :items {:type "string" :enum ["taskGrade" "domainRequirements" "tier" "reasoning" "posture"]}}
@@ -343,7 +343,7 @@
     {:type "object"
      :properties {:kind {:const "bespoke"}
                   :id {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
-                  :nearestPreset {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
+                  :nearestTemplate {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]}}
                   :bespokeReason {:type "string" :minLength 1}
                   :promotionCandidate {:type "boolean"}
                   :contract bespoke-contract-schema}
@@ -746,9 +746,9 @@
         missing-routing (seq (remove #(contains? args %) managed-routing-fields))
         kind (when (map? composition) (get composition "kind"))
         composition-keys (case kind
-                           "preset" #{"kind" "id" "overrides" "overrideReason"}
-                           "bespoke" #{"kind" "id" "nearestPreset" "bespokeReason" "promotionCandidate" "contract"}
-                           #{"kind" "id" "overrides" "overrideReason" "nearestPreset" "bespokeReason" "promotionCandidate" "contract"})
+                           "template" #{"kind" "id" "overrides" "overrideReason"}
+                           "bespoke" #{"kind" "id" "nearestTemplate" "bespokeReason" "promotionCandidate" "contract"}
+                           #{"kind" "id" "overrides" "overrideReason" "nearestTemplate" "bespokeReason" "promotionCandidate" "contract"})
         unknown-composition (when (map? composition)
                               (seq (sort (remove composition-keys (keys composition)))))
         contract (when (map? composition) (get composition "contract"))
@@ -770,7 +770,7 @@
                                      ["tier" tier (get preset "tier")]
                                      ["reasoning" effective-reasoning (get preset "deliberation")]
                                      ["posture" posture base-posture]]))
-        declared-overrides (when (= kind "preset") (get composition "overrides"))
+        declared-overrides (when (= kind "template") (get composition "overrides"))
         route-problem (north.orchestration-staffing/unsupported-route-problem tier effective-reasoning)
         missing-bespoke-axes (when (and role (not known-role?))
                                (seq (keep (fn [[label value]] (when (nil? value) label))
@@ -820,41 +820,41 @@
       "explicit provider, target, or model selectors require fresh exact typed pinEvidence; for automatic routing omit model and target and omit provider or use provider=auto"
       (not (map? composition)) "composition must be an object"
       unknown-composition (str "unknown composition field(s): " (str/join ", " unknown-composition))
-      (and composition (not (#{"preset" "bespoke"} kind))) "invalid composition.kind"
+      (and composition (not (#{"template" "bespoke"} kind))) "invalid composition.kind"
       (and composition (let [v (get composition "id")] (or (not (string? v)) (str/blank? v)))) "composition.id is required"
       (and composition (not (safe-role-id? (get composition "id"))))
       "composition.id must be a lowercase kebab-case Orchestration role id"
       (and composition (nil? role)) "composition requires role"
-      (and role (not known-role?) (= kind "preset"))
+      (and role (not known-role?) (= kind "template"))
       (str "unknown role " role " requires a bespoke composition")
       (and role known-role? (= kind "bespoke"))
-      (str "known role " canonical-role " requires preset composition id " canonical-role)
+      (str "known role " canonical-role " requires template composition id " canonical-role)
 
-      (and (= kind "preset") (not (valid-string-list? declared-overrides false)))
-      "preset composition.overrides must be an array of unique routing-axis names"
-      (and (= kind "preset") (some #(not (routing-override-fields %)) declared-overrides))
+      (and (= kind "template") (not (valid-string-list? declared-overrides false)))
+      "template composition.overrides must be an array of unique routing-axis names"
+      (and (= kind "template") (some #(not (routing-override-fields %)) declared-overrides))
       "composition.overrides contains an invalid routing axis"
-      (and (= kind "preset") (not= actual-overrides (set declared-overrides)))
-      (str "composition.overrides must exactly record changed preset axes: "
+      (and (= kind "template") (not= actual-overrides (set declared-overrides)))
+      (str "composition.overrides must exactly record changed template axes: "
            (if (seq actual-overrides) (str/join ", " (sort actual-overrides)) "none"))
-      (and (= kind "preset") (seq declared-overrides)
+      (and (= kind "template") (seq declared-overrides)
            (let [v (get composition "overrideReason")] (or (not (string? v)) (str/blank? v))))
-      "preset axis overrides require composition.overrideReason"
-      (and (= kind "preset") (empty? declared-overrides) (contains? composition "overrideReason"))
-      "unchanged preset must omit composition.overrideReason"
+      "template axis overrides require composition.overrideReason"
+      (and (= kind "template") (empty? declared-overrides) (contains? composition "overrideReason"))
+      "unchanged template must omit composition.overrideReason"
       (and role known-role? (seq actual-overrides) (nil? composition))
       (str "known role " canonical-role " overrides " (str/join ", " (sort actual-overrides))
-           "; supply preset composition.overrides and composition.overrideReason")
+           "; supply template composition.overrides and composition.overrideReason")
       (and role known-role? composition
-           (or (not= "preset" kind) (not= canonical-role (get composition "id"))))
-      (str "known role " canonical-role " requires preset composition id " canonical-role)
+           (or (not= "template" kind) (not= canonical-role (get composition "id"))))
+      (str "known role " canonical-role " requires template composition id " canonical-role)
 
-      (and (= kind "bespoke") (contains? composition "nearestPreset")
-           (let [v (get composition "nearestPreset")] (or (not (string? v)) (str/blank? v))))
-      "bespoke composition.nearestPreset must be a non-empty string when supplied"
-      (and (= kind "bespoke") (some? (get composition "nearestPreset"))
-           (not (contains? orchestration-role-names (get composition "nearestPreset"))))
-      "bespoke composition.nearestPreset must name a canonical preset"
+      (and (= kind "bespoke") (contains? composition "nearestTemplate")
+           (let [v (get composition "nearestTemplate")] (or (not (string? v)) (str/blank? v))))
+      "bespoke composition.nearestTemplate must be a non-empty string when supplied"
+      (and (= kind "bespoke") (some? (get composition "nearestTemplate"))
+           (not (contains? orchestration-role-names (get composition "nearestTemplate"))))
+      "bespoke composition.nearestTemplate must name a canonical template"
       (and (= kind "bespoke")
            (let [v (get composition "bespokeReason")] (or (not (string? v)) (str/blank? v))))
       "bespoke composition requires bespokeReason"

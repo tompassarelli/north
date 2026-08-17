@@ -2,20 +2,20 @@
   "version": 1,
   "valid": [
     {
-      "name": "unchanged preset",
+      "name": "unchanged template",
       "request": {
         "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
         "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "deliver",
-        "composition": { "kind": "preset", "id": "integrator", "overrides": [] }
+        "composition": { "kind": "template", "id": "integrator", "overrides": [] }
       }
     },
     {
-      "name": "justified preset override",
+      "name": "justified template override",
       "request": {
         "role": "integrator", "taskGrade": "senior", "domainRequirements": ["Nix"],
         "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
         "composition": {
-          "kind": "preset", "id": "integrator",
+          "kind": "template", "id": "integrator",
           "overrides": ["domainRequirements", "tier", "reasoning"],
           "overrideReason": "foundational configuration work with a novel cross-provider contract"
         }
@@ -32,7 +32,7 @@
         "reasoning": "high",
         "posture": "evaluate",
         "composition": {
-          "kind": "preset",
+          "kind": "template",
           "id": "verifier",
           "overrides": []
         }
@@ -49,7 +49,7 @@
         "reasoning": "high",
         "posture": "evaluate",
         "composition": {
-          "kind": "preset",
+          "kind": "template",
           "id": "reviewer",
           "overrides": []
         }
@@ -79,22 +79,22 @@
   ],
   "invalid": [
     {
-      "name": "preset override missing reason",
+      "name": "template override missing reason",
       "errorContains": "overrideReason",
       "request": {
         "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
         "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
-        "composition": { "kind": "preset", "id": "integrator", "overrides": ["tier", "reasoning"] }
+        "composition": { "kind": "template", "id": "integrator", "overrides": ["tier", "reasoning"] }
       }
     },
     {
-      "name": "unchanged preset carries a fake reason",
+      "name": "unchanged template carries a fake reason",
       "errorContains": "must omit composition.overrideReason",
       "request": {
         "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
         "topology": "worker", "tier": "senior", "reasoning": "high", "posture": "deliver",
         "composition": {
-          "kind": "preset", "id": "integrator", "overrides": [],
+          "kind": "template", "id": "integrator", "overrides": [],
           "overrideReason": "this must not masquerade as a change"
         }
       }
@@ -106,7 +106,7 @@
         "role": "director", "taskGrade": "staff", "domainRequirements": [],
         "topology": "worker", "tier": "frontier", "reasoning": "xhigh", "posture": "deliver",
         "composition": {
-          "kind": "preset", "id": "director", "overrides": []
+          "kind": "template", "id": "director", "overrides": []
         }
       }
     },
@@ -147,7 +147,7 @@
         "role": "integrator", "taskGrade": "senior", "domainRequirements": [],
         "topology": "orchestrator", "tier": "senior", "reasoning": "high", "posture": "deliver",
         "composition": {
-          "kind": "preset", "id": "integrator", "overrides": []
+          "kind": "template", "id": "integrator", "overrides": []
         }
       }
     },

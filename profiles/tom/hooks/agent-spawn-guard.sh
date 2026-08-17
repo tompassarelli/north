@@ -779,7 +779,7 @@ def routing_for(invoked_role):
     if (not isinstance(composition, dict)
             or not {"kind", "id", "overrides"}.issubset(composition)
             or not set(composition).issubset({"kind", "id", "overrides", "overrideReason"})
-            or composition.get("kind") != "preset"
+            or composition.get("kind") != "template"
             or composition.get("id") != routing["role"]
             or not isinstance(composition.get("overrides"), list)
             or not all(isinstance(item, str) for item in composition["overrides"])):

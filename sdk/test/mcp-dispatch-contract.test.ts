@@ -58,7 +58,7 @@ exit 0
 `);
   chmodSync(fakeBun, 0o755);
   writeFileSync(fakeNorth, `#!/usr/bin/env bash
-printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
+printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"template"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
 `);
   chmodSync(fakeNorth, 0o755);
 
@@ -433,7 +433,7 @@ for _ in $(seq 1 200); do
   grep -q '^driver:release:' "$NORTH_MCP_EVENTS" 2>/dev/null && break
   sleep 0.01
 done
-printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"preset"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
+printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":"integrator"},{"predicate":"goal","value":"contract probe"},{"predicate":"provider","value":"anthropic"},{"predicate":"provider_target","value":"claude-personal-tompas0x-gmail"},{"predicate":"live_input","value":"streaming"},{"predicate":"live_input_state","value":"frozen"},{"predicate":"live_input_epoch","value":"00000000-0000-4000-8000-000000000041"},{"predicate":"model","value":"claude-opus-4-8"},{"predicate":"effort","value":"xhigh"},{"predicate":"composition_kind","value":"template"},{"predicate":"composition_id","value":"integrator"},{"predicate":"composition_overrides","value":"[]"},{"predicate":"repo","value":"north"},{"predicate":"spawned_at","value":"2026-07-17T00:00:00Z"},{"predicate":"display_handle","value":"anthropic-claude-gmail-opus-xhigh-integrator-probe"},{"predicate":"display_name","value":"anthropic:claude-personal-tompas0x-gmail · opus · xhigh · orchestration:integrator · contract probe"},{"predicate":"identity_manifest_sha256","value":"c4d461959f641a1917174187051aded161dec0ebfd2eb11641e002f741ed39b8"},{"predicate":"outcome","value":"ran"}]'
 `);
   chmodSync(fakeNorth, 0o755);
 
@@ -577,7 +577,7 @@ test("MCP rejects a new unassessed max request before SDK launch", () => {
         tier: "frontier",
         reasoning: "max",
         composition: {
-          kind: "preset", id: route.role, overrides: ["tier", "reasoning"],
+          kind: "template", id: route.role, overrides: ["tier", "reasoning"],
           overrideReason: "exceptional request",
         },
       } } })}\n`,
@@ -750,12 +750,12 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     ["dispatch", {
       id: "@@019f6c5e-61d0-7880-98a0-f8999eac7b03",
       role: "verifier",
-      composition: { kind: "preset", id: "verifier", overrides: [] },
+      composition: { kind: "template", id: "verifier", overrides: [] },
     }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
     ["dispatch", {
       id: "thread;touch-owned",
       role: "verifier",
-      composition: { kind: "preset", id: "verifier", overrides: [] },
+      composition: { kind: "template", id: "verifier", overrides: [] },
     }, "dispatch id must be a safe North thread id (bare or single @ prefix)"],
     ["spawn", {}, "spawn prompt must be a non-empty string"],
     ["spawn", { prompt: "" }, "spawn prompt must be a non-empty string"],
@@ -813,16 +813,16 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
       prompt: "probe",
       ...presetRequest("verifier"),
       role: "special",
-      composition: { kind: "preset", id: "special", overrides: [] },
+      composition: { kind: "template", id: "special", overrides: [] },
     }, "unknown role special requires a bespoke composition"],
     [{ prompt: "probe", ...presetRequest("integrator"),
-      composition: { kind: "preset", id: "scout", overrides: [] } },
-      "known role integrator requires preset composition id integrator"],
+      composition: { kind: "template", id: "scout", overrides: [] } },
+      "known role integrator requires template composition id integrator"],
     [{ prompt: "probe", ...presetRequest("scout"), role: "researcher",
-      composition: { kind: "preset", id: "researcher", overrides: [] } },
+      composition: { kind: "template", id: "researcher", overrides: [] } },
       "role researcher is retired because it was ambiguous"],
     [{ prompt: "probe", ...presetRequest("director"), role: "orchestrator",
-      composition: { kind: "preset", id: "orchestrator", overrides: [] } },
+      composition: { kind: "template", id: "orchestrator", overrides: [] } },
       "orchestrator is a topology, not a role"],
   ] as const) {
     const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
@@ -854,7 +854,7 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
       tier: "senior",
       reasoning: "high",
       composition: {
-        kind: "preset", id: "director", overrides: ["tier", "reasoning"],
+        kind: "template", id: "director", overrides: ["tier", "reasoning"],
         overrideReason: "bounded coordination does not require frontier tier",
       },
     },

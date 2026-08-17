@@ -167,7 +167,7 @@
                               "live_input" "streaming" "live_input_state" "armed"
                               "live_input_epoch" "00000000-0000-4000-8000-00000000e2e3"
                               "model" "claude-sonnet-5" "effort" "low"
-                              "composition_kind" "preset" "composition_id" "executor"
+                              "composition_kind" "template" "composition_id" "executor"
                               "composition_overrides" "[]"
                               "repo" "north" "spawned_at" "2026-07-30T00:00:00Z"
                               "display_handle" "anthropic-sonnet-low-executor-intake"

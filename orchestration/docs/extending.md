@@ -38,7 +38,7 @@ domains, tier, reasoning, or posture change but its fixed topology/capability
 boundary still fits. A topology change is never a preset override. Any change
 to responsibility, deliverable, capability/authority boundary, done criteria,
 or report shape requires a bespoke composition. The v2 machine schema retains
-`presets`, `kind: "preset"`, and `nearestPreset` for compatibility.
+`presets`, `kind: "template"`, and `nearestTemplate` .
 
 1. Name the axes: function/role, `taskGrade`, domain requirements, topology and
    dependency shape, leverage, quality floor, semantic tier, deliberation,
@@ -52,7 +52,7 @@ or report shape requires a bespoke composition. The v2 machine schema retains
    role/posture, and only the exact concrete model's delta when its provider
    catalog supplies a calibrated path.
 4. Write the domain-specific remainder freely — that's the point.
-5. Record a bespoke contract: an optional `nearestPreset` (when a stock
+5. Record a bespoke contract: an optional `nearestTemplate` (when a stock
    template genuinely helps explain or seed the composition), why a stock
    template was not used, responsibility,
    deliverable, canonical `capabilities[]`, `mayDecide[]`, `mustEscalate[]`,
