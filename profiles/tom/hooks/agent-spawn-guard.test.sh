@@ -65,7 +65,7 @@ run() {
       '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p}}')"
   fi
 
-  set -- env -u AGENT_TOPOLOGY -u AGENT_NO_AUTHORING_HOOKS -u CLAUDE_NO_AUTHORING_HOOKS \
+  set -- env -u AGENT_TOPOLOGY -u AGENT_NO_AUTHORING_HOOKS \
     HOME="$SCRATCH/home"
   [ "$topology" = unset ] || set -- "$@" "AGENT_TOPOLOGY=$topology"
   [ -z "$extra" ] || set -- "$@" "$extra"
@@ -319,7 +319,6 @@ fi
 
 echo '== topology policy is independent of authoring kill-switches =='
 run deny 'AGENT_NO_AUTHORING_HOOKS cannot disable worker topology' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=1
-run deny 'legacy Claude alias cannot disable worker topology' worker Bash 'north spawn implementer work' CLAUDE_NO_AUTHORING_HOOKS=1
 set_state managed off
 run deny 'persistent guards=off cannot disable worker topology' worker Bash 'north spawn implementer work'
 run deny 'persistent guards=off cannot defeat dispatch=managed redirect' unset Agent 'native work'

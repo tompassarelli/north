@@ -24,7 +24,7 @@ while IFS=$'\t' read -r id all cat item env now expect || [[ -n $id ]]; do
   [[ $item == - ]] && item=''
   [[ $now  == - ]] && now=''
 
-  unset AGENT_NO_AUTHORING_HOOKS CLAUDE_NO_AUTHORING_HOOKS
+  unset AGENT_NO_AUTHORING_HOOKS
   if [[ $env != - ]]; then
     # `VAR=` must land as set-but-empty, which is not the same as unset.
     export "${env%%=*}=${env#*=}"
@@ -40,7 +40,7 @@ while IFS=$'\t' read -r id all cat item env now expect || [[ -n $id ]]; do
     fail_case "$id" "expected $expect, got $got"
   fi
 done <"$CASES"
-unset AGENT_NO_AUTHORING_HOOKS CLAUDE_NO_AUTHORING_HOOKS
+unset AGENT_NO_AUTHORING_HOOKS
 
 # --- registry integration: the two special categories -----------------------
 scratch="$(mktemp -d)"

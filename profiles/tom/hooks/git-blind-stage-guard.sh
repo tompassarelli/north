@@ -17,7 +17,7 @@
 # occurrence anywhere in the string.
 #
 # Kill-switch: persistent `north config guards off` (state) OR env
-# CLAUDE_NO_AUTHORING_HOOKS / AGENT_NO_AUTHORING_HOOKS (any value but
+# AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================
 set -uo pipefail
@@ -44,9 +44,8 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 # Kill-switch: shared semantics in lib/authoring-killswitch.sh — persistent
-# `north config guards off` (state, live) or env CLAUDE_NO_AUTHORING_HOOKS /
-# AGENT_NO_AUTHORING_HOOKS (any value but 0/false kills this session; 0/false
-# forces guards live).
+# `north config guards off` (state, live) or env AGENT_NO_AUTHORING_HOOKS
+# (any value but 0/false kills this session; 0/false forces guards live).
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "$0")/lib/authoring-killswitch.sh" 2>/dev/null || true
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0

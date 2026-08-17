@@ -32,7 +32,6 @@ env-off-beats-state-on	-	-	on	AGENT_NO_AUTHORING_HOOKS=1	-	off
 env-forcelive-beats-state-off	off	off	off	AGENT_NO_AUTHORING_HOOKS=0	-	on
 env-forcelive-false-word	off	-	-	AGENT_NO_AUTHORING_HOOKS=false	-	on
 env-empty-is-unset	off	-	-	AGENT_NO_AUTHORING_HOOKS=	-	off
-env-legacy-claude-alias	-	-	on	CLAUDE_NO_AUTHORING_HOOKS=1	-	off
 until-future-honored	-	-	off:until=2099-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	off
 until-expired-reads-on	-	-	off:until=2020-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	on
 until-expired-does-not-fall-through	off	-	off:until=2020-01-01T00:00:00Z	-	2026-07-30T00:00:00Z	on

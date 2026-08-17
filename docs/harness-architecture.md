@@ -309,10 +309,6 @@ Disables the registered authoring guard category. It is not a global harness kil
 
 Canonical launch escape for authoring hooks.
 
-### `CLAUDE_NO_AUTHORING_HOOKS=1`
-
-Compatibility alias for the same authoring-only escape.
-
 Nonempty values other than `0` and `false` mean off. `0` and `false` mean live.
 
 These variables do not disable dispatch, context, coordination, MCP, skills, plugins, or Codex’s root requirement that the hook feature be enabled.

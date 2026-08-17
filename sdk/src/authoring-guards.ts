@@ -95,7 +95,7 @@ function preparedGuardInput(hookInput: unknown): { fd: number; dispose(): void }
 }
 
 export function authoringGuardsOff(env: NodeJS.ProcessEnv = process.env): boolean {
-  const explicit = env.AGENT_NO_AUTHORING_HOOKS ?? env.CLAUDE_NO_AUTHORING_HOOKS ?? "";
+  const explicit = env.AGENT_NO_AUTHORING_HOOKS ?? "";
   if (explicit === "0" || explicit === "false") return false;
   if (explicit) return true;
   const statePath = env.NORTH_HARNESS_STATE
@@ -134,7 +134,7 @@ export function resolveManagedGuardChain(
 // CLI hook protocol delivers it ({tool_name, tool_input:{file_path|command,...},
 // cwd, session_id, ...}), and interpret the result per the protocol above.
 // Inherits the parent process env (default spawn behavior — NOT overridden) so the
-// guards see BEAGLE_STORE_LOG, CLAUDE_NO_AUTHORING_HOOKS, and the rest of the killswitch env.
+// guards see BEAGLE_STORE_LOG, AGENT_NO_AUTHORING_HOOKS, and the rest of the killswitch env.
 export function runGuardScript(
   scriptPath: string,
   hookInput: unknown,

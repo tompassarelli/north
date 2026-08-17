@@ -97,7 +97,7 @@
 #
 # Test matrix: sibling tripwire-guard.test.sh — run it after EVERY edit here.
 # Kill-switch: persistent `north config guards off` (state) OR env
-# CLAUDE_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
+# AGENT_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
 # Shared impl: lib/authoring-killswitch.sh. House parity.
 # =============================================================================
 set -uo pipefail
@@ -124,7 +124,7 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 # Kill-switch: shared semantics in lib/authoring-killswitch.sh — persistent
-# `north config guards off` (state, live) or env CLAUDE_NO_AUTHORING_HOOKS
+# `north config guards off` (state, live) or env AGENT_NO_AUTHORING_HOOKS
 # (any value but 0/false kills this session; 0/false forces guards live).
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "$0")/lib/authoring-killswitch.sh" 2>/dev/null || true

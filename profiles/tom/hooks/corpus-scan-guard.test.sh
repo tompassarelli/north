@@ -28,7 +28,7 @@ pass=0 fail=0
 decide() { # command [cwd]
   python3 -c 'import json,sys; print(json.dumps({"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":sys.argv[2],"tool_input":{"command":sys.argv[1]}}))' \
     "$1" "${2:-$HOME_SB}" |
-    env -u CLAUDE_NO_AUTHORING_HOOKS HOME="$HOME_SB" \
+    env HOME="$HOME_SB" \
       NORTH_HARNESS_STATE="$SB/harness.conf" AGENT_NO_AUTHORING_HOOKS=0 "$GUARD"
 }
 

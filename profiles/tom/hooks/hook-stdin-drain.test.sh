@@ -124,7 +124,6 @@ for key in ("BASH_ENV", "ENV", "CLAUDE_PROJECT_DIR"):
     env.pop(key, None)
 if mode == "disabled":
     env.pop("AGENT_NO_AUTHORING_HOOKS", None)
-    env.pop("CLAUDE_NO_AUTHORING_HOOKS", None)
     hook_id = os.path.splitext(name)[0]
     with open(state, "w", encoding="utf-8") as handle:
         handle.write(

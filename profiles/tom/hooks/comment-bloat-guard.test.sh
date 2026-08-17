@@ -29,7 +29,7 @@ run() {
   local expect="$1" desc="$2" tool="$3" fp="$4" extra="$5"; shift 5
   local input out decision context ok=0
   input="$(build_input "$tool" "$fp" "$extra")"
-  out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS -u CLAUDE_NO_AUTHORING_HOOKS \
+  out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
     AGENT_NO_AUTHORING_HOOKS=0 "$@" "$HOOK" 2>&1)"
   decision="$(python3 -c '
 import json, sys
