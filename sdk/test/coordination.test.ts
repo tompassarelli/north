@@ -11,8 +11,7 @@ import {
   type InputAdmission,
   type SubscriptionRuntime,
 } from "../src/coordination";
-import { FRAM_RUNTIME_HOME } from "../src/fram-engine";
-import { join } from "node:path";
+import { framEngineSelection } from "../src/fram-engine";
 
 const protocol = "north-live-feed-v1";
 const frozenEpoch = "00000000-0000-4000-8000-000000000042";
@@ -82,13 +81,14 @@ function harness(options: {
 } = {}) {
   const children: FakeChild[] = [];
   const timers: FakeTimer[] = [];
+  const fram = framEngineSelection();
   let clock = 0;
   const runtime = {
     spawn: ((command: string, args: string[], spawnOptions: unknown) => {
       expect(command).toBe(trustedBb);
       expect(args.slice(0, 3)).toEqual([
         "-cp",
-        join(FRAM_RUNTIME_HOME, "out"),
+        fram.out,
         expect.stringMatching(/\/cli\/north-live-feed\.clj$/),
       ]);
       expect(args.slice(3)).toEqual([
@@ -101,9 +101,9 @@ function harness(options: {
       ]);
       expect(spawnOptions).toMatchObject({
         env: {
-          FRAM_HOME: FRAM_RUNTIME_HOME,
-          FRAM_BIN: join(FRAM_RUNTIME_HOME, "bin"),
-          FRAM_OUT: join(FRAM_RUNTIME_HOME, "out"),
+          FRAM_HOME: fram.home,
+          FRAM_BIN: fram.bin,
+          FRAM_OUT: fram.out,
         },
         stdio: ["pipe", "pipe", "ignore"],
       });
