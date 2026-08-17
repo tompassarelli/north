@@ -12,7 +12,6 @@
                     (make-array java.nio.file.attribute.FileAttribute 0))))
 (def home-path (.getCanonicalPath home))
 (def canonical (north.harness-state/canonical-path home-path))
-(def legacy (north.harness-state/legacy-path home-path))
 (def lock-file (north.harness-state/lock-path home-path))
 (def checks (atom []))
 (defn check [label value] (swap! checks conj [label (boolean value)]))
@@ -46,22 +45,10 @@
                 (not (str/includes? config-source "ALL GUARDS OFF"))))
     (check "guard help names dispatch as the independent topology axis"
            (str/includes? config-source "`north config\n   dispatch` owns that independent axis")))
-  (io/make-parents legacy)
-  (spit legacy "dispatch=auto\nguards=off\n")
-  (check "legacy state is a read-only fallback while canonical is absent"
-         (and (= legacy (north.harness-state/source-path home-path))
-              (= "auto" (north.harness-state/get-value home-path "dispatch" "managed"))
-              (= "auto" (north.harness-state/get-dispatch-mode home-path))
-              (= "off" (north.harness-state/get-value home-path "guards" "on"))))
-
   (north.harness-state/put-value! home-path "guards" "off")
-  (check "first unrelated write seeds canonical state from the Claude-era file"
+  (check "first write creates canonical state"
          (and (= canonical (north.harness-state/source-path home-path))
-              (= "auto" (north.harness-state/get-value home-path "dispatch" nil))
-              (= "auto" (north.harness-state/get-dispatch-mode home-path))
               (= "off" (north.harness-state/get-value home-path "guards" nil))))
-  (check "seeding never mutates the Claude-era file"
-         (= "dispatch=auto\nguards=off\n" (slurp legacy)))
 
   (north.harness-state/put-value! home-path "dispatch" "managed")
   (check "dispatch writes persist the canonical value"
@@ -80,10 +67,6 @@
            (and (= lock-key-before (file-key lock-file))
                 (not= state-key-before (file-key canonical)))))
 
-  (spit legacy "dispatch=native\nguards=on\n")
-  (check "legacy changes are ignored once canonical state exists"
-         (and (= "managed" (north.harness-state/get-value home-path "dispatch" nil))
-              (= "off" (north.harness-state/get-value home-path "guards" nil))))
   (check "atomic writer leaves no temporary files"
          (empty? (filter #(str/starts-with? (.getName %) ".harness.")
                          (.listFiles (io/file home-path ".local/state/north")))))
@@ -136,8 +119,7 @@
            (java.nio.file.attribute.PosixFilePermissions/fromString "rwxr-xr-x"))
         result (p/shell
                 {:out :string :err :string :continue true
-                 :extra-env {"NORTH_HARNESS_STATE" custom-state
-                             "NORTH_LEGACY_HARNESS_STATE" (str (io/file shared-dir "legacy.conf"))}}
+                 :extra-env {"NORTH_HARNESS_STATE" custom-state}}
                 "bb" "-e"
                 (str "(load-file " (pr-str (str root "/cli/harness-state.clj")) ") "
                      "(north.harness-state/put-value! " (pr-str home-path)
@@ -172,9 +154,8 @@
                       (pr-str key) " " (pr-str value) ")")]
              (p/process
               ["bb" "-e" expression]
-              {:out :string :err :string
-               :extra-env {"NORTH_HARNESS_STATE" canonical
-                           "NORTH_LEGACY_HARNESS_STATE" legacy}})))
+               {:out :string :err :string
+               :extra-env {"NORTH_HARNESS_STATE" canonical}})))
          (range worker-count))
         all-ready? (await-file-count ready-dir worker-count)
         _ (spit gate "go")
