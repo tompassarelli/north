@@ -7,7 +7,9 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-BEAGLE_STORE_OUT="${BEAGLE_STORE_OUT:-/home/tom/code/beagle/main/store/out}"
+: "${BEAGLE_STORE_HOME:?north-on-tooluse-stress-test requires BEAGLE_STORE_HOME}"
+: "${BEAGLE_STORE_BIN:?north-on-tooluse-stress-test requires BEAGLE_STORE_BIN}"
+: "${BEAGLE_STORE_OUT:?north-on-tooluse-stress-test requires BEAGLE_STORE_OUT}"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"

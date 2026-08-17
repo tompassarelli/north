@@ -63,7 +63,6 @@
             {"BEAGLE_STORE_HOME" fram
              "BEAGLE_STORE_BIN" (str fram "/bin")
              "BEAGLE_STORE_OUT" fram-out
-             "NORTH_STORE_OUT" fram-out
              "BEAGLE_STORE_SPACE_ID" space
              "NORTH_PORT" (str port)}}
            "bb" "-cp" (str root "/out:" fram-out)
