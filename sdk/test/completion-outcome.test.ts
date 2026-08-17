@@ -282,7 +282,7 @@ test("a clean-finishing lane records outcome=ran ON the lane entity (@agent:<id>
   });
 
   const result = await spawn({
-    prompt: "do a bounded task", agentId: "test-done-ok", role: "integrator",
+    prompt: "do a bounded task", agentId: "test-done-ok",
     coordinator: TEST_COORDINATOR,
     routingMetadata: presetRequest("integrator"), queryFn: cleanQuery, journalRoot,
   });
@@ -555,7 +555,6 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
     const result = await spawn({
       prompt: "prove missing model-delta classification",
       agentId: "test-prompt-composition-preflight",
-      role: "scout",
       routingMetadata,
       provider: "openai",
       pinEvidence: pinEvidence("openai"),
@@ -3980,7 +3979,6 @@ test("public spawn composes justified explicit axes before Orchestration hydrati
 
   await spawn({
     prompt: "exercise the real composition boundary", agentId: "test-composed-director",
-    role: "director", tier: "economy", effort: "low", posture: "preserve",
     routingMetadata: applyOrchestrationStaffing({
       role: "director", tier: "economy", reasoning: "low", posture: "preserve",
       composition: { kind: "template", id: "director",

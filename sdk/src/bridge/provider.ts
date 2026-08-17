@@ -354,8 +354,6 @@ export function bridgeProviderWithDependenciesForTest(
         self: `bridge-${context.executionId}`,
         provider: context.provider,
         routingMetadata,
-        role: routingMetadata.role,
-        posture: routingMetadata.posture,
         cwd: context.cwd,
         model,
         ...(model && target ? {

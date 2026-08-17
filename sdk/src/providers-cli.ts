@@ -101,7 +101,6 @@ function targetStatus(
 ): ProviderTargetStatus {
   const headroom = estimate?.pressure
     ?? policy.targetPressures?.[availability.targetId!]
-    ?? "unknown"
     ?? "unknown";
   return {
     id: availability.targetId!,
