@@ -366,13 +366,10 @@ export interface HarnessOpts {
   self: string; // this agent's id/handle (peer commands + stream identity)
   extraTools?: string[]; // posture file-tools (Read/Edit/Write/...)
   model?: string;
-  effort?: Effort;
   systemPrompt?: string;
   maxTurns?: number;
   /** Outer host lifecycle; provider adapters bridge this into owned processes. */
   abortController?: AbortController;
-  role?: string;
-  posture?: string;
   provider?: ProviderId;
   routingMetadata?: RoutingRequest;
   /** A live run may change models in-place, so no exact-model delta can remain valid. */
@@ -1873,13 +1870,7 @@ export function harnessOptions(o: HarnessOpts): Options {
   const metadata = o.routingMetadata
     ? admitRoutingRequest(o.routingMetadata, "managed North harness")
     : undefined;
-  if (o.role !== undefined && (!metadata || o.role !== metadata.role))
-    throw new Error("harness role compatibility alias requires an equal complete routingMetadata request");
-  if (o.posture !== undefined && (!metadata || o.posture !== metadata.posture))
-    throw new Error("harness posture compatibility alias requires an equal complete routingMetadata request");
-  if (metadata && o.effort !== undefined && o.effort !== metadata.reasoning)
-    throw new Error("harness effort compatibility alias must equal routingMetadata.reasoning");
-  const effectiveEffort = metadata?.reasoning ?? o.effort;
+  const effectiveEffort = metadata?.reasoning;
   const effectiveModel = o.provider && metadata
     ? resolveTier(o.provider, metadata.tier, o.model, effectiveEffort).model
     : o.model;
@@ -1932,7 +1923,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     // tier-less import.meta.main bootstrap reads process.env.AGENT_MODEL, so an
     // inherited value would silently pin the child. Strip them at the boundary.
     AGENT_MODEL: _inheritedModel,
-    AGENT_EFFORT: _inheritedEffort,
+    AGENT_REASONING: _inheritedReasoning,
     AGENT_TIER: _inheritedTier,
     ...ambientEnv
   } = process.env;
@@ -1948,6 +1939,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       : managedNorthBinDir,
     AGENT_ID: o.self,
     AGENT_TOPOLOGY: enforcementTopology,
+    ...(metadata?.reasoning ? { AGENT_REASONING: metadata.reasoning } : {}),
     ...(metadata?.role ? { NORTH_ORCHESTRATION_ROLE: metadata.role } : {}),
     // Sealed authority marker consumed by the system-managed Codex lifecycle
     // wrappers. Ambient callers cannot inherit or forge managed-lane behavior.

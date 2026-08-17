@@ -239,13 +239,6 @@ test("managed capacity resolves from the complete request before the provider se
     expect(options.effort).toBe(resolved.effort);
     expect(compileProviderAuthoritySurface(provider, options).provider).toBe(provider);
   }
-  expect(() => harnessOptions({
-    self: "mismatched-effort",
-    provider: "anthropic",
-    effort: "high",
-    presenceRegistrar: false,
-    routingMetadata: request,
-  })).toThrow("effort compatibility alias must equal routingMetadata.reasoning");
 });
 
 test("posture remains effective even when the retired praxis toggle is off", () => {

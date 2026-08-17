@@ -57,7 +57,7 @@ let log: string;
 
 const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
-  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT",
+  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE",
   "AGENT_IDENTITY_ROLE", "AGENT_TARGET",
   "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE", "AGENT_TOPOLOGY", "AGENT_TASK_GRADE",
   "AGENT_DOMAIN_REQUIREMENTS", "AGENT_COMPOSITION",
@@ -248,7 +248,6 @@ exit 2
   delete process.env.AGENT_MODEL;
   delete process.env.AGENT_ROLE;
   delete process.env.AGENT_IDENTITY_ROLE;
-  delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_TIER;
   delete process.env.AGENT_REASONING;
   delete process.env.AGENT_POSTURE;
@@ -491,7 +490,7 @@ test("a lane that dies mid-stream records outcome=died ON the lane entity (repor
     },
   });
 
-  await spawn({ prompt: "dies", agentId: "test-done-died", role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: dyingQuery });
+  await spawn({ prompt: "dies", agentId: "test-done-died", routingMetadata: presetRequest("integrator"), queryFn: dyingQuery });
 
   const logged = readFileSync(log, "utf8");
   expect(logged).toContain("tell agent:test-done-died outcome died");
@@ -507,7 +506,7 @@ test("a synchronous provider-construction failure records run telemetry", async 
   const result = await spawn({
     prompt: "fail while constructing the provider query",
     agentId: "test-sync-construction-failure",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "thread-sync-construction",
     queryFn: () => { throw new Error("synchronous adapter construction failure"); },
   });
@@ -615,7 +614,7 @@ test("an Anthropic error terminal still records its authoritative usage", async 
   });
 
   await spawn({ prompt: "terminal error usage", agentId: "test-terminal-error",
-    role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
+    routingMetadata: presetRequest("integrator"), provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"), queryFn });
   const lines = await settledRunLines("test-terminal-error", "lifetime_input_tokens 11");
   expect(lines.some((line) => line.endsWith(" lifetime_input_tokens 11"))).toBe(true);
@@ -752,7 +751,7 @@ test("an empty spawn provider stream is a blocked provider error, never ran", as
 
   const result = await spawn({
     prompt: "provider stream closes without a terminal", agentId: "test-empty-spawn",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     queryFn: () => ({
       close: async () => { writeFileSync(log, "QUERY_CLOSED spawn\n", { flag: "a" }); },
       async *[Symbol.asyncIterator]() {},
@@ -961,7 +960,7 @@ test("a spawn success terminal with an empty result is a LOUD ran_empty, never a
 
   const result = await spawn({
     prompt: "runs long then returns nothing", agentId: "test-empty-result-spawn",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     coordinator: TEST_COORDINATOR, queryFn: emptyTerminalQuery,
   });
   expect(result).toBe("");
@@ -1030,7 +1029,6 @@ test("spawn repairs one empty Anthropic terminal on the same streaming query", a
   const result = await spawnUnderTest({
     prompt: "finish after an empty first turn",
     agentId,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -1107,7 +1105,6 @@ test("private empty repair freezes live input and leaves between-turn mail repla
   const result = await spawnUnderTest({
     prompt: "repair without orphaning live input",
     agentId,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -1210,7 +1207,6 @@ test("a second empty terminal exhausts the single corrective turn and remains ra
   const result = await spawnUnderTest({
     prompt: "remain empty twice",
     agentId,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -1236,7 +1232,6 @@ test("the exact token tripwire suppresses empty-result repair", async () => {
   const result = await spawnUnderTest({
     prompt: "stop at the token target",
     agentId,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -1273,7 +1268,6 @@ test("the absolute hard deadline suppresses repair even when its timer has not f
   const result = await spawnUnderTest({
     prompt: "finish at the absolute deadline",
     agentId,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -1381,7 +1375,6 @@ test("an outer cleanup exception still closes query and releases termination own
   await expect(spawn({
     prompt: "throw before terminal publication",
     agentId: "test-pre-publication-throw",
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     registerTermination: (options: any) => coordinator.register(options),
     queryFn: () => ({
@@ -1589,7 +1582,6 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
         await spawn({
           prompt: "prove native liveness reaches spawn",
           agentId,
-          role: "integrator",
           routingMetadata: presetRequest("integrator"),
           queryFn: activeNativeQuery,
           childSettlementReader: () => ({ kind: "settled", children: [] }),
@@ -1930,7 +1922,7 @@ test("spawn reserves before provider execution and binds evidence plus telemetry
   const result = await spawn({
     prompt: "prove the bound task",
     agentId: "test-proof-bound-spawn",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "test-proof-bound-thread",
     loadThreadFacts: () => {
       events.push("thread-read");
@@ -2013,7 +2005,6 @@ test("a spawn orchestrator gets a provider reduction turn after child settlement
   const result = await spawn({
     prompt: "coordinate the child",
     agentId: "test-spawn-child-resolves",
-    role: "director",
           routingMetadata: presetRequest("director"),
     queryFn,
     feedSubscriber: subscribeReadyFeed,
@@ -2053,7 +2044,6 @@ test("an orchestrator reduction continuation racing a closing provider stream bl
   await spawn({
     prompt: "coordinate two children then reduce",
     agentId: "test-spawn-reduction-race",
-    role: "director",
     routingMetadata: presetRequest("director"),
     coordinator: TEST_COORDINATOR,
     queryFn,
@@ -2178,7 +2168,6 @@ test("a spawn orchestrator consumes two model terminals from one streaming query
   const result = await spawn({
     prompt: "coordinate two children then reduce",
     agentId: "test-spawn-resume-reduction",
-    role: "director",
     routingMetadata: presetRequest("director"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -2242,7 +2231,6 @@ test("the managed token tripwire publishes once before an orchestrator continuat
   const result = await spawnUnderTest({
     prompt: "coordinate then reduce",
     agentId: "test-spawn-token-budget",
-    role: "director",
     routingMetadata: presetRequest("director"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -2362,7 +2350,6 @@ test("one late turn-framed follow-up runs exactly once on the retained provider 
     const result = await spawnUnderTest({
       prompt: "answer, then accept one late follow-up",
       agentId: "test-turn-framed-follow-up",
-      role: "integrator",
       routingMetadata: presetRequest("integrator"),
       provider: "openai",
       pinEvidence: pinEvidence("openai"),
@@ -2486,7 +2473,6 @@ test("provider preaccept causes stay out of public spawn and dispatch wire termi
   await spawnUnderTest({
     prompt: "prove spawn public terminal redaction",
     agentId: spawnAgent,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     queryFn: () => { throw failure(); },
   });
@@ -2557,7 +2543,6 @@ test("spawn and dispatch reject altered clones and replay only writer-owned even
   const spawnResult = await spawnUnderTest({
     prompt: "reject a forged spawn event",
     agentId: spawnAgent,
-    role: "integrator",
     routingMetadata: presetRequest("integrator"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -2624,7 +2609,6 @@ test("a spawn orchestrator whose resumed reduction turn returns empty records th
   await spawn({
     prompt: "coordinate two children then reduce",
     agentId: "test-spawn-resume-reduction-empty",
-    role: "director",
     routingMetadata: presetRequest("director"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -2676,7 +2660,6 @@ test("a resumed continuation turn carries the same parent-run context for recurs
     prompt: "coordinate two children then reduce",
     agentId: "test-spawn-resume-parent-context",
     thread: "2026-07-23-101500",
-    role: "director",
     routingMetadata: presetRequest("director"),
     provider: "anthropic",
     pinEvidence: pinEvidence("anthropic"),
@@ -2743,7 +2726,6 @@ test("spawn and dispatch force a zero-child director to dispatch two children be
       await spawn({
         prompt: "coordinate two independent children",
         agentId,
-        role: "director",
         routingMetadata: presetRequest("director"),
         queryFn,
         feedSubscriber: subscribeReadyFeed,
@@ -2790,7 +2772,6 @@ test("a spawn orchestrator hits a bounded no-progress cap as incomplete, never r
     await spawn({
       prompt: "coordinate a stuck child",
       agentId: "test-spawn-child-cap",
-      role: "director",
           routingMetadata: presetRequest("director"),
       coordinator: TEST_COORDINATOR,
       queryFn,
@@ -2897,7 +2878,6 @@ test("spawn and dispatch require reduction for first-seen and changed settled ch
         await spawn({
           prompt: "reduce settled child results",
           agentId,
-          role: "director",
           routingMetadata: presetRequest("director"),
           queryFn,
           feedSubscriber: subscribeReadyFeed,
@@ -2966,7 +2946,6 @@ test("spawn and dispatch block a previously live child disappearing from the gra
       await spawn({
         prompt: "observe a live child before its graph edge disappears",
         agentId,
-        role: "director",
           routingMetadata: presetRequest("director"),
         queryFn,
         feedSubscriber: subscribeReadyFeed,
@@ -3035,7 +3014,6 @@ test("spawn and dispatch final gates reject a child disappearing after reduction
       await spawn({
         prompt: "reduce a child before its graph edge disappears",
         agentId,
-        role: "director",
           routingMetadata: presetRequest("director"),
         queryFn,
         feedSubscriber: subscribeReadyFeed,
@@ -3130,7 +3108,6 @@ test("spawn and dispatch final gates reject late live, unavailable, or unreduced
         await spawn({
           prompt: "exercise the final child gate",
           agentId,
-          role: "director",
           routingMetadata: presetRequest("director"),
           queryFn: reducedTerminalQuery,
           feedSubscriber: subscribeReadyFeed,
@@ -3182,7 +3159,6 @@ test("spawn replays one transport-ambiguous reservation with the exact context b
     prompt: "reserve before provider construction",
     agentId: "test-spawn-reservation-retry",
     routingMetadata: presetRequest("integrator"),
-    role: "integrator",
     thread: "thread-reservation-retry",
     deliveryRuntime: {
       reserve(context) {
@@ -3237,7 +3213,7 @@ test("reservation refusal or repeated transport failure constructs no provider",
     await spawn({
       prompt: "must not reach provider without a reservation",
       agentId: `test-spawn-reservation-${scenario.label}`,
-      role: "integrator", routingMetadata: presetRequest("integrator"),
+      routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-reservation-refusal",
       publishLearningAssignment: async (runId: string) => {
         assignmentRuns.push(runId);
@@ -3538,7 +3514,7 @@ test("spawn's finalize-rotation names an exhausted load apart from an invalid re
     await spawn({
       prompt: "recover at finalization, loudly",
       agentId: "test-spawn-finalize-rotation-loud",
-      role: "integrator", routingMetadata: presetRequest("integrator"),
+      routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-finalize-rotation-loud",
       deliveryRuntime: {
         reserve(context) {
@@ -3582,7 +3558,7 @@ test("spawn still reports delivery when the reservation read only fails transien
   await spawn({
     prompt: "deliver against a busy coordinator",
     agentId: "test-spawn-contended-load",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "thread-spawn-contended-load",
     loadThreadFacts: () => [
       { predicate: "title", value: "Contended reservation read" },
@@ -3631,7 +3607,7 @@ test("spawn retains its wire run when its reservation is invalid at finalization
   await spawn({
     prompt: "recover at finalization",
     agentId: "test-spawn-finalize-rotation",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "thread-spawn-finalize-rotation",
     deliveryRuntime: {
       reserve(context) {
@@ -3674,7 +3650,7 @@ test("spawn's finalize names an exhausted thread load apart from a genuinely abs
     await spawn({
       prompt: "recover a contended thread read at finalization, loudly",
       agentId: "test-spawn-thread-load-failed-loud",
-      role: "integrator", routingMetadata: presetRequest("integrator"),
+      routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-thread-load-failed-loud",
       loadThreadFacts: () => {
         loads++;
@@ -3728,7 +3704,7 @@ test("spawn still reports delivery when the thread read only fails transiently",
   await spawn({
     prompt: "deliver against a busy coordinator's thread read",
     agentId: "test-spawn-contended-thread-load",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "thread-spawn-contended-thread-load",
     loadThreadFacts: () => {
       loads++;
@@ -3781,7 +3757,7 @@ test("spawn's finalize leaves a genuinely absent thread fail-closed without retr
   await spawn({
     prompt: "finalize against a thread that no longer exists",
     agentId: "test-spawn-thread-absent",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     thread: "thread-spawn-thread-absent",
     loadThreadFacts: () => {
       loads++;
@@ -3821,7 +3797,7 @@ test("spawn keeps omitted, reported-zero, and preflight-zero turn evidence disti
 
   await spawn({
     prompt: "provider omits turn count", agentId: "test-turns-omitted",
-    role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: terminal(),
+    routingMetadata: presetRequest("integrator"), queryFn: terminal(),
   });
   const omitted = await readWireJsonl(join(dir, "agent-test-turns-omitted.stream.jsonl"));
   const omittedTerminal = omitted.events.find((event) => event.kind === "model-call.completed");
@@ -3830,7 +3806,7 @@ test("spawn keeps omitted, reported-zero, and preflight-zero turn evidence disti
 
   await spawn({
     prompt: "provider reports zero turns", agentId: "test-turns-reported-zero",
-    role: "integrator", routingMetadata: presetRequest("integrator"), queryFn: terminal(0),
+    routingMetadata: presetRequest("integrator"), queryFn: terminal(0),
   });
   const reportedZero = await readWireJsonl(
     join(dir, "agent-test-turns-reported-zero.stream.jsonl"),
@@ -3840,7 +3816,7 @@ test("spawn keeps omitted, reported-zero, and preflight-zero turn evidence disti
 
   await spawn({
     prompt: "preflight blocks before provider acceptance", agentId: "test-turns-preflight-zero",
-    role: "integrator", routingMetadata: presetRequest("integrator"),
+    routingMetadata: presetRequest("integrator"),
     queryFn: () => { throw new ProviderRetrySafeError("test_retry_safe_preflight"); },
   });
   const preflightZero = await readWireJsonl(
@@ -4089,7 +4065,7 @@ test("public role-only integrator spawn hydrates the complete Orchestration pres
     process.env.NORTH_STAFFING_SOURCE = "file";
     await spawn({
       prompt: "hydrate a role-only request", agentId: "test-role-only-integrator",
-      role: "integrator", routingMetadata: presetRequest("integrator"), provider: "anthropic",
+      routingMetadata: presetRequest("integrator"), provider: "anthropic",
       pinEvidence: pinEvidence("anthropic"), queryFn,
     });
   } finally {
@@ -4156,7 +4132,7 @@ test("tier-routed OpenAI identity records the resolved Sol route, not requested 
   };
 
   await spawn({ prompt: "route with OpenAI", agentId: "test-openai-designer",
-    role: "designer", routingMetadata: presetRequest("designer"), provider: "openai",
+    routingMetadata: presetRequest("designer"), provider: "openai",
     pinEvidence: pinEvidence("openai"), queryFn });
 
   expect(queryOptions.model).toBe("gpt-5.6-sol");
@@ -4187,7 +4163,7 @@ test("public SpawnOptions target and Orchestration role land on exact account id
   try {
     await spawn({
       prompt: "design on the work account", agentId: "test-target-designer",
-      role: "designer", routingMetadata: presetRequest("designer"), provider: "anthropic", target: "claude-work",
+      routingMetadata: presetRequest("designer"), provider: "anthropic", target: "claude-work",
       pinEvidence: pinEvidence("anthropic", "claude-work"),
       queryFn: (args) => wireTurnQuery(args, {
         output: "designed", turns: 1, providerDurationMs: 1,
@@ -4262,7 +4238,7 @@ test("a struggle sensor firing records a struggle run fact without any in-flight
   try {
     process.env.NORTH_STAFFING_SOURCE = "file";
     await spawn({ prompt: "hit repeated errors", agentId: "test-struggle-lane",
-      role: "integrator", routingMetadata: presetRequest("integrator"),
+      routingMetadata: presetRequest("integrator"),
       provider: "anthropic", pinEvidence: pinEvidence("anthropic"), queryFn });
   } finally {
     if (priorStaffingSource === undefined) delete process.env.NORTH_STAFFING_SOURCE;

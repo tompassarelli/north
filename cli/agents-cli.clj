@@ -1553,7 +1553,7 @@
                   selected-posture (assoc "AGENT_POSTURE" selected-posture)
                   spawn-composition (assoc "AGENT_COMPOSITION" (json/generate-string spawn-composition))
                   effective-model (assoc "AGENT_MODEL" effective-model)
-                  selected-reasoning (assoc "AGENT_REASONING" selected-reasoning "AGENT_EFFORT" selected-reasoning)
+                  selected-reasoning (assoc "AGENT_REASONING" selected-reasoning)
                   provider (assoc "AGENT_PROVIDER" provider)
                   target (assoc "AGENT_TARGET" target)
                   routing-assessment (assoc "AGENT_ROUTING_ASSESSMENT" (json/generate-string routing-assessment))

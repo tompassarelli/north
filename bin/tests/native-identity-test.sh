@@ -96,7 +96,7 @@ ID="native-$ID_KEY"
 echo "== SessionStart exact input outranks ambient adapter dials =="
 run_hook "$SPAWN" \
   "{\"session_id\":\"$SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-opus-4-8\",\"effort\":{\"level\":\"xhigh\"}}" \
-  CLAUDECODE=1 AGENT_MODEL=wrong-model CLAUDE_EFFORT=high AGENT_EFFORT=low
+  CLAUDECODE=1 AGENT_MODEL=wrong-model CLAUDE_EFFORT=high
 has "records exact SessionStart model" "tell agent:$ID model claude-opus-4-8"
 has "records exact structured effort" "tell agent:$ID effort xhigh"
 has "records canonical native dispatch mode at session start" \
@@ -142,9 +142,8 @@ echo "== SessionStart uses CLAUDE_EFFORT when structured effort is absent =="
 : > "$LOG"
 run_hook "$SPAWN" \
   "{\"session_id\":\"$SID\",\"cwd\":\"$REPO_DIR\",\"hook_event_name\":\"SessionStart\",\"model\":\"claude-sonnet-5\"}" \
-  CLAUDECODE=1 CLAUDE_EFFORT=high AGENT_EFFORT=low
+  CLAUDECODE=1 CLAUDE_EFFORT=high
 has "records CLAUDE_EFFORT" "tell agent:$ID effort high"
-lacks "does not substitute generic effort" "tell agent:$ID effort low"
 
 echo "== missing observations are explicit, never guessed =="
 : > "$LOG"

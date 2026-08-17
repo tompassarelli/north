@@ -6440,8 +6440,7 @@
                  :keymap nil
                  :sessionModel (text-or (js/get (js/get process .env) .NORTH_BRIDGE_MODEL)
                                         (text (js/get (js/get process .env) .AGENT_MODEL)))
-                 :sessionEffort (text-or (js/get (js/get process .env) .AGENT_REASONING)
-                                         (text (js/get (js/get process .env) .AGENT_EFFORT)))
+                 :sessionEffort (text (js/get (js/get process .env) .AGENT_REASONING))
                  :launchProvider (text (js/get (js/get process .env) .NORTH_BRIDGE_PROVIDER))
                  :launchTier (text (js/get (js/get process .env) .NORTH_BRIDGE_TIER))
                  :launchModel (text (js/get (js/get process .env) .NORTH_BRIDGE_MODEL))

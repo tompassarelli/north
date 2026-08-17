@@ -37,14 +37,5 @@ export function admitRoutingRequest(
 
 export function routingRequestFromEnv(surface = "managed North environment"): RoutingRequest {
   const draft = routingMetadataFromEnv();
-  const compatibilityEffort = process.env.AGENT_EFFORT;
-  if (compatibilityEffort !== undefined
-      && draft.reasoning !== undefined
-      && compatibilityEffort !== draft.reasoning) {
-    throw new Error(
-      `${surface} AGENT_EFFORT compatibility alias must equal AGENT_REASONING `
-      + `(${JSON.stringify(compatibilityEffort)} != ${JSON.stringify(draft.reasoning)})`,
-    );
-  }
   return admitRoutingRequest(draft, surface);
 }
