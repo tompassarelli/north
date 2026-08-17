@@ -17,13 +17,13 @@
       "name": "executor", "taskGrade": "novice", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "the specified change, applied exactly",
-      "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Any judgment call → implementer; behavior crossing a seam → integrator."
+      "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Give the worker a tight work order. Any judgment call → implementer; behavior crossing a seam → integrator."
     },
     {
       "name": "implementer", "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "deliver",
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "a working feature or fix inside existing patterns",
-      "description": "Implement-shaped tasks — one feature or fix inside known patterns. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer."
+      "description": "Implement-shaped tasks — bounded or mid-size work inside known patterns, with a tight work order. Ambiguous cross-seam debugging → integrator; choosing a new shape → designer."
     },
     {
       "name": "integrator", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "deliver",
@@ -71,7 +71,7 @@
       "name": "analyst", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "explore",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "understanding, grounded in real behavior",
-      "description": "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count."
+      "description": "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; honest-zero findings are valid. Falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count."
     },
     {
       "name": "reviewer", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",

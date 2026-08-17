@@ -1,6 +1,6 @@
 ---
 name: "executor"
-description: "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Any judgment call → implementer; behavior crossing a seam → integrator. Task grade: novice."
+description: "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Give the worker a tight work order. Any judgment call → implementer; behavior crossing a seam → integrator. Task grade: novice."
 model: "claude-sonnet-5"
 effort: "low"
 tools: "Read, Grep, Glob, Edit, Write, Bash"

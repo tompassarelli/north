@@ -173,6 +173,27 @@ the cheapest rung that clears its quality floor.
   RESERVED (protect frontier capacity for high-leverage work). Subscription
   entitlements and their pressure are runtime facts, not API-credit balances.
 
+STAFFING ECONOMICS — allocate model capability against the cost of a failed
+resource cycle, not token price alone. Reserve the top tier for the hardest
+closures and for iterative debugging while resources are contended: a cheap
+round that discovers a setup defect still consumes the contested cycle. Use the
+workhorse tier for bounded and mid-size work with a tight work order. Use the
+read-only planning and survey tier where honest-zero findings are valuable
+outcomes. Comparable assignments may be mixed stochastically; record their
+outcomes in `~/code/todo/model-assignment-ledger.md` so allocation decisions
+earn evidence rather than relying on anecdote.
+
+EARNED HEURISTICS — apply these before and during allocation:
+
+- VALIDATE-BEFORE-LOCK: dry-probe the command shape outside any contended
+  resource before taking the resource lock.
+- ESCALATE-AFTER-REPEATED-SHAKEOUT: when two or more consecutive cheap-model
+  rounds each find one setup defect, escalate the tier and require offline
+  validation before another contended attempt.
+
+Forcing evidence: 2026-08-18 session — three luna mint rounds found one defect
+per lock cycle.
+
 ORCHESTRATION owns the semantic request — role, grade, domain, topology, tier,
 deliberation, posture, composition — and the planner reasoning that DERIVES it.
 `minimum-sufficient-v1` records seven independent selection signals in a
