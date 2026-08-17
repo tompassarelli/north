@@ -21,7 +21,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-process.env.AGENT_HOOKS_DIR ||= resolve(import.meta.dir, "..", "..", "profiles", "tom", "hooks");
+const north = resolve(import.meta.dir, "..", "..");
+process.env.NORTH_HOME = north;
+process.env.AGENT_HOOKS_DIR ||= resolve(north, "profiles", "tom", "hooks");
 // Dynamic, because harness.ts resolves its guard chains at MODULE LOAD: a plain
 // import is hoisted above the assignment above and would read the old directory.
 const { HOOKS_DIR } = await import("../src/authoring-guards");
