@@ -883,9 +883,9 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
     },
   ];
   let id = 100;
-  const framOut = process.env.NORTH_STORE_OUT
+  const storeOut = process.env.BEAGLE_STORE_OUT
     ?? "/home/tom/code/beagle/main/store/out";
-  const framRoot = resolve(framOut, "..");
+  const storeRoot = resolve(storeOut, "..");
   for (const name of ["spawn", "dispatch"]) {
     for (const shape of shapes) {
       const arguments_ = name === "spawn"
@@ -900,10 +900,10 @@ test("managed MCP admits recursive orchestrator shapes but requires an exact par
         env: {
           ...process.env,
           ...storeRpcEnvironment(north, "59319"),
-          BEAGLE_STORE_HOME: framRoot,
-          BEAGLE_STORE_BIN: join(framRoot, "bin"),
-          BEAGLE_STORE_OUT: framOut,
-          NORTH_STORE_OUT: framOut,
+          BEAGLE_STORE_HOME: storeRoot,
+          BEAGLE_STORE_BIN: join(storeRoot, "bin"),
+          BEAGLE_STORE_OUT: storeOut,
+          NORTH_STORE_OUT: storeOut,
           AGENT_TOPOLOGY: "orchestrator",
           AGENT_ID: "parent-director",
           NORTH_MCP_BUN: "/bin/false",
