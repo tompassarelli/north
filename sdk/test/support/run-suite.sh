@@ -60,7 +60,11 @@ done
 
 warm_isolated_fram_server() {
   local fram_home fram_server
-  fram_home="${FRAM_TEST_CHECKOUT:-${FRAM_HOME:-/home/tom/code/fram/main}}"
+  fram_home="${FRAM_TEST_CHECKOUT:-${FRAM_HOME:-}}"
+  if [[ -z "$fram_home" ]]; then
+    echo "isolated Fram server warm-up requires FRAM_TEST_CHECKOUT or FRAM_HOME" >&2
+    exit 2
+  fi
   fram_server="$fram_home/bin/fram-server"
   if [[ ! -x "$fram_server" ]]; then
     echo "isolated Fram server warm-up requires $fram_server" >&2
