@@ -25,7 +25,7 @@ const acquireCli = resolve(north, "cli/acquire-cli.clj");
 const thread = "019fa4ec-d2e6-7f8f-b375-a4f2ea407a0c";
 const frozenFramHome = process.env.FRAM_TEST_CHECKOUT
   ?? process.env.FRAM_HOME
-  ?? "/home/tom/code/fram/main";
+  ?? "/home/tom/code/beagle/main/branch-core";
 
 async function unusedPort(): Promise<number> {
   const server = createServer();

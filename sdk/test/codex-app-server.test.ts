@@ -906,7 +906,7 @@ function setup(mode = "ok") {
             || mode === "nested-project-warning") {
           current.layers[1].config = {
             mcp_servers: { fram: {
-              command: "/home/tom/code/fram/bin/fram-mcp",
+              command: "/home/tom/code/beagle/main/branch-core/bin/fram-mcp",
               args: [],
               env: { FRAM_FLIP: "1", FRAM_GRAPH_EDIT: "1" },
             } },

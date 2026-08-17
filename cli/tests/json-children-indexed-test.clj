@@ -20,7 +20,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (def coordination-space "north-coordination")
 (def telemetry-space "north-telemetry")
 

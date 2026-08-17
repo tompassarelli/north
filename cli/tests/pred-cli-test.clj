@@ -11,8 +11,7 @@
   (some #(when (and % (.isDirectory (io/file %))) %)
         [(System/getenv "FRAM_OUT")
          (some-> (System/getenv "FRAM_TEST_CHECKOUT") (str "/out"))
-         (str root "/../fram/out")
-         (str root "/../../fram/main/out")]))
+         "/home/tom/code/beagle/main/branch-core/out"]))
 (def checks (atom []))
 
 (defn check [label passed?]

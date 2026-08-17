@@ -12,7 +12,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (def fram-out (str fram "/out"))
 (cp/add-classpath (str root "/out:" fram-out))
 (load-file (str root "/cli/coord.clj"))

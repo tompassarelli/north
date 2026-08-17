@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-FRAM="${FRAM_HOME:-/home/tom/code/fram/main}"
+FRAM="${FRAM_HOME:-/home/tom/code/beagle/main/branch-core}"
 TMP="$(mktemp -d)"
 LOG="$TMP/history.framlog"
 SERVER_LOG="$TMP/server.log"

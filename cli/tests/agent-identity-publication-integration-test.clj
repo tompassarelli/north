@@ -10,9 +10,9 @@
 (def fram
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_PATH")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 (when-not (.isFile (io/file fram "bin/fram-server"))
-  (throw (ex-info "current Fram checkout is required" {:fram fram})))
+  (throw (ex-info "current Beagle branch-core engine is required" {:fram fram})))
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"

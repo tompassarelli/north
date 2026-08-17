@@ -12,7 +12,7 @@
 (def fram
   (or (System/getenv "FRAM_TEST_CHECKOUT")
       (System/getenv "FRAM_PATH")
-      "/home/tom/code/fram/main"))
+      "/home/tom/code/beagle/main/branch-core"))
 (def runtime-classpath (str root "/out:" fram "/out"))
 (cp/add-classpath runtime-classpath)
 (def acquire-cli (str root "/cli/acquire-cli.clj"))

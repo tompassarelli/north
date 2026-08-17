@@ -124,7 +124,7 @@ fi
 # A pin published before FRAMRPC carries no wire, so it cannot address a coordinator
 # that speaks one; the checkout that does wins. Composed, never literal: flake.nix's
 # package-purity scan rejects an embedded checkout path in any packaged file.
-_north_fram_checkout="$HOME/code/fram/main"
+_north_fram_checkout="$HOME/code/beagle/main/branch-core"
 _north_fram_wire="${FRAM_OUT:-${NORTH_FRAMRPC_OUT:-${FRAM_HOME:-}/out}}"
 if [ ! -f "$_north_fram_wire/framrpc.clj" ] \
    && [ -f "$_north_fram_checkout/out/framrpc.clj" ]; then

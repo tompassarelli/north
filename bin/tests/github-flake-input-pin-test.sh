@@ -67,12 +67,13 @@ for invalid_root in missing follows-array missing-node unsafe-input; do
   [[ -s "$TMP/invalid-root.err" ]]
 done
 
-# Fram is a source-only test input. North's package graph must not regain Fram's
-# runtime closure merely to keep its integration tests content-addressed.
-input=fram-test-source
+# Beagle is a source-only test input. North's package graph must not regain the
+# engine's runtime closure merely to keep its integration tests content-addressed.
+input=beagle-engine-source
 current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
 current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
-[[ "$current_repository" == tompassarelli/fram ]]
+[[ "$current_repository" == tompassarelli/beagle ]]
+[[ "$current_revision" == db33a4e70718dc9a1b1cff57e33128ad44b6bcb9 ]]
 [[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
 [[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
 [[ "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].flake' "$ROOT/flake.lock")" == false ]]

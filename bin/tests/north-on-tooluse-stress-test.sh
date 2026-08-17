@@ -7,7 +7,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-FRAM_OUT="${FRAM_OUT:-/home/tom/code/fram/main/out}"
+FRAM_OUT="${FRAM_OUT:-/home/tom/code/beagle/main/branch-core/out}"
 HOOK="$ROOT/bin/north-on-tooluse"
 ACTOR_KEY="$ROOT/bin/north-actor-key"
 TMP="$(mktemp -d)"

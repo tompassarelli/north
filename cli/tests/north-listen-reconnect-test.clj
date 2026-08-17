@@ -11,7 +11,7 @@
   (.getCanonicalPath
    (io/file (or (System/getenv "FRAM_TEST_CHECKOUT")
                 (System/getenv "FRAM_HOME")
-                "/home/tom/code/fram/main"))))
+                "/home/tom/code/beagle/main/branch-core"))))
 
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [result @(proc/process
