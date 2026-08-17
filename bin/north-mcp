@@ -154,11 +154,8 @@
     :argv (fn [a] (if (get a "all") ["json" "ready" "--all"] ["json" "ready"]))}
    {:name "next"         :desc "The recommended next thread(s) to pull."
     :schema {:type "object" :properties {}} :argv (fn [_] ["next"])}
-   {:name "board"        :desc "Open work, kanban view. Default: the curated slice (kind=thread; live-active + top-15 ready by leverage) — parity with the CLI board. Pass all=true for every open thread unscoped. Returns JSON [{id,title,condition,emoji}] where condition is active/ready/blocked/draft."
+   {:name "threads"      :desc "Open threads, kanban view. Default: the curated slice (kind=thread; live-active + top-15 ready by leverage). Pass all=true for every open thread unscoped. Returns JSON [{id,title,condition,emoji}] where condition is active/ready/blocked/draft."
     :schema {:type "object" :properties {:all {:type "boolean" :description "return every open thread, unscoped (default false: curated active + top-15 ready)"}}}
-    :argv (fn [a] (if (get a "all") ["json" "board" "--all"] ["json" "board"]))}
-   {:name "plate"        :desc "Alias of `board` — curated open-work slice by default; all=true for the full dump. Prefer `board`."
-    :schema {:type "object" :properties {:all {:type "boolean" :description "return every open thread, unscoped"}}}
     :argv (fn [a] (if (get a "all") ["json" "board" "--all"] ["json" "board"]))}
    {:name "blocked"      :desc "Threads waiting on an unresolved dependency. Returns JSON [{id,title,condition}]."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "blocked"])}
@@ -223,7 +220,7 @@
     :annotations local-write-annotations
     :argument-problem evidence-argument-problem
     :argv (fn [a] ["evidence" "record" (get a "bar") (get a "observed")])}
-   {:name "retract"      :desc "Retract one fact about a thread. (untell accepted as a legacy alias.)"
+   {:name "retract"      :desc "Retract one fact about a thread."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
@@ -1078,9 +1075,7 @@
               {:content [{:type "text" :text "could not start an ad-hoc agent"}]
                :isError true})))))))))))))
 
-;; `untell` is an accepted legacy alias for `retract` — route it to the same tool.
-(def tool-aliases {"untell" "retract"})
-(defn find-tool [nm] (let [nm (get tool-aliases nm nm)] (first (filter #(= (:name %) nm) tools))))
+(defn find-tool [nm] (first (filter #(= (:name %) nm) tools)))
 (defn find-sdk-tool [nm] (first (filter #(= (:name %) nm) sdk-tools)))
 
 ;; Result diet — the MCP is the AI-facing edge, so we slim results for the model

@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Last-good rendered list snapshots.  The dashboard owns the same :board
-;; envelope, so a dashboard collection is immediately useful to `north board`.
+;; envelope, so a dashboard collection is immediately useful to `north threads`.
 (ns north.fast-list-cli)
 (require '[babashka.process :as p]
          '[clojure.java.io :as io]

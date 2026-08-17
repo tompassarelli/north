@@ -185,7 +185,7 @@ test("Orchestration capabilities compile to exact provider authority before work
     + "mcp tools=mcp__north-readonly-shell__run,mcp__north__capture,mcp__north__tell,"
     + "mcp__north__evidence_record,mcp__north__show,mcp__north__search,mcp__north__artifact_read,"
     + "mcp__north__ready,mcp__north__next,"
-    + "mcp__north__board,mcp__north__plate",
+    + "mcp__north__threads",
   );
   expect(loggedSurface).not.toMatch(/\b(Edit|Write|Bash)\b/);
 

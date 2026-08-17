@@ -932,8 +932,7 @@
   (= cmd "leverage") (cmd-leverage log)
   (= cmd "next") (cmd-next log)
   (= cmd "agenda") (cmd-agenda log)
-  (= cmd "board") (cmd-board log (has-flag? args "--all"))
-  (= cmd "plate") (cmd-board log (has-flag? args "--all"))
+  (= cmd "threads") (cmd-board log (has-flag? args "--all"))
   (= cmd "schema") (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))
   (= cmd "teaching-coverage") (cmd-teaching-coverage log)
   (= cmd "needs-review") (cmd-needs-review log)
@@ -946,7 +945,7 @@
   (= cmd "tools") (cmd-tools)
   (= cmd "boot") (cmd-boot log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | board [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (board/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to Beagle Store; untell = legacy alias of retract)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | threads [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (threads/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/set/tell/retract/merge route to Beagle Store)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond

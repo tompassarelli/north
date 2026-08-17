@@ -11,13 +11,13 @@
 (try
   (with-redefs [north.dashboard.state/cache-dir (constantly (.getPath root))]
     (let [renders (atom 0) refreshes (atom 0)]
-      (north.dashboard.state/record! :board {:status :ok :data {:text "cached board\n"}})
+      (north.dashboard.state/record! :threads {:status :ok :data {:text "cached threads\n"}})
       (with-redefs [north.fast-list-cli/render! (fn [_ _] (swap! renders inc) "fresh board\n")
                     north.fast-list-cli/launch! (fn [_ _] (swap! refreshes inc))]
-        (let [out (with-out-str (north.fast-list-cli/-main "board"))]
+        (let [out (with-out-str (north.fast-list-cli/-main "threads"))]
           (check! "cached hit returns rendered snapshot with an age label"
-                  (and (str/includes? out "cached board") (str/includes? out "as of 0s ago") (= 0 @renders) (= 1 @refreshes))))
-        (let [out (with-out-str (north.fast-list-cli/-main "board" "--fresh"))]
+                  (and (str/includes? out "cached threads") (str/includes? out "as of 0s ago") (= 0 @renders) (= 1 @refreshes))))
+        (let [out (with-out-str (north.fast-list-cli/-main "threads" "--fresh"))]
           (check! "--fresh bypasses the cached rendering" (and (= "fresh board\n" out) (= 1 @renders) (= 1 @refreshes))))
         (north.dashboard.state/write-panel! :next {:schema north.dashboard.state/schema})
         (let [out (with-out-str (north.fast-list-cli/-main "next"))]

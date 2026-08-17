@@ -61,7 +61,7 @@ const STRUGGLE_PROGRESS_TOOLS: ReadonlySet<string> = new Set([
 	"Edit", "Write", "NotebookEdit",
 	"command", "file-change", "web-search", "todo-list",
 	"mcp__north__show", "mcp__north__ready", "mcp__north__next",
-	"mcp__north__board", "mcp__north__plate", "mcp__north__blocked",
+	"mcp__north__threads", "mcp__north__blocked",
 	"mcp__north__agenda", "mcp__north__leverage", "mcp__north__needs_review",
 	"mcp__north__validate",
 	"mcp__north__capture", "mcp__north__tell", "mcp__north__retract",

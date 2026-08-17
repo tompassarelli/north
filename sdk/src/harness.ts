@@ -237,8 +237,7 @@ export const COORDINATION_TOOLS = [
   "mcp__north__artifact_read",
   "mcp__north__ready",
   "mcp__north__next",
-  "mcp__north__board",
-  "mcp__north__plate",
+  "mcp__north__threads",
 ];
 export const ORCHESTRATION_TOOLS = [
   "mcp__north__dispatch",
@@ -249,8 +248,7 @@ export const NATIVE_AGENT_TOOLS = ["Agent", "Task", "Workflow"];
 export const NORTH_MCP_TOOL_NAMES = [
   "ready",
   "next",
-  "board",
-  "plate",
+  "threads",
   "blocked",
   "agenda",
   "leverage",
