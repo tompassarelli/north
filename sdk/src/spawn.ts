@@ -776,7 +776,7 @@ async function runSpawn(
   try {
   try {
   termination.throwIfTerminated();
-  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.reason})`);
+  console.log(`[spawn] @agent:${agentId} starting provider=${routing.provider} target=${routing.target}${resolved.tier ? ` tier=${resolved.tier}` : ""} (${routing.selectionReason})`);
   // Reserve only at the last pre-provider seam. Earlier routing/admission
   // failures must not strand undiscoverable reservation-only subjects.
   if (runContext) {

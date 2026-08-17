@@ -48,7 +48,7 @@ const accountAvailability: ProviderAvailability[] = [
 const policy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => ({
   mode: "preferential",
   providerOrder: ["anthropic", "openai"],
-  pressures: { anthropic: "normal", openai: "normal" },
+  targetPressures: { anthropic: "normal", openai: "normal" },
   ...overrides,
 });
 const accountPolicy = (overrides: Partial<ResourcePolicy> = {}): ResourcePolicy => policy({
@@ -124,21 +124,21 @@ test("auto order selects OpenAI when Anthropic is disabled", () => {
 
 test("preferential allocation walks configured order and explains pressure", () => {
   const decision = selectProviderFromAvailability("auto", available,
-    policy({ providerOrder: ["openai", "anthropic"], pressures: { openai: "plenty", anthropic: "normal" } }));
+    policy({ providerOrder: ["openai", "anthropic"], targetPressures: { openai: "plenty", anthropic: "normal" } }));
   expect(decision.provider).toBe("openai");
-  expect(decision.reason).toContain("mode=preferential");
-  expect(decision.reason).toContain("pressure=plenty");
+  expect(decision.selectionReason).toContain("mode=preferential");
+  expect(decision.selectionReason).toContain("pressure=plenty");
 });
 
 test("automatic allocation avoids an exhausted entitlement", () => {
   const decision = selectProviderFromAvailability("auto", available,
-    policy({ pressures: { anthropic: "exhausted", openai: "low" } }));
+    policy({ targetPressures: { anthropic: "exhausted", openai: "low" } }));
   expect(decision.provider).toBe("openai");
-  expect(decision.reason).toContain("pressure=low");
+  expect(decision.selectionReason).toContain("pressure=low");
 
   try {
     selectProviderFromAvailability("auto", available,
-      policy({ pressures: { anthropic: "exhausted", openai: "exhausted" } }));
+      policy({ targetPressures: { anthropic: "exhausted", openai: "exhausted" } }));
     throw new Error("expected provider selection to fail");
   } catch (error) {
     expect(error).toBeInstanceOf(ProviderSelectionError);
@@ -148,17 +148,17 @@ test("automatic allocation avoids an exhausted entitlement", () => {
 
 test("explicit provider wins but exhausted explicit entitlement errors", () => {
   const decision = selectProviderFromAvailability("openai", available,
-    policy({ pressures: { anthropic: "plenty", openai: "low" } }));
+    policy({ targetPressures: { anthropic: "plenty", openai: "low" } }));
   expect(decision.provider).toBe("openai");
-  expect(decision.reason).toContain("explicit provider");
+  expect(decision.selectionReason).toContain("explicit provider");
   expect(() => selectProviderFromAvailability("openai", available,
-    policy({ pressures: { openai: "exhausted" } }))).toThrow("provider openai entitlement exhausted");
+    policy({ targetPressures: { openai: "exhausted" } }))).toThrow("provider openai entitlement exhausted");
 });
 
 test("target pressure is independent and auto considers every configured account", () => {
   const decision = selectProviderFromAvailability("auto", accountAvailability, accountPolicy({
     targetPressures: { "claude-personal": "exhausted", "claude-work": "low", "codex-personal": "normal" },
-    pressures: { anthropic: "exhausted", openai: "normal" },
+    targetPressures: { anthropic: "exhausted", openai: "normal" },
   }));
   expect(decision.target).toBe("claude-work");
   expect(decision.provider).toBe("anthropic");
@@ -172,7 +172,7 @@ test("target pressure is independent and auto considers every configured account
 test("exact target pin records the request and refuses sibling or provider fallback", () => {
   const healthy = selectProviderFromAvailability({ target: "claude-personal" }, accountAvailability, accountPolicy());
   expect(healthy).toMatchObject({
-    requested: "auto", requestedProvider: "auto", requestedTarget: "claude-personal",
+    requestedProvider: "auto", requestedTarget: "claude-personal",
     target: "claude-personal", provider: "anthropic",
     fallbackTargets: [], fallbackProviders: [], fallbackTargetPath: ["claude-personal"],
   });
@@ -249,7 +249,7 @@ test("selection errors never interpolate untrusted availability detail", () => {
 });
 
 test("balanced allocation is stable and distributes by entitlement-adjusted weights", () => {
-  const balanced = policy({ mode: "balanced", weights: { anthropic: 1, openai: 1 } });
+  const balanced = policy({ mode: "balanced", targetWeights: { anthropic: 1, openai: 1 } });
   const first = selectProviderFromAvailability("auto", available, balanced, "standard", "lane-42");
   const second = selectProviderFromAvailability("auto", available, balanced, "standard", "lane-42");
   expect(second.provider).toBe(first.provider);
@@ -259,7 +259,7 @@ test("balanced allocation is stable and distributes by entitlement-adjusted weig
   for (let i = 0; i < 500; i++) {
     normalCounts[selectProviderFromAvailability("auto", available, balanced, "standard", `lane-${i}`).provider]++;
     lowAnthropicCounts[selectProviderFromAvailability("auto", available,
-      policy({ mode: "balanced", pressures: { anthropic: "low", openai: "normal" } }),
+      policy({ mode: "balanced", targetPressures: { anthropic: "low", openai: "normal" } }),
       "standard", `lane-${i}`).provider]++;
   }
   expect(normalCounts.anthropic).toBeGreaterThan(0);
@@ -274,7 +274,7 @@ test("balanced rendezvous is uniform for short target ids and honors weight rati
   }));
   const makePolicy = (targetWeights: Record<string, number>): ResourcePolicy => ({
     mode: "balanced", targets, targetOrder: ["a", "b", "c"], providerOrder: ["anthropic"],
-    pressures: { anthropic: "plenty" },
+    targetPressures: { anthropic: "plenty" },
     targetPressures: { a: "plenty", b: "plenty", c: "plenty" }, targetWeights,
   });
   const sample = (targetWeights: Record<string, number>) => {
@@ -343,19 +343,19 @@ test("balanced allocation uses each account's observed numeric headroom", () => 
   const resetsAt = "2099-01-01T00:00:00Z";
   const balanced = accountPolicy({
     mode: "balanced",
-    automatedPressureObservations: {
-      "claude-personal": {
+    automatedPressureObservationSets: {
+      "claude-personal": [{
         targetId: "claude-personal", provider: "anthropic", observedAt: new Date().toISOString(),
         windows: [{ limitId: "claude:seven_day", usedPercent: 80, resetsAt }],
-      },
-      "claude-work": {
+      }],
+      "claude-work": [{
         targetId: "claude-work", provider: "anthropic", observedAt: new Date().toISOString(),
         windows: [{ limitId: "claude:seven_day", usedPercent: 50, resetsAt }],
-      },
-      "codex-personal": {
+      }],
+      "codex-personal": [{
         targetId: "codex-personal", provider: "openai", observedAt: new Date().toISOString(),
         windows: [{ limitId: "codex:primary", usedPercent: 20, resetsAt }],
-      },
+      }],
     },
   });
   const estimates = Object.fromEntries(balancedAllocationEstimates(
@@ -469,14 +469,14 @@ test("model-scoped exhaustion constrains only the matching Anthropic route", () 
   const target = accountAvailability.filter(({ targetId }) => targetId === "claude-personal");
   const scoped = accountPolicy({
     targetPressures: { "claude-personal": "exhausted", "claude-work": "unknown", "codex-personal": "unknown" },
-    automatedPressureObservations: {
-      "claude-personal": {
+    automatedPressureObservationSets: {
+      "claude-personal": [{
         targetId: "claude-personal", provider: "anthropic", observedAt: new Date().toISOString(),
         windows: [
           { limitId: "claude:seven_day", usedPercent: 20, resetsAt: "2099-01-01T00:00:00Z" },
           { limitId: "claude:model:fable", usedPercent: 100, resetsAt: "2099-01-01T00:00:00Z" },
         ],
-      },
+      }],
     },
   });
   const senior = selectProviderFromAvailability(
@@ -549,12 +549,12 @@ test("fresh telemetry failure neither rewards stale headroom nor revives model-s
   const failed = accountPolicy({
     mode: "balanced",
     targetPressures: { "claude-personal": "exhausted", "claude-work": "unknown", "codex-personal": "unknown" },
-    automatedPressureObservations: {
-      "claude-personal": {
+    automatedPressureObservationSets: {
+      "claude-personal": [{
         targetId: "claude-personal", provider: "anthropic", observedAt,
         windows: [{ limitId: "claude:model:fable", usedPercent: 100, resetsAt: "2099-01-01T00:00:00Z" }],
         collectionFailure: { observedAt, reason: "anthropic_usage_probe_timed_out" },
-      },
+      }],
     },
   });
 
@@ -592,7 +592,7 @@ test("reserved allocation exhausts non-reserve fallbacks before the frontier acc
       { id: "alt-b", provider: "openai", authMode: "ambient" },
     ],
     targetOrder: ["reserve", "alt-a", "alt-b"], providerOrder: ["anthropic", "openai"],
-    pressures: { anthropic: "plenty", openai: "plenty" },
+    targetPressures: { anthropic: "plenty", openai: "plenty" },
     targetPressures: { reserve: "plenty", "alt-a": "plenty", "alt-b": "plenty" },
     reservedFrontierTarget: "reserve", reservedFrontierProvider: "anthropic",
   };
@@ -612,7 +612,7 @@ test("reserved allocation degrades gracefully when reserve or alternatives are u
 
   const anthropicExhausted = policy({
     mode: "reserved", reservedFrontierProvider: "anthropic",
-    pressures: { anthropic: "exhausted", openai: "normal" },
+    targetPressures: { anthropic: "exhausted", openai: "normal" },
   });
   expect(selectProviderFromAvailability("auto", available, anthropicExhausted, "frontier", "x").provider).toBe("openai");
 });

@@ -127,8 +127,6 @@ function readRoutingDocument(path: string): RoutingDocument {
       targets: [],
       targetOrder: [],
       providerOrder: ["anthropic", "openai"],
-      weights: {},
-      pressures: {},
       envelopes: {},
     };
   }

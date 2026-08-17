@@ -189,8 +189,6 @@ function policyOf(targets: RoutingTarget[]): ResourcePolicy {
     targets,
     targetOrder: targets.map((target) => target.id),
     providerOrder: [...new Set(targets.map((target) => target.provider))],
-    pressures: {},
-    weights: {},
     targetPressures: Object.fromEntries(targets.map((target) => [target.id, "unknown" as const])),
   } as ResourcePolicy;
 }

@@ -69,7 +69,6 @@ function policy(targets: RoutingTarget[] = [anthropic, openai]): ResourcePolicy 
     providerOrder: ["anthropic", "openai"],
     targets,
     targetOrder: targets.map(({ id }) => id),
-    pressures: { anthropic: "normal", openai: "normal" },
     targetPressures: Object.fromEntries(targets.map(({ id }) => [id, "normal" as const])),
   };
 }

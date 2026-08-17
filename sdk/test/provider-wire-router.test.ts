@@ -29,7 +29,6 @@ function startedWriter(label: string): WireEventWriter {
 
 function decision(): RoutingDecision {
   return {
-    requested: "auto",
     requestedProvider: "auto",
     target: "claude-personal",
     provider: "anthropic",
@@ -38,7 +37,6 @@ function decision(): RoutingDecision {
       "codex-personal": { id: "codex-personal", provider: "openai" },
     },
     selectionReason: "test allocation",
-    reason: "test allocation",
     availability: [],
     fallbackTargets: ["codex-personal"],
     fallbackTargetPath: ["claude-personal"],
@@ -52,7 +50,6 @@ function decision(): RoutingDecision {
       "claude-personal": "normal",
       "codex-personal": "normal",
     },
-    entitlementPressures: { anthropic: "normal", openai: "normal" },
   };
 }
 
@@ -308,7 +305,6 @@ test("fallback is forbidden after an adapter publishes an observable event", asy
 test("router preserves semantic controls, observations, and event subscriptions", async () => {
   const writer = startedWriter("controls");
   const routing = decision();
-  routing.requested = "anthropic";
   routing.requestedProvider = "anthropic";
   routing.fallbackTargets = [];
   routing.fallbackProviders = [];
@@ -521,7 +517,6 @@ test("fallback admission completes before the fallback provider is constructed",
 test("failed semantic controls leave the active route unchanged", async () => {
   const writer = startedWriter("failed-controls");
   const routing = decision();
-  routing.requested = "anthropic";
   routing.requestedProvider = "anthropic";
   routing.fallbackTargets = [];
   routing.fallbackProviders = [];
@@ -563,7 +558,6 @@ test("failed semantic controls leave the active route unchanged", async () => {
 test("router forwards provider execution activity through its stable source", async () => {
   const writer = startedWriter("activity-forwarding");
   const routing = decision();
-  routing.requested = "anthropic";
   routing.requestedProvider = "anthropic";
   routing.fallbackTargets = [];
   routing.fallbackProviders = [];

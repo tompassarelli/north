@@ -115,7 +115,7 @@ if (import.meta.main) {
     // Validation happens before the execution selector can probe. Its shared
     // model + usage evidence makes the worker's subsequent refresh a cache hit.
     const decision = await preflightMcpRoutePin(request);
-    console.log(JSON.stringify({ target: decision.target, provider: decision.provider, reason: decision.selectionReason }));
+    console.log(JSON.stringify({ target: decision.target, provider: decision.provider, selectionReason: decision.selectionReason }));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);

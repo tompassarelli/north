@@ -101,7 +101,7 @@ function targetStatus(
 ): ProviderTargetStatus {
   const headroom = estimate?.pressure
     ?? policy.targetPressures?.[availability.targetId!]
-    ?? policy.pressures[availability.provider]
+    ?? "unknown"
     ?? "unknown";
   return {
     id: availability.targetId!,
@@ -173,7 +173,7 @@ export function buildProvidersStatusDocument(input: {
       available: true,
       target: decision.target,
       provider: decision.provider,
-      reason: decision.reason,
+      reason: decision.selectionReason,
     };
   } catch (error) {
     diagnosticRouteProbe = {

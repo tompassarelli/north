@@ -24,17 +24,16 @@ const policy: ResourcePolicy = {
   ],
   targetOrder: ["claude-personal", "codex-personal"],
   providerOrder: ["anthropic", "openai"],
-  pressures: { anthropic: "low", openai: "plenty" },
   targetPressures: { "claude-personal": "low", "codex-personal": "plenty" },
-  automatedPressureObservations: {
-    "claude-personal": {
+  automatedPressureObservationSets: {
+    "claude-personal": [{
       targetId: "claude-personal", provider: "anthropic", observedAt,
       windows: [{ limitId: "claude:seven_day", usedPercent: 80, resetsAt }],
-    },
-    "codex-personal": {
+    }],
+    "codex-personal": [{
       targetId: "codex-personal", provider: "openai", observedAt,
       windows: [{ limitId: "codex:primary", usedPercent: 20, resetsAt }],
-    },
+    }],
   },
 };
 const accountUsage: AccountUsageReport[] = [{
@@ -113,7 +112,6 @@ test("categorical allocation reports the actual driving source and exhausted rou
   const categorical: ResourcePolicy = {
     ...policy,
     targetPressures: { "claude-personal": "low", "codex-personal": "exhausted" },
-    automatedPressureObservations: undefined,
     automatedPressureObservationSets: {
       "claude-personal": [{
         targetId: "claude-personal", provider: "anthropic",
@@ -142,7 +140,6 @@ test("categorical allocation reports the actual driving source and exhausted rou
 test("status JSON and prose distinguish a routing floor from provider-measured utilization", () => {
   const calibrated: ResourcePolicy = {
     ...policy,
-    automatedPressureObservations: undefined,
     automatedPressureObservationSets: {
       "claude-personal": [
         {

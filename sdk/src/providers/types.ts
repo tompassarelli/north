@@ -146,17 +146,9 @@ export interface ResourcePolicy {
   targets?: RoutingTarget[];
   targetOrder?: string[];
   providerOrder: ProviderId[];
-  pressures: Partial<Record<ProviderId, EntitlementPressure>>;
-  weights?: Partial<Record<ProviderId, number>>;
-  /** Executable pressure keyed by routing target; provider pressures are a compatibility projection. */
+  /** Executable pressure keyed by routing target. */
   targetPressures?: Record<string, EntitlementPressure>;
   pressureObservations?: Record<string, PressureObservation>;
-  /**
-   * Compatibility projection of the most constraining provider observation per
-   * target. Route selection uses `automatedPressureObservationSets` so a
-   * model-scoped window cannot discard independent generic evidence.
-   */
-  automatedPressureObservations?: Record<string, ProviderUsageObservation>;
   /** Latest usable observation from every independent source, keyed by target. */
   automatedPressureObservationSets?: Record<string, ProviderUsageObservation[]>;
   targetWeights?: Record<string, number>;
@@ -453,8 +445,6 @@ export interface AgentProvider {
 }
 
 export interface RoutingDecision {
-  /** Compatibility alias for requestedProvider. */
-  requested: ProviderPreference;
   requestedProvider: ProviderPreference;
   requestedTarget?: string;
   target: string;
@@ -463,8 +453,6 @@ export interface RoutingDecision {
   routingTargets: Record<string, RoutingTarget>;
   /** Initial allocation explanation. Never replaced by execution fallback detail. */
   readonly selectionReason: string;
-  /** Compatibility alias for selectionReason. */
-  readonly reason: string;
   availability: ProviderAvailability[];
   /** Remaining eligible target IDs, in retry order. */
   fallbackTargets: string[];
@@ -480,7 +468,6 @@ export interface RoutingDecision {
   allocationMode: AllocationMode;
   entitlementPressure: EntitlementPressure;
   targetEntitlementPressures: Record<string, EntitlementPressure>;
-  entitlementPressures: Partial<Record<ProviderId, EntitlementPressure>>;
   /** Immutable allocator inputs captured at decision time for later replay/audit. */
   allocationEvidenceByTarget?: Record<string, AllocationEvidence>;
   /** Targets the requested capabilities removed pre-allocation → exact refusal code. */

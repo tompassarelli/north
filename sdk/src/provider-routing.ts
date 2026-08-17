@@ -235,8 +235,6 @@ export function resourcePolicyFromEnv(
     targets: PROVIDERS.map((id) => ({ id, provider: id, authMode: "ambient" })),
     targetOrder: PROVIDERS,
     providerOrder: PROVIDERS,
-    pressures: {},
-    weights: {},
   };
   const observed = observations ? applyProviderUsageObservations(foundation, observations) : foundation;
   const rawMode = process.env.NORTH_ALLOCATION_MODE;
@@ -254,22 +252,14 @@ export function resourcePolicyFromEnv(
   const targetOrder = envOrder === undefined ? observed.targetOrder : targetOrderForProviders(observed, providerList(envOrder));
   const targetPressures = Object.fromEntries(targets.map((target) => [
     target.id,
-    providerPressureOverrides[target.provider] ?? observed.targetPressures?.[target.id]
-      ?? observed.pressures[target.provider] ?? "unknown",
+    providerPressureOverrides[target.provider] ?? observed.targetPressures?.[target.id] ?? "unknown",
   ])) as Record<string, EntitlementPressure>;
-  const projectedPressures: Partial<Record<ProviderId, EntitlementPressure>> = {};
-  const ordered = [...(targetOrder ?? []), ...targets.map(({ id }) => id).filter((id) => !(targetOrder ?? []).includes(id))];
-  for (const id of ordered) {
-    const target = targets.find((candidate) => candidate.id === id);
-    if (target && projectedPressures[target.provider] === undefined)
-      projectedPressures[target.provider] = targetPressures[id];
-  }
   const reservedProvider = PROVIDERS.includes(reserved as ProviderId)
     ? reserved as ProviderId : observed.reservedFrontierProvider;
   const reservedTarget = PROVIDERS.includes(reserved as ProviderId)
     ? targets.find((target) => target.provider === reserved)?.id
     : observed.reservedFrontierTarget;
-  const providerWeights = envWeights === undefined ? observed?.weights ?? {} : weights(envWeights);
+  const providerWeights = envWeights === undefined ? observed?.targetWeights ?? {} : weights(envWeights);
   const targetWeights = envWeights === undefined ? observed.targetWeights : Object.fromEntries(
     targets.map((target) => [target.id, providerWeights[target.provider] ?? 1]),
   );
@@ -286,10 +276,7 @@ export function resourcePolicyFromEnv(
     targetPressures,
     mode,
     providerOrder: envOrder === undefined ? observed?.providerOrder ?? PROVIDERS : providerList(envOrder),
-    pressures: { ...observed.pressures, ...projectedPressures, ...providerPressureOverrides },
-    weights: providerWeights,
     targetWeights,
-    automatedPressureObservations: withoutOverriddenEvidence(observed.automatedPressureObservations),
     automatedPressureObservationSets: withoutOverriddenEvidence(observed.automatedPressureObservationSets),
     reservedFrontierProvider: reservedProvider,
     reservedFrontierTarget: reservedTarget,
@@ -407,7 +394,7 @@ export function cachedTargetRouting(
   return orderedTargets(policy).map((target) => {
     const availability = cachedAvailability(target, now, cachePath);
     const headroom = policy.targetPressures?.[target.id]
-      ?? policy.pressures[target.provider] ?? "unknown";
+    ?? "unknown";
     return {
       target,
       headroom,
@@ -504,10 +491,7 @@ function stableUnit(value: string): number {
 }
 
 function routeObservations(target: RoutingTarget, policy: ResourcePolicy): ProviderUsageObservation[] {
-  const observations = policy.automatedPressureObservationSets?.[target.id]
-    ?? (policy.automatedPressureObservations?.[target.id]
-      ? [policy.automatedPressureObservations[target.id]!]
-      : []);
+  const observations = policy.automatedPressureObservationSets?.[target.id] ?? [];
   return observations.map(normalizeLegacyRateLimitObservation);
 }
 
@@ -793,7 +777,7 @@ function routePressure(
   // manual pressure (especially exhaustion) rather than manufacturing plenty.
   if (evidence.length)
     return effectivePressure(policy.pressureObservations?.[target.id]);
-  return policy.targetPressures?.[target.id] ?? policy.pressures[target.provider] ?? "unknown";
+  return policy.targetPressures?.[target.id] ?? "unknown";
 }
 
 const pressureWeight: Record<EntitlementPressure, number> = {
@@ -827,7 +811,7 @@ function effectiveTargetWeight(
   reasoning?: Effort,
   model?: string,
 ): number {
-  const configured = policy.targetWeights?.[target.id] ?? policy.weights?.[target.provider] ?? 1;
+  const configured = policy.targetWeights?.[target.id] ?? 1;
   const numeric = observedHeadroom(target, policy, tier, reasoning, model);
   const categorical = categoricalAllocationEvidence(target, policy, tier, reasoning, model);
   const factor = numeric === undefined
@@ -1144,14 +1128,12 @@ export function selectProviderFromAvailability(
   const frozenModelReceipts = Object.freeze({ ...modelReceipts });
   const frozenRequiredModelTargets = Object.freeze([...requiredModelTargets]);
   const decision: RoutingDecision = {
-    requested: requestedProvider,
     requestedProvider,
     ...(requestedTarget === undefined ? {} : { requestedTarget }),
     target: chosen.id,
     provider: chosen.provider,
     routingTargets,
     selectionReason,
-    reason: selectionReason,
     availability,
     fallbackTargets: fallbacks.map(({ id }) => id),
     fallbackTargetPath: [chosen.id],
@@ -1162,7 +1144,6 @@ export function selectProviderFromAvailability(
     allocationMode: policy.mode,
     entitlementPressure: targetPressures[chosen.id],
     targetEntitlementPressures: targetPressures,
-    entitlementPressures: policy.pressures,
     ...(allocationEvidenceByTarget ? { allocationEvidenceByTarget } : {}),
     ...(excludedIds.length ? { capabilityExcludedTargets: frozenCapabilityExclusions } : {}),
     ...(Object.keys(modelReceipts).length
@@ -1177,7 +1158,6 @@ export function selectProviderFromAvailability(
   // both the canonical field and compatibility alias immutable at runtime.
   Object.defineProperties(decision, {
     selectionReason: { value: selectionReason, enumerable: true, writable: false, configurable: false },
-    reason: { value: selectionReason, enumerable: true, writable: false, configurable: false },
     routingTargets: { value: routingTargets, enumerable: true, writable: false, configurable: false },
     ...(excludedIds.length ? {
       capabilityExcludedTargets: {

@@ -220,7 +220,7 @@ function routingSandbox(): string {
       { id: "codex-a", provider: "openai", authMode: "ambient" },
     ],
     targetOrder: ["codex-a", "claude-a"],
-    weights: {}, pressures: {}, envelopes: {},
+    envelopes: {},
   }));
   process.env.NORTH_ROUTING_POLICY = join(root, "routing-policy.json");
   process.env.NORTH_AUTH_STATE_CACHE = join(root, "auth-state.json");
