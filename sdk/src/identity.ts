@@ -605,7 +605,6 @@ export function writeAgentTerminal(
   }
   try {
     writeHarnessAgentOperation("terminal", `agent:${agentId}`, JSON.stringify({
-      outcome: terminal.processOutcome,
       process_outcome: terminal.processOutcome,
       delivery_outcome: terminal.deliveryOutcome,
       delivery_reason: terminal.deliveryReason,

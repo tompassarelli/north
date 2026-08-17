@@ -17,7 +17,7 @@
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
    "delivery_attestation" "delivery_attestation_sha256"
-   "delivery_outcome" "delivery_reason" "outcome"])
+   "delivery_outcome" "delivery_reason"])
 (def test-route-generation-predicates
   #{"provider" "provider_target" "live_input" "live_input_state"
     "live_input_epoch" "model" "effort" "display_handle"})
@@ -244,7 +244,7 @@
                                  "unsupported managed identity predicate")
                   (empty? (entity-facts port bogus-subject)))))
 
-    (let [terminal {"outcome" "ran" "process_outcome" "ran"
+    (let [terminal {"process_outcome" "ran"
                     "delivery_outcome" "unverified"
                     "delivery_reason" "provider_terminal_success_without_external_verification"}
           terminal-result (run-writer port "terminal" subject (json/generate-string terminal))
@@ -299,14 +299,13 @@
                  [:retract "terminal_manifest_sha256"]]
                 (mapv (juxt :operation :predicate)
                       (take 2 generation-ops))))
-      (check "identity reuse withdraws the legacy outcome before process_outcome"
-             (= [[:retract "outcome"] [:retract "process_outcome"]]
+      (check "identity reuse withdraws the prior terminal before new identity"
+             (= [[:retract "process_outcome"] [:retract "delivery_outcome"]]
                 (mapv (juxt :operation :predicate)
                       (take 2 (drop 2 generation-ops)))))
-      (check "sequential reuse removes every stale optional preset field and outcome"
+      (check "sequential reuse removes every stale optional preset field and terminal"
              (and (nil? (get raw-stored "composition_overrides"))
                   (nil? (get raw-stored "composition_override_reason"))
-                  (nil? (get raw-stored "outcome"))
                   (nil? (get raw-stored "process_outcome"))
                   (nil? (get raw-stored "delivery_outcome"))
                   (nil? (get raw-stored "terminal_manifest_sha256"))
@@ -441,7 +440,7 @@
                         "display_name" "held goal committed"}
               :verify #(= #{"held goal committed"} (get % "goal"))}
              {:operation "terminal"
-              :payload {"outcome" "ran" "process_outcome" "ran"
+              :payload {"process_outcome" "ran"
                         "delivery_outcome" "unverified"
                         "delivery_reason"
                         "provider_terminal_success_without_external_verification"}
@@ -802,7 +801,7 @@
 
     (let [subject "@agent:managed-goal-before-terminal"
           terminal
-          {"outcome" "died" "process_outcome" "died"
+          {"process_outcome" "died"
            "delivery_outcome" "blocked"
            "delivery_reason" "provider_process_died"}
           _seed (seed-identity! port subject preset)
@@ -834,7 +833,7 @@
            "display_name" "pre-goal race display"}
           desired (merge preset route-delta)
           terminal
-          {"outcome" "died" "process_outcome" "died"
+          {"process_outcome" "died"
            "delivery_outcome" "blocked"
            "delivery_reason" "provider_process_died"}
           resource (identity-write-resource subject)
@@ -922,7 +921,7 @@
               results)))
 
     (let [terminal
-          {"outcome" "died" "process_outcome" "died"
+          {"process_outcome" "died"
            "delivery_outcome" "blocked"
            "delivery_reason" "provider_process_died"}
           operation-order
@@ -961,7 +960,7 @@
     (let [subject "@agent:managed-terminal-dominates-route"
           holder "managed-agent-writer:00000000-0000-4000-8000-000000000125"
           terminal
-          {"outcome" "died" "process_outcome" "died"
+          {"process_outcome" "died"
            "delivery_outcome" "blocked"
            "delivery_reason" "provider_process_died"}
           route-delta
@@ -1019,7 +1018,7 @@
                      "doneWhen" ["tests pass"]
                      "matches" [{"bar" "tests pass"
                                  "evidence" [run-evidence]}]))
-          reported {"outcome" "ran" "process_outcome" "ran"
+          reported {"process_outcome" "ran"
                     "delivery_outcome" "reported"
                     "delivery_reason" "complete_run_scoped_done_bar_evidence_self_reported"
                     "delivery_evidence" evidence
@@ -1158,8 +1157,7 @@
                                  (run-writer port "terminal" worker-subject
                                              (json/generate-string cross-reported)))))
                     (= before (entity-facts port worker-subject)))))
-      (let [contradictory (assoc reported
-                                 "outcome" "died"
+            (let [contradictory (assoc reported
                                  "process_outcome" "died")
             before (entity-facts port worker-subject)]
         (check "non-ran process cannot carry reported delivery proof"

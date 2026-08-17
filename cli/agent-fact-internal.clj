@@ -22,18 +22,12 @@
 (def terminal-predicates
   (disj north.agent-provenance/terminal-predicates terminal-marker-predicate))
 (def terminal-publication-order
-  ;; Readers treat process_outcome without the marker as a partial new-style
-  ;; publication. Keep the legacy outcome alias last so it cannot masquerade as
-  ;; a complete legacy terminal while a new projection is still being written.
+  ;; Readers treat process_outcome without the marker as a partial publication.
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
    "delivery_attestation" "delivery_attestation_sha256"
-   "delivery_outcome" "delivery_reason" "outcome"])
+   "delivery_outcome" "delivery_reason"])
 (def terminal-retraction-order
-  ;; Once the marker is gone, remove the legacy alias before process_outcome.
-  ;; The remaining process_outcome forces modern validation to fail closed; if
-  ;; process_outcome disappeared first, a crash could expose stale outcome as a
-  ;; valid legacy singleton.
-  ["outcome" "process_outcome" "delivery_outcome" "delivery_reason"
+  ["process_outcome" "delivery_outcome" "delivery_reason"
    "delivery_attestation_sha256" "delivery_attestation"
    "delivery_evidence_sha256" "delivery_evidence"])
 (def route-authority-predicates
@@ -417,8 +411,6 @@
       (fail! "terminal carries unsupported predicates" {:predicates unknown}))
     (when missing
       (fail! "terminal is missing base process/delivery predicates" {:predicates missing})))
-  (when-not (= (get facts "outcome") (get facts "process_outcome"))
-    (fail! "legacy outcome must equal process_outcome" {}))
   (when-not (contains? #{"unverified" "blocked" "reported" "verified"}
                        (get facts "delivery_outcome"))
     (fail! "invalid delivery_outcome" {:delivery-outcome (get facts "delivery_outcome")}))

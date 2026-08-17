@@ -136,13 +136,12 @@
   (let [run (str "@run:" handle)]
     (assert-fact! port run "agent" handle)
     (assert-fact! port run "at" "2026-07-20T09:00:00Z")
-    (assert-fact! port run "outcome" "ran")
+    (assert-fact! port run "process_outcome" "ran")
     ;; Last-write commit marker: without this exact fact the run is invisible.
     (assert-fact! port run "kind" "run")))
 
 (defn commit-modern-terminal! [port subject]
-  (let [facts {"outcome" #{"ran"}
-               "process_outcome" #{"ran"}
+  (let [facts {"process_outcome" #{"ran"}
                "delivery_outcome" #{"unverified"}
                "delivery_reason" #{"fixture_terminal_without_delivery_proof"}}
         marker (north.terminal-projection/terminal-manifest-sha256 facts)]
@@ -308,10 +307,9 @@
         (commit-run! port (:handle lane)))
       ;; Torn modern lane terminal + uncommitted run: neither is terminal proof.
       (assert-fact! port (:subject torn) "process_outcome" "ran")
-      (assert-fact! port (:subject torn) "outcome" "ran")
       (let [run (str "@run:" (:handle torn))]
         (assert-fact! port run "agent" (:handle torn))
-        (assert-fact! port run "outcome" "ran"))
+        (assert-fact! port run "process_outcome" "ran"))
 
       (let [dirty-file (io/file (:path dirty) "uncommitted sentinel.txt")]
         (spit dirty-file "dirty bytes must survive\n"))

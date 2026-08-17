@@ -24,7 +24,6 @@ import {
 } from "../src/terminal-projection";
 
 const modernLane: TerminalFact[] = [
-  { predicate: "outcome", value: "ran" },
   { predicate: "process_outcome", value: "ran" },
   { predicate: "delivery_outcome", value: "unverified" },
   {
@@ -41,7 +40,6 @@ const markedLane: TerminalFact[] = [
 ];
 const partialRun: TerminalFact[] = [
   { predicate: "agent", value: "child" },
-  { predicate: "outcome", value: "ran" },
   { predicate: "process_outcome", value: "ran" },
 ];
 const committedRun: TerminalFact[] = [
@@ -95,7 +93,7 @@ function boundedSettlement(
 describe("committed child lifecycle evidence", () => {
   test("terminal digest uses the cross-runtime canonical encoding", () => {
     expect(terminalManifestSha256(modernLane)).toBe(
-      "9514cd8eaf6900c116c6c2ae68e7918f423e45bb187b97ae067ddf729f2d55cd",
+      "b8b03ae47c8fdab3e6a0c0397ba7677e65755f39cfbadfcedb9eba1a3185355e",
     );
   });
 
@@ -200,7 +198,6 @@ describe("bounded atomic child settlement", () => {
     const secondRun = `run:${secondAgent}-7bc4cf7f-b5af-4bd7-95c4-6566459cbd90`;
     const terminalRun = (subject: string, agent: string) => [
       { subject, predicate: "agent", value: agent },
-      { subject, predicate: "outcome", value: "ran" },
       { subject, predicate: "process_outcome", value: "ran" },
       { subject, predicate: "delivery_outcome", value: "reported" },
       { subject, predicate: "kind", value: "run" },
@@ -420,7 +417,6 @@ describe("bounded atomic child settlement", () => {
         { subject: "agent:child", predicate: "coordinator", value: "director" },
       ], [
         { subject: "run:child", predicate: "agent", value: "child" },
-        { subject: "run:child", predicate: "outcome", value: "ran" },
       ]),
     ]);
     expect(partial.settlement).toEqual({

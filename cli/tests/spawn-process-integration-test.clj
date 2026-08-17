@@ -111,7 +111,7 @@
         startup
         (north.spawn-process/await-startup
          process "lane-pending-fast-terminal" log
-         (constantly (assoc pending-facts "outcome" "died"))
+         (constantly (assoc pending-facts "process_outcome" "died"))
          (constantly false)
          :timeout-ms 1000 :poll-ms 10)]
     (check "valid fast terminal remains completed even when no route was armed"
@@ -133,7 +133,7 @@
         process (north.spawn-process/launch-detached! ["bash" "-c" "exit 0"] base-env log)
         startup (north.spawn-process/await-startup
                  process "lane-completed" log
-                 (constantly (assoc ready-facts "outcome" "ran")) (constantly false)
+                 (constantly (assoc ready-facts "process_outcome" "ran")) (constantly false)
                  :timeout-ms 1000 :poll-ms 10)]
     (check "fast terminal outcome is reported as completed, never falsely running"
            (and (= :completed (:status startup)) (= "ran" (:outcome startup)))))
@@ -161,7 +161,7 @@
                  (fn [_]
                    (if (= 1 (swap! probes inc))
                      ready-facts
-                     (assoc ready-facts "outcome" "ran")))
+                     (assoc ready-facts "process_outcome" "ran")))
                  (constantly false)
                  :timeout-ms 1000 :poll-ms 10 :exit-grace-ms 100)]
     (check "final fact read closes the synchronous-outcome versus process-exit race"
@@ -175,8 +175,7 @@
         partial (assoc ready-facts
                        "process_outcome" "ran"
                        "delivery_outcome" "unverified"
-                       "delivery_reason" "provider_terminal_success_without_external_verification"
-                       "outcome" "ran")
+                       "delivery_reason" "provider_terminal_success_without_external_verification")
         complete (assoc partial "terminal_manifest_sha256"
                         (north.terminal-projection/terminal-manifest-sha256 partial))
         startup (north.spawn-process/await-startup
@@ -193,17 +192,16 @@
   (let [log (temp-file "partial-terminal-exit.log")
         process (north.spawn-process/launch-detached! ["bash" "-c" "exit 0"] base-env log)
         _ @process
-        partial (assoc ready-facts "process_outcome" "ran" "outcome" "ran")
+        partial (assoc ready-facts "process_outcome" "ran")
         startup (north.spawn-process/await-startup
                  process "lane-partial-terminal-exit" log
                  (constantly partial) (constantly false)
                  :timeout-ms 1000 :poll-ms 10 :exit-grace-ms 50)]
-    (check "process_outcome plus legacy alias without terminal marker stays partial"
+    (check "process_outcome without terminal marker stays partial"
            (= :failed (:status startup))))
 
   (let [log (temp-file "conflicting-terminal-exit.log")
-        terminal {"outcome" "ran"
-                  "process_outcome" "ran"
+        terminal {"process_outcome" "ran"
                   "delivery_outcome" "unverified"
                   "delivery_reason" "provider_terminal_success_without_external_verification"}
         complete (merge ready-facts terminal

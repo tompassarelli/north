@@ -37,7 +37,7 @@
    "composition_kind" "composition_id" "repo" "spawned_at" "display_handle"
    "display_name" "identity_manifest_sha256"])
 (def terminal-predicates
-  #{"outcome" "process_outcome" "delivery_outcome" "delivery_reason"
+  #{"process_outcome" "delivery_outcome" "delivery_reason"
     "delivery_evidence" "delivery_evidence_sha256"
     "delivery_attestation" "delivery_attestation_sha256"
     "terminal_manifest_sha256"})
