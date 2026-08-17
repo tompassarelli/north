@@ -33,6 +33,12 @@ import {
   LinearGatewayError, type LinearGateway, type LinearCallEnvelope,
 } from "../src/integrations/linear/gateway";
 import type { ModelFreeTransportReceipt } from "../src/integrations/linear/mcp-broker";
+import { kw } from "../src/coord-wire";
+import {
+  decodeFrame, encodeResponseFrame, rpcList, rpcRecord, triple,
+  RPC_UNIT, RPC_V2_HEADER_BYTES,
+  type RpcFrame, type RpcPageResponse, type RpcResponse, type Term,
+} from "../src/framrpc-codec";
 import { gatedTest } from "./support/capabilities";
 
 class FakeGraph implements GraphStore {
@@ -850,7 +856,15 @@ function seedLegacyBootstrapLink(
   return { link, thread };
 }
 
-async function fakeCoordinator() {
+interface CoordinatorReply {
+  payload: Term | null;
+  page: RpcPageResponse | null;
+  servedVersion?: number;
+}
+
+async function framedCoordinator(
+  reply: (frame: RpcFrame, index: number) => CoordinatorReply,
+) {
   const requests: Buffer[] = [];
   let connections = 0;
   const server = createServer((socket) => {
@@ -860,12 +874,26 @@ async function fakeCoordinator() {
     socket.on("data", (chunk: Buffer) => {
       chunks.push(Buffer.from(chunk));
       const request = Buffer.concat(chunks);
-      if (!replied && request.includes(0x0a)) {
-        replied = true;
-        requests.push(request);
-        socket.end("{:ok 11}\n");
-      }
+      if (replied || request.length < RPC_V2_HEADER_BYTES) return;
+      const bodyLength = request.readUInt32LE(14);
+      const frameLength = RPC_V2_HEADER_BYTES + bodyLength;
+      if (request.length < frameLength) return;
+      replied = true;
+      const framedRequest = request.subarray(0, frameLength);
+      const frame = decodeFrame(framedRequest);
+      requests.push(framedRequest);
+      const selected = reply(frame, requests.length - 1);
+      const response: RpcResponse = {
+        space: frame.request!.space,
+        op: frame.request!.op,
+        servedVersion: selected.servedVersion ?? 11,
+        page: selected.page,
+        error: null,
+        payload: selected.payload,
+      };
+      socket.end(Buffer.from(encodeResponseFrame(frame.requestId, response)));
     });
+    socket.on("error", () => {});
   });
   await new Promise<void>((resolvePromise, reject) => {
     server.once("error", reject);
@@ -882,33 +910,40 @@ async function fakeCoordinator() {
   };
 }
 
-async function fakeCoordinatorReplies(replies: readonly string[]) {
-  const requests: Buffer[] = [];
-  let nextReply = 0;
-  const server = createServer((socket) => {
-    const chunks: Buffer[] = [];
-    let replied = false;
-    socket.on("data", (chunk: Buffer) => {
-      chunks.push(Buffer.from(chunk));
-      const request = Buffer.concat(chunks);
-      if (replied || !request.includes(0x0a)) return;
-      replied = true;
-      requests.push(request);
-      socket.end(replies[nextReply++] ?? "{:error \"unexpected query\"}\n");
-    });
+function queryRows(rows: readonly (readonly string[])[]): Term {
+  return rpcRecord(kw("query/rows"), [rpcList(rows.map((row) =>
+    rpcRecord(kw("query/row"), [rpcList(row)])))]);
+}
+
+async function fakeCoordinator() {
+  return framedCoordinator((frame) => {
+    const operation = frame.request!.op.name;
+    if (operation === "rpc/query") {
+      return {
+        payload: queryRows([]),
+        page: { ordinal: 0, cursor: null, done: true },
+      };
+    }
+    if (operation === "rpc/batch") {
+      const occurrence = triple(
+        triple("north-coordination", kw("kernel/tx-sequence"), 11),
+        kw("kernel/op-ordinal"),
+        0,
+      );
+      return {
+        payload: rpcRecord(kw("rpc/mutation-result"), [rpcList([
+          rpcRecord(kw("rpc/action-result"), [0, true, occurrence]),
+        ])]),
+        page: null,
+      };
+    }
+    return { payload: RPC_UNIT, page: null };
   });
-  await new Promise<void>((resolvePromise, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => resolvePromise());
-  });
-  const address = server.address() as { port: number };
-  return {
-    port: String(address.port),
-    requests,
-    close: () => new Promise<void>((resolvePromise, reject) => {
-      server.close((error) => error ? reject(error) : resolvePromise());
-    }),
-  };
+}
+
+async function fakeCoordinatorReplies(replies: readonly CoordinatorReply[]) {
+  return framedCoordinator((_frame, index) => replies[index]
+    ?? { payload: RPC_UNIT, page: null });
 }
 
 async function runProcessWithInput(
@@ -2806,10 +2841,13 @@ gatedTest("loopback-bind", "fenced graph values use bounded private stdin and ac
       "/unused/north", "/unused/fram", leaseCli, coordinator.port,
     );
     await store.putFenced(lease, "link:x", "sync_manifest", value);
-    expect(coordinator.requests).toHaveLength(1);
-    expect(coordinator.requests[0]!.byteLength).toBeGreaterThan(value.length);
-    expect(coordinator.requests[0]!.byteLength).toBeLessThanOrEqual(1024 * 1024 + 1);
-    expect(coordinator.requests[0]!.includes(Buffer.from(':te "@link:x"'))).toBe(true);
+    expect(coordinator.requests).toHaveLength(2);
+    const mutationRequests = coordinator.requests.filter((request) =>
+      decodeFrame(request).request!.op.name === "rpc/batch");
+    expect(mutationRequests).toHaveLength(1);
+    expect(mutationRequests[0]!.byteLength).toBeGreaterThan(value.length);
+    expect(mutationRequests[0]!.byteLength).toBeLessThanOrEqual(1024 * 1024 + 1);
+    expect(mutationRequests[0]!.includes(Buffer.from(value))).toBe(true);
 
     let invoked = false;
     const bounded = new NorthGraphStore(
@@ -2859,26 +2897,36 @@ gatedTest("loopback-bind", "bootstrap evidence helper bounds scans and validates
     "../src/integrations/linear/find-bootstrap-links.clj",
   );
   const createdAt = "2026-07-16T14:08:20.639Z";
-  const oversizedRows = Array.from(
-    { length: 10_001 },
-    () => '["@link:linear:mcp-bootstrap-v1:linear-test:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "{}"]',
-  ).join(" ");
-  const duplicateManifest = JSON.stringify(
-    `{"evidence":{"connector":"linear-test","connector":"linear-test","createdAt":"${createdAt}"}}`,
-  );
-  const cases = [
-    '{:ok [] :version -1 :engine "index"}\n',
-    '{:ok [] :version 1 :engine "unreviewed"}\n',
-    `{:ok [${oversizedRows}] :version 1 :engine "index"}\n`,
-    `{:ok [["@link:linear:mcp-bootstrap-v1:linear-test:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ${
-      JSON.stringify("x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES + 1))
-    }]] :version 1 :engine "index"}\n`,
-    `{:ok [["@link:linear:mcp-bootstrap-v1:linear-test:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ${
-      duplicateManifest
-    }]] :version 1 :engine "index"}\n`,
+  const subject = "@link:linear:mcp-bootstrap-v1:linear-test:"
+    + "a".repeat(64);
+  const duplicateManifest =
+    `{"evidence":{"connector":"linear-test","connector":"linear-test","createdAt":"${createdAt}"}}`;
+  const completePage = { ordinal: 0, cursor: null, done: true } as const;
+  const stalledPage: CoordinatorReply = {
+    payload: queryRows(Array.from({ length: 200 }, () => ["x", "{}"])),
+    page: { ordinal: 0, cursor: null, done: false },
+  };
+  const cases: { replies: CoordinatorReply[]; expectedRequests: number }[] = [
+    { replies: [{ payload: queryRows([]), page: null }], expectedRequests: 1 },
+    {
+      replies: [{ payload: rpcRecord(kw("rpc/triples"), [rpcList([])]), page: completePage }],
+      expectedRequests: 1,
+    },
+    { replies: [stalledPage], expectedRequests: 1 },
+    {
+      replies: [{
+        payload: queryRows([[subject, "x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES + 1)]]),
+        page: completePage,
+      }],
+      expectedRequests: 1,
+    },
+    {
+      replies: [{ payload: queryRows([[subject, duplicateManifest]]), page: completePage }],
+      expectedRequests: 1,
+    },
   ];
-  for (const reply of cases) {
-    const coordinator = await fakeCoordinatorReplies([reply]);
+  for (const { replies, expectedRequests } of cases) {
+    const coordinator = await fakeCoordinatorReplies(replies);
     try {
       const result = await runProcessWithInput(
         "bb",
@@ -2889,7 +2937,7 @@ gatedTest("loopback-bind", "bootstrap evidence helper bounds scans and validates
       expect(JSON.parse(result.stdout.toString("utf8"))).toEqual({
         reject: "Linear bootstrap evidence lookup failed",
       });
-      expect(coordinator.requests).toHaveLength(1);
+      expect(coordinator.requests).toHaveLength(expectedRequests);
     } finally {
       await coordinator.close();
     }
@@ -2913,8 +2961,9 @@ gatedTest("loopback-bind", "lease helper enforces its own byte/UTF-8 boundary be
     ]);
     expect(split.code).toBe(0);
     expect(JSON.parse(split.stdout.toString("utf8"))).toEqual({ ok: 11 });
-    expect(coordinator.connections()).toBe(1);
-    expect(coordinator.requests[0]!.includes(value)).toBe(true);
+    expect(coordinator.connections()).toBe(2);
+    expect(coordinator.requests.find((request) =>
+      decodeFrame(request).request!.op.name === "rpc/batch")!.includes(value)).toBe(true);
 
     const beforeOversize = coordinator.connections();
     const oversized = await runProcessWithInput(
