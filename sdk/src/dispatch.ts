@@ -632,7 +632,7 @@ async function runDispatch(
     initialComposition = harnessCompositionEvidence(agentOptions);
     console.log(
       `[dispatch] posture: ${postureLabel}, provider: ${routing.provider}, `
-      + `target: ${routing.target} (${routing.reason})`,
+      + `target: ${routing.target} (${routing.selectionReason})`,
     );
     if (queryFn && feedSubscriber !== subscribeFeed)
       await liveInputRoute.activate(activeRoute());

@@ -22,7 +22,6 @@ const policy: ResourcePolicy = {
   ],
   targetOrder: ["claude-proton", "claude-gmail", "codex-proton"],
   providerOrder: ["anthropic", "openai"],
-  pressures: {},
 };
 
 test("MCP exact pins must name a configured target owned by the requested provider", () => {

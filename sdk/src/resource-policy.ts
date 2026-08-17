@@ -527,8 +527,8 @@ export function loadProviderUsageObservations(
 
 /**
  * Overlay fresh automated observations onto fresh manual policy observations.
- * Every target remains executable data; provider pressures are the compatibility
- * projection of the first ordered target for each provider.
+ * Every target remains executable data; pressure and usage evidence stay keyed
+ * to the exact routing target that produced them.
  */
 export function applyProviderUsageObservations(
   policy: ResourcePolicy,
@@ -559,9 +559,7 @@ export function applyProviderUsageObservations(
       observation.source !== undefined && automatedPressure(observation, now) !== "unknown"))
       candidates.set(targetId, observations.filter(({ source }) => source !== undefined));
   }
-  const pressures: Partial<Record<ProviderId, EntitlementPressure>> = {};
   const targetPressures: Record<string, EntitlementPressure> = {};
-  const automatedPressureObservations: Record<string, ProviderUsageObservation> = {};
   const automatedPressureObservationSets: Record<string, ProviderUsageObservation[]> = {};
   for (const id of order) {
     const target = targets.find((candidate) => candidate.id === id);
@@ -586,17 +584,13 @@ export function applyProviderUsageObservations(
       // A failed/partial usage probe is absence of knowledge. It must never
       // turn a known manual exhaustion into an eligible account.
       targetPressures[id] = observedPressure === "unknown" ? manualPressure : observedPressure;
-      automatedPressureObservations[id] = automated;
     } else {
       targetPressures[id] = effectivePressure(manual, now);
     }
-    if (pressures[target.provider] === undefined) pressures[target.provider] = targetPressures[id];
   }
   return {
     ...policy,
-    pressures,
     targetPressures,
-    automatedPressureObservations,
     automatedPressureObservationSets,
   };
 }
@@ -638,17 +632,11 @@ export function parseResourcePolicy(input: unknown, path = "<memory>", now = new
   // Targets are the executable account boundary. Provider-level pressure and
   // weight remain only compatibility projections for older callers; selection,
   // authentication, usage evidence, and fallback all operate per target.
-  const pressureByProvider: Partial<Record<ProviderId, EntitlementPressure>> = {};
   const targetPressures: Record<string, EntitlementPressure> = {};
-  const weightByProvider: Partial<Record<ProviderId, number>> = {};
   const projectionOrder = [...targetOrder, ...targets.map(({ id }) => id).filter((id) => !targetOrder.includes(id))];
   for (const id of projectionOrder) {
     const target = targets.find((candidate) => candidate.id === id)!;
     targetPressures[id] = effectivePressure(pressureObservations[id], now);
-    if (pressureByProvider[target.provider] === undefined)
-      pressureByProvider[target.provider] = targetPressures[id];
-    if (weightByProvider[target.provider] === undefined)
-      weightByProvider[target.provider] = targetWeights[id] ?? 1;
   }
   return {
     version: 1,
@@ -656,8 +644,6 @@ export function parseResourcePolicy(input: unknown, path = "<memory>", now = new
     targets,
     targetOrder,
     providerOrder,
-    pressures: pressureByProvider,
-    weights: weightByProvider,
     targetPressures,
     pressureObservations,
     targetWeights,
