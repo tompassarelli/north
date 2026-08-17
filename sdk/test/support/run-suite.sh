@@ -4,6 +4,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 
+if [[ -n "${BEAGLE_STORE_OUT:-}" ]]; then
+  if [[ ! -d "$BEAGLE_STORE_OUT/store" ]]; then
+    echo "SDK tests require BEAGLE_STORE_OUT to contain the Store runtime" >&2
+    exit 2
+  fi
+  export BABASHKA_CLASSPATH="$root/../out:$BEAGLE_STORE_OUT${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
+fi
+
 if (($# != 0)); then
   echo "SDK test runner accepts no passthrough arguments; use the canonical bounded run" >&2
   exit 2
