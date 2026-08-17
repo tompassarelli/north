@@ -254,7 +254,7 @@ fi
 # Prefer exact hook observations over adapter env. `unobserved` is an explicit
 # epistemic state, never an inferred model/effort/provider claim.
 [ -n "$MODEL" ] || MODEL="${AGENT_MODEL:-}"
-[ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-${AGENT_REASONING:-${AGENT_EFFORT:-}}}"
+[ -n "$EFFORT" ] || EFFORT="${CLAUDE_EFFORT:-${AGENT_REASONING:-}}"
 PROVIDER_OBS="${PROVIDER:-unobserved}"
 MODEL_OBS="${MODEL:-unobserved}"
 EFFORT_OBS="${EFFORT:-unobserved}"

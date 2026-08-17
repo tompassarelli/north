@@ -78,7 +78,7 @@ function pinEvidence(provider: "anthropic" | "openai") {
 // harness emits routes nowhere real, even if a future edit lets a write escape the fake.
 const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "AGENT_LAWS", "AGENT_PRAXIS",
-  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT", "AGENT_TARGET",
+  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_TOPOLOGY", "AGENT_MODEL", "AGENT_ROLE", "AGENT_TARGET",
   "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_AUTH_STATE_CACHE",
   "NORTH_PROVIDER_OBSERVATIONS", "NORTH_ALLOCATION_MODE", "NORTH_PROVIDER_ORDER",
@@ -151,7 +151,6 @@ exit 2
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;
   delete process.env.AGENT_ROLE;
-  delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_TARGET;
   process.env.AGENT_COORDINATOR = POISON_COORDINATOR;
 });

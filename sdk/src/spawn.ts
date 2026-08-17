@@ -66,7 +66,7 @@ import { SerializedWireEventCommitter, StreamWriter } from "./stream-writer";
 import { RunArtifactStore } from "./run-artifacts";
 import {
   DEFAULT_SYSTEM_PROMPT, harnessCompositionEvidence, harnessOptions, renewHarnessPresence,
-  type Effort, type HarnessCompositionEvidence,
+  type HarnessCompositionEvidence,
 } from "./harness";
 import {
   createExecutionActivityEmitter, forwardExecutionActivity,
@@ -115,7 +115,7 @@ import {
   providerRetrySafeTerminalDetail, ProviderRetrySafeError,
   type ProviderAuthoritySurface, type ProviderPreference, type RoutedQueryArguments,
 } from "./providers";
-import { resolveTier, type SemanticTier } from "./providers/catalog";
+import { resolveTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
 import {
@@ -224,19 +224,14 @@ export interface SpawnOptions {
   prompt: string;
   agentId?: string;
   model?: string;
-  effort?: Effort;
   tools?: string[];
   systemPrompt?: string;
   maxTurns?: number;
-  /** Equality-only compatibility alias; routingMetadata remains authoritative. */
-  role?: string;
-  posture?: string;
   thread?: string; // exact work/evidence thread.
   concern?: string; // exact physical-allocation concern owner; absent is explicitly unattributed.
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
   target?: string;
-  tier?: SemanticTier;
   routingMetadata: RoutingRequest;
   /** Orchestration-owned minimum-sufficient assessment; separate from the eight-field request. */
   routingAssessment?: RoutingAssessment;
@@ -289,9 +284,9 @@ interface SpawnRuntime {
 }
 
 const SPAWN_OPTION_FIELDS = new Set([
-  "prompt", "agentId", "model", "effort", "tools", "systemPrompt", "maxTurns",
-  "role", "posture", "thread", "concern", "coordinator", "provider",
-  "target", "tier", "routingMetadata", "project", "sessionId", "worktree", "setupCmd",
+  "prompt", "agentId", "model", "tools", "systemPrompt", "maxTurns",
+  "thread", "concern", "coordinator", "provider", "target", "routingMetadata",
+  "project", "sessionId", "worktree", "setupCmd",
   "routingAssessment", "pinEvidence", "tokenTarget",
 ]);
 
@@ -396,20 +391,6 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
   const routingMetadata = admitRoutingRequest(
     opts.routingMetadata ?? {}, "managed North spawn",
   );
-  const aliases = [
-    ["role", opts.role, routingMetadata.role],
-    ["tier", opts.tier, routingMetadata.tier],
-    ["effort", opts.effort, routingMetadata.reasoning],
-    ["posture", opts.posture, routingMetadata.posture],
-  ] as const;
-  for (const [field, supplied, canonical] of aliases) {
-    if (supplied !== undefined && supplied !== canonical) {
-      throw new Error(
-        `managed North spawn ${field} compatibility alias must equal routingMetadata `
-        + `(${JSON.stringify(supplied)} != ${JSON.stringify(canonical)})`,
-      );
-    }
-  }
   const routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
     routingAssessment: opts.routingAssessment,
@@ -428,10 +409,6 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
     routingAssessment: routingEconomics.assessment,
     pinEvidence: routingEconomics.pinEvidence,
     routingEconomics,
-    role: routingMetadata.role,
-    tier: routingMetadata.tier,
-    effort: routingMetadata.reasoning as Effort | undefined,
-    posture: routingMetadata.posture,
     worktree,
   };
 }
@@ -462,7 +439,7 @@ async function runSpawn(
   const routingMetadata = opts.routingMetadata;
   const capabilities = orchestrationCapabilities(routingMetadata);
   const requested = { provider: opts.provider, target: opts.target,
-    tier: opts.tier, model: opts.model, effort: opts.effort };
+    tier: routingMetadata.tier, model: opts.model, effort: routingMetadata.reasoning };
   const agentId = opts.agentId ?? createSpawnAgentId();
   const repoRoot = worktreeLease?.repoRoot ?? process.cwd();
   const wt = worktreeLease;
@@ -503,8 +480,8 @@ async function runSpawn(
     });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
-  const requestedTier = opts.tier;
-  const requestedReasoning = opts.effort;
+  const requestedTier = routingMetadata.tier;
+  const requestedReasoning = routingMetadata.reasoning;
   const providerPreference = opts.provider ?? "auto";
   const targetPreference = opts.target;
   const routingRequest = { provider: providerPreference, target: retryTarget ?? targetPreference };
@@ -551,9 +528,8 @@ async function runSpawn(
       resolvedWorktreeAuthorityProfile(routing),
     );
   }
-  const resolved = resolveTier(routing.provider, requestedTier, opts.model, opts.effort);
+  const resolved = resolveTier(routing.provider, requestedTier, opts.model, requestedReasoning);
   opts.model = resolved.model;
-  opts.effort = resolved.effort;
   // The hydrated Orchestration selection is canonical. Never let an inherited parent
   // env relabel this child as an alias or a different role.
   const identityRole = routingMetadata.role!;
@@ -602,7 +578,7 @@ async function runSpawn(
       providerTarget: routing.target,
       liveInput: initialLiveInput,
       model: opts.model,
-      effort: opts.effort,
+      effort: resolved.effort,
     },
     (message) => ch.push(message),
     injected.feedSubscriber ?? subscribeFeed,
@@ -614,7 +590,7 @@ async function runSpawn(
     providerTarget: routing.target,
     liveInput: initialLiveInput,
     ...liveInputRoute.initialProjection(),
-    effort: opts.effort,
+    effort: resolved.effort,
   });
   lifecycleJournal?.append(LANE_LIFECYCLE_KINDS.identityAdmitted, {
     thread: boundThreadId ?? null,
@@ -622,7 +598,7 @@ async function runSpawn(
     provider: routing.provider,
     target: routing.target,
     tier: resolved.tier,
-    effort: routing.resolvedEffort ?? opts.effort ?? null,
+    effort: routing.resolvedEffort ?? resolved.effort ?? null,
     model: routing.resolvedModel ?? opts.model ?? null,
     worktree: wt?.path ?? null,
     branch: wt?.branch ?? null,
@@ -633,7 +609,7 @@ async function runSpawn(
     thread: boundThreadId ?? null,
     role: identityRole,
     tier: resolved.tier,
-    effort: routing.resolvedEffort ?? opts.effort,
+    effort: routing.resolvedEffort ?? resolved.effort,
     model: routing.resolvedModel ?? opts.model,
     provider: routing.provider,
     startedAt: new Date().toISOString(),
@@ -643,7 +619,7 @@ async function runSpawn(
     providerTarget: routing.target,
     liveInput: providerLiveInput(routing.provider),
     model: routing.resolvedModel ?? opts.model,
-    effort: routing.resolvedEffort ?? opts.effort,
+    effort: routing.resolvedEffort ?? resolved.effort,
   });
   const refreshIdentityRoute = (required = false) => {
     liveInputRoute.refresh(activeRoute(), required);
@@ -871,7 +847,7 @@ async function runSpawn(
   const agentOptions = harnessOptions({
     self: agentId,
     extraTools: opts.tools ?? ["Read", "Edit", "Write", "Bash", "Grep", "Glob"],
-    model: opts.model, effort: opts.effort,
+    model: opts.model,
     provider: routing.provider,
     modelAvailability: {
       exactModelPinned: requested.model !== undefined,
@@ -888,7 +864,6 @@ async function runSpawn(
       : opts.systemPrompt,
     maxTurns: opts.maxTurns,
     abortController: termination.abortController,
-    role: opts.role, posture: opts.posture,
     cwd: wt?.path ?? process.cwd(),
     deliveryRun: deliveryReservationReady ? runContext : undefined,
     artifactDirectory: artifacts.directory,
@@ -1860,8 +1835,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
   });
   composed.routingMetadata = learning.routingMetadata;
   composed.routingAssessment = learning.routingAssessment;
-  composed.tier = learning.routingMetadata.tier;
-  composed.effort = learning.routingMetadata.reasoning;
   composed.routingEconomics = admitRoutingEconomics({
     request: learning.routingMetadata,
     routingAssessment: learning.routingAssessment,
@@ -1871,7 +1844,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     model: composed.model,
     surface: "managed North spawn learning admission",
   });
-  const requestedTier = composed.tier;
+  const requestedTier = composed.routingMetadata.tier;
   // Explicit isolation is an admission requirement, not a preference. Provision
   // before clocks, resource reservations, provider probes, stream/identity facts,
   // run reservations, or the provider query. A failure rejects this spawn and can
@@ -1951,7 +1924,7 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
     for (const advisory of admission?.advisories ?? [])
       console.warn(`[envelope] advisory: ${advisory}`);
     // Each attempt gets its OWN shallow copy: runSpawn resolves opts.model/
-    // opts.effort onto its argument in place, and a retry must re-resolve from
+    // opts.model onto its argument in place, and a retry must re-resolve from
     // the original request, not inherit the prior attempt's pinned resolution.
     let attempt = await runSpawn(
       { ...composed }, judgmentGrade, strugglePolicy,
@@ -2095,10 +2068,8 @@ if (import.meta.main) {
     prompt,
     agentId: process.env.AGENT_ID,
     model: process.env.AGENT_MODEL,
-    effort: process.env.AGENT_EFFORT as Effort | undefined,
     provider: process.env.AGENT_PROVIDER as ProviderPreference | undefined,
     target: process.env.AGENT_TARGET,
-    tier: process.env.AGENT_TIER as SemanticTier | undefined,
     thread: delegateThread,
     coordinator: process.env.AGENT_COORDINATOR,
     routingMetadata: routingRequestFromEnv("managed North spawn bootstrap"),

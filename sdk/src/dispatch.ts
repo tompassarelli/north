@@ -343,8 +343,8 @@ async function runDispatch(
   });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
-  const requestedTier = routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined;
-  const requestedReasoning = (routingMetadata.reasoning ?? process.env.AGENT_EFFORT) as Effort | undefined;
+  const requestedTier = routingMetadata.tier;
+  const requestedReasoning = routingMetadata.reasoning;
   const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
   const targetPreference = process.env.AGENT_TARGET;
   const requestedModel = process.env.AGENT_MODEL;
@@ -623,8 +623,6 @@ async function runDispatch(
         receipt: routing.modelAvailabilityReceipts?.[routing.target],
       },
       routingMetadata,
-      role,
-      posture: routingMetadata.posture,
       cwd: workingDirectory,
       deliveryRun: deliveryReservationReady ? runContext : undefined,
       artifactDirectory: artifacts.directory,
@@ -1474,7 +1472,7 @@ export async function dispatch(
     const context = envelopeContextFromEnv(workingDirectory);
     termination.throwIfTerminated();
     admission = await (injected.admitResourceEnvelope ?? admitResourceEnvelope)({
-      agentId, tier: routingMetadata.tier ?? process.env.AGENT_TIER as SemanticTier | undefined,
+      agentId, tier: routingMetadata.tier,
       project: context.project, sessionId: context.sessionId,
     });
     termination.throwIfTerminated();

@@ -31,7 +31,7 @@ let origCwd: string;
 const MANAGED_ENV = [
   "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_PORT", "NORTH_STREAM_DIR",
   "AGENT_LAWS", "AGENT_PRAXIS",
-  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE", "AGENT_EFFORT",
+  "AGENT_ID", "NORTH_AGENT_ID", "AGENT_COORDINATOR", "AGENT_MODEL", "AGENT_ROLE",
   "AGENT_WORKTREE", "AGENT_SETUP_CMD",
   "AGENT_TOPOLOGY", "AGENT_TASK_GRADE", "AGENT_REASONING", "AGENT_POSTURE",
   "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_TIER", "AGENT_IDENTITY_ROLE",
@@ -106,7 +106,6 @@ exit 2
   delete process.env.NORTH_AGENT_ID;
   delete process.env.AGENT_MODEL;
   delete process.env.AGENT_ROLE;
-  delete process.env.AGENT_EFFORT;
   delete process.env.AGENT_WORKTREE;
   delete process.env.AGENT_SETUP_CMD;
   // A live managed lane exports its own Orchestration envelope; a hermetic spawn test

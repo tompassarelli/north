@@ -450,7 +450,7 @@ export async function selectProviderFromCachedState(
   try { store = await readProviderModelObservations(providerModelObservationPath()); }
   catch { /* malformed/unreadable evidence is unavailable */ }
   const reasoning = context.reasoning
-    ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
+    ?? process.env.AGENT_REASONING as Effort | undefined;
   try {
     return selectProviderFromAvailability(
       preference, availability, policy, context.tier, context.stableKey,
@@ -1233,7 +1233,7 @@ export function selectProvider(
     }
   });
   const reasoning = context.reasoning
-    ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
+    ?? process.env.AGENT_REASONING as Effort | undefined;
   return selectProviderFromAvailability(preference, availability, policy,
     context.tier, context.stableKey, reasoning, context.model, context.capabilities);
 }
@@ -1319,7 +1319,7 @@ export async function selectProviderForExecution(
   });
   throwIfProviderRefreshCancelled(context.signal);
   const reasoning = context.reasoning
-    ?? (process.env.AGENT_REASONING ?? process.env.AGENT_EFFORT) as Effort | undefined;
+    ?? process.env.AGENT_REASONING as Effort | undefined;
   const staticallyRequiredTargets = probeTargets.filter((target) =>
     stateOfTarget(availability, target).available
       && providerSupportsRoute(target.provider, context.tier, reasoning, context.model)

@@ -968,7 +968,7 @@
                               "AGENT_ID" agent-id
                               "NORTH_DISPATCH_DRIVER_PRECLAIMED" "1")
                       model       (assoc "AGENT_MODEL" model)
-                      reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
+                      reasoning   (assoc "AGENT_REASONING" reasoning)
                       role        (assoc "AGENT_ROLE" role)
                       role        (assoc "AGENT_IDENTITY_ROLE" role)
                       posture     (assoc "AGENT_POSTURE" posture)
@@ -1033,7 +1033,7 @@
             recursive-binding (bind-recursive-child-thread prompt parent-env)
             cmd-env (cond-> (assoc env "AGENT_ID" agent-id)
                       model       (assoc "AGENT_MODEL" model)
-                      reasoning   (assoc "AGENT_REASONING" reasoning "AGENT_EFFORT" reasoning)
+                      reasoning   (assoc "AGENT_REASONING" reasoning)
                       role        (assoc "AGENT_ROLE" role)
                       role        (assoc "AGENT_IDENTITY_ROLE" role)
                       posture     (assoc "AGENT_POSTURE" posture)
