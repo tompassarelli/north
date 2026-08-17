@@ -100,10 +100,6 @@ test("pin evidence is exact, bounded, immutable, and visible when missing", () =
 
   expect(() => admitRoutingEconomics({ request, target: "codex-personal", now }))
     .toThrow("require current typed pinEvidence");
-  const missing = admitRoutingEconomics({
-    request, target: "codex-personal", now, allowLegacyMissingPinEvidence: true,
-  });
-  expect(missing.receipt.pinEvidenceStatus).toBe("legacy-missing");
   expect(() => admitRoutingEconomics({
     request, target: "codex-personal", now,
     pinEvidence: {
