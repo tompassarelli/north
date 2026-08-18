@@ -67,6 +67,28 @@
   (check "a rejected publication fails closed"
          (= :catalog-publication-rejected (ex-type #(flip! 0 7)))))
 
+(let [actions (vec
+               (for [n (range 659)]
+                 {:op :set :subject (str "@catalog:v8:test:" n)
+                  :predicate "value" :values [(str n)] :cardinality :one}))
+      batches (staging-batches actions)]
+  (check "catalog staging covers every measured write exactly once"
+         (= actions (vec (mapcat identity batches))))
+  (check "catalog staging stays within the Store mutation action bound"
+         (every? #(<= (reduce + (map (comp (partial max 1) count :values) %))
+                       store.rpc-limits/rpc-v2-max-batch-actions)
+                 batches))
+  (check "the measured 659-write catalog requires three staging transactions"
+         (= 3 (count batches))))
+
+(check "one oversized multi-value staging action fails closed"
+       (= :catalog-staging-action-too-large
+          (ex-type
+           #(staging-batches
+             [{:op :set :subject "@catalog:v8:oversized" :predicate "value"
+               :values (mapv str (range (inc store.rpc-limits/rpc-v2-max-batch-actions)))
+               :cardinality :many}]))))
+
 (let [n (count @results) ok (count (filter true? @results))]
   (println (format "%s %d/%d" (if (= n ok) "PASS" "FAIL") ok n))
   (System/exit (if (= n ok) 0 1)))
