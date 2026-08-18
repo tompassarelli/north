@@ -24,7 +24,8 @@
 ;;   bb orchestration-import-cli.clj <port> show     [N|vN]         print the pointed subgraph ids
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
-         '[cheshire.core :as json])
+         '[cheshire.core :as json]
+         '[store.rpc-limits :as rpc-limits])
 
 ;; *file*, not babashka.file: under a test's load-file only *file* still names THIS
 ;; file, so the sibling loads below resolve either way.
@@ -139,6 +140,31 @@
       (throw (ex-info "FRAMRPC rejected orchestration catalog publication"
                       {:type :catalog-publication-rejected :result result})))
     result))
+
+(defn staging-batches [actions]
+  (loop [remaining (seq actions)
+         batch []
+         batch-cost 0
+         batches []]
+    (if-let [action (first remaining)]
+      (let [cost (max 1 (count (:values action)))]
+        (when (> cost rpc-limits/rpc-v2-max-batch-actions)
+          (throw (ex-info "one catalog staging action exceeds the Store mutation bound"
+                          {:type :catalog-staging-action-too-large
+                           :cost cost
+                           :limit rpc-limits/rpc-v2-max-batch-actions
+                           :action action})))
+        (if (and (seq batch)
+                 (> (+ batch-cost cost) rpc-limits/rpc-v2-max-batch-actions))
+          (recur remaining [] 0 (conj batches batch))
+          (recur (next remaining) (conj batch action) (+ batch-cost cost) batches)))
+      (cond-> batches (seq batch) (conj batch)))))
+
+(defn publish-staging! [port actions]
+  ;; Staged version subjects are not visible to consumers until flip!. Publish
+  ;; them in wire-bounded transactions, then retain the one atomic pointer flip.
+  (doseq [batch (staging-batches actions)]
+    (publish-actions! port batch)))
 
 (defn flip! [port ver]
   (publish-actions!
@@ -323,7 +349,9 @@
       (emit-provider! port ver root "anthropic")
       (emit-provider! port ver root "openai")
       (emit-selection! port ver root))
-    (publish-actions! port (vals @actions))
+    (publish-staging!
+     port
+     (sort-by (juxt :subject :predicate) (vals @actions)))
     ;; ATOMIC FLIP — one serialized write; consumers never see a torn import.
     (flip! port ver)
     ver))
