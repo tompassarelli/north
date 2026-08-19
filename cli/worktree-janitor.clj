@@ -256,6 +256,49 @@
        :reason (str "Git provenance probe failed: "
                     (or (.getMessage error) (.getName (class error))))})))
 
+(defn- process-cwd
+  "Absolute path `/proc/<pid>/cwd` points at, or nil. Another user's process
+   denies the read and a process that exits mid-scan takes its link with it;
+   neither is evidence about this tree, so both answer nil."
+  [^java.io.File link]
+  (try
+    (str (java.nio.file.Files/readSymbolicLink (.toPath link)))
+    (catch Throwable _ nil)))
+
+(defn- tree-liveness
+  "Is someone working inside this tree RIGHT NOW? A process cwd'd in the tree is
+   a build in flight, and removing the tree out from under it is the one
+   unrecoverable mistake this janitor can make — so the probe answers
+   `:live? true` for everything it cannot positively disprove: an unreadable
+   /proc, an uncanonicalizable path, or any probe failure keeps the tree.
+   MIRROR of nixos-config:dotfiles/bin/wt-reap has_live_cwd."
+  [worktree]
+  (if-let [tree (registered-path worktree)]
+    (try
+      (let [prefix (str tree java.io.File/separator)
+            pids (filter (fn [^java.io.File entry]
+                           (re-matches #"\d+" (.getName entry)))
+                         (.listFiles (io/file "/proc")))]
+        (cond
+          (empty? pids)
+          {:live? true
+           :reason "process liveness could not be proven: /proc lists no processes"}
+
+          (some (fn [^java.io.File pid]
+                  (when-let [cwd (process-cwd (io/file pid "cwd"))]
+                    (or (= cwd tree) (str/starts-with? cwd prefix))))
+                pids)
+          {:live? true
+           :reason "a live process is working inside it; removal would destroy work in flight"}
+
+          :else {:live? false}))
+      (catch Throwable error
+        {:live? true
+         :reason (str "process liveness could not be proven: "
+                      (or (.getMessage error) (.getName (class error))))}))
+    {:live? true
+     :reason "process liveness could not be proven: the tree has no canonical path"}))
+
 (defn- worktree-status [worktree]
   (let [result (git "-C" worktree "status" "--porcelain=v1" "-z"
                     "--untracked-files=all")]
@@ -354,6 +397,7 @@
   {:scanned 0
    :unresolved 0
    :dirty 0
+   :live-process 0
    :uncertain 0
    :partial 0
    :already-removed 0
@@ -414,65 +458,71 @@
               (do
                 (println (str "[worktrees] KEEP " subject " — " (:reason provenance)))
                 {:kind :uncertain})
-              (let [status (worktree-status (:worktree provenance))]
-                (case (:kind status)
-                  :uncertain
+              (let [liveness (tree-liveness (:worktree provenance))]
+                (if (:live? liveness)
                   (do
-                    (println (str "[worktrees] KEEP " subject " — " (:reason status)))
-                    {:kind :uncertain})
+                    (println (str "[worktrees] KEEP " subject " — " (:reason liveness)))
+                    {:kind :live-process})
+                  (let [status (worktree-status (:worktree provenance))]
+                    (case (:kind status)
+                      :uncertain
+                      (do
+                        (println (str "[worktrees] KEEP " subject " — " (:reason status)))
+                        {:kind :uncertain})
 
-                  :dirty
-                  (let [value (orphan-fact (:worktree provenance) (:branch provenance))
-                        wrote? (and (not dry?)
-                                    (ensure-orphan-fact! port subject value))]
-                    (println (str "[worktrees] " (if dry? "WOULD KEEP" "KEPT")
-                                  " dirty " (:worktree provenance)
-                                  (when (and (= :clone (:mode provenance))
-                                             (not (:harvested? provenance)))
-                                    " — dirty clone has unharvested commits; manual salvage required")))
-                    {:kind :dirty :orphan-written? wrote?})
+                      :dirty
+                      (let [value (orphan-fact (:worktree provenance) (:branch provenance))
+                            wrote? (and (not dry?)
+                                        (ensure-orphan-fact! port subject value))]
+                        (println (str "[worktrees] " (if dry? "WOULD KEEP" "KEPT")
+                                      " dirty " (:worktree provenance)
+                                      (when (and (= :clone (:mode provenance))
+                                                 (not (:harvested? provenance)))
+                                        " — dirty clone has unharvested commits; manual salvage required")))
+                        {:kind :dirty :orphan-written? wrote?})
 
-                  :clean
-                  (cond
-                    (and (= :clone (:mode provenance)) (not (:harvested? provenance)))
-                    (do
-                      (println (str "[worktrees] KEEP " subject
-                                    " — clean clone has unharvested commits; canonical lane ref does not match and head is not in main"))
-                      {:kind :uncertain})
-
-                    dry?
-                    (do
-                      (println (str "[worktrees] WOULD REMOVE clean "
-                                    (:worktree provenance)))
-                      {:kind :would-remove})
-
-                    :else
-                    (let [removed (if (= :clone (:mode provenance))
-                                    (remove-clean-clone! provenance)
-                                    (remove-clean-worktree! provenance))]
-                      (case (:kind removed)
-                        :removed
-                        (do
-                          (println (str "[worktrees] removed clean "
-                                        (:worktree provenance)
-                                        (when (= :linked (:mode provenance))
-                                          (str " and " (:branch provenance)))))
-                          {:kind :removed})
-
-                        :partial
-                        (do
-                          (println (str "[worktrees] PARTIAL cleanup " subject
-                                        " — " (:reason removed)))
-                          {:kind :partial})
-
+                      :clean
+                      (cond
+                        (and (= :clone (:mode provenance)) (not (:harvested? provenance)))
                         (do
                           (println (str "[worktrees] KEEP " subject
-                                        " — " (:reason removed)))
-                          {:kind :uncertain})))))))))))))
+                                        " — clean clone has unharvested commits; canonical lane ref does not match and head is not in main"))
+                          {:kind :uncertain})
+
+                        dry?
+                        (do
+                          (println (str "[worktrees] WOULD REMOVE clean "
+                                        (:worktree provenance)))
+                          {:kind :would-remove})
+
+                        :else
+                        (let [removed (if (= :clone (:mode provenance))
+                                        (remove-clean-clone! provenance)
+                                        (remove-clean-worktree! provenance))]
+                          (case (:kind removed)
+                            :removed
+                            (do
+                              (println (str "[worktrees] removed clean "
+                                            (:worktree provenance)
+                                            (when (= :linked (:mode provenance))
+                                              (str " and " (:branch provenance)))))
+                              {:kind :removed})
+
+                            :partial
+                            (do
+                              (println (str "[worktrees] PARTIAL cleanup " subject
+                                            " — " (:reason removed)))
+                              {:kind :partial})
+
+                            (do
+                              (println (str "[worktrees] KEEP " subject
+                                            " — " (:reason removed)))
+                              {:kind :uncertain})))))))))))))))
 
 ;; ---- UNREGISTERED trees under <container>/worktrees/ -------------------------
 ;; Same non-force discipline as the lane sweep above, for trees no fact claims.
-;; Dirty, unmerged, claimed, or live-concern-owned trees are never removed.
+;; Dirty, unmerged, claimed, live-concern-owned, or live-process trees are never
+;; removed.
 
 (defn- validate-unregistered-provenance
   "Prove against Git alone that this path is a linked worktree of exactly `root`,
@@ -553,7 +603,10 @@
 (defn- sweep-unregistered-row!
   [dry? claimed live-concern-repos repo-entry base row]
   (let [path (:worktree row)
-        age (north.worktree-census/human-age (:age_ms row))]
+        age (north.worktree-census/human-age (:age_ms row))
+        ;; Deferred: a /proc sweep is paid for only by a tree that survives every
+        ;; cheaper gate and is otherwise about to be removed.
+        liveness (delay (tree-liveness path))]
     (cond
       (contains? (force claimed) (registered-path path))
       {:kind :claimed}
@@ -573,6 +626,12 @@
         (println (str "[worktrees] KEEP unregistered " path
                       " — idle " age " but its repository has a live concern"))
         {:kind :live-concern})
+
+      (:live? @liveness)
+      (do
+        (println (str "[worktrees] KEEP unregistered " path
+                      " — idle " age " but " (:reason @liveness)))
+        {:kind :live-process})
 
       :else
       (let [provenance (validate-unregistered-provenance repo-entry base row)]
@@ -617,7 +676,7 @@
                 {:kind :uncertain}))))))))
 
 (defn- unregistered-zero-result []
-  {:scanned 0 :claimed 0 :fresh 0 :review 0 :live-concern 0
+  {:scanned 0 :claimed 0 :fresh 0 :review 0 :live-concern 0 :live-process 0
    :uncertain 0 :partial 0 :removed 0 :would-remove 0 :errors 0})
 
 (defn- container-selected? [repo-filter {:keys [repo container root]}]

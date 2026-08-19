@@ -20,8 +20,27 @@
   (.format (.minusDays (java.time.ZonedDateTime/now) 4)
            java.time.format.DateTimeFormatter/ISO_OFFSET_DATE_TIME))
 (def checks (atom []))
+(def live-holder (atom nil))
 (defn check [label value & [detail]]
   (swap! checks conj [label (boolean value) detail]))
+
+(defn hold-cwd!
+  "Start a real process whose cwd is PATH and return only once /proc agrees. The
+   janitor's liveness guard reads `/proc/<pid>/cwd`, so nothing short of a real
+   process proves the guard."
+  [path]
+  (let [holder (proc/process {:dir path :out :string :err :string} "sleep" "600")
+        link (io/file "/proc" (str (.pid ^Process (:proc holder))) "cwd")]
+    (reset! live-holder holder)
+    (loop [attempt 0]
+      (let [cwd (try (str (java.nio.file.Files/readSymbolicLink (.toPath link)))
+                     (catch Throwable _ nil))]
+        (cond
+          (= cwd path) holder
+          (>= attempt 400)
+          (throw (ex-info "fixture process never took its cwd"
+                          {:path path :cwd cwd}))
+          :else (do (Thread/sleep 25) (recur (inc attempt))))))))
 
 (defn run-git [& args]
   (apply proc/shell {:out :string :err :string :continue true} "git" args))
@@ -135,6 +154,11 @@
           fresh (census-worktree! demo "fresh" {})
           claimed (census-worktree! demo "claimed" {:aged? true})
           held-tree (census-worktree! held "held" {:aged? true})
+          ;; Identical to `reapable` in every Git and filesystem discriminator;
+          ;; only a live process cwd'd inside it stands between this tree and
+          ;; the reaper.
+          live-cwd (census-worktree! demo "live-cwd" {:aged? true})
+          _ (hold-cwd! (:path live-cwd))
           pin (census-pin! demo "gjoa")
           foreign (doto (io/file (:container demo) "worktrees" "foreign") .mkdirs)
           _ (proc/shell {:out :string :err :string}
@@ -142,7 +166,7 @@
           claimed-set #{(:path claimed)}
           live-repos #{(:container held)}
           before (into {} (map (juxt :slug #(tree-snapshot (:path %))))
-                       [reapable dirty unmerged fresh claimed held-tree])
+                       [reapable dirty unmerged fresh claimed held-tree live-cwd])
           pin-before (tree-snapshot (:path pin))
           dry (sweep! census-root true claimed-set live-repos)]
 
@@ -150,8 +174,9 @@
       ;; whole proof: the pin is not kept, not reviewed, not skipped — it is
       ;; NEVER ENUMERATED. A sweeper that opts in on worktrees/ cannot reach it.
       (check "dry run detects exactly one reclaimable unregistered tree"
-             (= {:scanned 7 :claimed 1 :fresh 1 :review 3 :live-concern 1
-                 :uncertain 0 :partial 0 :removed 0 :would-remove 1 :errors 0}
+             (= {:scanned 8 :claimed 1 :fresh 1 :review 3 :live-concern 1
+                 :live-process 1 :uncertain 0 :partial 0 :removed 0
+                 :would-remove 1 :errors 0}
                 (:result dry))
              (pr-str (:result dry)))
       (check "dry run names the tree it would remove and why"
@@ -175,6 +200,14 @@
                             (str "KEEP unregistered " (:path held-tree)
                                  " — idle 4d but its repository has a live concern"))
              (:out dry))
+      ;; The data-loss regression: a build running inside an otherwise perfectly
+      ;; reapable tree keeps it, and the skip is visible in the report.
+      (check "dry run keeps a tree with a live process cwd'd inside it, and says why"
+             (str/includes? (:out dry)
+                            (str "KEEP unregistered " (:path live-cwd)
+                                 " — idle 4d but a live process is working inside it;"
+                                 " removal would destroy work in flight"))
+             (:out dry))
       (check "dry run never mentions a fresh or claimed tree"
              (and (not (str/includes? (:out dry) (:path fresh)))
                   (not (str/includes? (:out dry) (:path claimed))))
@@ -190,14 +223,15 @@
                    (:path pin))))
       (check "dry run mutates nothing"
              (and (every? #(.isDirectory (io/file (:path %)))
-                          [reapable dirty unmerged fresh claimed held-tree])
+                          [reapable dirty unmerged fresh claimed held-tree live-cwd])
                   (every? #(= (get before (:slug %)) (tree-snapshot (:path %)))
-                          [reapable dirty unmerged fresh claimed held-tree])))
+                          [reapable dirty unmerged fresh claimed held-tree live-cwd])))
 
       (let [live (sweep! census-root false claimed-set live-repos)]
         (check "production sweep reclaims exactly the proven tree"
-               (= {:scanned 7 :claimed 1 :fresh 1 :review 3 :live-concern 1
-                   :uncertain 0 :partial 0 :removed 1 :would-remove 0 :errors 0}
+               (= {:scanned 8 :claimed 1 :fresh 1 :review 3 :live-concern 1
+                   :live-process 1 :uncertain 0 :partial 0 :removed 1
+                   :would-remove 0 :errors 0}
                   (:result live))
                (pr-str (:result live)))
         (check "the reclaimed worktree and its branch are both gone"
@@ -209,12 +243,22 @@
                (:out live))
         (check "no held tree loses a byte or a branch"
                (and (every? #(= (get before (:slug %)) (tree-snapshot (:path %)))
-                            [dirty unmerged fresh claimed held-tree])
+                            [dirty unmerged fresh claimed held-tree live-cwd])
                     (branch-present? (:root demo) (:branch dirty))
                     (branch-present? (:root demo) (:branch unmerged))
                     (branch-present? (:root demo) (:branch claimed))
                     (branch-present? (:root held) (:branch held-tree))
                     (.isDirectory foreign)))
+        (check "a production sweep never removes a tree with work in flight inside it"
+               (and (.isDirectory (io/file (:path live-cwd)))
+                    (branch-present? (:root demo) (:branch live-cwd))
+                    (str/includes? (:out live)
+                                   (str "KEEP unregistered " (:path live-cwd)
+                                        " — idle 4d but a live process is working"
+                                        " inside it; removal would destroy work in flight"))
+                    (not (str/includes? (:out live)
+                                        (str "removed unregistered " (:path live-cwd)))))
+               (:out live))
         (check "the pin survives a production sweep byte for byte (T17)"
                (and (.isDirectory (io/file (:path pin)))
                     (= pin-before (tree-snapshot (:path pin)))
@@ -228,8 +272,9 @@
 
       (let [again (sweep! census-root false claimed-set live-repos)]
         (check "a repeat sweep is idempotent"
-               (= {:scanned 6 :claimed 1 :fresh 1 :review 3 :live-concern 1
-                   :uncertain 0 :partial 0 :removed 0 :would-remove 0 :errors 0}
+               (= {:scanned 7 :claimed 1 :fresh 1 :review 3 :live-concern 1
+                   :live-process 1 :uncertain 0 :partial 0 :removed 0
+                   :would-remove 0 :errors 0}
                   (:result again))
                (pr-str (:result again))))
 
@@ -243,6 +288,7 @@
                (pr-str (:result released)))))
 
     (finally
+      (try (some-> @live-holder proc/destroy-tree) (catch Throwable _ nil))
       (doseq [file (reverse (file-seq tmp))]
         (try (io/delete-file file true) (catch Throwable _ nil)))))
 
