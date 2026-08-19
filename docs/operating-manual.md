@@ -865,8 +865,11 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    clean status. Cleanup is only non-force `git worktree remove` followed by
    `git branch -d`, with exit codes and postconditions checked. Dirty trees stay
    byte-for-byte intact and gain one idempotent `worktree_orphaned` fact.
-   Liveness, torn terminals, hostile facts, and uncertainty proved before any
-   cleanup mutation keep the tree. After a removal command runs, only an exact
+   A tree with a **live process cwd'd inside it** is never removed: `/proc` is
+   read before any mutation, the tree is reported as
+   `KEEP <subject> — a live process is working inside it`, and a probe that
+   cannot answer keeps the tree too. Liveness, torn terminals, hostile facts,
+   and uncertainty proved before any cleanup mutation keep the tree. After a removal command runs, only an exact
    path-present + registration-present postcondition can still say `KEEP`;
    changed or unknown state and branch-delete failures report `PARTIAL cleanup`.
    Later sweeps recognize a fully absent tree + registration + branch as already
@@ -881,7 +884,9 @@ leaves active overlap views; no separate `concern done` ceremony is required.
    linked worktree of that repository, living under `<container>/worktrees/`, on
    its own branch, that branch is merged,
    the status is clean, the tree has been idle **>48h**, no registration of any
-   kind names it, and no **live concern** claims its repository. Removal is the
+   kind names it, no **live concern** claims its repository, and no process is
+   cwd'd inside it (a running build keeps the tree, reported as
+   `KEEP unregistered <path> — … a live process is working inside it`). Removal is the
    same non-force `git worktree remove` + `git branch -d` with the same
    postcondition checks. A stale tree that is dirty, unmerged, or detached is
    **never** auto-removed: it is surfaced as `REVIEW unregistered <path>` in the

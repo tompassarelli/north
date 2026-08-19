@@ -25,8 +25,27 @@
 
 (def checks (atom []))
 (def test-log (atom nil))
+(def live-holder (atom nil))
 (defn check [label value & [detail]]
   (swap! checks conj [label (boolean value) detail]))
+
+(defn hold-cwd!
+  "Start a real process whose cwd is PATH and return only once /proc agrees. The
+   janitor's liveness guard reads `/proc/<pid>/cwd`, so nothing short of a real
+   process proves the guard."
+  [path]
+  (let [holder (proc/process {:dir path :out :string :err :string} "sleep" "600")
+        link (io/file "/proc" (str (.pid ^Process (:proc holder))) "cwd")]
+    (reset! live-holder holder)
+    (loop [attempt 0]
+      (let [cwd (try (str (java.nio.file.Files/readSymbolicLink (.toPath link)))
+                     (catch Throwable _ nil))]
+        (cond
+          (= cwd path) holder
+          (>= attempt 400)
+          (throw (ex-info "fixture process never took its cwd"
+                          {:path path :cwd cwd}))
+          :else (do (Thread/sleep 25) (recur (inc attempt))))))))
 
 (let [source (slurp maintenance-host)]
   (check "sweep lifecycle lookup is indexed, capped, and never scans all subject facts"
@@ -268,6 +287,9 @@
           provenance-fail (create-worktree! repo worktrees "provenance-failure")
           post-remove-fail (create-worktree! repo worktrees "post-remove-failure")
           branch-delete-fail (create-worktree! repo worktrees "branch-delete-failure")
+          ;; Terminal, clean, and provenance-perfect: only a live process cwd'd
+          ;; inside it stands between this lane and removal.
+          live-cwd (create-worktree! repo worktrees "live-cwd")
           clone-clean (create-clone! repo worktrees "clone-clean")
           clone-dirty (create-clone! repo worktrees "clone-dirty")
           control-subjects
@@ -275,7 +297,8 @@
            ["@worktree-reservation:janitor-fixture" "worktree_reservation"]
            ["@worktree-control:janitor-fixture" "control"]]
           lanes [clean dirty live torn hostile status-fail provenance-fail
-                 post-remove-fail branch-delete-fail clone-clean clone-dirty]
+                 post-remove-fail branch-delete-fail live-cwd
+                 clone-clean clone-dirty]
           demo (census-repo! census-root "demo")
           held (census-repo! census-root "held")
           census-reapable (census-worktree! demo "census-reapable" {:aged? true})
@@ -302,6 +325,8 @@
       (assert-fact! port (:subject hostile) "branch" "main")
 
       (commit-modern-terminal! port (:subject clean))
+      (commit-modern-terminal! port (:subject live-cwd))
+      (hold-cwd! (:path live-cwd))
       (doseq [lane [dirty hostile status-fail provenance-fail
                     post-remove-fail branch-delete-fail clone-clean clone-dirty]]
         (commit-run! port (:handle lane)))
@@ -356,7 +381,7 @@
       (.setExecutable git-wrapper true)
       (spit git-log "")
 
-      (let [watched [live torn hostile status-fail provenance-fail]
+      (let [watched [live torn hostile status-fail provenance-fail live-cwd]
             before (into {} (map (juxt :handle #(tree-snapshot (:path %))) watched))
             dirty-before (tree-snapshot (:path dirty))
             environment {"HOME" (.getCanonicalPath home)
@@ -439,6 +464,20 @@
                     (str/includes? (:out first-run)
                                    "dirty clone has unharvested commits; manual salvage required"))
                (:out first-run))
+        ;; The data-loss regression: a build running inside a lane that is
+        ;; terminal, clean, and provenance-perfect keeps the lane, and the skip
+        ;; is visible in the report.
+        (check "a resolved clean lane with a live process inside is kept, and says why"
+               (and (.isDirectory (io/file (:path live-cwd)))
+                    (branch-present? repo (:branch live-cwd))
+                    (str/includes? (:out first-run)
+                                   (str "KEEP " (:subject live-cwd)
+                                        " — a live process is working inside it;"
+                                        " removal would destroy work in flight"))
+                    (str/includes? (:out first-run) ":live-process 1")
+                    (not (str/includes? (:out first-run)
+                                        (str "removed clean " (:path live-cwd)))))
+               (:out first-run))
         (check "post-remove observation failure reports the removed tree as partial"
                (and (not (.exists (io/file (:path post-remove-fail))))
                     (branch-present? repo (:branch post-remove-fail))
@@ -457,10 +496,12 @@
                (:out first-run))
         (check "every non-removable worktree remains present"
                (every? #(.isDirectory (io/file (:path %)))
-                       [dirty live torn hostile status-fail provenance-fail clone-dirty]))
+                       [dirty live torn hostile status-fail provenance-fail
+                        live-cwd clone-dirty]))
         (check "every non-removable branch remains at its authoritative location"
                (and (every? #(branch-present? repo (:branch %))
-                            [dirty live torn hostile status-fail provenance-fail])
+                            [dirty live torn hostile status-fail provenance-fail
+                             live-cwd])
                     (branch-present? (:path clone-dirty) (:branch clone-dirty))
                     (not (branch-present? repo (:branch clone-dirty)))))
         (check "dirty worktree bytes survive exactly"
@@ -530,6 +571,7 @@
                       (str/includes? (:out second-run) ":removed 0")
                       (str/includes? (:out second-run) ":partial 2")
                       (str/includes? (:out second-run) ":already-removed 2")
+                      (str/includes? (:out second-run) ":live-process 1")
                       (str/includes? (:out second-run) ":orphan-facts-written 0"))
                  (:out second-run))
           (check "repeat never relabels an absent worktree as kept"
@@ -582,6 +624,7 @@
                  (str (:out land) (:err land)))))
 
     (finally
+      (try (some-> @live-holder proc/destroy-tree) (catch Throwable _ nil))
       (try (proc/destroy-tree daemon) (catch Throwable _ nil))
       (fs/delete-tree clone-clean-path)
       (fs/delete-tree clone-dirty-path)
