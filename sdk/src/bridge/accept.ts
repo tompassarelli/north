@@ -11,6 +11,7 @@ import {
   type WireModelCallId,
 } from "../wire";
 import { Northd } from "./host";
+import { MemoryBridgeCommandReceipts } from "./command-receipts";
 import {
   readBridgeWireJournal,
   scanJournalFile,
@@ -287,7 +288,15 @@ export async function runBridgeAcceptance(options: AcceptanceOptions): Promise<s
       return session;
     },
   };
-  const northd = new Northd({ socketPath, journalRoot, provider });
+  const northd = new Northd({
+    socketPath,
+    journalRoot,
+    provider,
+    commandReceipts: new MemoryBridgeCommandReceipts([
+      messagedAttemptId,
+      interruptedAttemptId,
+    ]),
+  });
   let hostOpen = false;
   const previousNorthPort = process.env.NORTH_PORT;
 
