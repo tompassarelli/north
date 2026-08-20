@@ -1120,7 +1120,171 @@
          " · blocked by " (count deps)
          (if (some? estimate) (str " · est " estimate "h") ""))))
 
+;; Cockpit facts are intentionally read straight from the served Store snapshot.
+;; These helpers reject multi-valued or partial authority rows instead of filling
+;; their gaps from a provider adapter, process table, or cached view.
+(defn- cockpit-exact-value
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String] String?
+  (let [values (Vec String) (proj/string-values-at idx subject predicate)]
+    (if (= (count values) 1) (first values) nil)))
+
+(defn- cockpit-account?
+  [idx proj/ProjectionIndex
+   account String] Bool
+  (and (str/starts-with? account "@account:")
+       (= (cockpit-exact-value idx account "kind") "provider_account")
+       (some? (cockpit-exact-value idx account "account_id"))
+       (some? (cockpit-exact-value idx account "provider"))
+       (some? (cockpit-exact-value idx account "provider_profile"))
+       (or (= (cockpit-exact-value idx account "account_role") "execution")
+           (= (cockpit-exact-value idx account "account_role") "oversight"))
+       (or (= (cockpit-exact-value idx account "execution_eligible") "true")
+           (= (cockpit-exact-value idx account "execution_eligible") "false"))))
+
+(defn- cockpit-attempt?
+  [idx proj/ProjectionIndex
+   attempt String] Bool
+  (and (str/starts-with? attempt "@attempt:")
+       (= (cockpit-exact-value idx attempt "kind") "execution_attempt")
+       (some? (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256"))
+       (some? (cockpit-exact-value idx attempt "execution_attempt_run"))
+       (some? (cockpit-exact-value idx attempt "execution_attempt_thread"))
+       (some? (cockpit-exact-value idx attempt "execution_attempt_account"))))
+
+(defn- cockpit-attempt-state
+  [idx proj/ProjectionIndex
+   attempt String] String
+  (cond
+    [(some? (cockpit-exact-value idx attempt "execution_attempt_terminal_manifest_sha256")) "terminal"]
+    [(some? (cockpit-exact-value idx attempt "execution_attempt_unsent_manifest_sha256")) "proved-unsent"]
+    [(some? (cockpit-exact-value idx attempt "execution_attempt_provider_start_manifest_sha256")) "provider-started"]
+    [(some? (cockpit-exact-value idx attempt "execution_attempt_launch_intent_sha256")) "launch-intent"]
+    [:else "reserved"]))
+
+(defn- cockpit-command?
+  [idx proj/ProjectionIndex
+   command String
+   manifest String] Bool
+  (and (str/starts-with? command "@bridge-command:")
+       (= (cockpit-exact-value idx command "bridge.command/attempt-id") manifest)
+       (some? (cockpit-exact-value idx command "bridge.command/kind"))))
+
+(defn- cockpit-cancel-command?
+  [idx proj/ProjectionIndex
+   command String] Bool
+  (let [kind (U String Nil) (cockpit-exact-value idx command "bridge.command/kind")]
+    (or (= kind "interrupt-turn")
+        (= kind "redirect-now")
+        (= kind "terminate-session"))))
+
+(defn- cockpit-command-ordinal
+  [idx proj/ProjectionIndex
+   command String] Int
+  (let [ordinal (U String Nil) (cockpit-exact-value idx command "bridge.command/ordinal")]
+    (store.rt/parse-int (if (some? ordinal) ordinal "0"))))
+
+(defn- cockpit-command-next
+  [idx proj/ProjectionIndex
+   commands (Vec String)
+   cancel Bool] String?
+  (let [pending (Vec String) (filterv
+              (fn [command String] Bool
+                (and (if cancel
+                       (cockpit-cancel-command? idx command)
+                       (not (cockpit-cancel-command? idx command)))
+                     (nil? (cockpit-exact-value idx command "bridge.command/delivery-receipt"))))
+              commands)]
+    (if (empty? pending)
+      nil
+      (let [command String (first (sort-by
+             (fn [candidate String] Int (cockpit-command-ordinal idx candidate))
+             pending))
+            kind String (let [value (U String Nil) (cockpit-exact-value idx command "bridge.command/kind")]
+                          (if (some? value) value "unknown"))]
+        (if (some? (cockpit-exact-value idx command "bridge.command/delivery-intent"))
+          (str "reconcile-command/" kind)
+          (if cancel (str "cancel/" kind) (str "send/" kind)))))))
+
+(defn- cockpit-safe-next
+  [idx proj/ProjectionIndex
+   account String
+   attempt String?] String
+  (let [role (U String Nil) (cockpit-exact-value idx account "account_role")
+        eligible (U String Nil) (cockpit-exact-value idx account "execution_eligible")]
+    (cond
+      (= role "oversight") "no-op/oversight-account"
+      (not (= eligible "true")) "no-op/account-ineligible"
+      (nil? attempt) "reserve/no-attempt"
+      :else
+      (let [terminal? Bool (some? (cockpit-exact-value idx attempt "execution_attempt_terminal_manifest_sha256"))
+            unsent? Bool (some? (cockpit-exact-value idx attempt "execution_attempt_unsent_manifest_sha256"))
+            launch? Bool (some? (cockpit-exact-value idx attempt "execution_attempt_launch_intent_sha256"))
+            started? Bool (some? (cockpit-exact-value idx attempt "execution_attempt_provider_start_manifest_sha256"))
+            manifest String (let [value (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256")]
+                              (if (some? value) value ""))
+            commands (Vec String) (filterv (fn [subject String] Bool (cockpit-command? idx subject manifest))
+                                            (proj/all-subjects idx))
+            cancel-next (U String Nil) (cockpit-command-next idx commands true)
+            command-next (U String Nil) (cockpit-command-next idx commands false)]
+        (cond
+          terminal? "no-op/settled"
+          unsent? "no-op/proved-unsent"
+          (not launch?) "launch/reserved"
+          (not started?) "reconcile-launch/awaiting-provider-start"
+          (some? cancel-next) cancel-next
+          (some? command-next) command-next
+          :else "no-op/nothing-pending")))))
+
+(defn- cockpit-replay-event-at?
+  [idx proj/ProjectionIndex
+   run String
+   sequence Int] Bool
+  (not (empty?
+        (filterv
+         (fn [event String] Bool
+           (and (= (cockpit-exact-value idx event "wire_run_id") run)
+                (= (cockpit-exact-value idx event "wire_event_sequence") (str sequence))
+                (some? (cockpit-exact-value idx event "wire_event_json"))
+                (some? (cockpit-exact-value idx event "wire_event_sha256"))))
+         (proj/all-subjects idx)))))
+
+(defn- cockpit-greatest-replay-position
+  [idx proj/ProjectionIndex
+   run String] Int
+  ;; Wire events are zero-based. Bound the walk by the served subject count so
+  ;; malformed input cannot turn a diagnostic projection into an unbounded loop.
+  (loop [sequence Int 0
+         remaining Int (count (proj/all-subjects idx))]
+    (if (or (= remaining 0) (not (cockpit-replay-event-at? idx run sequence)))
+      (- sequence 1)
+      (recur (+ sequence 1) (- remaining 1)))))
+
+(defn- cockpit-attempt-line
+  [idx proj/ProjectionIndex
+   attempt String] String
+  (let [run (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_run")
+        thread (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_thread")
+        account (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_account")
+        thread-lease (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_thread_lease")
+        account-lease (U String Nil) (cockpit-exact-value idx attempt "execution_attempt_account_lease")
+        replay Int (if (some? run) (cockpit-greatest-replay-position idx run) -1)
+        safe-next String (if (and (some? account) (cockpit-account? idx account))
+                           (cockpit-safe-next idx account attempt)
+                           "invalid/missing-account-authority")]
+    (str "  " (short-id attempt)
+         " · " (cockpit-attempt-state idx attempt)
+         " · thread " (if (some? thread) (short-id thread) "—")
+         " · account " (if (some? account) (short-id account) "—")
+         " · thread lease " (if (some? thread-lease) (trunc thread-lease 72) "—")
+         " · account lease " (if (some? account-lease) (trunc account-lease 72) "—")
+         " · replay " (if (>= replay 0) (str replay) "none")
+         " · safe-next " safe-next)))
+
 (defn cmd-cockpit [log String] Nil
+  ;; Session observations remain additive; account authority is stricter:
+  ;; a cockpit account row is only the published, complete Store contract.
   (let [idx proj/ProjectionIndex (live-idx log)
         today String (store.rt/today-iso)
         before? (Fn [String String] Bool) store.rt/str-lt?
@@ -1128,18 +1292,14 @@
         threads (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "thread"))
                                         (proj/work-thread-ids-i idx))
         open (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) threads)
-        ;; These are fact-shape projections, not a closed provider inventory.
-        ;; An additive writer becomes visible when it publishes either member of
-        ;; its public shape; no dashboard-specific kind or cache is required.
         sessions (Vec String) (filterv (fn [te String] Bool
                                          (or (= (kind-of idx te) "session")
                                              (some? (proj/string-value-at idx te "current_thread"))
                                              (some? (proj/string-value-at idx te "session_identity"))))
                                        (proj/all-subjects idx))
-        accounts (Vec String) (filterv (fn [te String] Bool
-                                         (or (= (kind-of idx te) "account")
-                                             (some? (proj/string-value-at idx te "headroom"))
-                                             (some? (proj/string-value-at idx te "used_percent"))))
+        accounts (Vec String) (filterv (fn [te String] Bool (cockpit-account? idx te))
+                                       (proj/all-subjects idx))
+        attempts (Vec String) (filterv (fn [te String] Bool (cockpit-attempt? idx te))
                                        (proj/all-subjects idx))
         landings (Vec String) (vec (take 8 (reverse (sort-by
           (fn [te String] String (let [at (U String Nil) (proj/string-value-at idx te "updated_at")]
@@ -1163,12 +1323,28 @@
                         " · parent " (if (some? parent) (short-id parent) "—"))))))
     (println "ACCOUNTS")
     (if (empty? accounts)
-      (println "  no account headroom fact projection")
+      (println "  no complete provider-account authority facts")
       (doseq [te (take 12 accounts)]
-        (let [headroom (U String Nil) (proj/string-value-at idx te "headroom")
-              usage (U String Nil) (proj/string-value-at idx te "used_percent")]
-          (println (str "  " (short-id te) " · headroom " (if (some? headroom) headroom "—")
-                        " · used " (if (some? usage) usage "—"))))))
+        (let [role (U String Nil) (cockpit-exact-value idx te "account_role")
+              eligible (U String Nil) (cockpit-exact-value idx te "execution_eligible")
+              headroom (U String Nil) (proj/string-value-at idx te "headroom")
+              usage (U String Nil) (proj/string-value-at idx te "used_percent")
+              account-attempts (Vec String) (filterv
+                (fn [attempt String] Bool (= (cockpit-exact-value idx attempt "execution_attempt_account") te))
+                attempts)]
+          (println (str "  " (short-id te) " · role " (if (some? role) role "—")
+                        " · execution-eligible " (if (some? eligible) eligible "—")
+                        " · headroom " (if (some? headroom) headroom "—")
+                        " · used " (if (some? usage) usage "—")
+                        " · safe-next " (cockpit-safe-next idx te (if (empty? account-attempts) nil (first account-attempts))))))))
+    (println "ATTEMPTS")
+    (if (empty? attempts)
+      (println "  no complete execution-attempt facts")
+      (doseq [attempt (take 12 (sort-by (fn [subject String] String
+                                           (let [at (U String Nil) (cockpit-exact-value idx subject "execution_attempt_reserved_at")]
+                                             (if (some? at) at "")))
+                                         attempts))]
+        (println (cockpit-attempt-line idx attempt))))
     (println "LATEST PUBLIC LANDINGS")
     (if (empty? landings)
       (println "  no landed candidate revision facts")
