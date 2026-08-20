@@ -68,6 +68,7 @@ import {
   refreshAccountUsages,
   type AccountModelAvailabilityAttempt,
 } from "./account-usage";
+import { allocateCodexExecutionAccount } from "./providers/codex-execution-allocation";
 import {
   ProviderRefreshCancelledError,
   throwIfProviderRefreshCancelled,
@@ -1322,8 +1323,14 @@ export async function selectProviderForExecution(
   try { store = await readProviderModelObservations(providerModelObservationPath()); }
   catch { /* malformed/unreadable evidence is unavailable */ }
   throwIfProviderRefreshCancelled(context.signal);
+  const allocation = requestedProvider === "openai" && request.target === undefined && context.model === undefined
+    ? await allocateCodexExecutionAccount(probeTargets, availability, context.tier, reasoning)
+    : undefined;
+  const executionPreference: RoutingPreference = allocation
+    ? { provider: "openai", target: allocation.target.id }
+    : preference;
   return selectProviderFromAvailability(
-    preference, availability, policy, context.tier, context.stableKey,
+    executionPreference, availability, policy, context.tier, context.stableKey,
     reasoning, context.model, context.capabilities,
     { store, currentAttempts: attempts },
   );
