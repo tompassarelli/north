@@ -1,0 +1,4 @@
+interface:
+  display_name: "External Code"
+  short_description: "License and attribution boundary"
+  default_prompt: "Use $external-code to assess this external source before leveraging it."
