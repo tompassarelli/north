@@ -1,0 +1,79 @@
+#lang beagle
+(ns north.prompt-lifecycle)
+
+;; This is the target-neutral lifecycle rule. Store persistence and process
+;; observation remain Native boundary concerns; this module only derives the
+;; next append-only event from typed evidence.
+(defunion PromptEvent
+  (PromptStarted [prompt-id String attempt-id String])
+  (PromptTerminal [prompt-id String attempt-id String outcome Keyword]))
+
+(defunion ReconciliationStatus
+  (Reconciled [terminal PromptTerminal])
+  (Unknown [attempt-id String candidate-count Int]))
+
+(defrecord Reconciliation
+  [ledger (Vec PromptEvent)
+   status ReconciliationStatus])
+
+(defn reconciliation-complete? [status ReconciliationStatus] Bool
+  (instance? Reconciled status))
+
+(defn reconciliation-ambiguity-count [status ReconciliationStatus] Int
+  (if (instance? Unknown status)
+    (unknown-candidate-count status)
+    0))
+
+(defn append-start
+  [ledger (Vec PromptEvent)
+   prompt-id String
+   attempt-id String] (Vec PromptEvent)
+  (conj ledger (->PromptStarted prompt-id attempt-id)))
+
+(defn- terminal-for-attempt?
+  [ledger (Vec PromptEvent)
+   attempt-id String] Bool
+  (reduce
+   (fn [found Bool event PromptEvent] Bool
+     (or found
+         (and (instance? PromptTerminal event)
+              (= (promptterminal-attempt-id event) attempt-id))))
+   false
+   ledger))
+
+(defn unfinished-starts [ledger (Vec PromptEvent)] (Vec PromptStarted)
+  (reduce
+   (fn [starts (Vec PromptStarted) event PromptEvent] (Vec PromptStarted)
+     (if (instance? PromptStarted event)
+       (if (terminal-for-attempt? ledger (promptstarted-attempt-id event))
+         starts
+         (conj starts event))
+       starts))
+   []
+   ledger))
+
+(defn- starts-for-attempt
+  [starts (Vec PromptStarted)
+   attempt-id String] (Vec PromptStarted)
+  (reduce
+   (fn [matches (Vec PromptStarted) start PromptStarted] (Vec PromptStarted)
+     (if (= (promptstarted-attempt-id start) attempt-id)
+       (conj matches start)
+       matches))
+   []
+   starts))
+
+(defn reconcile-interrupted
+  [ledger (Vec PromptEvent)
+   observed-attempt-id String] Reconciliation
+  (let [candidates (Vec PromptStarted) (starts-for-attempt
+                                        (unfinished-starts ledger)
+                                        observed-attempt-id)]
+    (if (= (count candidates) 1)
+      (let [start PromptStarted (nth candidates 0)
+            terminal PromptTerminal (->PromptTerminal
+                                     (promptstarted-prompt-id start)
+                                     observed-attempt-id
+                                     :interrupted)]
+        (->Reconciliation (conj ledger terminal) (->Reconciled terminal)))
+      (->Reconciliation ledger (->Unknown observed-attempt-id (count candidates))))))
