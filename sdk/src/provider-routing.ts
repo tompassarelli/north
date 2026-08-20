@@ -65,6 +65,7 @@ import {
 import {
   modelAdmissionReceipt,
   modelObservationForTarget,
+  loadStoreProviderModelObservation,
   providerModelObservationPath,
   readProviderModelObservations,
   type ProviderModelAdmissionReceipt,
@@ -1287,6 +1288,7 @@ export async function selectProviderForExecution(
     refreshAccountUsages?: typeof refreshAccountUsages;
     readCodexAccountAuthority?: (target: RoutingTarget) => Promise<CodexAccountAuthority | undefined>;
     loadCodexUsage?: (target: RoutingTarget) => ReturnType<typeof loadStoreProviderUsageObservation>;
+    loadProviderModelObservation?: (target: RoutingTarget) => ReturnType<typeof loadStoreProviderModelObservation>;
   } = {},
 ): Promise<ExecutionRoutingDecision> {
   throwIfProviderRefreshCancelled(context.signal);
@@ -1362,9 +1364,18 @@ export async function selectProviderForExecution(
     context.signal,
   );
   throwIfProviderRefreshCancelled(context.signal);
-  let store: ProviderModelObservationStore | undefined;
-  try { store = await readProviderModelObservations(providerModelObservationPath()); }
-  catch { /* malformed/unreadable evidence is unavailable */ }
+  const admittedObservations = await Promise.all(staticallyRequiredTargets.map(async (target) => {
+    try {
+      return await (dependencies.loadProviderModelObservation ?? loadStoreProviderModelObservation)(target);
+    } catch {
+      // Store gaps, conflicts, and unavailable transport never become model admission.
+      return undefined;
+    }
+  }));
+  const store: ProviderModelObservationStore = {
+    version: 1,
+    observations: admittedObservations.flatMap((snapshot) => snapshot ? [snapshot.observation] : []),
+  };
   throwIfProviderRefreshCancelled(context.signal);
   const allocation = requestedProvider === "openai" && request.target === undefined && context.model === undefined
     ? await allocateCodexExecutionAccount(probeTargets, availability, context.tier, reasoning, {

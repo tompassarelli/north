@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { watch } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { refreshAccountUsages } from "../src/account-usage";
@@ -13,9 +13,11 @@ import {
   modelAdmissionReceipt,
   PROVIDER_MODEL_OBSERVATION_TTL_MS,
   readProviderModelObservations,
+  type ProviderModelObservation,
   validateModelAdmissionReceipt,
   writeProviderModelObservation,
 } from "../src/provider-model-observation-store";
+import type { StoreObservationSnapshot } from "../src/store-observation-adapter";
 import { ProviderRefreshCancelledError } from "../src/provider-cancellation";
 import { acquireFileLease } from "../src/file-lease";
 import {
@@ -431,6 +433,46 @@ test("execution selector owns one exact-target Anthropic refresh and one warm Qu
       [anthropic.id]: { model: "claude-fable-5" },
     },
   });
+});
+
+test("execution ignores JSON-only model evidence and admits only a Store snapshot", async () => {
+  const root = await mkdtemp(join(tmpdir(), "north-store-model-routing-"));
+  roots.push(root);
+  const path = join(root, "models.json");
+  const positive = normalizeAnthropicSupportedModels([{ value: "fable" }], anthropic, new Date());
+  await writeFile(path, `${JSON.stringify({ version: 1, observations: [positive] })}\n`);
+  const saved = process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
+  process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS = path;
+  const context = { tier: "frontier" as const, reasoning: "xhigh" as const, model: "fable" };
+  const base = {
+    probeAnthropic: () => ({
+      targetId: anthropic.id, provider: "anthropic" as const, available: true, reason: "ready" as const,
+    }),
+    refreshAccountUsages: async () => [],
+  };
+  try {
+    await expect(selectProviderForExecution({ target: anthropic.id }, policy([anthropic]), context, {
+      ...base,
+      loadProviderModelObservation: async () => undefined,
+    })).rejects.toThrow("lacks fresh positive exact-model availability evidence");
+
+    const snapshot: StoreObservationSnapshot<ProviderModelObservation> = Object.freeze({
+      observation: positive,
+      receipt: Object.freeze({
+        version: "north:provider-observation:v1" as const,
+        subject: "@provider-observation:model:test",
+        digest: "a".repeat(64),
+        servedVersion: 41,
+      }),
+    });
+    await expect(selectProviderForExecution({ target: anthropic.id }, policy([anthropic]), context, {
+      ...base,
+      loadProviderModelObservation: async () => snapshot,
+    })).resolves.toMatchObject({ provider: "anthropic", target: anthropic.id });
+  } finally {
+    if (saved === undefined) delete process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
+    else process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS = saved;
+  }
 });
 
 test("fresh model collection failure blocks without probe storms and retries after TTL", async () => {
