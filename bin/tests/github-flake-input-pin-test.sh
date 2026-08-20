@@ -73,7 +73,7 @@ input=beagle-engine-source
 current_repository="$("$PIN" "$ROOT/flake.lock" "$input" repository)"
 current_revision="$("$PIN" "$ROOT/flake.lock" "$input" revision)"
 [[ "$current_repository" == tompassarelli/beagle ]]
-[[ "$current_revision" == 4d8d804eb28b4a66df8c75035fbebdc261785d8e ]]
+[[ "$current_revision" == 7b045f26024b99c58bfdcc203dce868f148f388b ]]
 [[ "$current_repository" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked | .owner + "/" + .repo' "$ROOT/flake.lock")" ]]
 [[ "$current_revision" == "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].locked.rev' "$ROOT/flake.lock")" ]]
 [[ "$(jq -r --arg input "$input" '.nodes[.nodes.root.inputs[$input]].flake' "$ROOT/flake.lock")" == false ]]

@@ -3,17 +3,17 @@
     "beagle-engine-source": {
       "flake": false,
       "locked": {
-        "lastModified": 1787222384,
-        "narHash": "sha256-piSauVyYn0jcUH1gDsmz5+gXboOhPzub3b6NKi+fFl0=",
+        "lastModified": 1787229992,
+        "narHash": "sha256-sXNPKik5R2qxrcbFPJfVr4ygx4A6Y/VdEdnSRGpj8Zo=",
         "owner": "tompassarelli",
         "repo": "beagle",
-        "rev": "4d8d804eb28b4a66df8c75035fbebdc261785d8e",
+        "rev": "7b045f26024b99c58bfdcc203dce868f148f388b",
         "type": "github"
       },
       "original": {
         "owner": "tompassarelli",
         "repo": "beagle",
-        "rev": "4d8d804eb28b4a66df8c75035fbebdc261785d8e",
+        "rev": "7b045f26024b99c58bfdcc203dce868f148f388b",
         "type": "github"
       }
     },
