@@ -9,8 +9,8 @@
 (def cli-dir (.getParent (io/file (or *file* (System/getProperty "babashka.file")))))
 (load-file (str cli-dir "/coord.clj"))
 (load-file (str cli-dir "/run-ledger.clj"))
-(def wire-validator
-  (.getCanonicalPath (io/file cli-dir "../sdk/src/wire-ledger-validator.ts")))
+(def wire-jsonl-decoder
+  (.getCanonicalPath (io/file cli-dir "../sdk/src/wire/jsonl.ts")))
 
 (defn fail! [message data] (throw (ex-info message data)))
 (defn checked! [result operation]
@@ -45,10 +45,12 @@
         event (north.run-ledger/validate-event-facts! subject facts)]
     {:subject subject :facts facts :event event}))
 
-(defn validate-batch-semantics! [entries]
-  (let [wire-jsonl (str (str/join "\n" (map #(get-in % [:event "json"]) entries)) "\n")
+(defn validate-batch-semantics! [events]
+  (let [wire-jsonl (str (str/join "\n" (map #(get % "json") events)) "\n")
         bun (or (System/getenv "NORTH_BUN") "bun")
-        {:keys [exit]} (shell/sh bun wire-validator :in wire-jsonl)]
+        validator (str "import { decodeWireJsonl } from " (pr-str wire-jsonl-decoder) ";"
+                       "decodeWireJsonl(await Bun.stdin.text());")
+        {:keys [exit]} (shell/sh bun "-e" validator :in wire-jsonl)]
     (when-not (zero? exit)
       (fail! "wire event batch violates the canonical reducer contract" {}))))
 
@@ -69,17 +71,15 @@
           events (mapv :event entries)
           sequences (mapv #(get % "sequence") events)
           lineage-keys ["run" "thread" "agent" "parentThread" "coordinator"]]
-      (when-not (= sequences (vec (range (count entries))))
-        (fail! "wire event batch requires a complete zero-based sequence" {:sequences sequences}))
+      (when-not (= sequences (vec (range (first sequences) (+ (first sequences) (count entries)))))
+        (fail! "wire event batch requires a contiguous sequence" {:sequences sequences}))
       (when-not (= 1 (count (set (map #(select-keys % lineage-keys) events))))
         (fail! "wire event batch lineage must remain constant" {}))
-      (when-not (= "run.started" (get (first events) "kind"))
+      (when (and (zero? (first sequences))
+                 (not= "run.started" (get (first events) "kind")))
         (fail! "wire event sequence zero must be run.started" {}))
-      (when-not (= "run.terminated" (get (last events) "kind"))
-        (fail! "wire event batch requires run.terminated last" {}))
       (when (some #(= "run.terminated" (get % "kind")) (butlast events))
         (fail! "wire event batch cannot continue after run.terminated" {}))
-      (validate-batch-semantics! entries)
       entries)))
 
 (defn facts-of [port subject]
@@ -110,6 +110,16 @@
   (when (pos? (get event "sequence"))
     (north.run-ledger/event-subject (get event "run") (dec (get event "sequence")))))
 
+(defn committed-prefix [port event]
+  (mapv (fn [sequence]
+          (let [subject (north.run-ledger/event-subject (get event "run") sequence)
+                committed (stored-event port subject)]
+            (when-not committed
+              (fail! "wire event batch requires its committed predecessor"
+                     {:previous subject}))
+            committed))
+        (range (get event "sequence"))))
+
 (defn preflight! [port entries]
   (doseq [{:keys [subject facts]} entries
           :let [stored (facts-of port subject)]
@@ -117,7 +127,8 @@
     (fail! "wire event subject conflicts with an existing projection" {:subject subject}))
   (let [first-entry (first entries)
         first-event (:event first-entry)
-        predecessor-subject (previous-subject first-event)]
+        predecessor-subject (previous-subject first-event)
+        prefix (when predecessor-subject (committed-prefix port first-event))]
     (when predecessor-subject
       (let [predecessor (stored-event port predecessor-subject)]
         (when-not predecessor
@@ -126,7 +137,8 @@
         (when-not (= (get predecessor "run") (get first-event "run"))
           (fail! "wire event predecessor belongs to another run" {}))
         (when (= "run.terminated" (get predecessor "kind"))
-          (fail! "wire event publication cannot append after run.terminated" {}))))))
+          (fail! "wire event publication cannot append after run.terminated" {}))))
+    (validate-batch-semantics! (into (vec (or prefix [])) (map :event entries)))))
 
 (defn publish-event! [port {:keys [subject facts event]}]
   (let [expected (fact-map facts)
