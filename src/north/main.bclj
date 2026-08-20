@@ -861,7 +861,9 @@
         rs (Vec String) (if all raw
              (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
         ranked (Vec String) (queue-order idx rs)
-        shown (Vec String) (if all ranked (vec (take 15 ranked)))]
+        shown (Vec String) (if all ranked (vec (take 15 ranked)))
+        rs-count Int (count rs)
+        shown-count Int (count shown)]
     (if all
       (println (str "READY NOW — " (count rs)))
       (println (str "READY NOW — top " (count shown) " of " (count rs)
@@ -869,8 +871,8 @@
     (println "  ready = committed + unblocked + no live driver + not future-scheduled (vs open = merely nonterminal)")
     (doseq [te shown]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
-    (when (and (not all) (> (count rs) (count shown)))
-      (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all")))))
+    (when (and (not all) (> rs-count shown-count))
+      (println (str "  … +" (- rs-count shown-count) " more · north ready --all")))))
 
 (defn cmd-blocked [log String] Nil
   (let [idx north.projections/ProjectionIndex (live-idx log)
@@ -1049,8 +1051,12 @@
         nconcern Int (count (filterv (fn [s String] Bool (= (kind-of idx s) "concern"))
                                  (proj/all-subjects idx)))
         ashow (Vec String) (vec (take 20 active))
+        active-count Int (count active)
+        ashow-count Int (count ashow)
         rranked (Vec LevItem) (mapv (fn [te String] LevItem (->LevItem te (proj/leverage-score idx te)))
-                      (vec (take 15 (queue-order idx readyl))))]
+                      (vec (take 15 (queue-order idx readyl))))
+        readyl-count Int (count readyl)
+        rranked-count Int (count rranked)]
     (println (str "THREADS — " (count threads) " open threads · " (count active) " active · "
                   (count readyl) " ready · " (count blockedl) " blocked · "
                   nconcern " concerns   (north threads --all for the full kanban)"))
@@ -1062,23 +1068,24 @@
       (doseq [te ashow]
         (println (str "  " (let [dl String (driver-label idx te)] (if (str/blank? dl) "?" dl))
                       "  " (short-id te) "  " (trunc (title-of idx te) 44))))
-      (when (> (count active) (count ashow))
-        (println (str "  … +" (- (count active) (count ashow)) " more · north threads --all"))))
+      (when (> active-count ashow-count)
+        (println (str "  … +" (- active-count ashow-count) " more · north threads --all"))))
     (when (> nparked 0)
-      (let [pshow (Vec String) (vec (take 10 parked))]
+      (let [pshow (Vec String) (vec (take 10 parked))
+            pshow-count Int (count pshow)]
         (println (str "\nPARKED ASSIGNMENTS — stale driver retained, lifecycle demoted (" nparked ")"))
         (doseq [te pshow]
           (println (str "  " (driver-label idx te) "  " (short-id te) "  "
                         (proj/condition-i idx te today before? live?) "  "
                         (trunc (title-of idx te) 36))))
-        (when (> nparked (count pshow))
-          (println (str "  … +" (- nparked (count pshow)) " more · north needs-review")))))
+        (when (> nparked pshow-count)
+          (println (str "  … +" (- nparked pshow-count) " more · north needs-review")))))
     (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked)
                   " of " (count readyl) " by queue order (leverage fallback)"))
     (doseq [it rranked]
       (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
-    (when (> (count readyl) (count rranked))
-      (println (str "  … +" (- (count readyl) (count rranked)) " more · north threads --all")))
+    (when (> readyl-count rranked-count)
+      (println (str "  … +" (- readyl-count rranked-count) " more · north threads --all")))
     (println "  machinery/agents/daemons → north dashboard")))
 
 (defn cmd-board
