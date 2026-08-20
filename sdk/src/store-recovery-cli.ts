@@ -25,10 +25,11 @@ export interface StoreRecoveryCliRuntime {
 }
 
 interface RecoveryReport {
-  readonly version: "north:store-recovery-report:v1";
+  readonly version: "north:store-recovery-report:v2";
   readonly attempt: string;
   readonly servedVersion: number;
   readonly account: LoadedStoreSnapshot["snapshot"]["account"];
+  readonly authority: NonNullable<LoadedStoreSnapshot["authority"]>;
   readonly action: StoreAction;
 }
 
@@ -57,11 +58,16 @@ function reportFor(
   if (action.kind === "invalid") {
     throw new Error(`Store kernel refused the reconstructed snapshot (${action.reason})`);
   }
+  if (!loaded.authority || loaded.authority.subject !== attempt
+    || loaded.authority.accountId !== loaded.snapshot.account.id) {
+    throw new Error("Store snapshot omitted the selected attempt authority");
+  }
   return {
-    version: "north:store-recovery-report:v1",
+    version: "north:store-recovery-report:v2",
     attempt,
     servedVersion: loaded.servedVersion,
     account: loaded.snapshot.account,
+    authority: loaded.authority,
     action,
   };
 }
@@ -74,7 +80,12 @@ function renderHuman(report: RecoveryReport): string {
   return [
     `attempt ${report.attempt}`,
     `Store version ${report.servedVersion}`,
-    `account ${report.account.id} (${report.account.account_role})`,
+    `route ${report.authority.provider}/${report.authority.accountId}/${report.authority.model} (${report.account.account_role})`,
+    `work ${report.authority.threadId} run=${report.authority.runId} reporter=${report.authority.reporterAgentId}`,
+    `capability ${report.authority.runCapabilitySha256} contract=${report.authority.runContractSha256}`,
+    `authorization account=${report.authority.accountAuthorityReceiptSha256} route=${report.authority.routeObservationReceiptSha256}`,
+    `thread lease ${report.authority.threadLease.resource} holder=${report.authority.threadLease.holder} epoch=${report.authority.threadLease.epoch}`,
+    `account lease ${report.authority.accountLease.resource} holder=${report.authority.accountLease.holder} epoch=${report.authority.accountLease.epoch}`,
     `safe next ${report.action.kind}${reason}`,
     `replay cursor ${report.action.replayPosition}`,
     ...command,
