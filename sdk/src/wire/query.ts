@@ -12,12 +12,12 @@ import {
 import type { WireArtifactId } from "./ids";
 import type { WireEventWriter } from "./writer";
 
-export interface WireUserInputFrame {
+export interface WireUserInputMessage {
 	kind: "user.input";
 	text: string;
 }
 
-export type WireQueryInput = string | AsyncIterable<WireUserInputFrame>;
+export type WireQueryInput = string | AsyncIterable<WireUserInputMessage>;
 
 export interface WireQueryRoute {
 	readonly model: WireModelSelection;

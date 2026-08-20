@@ -1,7 +1,7 @@
 // Durable real-time coordination for managed SDK agents.
 //
 // One long-lived North feed process arms the coordinator subscription before it
-// replays pending mail. Each machine-framed message is claimed by the feed, then
+// replays pending mail. Each machine-readable message is claimed by the feed, then
 // acknowledged only after this host admits it into the active input channel.
 // Process/feed crashes therefore replay instead of silently losing a message.
 import { spawn as procSpawn, type ChildProcess } from "node:child_process";
@@ -9,13 +9,13 @@ import { resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
 import { trustedNorthBabashkaExecutable } from "./trusted-runtime";
 import { beagleStoreBabashkaArguments, beagleStoreEnvironment } from "./beagle-store";
-import type { WireUserInputFrame } from "./wire/query";
+import type { WireUserInputMessage } from "./wire/query";
 
 const REPO = resolve(import.meta.dir, "..", "..");
 const LIVE_FEED = `${REPO}/cli/north-live-feed.clj`;
 const DEFAULT_PORT = "7977";
 const LIVE_FEED_PROTOCOL = "north-live-feed-v1";
-const DEFAULT_FEED_FRAME_BYTES = 192 * 1024;
+const DEFAULT_FEED_MESSAGE_BYTES = 192 * 1024;
 const DEFAULT_READY_TIMEOUT_MS = 10_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 const DEFAULT_ADMISSION_TIMEOUT_MS = 8_000;
@@ -123,9 +123,7 @@ export interface SubscriptionRuntime {
   initialBackoffMs?: number;
   maxBackoffMs?: number;
   healthyResetMs?: number;
-  /** Compatibility name: now bounds each machine frame, not process-lifetime output. */
-  maxOutputBytes?: number;
-  maxFrameBytes?: number;
+  maxMessageBytes?: number;
   readyTimeoutMs?: number;
   startupTimeoutMs?: number;
   admissionTimeoutMs?: number;
@@ -137,20 +135,20 @@ export interface SubscriptionRuntime {
   deferredStart?: boolean;
 }
 
-interface ReadyFrame {
+interface ReadyMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "ready";
   recipient: string;
   cursor: number;
 }
 
-interface CaughtUpFrame {
+interface CaughtUpMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "caught_up";
   recipient: string;
 }
 
-interface MailFrame {
+interface MailMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "mail";
   id: string;
@@ -159,14 +157,14 @@ interface MailFrame {
   body: string;
 }
 
-interface DrainedFrame {
+interface DrainedMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "drained";
   recipient: string;
   epoch: string;
 }
 
-interface DrainProgressFrame {
+interface DrainProgressMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "drain_progress";
   recipient: string;
@@ -174,20 +172,20 @@ interface DrainProgressFrame {
   settled: number;
 }
 
-interface ErrorFrame {
+interface ErrorMessage {
   protocol: typeof LIVE_FEED_PROTOCOL;
   type: "error";
   code: string;
   id?: string;
 }
 
-type FeedFrame =
-  | ReadyFrame
-  | CaughtUpFrame
-  | MailFrame
-  | DrainProgressFrame
-  | DrainedFrame
-  | ErrorFrame;
+type FeedMessage =
+  | ReadyMessage
+  | CaughtUpMessage
+  | MailMessage
+  | DrainProgressMessage
+  | DrainedMessage
+  | ErrorMessage;
 
 function positiveInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0)
@@ -214,7 +212,7 @@ function peerBabashkaExecutable(injected: string | undefined): string {
   }
 }
 
-function userInputFrame(text: string): WireUserInputFrame {
+function userInputMessage(text: string): WireUserInputMessage {
   return Object.freeze({ kind: "user.input", text });
 }
 
@@ -223,12 +221,12 @@ function userInputFrame(text: string): WireUserInputFrame {
 // turn. Closing or cancelling first resolves false so graph mail can replay.
 export function inputChannel(initial: string) {
   interface QueuedInput {
-    message: WireUserInputFrame;
+    message: WireUserInputMessage;
     state: "queued" | "consumed" | "cancelled";
     settle?: (consumed: boolean) => void;
   }
   const queue: QueuedInput[] = [{
-    message: userInputFrame(initial),
+    message: userInputMessage(initial),
     state: "queued",
   }];
   let wake: (() => void) | null = null;
@@ -249,7 +247,7 @@ export function inputChannel(initial: string) {
       }
       const { promise: consumed, resolve: settle } = Promise.withResolvers<boolean>();
       const entry: QueuedInput = {
-        message: userInputFrame(text),
+        message: userInputMessage(text),
         state: "queued",
         settle,
       };
@@ -277,7 +275,7 @@ export function inputChannel(initial: string) {
       );
     },
     liveMessagesReceived() { return liveMessagesReceived; },
-    async *stream(): AsyncGenerator<WireUserInputFrame> {
+    async *stream(): AsyncGenerator<WireUserInputMessage> {
       while (true) {
         while (queue.length) {
           const entry = queue.shift()!;
@@ -304,7 +302,7 @@ class LiveFeedLines {
   private readonly decoder = new TextDecoder("utf-8", { fatal: true });
 
   constructor(private readonly maxLineBytes: number) {
-    positiveInteger(maxLineBytes, "maxFrameBytes");
+    positiveInteger(maxLineBytes, "maxMessageBytes");
   }
 
   push(value: Buffer | string): readonly string[] {
@@ -316,7 +314,7 @@ class LiveFeedLines {
       if (newline < 0) break;
       const segment = incoming.subarray(start, newline);
       if (this.bufferedBytes + segment.byteLength > this.maxLineBytes)
-        throw new Error("North live-feed frame exceeds its byte bound");
+        throw new Error("North live-feed message exceeds its byte bound");
       if (segment.byteLength) {
         this.fragments.push(segment);
         this.bufferedBytes += segment.byteLength;
@@ -329,13 +327,13 @@ class LiveFeedLines {
       let line: string;
       try { line = this.decoder.decode(raw); }
       catch { throw new Error("North live-feed emitted invalid UTF-8"); }
-      if (!line.length) throw new Error("North live-feed emitted an empty frame");
+      if (!line.length) throw new Error("North live-feed emitted an empty message");
       lines.push(line);
       start = newline + 1;
     }
     const remainder = incoming.subarray(start);
     if (this.bufferedBytes + remainder.byteLength > this.maxLineBytes)
-      throw new Error("North live-feed frame exceeds its byte bound");
+      throw new Error("North live-feed message exceeds its byte bound");
     if (remainder.byteLength) {
       this.fragments.push(remainder);
       this.bufferedBytes += remainder.byteLength;
@@ -345,7 +343,7 @@ class LiveFeedLines {
 
   finish(): void {
     if (this.bufferedBytes)
-      throw new Error("North live-feed closed with a partial frame");
+      throw new Error("North live-feed closed with a partial message");
   }
 }
 
@@ -366,88 +364,88 @@ function boundedString(
     && (pattern === undefined || pattern.test(value));
 }
 
-function feedFrame(line: string, maxFrameBytes: number): FeedFrame {
-  const parsed = parseStrictJson(line, "North live-feed frame", {
-    maxBytes: maxFrameBytes,
+function feedMessage(line: string, maxMessageBytes: number): FeedMessage {
+  const parsed = parseStrictJson(line, "North live-feed message", {
+    maxBytes: maxMessageBytes,
     maxDepth: 2,
     maxNodes: 16,
   });
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-    throw new Error("North live-feed frame must be an object");
-  const frame = parsed as Record<string, unknown>;
-  if (frame.protocol !== LIVE_FEED_PROTOCOL)
+    throw new Error("North live-feed message must be an object");
+  const message = parsed as Record<string, unknown>;
+  if (message.protocol !== LIVE_FEED_PROTOCOL)
     throw new Error("North live-feed protocol mismatch");
 
-  if (frame.type === "ready") {
-    if (!exactKeys(frame, ["protocol", "type", "recipient", "cursor"])
-        || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-        || !Number.isSafeInteger(frame.cursor)
-        || (frame.cursor as number) < 0)
-      throw new Error("North live-feed ready frame is malformed");
-    return frame as unknown as ReadyFrame;
+  if (message.type === "ready") {
+    if (!exactKeys(message, ["protocol", "type", "recipient", "cursor"])
+        || !boundedString(message.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+        || !Number.isSafeInteger(message.cursor)
+        || (message.cursor as number) < 0)
+      throw new Error("North live-feed ready message is malformed");
+    return message as unknown as ReadyMessage;
   }
 
-  if (frame.type === "caught_up") {
-    if (!exactKeys(frame, ["protocol", "type", "recipient"])
-        || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/))
-      throw new Error("North live-feed caught-up frame is malformed");
-    return frame as unknown as CaughtUpFrame;
+  if (message.type === "caught_up") {
+    if (!exactKeys(message, ["protocol", "type", "recipient"])
+        || !boundedString(message.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/))
+      throw new Error("North live-feed caught-up message is malformed");
+    return message as unknown as CaughtUpMessage;
   }
 
-  if (frame.type === "mail") {
-    if (!exactKeys(frame, ["protocol", "type", "id", "from", "subject", "body"])
-        || !boundedString(frame.id, MAX_ID_BYTES, /^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-        || !boundedString(frame.from, MAX_SENDER_BYTES)
-        || !boundedString(frame.subject, MAX_SUBJECT_BYTES)
-        || !boundedString(frame.body, MAX_BODY_BYTES))
-      throw new Error("North live-feed mail frame is malformed");
-    return frame as unknown as MailFrame;
+  if (message.type === "mail") {
+    if (!exactKeys(message, ["protocol", "type", "id", "from", "subject", "body"])
+        || !boundedString(message.id, MAX_ID_BYTES, /^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+        || !boundedString(message.from, MAX_SENDER_BYTES)
+        || !boundedString(message.subject, MAX_SUBJECT_BYTES)
+        || !boundedString(message.body, MAX_BODY_BYTES))
+      throw new Error("North live-feed mail message is malformed");
+    return message as unknown as MailMessage;
   }
 
-  if (frame.type === "drain_progress") {
-    if (!exactKeys(frame, ["protocol", "type", "recipient", "epoch", "settled"])
-        || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-        || !boundedString(frame.epoch, 36, ROUTE_EPOCH)
-        || !Number.isSafeInteger(frame.settled)
-        || (frame.settled as number) <= 0)
-      throw new Error("North live-feed drain progress frame is malformed");
-    return frame as unknown as DrainProgressFrame;
+  if (message.type === "drain_progress") {
+    if (!exactKeys(message, ["protocol", "type", "recipient", "epoch", "settled"])
+        || !boundedString(message.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+        || !boundedString(message.epoch, 36, ROUTE_EPOCH)
+        || !Number.isSafeInteger(message.settled)
+        || (message.settled as number) <= 0)
+      throw new Error("North live-feed drain progress message is malformed");
+    return message as unknown as DrainProgressMessage;
   }
 
-  if (frame.type === "drained") {
-    if (!exactKeys(frame, ["protocol", "type", "recipient", "epoch"])
-        || !boundedString(frame.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
-        || !boundedString(frame.epoch, 36, ROUTE_EPOCH))
-      throw new Error("North live-feed drained frame is malformed");
-    return frame as unknown as DrainedFrame;
+  if (message.type === "drained") {
+    if (!exactKeys(message, ["protocol", "type", "recipient", "epoch"])
+        || !boundedString(message.recipient, MAX_ID_BYTES, /^[A-Za-z0-9][A-Za-z0-9._:-]*$/)
+        || !boundedString(message.epoch, 36, ROUTE_EPOCH))
+      throw new Error("North live-feed drained message is malformed");
+    return message as unknown as DrainedMessage;
   }
 
-  if (frame.type === "error") {
-    const keys = frame.id === undefined
+  if (message.type === "error") {
+    const keys = message.id === undefined
       ? ["protocol", "type", "code"]
       : ["protocol", "type", "code", "id"];
-    if (!exactKeys(frame, keys)
-        || !boundedString(frame.code, 128, /^[a-z][a-z0-9_]*$/)
-        || (frame.id !== undefined
-            && !boundedString(frame.id, MAX_ID_BYTES, /^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$/)))
-      throw new Error("North live-feed error frame is malformed");
-    return frame as unknown as ErrorFrame;
+    if (!exactKeys(message, keys)
+        || !boundedString(message.code, 128, /^[a-z][a-z0-9_]*$/)
+        || (message.id !== undefined
+            && !boundedString(message.id, MAX_ID_BYTES, /^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$/)))
+      throw new Error("North live-feed error message is malformed");
+    return message as unknown as ErrorMessage;
   }
 
-  throw new Error("North live-feed frame type is unknown");
+  throw new Error("North live-feed message type is unknown");
 }
 
-function controlFrame(type: "start"): string;
-function controlFrame(type: "drain", epoch: string): string;
-function controlFrame(type: "ack" | "nack", id: string): string;
-function controlFrame(
+function controlMessage(type: "start"): string;
+function controlMessage(type: "drain", epoch: string): string;
+function controlMessage(type: "ack" | "nack", id: string): string;
+function controlMessage(
   type: "start" | "drain" | "ack" | "nack",
   value?: string,
 ): string {
-  const frame = type === "drain"
+  const message = type === "drain"
     ? { type, epoch: value }
     : value === undefined ? { type } : { type, id: value };
-  return `${JSON.stringify(frame)}\n`;
+  return `${JSON.stringify(message)}\n`;
 }
 
 class BoundedRememberedIds {
@@ -568,9 +566,9 @@ function subscribeFeedMode(
   const initialBackoffMs = positiveInteger(runtime.initialBackoffMs ?? 250, "initialBackoffMs");
   const maxBackoffMs = positiveInteger(runtime.maxBackoffMs ?? 5_000, "maxBackoffMs");
   const healthyResetMs = positiveInteger(runtime.healthyResetMs ?? 30_000, "healthyResetMs");
-  const maxFrameBytes = positiveInteger(
-    runtime.maxFrameBytes ?? runtime.maxOutputBytes ?? DEFAULT_FEED_FRAME_BYTES,
-    "maxFrameBytes",
+  const maxMessageBytes = positiveInteger(
+    runtime.maxMessageBytes ?? DEFAULT_FEED_MESSAGE_BYTES,
+    "maxMessageBytes",
   );
   const readyTimeoutMs = positiveInteger(
     runtime.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
@@ -705,7 +703,7 @@ function subscribeFeedMode(
     const resolveChildSettlement = childStopping.resolve;
     currentSettlement = childSettlement;
     child.stdin?.on("error", () => { /* close/replay is the recovery path */ });
-    const lines = new LiveFeedLines(maxFrameBytes);
+    const lines = new LiveFeedLines(maxMessageBytes);
     let ready = false;
     let closed = false;
     let recoveryScheduled = false;
@@ -757,19 +755,19 @@ function subscribeFeedMode(
       }
       drainSent = true;
       activeAdmission?.cancel();
-      if (!writeControl(child, controlFrame("drain", drainEpoch)))
+      if (!writeControl(child, controlMessage("drain", drainEpoch)))
         failProtocol();
     };
     requestCurrentDrain = sendDrain;
 
-    const handleFrame = async (frame: FeedFrame): Promise<void> => {
+    const handleMessage = async (message: FeedMessage): Promise<void> => {
       if (stopped || protocolFailed || closed) return;
-      if (frame.type === "ready") {
-        if (ready || frame.recipient !== self)
+      if (message.type === "ready") {
+        if (ready || message.recipient !== self)
           throw new Error("North live-feed readiness is contradictory");
         ready = true;
         clearReadyTimer();
-        if (replayRequested && !writeControl(child, controlFrame("start")))
+        if (replayRequested && !writeControl(child, controlMessage("start")))
           throw new Error("North live-feed start acknowledgement failed");
         armed = true;
         if (!readinessSettled) {
@@ -784,8 +782,8 @@ function subscribeFeedMode(
         return;
       }
       if (!ready) throw new Error("North live-feed delivered before readiness");
-      if (frame.type === "caught_up") {
-        if (!deferredStart || !replayRequested || frame.recipient !== self)
+      if (message.type === "caught_up") {
+        if (!deferredStart || !replayRequested || message.recipient !== self)
           throw new Error("North live-feed caught-up state is contradictory");
         if (!caughtUpSettled) {
           caughtUpSettled = true;
@@ -793,25 +791,25 @@ function subscribeFeedMode(
         }
         return;
       }
-      if (frame.type === "drain_progress") {
+      if (message.type === "drain_progress") {
         if (
-          frame.recipient !== self
-          || frame.epoch !== drainEpoch
+          message.recipient !== self
+          || message.epoch !== drainEpoch
           || !drainRequested
           || drainSettled
           || !drainSent
-          || frame.settled <= lastDrainProgress
+          || message.settled <= lastDrainProgress
         ) {
           throw new Error("North live-feed drain progress is contradictory");
         }
-        lastDrainProgress = frame.settled;
+        lastDrainProgress = message.settled;
         armDrainDeadline();
         return;
       }
-      if (frame.type === "drained") {
+      if (message.type === "drained") {
         if (
-          frame.recipient !== self
-          || frame.epoch !== drainEpoch
+          message.recipient !== self
+          || message.epoch !== drainEpoch
           || !drainRequested
           || drainSettled
           || !drainSent
@@ -826,26 +824,26 @@ function subscribeFeedMode(
         resolveDrain();
         return;
       }
-      if (frame.type === "error") {
+      if (message.type === "error") {
         console.error(
-          `[north-feed] ${frame.code}${frame.id ? ` (${frame.id})` : ""}`,
+          `[north-feed] ${message.code}${message.id ? ` (${message.id})` : ""}`,
         );
         return;
       }
 
       if (drainRequested) {
-        // The route is already frozen. Cancel any frame that crossed the pipe
+        // The route is already frozen. Cancel any message that crossed the pipe
         // just before the freeze; the feed's terminal scan will reject managed
         // messages durably instead of admitting them into a dead provider input.
-        if (!writeControl(child, controlFrame("nack", frame.id)))
+        if (!writeControl(child, controlMessage("nack", message.id)))
           throw new Error("North live-feed drain rejection failed");
         return;
       }
 
-      if (admittedIds.has(frame.id)) {
+      if (admittedIds.has(message.id)) {
         // A prior feed died after provider dequeue but before durable graph ack.
         // Complete the new claim without injecting the user turn twice.
-        if (!writeControl(child, controlFrame("ack", frame.id)))
+        if (!writeControl(child, controlMessage("ack", message.id)))
           throw new Error("North live-feed replay acknowledgement failed");
         return;
       }
@@ -853,10 +851,10 @@ function subscribeFeedMode(
       let rawAdmission: FeedAdmission;
       try {
         rawAdmission = onMail(
-          `[north real-time ping from ${frame.from} — ${frame.subject}]\n${frame.body}`,
+          `[north real-time ping from ${message.from} — ${message.subject}]\n${message.body}`,
         );
       } catch {
-        if (!writeControl(child, controlFrame("nack", frame.id)))
+        if (!writeControl(child, controlMessage("nack", message.id)))
           throw new Error("North live-feed rejection acknowledgement failed");
         return;
       }
@@ -876,21 +874,21 @@ function subscribeFeedMode(
         cancelCurrentAdmission = null;
 
       if (!consumed) {
-        if (!writeControl(child, controlFrame("nack", frame.id)))
+        if (!writeControl(child, controlMessage("nack", message.id)))
           throw new Error("North live-feed rejection acknowledgement failed");
         return;
       }
 
       // Remember before the graph ack. If the feed dies on this write, its next
       // claim is acked without delivering the already-dequeued turn twice.
-      admittedIds.add(frame.id);
-      if (!writeControl(child, controlFrame("ack", frame.id)))
+      admittedIds.add(message.id);
+      if (!writeControl(child, controlMessage("ack", message.id)))
         throw new Error("North live-feed delivery acknowledgement failed");
     };
 
-    const enqueueFrame = (frame: FeedFrame) => {
+    const enqueueMessage = (message: FeedMessage) => {
       processing = processing
-        .then(() => handleFrame(frame))
+        .then(() => handleMessage(message))
         .catch(() => { failProtocol(); });
     };
 
@@ -898,10 +896,10 @@ function subscribeFeedMode(
       if (stopped || protocolFailed || closed) return;
       try {
         // Validate the complete chunk before queueing any of it. A malformed
-        // sibling frame therefore cannot leave a valid prefix half-admitted.
-        const frames = lines.push(value)
-          .map((line) => feedFrame(line, maxFrameBytes));
-        for (const frame of frames) enqueueFrame(frame);
+        // sibling message therefore cannot leave a valid prefix half-admitted.
+        const messages = lines.push(value)
+          .map((line) => feedMessage(line, maxMessageBytes));
+        for (const message of messages) enqueueMessage(message);
       } catch {
         failProtocol();
       }
@@ -939,7 +937,7 @@ function subscribeFeedMode(
         if (recoveryScheduled) return;
         recoveryScheduled = true;
         if (stopped) return;
-        // A short-lived child always backs off, even when it delivered a frame.
+        // A short-lived child always backs off, even when it delivered a message.
         // Otherwise a durable-ack failure could produce a zero-delay crash loop.
         const healthy = closedAt - startedAt >= healthyResetMs;
         if (healthy && !protocolFailed) rapidFailures = 0;
@@ -1015,7 +1013,7 @@ function subscribeFeedMode(
     if (!replayRequested) {
       replayRequested = true;
       const child = current;
-      if (armed && child && !writeControl(child, controlFrame("start"))) {
+      if (armed && child && !writeControl(child, controlMessage("start"))) {
         try { child.kill("SIGKILL"); } catch { /* close/replay is the recovery path */ }
       }
     }

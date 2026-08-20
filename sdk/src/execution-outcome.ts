@@ -49,7 +49,7 @@ function providerAbortActivityKind(kind: string): WireProviderAbortActivityKind 
 		|| kind.endsWith(".patch")) return "progress";
 	if (kind.includes(".turn.")) return "turn";
 	if (kind.includes(".item.")) return "item";
-	if (kind.endsWith(".frame.accepted")) return "frame";
+	if (kind.endsWith(".event.accepted")) return "event";
 	return "activity";
 }
 

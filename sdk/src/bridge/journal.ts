@@ -86,16 +86,16 @@ export function scanJournalFile(path: string, expectedExecutionId?: string): Jou
     const payloadBytes = bytes.readUInt32BE(offset);
     if (payloadBytes === 0 || payloadBytes > MAX_RECORD_BYTES)
       throw new Error(`journal record at byte ${offset} has invalid length ${payloadBytes}`);
-    const frameBytes = LENGTH_BYTES + payloadBytes;
-    if (available < frameBytes) {
+    const recordBytes = LENGTH_BYTES + payloadBytes;
+    if (available < recordBytes) {
       return {
         records, committedBytes: offset,
-        tornTail: { offset, availableBytes: available, requiredBytes: frameBytes },
+        tornTail: { offset, availableBytes: available, requiredBytes: recordBytes },
       };
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(bytes.subarray(offset + LENGTH_BYTES, offset + frameBytes).toString("utf8"));
+      parsed = JSON.parse(bytes.subarray(offset + LENGTH_BYTES, offset + recordBytes).toString("utf8"));
     } catch (cause) {
       throw new Error(`journal record at byte ${offset} is invalid JSON`, { cause });
     }
@@ -104,7 +104,7 @@ export function scanJournalFile(path: string, expectedExecutionId?: string): Jou
     if (record.seq !== expectedSeq)
       throw new Error(`journal sequence is ${record.seq} at byte ${offset}; expected ${expectedSeq}`);
     records.push(record);
-    offset += frameBytes;
+    offset += recordBytes;
   }
   return { records, committedBytes: offset };
 }
@@ -155,10 +155,10 @@ export class ExecutionJournal {
     const payload = Buffer.from(JSON.stringify(record), "utf8");
     if (payload.byteLength > MAX_RECORD_BYTES)
       throw new Error(`journal record exceeds ${MAX_RECORD_BYTES} bytes`);
-    const frame = Buffer.allocUnsafe(LENGTH_BYTES + payload.byteLength);
-    frame.writeUInt32BE(payload.byteLength, 0);
-    payload.copy(frame, LENGTH_BYTES);
-    writeAll(this.#fd, frame);
+    const encodedRecord = Buffer.allocUnsafe(LENGTH_BYTES + payload.byteLength);
+    encodedRecord.writeUInt32BE(payload.byteLength, 0);
+    payload.copy(encodedRecord, LENGTH_BYTES);
+    writeAll(this.#fd, encodedRecord);
     fsyncSync(this.#fd);
     this.#nextSeq += 1;
     return record;

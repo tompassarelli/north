@@ -15,7 +15,7 @@ import {
   type WireEventListener,
   type WireQuery,
   type WireQueryInput,
-  type WireUserInputFrame,
+  type WireUserInputMessage,
 } from "../wire/query";
 import type { WireRunSnapshot } from "../wire/reducer";
 import type { WireEventWriter } from "../wire/writer";
@@ -47,10 +47,10 @@ export interface RoutedQueryArguments {
 function replayableInput(input: WireQueryInput): WireQueryInput {
   if (typeof input === "string") return input;
   const source = input[Symbol.asyncIterator]();
-  const cache: WireUserInputFrame[] = [];
+  const cache: WireUserInputMessage[] = [];
   let done = false;
-  let pending: Promise<IteratorResult<WireUserInputFrame>> | undefined;
-  const readNext = async (): Promise<IteratorResult<WireUserInputFrame>> => {
+  let pending: Promise<IteratorResult<WireUserInputMessage>> | undefined;
+  const readNext = async (): Promise<IteratorResult<WireUserInputMessage>> => {
     if (done) return { done: true, value: undefined };
     pending ??= source.next().finally(() => { pending = undefined; });
     const item = await pending;
@@ -59,14 +59,14 @@ function replayableInput(input: WireQueryInput): WireQueryInput {
       return item;
     }
     if (item.value.kind !== "user.input" || typeof item.value.text !== "string") {
-      throw new TypeError("wire query input frame must contain kind=user.input and text");
+      throw new TypeError("wire query input message must contain kind=user.input and text");
     }
-    const frame = Object.freeze({ kind: "user.input" as const, text: item.value.text });
-    cache.push(frame);
-    return { done: false, value: frame };
+    const message = Object.freeze({ kind: "user.input" as const, text: item.value.text });
+    cache.push(message);
+    return { done: false, value: message };
   };
   return {
-    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputFrame> {
+    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputMessage> {
       let index = 0;
       while (true) {
         if (index < cache.length) {

@@ -35,7 +35,7 @@ export const CODEX_OBSERVATION_TTL_MS = 5 * 60 * 1000;
 export const CODEX_USAGE_SOURCE = "codex-app-server:account-rate-limits";
 const MAX_LINE_BYTES = 1024 * 1024;
 const SUPERVISOR = resolve(import.meta.dir, "providers/codex-supervisor.ts");
-const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
+const SUPERVISOR_MESSAGE_PREFIX = "NORTH_CODEX_RPC 1 ";
 
 export type CodexUsageUnavailableReason =
   | "codex_usage_command_unavailable"
@@ -159,7 +159,7 @@ function createSupervisorControl(): SupervisorControl {
         const payload = Buffer.from(line, "utf8");
         const digest = createHash("sha256").update(payload).digest("hex");
         const bytes = Buffer.concat([
-          Buffer.from(`${SUPERVISOR_FRAME_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
+          Buffer.from(`${SUPERVISOR_MESSAGE_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
           payload,
         ]);
         let offset = 0;
@@ -248,7 +248,7 @@ export async function readCodexControlObservation(options: AppServerOptions = {}
     "--stdio",
   ];
   // Bun's nested child-process pipe can drop provider-bound stdin. The same
-  // framed private spool used by managed Codex keeps every request durable
+  // encoded private spool used by managed Codex keeps every request durable
   // until the supervisor relays it through its sealed FIFO. Preserve the
   // direct writer for injected children and platforms without that contract.
   const supervised = options.spawnProcess === undefined

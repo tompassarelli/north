@@ -9,7 +9,7 @@ function assistantMessageIsActivity(
 	return typeof event.content !== "string" || event.content.length > 0;
 }
 
-/** Classify canonical execution liveness without consulting provider frames. */
+/** Classify canonical execution liveness without consulting provider events. */
 export function outerExecutionActivityKind(event: WireEvent): string | undefined {
 	if (!event.essential) return undefined;
 	switch (event.kind) {

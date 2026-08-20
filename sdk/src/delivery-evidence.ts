@@ -93,7 +93,7 @@ export class DeliveryReservationCoordinatorTransportFailure
 
 // Transport deaths from north.coord's wire client (cli/coord.clj). A response
 // the writer never read is not a reservation verdict; anything else it prints,
-// including a malformed or oversized frame, stays terminal.
+// including a malformed or oversized message, stays terminal.
 const COORDINATOR_TRANSPORT_FAILURES = [
   "coordinator response deadline exceeded",
   "coordinator closed before sending a response line",

@@ -11,7 +11,7 @@
 // Fix: on every worker deny, emit a `kind guard_denial` fact — attribution (agent),
 // timestamp (at), what was blocked (tool + target), which guard, and the reason.
 // Titleless `@denial:<agent>-<ts>` subject (the @run/@mine pattern): queryable via
-// fram `ask`/`show`, invisible to the work board. Fire-and-forget + fully swallowed:
+// Store `ask`/`show`, invisible to the work board. Fire-and-forget + fully swallowed:
 // denial telemetry must NEVER add latency to, or break, a tool call.
 import { execFile } from "node:child_process";
 

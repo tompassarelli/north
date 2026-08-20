@@ -31,12 +31,12 @@ import { trustedCoreutilsExecutable } from "../trusted-runtime";
 
 const PROMPT = "NORTH_CODEX_PROMPT ";
 const MAX_PROMPT_BYTES = 16 * 1024 * 1024;
-const MAX_DUPLEX_FRAME_BYTES = 1024 * 1024;
-const DUPLEX_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
+const MAX_DUPLEX_PACKET_BYTES = 1024 * 1024;
+const DUPLEX_PACKET_PREFIX = "NORTH_CODEX_RPC 1 ";
 const MAX_DUPLEX_HEADER_BYTES = 128;
 const MAX_DUPLEX_TOTAL_BYTES = 64 * 1024 * 1024;
-const MAX_DUPLEX_FRAMES = 20_000;
-const MAX_SCAN_FRAMES_PER_TICK = 128;
+const MAX_DUPLEX_PACKETS = 20_000;
+const MAX_SCAN_PACKETS_PER_TICK = 128;
 const MAX_SCAN_BYTES_PER_TICK = 4 * 1024 * 1024;
 const TERM_MS = 750;
 // Once the direct provider has exited, anything left in its process group is
@@ -47,9 +47,9 @@ const ORPHAN_TERM_MS = 100;
 const KILL_MS = 750;
 const PIPE_CLOSE_MS = 750;
 // Live stderr forwarding is bounded for life, and deliberately smaller than the
-// host reader's frame ceiling: STARTED + this budget + one truncation notice +
+// host reader's packet ceiling: STARTED + this budget + one truncation notice +
 // one terminal tail flush + EXIT must all fit inside it.
-const MAX_FORWARDED_STDERR_FRAMES = 3_950;
+const MAX_FORWARDED_STDERR_PACKETS = 3_950;
 const POSIX_GROUP = process.platform !== "win32";
 const rawArgs = process.argv.slice(2);
 const duplex = rawArgs[0] === "--duplex";
@@ -72,26 +72,26 @@ function receipt(value: CodexSupervisorStatus): void {
   }
 }
 
-function decodeDuplexFrame(
-  frame: Buffer,
-  maxPayloadBytes = MAX_DUPLEX_FRAME_BYTES,
+function decodeDuplexPacket(
+  packet: Buffer,
+  maxPayloadBytes = MAX_DUPLEX_PACKET_BYTES,
   allowEmpty = false,
 ): Buffer {
-  const newline = frame.indexOf(0x0a);
+  const newline = packet.indexOf(0x0a);
   if (newline < 0 || newline >= MAX_DUPLEX_HEADER_BYTES)
-    throw new Error("managed Codex control frame header is invalid");
-  const header = frame.subarray(0, newline).toString("ascii");
+    throw new Error("managed Codex control packet header is invalid");
+  const header = packet.subarray(0, newline).toString("ascii");
   const match = /^NORTH_CODEX_RPC 1 (0|[1-9][0-9]*) ([0-9a-f]{64})$/.exec(header);
-  if (!match) throw new Error("managed Codex control frame header is invalid");
+  if (!match) throw new Error("managed Codex control packet header is invalid");
   const length = Number(match[1]);
   if (!Number.isSafeInteger(length) || length < (allowEmpty ? 0 : 1) || length > maxPayloadBytes)
-    throw new Error("managed Codex control frame length is invalid");
-  const payload = frame.subarray(newline + 1);
+    throw new Error("managed Codex control packet length is invalid");
+  const payload = packet.subarray(newline + 1);
   if (payload.byteLength !== length)
-    throw new Error("managed Codex control frame is incomplete");
+    throw new Error("managed Codex control packet is incomplete");
   const digest = createHash("sha256").update(payload).digest("hex");
   if (digest !== match[2])
-    throw new Error("managed Codex control frame checksum is invalid");
+    throw new Error("managed Codex control packet checksum is invalid");
   return payload;
 }
 
@@ -268,7 +268,7 @@ const stdoutPump = pump(child.stdout, process.stdout);
 // off (the cost is one 500-line array) so the terminal flush below always has
 // something to say, and every line is redacted on insert.
 const stderrRing = new ProviderStderrRing();
-let stderrForwardBudget = MAX_FORWARDED_STDERR_FRAMES;
+let stderrForwardBudget = MAX_FORWARDED_STDERR_PACKETS;
 let stderrTruncated = false;
 function forwardStderrLine(line: string): void {
   if (!forwardStderr) return;
@@ -282,7 +282,7 @@ function forwardStderrLine(line: string): void {
   receipt(codexSupervisorStderrStatus(line));
 }
 // Once live forwarding stopped, the host holds an OLD window. Spend the
-// reserved frames on the most recent lines — the ones a post-mortem needs.
+// reserved packets on the most recent lines — the ones a post-mortem needs.
 function flushStderrTail(): void {
   if (!forwardStderr || !stderrTruncated) return;
   for (const line of stderrRing.tail(STDERR_TAIL_LINES))
@@ -370,11 +370,11 @@ const acceptProviderBytes = (bytes: Buffer) => {
   input = Buffer.alloc(0);
 };
 if (spooledInput) {
-  const maxControlFrameBytes = oneShotSpool ? MAX_PROMPT_BYTES : MAX_DUPLEX_FRAME_BYTES;
-  const maxControlFileBytes = maxControlFrameBytes + MAX_DUPLEX_HEADER_BYTES;
+  const maxControlPacketBytes = oneShotSpool ? MAX_PROMPT_BYTES : MAX_DUPLEX_PACKET_BYTES;
+  const maxControlFileBytes = maxControlPacketBytes + MAX_DUPLEX_HEADER_BYTES;
   const maxControlTotalBytes = oneShotSpool ? MAX_PROMPT_BYTES : MAX_DUPLEX_TOTAL_BYTES;
-  const maxControlFrames = oneShotSpool ? 1 : MAX_DUPLEX_FRAMES;
-  let nextFrame = 1;
+  const maxControlPackets = oneShotSpool ? 1 : MAX_DUPLEX_PACKETS;
+  let nextPacket = 1;
   let duplexBytes = 0;
   let scanning = false;
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
@@ -424,7 +424,7 @@ if (spooledInput) {
           providerQueueOffset = 0;
         }
       }
-      if (oneShotSpool && nextFrame === 2 && providerWriterFd !== undefined) {
+      if (oneShotSpool && nextPacket === 2 && providerWriterFd !== undefined) {
         closeSync(providerWriterFd);
         providerWriterFd = undefined;
       }
@@ -445,10 +445,10 @@ if (spooledInput) {
     if (scanning || shutdownPromise) return;
     scanning = true;
     try {
-      let tickFrames = 0;
+      let tickPackets = 0;
       let tickBytes = 0;
-      while (nextFrame <= maxControlFrames) {
-        const request = `${controlDirectory}/${String(nextFrame).padStart(12, "0")}.req`;
+      while (nextPacket <= maxControlPackets) {
+        const request = `${controlDirectory}/${String(nextPacket).padStart(12, "0")}.req`;
         let requestFd: number | undefined;
         try {
           requestFd = openSync(request, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
@@ -457,45 +457,45 @@ if (spooledInput) {
           if (error instanceof Error && "code" in error && error.code === "ENOENT") break;
           throw error;
         }
-        let frame: Buffer;
+        let packet: Buffer;
         try {
           const metadata = fstatSync(requestFd);
           if (!metadata.isFile() || metadata.size > maxControlFileBytes
               || (metadata.mode & 0o077) !== 0
               || metadata.nlink !== 1
               || (typeof process.getuid === "function" && metadata.uid !== process.getuid()))
-            throw new Error("unsafe managed Codex control frame");
-          frame = readFileSync(requestFd);
+            throw new Error("unsafe managed Codex control packet");
+          packet = readFileSync(requestFd);
           const after = fstatSync(requestFd);
           const current = lstatSync(request);
           if (after.dev !== metadata.dev || after.ino !== metadata.ino
               || after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs
               || after.ctimeMs !== metadata.ctimeMs || current.dev !== metadata.dev
               || current.ino !== metadata.ino || current.size !== metadata.size)
-            throw new Error("managed Codex control frame changed while reading");
+            throw new Error("managed Codex control packet changed while reading");
         } finally {
           closeSync(requestFd);
         }
-        const bytes = decodeDuplexFrame(frame, maxControlFrameBytes, oneShotSpool);
+        const bytes = decodeDuplexPacket(packet, maxControlPacketBytes, oneShotSpool);
         duplexBytes += bytes.byteLength;
         if (duplexBytes > maxControlTotalBytes)
           throw new Error("managed Codex control exceeded its bound");
         unlinkSync(request);
-        nextFrame += 1;
+        nextPacket += 1;
         providerQueue.push(bytes);
-        tickFrames += 1;
+        tickPackets += 1;
         tickBytes += bytes.byteLength;
         flushProviderQueue();
-        if (tickFrames >= MAX_SCAN_FRAMES_PER_TICK || tickBytes >= MAX_SCAN_BYTES_PER_TICK) {
+        if (tickPackets >= MAX_SCAN_PACKETS_PER_TICK || tickBytes >= MAX_SCAN_BYTES_PER_TICK) {
           scheduleScan();
           break;
         }
       }
-      if (nextFrame > maxControlFrames) {
-        const overflow = `${controlDirectory}/${String(nextFrame).padStart(12, "0")}.req`;
+      if (nextPacket > maxControlPackets) {
+        const overflow = `${controlDirectory}/${String(nextPacket).padStart(12, "0")}.req`;
         try {
           lstatSync(overflow);
-          throw new Error("managed Codex control emitted too many frames");
+          throw new Error("managed Codex control emitted too many packets");
         } catch (error) {
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
         }

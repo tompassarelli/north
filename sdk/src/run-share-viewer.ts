@@ -292,7 +292,6 @@ export function renderRunShareViewer(sealedBundle: Uint8Array): string {
 		"connect-src 'none'",
 		"font-src 'none'",
 		"form-action 'none'",
-		"frame-src 'none'",
 		"img-src 'none'",
 		"media-src 'none'",
 		"object-src 'none'",

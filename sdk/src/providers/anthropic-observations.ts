@@ -126,13 +126,13 @@ export function anthropicTargetId(env: NodeJS.ProcessEnv = process.env): string 
   }
 }
 
-/** Observe raw Claude frames before wire normalization. Collection is fail-open. */
-export interface AnthropicObservedFrame {
-	frame: unknown;
+/** Observe raw Claude events before wire normalization. Collection is fail-open. */
+export interface AnthropicObservedEvent {
+	event: unknown;
 	providerJoin?: WireProviderJoinEvidence;
 }
 
-export interface AnthropicObservedStream extends AsyncIterable<AnthropicObservedFrame> {
+export interface AnthropicObservedStream extends AsyncIterable<AnthropicObservedEvent> {
 	mcpActivity(): McpActivityObservation;
 }
 
@@ -168,28 +168,28 @@ export function observeAnthropicQuery(
 		async *[Symbol.asyncIterator]() {
 			for await (const message of source) {
 				if (!message || typeof message !== "object" || Array.isArray(message)) {
-					yield { frame: message };
+					yield { event: message };
 					continue;
 				}
-				const frame = message as Record<string, unknown>;
-				if (typeof frame.session_id === "string") {
-					if (!sessionIds.has(frame.session_id)) {
+				const event = message as Record<string, unknown>;
+				if (typeof event.session_id === "string") {
+					if (!sessionIds.has(event.session_id)) {
 						if (sessionIds.size >= 2) sessionIdentityLost = true;
-						else sessionIds.add(frame.session_id);
+						else sessionIds.add(event.session_id);
 					}
-					options.onSessionId?.(frame.session_id);
+					options.onSessionId?.(event.session_id);
 				}
-				if (frame.type === "rate_limit_event" && frame.rate_limit_info) {
+				if (event.type === "rate_limit_event" && event.rate_limit_info) {
 					try {
-						await write(observationFromAnthropicRateLimit(frame as SDKRateLimitEvent, targetId(), now()));
+						await write(observationFromAnthropicRateLimit(event as SDKRateLimitEvent, targetId(), now()));
 					} catch {
             // A malformed experimental event or unavailable state directory is
             // telemetry loss, not a reason to kill the provider stream.
           }
         }
-				const assistant = frame.type === "assistant" && frame.message
-					&& typeof frame.message === "object" && !Array.isArray(frame.message)
-					? frame.message as Record<string, unknown> : undefined;
+				const assistant = event.type === "assistant" && event.message
+					&& typeof event.message === "object" && !Array.isArray(event.message)
+					? event.message as Record<string, unknown> : undefined;
 				if (assistant && Array.isArray(assistant.content)) {
 					if (typeof assistant.id === "string" && !turnIds.has(assistant.id)) {
 						if (turnIds.size >= MAX_PROVIDER_TURN_KEYS) turnIdentityLost = true;
@@ -204,7 +204,7 @@ export function observeAnthropicQuery(
 						}
 					}
 				}
-				if (frame.type === "result") {
+				if (event.type === "result") {
 					mcp.complete();
 					if (!sessionIdentityLost && sessionIds.size === 1) {
 						try {
@@ -214,7 +214,7 @@ export function observeAnthropicQuery(
 								sessionPersistence: "persisted",
 							});
 							yield {
-								frame,
+								event,
 								providerJoin: turnIdentityLost
 									? Object.freeze({ ...join, coverage: "partial" as const })
 									: join,
@@ -226,7 +226,7 @@ export function observeAnthropicQuery(
             }
           }
         }
-				yield { frame };
+				yield { event };
 			}
 		},
 	};

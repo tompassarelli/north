@@ -1,12 +1,12 @@
-// Managed identity publication uses only canonical FRAMRPC. It reports a
+// Managed identity publication uses only canonical Store RPC. It reports a
 // commit only after exact marker readback under the subject's fenced lease.
 import { createHash } from "node:crypto";
 import {
-  FramRpcClient, FramRpcServerError, FramRpcTransportError,
+  StoreRpcClient, StoreRpcServerError, StoreRpcTransportError,
 } from "./store-rpc-client";
 import type { BatchAction, Term } from "./store-rpc-codec";
 import {
-  FramTriple, RPC_SUBJECT_ANY, rpcFence, termEquals, triple,
+  StoreTriple, RPC_SUBJECT_ANY, rpcFence, termEquals, triple,
 } from "./store-rpc-codec";
 import type { ManagedWriteResult } from "./identity";
 
@@ -101,7 +101,7 @@ export function validPublishProjection(projection: Record<string, string>): bool
     if (v === undefined || v === "") return false;
   }
   if (projection.kind !== "lane") return false;
-  if (!["streaming", "turn-framed", "unsupported"].includes(projection.live_input)) return false;
+  if (!["streaming", "turn-messages", "unsupported"].includes(projection.live_input)) return false;
   if (!["pending", "armed", "frozen"].includes(projection.live_input_state)) return false;
   if (!UUID_V4.test(projection.live_input_epoch)) return false;
   if (projection.live_input === "unsupported" && projection.live_input_state !== "frozen") return false;
@@ -127,7 +127,7 @@ export function validPublishProjection(projection: Record<string, string>): bool
 
 export interface NativeFastPublishOptions {
   /** Hermetic transport seam. Production constructs the client from env. */
-  client?: FramRpcClient;
+  client?: StoreRpcClient;
 }
 
 type NativeProjectionClass = "blank" | "exact_replay" | "decline";
@@ -160,7 +160,7 @@ function classifyNativeProjection(
   ]);
   const actual = new Map<string, Map<string, number>>();
   for (const row of rows) {
-    if (!(row instanceof FramTriple) || typeof row.t2 !== "string") continue;
+    if (!(row instanceof StoreTriple) || typeof row.t2 !== "string") continue;
     if (!checked.has(row.t2)) continue;
     if (typeof row.t3 !== "string") return "decline";
     const values = actual.get(row.t2) ?? new Map<string, number>();
@@ -181,7 +181,7 @@ function classifyNativeProjection(
 }
 
 async function nativeSnapshot(
-  client: FramRpcClient, entity: string, projection: Record<string, string>, marker: string,
+  client: StoreRpcClient, entity: string, projection: Record<string, string>, marker: string,
 ): Promise<NativeSnapshot> {
   const scanned = await client.scanAll(entity, null, null);
   return {
@@ -218,11 +218,11 @@ function expectedActionResults(actions: readonly BatchAction[], results: readonl
 }
 
 function durabilityAmbiguous(error: unknown): boolean {
-  return error instanceof FramRpcServerError && error.code === "durability-ambiguous";
+  return error instanceof StoreRpcServerError && error.code === "durability-ambiguous";
 }
 
 async function checkedCandidateFence(
-  client: FramRpcClient, candidate: Term,
+  client: StoreRpcClient, candidate: Term,
 ): Promise<boolean> {
   try {
     return (await client.leaseCheck(candidate)).valid;
@@ -238,7 +238,7 @@ type NativeLeaseAttempt =
   | { kind: "indeterminate"; result: ManagedWriteResult };
 
 async function nativeLeaseAtVersion(
-  client: FramRpcClient,
+  client: StoreRpcClient,
   resource: string,
   holder: string,
   expectedVersion: number,
@@ -260,16 +260,16 @@ async function nativeLeaseAtVersion(
           result: nativeIndeterminate(operationId, "durability_ambiguous_restart_required"),
         };
       }
-      if (error instanceof FramRpcServerError) {
+      if (error instanceof StoreRpcServerError) {
         if (error.code === "rpc/conflict") return { kind: "replan" };
         if (error.code === "rpc/lease-held") return { kind: "decline" };
         return { kind: "decline" };
       }
-      if (error instanceof FramRpcTransportError && !error.requestSent)
+      if (error instanceof StoreRpcTransportError && !error.requestSent)
         return { kind: "decline" };
       if (await checkedCandidateFence(client, candidate))
         return { kind: "acquired", fence: candidate };
-      if (!(error instanceof FramRpcTransportError) || !error.requestSent)
+      if (!(error instanceof StoreRpcTransportError) || !error.requestSent)
         return { kind: "decline" };
     }
   }
@@ -277,7 +277,7 @@ async function nativeLeaseAtVersion(
 }
 
 async function nativeReadbackResult(
-  client: FramRpcClient,
+  client: StoreRpcClient,
   entity: string,
   projection: Record<string, string>,
   marker: string,
@@ -303,7 +303,7 @@ async function nativeFastPublish(
   options: NativeFastPublishOptions,
 ): Promise<ManagedWriteResult | null> {
   const deadline = Date.now() + Math.max(1, Math.floor(timeoutMs));
-  const client = options.client ?? FramRpcClient.create({
+  const client = options.client ?? StoreRpcClient.create({
     connectTimeoutMs: Math.min(2_000, Math.max(1, Math.floor(timeoutMs))),
     readTimeoutMs: Math.max(1, Math.floor(timeoutMs)),
     maxAttempts: 1,
@@ -364,9 +364,9 @@ async function nativeFastPublish(
           releaseAllowed = false;
           return nativeIndeterminate(operationId, "durability_ambiguous_restart_required");
         }
-        if (error instanceof FramRpcServerError && error.code === "rpc/conflict")
+        if (error instanceof StoreRpcServerError && error.code === "rpc/conflict")
           continue;
-        if (error instanceof FramRpcServerError
+        if (error instanceof StoreRpcServerError
             && error.code === "rpc/lease-fence-mismatch") {
           try {
             const final = await nativeSnapshot(client, entity, projection, marker);
@@ -377,7 +377,7 @@ async function nativeFastPublish(
             return null;
           }
         }
-        if (error instanceof FramRpcTransportError && error.requestSent) {
+        if (error instanceof StoreRpcTransportError && error.requestSent) {
           try {
             const retried = await client.batch(actions, {
               expectedVersion: snapshot.servedVersion,
@@ -411,7 +411,7 @@ async function nativeFastPublish(
   }
 }
 
-/** Attempt one canonical FRAMRPC identity publication. */
+/** Attempt one canonical Store RPC identity publication. */
 export async function fastPublish(
   subject: string,
   projection: Record<string, string>,

@@ -34,7 +34,7 @@ import {
   CODEX_WORKER_NORTH_ENABLED_TOOLS, compileProviderAuthoritySurface,
   type OpenAIAuthoritySurface,
 } from "./authority";
-import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
+import { parseStrictJson, StrictJsonlMessages } from "../strict-json";
 import { assertInstalledManagedCodexHooks } from "./codex-managed-hooks";
 import {
   trustedGitProjectRoot, trustedManagedCodexExecutable,
@@ -70,7 +70,7 @@ import {
   type WireQueryRoute,
   type WireToolCallId,
   type WireUsageSnapshot,
-  type WireUserInputFrame,
+  type WireUserInputMessage,
   wireToolArgumentDigest,
 } from "../wire";
 import {
@@ -360,11 +360,11 @@ export async function admitOpenAI(options: Options, target?: RoutingTarget): Pro
   );
 }
 
-function frameText(frame: WireUserInputFrame): string {
-  if (frame.kind !== "user.input" || typeof frame.text !== "string") {
-    throw new TypeError("OpenAI input frame is invalid");
+function messageText(message: WireUserInputMessage): string {
+  if (message.kind !== "user.input" || typeof message.text !== "string") {
+    throw new TypeError("OpenAI input message is invalid");
   }
-  return frame.text;
+  return message.text;
 }
 
 async function initialPrompt(value: WireQueryInput): Promise<string> {
@@ -373,25 +373,25 @@ async function initialPrompt(value: WireQueryInput): Promise<string> {
   try {
     const first = await it.next();
     if (first.done) return "";
-    return frameText(first.value);
+    return messageText(first.value);
   } finally {
     try { await it.return?.(); } catch { /* provider teardown owns the terminal error */ }
   }
 }
 
 // A persistent view over the streamed North input: `first()` is the launch
-// prompt, `next()` yields each LATER frame the orchestrator loop pushes on the
+// prompt, `next()` yields each LATER message the orchestrator loop pushes on the
 // same provider thread (or `undefined` when the channel closes). A string
 // prompt is single-turn. Unlike `initialPrompt`, the iterator is NOT closed
-// after the first frame — continuation depends on pulling later frames.
-interface PromptFrames {
+// after the first message — continuation depends on pulling later messages.
+interface PromptMessages {
   readonly streaming: boolean;
   first(): Promise<string>;
   next(): Promise<string | undefined>;
   close(): Promise<void>;
 }
 
-function promptFrames(value: WireQueryInput): PromptFrames {
+function promptMessages(value: WireQueryInput): PromptMessages {
   if (typeof value === "string") {
     return {
       streaming: false,
@@ -404,9 +404,9 @@ function promptFrames(value: WireQueryInput): PromptFrames {
   let done = false;
   const pull = async (): Promise<string | undefined> => {
     if (done) return undefined;
-    const frame = await it.next();
-    if (frame.done) { done = true; return undefined; }
-    return frameText(frame.value);
+    const message = await it.next();
+    if (message.done) { done = true; return undefined; }
+    return messageText(message.value);
   };
   return {
     streaming: true,
@@ -432,7 +432,7 @@ const CODEX_SUPERVISOR_KILL_MS = 750;
 const CODEX_PROMPT_HEADER = "NORTH_CODEX_PROMPT ";
 const CODEX_PROMPT_MAX_BYTES = 16 * 1024 * 1024;
 const CODEX_SUPERVISOR_STATUS_MAX_BYTES = 4 * 1024;
-const CODEX_SUPERVISOR_STATUS_MAX_FRAMES = 4;
+const CODEX_SUPERVISOR_STATUS_MAX_MESSAGES = 4;
 
 function supervisorExited(child: ChildProcessWithoutNullStreams): boolean {
   // An async spawn failure has no pid and emits `error`, not `exit`.
@@ -526,15 +526,15 @@ function observeSupervisor(
     if (!status) throw new Error("openai_provider_execution_failed", {
       cause: new Error("Codex supervisor stderr status channel is unavailable"),
     });
-    const frames = new StrictJsonlFrames({
+    const messages = new StrictJsonlMessages({
       label: "Codex supervisor status",
       maxLineBytes: CODEX_SUPERVISOR_STATUS_MAX_BYTES,
       maxTotalBytes: CODEX_SUPERVISOR_STATUS_MAX_BYTES,
-      maxFrames: CODEX_SUPERVISOR_STATUS_MAX_FRAMES,
+      maxMessages: CODEX_SUPERVISOR_STATUS_MAX_MESSAGES,
     });
     let unavailable = false;
     for await (const chunk of status) {
-      for (const line of frames.push(
+      for (const line of messages.push(
         Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
       )) {
         const statusLine = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
@@ -569,7 +569,7 @@ function observeSupervisor(
         return code;
       }
     }
-    frames.finish();
+    messages.finish();
     throw new Error("openai_provider_execution_failed", {
       cause: new Error("Codex supervisor status channel closed without an EXIT receipt"),
     });
@@ -583,11 +583,11 @@ function observeSupervisor(
   return { started, completed };
 }
 
-function supervisorPromptFrame(prompt: string): Buffer {
+function supervisorPromptMessage(prompt: string): Buffer {
   const bytes = Buffer.from(prompt, "utf8");
   if (bytes.byteLength > CODEX_PROMPT_MAX_BYTES)
     throw new Error("openai_provider_execution_failed", {
-      cause: new Error(`Codex supervisor prompt frame exceeds ${CODEX_PROMPT_MAX_BYTES} bytes`),
+      cause: new Error(`Codex supervisor prompt message exceeds ${CODEX_PROMPT_MAX_BYTES} bytes`),
     });
   return Buffer.concat([
     Buffer.from(`${CODEX_PROMPT_HEADER}${bytes.byteLength}\n`, "utf8"),
@@ -612,7 +612,7 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
     supervisorArguments: [],
     fd4: "pipe",
     async send(child) {
-      const frame = supervisorPromptFrame(prompt);
+      const message = supervisorPromptMessage(prompt);
       const target = (child.stdio as unknown as Array<DestroyableWritable | null>)[4];
       if (!target) throw new Error("openai_provider_execution_failed", {
         cause: new Error("Codex supervisor prompt pipe fd 4 is unavailable"),
@@ -620,7 +620,7 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
       const write = Promise.withResolvers<void>();
       const onError = (error: Error) => write.reject(error);
         target.once("error", onError);
-        target.end(frame, () => {
+        target.end(message, () => {
           target.removeListener("error", onError);
           write.resolve();
         });
@@ -648,7 +648,7 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
         cause: new Error("Codex supervisor one-shot prompt spool is no longer active"),
       });
       const digest = createHash("sha256").update(promptBytes).digest("hex");
-      const frame = Buffer.concat([
+      const message = Buffer.concat([
         Buffer.from(`NORTH_CODEX_RPC 1 ${promptBytes.byteLength} ${digest}\n`, "ascii"),
         promptBytes,
       ]);
@@ -658,8 +658,8 @@ function supervisorPromptTransport(prompt: string): SupervisorPromptTransport {
       try {
         fd = openSync(temporary, "wx", 0o600);
         let offset = 0;
-        while (offset < frame.byteLength)
-          offset += writeSync(fd, frame, offset, frame.byteLength - offset);
+        while (offset < message.byteLength)
+          offset += writeSync(fd, message, offset, message.byteLength - offset);
         fsyncSync(fd);
         closeSync(fd);
         fd = undefined;
@@ -766,7 +766,7 @@ function validateCodexItem(value: unknown): ValidatedCodexItem {
   const id = protocolId(item.id, "Codex item id");
   const argumentDigest = codexExecArgumentDigest(item, type);
   // Item payloads are provider-incidental, not North authority. Keep them
-  // strictly framed/parsed/bounded and require stable identity, but do not
+  // strictly delimited, parsed, bounded, and require stable identity, but do not
   // freeze Codex's evolving command/MCP/web/todo payload union here. Only the
   // final agent text is consumed by North, so that field alone is typed.
   if (type === "agent_message") {
@@ -1284,23 +1284,23 @@ class ManagedInputQueue {
 }
 
 type ManagedInputResult =
-  | { source: "frames"; value: string | undefined }
+  | { source: "messages"; value: string | undefined }
   | { source: "continuations"; value: string | undefined };
 
 function mergedManagedInput(
-  frames: PromptFrames,
+  messages: PromptMessages,
   continuations: ManagedInputQueue,
 ): () => Promise<string | undefined> {
-  let framesOpen = frames.streaming;
+  let messagesOpen = messages.streaming;
   let continuationsOpen = true;
-  let framePull: Promise<ManagedInputResult> | undefined;
+  let messagePull: Promise<ManagedInputResult> | undefined;
   let continuationPull: Promise<ManagedInputResult> | undefined;
   return async () => {
-    while (framesOpen || continuationsOpen) {
+    while (messagesOpen || continuationsOpen) {
       const candidates: Array<Promise<ManagedInputResult>> = [];
-      if (framesOpen) {
-        framePull ??= frames.next().then((value) => ({ source: "frames", value }));
-        candidates.push(framePull);
+      if (messagesOpen) {
+        messagePull ??= messages.next().then((value) => ({ source: "messages", value }));
+        candidates.push(messagePull);
       }
       if (continuationsOpen) {
         continuationPull ??= continuations.next()
@@ -1308,10 +1308,10 @@ function mergedManagedInput(
         candidates.push(continuationPull);
       }
       const result = await Promise.race(candidates);
-      if (result.source === "frames") {
-        framePull = undefined;
+      if (result.source === "messages") {
+        messagePull = undefined;
         if (result.value === undefined) {
-          framesOpen = false;
+          messagesOpen = false;
           continue;
         }
       } else {
@@ -1501,7 +1501,7 @@ class CodexQuery implements WireQuery {
     if (managed && !managedLaunch)
       throw new ProviderRetrySafeError("openai_managed_command_receipt_unavailable");
     if (managed) {
-      let frames: PromptFrames | undefined;
+      let messages: PromptMessages | undefined;
       try {
         // Repeat both root-managed hook and pristine-home proof at the final
         // pre-spawn seam. The prepared home is the exact one admitted before
@@ -1527,12 +1527,12 @@ class CodexQuery implements WireQuery {
           north.env,
           "OpenAI North MCP environment",
         ) as unknown as NodeJS.ProcessEnv;
-        // The launch prompt is the first North frame; later frames (an
+        // The launch prompt is the first North message; later messages (an
         // orchestrator's post-settlement reduction directive, a live message) are
         // consumed as additional turns on the SAME provider thread. A string
-        // prompt or a channel that closes after one frame stays single-turn.
-        frames = promptFrames(this.#input);
-        const launchPrompt = await frames.first();
+        // prompt or a channel that closes after one message stays single-turn.
+        messages = promptMessages(this.#input);
+        const launchPrompt = await messages.first();
         this.#continuations ??= new ManagedInputQueue();
         const normalizer = new OpenAIWireNormalizer({
           writer: this.#writer,
@@ -1575,7 +1575,7 @@ class CodexQuery implements WireQuery {
           },
         });
         this.#managedRun = run;
-        const nextInput = mergedManagedInput(frames, this.#continuations);
+        const nextInput = mergedManagedInput(messages, this.#continuations);
         for await (const completed of run.session(nextInput)) {
           await this.#drainManagedPublications();
           const terminal = [...this.#managedEvents].reverse().find(
@@ -1624,7 +1624,7 @@ class CodexQuery implements WireQuery {
         throw error;
       } finally {
         this.#continuations?.close();
-        await frames?.close().catch(() => { /* teardown owns the terminal error */ });
+        await messages?.close().catch(() => { /* teardown owns the terminal error */ });
         this.#completedMcpActivity = this.#managedRun?.mcpActivity();
         this.#completedNativeCommandActivity = this.#managedRun?.nativeCommandActivity();
         this.#managedRun = undefined;
@@ -1679,15 +1679,15 @@ class CodexQuery implements WireQuery {
     child.stdin.on("error", () => { /* child process error is classified below */ });
     const supervision = observeSupervisor(child);
     let providerStarted = false;
-    const frames = new StrictJsonlFrames({
+    const messages = new StrictJsonlMessages({
       label: "Codex exec",
       maxLineBytes: CODEX_JSONL_MAX_LINE_BYTES,
       maxTotalBytes: CODEX_JSONL_MAX_TOTAL_BYTES,
-      maxFrames: CODEX_JSONL_MAX_EVENTS,
+      maxMessages: CODEX_JSONL_MAX_EVENTS,
     });
     const protocol = new CodexExecProtocol(this.#writer, this.#route);
     try {
-      // Publish the bounded prompt frame immediately after the supervisor
+      // Publish the bounded prompt message immediately after the supervisor
       // exists. Waiting for the provider's STARTED receipt lets a valid
       // short-lived provider exit before its stdin becomes readable.
       let promptSendError: unknown;
@@ -1702,7 +1702,7 @@ class CodexQuery implements WireQuery {
       if (promptSendError) throw promptSendError;
       providerStarted = true;
       for await (const chunk of child.stdout) {
-        for (const line of frames.push(chunk)) {
+        for (const line of messages.push(chunk)) {
           const accepted = protocol.accept(line);
           if (accepted.activityKind) {
             this.#activity.record("provider", accepted.activityKind);
@@ -1715,7 +1715,7 @@ class CodexQuery implements WireQuery {
           if (accepted.failure) throw accepted.failure;
         }
       }
-      frames.finish();
+      messages.finish();
       const supervisorExit = await supervision.completed;
       if (supervisorExit !== 0)
         throw new Error("openai_provider_execution_failed", {
@@ -1771,7 +1771,7 @@ export function internalOpenAIProviderWithManagedHooksProbeForTest(
   const resolveCommand = runtime.resolveManagedCommand ?? trustedManagedCodexExecutable;
   return {
     id: "openai",
-    liveInput: "turn-framed",
+    liveInput: "turn-messages",
     probe: probeCodex,
     admit: ({ options, target }) =>
       admitOpenAIWithManagedHooksProbe(options, target, assertManagedHooks, resolveCommand),

@@ -15,7 +15,7 @@ export interface BgTracker {
 
 /**
  * Track semantic background work. A tool is live from admission until its one
- * canonical terminal; progress frames cannot settle it.
+ * canonical terminal; progress events cannot settle it.
  */
 export function makeBgTracker(): BgTracker {
 	const tasks = new Set<WireToolCallId>();

@@ -26,7 +26,7 @@ const ACTIVITY_KIND = /^[a-z][a-z0-9._/-]{0,127}$/;
 /**
  * One query-local authenticated activity channel. Consumers receive only the
  * read side; the provider adapter retains the emitter and records a pulse only
- * after it has validated a provider-native frame against the active execution.
+ * after it has validated a provider-native event against the active execution.
  */
 export function createExecutionActivityEmitter(
   now: () => Date = () => new Date(),

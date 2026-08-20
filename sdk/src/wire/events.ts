@@ -194,7 +194,7 @@ export type WireProviderAbortActivityKind =
 	| "item"
 	| "tool"
 	| "progress"
-	| "frame"
+	| "event"
 	| "activity";
 
 export interface WireAbortActivityEvidence<Origin extends "outer" | "provider"> {

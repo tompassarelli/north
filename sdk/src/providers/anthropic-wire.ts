@@ -150,7 +150,7 @@ export interface AnthropicWireAcceptResult {
 	readonly turnOutcome?: AnthropicWireTurnOutcome;
 }
 
-export interface AnthropicWireFrameEvidence {
+export interface AnthropicWireEventEvidence {
 	readonly providerJoin?: WireProviderJoinEvidence;
 }
 
@@ -260,7 +260,7 @@ export class AnthropicWireNormalizer {
 	#tools = new Map<string, AdmittedTool>();
 	#backgroundTasks = new Map<string, BackgroundTask>();
 	#turnOpen = true;
-	#semanticFrames = 0;
+	#semanticEvents = 0;
 
 	constructor(writer: WireEventWriter, route: WireQueryRoute, artifacts?: WireArtifactSink) {
 		const snapshot = writer.snapshot();
@@ -317,11 +317,11 @@ export class AnthropicWireNormalizer {
 		this.#turnOpen = true;
 	}
 
-	accept(message: unknown, evidence: AnthropicWireFrameEvidence = {}): AnthropicWireAcceptResult {
+	accept(message: unknown, evidence: AnthropicWireEventEvidence = {}): AnthropicWireAcceptResult {
 		const source = asRecord(message);
-		if (!source) return this.#malformed("anthropic provider frame must be an object");
+		if (!source) return this.#malformed("anthropic provider event must be an object");
 		if (typeof source.type !== "string" || source.type.length === 0) {
-			return this.#malformed("anthropic provider frame type is missing");
+			return this.#malformed("anthropic provider event type is missing");
 		}
 		switch (source.type) {
 			case "assistant":
@@ -338,7 +338,7 @@ export class AnthropicWireNormalizer {
 				if (IGNORED_MESSAGE_TYPES.has(source.type)) return Object.freeze({ events: Object.freeze([]) });
 				throw new WireDecodeError(
 					"unsupported_event_kind",
-					"anthropic provider frame type is unsupported",
+					"anthropic provider event type is unsupported",
 					{ runId: this.#writer.runId },
 				);
 		}
@@ -391,7 +391,7 @@ export class AnthropicWireNormalizer {
 		}
 		this.#activeCall = undefined;
 		this.#turnOpen = false;
-		this.#semanticFrames += 1;
+		this.#semanticEvents += 1;
 		if (!activeCall) return Object.freeze({ events });
 		const outcome: AnthropicWireTurnOutcome = Object.freeze({
 			status,
@@ -476,7 +476,7 @@ export class AnthropicWireNormalizer {
 					messageId,
 					modelCallId,
 					...(parentTool === undefined ? {} : { parentToolCallId: parentTool.id }),
-					schema: { status: "unavailable", reason: "provider frame omitted schema provenance" },
+					schema: { status: "unavailable", reason: "provider event omitted schema provenance" },
 					...(argumentDigest === undefined ? {} : { argumentDigest }),
 					...(block.input === undefined ? {} : { argumentPreview: boundedPreview(block.input) }),
 				});
@@ -542,7 +542,7 @@ export class AnthropicWireNormalizer {
 			return this.#malformed("anthropic user message is malformed");
 		}
 		const rawUuid = source.uuid === undefined
-			? `frame:${this.#semanticFrames}`
+			? `event:${this.#semanticEvents}`
 			: this.#providerId(source.uuid, "anthropic user uuid is malformed");
 		const blocks = typeof message.content === "string" ? [
 			{ type: "text", text: message.content },
@@ -660,7 +660,7 @@ export class AnthropicWireNormalizer {
 
 	#acceptSystem(source: RecordValue): AnthropicWireAcceptResult {
 		if (typeof source.subtype !== "string" || source.subtype.length === 0) {
-			return this.#malformed("anthropic system frame subtype is missing");
+			return this.#malformed("anthropic system event subtype is missing");
 		}
 		switch (source.subtype) {
 			case "compact_boundary": {
@@ -687,7 +687,7 @@ export class AnthropicWireNormalizer {
 				}
 				throw new WireDecodeError(
 					"unsupported_event_kind",
-					"anthropic system frame subtype is unsupported",
+					"anthropic system event subtype is unsupported",
 					{ runId: this.#writer.runId },
 				);
 		}
@@ -848,7 +848,7 @@ export class AnthropicWireNormalizer {
 
 	#acceptResult(
 		source: RecordValue,
-		frameEvidence: AnthropicWireFrameEvidence,
+		eventEvidence: AnthropicWireEventEvidence,
 	): AnthropicWireAcceptResult {
 		if (!this.#turnOpen) return this.#stateViolation("anthropic result terminal is duplicated");
 		const rawUuid = this.#providerId(source.uuid, "anthropic result uuid is malformed");
@@ -896,8 +896,8 @@ export class AnthropicWireNormalizer {
 			"anthropic result duration is malformed",
 		);
 		const evidence: WireCompletionEvidence = Object.freeze({
-			...(frameEvidence.providerJoin === undefined
-				? {} : { providerJoin: frameEvidence.providerJoin }),
+			...(eventEvidence.providerJoin === undefined
+				? {} : { providerJoin: eventEvidence.providerJoin }),
 			turns: Object.freeze({
 				unit: "assistant-turn",
 				count: assistantTurns,
@@ -964,7 +964,7 @@ export class AnthropicWireNormalizer {
 		});
 		this.#activeCall = undefined;
 		this.#turnOpen = false;
-		this.#semanticFrames += 1;
+		this.#semanticEvents += 1;
 		return Object.freeze({ events, turnOutcome: outcome });
 	}
 
@@ -1141,7 +1141,7 @@ export class AnthropicWireNormalizer {
 
 	#markTurnActivity(): void {
 		this.#turnOpen = true;
-		this.#semanticFrames += 1;
+		this.#semanticEvents += 1;
 	}
 
 	#malformed(message: string): never {

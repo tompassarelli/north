@@ -1,6 +1,6 @@
 export const CODEX_SUPERVISOR_STATUS_PREFIX = "NORTH_CODEX_SUPERVISOR 1 " as const;
 /**
- * Provider stderr forwarded to the host, one bounded line per frame, base64 so
+ * Provider stderr forwarded to the host, one bounded line per packet, base64 so
  * a diagnostic can never forge a newline or another receipt. Opt-in: only a
  * supervisor launched with `--stderr-tail` emits these, because the one-shot
  * and Linear-broker status readers admit exactly three receipts and nothing

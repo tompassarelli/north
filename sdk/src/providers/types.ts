@@ -6,7 +6,7 @@ import type {
 
 export type ProviderId = "anthropic" | "openai";
 export type ProviderPreference = ProviderId | "auto";
-export type LiveInputCapability = "streaming" | "turn-framed" | "unsupported";
+export type LiveInputCapability = "streaming" | "turn-messages" | "unsupported";
 export interface RoutingRequest {
   provider?: ProviderPreference;
   /** Exact target pin. Exact pins never fall back to another target. */
