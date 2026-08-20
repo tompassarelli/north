@@ -333,7 +333,7 @@ case "${1:-}" in
     fi
     if [ "${NORTH_FAST_LIST_RENDER:-}" = 1 ]; then north_slot_exec "$@"; fi
     exec env NORTH_HOME="$NORTH" "$BB" "$NORTH/cli/fast-list-cli.clj" "$@" ;;
-  blocked|leverage|agenda|capture|json|needs-review|audit|resolve|validate|schema|tools|boot)
+  blocked|leverage|agenda|capture|cockpit|json|needs-review|audit|resolve|validate|schema|tools|boot)
     # `validate` runs north's FULL check (engine-generic ++ north work rules,
     # north.validate) — the Beagle Store CLI `validate` is generic-only since the work
     # rules moved out of the kernel. The MCP validate tool shells through here too.

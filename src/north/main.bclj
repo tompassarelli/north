@@ -1117,7 +1117,7 @@
     (str "  " (short-id te) "  " condition
          " · " (trunc (title-of idx te) 38)
          " · owner " (if (some? owner) owner "personal")
-         " · blocks " (count deps)
+         " · blocked by " (count deps)
          (if (some? estimate) (str " · est " estimate "h") ""))))
 
 (defn cmd-cockpit [log String] Nil
@@ -1128,10 +1128,19 @@
         threads (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "thread"))
                                         (proj/work-thread-ids-i idx))
         open (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) threads)
-        sessions (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "session"))
-                                         (proj/all-subjects idx))
-        accounts (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "account"))
-                                         (proj/all-subjects idx))
+        ;; These are fact-shape projections, not a closed provider inventory.
+        ;; An additive writer becomes visible when it publishes either member of
+        ;; its public shape; no dashboard-specific kind or cache is required.
+        sessions (Vec String) (filterv (fn [te String] Bool
+                                         (or (= (kind-of idx te) "session")
+                                             (some? (proj/string-value-at idx te "current_thread"))
+                                             (some? (proj/string-value-at idx te "session_identity"))))
+                                       (proj/all-subjects idx))
+        accounts (Vec String) (filterv (fn [te String] Bool
+                                         (or (= (kind-of idx te) "account")
+                                             (some? (proj/string-value-at idx te "headroom"))
+                                             (some? (proj/string-value-at idx te "used_percent"))))
+                                       (proj/all-subjects idx))
         landings (Vec String) (vec (take 8 (reverse (sort-by
           (fn [te String] String (let [at (U String Nil) (proj/string-value-at idx te "updated_at")]
                                     (if (some? at) at "")))
@@ -1167,8 +1176,9 @@
         (let [rev (U String Nil) (proj/string-value-at idx te "candidate_rev")]
           (println (str "  " (if (some? rev) (trunc rev 12) "—") " · " (trunc (title-of idx te) 54))))))
     (println "CONTROL")
-    (println "  north tell <thread> driver <agent> · north interrupt <agent> <message>")
-    (println "  north msg <agent> <message> · north account availability --json")))
+    (println "  north bridge app  — select a live row, type a message, or use /interrupt")
+    (println "  north bridge attach <execution-id> [--cursor N]")
+    (println "  north bridge msg <execution-id> <message> · north bridge interrupt <execution-id>")))
 
 ;; --- structured (JSON) projections for the MCP edge --------------------------
 (defrecord JThread
@@ -1865,7 +1875,7 @@
        (cmd-json log (if (> (count args) 1) (nth args 1) "")
                  (if (> (count args) 2) (nth args 2) "")
                  (has-flag? args "--all"))]
-      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | threads [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (threads/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/tell/retract/merge route to Beagle Store)")])))
+      [:else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | threads [--all] | cockpit | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (threads/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/tell/retract/merge route to Beagle Store)")])))
 
 ;; Composable command boundary: returns the exact validation status without
 ;; terminating its host process; other commands succeed after their normal
