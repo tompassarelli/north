@@ -57,7 +57,6 @@ function ownership(id: string, capture: Capture) {
   return {
     runId: `run:${id}-00000000-0000-4000-8000-000000000000`,
     thread: "019f8a82-3dce-7418-b2c0-fc6184fc79c6",
-    concern: "concern-1784735694797-a27c",
     provider: "auto" as const,
     writer: captureWriter(capture),
   };
@@ -92,7 +91,6 @@ describe("physical allocation registration", () => {
     expect(registration.run).toStartWith("@run:");
     expect(registration.agent).toBe(`@agent:${id}`);
     expect(registration.thread).toBe("@019f8a82-3dce-7418-b2c0-fc6184fc79c6");
-    expect(registration.concern).toBe("@concern-1784735694797-a27c");
     expect(registration.lease.enforcement).toBe("phase-1-record-only");
     expect(registration.providerAuthorityProfile).toEqual({
       version: 1, phase: "requested", provider: "auto", target: "unresolved",
@@ -100,7 +98,7 @@ describe("physical allocation registration", () => {
     });
     expect(capture.events.map(({ event }) => event.type)).toEqual(["provisioned"]);
     expect(Object.keys(registration).sort()).toEqual([
-      "agent", "allocationNonce", "baseOid", "concern", "durableRef", "event",
+      "agent", "allocationNonce", "baseOid", "durableRef", "event",
       "gitCommonDir", "headOid", "lease", "providerAuthorityProfile",
       "repositoryIdentity", "repositoryLayout", "run", "sourceRoot", "subject",
       "thread", "version", "worktree",

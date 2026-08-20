@@ -38,7 +38,7 @@ import type { ProviderPreference, RoutingDecision } from "./providers/types";
 
 const SOURCE_ROOT = resolve(import.meta.dir, "..", "..");
 const ALLOCATION_WRITER = resolve(SOURCE_ROOT, "cli", "worktree-allocation-internal.clj");
-const ALLOCATION_VERSION = "north:worktree-allocation:v1" as const;
+const ALLOCATION_VERSION = "north:worktree-allocation:v2" as const;
 const ALLOCATION_LEASE_MS = 30 * 60_000;
 
 export type WorktreeResourceState = "planned" | "active" | "absent" | "quarantined";
@@ -86,7 +86,6 @@ export interface WorktreeAllocationRegistration {
   run: string;
   agent: string;
   thread: string;
-  concern: string;
   allocationNonce: string;
   lease: {
     version: 1;
@@ -107,7 +106,6 @@ export interface WorktreeAllocationWriter {
 export interface WorktreeAllocationOwnership {
   runId: string;
   thread?: string;
-  concern?: string;
   provider?: ProviderPreference;
   target?: string;
   writer?: WorktreeAllocationWriter;
@@ -518,7 +516,6 @@ function registrationFor(
     run,
     agent,
     thread: exactEntity(opts.thread, "@thread:ad-hoc"),
-    concern: exactEntity(opts.concern, "@concern:unattributed"),
     allocationNonce: nonce,
     lease: {
       version: 1,
