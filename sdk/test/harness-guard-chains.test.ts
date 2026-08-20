@@ -43,7 +43,7 @@ beforeAll(() => {
   // fixture container needs one. The container carries all three slots, because
   // the rule is positional: `worktrees/<slug>` is the sanctioned destination and
   // `pins/<full-object-id>` is the immutable content-addressed checkout slot.
-  for (const project of ["north", "fram"]) mkdirSync(join(root, project, "main", ".git"), { recursive: true });
+  for (const project of ["north", "beagle"]) mkdirSync(join(root, project, "main", ".git"), { recursive: true });
   mkdirSync(join(root, "north", "worktrees", "lane"), { recursive: true });
   mkdirSync(join(root, "north", "pins", PIN_OID), { recursive: true });
   writeFileSync(join(root, "north", "pins", `${PIN_OID}.pin`),
@@ -154,7 +154,7 @@ for (const [name, route] of [
     expect(inPlace.decision).toBe("deny");
     expect(inPlace.reason).toContain("worktree add");
 
-    expect((await decide(hook, bash(`printf x > ${join(root, "fram", "main", "x.rs")}`))).decision)
+    expect((await decide(hook, bash(`printf x > ${join(root, "beagle", "main", "x.rkt")}`))).decision)
       .toBe("deny");
 
     const blind = await decide(hook, bash("git add -A"));
@@ -173,7 +173,7 @@ for (const [name, route] of [
   test.skipIf(!installed)(`${name} never traps a lane`, async () => {
     const hook = lane(route).bash;
     const main = join(root, "north", "main");
-    const consumerMain = join(root, "fram", "main");
+    const consumerMain = join(root, "beagle", "main");
     const pin = join(root, "north", "pins", PIN_OID);
     const pinSidecar = `${pin}.pin`;
     for (const command of [

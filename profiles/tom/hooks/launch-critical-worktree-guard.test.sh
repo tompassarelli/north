@@ -46,14 +46,13 @@ check() { # check <expect deny|allow> <path> <why>
 }
 
 # --- 1. primaries are denied -------------------------------------------------
-check deny "$HOME/code/fram/main/server.clj"             "fram primary is launch-critical"
 check deny "$HOME/code/north/main/cli/dashboard-cli.clj" "north primary"
 check deny "$HOME/code/beagle/main/bin/beagle-build"     "beagle primary"
 check deny "$HOME/code/nixos-config/main/flake.nix"      "nixos-config primary"
-check deny "$HOME/code/fram/main"                        "the checkout root itself, not only files under it"
+check deny "$HOME/code/beagle/main"                      "the checkout root itself, not only files under it"
 
 # --- 2. the sanctioned destinations are NOT denied ---------------------------
-check allow "$HOME/code/fram/worktrees/topic/server.clj"       "a lane is where agents are TOLD to work"
+check allow "$HOME/code/beagle/worktrees/topic/server.rkt"     "a lane is where agents are TOLD to work"
 check allow "/tmp/north-lane-abc123/cli/x.clj"                 "managed lane worktree"
 check allow "/tmp/beagle-store-indexed-show-lane/bin/beagle-store-cli.clj"    "ad-hoc lane worktree"
 
@@ -74,8 +73,8 @@ check deny "$HOME/code/gjoa/pins/0123456789abcdef0123456789abcdef01234567/index.
 # where policy says internal notes belong.
 check allow "$HOME/code/north/main/docs/private/overnight-notes.md" \
   "docs/private is gitignored: cannot dirty the tree, and policy REQUIRES notes there"
-check allow "$HOME/code/fram/main/docs/private/scratch.md" \
-  "same exemption in fram"
+check allow "$HOME/code/beagle/main/docs/private/scratch.md" \
+  "same exemption in beagle"
 
 # ...but a TRACKED file in the same repo is still denied.
 check deny "$HOME/code/north/main/cli/trace-cli.clj" \
@@ -85,7 +84,7 @@ check deny "$HOME/code/north/main/cli/trace-cli.clj" \
 # north-data is a SIBLING of north; a naive prefix test without a separator
 # check denies it and breaks all runtime-state writes.
 check allow "$HOME/code/north-data/threads/x.md"   "north-data is runtime state, not the north repo"
-check allow "$HOME/code/framework/x.clj"           "framework != fram"
+check allow "$HOME/code/unrelated-project/x.clj"   "an unrelated project stays writable"
 check allow "$HOME/code/gjoa/x.clj"                "unrelated project"
 check allow "/tmp/scratch.txt"                     "outside ~/code entirely"
 
@@ -348,8 +347,8 @@ printf 'not json at all' | AGENT_NO_AUTHORING_HOOKS=0 "$HOOK" >/dev/null 2>&1 \
 
 # --- 5. kill-switch ----------------------------------------------------------
 # The path must be one the guard WOULD deny, or the case passes for the wrong
-# reason: `~/code/fram/x.clj` is the container root and is not protected.
-out="$(printf '{"tool_input":{"file_path":"%s"}}' "$HOME/code/fram/main/x.clj" \
+# reason: `~/code/beagle/x.rkt` is the container root and is not protected.
+out="$(printf '{"tool_input":{"file_path":"%s"}}' "$HOME/code/beagle/main/x.rkt" \
        | AGENT_NO_AUTHORING_HOOKS=1 "$HOOK" 2>/dev/null)"
 if [ -z "$out" ]; then pass=$((pass + 1)); else
   fail=$((fail + 1)); echo "FAIL  AGENT_NO_AUTHORING_HOOKS=1 must disable the guard" >&2

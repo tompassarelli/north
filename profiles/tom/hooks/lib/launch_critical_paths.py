@@ -35,12 +35,6 @@ import re
 # Containers whose PRIMARY breaks something beyond itself. They are protected by
 # the same rule as every other main; only the reason text is theirs.
 LAUNCH_CRITICAL = {
-    "fram": (
-        "fram is the running database engine and is launch-critical. `north up`"
-        " REFUSES to launch on a tracked-dirty checkout, so writing here can"
-        " leave the daemon unrestartable and block every rebuild from being"
-        " adopted."
-    ),
     "north": (
         "north is launch-critical and `firn rebuild` builds a COMMIT SNAPSHOT, so"
         " uncommitted work here is silently absent from the generation."
