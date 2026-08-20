@@ -4,11 +4,11 @@ North is an independent agent harness built around one durable coordination
 graph. It studies other harnesses for bounded mechanisms, not for a host
 runtime, product surface, or source tree to copy. The controlling synthesis is:
 
-> Provider-independent reasoning and orchestration belong in target-neutral,
-> typed Beagle. Durable memory, identity, scheduling, replay, provenance, and
-> resident hot paths belong in Beagle Native over Beagle Store. JavaScript is a
-> thin capability boundary for PTYs, provider CLIs, browsers, and Node-only
-> integrations.
+> Provider-independent reasoning and orchestration belong in typed Beagle.
+> Durable memory, identity, scheduling, replay, provenance, and resident hot
+> paths belong in Beagle Native Core over Beagle Store. Hosted Beagle and
+> JavaScript remain thin capability boundaries for the current CLI, PTYs,
+> provider CLIs, browsers, and Node-only integrations.
 
 An upstream idea earns a place only when North can name the behavior, its
 owner, its durable evidence, and the boundary that keeps provider and host
@@ -57,11 +57,11 @@ records no copied source.
 - Durable coordination mail plus observable live-lane steering
   ([`cli/msg-cli.clj`](../cli/msg-cli.clj),
   [`sdk/src/live-input-route.ts`](../sdk/src/live-input-route.ts)).
-- A target-neutral prompt lifecycle rule that appends an interrupted terminal
+- A provider-neutral Native Core prompt lifecycle rule that appends an interrupted terminal
   only for one uniquely attributable unfinished attempt and preserves ambiguous
   ledgers as typed unknown results
   ([`src/north/prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl)).
-- Target-neutral typed cores for scoped memory facts and bounded recall,
+- Native Core typed programs for scoped memory facts and bounded recall,
   immutable session lineage and compaction-tail projection, ordered replay and
   terminal provenance, and scheduled-run lease reclamation
   ([`memory_core.bgl`](../src/north/memory_core.bgl),
@@ -76,7 +76,7 @@ Upstream evidence may sharpen their invariants or reveal a missing seam.
 
 | Concern | North owner | Required implementation shape | Boundary rule |
 | --- | --- | --- | --- |
-| Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/), including [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl) | Target-neutral typed Beagle core | No provider model IDs, host process APIs, or durable side stores |
+| Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/), including [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl) | Provider-neutral typed Beagle; `.bgl` is Native Core and explicit `.bclj`/`.bjs` files are hosted capsules | No provider model IDs, host process APIs, or durable side stores |
 | Durable memory and learned facts | [`src/north/memory_core.bgl`](../src/north/memory_core.bgl) over the canonical Store RPC selected by [`sdk/src/beagle-store.ts`](../sdk/src/beagle-store.ts) | Store-backed typed facts, supersession, validity, trust, and bounded recall | Files and prompts may be projections, never the system of record |
 | Agent and session identity | [`src/north/session_core.bgl`](../src/north/session_core.bgl), [`sdk/src/identity.ts`](../sdk/src/identity.ts), and Store-backed North vocabulary | Beagle Native identity allocation, lineage, and evolution | Provider conversation IDs remain adapter evidence, not North identity |
 | Scheduling and admission | [`src/north/scheduled_run_core.bgl`](../src/north/scheduled_run_core.bgl), [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj), and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy and scheduled-run state in Beagle; resident scheduling in Beagle Native | JavaScript may launch admitted work but may not decide provider-neutral policy |
@@ -101,7 +101,7 @@ North seam rather than as an imported framework.
   ([design](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/docs/design/2026-08-19-prompt-terminal-ledger-design.md#L30-L88),
   [ledger](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/cli/src/serve/prompt-terminal-ledger.ts#L130-L300),
   [journal](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/core/src/agents/runtime/workflow-journal.ts#L7-L153)).
-  North owns the target-neutral rule in
+  North owns the provider-neutral rule in
   [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl); Store persistence
   and process observation remain Native boundaries.
 - **Typed memory with bounded recall.** oh-my-pi models source, scope, trust,
