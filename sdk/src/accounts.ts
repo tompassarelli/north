@@ -9,6 +9,7 @@ import {
   readFileSync,
   readlinkSync,
   renameSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -307,6 +308,79 @@ export async function addProviderAccount(
       : nextTargets.map((target) => target.id).filter((targetId): targetId is string => typeof targetId === "string");
     atomicWriteJson(path, { ...document, targets: nextTargets, targetOrder });
     return account;
+  });
+}
+
+// Every routing-policy field that is keyed by (or names) a target id. A target
+// removed from `targets` but left referenced here is a dangling reference, and
+// `north config routing` refuses to load the whole policy over one.
+const TARGET_KEYED_FIELDS = ["weights", "pressure", "pressures", "envelopes"] as const;
+
+function withoutTargetKey(document: RoutingDocument, field: string, id: string): unknown {
+  const value = document[field];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { [id]: _removed, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
+export interface RemovedProviderAccount {
+  account: ProviderAccount;
+  removedRoot: string | null;
+}
+
+export async function removeProviderAccount(
+  id: string,
+  options: { keepData?: boolean } = {},
+  context: AccountContext = {},
+): Promise<RemovedProviderAccount> {
+  assertSafeAccountId(id);
+  const path = routingPolicyPath(context);
+  return withFileLease(`${path}.lock`, async () => {
+    const document = readRoutingDocument(path);
+    const targets = targetsOf(document, path);
+    const target = targets.find((candidate) => candidate.id === id);
+    if (!target) throw new Error(`unknown routing target: ${id}`);
+    if (target.authMode !== "isolated")
+      throw new Error(`routing target ${id} is not an isolated account; edit the policy with north config routing`);
+    if (typeof target.profile !== "string" || typeof target.provider !== "string")
+      throw new Error(`isolated routing target ${id} is incomplete`);
+    assertSafeAccountId(target.profile, "account profile");
+    assertProvider(target.provider);
+
+    const currentOrder = document.targetOrder;
+    if (currentOrder !== undefined && !Array.isArray(currentOrder))
+      throw new Error(`routing policy ${path} has a non-array targetOrder field`);
+
+    const account: ProviderAccount = {
+      id,
+      provider: target.provider,
+      profile: target.profile,
+      authMode: "isolated",
+      root: accountRoot(target.provider, target.profile, context),
+    };
+
+    const next: RoutingDocument = {
+      ...document,
+      targets: targets.filter((candidate) => candidate.id !== id),
+    };
+    if (Array.isArray(currentOrder))
+      next.targetOrder = currentOrder.filter((entry) => entry !== id);
+    for (const field of TARGET_KEYED_FIELDS) {
+      if (field in document) next[field] = withoutTargetKey(document, field, id);
+    }
+    if (document.reserve === id) next.reserve = null;
+
+    // The routing target is the thing that makes an account addressable, so it
+    // goes first: a crash after this point leaves orphaned data, never a target
+    // pointing at a deleted root.
+    atomicWriteJson(path, next);
+
+    if (options.keepData) return { account, removedRoot: null };
+    const base = join(accountsRoot(context), account.provider);
+    if (dirname(account.root) !== base) throw new Error("account root escapes the account root");
+    if (!existsSync(account.root)) return { account, removedRoot: null };
+    rmSync(account.root, { recursive: true, force: true });
+    return { account, removedRoot: account.root };
   });
 }
 

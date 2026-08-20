@@ -3,6 +3,7 @@ import {
   listProviderAccounts,
   liveStatusProviderAccount,
   loginProviderAccount,
+  removeProviderAccount,
   requireProviderAccount,
   statusProviderAccount,
   type AccountAuthState,
@@ -32,6 +33,7 @@ import {
 const USAGE = `usage: north account <command>
 
   north account add <safe-id> <anthropic|openai>
+  north account remove <id> [--keep-data]
   north account login <id>
   north account status [id]
   north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity
@@ -39,6 +41,7 @@ const USAGE = `usage: north account <command>
   north account list [--verbose]   grouped accounts + live login state
 
 Options:
+  --keep-data  drop the routing target but leave the account's storage root on disk
   --model M  restrict usability to one cached model-scoped rung
   --json     emit the stable account availability row array
   --refresh  bypass the five-minute authoritative usage cache
@@ -385,6 +388,16 @@ export async function runAccountCli(args: string[]): Promise<number> {
         const account = await addProviderAccount(rest[0], rest[1]);
         console.log(`added isolated ${account.provider} account ${account.id}`);
         console.log(`root ${account.root}`);
+        return 0;
+      }
+      case "remove": {
+        const keepData = rest.includes("--keep-data");
+        const ids = rest.filter((entry) => entry !== "--keep-data");
+        if (ids.length !== 1 || ids[0]!.startsWith("--")) throw new Error(USAGE);
+        const { account, removedRoot } = await removeProviderAccount(ids[0]!, { keepData });
+        console.log(`removed routing target ${account.id} (${account.provider})`);
+        if (removedRoot) console.log(`deleted ${removedRoot}`);
+        else console.log(`kept ${account.root}`);
         return 0;
       }
       case "login": {

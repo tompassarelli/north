@@ -155,6 +155,82 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
   ]) expect(() => lstatSync(forbidden)).toThrow();
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
+test("remove drops the target, every reference to it, and its storage root", () => {
+  const { home, policy, run } = fixture();
+  expect(run("add", "claude-work", "anthropic").status).toBe(0);
+  expect(run("add", "codex-personal", "openai").status).toBe(0);
+
+  // A target id is referenced from more than just `targets`; leaving any of
+  // these behind is a dangling reference that makes the whole policy unloadable.
+  const seeded = JSON.parse(readFileSync(policy, "utf8"));
+  seeded.weights = { "claude-work": 3, "codex-personal": 1 };
+  seeded.pressures = { "claude-work": "low" };
+  seeded.envelopes = { "claude-work": { cap: 1 } };
+  seeded.reserve = "claude-work";
+  writeFileSync(policy, `${JSON.stringify(seeded, null, 2)}\n`);
+
+  const claudeRoot = join(home, ".local/state/north/accounts/anthropic/claude-work");
+  const codexRoot = join(home, ".local/state/north/accounts/openai/codex-personal");
+  expect(statSync(claudeRoot).isDirectory()).toBe(true);
+
+  const removed = run("remove", "claude-work");
+  expect(removed.status).toBe(0);
+  expect(removed.stdout).toContain("removed routing target claude-work");
+  expect(removed.stdout).toContain(`deleted ${claudeRoot}`);
+
+  const document = JSON.parse(readFileSync(policy, "utf8"));
+  expect(document.targets.map((target: { id: string }) => target.id)).toEqual(["ambient", "codex-personal"]);
+  expect(document.targetOrder).toEqual(["ambient", "codex-personal"]);
+  expect(document.weights).toEqual({ "codex-personal": 1 });
+  expect(document.pressures).toEqual({});
+  expect(document.envelopes).toEqual({});
+  expect(document.reserve).toBeNull();
+  expect(document.futureTopLevel).toEqual({ preserved: true });
+  expect(statSync(policy).mode & 0o777).toBe(0o600);
+  expect(readdirSync(join(home, ".config/north")).filter((name) => name.includes(".tmp") || name.endsWith(".lock"))).toEqual([]);
+
+  expect(() => statSync(claudeRoot)).toThrow();
+  expect(statSync(codexRoot).isDirectory()).toBe(true);
+
+  // Removal is not idempotent-by-silence: a second attempt names the miss.
+  const again = run("remove", "claude-work");
+  expect(again.status).toBe(2);
+  expect(again.stderr).toContain("unknown routing target: claude-work");
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
+test("remove --keep-data unlists the account while preserving its storage root", () => {
+  const { home, policy, run } = fixture();
+  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  const codexRoot = join(home, ".local/state/north/accounts/openai/codex-personal");
+
+  const removed = run("remove", "codex-personal", "--keep-data");
+  expect(removed.status).toBe(0);
+  expect(removed.stdout).toContain(`kept ${codexRoot}`);
+  expect(statSync(codexRoot).isDirectory()).toBe(true);
+
+  const document = JSON.parse(readFileSync(policy, "utf8"));
+  expect(document.targets.map((target: { id: string }) => target.id)).toEqual(["ambient"]);
+  expect(document.targetOrder).toEqual(["ambient"]);
+
+  // The preserved root must still be adoptable by a later add of the same id.
+  expect(run("add", "codex-personal", "openai").status).toBe(0);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
+test("remove refuses an ambient target and an unsafe id without touching policy", () => {
+  const { policy, run } = fixture();
+  const before = readFileSync(policy, "utf8");
+
+  const ambient = run("remove", "ambient");
+  expect(ambient.status).toBe(2);
+  expect(ambient.stderr).toContain("is not an isolated account");
+
+  const unsafe = run("remove", "../../etc");
+  expect(unsafe.status).toBe(2);
+  expect(unsafe.stderr).toContain("portable slug");
+
+  expect(readFileSync(policy, "utf8")).toBe(before);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
 test("OpenAI bootstrap retires only North's legacy authority links and refuses bespoke state", () => {
   const { home } = fixture();
   const ambientHooks = join(home, ".codex/hooks.json");
