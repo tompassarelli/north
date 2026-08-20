@@ -14,8 +14,8 @@
 (defn b64 [^bytes bytes]
   (.encodeToString (java.util.Base64/getEncoder) bytes))
 
-(defn req [id request] (b64 (w/store-rpc-encode-packet-v2! (w/store-rpc-request-packet id request))))
-(defn resp [id response] (b64 (w/store-rpc-encode-packet-v2! (w/store-rpc-response-packet id response))))
+(defn req [id request] (b64 (w/encode-rpc-frame-v2! (w/rpc-request-frame id request))))
+(defn resp [id response] (b64 (w/encode-rpc-frame-v2! (w/rpc-response-frame id response))))
 
 (def fence (w/rpc-fence! resource holder 42))
 (def transaction (t/transaction-coordinate space 46))

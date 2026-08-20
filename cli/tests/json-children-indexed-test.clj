@@ -80,7 +80,7 @@
         (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
         (System/arraycopy body 0 packet wire/rpc-v2-header-bytes
                           (int body-length))
-        (wire/store-rpc-decode-packet-v2! packet)))))
+        (wire/decode-rpc-frame-v2! packet)))))
 
 (defn scan-pattern [request]
   (mapv wire/rpc-option-value!
@@ -161,7 +161,7 @@
        (= [subject nil nil] (scan-pattern request))))
 
 (defn response-for [packet response]
-  (let [request (t/storerpcpacketv2-request packet)
+  (let [request (t/rpcframev2-request packet)
         operation (t/rpcrequest-op request)
         version (or (:version response) 0)
         error
@@ -202,18 +202,18 @@
         typed-response
         (wire/rpc-response!
          (t/rpcrequest-space request) operation version page error payload)]
-    (wire/store-rpc-response-packet (t/storerpcpacketv2-request-id packet) typed-response)))
+    (wire/rpc-response-frame (t/rpcframev2-request-id packet) typed-response)))
 
 (defn serve-peer! [server respond requests worker-error]
   (try
     (loop []
       (with-open [socket (.accept server)]
         (let [packet (read-request-packet! (.getInputStream socket))
-              request (t/storerpcpacketv2-request packet)
+              request (t/rpcframev2-request packet)
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/store-rpc-encode-packet-v2!
+                  (wire/encode-rpc-frame-v2!
                    (response-for packet (respond request))))
           (.flush output)))
       (recur))
