@@ -216,7 +216,7 @@
         (primitive "git -C <worktree> status --porcelain=v1 --untracked-files=all")
         (primitive "git -C <repo>/main rev-list --left-right --count refs/heads/<main>...<head>")
         (primitive "concern list-json                                    (live-concern join)")
-        (primitive (str "FRAMRPC indexed query predicate=worktree port=" port
+        (primitive (str "Store RPC indexed query predicate=worktree port=" port
                         "   (lane registration join)"))
         (println))
       (let [concern-join (live-concerns containers)
@@ -229,7 +229,7 @@
             joined? (and (contains? concern-state :ok)
                          (contains? registration-state :ok))
             sources {"concern list-json" concern-state
-                     "FRAMRPC lane registrations" registration-state}]
+                     "Store RPC lane registrations" registration-state}]
         (if (flags "--json")
           (render-json rows concerns registrations joined? sources)
           (render-table rows concerns registrations joined? sources))))))

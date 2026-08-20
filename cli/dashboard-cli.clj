@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; north dashboard / doctor — the cockpit over the agentic stack (fram · north ·
+;; north dashboard / doctor — the cockpit over the agentic stack (Beagle Store · North ·
 ;; orchestration · beagle/firn). Ported from convoy/bin/my-agents (2026-07-10): convoy
 ;; folded into north — dashboard answers "what is happening", doctor answers "is
 ;; everything healthy". Both WRAP primitives and PRINT the one they run: teach
@@ -509,7 +509,7 @@
   `ss -tlnp` reports no `pid=` for it — the unit is the reliable source. `ss`
   remains a fallback for a coordinator started outside systemd."
   [port]
-  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-fram.service"
+  (or (let [{:keys [out ok]} (run ["systemctl" "--user" "show" "north-store.service"
                                    "-p" "MainPID" "--value"] :timeout 3000)
             pid (some-> out str/trim)]
         (when (and ok (seq pid) (not= pid "0")) pid))
@@ -659,7 +659,7 @@
 (def ROSTER-PROBE-TIMEOUT-MS 25000)
 
 (defn coordination-probe
-  "Exercise the hook client's direct FRAMRPC path, including a lease write and
+  "Exercise the hook client's direct Store RPC path, including a lease write and
    readback, without routing the probe through the dashboard wrapper."
   []
   (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT
@@ -709,12 +709,12 @@
                     live_session_leases lineage_registrations_in_ttl lease_ttl_ms]} probe]
         (cond
           (false? space_fence_ok)
-          (fail! "FRAMRPC status did not return a SpaceId")
+          (fail! "Store RPC status did not return a SpaceId")
 
           (nil? space_fence_ok)
           (fail! (str "coordination probe failed: " error))
 
-          :else (ok! (str "FRAMRPC SpaceId fence " space_id)))
+          :else (ok! (str "Store RPC SpaceId fence " space_id)))
         (when (some? space_fence_ok)
           (if lease_write_readback_ok
             (ok! "presence write + readback through the hook path")
@@ -765,7 +765,7 @@
   ;; daemons
   (let [dh (daemon-health)]
     (println (bold "  daemons"))
-    (doseq [[label k crit] [[(str PORT " coordination (the FRAMRPC authority)") :north true]]]
+    (doseq [[label k crit] [[(str PORT " coordination (the Store RPC authority)") :north true]]]
       (let [up (get dh k)]
         (when (and crit (not up)) (mark-doctor-failed!))
         (println (str "    " (if up (grn "[ok]  ") (if crit (red "[ERR] ") (ylw "[warn]")))
@@ -800,7 +800,7 @@
   ;; installed closure; a checkout HEAD is only source context, not proof that a
   ;; separately installed store path contains that tree.
   (println (bold "  runtime source identity"))
-  (doseq [[name repo] [["north" NORTH] ["fram" STORE] ["beagle" BEAGLE]]]
+  (doseq [[name repo] [["north" NORTH] ["store" STORE] ["beagle" BEAGLE]]]
     (let [{:keys [revision origin package-mode]} (source-revision name repo)
           command-result (run ["bash" "-c" "command -v \"$1\"" "north-doctor" name] :timeout 1500)
           which (when (:ok command-result)

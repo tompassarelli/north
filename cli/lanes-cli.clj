@@ -55,7 +55,7 @@
     (if (str/starts-with? value "@") value (str "@" value))))
 
 (defn resolve-titles
-  "Resolve the rendered lane set through one exact FRAMRPC subject batch."
+  "Resolve the rendered lane set through one exact Store RPC subject batch."
   [port threads]
   (try
     (let [threads-by-entity

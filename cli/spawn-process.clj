@@ -51,9 +51,9 @@
   [facts]
   (or (and (= "streaming" (get facts "live_input"))
            (= "armed" (get facts "live_input_state")))
-      ;; turn-framed accepts input only between turns, so it starts frozen and
+      ;; turn-messaged accepts input only between turns, so it starts frozen and
       ;; arms when a session goes interactive; both are settled public authority.
-      (and (= "turn-framed" (get facts "live_input"))
+      (and (= "turn-messaged" (get facts "live_input"))
            (contains? #{"frozen" "armed"} (get facts "live_input_state")))
       (and (= "unsupported" (get facts "live_input"))
            (= "frozen" (get facts "live_input_state")))))

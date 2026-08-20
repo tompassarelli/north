@@ -70,7 +70,7 @@
 (def listener-lease-ttl-ms
   (positive-env-ms "NORTH_LISTENER_LEASE_TTL_MS" 120000))
 (def listener-poll-ms
-  (positive-env-ms "NORTH_FRAMRPC_LISTENER_POLL_MS" 250))
+  (positive-env-ms "NORTH_STORE_LISTENER_POLL_MS" 250))
 (def listener-renew-interval-ms
   (max 10 (quot listener-lease-ttl-ms 3)))
 
@@ -606,7 +606,7 @@
            (arm-listener-generation! generation)
            (println
             (format
-             "● @agent:%s listening [FRAMRPC poll] — addrs %s + %d watched%s"
+             "● @agent:%s listening [Store RPC poll] — addrs %s + %d watched%s"
              uuid (pr-str (sort @addrs)) (count @watched)
              (if once? "  [--once]" "")))
            (flush)

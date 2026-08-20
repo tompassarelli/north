@@ -23,7 +23,7 @@
   #{"invalid_message_id" "missing_sender" "invalid_sender" "sender_too_large"
     "missing_subject" "invalid_subject" "subject_too_large"
     "missing_body" "invalid_body" "body_too_large"
-    "message_frame_too_large" "msg_manifest_missing"
+    "message_too_large" "msg_manifest_missing"
     "msg_type_invalid" "msg_route_invalid" "msg_route_stale"
     "msg_route_not_armed"})
 (def max-rejection-recipient-bytes 512)

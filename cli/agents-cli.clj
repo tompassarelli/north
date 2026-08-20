@@ -551,7 +551,7 @@
   (let [observation (axis-observation facts "live_input")]
     (cond
       (:conflict observation) "conflict"
-      (#{"streaming" "turn-framed" "unsupported"} (:value observation)) (:value observation)
+      (#{"streaming" "turn-messaged" "unsupported"} (:value observation)) (:value observation)
       :else "unrecorded")))
 
 (defn- live-input-state-label [facts]
@@ -833,7 +833,7 @@
     (if help
       (agents-usage)
       (do
-        (when verbose (println (dim (str "FRAMRPC presence projection :" PORT))))
+        (when verbose (println (dim (str "Store RPC presence projection :" PORT))))
         (let [loaded (read-roster-snapshot)]
           (if (:err loaded)
             (if (= mode :human)
@@ -1145,21 +1145,21 @@
      :doneWhen (canonical-contract-list (:doneWhen contract))
      :report (canonical-contract-text (:report contract)))))
 
-(defn- utf8-frame [value]
+(defn- utf8-segment [value]
   (str (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8)) ":" value))
 
-(defn- utf8-list-frame [values]
-  (str (count values) ":" (apply str (map utf8-frame values))))
+(defn- utf8-list-segment [values]
+  (str (count values) ":" (apply str (map utf8-segment values))))
 
 (defn- canonical-bespoke-contract-payload [canonical]
   (str bespoke-fingerprint-domain "\n"
-       "responsibility=" (utf8-frame (:responsibility canonical)) "\n"
-       "deliverable=" (utf8-frame (:deliverable canonical)) "\n"
-       "capabilities=" (utf8-list-frame (:capabilities canonical)) "\n"
-       "mayDecide=" (utf8-list-frame (:mayDecide canonical)) "\n"
-       "mustEscalate=" (utf8-list-frame (:mustEscalate canonical)) "\n"
-       "doneWhen=" (utf8-list-frame (:doneWhen canonical)) "\n"
-       "report=" (utf8-frame (:report canonical))))
+       "responsibility=" (utf8-segment (:responsibility canonical)) "\n"
+       "deliverable=" (utf8-segment (:deliverable canonical)) "\n"
+       "capabilities=" (utf8-list-segment (:capabilities canonical)) "\n"
+       "mayDecide=" (utf8-list-segment (:mayDecide canonical)) "\n"
+       "mustEscalate=" (utf8-list-segment (:mustEscalate canonical)) "\n"
+       "doneWhen=" (utf8-list-segment (:doneWhen canonical)) "\n"
+       "report=" (utf8-segment (:report canonical))))
 
 (defn- bespoke-contract-sha256 [contract]
   (let [canonical (canonical-bespoke-contract contract)
@@ -1716,7 +1716,7 @@
                      (string? (:value %)))
                facts)))
 
-;; Intake reads are exact-subject FRAMRPC projections. ::unreadable keeps an
+;; Intake reads are exact-subject Store RPC projections. ::unreadable keeps an
 ;; unavailable server distinguishable from a subject that carries no facts.
 (def structured-read-attempts 2)
 (def structured-read-retry-ms 500)

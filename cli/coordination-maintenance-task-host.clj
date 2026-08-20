@@ -854,7 +854,7 @@
           (.getPath (io/file (System/getProperty "user.home")
                              ".cache" "north" filename))))))
 
-(def retryable-framrpc-types
+(def retryable-store-rpc-types
   #{:rpc-truncated
     :query-cancelled
     :query-time-limit
@@ -872,7 +872,7 @@
                  (instance? java.net.SocketTimeoutException cause)
                  (instance? java.net.SocketException cause)
                  (instance? java.io.EOFException cause)
-                 (contains? retryable-framrpc-types (:type data)))))
+                 (contains? retryable-store-rpc-types (:type data)))))
          (throwable-chain throwable))))
 
 (defn concise-error [throwable]

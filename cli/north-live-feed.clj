@@ -14,7 +14,7 @@
 ;; A successful version read establishes the poll cursor before `ready`, and
 ;; pending mail is replayed only after the host answers `start`. Commits arriving
 ;; during replay remain above the sampled cursor for the next poll. A claim is
-;; held until the host admits the frame and answers `ack`; EOF, timeout, nack, or
+;; held until the host admits the message and answers `ack`; EOF, timeout, nack, or
 ;; a crash leaves the message unacknowledged and therefore replayable.
 (require '[cheshire.core :as json]
          '[clojure.java.io :as io]
@@ -29,7 +29,7 @@
 
 (def protocol "north-live-feed-v1")
 (def max-control-line-bytes 4096)
-(def max-output-frame-bytes (* 192 1024))
+(def max-output-message-bytes (* 192 1024))
 (def event-queue-capacity 1024)
 (def control-queue-capacity 32)
 (def default-ack-timeout-ms 10000)
@@ -55,8 +55,8 @@
 
 (defn poll-ms []
   (bounded-positive
-   "NORTH_FRAMRPC_LISTENER_POLL_MS"
-   (System/getenv "NORTH_FRAMRPC_LISTENER_POLL_MS")
+   "NORTH_STORE_LISTENER_POLL_MS"
+   (System/getenv "NORTH_STORE_LISTENER_POLL_MS")
    default-poll-ms 999999))
 
 (defn flag-value [flags flag]
@@ -97,9 +97,9 @@
   ;; whitespace/trailing forms, and alternate authority-bearing shapes.
   (let [parsed (try (json/parse-string-strict line)
                     (catch Exception error
-                      (throw (ex-info "control frame is not valid JSON"
-                                      {:type :invalid-control-frame} error))))
-        frame
+                      (throw (ex-info "control message is not valid JSON"
+                                      {:type :invalid-control-message} error))))
+        message
         (cond
           (and (exact-keys? parsed #{"type"})
                (= "start" (get parsed "type")))
@@ -116,12 +116,12 @@
           (array-map "type" (get parsed "type") "id" (get parsed "id"))
 
           :else
-          (throw (ex-info "control frame has an invalid shape"
-                          {:type :invalid-control-frame})))]
-    (when-not (= line (json/generate-string frame))
-      (throw (ex-info "control frame is not canonical JSON"
-                      {:type :noncanonical-control-frame})))
-    frame))
+          (throw (ex-info "control message has an invalid shape"
+                          {:type :invalid-control-message})))]
+    (when-not (= line (json/generate-string message))
+      (throw (ex-info "control message is not canonical JSON"
+                      {:type :noncanonical-control-message})))
+    message))
 
 (defn decode-utf8! [^bytes bytes]
   (let [decoder (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
@@ -137,15 +137,15 @@
           (= -1 value)
           (if (zero? (.size output))
             nil
-            (throw (ex-info "control stream closed during a frame"
-                            {:type :truncated-control-frame})))
+            (throw (ex-info "control stream closed during a message"
+                            {:type :truncated-control-message})))
 
           (= 10 value)
           (decode-utf8! (.toByteArray output))
 
           (>= (.size output) max-control-line-bytes)
-          (throw (ex-info "control frame exceeds its byte bound"
-                          {:type :control-frame-too-large
+          (throw (ex-info "control message exceeds its byte bound"
+                          {:type :control-message-too-large
                            :max-bytes max-control-line-bytes}))
 
           :else
@@ -156,16 +156,16 @@
     (try
       (loop []
         (if-let [line (read-control-line! System/in)]
-          (let [frame (canonical-control line)]
+          (let [message (canonical-control line)]
             ;; Drain is an event-loop command, never an acknowledgement. Keeping
             ;; it out of CONTROL-QUEUE makes it safe to request while one
             ;; admission is still unwinding its ack/nack boundary.
-            (.put (if (= "drain" (get frame "type"))
+            (.put (if (= "drain" (get message "type"))
                     event-queue
                     control-queue)
-                  (if (= "drain" (get frame "type"))
-                    {:kind :drain :epoch (get frame "epoch")}
-                    {:kind :frame :frame frame}))
+                  (if (= "drain" (get message "type"))
+                    {:kind :drain :epoch (get message "epoch")}
+                    {:kind :message :message message}))
               (recur))
           (.put control-queue {:kind :eof})))
       (catch Exception error
@@ -174,14 +174,14 @@
                :error-type
                (or (:type (ex-data error)) :control-reader-failed)})))))
 
-(defn emit! [frame]
-  (let [line (json/generate-string frame)
+(defn emit! [message]
+  (let [line (json/generate-string message)
         size (utf8-bytes line)]
-    (when (> size max-output-frame-bytes)
-      (throw (ex-info "live-feed output frame exceeds its byte bound"
-                      {:type :output-frame-too-large
-                       :max-bytes max-output-frame-bytes
-                       :frame-type (get frame "type")})))
+    (when (> size max-output-message-bytes)
+      (throw (ex-info "live-feed output message exceeds its byte bound"
+                      {:type :output-message-too-large
+                       :max-bytes max-output-message-bytes
+                       :message-type (get message "type")})))
     (println line)
     (flush)))
 
@@ -240,19 +240,19 @@
       (throw (ex-info "host control stream failed"
                       {:type (:error-type event)}))
 
-      (and (= :frame (:kind event))
+      (and (= :message (:kind event))
            (or (nil? expected-type)
-               (= expected-type (get-in event [:frame "type"])))
+               (= expected-type (get-in event [:message "type"])))
            (or (some? expected-type)
                (contains? #{"ack" "nack"}
-                          (get-in event [:frame "type"])))
+                          (get-in event [:message "type"])))
            (or (nil? expected-id)
-               (= expected-id (get-in event [:frame "id"]))))
-      (:frame event)
+               (= expected-id (get-in event [:message "id"]))))
+      (:message event)
 
       :else
-      (throw (ex-info "host control frame is out of sequence"
-                      {:type :unexpected-control-frame})))))
+      (throw (ex-info "host control message is out of sequence"
+                      {:type :unexpected-control-message})))))
 
 (defn role-slug [role]
   (when (and (string? role) (str/starts-with? role "@role:"))
@@ -417,7 +417,7 @@
         (or (not (map? facts))
             (not (and (string? observed)
                       (re-matches #"^[0-9a-f]{64}$" observed)))
-            (not (contains? #{"streaming" "turn-framed" "unsupported"} live-input))
+            (not (contains? #{"streaming" "turn-messaged" "unsupported"} live-input))
             (not (contains? #{"pending" "armed" "frozen"}
                             live-input-state))
             (not (safe-route-epoch? live-input-epoch)))
@@ -440,7 +440,7 @@
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
-        (or (not (contains? #{"streaming" "turn-framed"} live-input))
+        (or (not (contains? #{"streaming" "turn-messaged"} live-input))
             (not= "armed" live-input-state))
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
@@ -472,8 +472,8 @@
                        "from" from
                        "subject" subject
                        "body" body)))
-          max-output-frame-bytes)
-     "message_frame_too_large")))
+          max-output-message-bytes)
+     "message_too_large")))
 
 (defn deliver-message!
   ([port recipient message control-queue claim-ttl-ms ack-timeout-ms]
@@ -658,7 +658,7 @@
              port recipient @addrs control-queue
              claim-ttl-ms ack-timeout-ms))]
       ;; The first replay attempt is the host's terminal-boundary barrier. A
-      ;; delivered frame keeps replay-pending! blocked through host admission
+      ;; delivered message keeps replay-pending! blocked through host admission
       ;; and durable graph acknowledgement; a nacked or unavailable claim stays
       ;; graph-pending but no longer delays this provider session.
       (when deferred-start?
@@ -686,8 +686,8 @@
 
           (some? item)
           (throw
-           (ex-info "FRAMRPC live-feed received an invalid local event"
-                    {:type :invalid-framrpc-live-feed-event
+           (ex-info "Store RPC live-feed received an invalid local event"
+                    {:type :invalid-store-rpc-live-feed-event
                      :event item}))
 
           :else

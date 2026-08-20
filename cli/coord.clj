@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; One forward-only North coordination facade. Every data operation below is a
-;; canonical FRAMRPC request against a SpaceId; no newline socket, EDN envelope,
+;; canonical Store RPC request against a SpaceId; no newline socket, EDN envelope,
 ;; physical-log fence, protocol selector, or stale-runtime fallback exists here.
 (ns north.coord
   (:require [clojure.java.io :as io]
@@ -28,8 +28,8 @@
 (defn- port! [value]
   (let [parsed (if (integer? value) value (parse-long (str value)))]
     (when-not (and parsed (<= 1 parsed 65535))
-      (throw (ex-info "FRAMRPC port must be an integer from 1 through 65535"
-                      {:type :invalid-framrpc-port :value value})))
+      (throw (ex-info "Store RPC port must be an integer from 1 through 65535"
+                      {:type :invalid-store-rpc-port :value value})))
     (int parsed)))
 
 (defn- positive-env-int [name fallback maximum]
@@ -37,7 +37,7 @@
         value (when (re-matches #"[1-9][0-9]*" raw) (parse-long raw))]
     (when-not (and value (<= value maximum))
       (throw (ex-info (str name " must be an integer from 1 through " maximum)
-                      {:type :invalid-framrpc-bound :name name :value raw})))
+                      {:type :invalid-store-rpc-bound :name name :value raw})))
     (int value)))
 
 (defn request-deadline-ns [timeout-ms]
@@ -87,7 +87,7 @@
       :coordination)))
 
 (defn- host []
-  (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1"))
+  (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1"))
 
 (defn- domain-port [requested domain]
   (if (and (= domain :telemetry) (telemetry-partition-enabled?))
@@ -109,7 +109,7 @@
      (positive-env-int "NORTH_COORD_CONNECT_TIMEOUT_MS" 1000 999999))
     :read-timeout-ms
     (remaining-timeout-ms
-     (positive-env-int "NORTH_FRAMRPC_READ_TIMEOUT_MS" 30000 999999))
+     (positive-env-int "NORTH_STORE_READ_TIMEOUT_MS" 30000 999999))
     :max-attempts 3 :retry-delay-ms 10 :jitter-ms 25}))
 
 (defn- with-client! [port domain operation]
@@ -120,7 +120,7 @@
 ;; protocol and are not sent to the server; SpaceId is the runtime identity.
 (defn canonical-log-path [log]
   (when-not (and (string? log) (not (str/blank? log)))
-    (throw (ex-info "FRAMLOG identity must be a nonblank path"
+    (throw (ex-info "Beagle Store log identity must be a nonblank path"
                     {:type :invalid-log-identity :log log})))
   (.getCanonicalPath (io/file log)))
 
@@ -128,7 +128,7 @@
   (let [home (or (System/getenv "HOME") (System/getProperty "user.home"))]
     (canonical-log-path
      (or (System/getenv "BEAGLE_STORE_LOG")
-         (str home "/.local/state/north/coordination.framlog")))))
+         (str home "/.local/state/north/coordination.storelog")))))
 
 (defn telemetry-log-path []
   (when (telemetry-partition-enabled?)
@@ -488,7 +488,7 @@
     (let [{:keys [version rows]} (scan-rows! port domain nil nil nil)]
       {:available true :version version :facts rows})
     (catch Throwable error
-      {:available false :error (or (.getMessage error) "FRAMRPC scan failed")})))
+      {:available false :error (or (.getMessage error) "Store RPC scan failed")})))
 
 (defn live-facts-view [port]
   (let [telemetry-future (when (telemetry-partition-enabled?)
@@ -515,7 +515,7 @@
 (defn live-propositions [port]
   (let [view (live-facts-view port)]
     (when-not (:complete view)
-      (throw (ex-info "FRAMRPC live projection is incomplete"
+      (throw (ex-info "Store RPC live projection is incomplete"
                       {:type :incomplete-live-projection
                        :unavailable (:unavailable view)})))
     (mapv (fn [[subject predicate value]]

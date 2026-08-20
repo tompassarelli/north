@@ -1,5 +1,5 @@
 ;; north-map.clj — deterministic batch registry + BARRIER fixture. Sibling to
-;; presence-cli/msg-cli/lease-cli; all graph operations use canonical FRAMRPC.
+;; presence-cli/msg-cli/lease-cli; all graph operations use canonical Store RPC.
 ;; Managed lane creation lives on canonical North spawn/dispatch; this surface
 ;; only registers deterministic test batches.
 ;;
@@ -64,7 +64,7 @@
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
-      (throw (ex-info "FRAMRPC rejected batch registry publication"
+      (throw (ex-info "Store RPC rejected batch registry publication"
                       {:type :batch-publication-rejected :result result})))
     result))
 

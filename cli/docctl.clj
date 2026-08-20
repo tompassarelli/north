@@ -9,7 +9,7 @@
            (java.time Instant)))
 
 (def manifest-suffix ".doc.edn")
-(def ignored-directories #{".git" ".direnv" ".fram" ".docctl" "node_modules" "out" "target" "build"})
+(def ignored-directories #{".git" ".direnv" ".store" ".docctl" "node_modules" "out" "target" "build"})
 
 (defn fail! [message]
   (binding [*out* *err*]

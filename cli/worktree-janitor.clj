@@ -320,7 +320,7 @@
            [{:op :assert :subject subject :predicate "worktree_orphaned"
              :value value :cardinality :many}])]
       (when (:reject result)
-        (throw (ex-info "FRAMRPC rejected worktree orphan publication"
+        (throw (ex-info "Store RPC rejected worktree orphan publication"
                         {:type :worktree-orphan-publication-rejected
                          :result result})))
       (when-not (contains? (set (north.coord/many port subject "worktree_orphaned")) value)

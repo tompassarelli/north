@@ -4,7 +4,7 @@
 (defn utf8-length [value]
   (alength (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))
 
-(defn canonical-frame [tag values]
+(defn canonical-form [tag values]
   (str tag
        "["
        (apply str
@@ -22,34 +22,34 @@
    authority-bearing."
   [value]
   (cond
-    (nil? value) (canonical-frame "nil" [])
-    (boolean? value) (canonical-frame "bool" [(if value "true" "false")])
-    (string? value) (canonical-frame "string" [value])
+    (nil? value) (canonical-form "nil" [])
+    (boolean? value) (canonical-form "bool" [(if value "true" "false")])
+    (string? value) (canonical-form "string" [value])
     (keyword? value)
-    (canonical-frame "keyword" [(or (namespace value) "") (name value)])
+    (canonical-form "keyword" [(or (namespace value) "") (name value)])
     (symbol? value)
-    (canonical-frame "symbol" [(or (namespace value) "") (name value)])
-    (char? value) (canonical-frame "char" [(str value)])
+    (canonical-form "symbol" [(or (namespace value) "") (name value)])
+    (char? value) (canonical-form "char" [(str value)])
     (number? value)
-    (canonical-frame "number"
+    (canonical-form "number"
                      [(.getName (class value)) (pr-str value)])
     (map? value)
-    (canonical-frame
+    (canonical-form
      "map"
      (sort
       (map (fn [[key item]]
-             (canonical-frame
+             (canonical-form
               "entry"
               [(canonical-value key) (canonical-value item)]))
            value)))
     (set? value)
-    (canonical-frame "set" (sort (map canonical-value value)))
+    (canonical-form "set" (sort (map canonical-value value)))
     (vector? value)
-    (canonical-frame "vector" (map canonical-value value))
+    (canonical-form "vector" (map canonical-value value))
     (list? value)
-    (canonical-frame "list" (map canonical-value value))
+    (canonical-form "list" (map canonical-value value))
     (sequential? value)
-    (canonical-frame "sequence" (map canonical-value value))
+    (canonical-form "sequence" (map canonical-value value))
     :else
     (throw (ex-info "unsupported value in command idempotency preimage"
                     {:type :unsupported-command-id-value
@@ -60,7 +60,7 @@
    idempotency key. The versioned preimage is recursively canonical."
   [op args target idempotency-key]
   (let [canon
-        (canonical-frame
+        (canonical-form
          "north-command-id-v2"
          [(canonical-value (str idempotency-key))
           (canonical-value (str op))

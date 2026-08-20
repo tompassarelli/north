@@ -192,7 +192,7 @@
     (when missing (fail! "incomplete managed identity projection" {:predicates missing}))
     (when-not (= "lane" (get facts "kind"))
       (fail! "managed SDK identity kind must be lane" {:kind (get facts "kind")}))
-    (when-not (contains? #{"streaming" "turn-framed" "unsupported"} (get facts "live_input"))
+    (when-not (contains? #{"streaming" "turn-messaged" "unsupported"} (get facts "live_input"))
       (fail! "managed SDK identity has invalid live_input"
              {:live-input (get facts "live_input")}))
     (when-not (contains? #{"pending" "armed" "frozen"} (get facts "live_input_state"))
@@ -979,7 +979,7 @@
 
 (defn native-connect! [port]
   (native-rpc! 'connect
-               (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
+               (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1")
                port
                (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination")
                {:connect-timeout-ms 2000
@@ -1012,7 +1012,7 @@
 (defn native-fence-term [fence]
   (let [constructor (ns-resolve 'north.coord 'lease-fence)]
     (when-not constructor
-      (fail! "canonical FRAMRPC lease-fence constructor is unavailable" {}))
+      (fail! "canonical Store RPC lease-fence constructor is unavailable" {}))
     (constructor (:resource fence) (:holder fence) (:epoch fence))))
 
 (defn native-presence-valid? [client fence]
@@ -1064,7 +1064,7 @@
   [client served-version subject predicates]
   (let [projection (native-facts-of client subject predicates)]
     (when-not (= served-version (:served-version projection))
-      (throw (ex-info "FRAMRPC validation snapshot changed"
+      (throw (ex-info "Store RPC validation snapshot changed"
                       {:type :native/snapshot-conflict
                        :expected-version served-version
                        :served-version (:served-version projection)})))
@@ -1489,7 +1489,7 @@
     []
     (let [projection (native-rpc! 'subject-projection! client thread)]
       (when-not (= served-version (:served-version projection))
-        (throw (ex-info "FRAMRPC driver snapshot changed"
+        (throw (ex-info "Store RPC driver snapshot changed"
                         {:type :native/snapshot-conflict})))
       (let [driver (str "@" (subs subject (count "@agent:")))
             before (:occurrences projection)

@@ -7,7 +7,7 @@
 ;;   bb dispatch-guard.clj <port> <role>    — resolves role to its current holder
 (require '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; Shared coordination substrate: typed FRAMRPC reads live in cli/coord.clj.
+;; Shared coordination substrate: typed Store RPC reads live in cli/coord.clj.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (def resolved north.coord/resolved)
 

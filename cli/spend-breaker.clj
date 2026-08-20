@@ -5,7 +5,7 @@
 ;; This load-safe library owns the shared logic; both callers are thin adapters.
 ;;
 ;; DESIGN (spend-guard-design-2026-07-19.md §4): ONE global breaker
-;; `@spend-breaker:global`. Trip state is one atomic FRAMRPC publication.
+;; `@spend-breaker:global`. Trip state is one atomic Store RPC publication.
 ;; Tripped ⇒ every API-billed reservation refuses (~1ms coord read, checked in
 ;; spend-cli reserve!). Human-only reset. Trip conditions computed here:
 ;;   1. trailing-window ledger accrual > burn_limit × window (the burn-rate sweep)

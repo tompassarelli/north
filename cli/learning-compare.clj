@@ -466,7 +466,7 @@
      "experimentId" experiment-id
      "interpretation" "descriptive_only"
      "notice" "Observed cohorts only; no causal estimate is produced."
-     "source" (array-map "kind" "fram_facts" "version" source-version)
+     "source" (array-map "kind" "store_facts" "version" source-version)
      "population" (array-map
                     "attempts" (count observations)
                     "logicalChains" (count chain-groups)

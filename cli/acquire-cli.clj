@@ -5,7 +5,7 @@
 ;; transaction commits; the other replans and sees the winner.
 (require '[clojure.java.io :as io] '[clojure.string :as str])
 
-;; Shared coordination substrate: typed FRAMRPC reads and transactions live once.
+;; Shared coordination substrate: typed Store RPC reads and transactions live once.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (defn- driver-of [port thread]

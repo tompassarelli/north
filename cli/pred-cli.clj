@@ -19,7 +19,7 @@
 ;;
 (require '[clojure.java.io :as io] '[clojure.string :as str] '[clojure.walk :as walk])
 
-;; Shared FRAMRPC coordination facade.
+;; Shared Store RPC coordination facade.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (defn set-action [subject predicate values cardinality]
@@ -105,7 +105,7 @@
    ["model"          "single" "literal" "model id an agent runs"]
    ["effort"         "single" "literal" "reasoning-effort knob"]
    ["provider_target" "single" "literal" "exact provider account/target active for an agent or run"]
-   ["live_input" "single" "literal" "resolved adapter live-input capability (streaming|turn-framed|unsupported)"]
+   ["live_input" "single" "literal" "resolved adapter live-input capability (streaming|turn-messaged|unsupported)"]
    ["live_input_state" "single" "literal" "current managed live-input route state (pending|armed|frozen)"]
    ["live_input_epoch" "single" "literal" "opaque UUIDv4 generation for one exact managed route publication"]
    ["shadow_reviewer_note_capability_sha256" "single" "literal" "SHA-256 of the unpersisted host-only shadow-reviewer note capability"]
@@ -293,7 +293,7 @@
    ["touches" "multi"  "literal" "file paths a concern touches (display label + the path-string footprint fallback for non-flipped repos)"]
    ["footprint" "multi" "ref"    "code node (@mod#n) in a concern's footprint; asserted on the repo's warm code port and joined through the server-derived calls_defn closure"]
    ["code_port" "single" "literal" "port of the repo's warm code server, so a reader finds the concern footprint database"]
-   ["code_log" "single" "literal" "canonical FRAMLOG identity served by a concern's per-repo code server"]
+   ["code_log" "single" "literal" "canonical Beagle Store log identity served by a concern's per-repo code server"]
    ;; --- fan-out / barrier (north-map) ---
    ["batch_kind"     "single" "literal" "kind of fan-out batch"]
    ["expected_count" "single" "literal" "N workers expected in a fan-out batch"]

@@ -1,7 +1,7 @@
 ;; concern-cli.clj — concern-level coordination for parallel agents, not locks.
 ;; Concerns coexist. Their canonical path footprints are published to the
 ;; coordination SpaceId, and overlap is derived from indexed predicate/object
-;; reads. A separate code store is admitted only through an explicit FRAMRPC
+;; reads. A separate code store is admitted only through an explicit Store RPC
 ;; endpoint; the current port/log-only configuration fails closed.
 ;;
 ;; usage (port = north threads, 7977):
@@ -20,7 +20,7 @@
          '[clojure.set :as set] '[clojure.java.shell :as shell]
          '[cheshire.core :as json])
 
-;; Shared coordination substrate. Reads and writes use the canonical FRAMRPC
+;; Shared coordination substrate. Reads and writes use the canonical Store RPC
 ;; facade; this CLI never constructs transport operations itself.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool.clj"))
@@ -41,7 +41,7 @@
                  (boolean? (:changed? response))
                  (vector? (:results response)))
     (throw
-     (ex-info "FRAMRPC acknowledgement for concern write is ambiguous"
+     (ex-info "Store RPC acknowledgement for concern write is ambiguous"
               {:type :concern-write-transport-unknown
                :response response})))
   response)
@@ -85,7 +85,7 @@
       (if (transaction-ack? response (count actions))
         response
         (throw
-         (ex-info "FRAMRPC acknowledgement for concern transaction is ambiguous"
+         (ex-info "Store RPC acknowledgement for concern transaction is ambiguous"
                   {:type :concern-write-transport-unknown
                    :response response}))))))
 
@@ -216,8 +216,8 @@
     (code-store-error! "code log identity must be an absolute path"))
   (throw
    (ex-info
-    "code-store concern routing requires an explicit canonical FRAMRPC SpaceId"
-    {:type :code-store-framrpc-routing-unavailable
+    "code-store concern routing requires an explicit canonical Store RPC SpaceId"
+    {:type :store-rpc-routing-unavailable
      :target-log log})))
 
 (defn validate-code-store! [_port log]
@@ -1352,7 +1352,7 @@
     :rpc/retry-exhausted
     :concern-declare-transport-unknown
     :concern-write-transport-unknown
-    :code-store-framrpc-routing-unavailable})
+    :store-rpc-routing-unavailable})
 
 (defn transport-unknown? [error]
   (loop [cause error]
@@ -1451,7 +1451,7 @@
     (cond
       (:reject response)
       (throw
-       (ex-info "FRAMRPC explicitly rejected concern declaration"
+       (ex-info "Store RPC explicitly rejected concern declaration"
                 {:type :concern-declare-semantic-rejection
                  :response response}))
 
@@ -1460,14 +1460,14 @@
 
       :else
       (throw
-       (ex-info "FRAMRPC acknowledgement for concern declaration is ambiguous"
+       (ex-info "Store RPC acknowledgement for concern declaration is ambiguous"
                 {:type :concern-declare-transport-unknown})))))
 
 (defn ensure-agent-label! [port agent agent-ref]
   (when (and (nil? (resolved port agent-ref "identity_manifest_sha256"))
              (nil? (resolved port agent-ref "display_name")))
     (require-publication!
-     "FRAMRPC explicitly rejected concern principal label"
+     "Store RPC explicitly rejected concern principal label"
      (north.coord/publish!
       port
       [{:op :set :subject agent-ref :predicate "display_name"
@@ -1476,14 +1476,14 @@
 (defn durable-local-declare! [operation about-raw]
   (when (and about-raw (not (exact-ref? about-raw)))
     (configuration-error!
-     (str "FRAMRPC transport is unavailable; --about must be an exact @ref "
+     (str "Store RPC transport is unavailable; --about must be an exact @ref "
           "before a durable-local operation can be published (nothing was spooled)")))
   (when (and about-raw
              (nil? (get-in operation
                            [:precondition :about :binding-cid])))
     (binding [*out* *err*]
       (println
-       (str "concern: FRAMRPC transport is unavailable before --about "
+       (str "concern: Store RPC transport is unavailable before --about "
             "could be bound to a stable thread identity; nothing was spooled")))
     (System/exit 4))
   (try
@@ -1553,14 +1553,14 @@
            :values [revision] :cardinality :one}])]
     (when (:reject response)
       (throw
-       (ex-info "FRAMRPC rejected the concern candidate identity"
+       (ex-info "Store RPC rejected the concern candidate identity"
                 {:type :concern-candidate-rejected
                  :concern concern
                  :revision revision
                  :git-dir git-dir
                  :response response})))
     (require-publication!
-     "FRAMRPC rejected the concern candidate identity"
+     "Store RPC rejected the concern candidate identity"
      response)
     (when-not (and (= revision (resolved port concern "candidate_rev"))
                    (= git-dir (resolved port concern "candidate_git_dir")))

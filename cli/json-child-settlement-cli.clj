@@ -13,7 +13,7 @@
 
 (def show-envelope (ns-resolve 'north.coord 'show-envelope))
 
-;; The FRAMRPC server's per-query row ceiling. Overflow REFUSES rather than
+;; The Store RPC server's per-query row ceiling. Overflow REFUSES rather than
 ;; truncating: a short child or run set reads to the SDK as "those children
 ;; settled" and would retire a live lane.
 (def max-rows 4096)
@@ -62,7 +62,7 @@
   (if (str/starts-with? subject "@") (subs subject 1) subject))
 
 (defn- malformed! [detail]
-  (throw (ex-info (str "FRAMRPC server returned a malformed " detail)
+  (throw (ex-info (str "Store RPC server returned a malformed " detail)
                   {:type :malformed-settlement-row})))
 
 (defn- rows-of-width [rows width detail]

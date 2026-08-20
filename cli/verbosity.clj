@@ -8,7 +8,7 @@
 ;; is how 2026-07-29 went:
 ;;
 ;;   - every `north tell` was refused with "coordinator unavailable"; the real
-;;     cause was a log-identity mismatch, discarded three frames down.
+;;     cause was a log-identity mismatch, discarded three records down.
 ;;   - a failed spawn showed 16 missing identity fields; the durable log held
 ;;     `Connection refused`, which nothing surfaced.
 ;;

@@ -20,7 +20,7 @@
          '[cheshire.core :as json])
 
 (def TTL 1800000)         ; 30min lease; renewed on every tool call (PostToolUse hook)
-;; Shared coordination substrate: canonical FRAMRPC reads, writes, and leases.
+;; Shared coordination substrate: canonical Store RPC reads, writes, and leases.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (def append!  north.coord/append!)
