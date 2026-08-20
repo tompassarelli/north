@@ -27,7 +27,8 @@ function usage(): never {
   console.error(
     "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
     + " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
-    + " | north bridge dashboard [--once] [--ids] | north bridge accept"
+    + " | north bridge dashboard [--once] [--ids]"
+    + " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>"
     + " | north bridge restart  (retire the control daemon now)"
     + " | north bridge pending [--json | --consume <execution-id>]"
     + " | north bridge attach <execution-id> [--cursor N]"
@@ -502,8 +503,16 @@ async function main(args: string[]): Promise<number> {
     return runBridgeRestart(bridgeSocketPath());
   }
   if (args[0] === "accept") {
-    if (args.length !== 1) usage();
-    try { await runBridgeAcceptance(); return 0; }
+    if (args.length !== 3) usage();
+    try {
+      await runBridgeAcceptance({
+        attemptIds: [
+          parseBridgeLaunchAttemptId(args[1]),
+          parseBridgeLaunchAttemptId(args[2]),
+        ],
+      });
+      return 0;
+    }
     catch { return 1; }
   }
   let request: BridgeRequest;
