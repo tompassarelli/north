@@ -195,7 +195,7 @@ A fresh session can receive context from:
 
 [Observed] Live Claude MCP declarations name:
 
-- `fram`
+- `store`
 - `north`
 - `linear-mcp-msa-new`
 

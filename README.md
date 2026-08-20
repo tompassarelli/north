@@ -106,7 +106,7 @@ work off that host until the engine identity is parameterized.
   [`cli/msg-cli.clj`](cli/msg-cli.clj)).
 - **One serialized write path.** Every coordination-graph write goes through the
   current Beagle Store server on `127.0.0.1:7977` (`NORTH_PORT`), which serializes and
-  rule-checks each publication through canonical FRAMRPC. The two carve-outs are
+  rule-checks each publication through canonical Store RPC. The two carve-outs are
   deliberate and not coordination facts: the telemetry partition and the Bridge
   journal's local replay log
   ([docs/architecture.md](docs/architecture.md#the-write-path)).
@@ -118,7 +118,7 @@ work off that host until the engine identity is parameterized.
 
 North is pre-1.0: surfaces change between releases and there are no
 back-compatibility shims. Your data is not in this repository — canonical
-FRAMLOG databases live in your own state directory and are projected at
+Store log databases live in your own state directory and are projected at
 runtime. When the Beagle Store server or its runtime is unavailable, `north panic` is a
 Bash-only recovery path that writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves other keys, and prints the exact

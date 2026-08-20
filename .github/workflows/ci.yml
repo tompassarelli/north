@@ -145,7 +145,7 @@ jobs:
           bb cli/tests/worktree-janitor-integration-test.clj  # real Git + isolated Beagle Store server, scheduled task twice
           bb cli/tests/unregistered-worktree-sweep-test.clj  # unclaimed worktrees/ reap + the pins/ exclusion: real Git, deferred graph joins, server-free
           bb cli/tests/maintenance-large-corpus-test.clj  # >221k live facts + 48 lanes complete without scan/fixpoint amplification
-      - name: FRAMRPC policy and startup boundaries
+      - name: Store RPC policy and startup boundaries
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
@@ -221,7 +221,7 @@ jobs:
           BEAGLE_STORE_PATH="$GITHUB_WORKSPACE/beagle/store" bb cli/tests/spend-cli-test.clj
           BEAGLE_STORE_PATH="$GITHUB_WORKSPACE/beagle/store" bb cli/tests/spend-breaker-test.clj
 
-      - name: Arena FRAMRPC integration
+      - name: Arena Store RPC integration
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: BEAGLE_STORE_HOME="$GITHUB_WORKSPACE/beagle/store" bash bin/tests/arena-seed-test.sh

@@ -1,11 +1,11 @@
 ;; validate_test.clj — north's WORK-semantics integrity rules, lifted out of
-;; the fram kernel into north.validate: a depends_on edge to a withdrawn
+;; the Store kernel into north.validate: a depends_on edge to a withdrawn
 ;; (abandoned) thread, and person-ref integrity (lead/driver/proposed_by must
 ;; point at a node carrying a `display_name`). Plus: north.validate composes
 ;; these ON TOP of the engine's generic rules (cycles/dangling), so violations-i
 ;; surfaces both. North also owns the stronger thread-only target shape for
 ;; part_of/depends_on/relates_to; generic refs may target any fact-bearing
-;; entity. (The generic half is covered in fram/tests/kernel_violations_test.clj.)
+;; entity. (The generic half is covered in store/tests/kernel_violations_test.clj.)
 ;;   bb -cp out:$STORE/out tests/validate_test.clj      (run from the repo root)
 (require '[store.types :as t] '[north.projections :as proj]
          '[north.validate :as val])

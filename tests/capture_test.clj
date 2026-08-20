@@ -3,8 +3,8 @@
 ;;       @yyyy-MM-dd-HHmmss timestamp scheme), and
 ;;   (2) asserts an explicit full-ISO `created_at` fact (now-iso) at birth, while
 ;;   (3) `resolve-ref` maps a @handle (or @id) ref to the canonical @id, latest
-;;       created_at winning ties — the boundary fram never sees a handle through.
-;;   BEAGLE_STORE_OUT=/path/to/fram/out bb -cp out:"$BEAGLE_STORE_OUT" tests/capture_test.clj
+;;       created_at winning ties — the Store boundary never sees a handle through.
+;;   BEAGLE_STORE_OUT=/path/to/store/out bb -cp out:"$BEAGLE_STORE_OUT" tests/capture_test.clj
 (require '[store.types :as t] '[store.rt :as rt] '[north.main :as m]
          '[north.projections :as proj]
          '[clojure.string :as str] '[cheshire.core :as json])

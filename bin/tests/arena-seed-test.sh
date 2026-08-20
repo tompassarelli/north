@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STORE="${BEAGLE_STORE_HOME:?arena-seed-test requires the explicit Beagle Store selection}"
 TMP="$(mktemp -d)"
-LOG="$TMP/history.framlog"
+LOG="$TMP/history.storelog"
 SERVER_LOG="$TMP/server.log"
 SPACE="arena-seed-test"
 PID=""
@@ -77,4 +77,4 @@ RESULT="$(
 )"
 [[ "$RESULT" == '["green" "failed" "blocked"]' ]]
 
-echo "arena seed test: PASS (canonical FRAMRPC/FRAMLOG, current Beagle Store main, no 60s delay)"
+echo "arena seed test: PASS (canonical Store RPC/store log, current Beagle Store main, no 60s delay)"

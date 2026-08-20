@@ -26,8 +26,8 @@ selector_lock=$state_parent/.${project}-runtime.selector.lock
 port=${NORTH_PORT:-7977}
 bb=${NORTH_BB:-bb}
 cli_root=${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}
-fram_out=${BEAGLE_STORE_OUT:-}
-north_runtime_classpath=$cli_root/out${fram_out:+:$fram_out}
+store_out=${BEAGLE_STORE_OUT:-}
+north_runtime_classpath=$cli_root/out${store_out:+:$store_out}
 
 record_format=north-runtime/v1
 identity_format=north-runtime-v1
@@ -237,7 +237,7 @@ publish_fact() {
                     (partition 2 (drop 3 args)))
       response (north.coord/publish! port actions)]
   (when-not (:ok response)
-    (binding [*out* *err*] (println (str "FRAMRPC publication rejected: " (pr-str response))))
+    (binding [*out* *err*] (println (str "Store RPC publication rejected: " (pr-str response))))
     (System/exit 1))
   (println subject))' \
     "$cli_root" "$port" "@north-runtime-promote:$id" \

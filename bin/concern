@@ -4,12 +4,12 @@
 # work are surfaced so agents shape around each other. See cli/concern-cli.clj.
 #
 # Footprints stay path-based. Configured code stores remain durable-local until
-# they have their own explicit FRAMRPC endpoint.
+# they have their own explicit Store RPC endpoint.
 set -euo pipefail
 ROOT="${NORTH_HOME:-$(cd "$(dirname "$0")/.." && pwd -P)}"
-BOARD="${NORTH_PORT:?concern requires the canonical FRAMRPC port}"
-FRAMRPC_OUT="${BEAGLE_STORE_OUT:?concern requires the canonical Beagle Store classpath}"
-NORTH_RUNTIME_CLASSPATH="$ROOT/out:$FRAMRPC_OUT"
+BOARD="${NORTH_PORT:?concern requires the canonical Store RPC port}"
+STORE_RPC_OUT="${BEAGLE_STORE_OUT:?concern requires the canonical Beagle Store classpath}"
+NORTH_RUNTIME_CLASSPATH="$ROOT/out:$STORE_RPC_OUT"
 export NORTH_RUNTIME_CLASSPATH
 # See bin/north for the resolution-chain rationale: a promoted deployment's
 # exec unit may carry neither bb nor NORTH_BB on PATH.

@@ -175,17 +175,17 @@ the Beagle Store engine core underneath is **10 tools** (`tell`/`retract`/`show`
 `validate` + 5 graph-edit verbs). Vocabulary is data, not tools — there is no
 per-predicate tool catalog to memorize; `north show <pred>` reveals a predicate.
 
-### FRAMRPC and FRAMLOG
+### Store RPC and store logs
 
 North clients address the canonical Beagle Store server by host, port, and SpaceId.
 They never select or fold a physical log. The installed wrappers inherit the
-selected FRAMRPC environment; missing endpoint identity fails closed.
+selected Store RPC environment; missing endpoint identity fails closed.
 Coordination and telemetry remain separate logical
 spaces and every cross-space read names its domain explicitly.
 
 Every new entity self-identifies its kind at birth. `north capture` publishes
 `kind thread` in the same atomic transaction, while concern and telemetry
-writers publish their own kinds. FRAMLOG is server-owned persistence beneath
+writers publish their own kinds. Store logs are server-owned persistence beneath
 that typed interface, not a client compatibility surface.
 
 ### ids and filenames
@@ -545,7 +545,7 @@ fine. The system handles both.
 ## The CLI: `north`
 
 One binary. Run it via the north wrapper: **`~/code/north/main/bin/north`**.
-The installed wrapper inherits the sealed current-Beagle Store FRAMRPC endpoint and
+The installed wrapper inherits the sealed current Beagle Store endpoint over Store RPC and
 sets capture provenance defaults. `~/code/north/main/bin/north-mcp` forwards
 that exact inherited endpoint to managed children and refuses to invent a
 default when the wrapper contract is absent.

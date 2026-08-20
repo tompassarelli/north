@@ -93,15 +93,15 @@ within fixed bounds. A cleanup error is reported when the command otherwise
 succeeded, but never replaces the command's primary failure.
 
 The app-server transport parses newline-delimited JSON as raw bytes. UTF-8 is
-decoded fatally only after a complete frame is present; a split multibyte
+decoded fatally only after a complete packet is present; a split multibyte
 character is preserved, while invalid UTF-8, a line larger than 1 MiB, or any
-partial frame at EOF invalidates the session. The byte limit is per line, not
-per read buffer, so a large chunk containing many individually bounded frames
+partial packet at EOF invalidates the session. The byte limit is per line, not
+per read buffer, so a large chunk containing many individually bounded packets
 is valid. Every JSON authority boundary uses the same bounded strict parser:
 duplicate object keys, ill-formed Unicode, excessive nesting, and excessive
-node counts fail closed. This applies both to raw app-server frames and to JSON
+node counts fail closed. This applies both to raw app-server packets and to JSON
 embedded in MCP text results; a permissive second parse cannot reinterpret a
-frame that passed the first boundary. `isError`, when present, must be a
+packet that passed the first boundary. `isError`, when present, must be a
 boolean. Outgoing JSONL requests have the same 1 MiB ceiling and are fully
 serialized before the provider call; an invalid or oversized request cannot
 create a provider-side effect. MCP inventory traversal stops at 20 pages or 100

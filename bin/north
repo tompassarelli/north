@@ -5,7 +5,7 @@
 # configuration and capture provenance; executable predicate schema lives in
 # the coordination graph itself.
 #
-#   engine: Nix-published FRAMRPC environment or explicit test env   data: XDG state
+#   engine: Nix-published Store RPC environment or explicit test env   data: XDG state
 # `zero` is deliberately before every export below: it is the escape hatch when
 # this wrapper or its state is the broken component.
 if [ "${1:-}" = "zero" ]; then
@@ -172,7 +172,7 @@ else
   exit 127
 fi
 BUN="${NORTH_BUN:-bun}"
-# Every North data path speaks canonical FRAMRPC through the one façade.
+# Every North data path speaks canonical Store RPC through the one façade.
 NORTH_BARS=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/bars-cli.clj")
 NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" --init "$NORTH/cli/coord.clj" -m north.main)
 
@@ -289,7 +289,7 @@ deny_generic_run_mutation() {
 
 deny_generic_run_mutation "$@" || exit 1
 
-# Cheap canonical FRAMRPC readiness boundary. A status request is fenced by the
+# Cheap canonical Store RPC readiness boundary. A status request is fenced by the
 # configured SpaceId and never reads or folds the projected corpus.
 coord_runtime_ready() {
   local runtime_root
@@ -298,7 +298,7 @@ coord_runtime_ready() {
     >/dev/null || return $?
   "$BB" "$NORTH/cli/runtime-attestation.clj" \
     "${NORTH_PORT:-7977}" "$BEAGLE_STORE_LOG" "$BEAGLE_STORE_SPACE_ID" \
-    "$runtime_root/north-store.runtime" north-fram.service \
+    "$runtime_root/north-store.runtime" north-store.service \
     >/dev/null || return $?
   if [ "${NORTH_TELEMETRY_PARTITION:-0}" = 1 ]; then
     env -u BEAGLE_STORE_TELEMETRY_LOG \
@@ -315,7 +315,7 @@ coord_runtime_ready() {
 
 coord_safety_ready() {
   coord_runtime_ready || return $?
-  echo "canonical FRAMRPC SpaceId readiness OK"
+  echo "canonical Store RPC SpaceId readiness OK"
 }
 
 case "${1:-}" in

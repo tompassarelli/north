@@ -5,7 +5,7 @@
 ;;       preserved exactly instead of collapsing into presentation buckets.
 ;;   (2) census: per-kind subject + fact counts, sorted by fact count desc.
 ;;   (3) predicate metadata (cardinality/value_kind) is surfaced from the graph.
-;;   BEAGLE_STORE_OUT=/path/to/fram/out bb -cp out:"$BEAGLE_STORE_OUT" tests/schema_test.clj
+;;   BEAGLE_STORE_OUT=/path/to/store/out bb -cp out:"$BEAGLE_STORE_OUT" tests/schema_test.clj
 (require '[store.types :as t] '[north.projections :as proj]
          '[north.main :as m])
 

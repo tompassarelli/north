@@ -228,7 +228,7 @@ out-of-store wins for user-owned
 hot-loop files; a store-managed copy requires a named immutability, security,
 publication, or rollback invariant.
 
-north, fram, and beagle deliver code through their own channels — live
+north, store, and beagle deliver code through their own channels — live
 checkout (CLIs), `north-coord-runtime`/`north-runtime` promote (daemons,
 workers, timers), sealed `north-enforcement-promote` (guards, deliberately
 slow). Do not rebuild solely to adopt hot-loop code; fix its delivery channel.

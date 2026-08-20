@@ -25,7 +25,7 @@ Quick lookups → bash/grep/read inline. Real work → the protocol below.
   the message. Alias-first delivery resolves the current live recipient and fails
   loudly when none is reachable. Observe via `north watch`, `north agents`, or
   `north threads`; the CLI/MCP surface is authoritative.
-- **Concurrency is the engine's job** — fram owns write-serialization + OCC + the `lease`
+- **Concurrency is the engine's job** — Store owns write-serialization + OCC + the `lease`
   primitive (`acquire`/`release`/`fence`); apps express coordination as facts, never
   self-rolled locks. (`driver` = app intent; `lease` = DB mutual-exclusion — never conflate.)
 - **Managed recursion** (when the mode selects North dispatch): children are

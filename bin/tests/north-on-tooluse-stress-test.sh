@@ -334,7 +334,7 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
                  (= #{"flush-agent"} direct-addresses)
                  (= 256 limit)
                  (nil? after))
-    (mismatch! "pending page framing" (last @calls)))
+    (mismatch! "pending page packet" (last @calls)))
   {:rows [["@msg:flush-proof"]]
    :messages ["@msg:flush-proof"]
    :done? true :cursor nil :served-version 1})
@@ -432,7 +432,7 @@ if [ "$flush_rc" -ne 124 ]; then
   printf 'ack-stall fixture failed (exit %s):\n' "$flush_rc" >&2
   sed -n '1,120p' "$TMP/flush.err" >&2
 fi
-check "fixture observes canonical pending-page framing before the claim protocol" \
+check "fixture observes canonical pending-page packet before the claim protocol" \
   grep -Fxq "pending-page-ok" "$STATUS_FILE"
 check "fixture reaches ACK only after the bounded canonical pre-ACK operations" \
   grep -Fxq "ack-reached" "$STATUS_FILE"

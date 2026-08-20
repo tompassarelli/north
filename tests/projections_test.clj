@@ -7,7 +7,7 @@
          '[north.projections :as proj]
          '[north.main])
 
-(defn asrt [_tx l p r _frame] (t/triple l p r))
+(defn asrt [_tx l p r _record] (t/triple l p r))
 
 (def today "2026-06-16")
 (defn before? [a b] (neg? (compare a b)))

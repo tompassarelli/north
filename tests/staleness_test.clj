@@ -9,9 +9,9 @@
          '[north.projections :as proj]
          '[north.staleness :as stale])
 
-(defn asrt [tx l p r frame]
+(defn asrt [tx l p r record]
   {:triple (t/triple l p r)
-   :latest (stale/->Latest tx l p r frame)})
+   :latest (stale/->Latest tx l p r record)})
 
 (def asserts
   [;; @t1 — past valid_until, committed, non-terminal  -> time-stale
@@ -20,7 +20,7 @@
    (asrt 3 "@t1" "estimate_hours" "10" "import")
    (asrt 4 "@t1" "valid_until" "2020-01-01" "import")
    (asrt 5 "@t1" "committed" "2026-01-01" "import")
-   ;; @t2 — estimate, then a LATER agent-frame depends_on  -> estimate-stale (positive)
+   ;; @t2 — estimate, then a LATER agent-record depends_on  -> estimate-stale (positive)
    (asrt 20 "@t2" "title" "T2" "import")
    (asrt 21 "@t2" "body" "b" "import")
    (asrt 22 "@t2" "estimate_hours" "5" "import")

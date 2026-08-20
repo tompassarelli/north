@@ -86,7 +86,7 @@ pass "tracked sdk/src has no unsanctioned impurity"
 
 # F: north-data is a runtime corpus directory, not the north source checkout.
 mkdir -p "$work/f/cli"
-printf '    (str home "/code/north-data/coordination.framlog")\n' > "$work/f/cli/coord.clj"
+printf '    (str home "/code/north-data/coordination.storelog")\n' > "$work/f/cli/coord.clj"
 expect_clean "$work/f" "runtime north-data path is not mistaken for the north checkout"
 
 # G: the actual checkout root and its descendants remain fatal.

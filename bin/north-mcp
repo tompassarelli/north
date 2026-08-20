@@ -3,12 +3,12 @@
 ;;
 ;; Speaks MCP (JSON-RPC 2.0, newline-delimited, over stdio) and maps each tool
 ;; call to the existing `north` engine, so it reuses every tested op and the
-;; canonical FRAMRPC path. A consumer chat AI connects, gets the
+;; canonical Store RPC path. A consumer chat AI connects, gets the
 ;; tools + the cheatsheet (server `instructions`), and never touches a CLI.
 ;;
 ;; Config (per instance, via env — the same vars the engine reads):
 ;;   NORTH_BIN   path to the engine wrapper to invoke (default: sibling `north`)
-;;   canonical FRAMRPC endpoint + BEAGLE_STORE_THREADS / provenance vars passed through
+;;   canonical Store RPC endpoint + BEAGLE_STORE_THREADS / provenance vars passed through
 ;;
 ;; Transport here is stdio (local, zero-setup). HTTP/SSE + auth is the next layer.
 (require '[cheshire.core :as json]
@@ -478,25 +478,25 @@
 ;;      the immediate parent, not a leaked top-of-tree pin;
 ;;   3. NORTH_AGENT_ID — a pinned session id (last, so an inherited pin never beats #2).
 ;; Captured from `env` BEFORE cmd-env reassigns AGENT_ID to the new lane.
-(def required-framrpc-instance-keys
+(def required-store-rpc-instance-keys
   ["BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT"
    "BEAGLE_STORE_SPACE_ID" "BEAGLE_STORE_SERVER_PORT" "NORTH_PORT"
    "NORTH_TELEMETRY_SPACE_ID" "NORTH_TELEMETRY_PORT"
    "NORTH_TELEMETRY_PARTITION"])
 
 (defn materialize-instance-env
-  "Pass the one sealed FRAMRPC instance inherited from the installed wrapper.
+  "Pass the one sealed Store RPC instance inherited from the installed wrapper.
   Missing selector keys fail closed; MCP never invents or parses a second
   runtime selection and never forwards physical log paths to managed clients."
   [source]
-  (let [missing (->> required-framrpc-instance-keys
+  (let [missing (->> required-store-rpc-instance-keys
                      (filter #(str/blank? (get source %)))
                      vec)]
     (when (seq missing)
       (throw (ex-info
-              (str "canonical FRAMRPC environment is incomplete; missing "
+              (str "canonical Store RPC environment is incomplete; missing "
                    (str/join ", " missing))
-              {:north/error :missing-framrpc-environment
+              {:north/error :missing-store-rpc-environment
                :missing missing})))
     (let [home (or (not-empty (get source "HOME"))
                    (System/getProperty "user.home"))

@@ -5,7 +5,7 @@
 # env but carries the subagent's OWN session_id). Both spawn + tooluse preferred the
 # env pin over the per-session cache, so every subagent aliased the parent id — the
 # roster, concern ledger, and peer-mail inbox all attributed several workstreams to
-# one name, and mail was answered by whichever actor peeked first (cc-fram-d5523b3b,
+# one name, and mail was answered by whichever actor peeked first (cc-store-d5523b3b,
 # under the incident-era cc- prefix; native ids now carry a full typed digest).
 #
 # INVARIANT under test: one live actor == one id. A given id is renewed/registered
@@ -41,8 +41,8 @@ exit 0
 EOF
 chmod +x "$SHIM/bb"
 
-# fram-named non-git cwd -> hooks fall back to REPO=cwd, RN=fram (mirrors the incident)
-REPO_DIR="$TMP/fram"; mkdir -p "$REPO_DIR"
+# store-named non-git cwd -> hooks fall back to REPO=cwd, RN=store (mirrors the incident)
+REPO_DIR="$TMP/store"; mkdir -p "$REPO_DIR"
 
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }

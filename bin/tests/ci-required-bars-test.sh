@@ -227,7 +227,7 @@ grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration' "$WOR
 grep -Fq 'BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store' "$WORKFLOW"
 grep -Fq 'BEAGLE_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
 grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
-if grep -Eq '/home/tom/code/(fram|beagle)' "$WORKFLOW"; then
+if grep -Eq '/home/tom/code/(store|beagle)' "$WORKFLOW"; then
   echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local engine path' >&2
   exit 1
 fi
