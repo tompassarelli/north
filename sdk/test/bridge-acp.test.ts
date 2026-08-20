@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
 import { createBridgeAcpApplication } from "../src/acp/agent";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import { Northd } from "../src/bridge/host";
 import { scanJournalFile } from "../src/bridge/journal";
 import type {
@@ -36,6 +37,7 @@ async function fixture(provider: BridgeProviderExecution): Promise<AcpFixture> {
     socketPath,
     journalRoot,
     provider,
+    commandReceipts: new MemoryBridgeCommandReceipts([attemptId]),
     selectProvider: async () => "openai",
     sourceIdentity: () => undefined,
   });
