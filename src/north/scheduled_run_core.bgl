@@ -1,0 +1,88 @@
+#lang beagle
+
+(ns north.scheduled-run-core)
+
+(defrecord OriginIdentity
+  [schedule-id String
+   trigger-id String])
+
+(defrecord PredecessorOutput
+  [run-id String
+   output-receipt String])
+
+(defrecord DedupeIdentity
+  [origin OriginIdentity
+   occurrence Int])
+
+(defrecord ScheduledRun
+  [id String
+   origin OriginIdentity
+   predecessor-output PredecessorOutput?
+   revision Int
+   lease-owner String?
+   lease-expires-at-ms Int
+   event-receipt String?
+   dedupe DedupeIdentity])
+
+(defrecord ReclaimRequest
+  [run-id String
+   observed-revision Int
+   stale-owner String
+   replacement-owner String
+   replacement-lease-expires-at-ms Int])
+
+(defrecord ReclamationDecision
+  [run-id String
+   accepted Bool
+   expected-revision Int
+   expected-lease-owner String?
+   replacement ScheduledRun?
+   reason Keyword])
+
+(defn rejected-reclamation
+  [run ScheduledRun
+   reason Keyword] ReclamationDecision
+  (->ReclamationDecision
+   (scheduledrun-id run)
+   false
+   (scheduledrun-revision run)
+   (scheduledrun-lease-owner run)
+   nil
+   reason))
+
+;; The Store transaction compares this revision and lease owner before writing replacement.
+(defn stale-owner-reclamation
+  [run ScheduledRun
+   request ReclaimRequest
+   now-ms Int] ReclamationDecision
+  (cond
+    (not (= (scheduledrun-id run) (reclaimrequest-run-id request)))
+    (rejected-reclamation run :run-mismatch)
+
+    (not (= (scheduledrun-revision run)
+            (reclaimrequest-observed-revision request)))
+    (rejected-reclamation run :revision-mismatch)
+
+    (not (= (scheduledrun-lease-owner run)
+            (reclaimrequest-stale-owner request)))
+    (rejected-reclamation run :owner-mismatch)
+
+    (> (scheduledrun-lease-expires-at-ms run) now-ms)
+    (rejected-reclamation run :lease-current)
+
+    :else
+    (->ReclamationDecision
+     (scheduledrun-id run)
+     true
+     (scheduledrun-revision run)
+     (scheduledrun-lease-owner run)
+     (->ScheduledRun
+      (scheduledrun-id run)
+      (scheduledrun-origin run)
+      (scheduledrun-predecessor-output run)
+      (inc (scheduledrun-revision run))
+      (reclaimrequest-replacement-owner request)
+      (reclaimrequest-replacement-lease-expires-at-ms request)
+      (scheduledrun-event-receipt run)
+      (scheduledrun-dedupe run))
+     :stale-owner-reclaimed)))

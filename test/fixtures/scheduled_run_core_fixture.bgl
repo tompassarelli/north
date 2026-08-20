@@ -1,0 +1,33 @@
+#lang beagle
+
+(ns north.scheduled-run-core-fixture
+  (:require [north.scheduled-run-core :as run]))
+
+(def origin run/OriginIdentity
+  (run/->OriginIdentity "nightly-retention" "2026-08-20T10:00:00Z"))
+
+(def predecessor run/PredecessorOutput
+  (run/->PredecessorOutput "prepare-42" "receipt-prepare-42"))
+
+(def dedupe run/DedupeIdentity
+  (run/->DedupeIdentity origin 42))
+
+(def scheduled-run run/ScheduledRun
+  (run/->ScheduledRun
+   "retention-42"
+   origin
+   predecessor
+   7
+   "worker-a"
+   100
+   "receipt-dispatched-42"
+   dedupe))
+
+(def request run/ReclaimRequest
+  (run/->ReclaimRequest "retention-42" 7 "worker-a" "worker-b" 200))
+
+(def decision run/ReclamationDecision
+  (run/stale-owner-reclamation scheduled-run request 101))
+
+(def reclaimed Bool (run/reclamationdecision-accepted decision))
+(def replacement run/ScheduledRun? (run/reclamationdecision-replacement decision))
