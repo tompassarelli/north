@@ -552,7 +552,7 @@ EOF
         };
 
         # north CLI + MCP. Same relocatable layout. Installed entrypoints source
-        # the host-published FRAMRPC identity; North does not package or select a
+        # the host-published Beagle Store RPC identity; North does not package or select a
         # second engine. NORTH_BIN points MCP at the wrapped CLI in this out.
         northPkg = pkgs.stdenvNoCC.mkDerivation {
           pname = "north";
@@ -690,7 +690,7 @@ EOF
             # Only the three exact fallback expressions in each wrapped launcher
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
-            # FRAMRPC identity file. It is data authority, not executable code.
+            # Beagle Store RPC identity file. It is data authority, not executable code.
             sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
