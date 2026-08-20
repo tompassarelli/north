@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
-  apply_frame_visibility_bang as applyFrameVisibility,
-  boot_frame as bootFrame,
+  apply_view_visibility_bang as applyViewVisibility,
+  boot_view as bootView,
   composer_hint as composerHint,
   escape_rung as escapeRung,
   handle_local_command_bang as handleLocalCommand,
@@ -13,7 +13,7 @@ import {
   render_detail_panel_bang as renderDetailPanel,
   render_view_tabs_bang as renderViewTabs,
   restore_submitted_text_bang as restoreSubmittedText,
-  tab_swap_frame as tabSwapFrame,
+  tab_swap_view as tabSwapView,
   thread_view_command_p as threadViewCommand,
   view_list as viewList,
   view_tab_id_at_bang as viewTabIdAt,
@@ -29,10 +29,10 @@ Object.defineProperty(process.stdout, "columns", { value: 120, configurable: tru
 const state = (viewId = "list") => snapshot(makeModel(viewId));
 
 // A runtime with only what the view switches touch. Nothing here is a pane:
-// `frame` is which of the two views is on screen, full width.
-function runtimeAt(frame: string, viewId = "list") {
+// `view` is which of the two views is on screen, full width.
+function runtimeAt(view: string, viewId = "list") {
   const runtime = {
-    frame,
+    view,
     model: makeModel(viewId),
     workIndex: 4,
     workScroll: { scrolledTo: -1, scrollTo(y: number) { this.scrolledTo = y; } },
@@ -59,17 +59,17 @@ const ui = {
 };
 
 test("Northbridge opens on Agents", () => {
-  expect(bootFrame()).toBe("agents");
+  expect(bootView()).toBe("agents");
 });
 
 test("/threads and /agents swap which view is on screen", () => {
   const runtime = runtimeAt("agents");
   expect(handleLocalCommand(runtime, ui, "/threads")).toBe(true);
-  expect(runtime.frame).toBe("threads");
+  expect(runtime.view).toBe("threads");
   expect(runtime.renders).toBeGreaterThan(0);
 
   expect(handleLocalCommand(runtime, ui, "/agents")).toBe(true);
-  expect(runtime.frame).toBe("agents");
+  expect(runtime.view).toBe("agents");
 });
 
 test("naming a thread view shows the Threads view holding it", () => {
@@ -84,7 +84,7 @@ test("naming a thread view shows the Threads view holding it", () => {
   // From Agents: switch the sub-view AND come to look at it.
   const runtime = runtimeAt("agents", "list");
   expect(handleLocalCommand(runtime, ui, "/board")).toBe(true);
-  expect(runtime.frame).toBe("threads");
+  expect(runtime.view).toBe("threads");
   expect(activeViewId(snapshot(runtime.model))).toBe("board");
   // A new view starts at the top of its own list.
   expect(runtime.workIndex).toBe(0);
@@ -92,7 +92,7 @@ test("naming a thread view shows the Threads view holding it", () => {
 
   // From Threads: just the sub-view.
   expect(handleLocalCommand(runtime, ui, "/graph")).toBe(true);
-  expect(runtime.frame).toBe("threads");
+  expect(runtime.view).toBe("threads");
   expect(activeViewId(snapshot(runtime.model))).toBe("graph");
 });
 
@@ -106,13 +106,13 @@ test("quit is unconditional while escape aliases navigate one rung", () => {
 
   // Escape aliases navigate back from Threads instead of quitting.
   expect(handleLocalCommand(runtime, ui, "/close")).toBe(true);
-  expect(runtime.frame).toBe("agents");
+  expect(runtime.view).toBe("agents");
   expect(runtime.destroyed).toBe(false);
 
   for (const spelling of ["/close", "/esc"]) {
     const r = runtimeAt("threads");
     expect(handleLocalCommand(r, ui, spelling)).toBe(true);
-    expect(r.frame).toBe("agents");
+    expect(r.view).toBe("agents");
     expect(r.destroyed).toBe(false);
   }
 
@@ -121,12 +121,12 @@ test("quit is unconditional while escape aliases navigate one rung", () => {
   panelled.detailView = "config";
   expect(handleLocalCommand(panelled, ui, "/esc")).toBe(true);
   expect(panelled.detailView).toBe("");
-  expect(panelled.frame).toBe("threads");
+  expect(panelled.view).toBe("threads");
 });
 
 test("both command sets are discoverable, and /view is in neither", () => {
-  const named = (frame: string, query: string) =>
-    (paletteOptions(frame, query) as Array<{ name: string }>).map((c) => c.name);
+  const named = (view: string, query: string) =>
+    (paletteOptions(view, query) as Array<{ name: string }>).map((c) => c.name);
 
   expect(named("agents", "/threads")).toEqual(["/threads"]);
   // /agents shares a prefix with /agentsmd; both are real, neither is hidden.
@@ -145,20 +145,20 @@ test("both command sets are discoverable, and /view is in neither", () => {
     name: string; description: string;
   }>;
   expect(quit).toMatchObject([{ name: "/q", description: "quit Northbridge" }]);
-  for (const frame of ["agents", "threads"]) {
-    expect(named(frame, "/view")).toEqual([]);
-    expect(named(frame, "/split")).toEqual([]);
+  for (const view of ["agents", "threads"]) {
+    expect(named(view, "/view")).toEqual([]);
+    expect(named(view, "/split")).toEqual([]);
   }
 });
 
-// The bar sits directly under the composer and already says which frame is
+// The bar sits directly under the composer and already says which view is
 // active, so the hint does not repeat it.
-test("the composer hint says what to type and nothing about which frame", () => {
+test("the composer hint says what to type and nothing about which view", () => {
   expect(composerHint("agents", "Main")).toBe("Message Main…");
   expect(composerHint("threads", "Main"))
     .toBe("/list, /board, /graph, /capture, /filter, /assign");
-  for (const frame of ["agents", "threads"]) {
-    expect(composerHint(frame, "Main")).not.toContain("commands]");
+  for (const view of ["agents", "threads"]) {
+    expect(composerHint(view, "Main")).not.toContain("commands]");
   }
 });
 
@@ -199,7 +199,7 @@ test("/help opens the docked panel and escape closes it", async () => {
   // the cursor, exactly as it does when the agent strip takes focus.
   expect(runtime.panelFocused).toBe(true);
 
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 110, height: 20,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -208,15 +208,15 @@ test("/help opens the docked panel and escape closes it", async () => {
   renderer.root.add(panel);
   body.content = renderDetailPanel(runtime);
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
 
-  expect(frame).toContain("Northbridge keys");
-  expect(frame).toContain("esc closes");
-  expect(frame).toContain("Esc /close /esc");
-  expect(frame).toContain("Ctrl-C /interrupt");
-  expect(frame).toContain("/q /exit / Ctrl-Q");
-  expect(frame).not.toContain("back, then quit");
+  expect(snapshot).toContain("Northbridge keys");
+  expect(snapshot).toContain("esc closes");
+  expect(snapshot).toContain("Esc /close /esc");
+  expect(snapshot).toContain("Ctrl-C /interrupt");
+  expect(snapshot).toContain("/q /exit / Ctrl-Q");
+  expect(snapshot).not.toContain("back, then quit");
 
   // Rung two: the panel it opened is the first thing escape takes back, and the
   // keyboard goes back to the composer with it.
@@ -280,7 +280,7 @@ test("a cancelled turn hands its message back to the composer", () => {
 // label drawn there. Derived from the same constants the renderer spends.
 test("every label on the view bar is clickable, and only while it is drawn", () => {
   const views = viewList(state());
-  const at = (frame: string, column: number) => viewTabIdAt(frame, views, column);
+  const at = (view: string, column: number) => viewTabIdAt(view, views, column);
 
   expect(at("agents", 0)).toBe("agents");
   expect(at("agents", 5)).toBe("agents");
@@ -314,8 +314,8 @@ const SESSION = {
 // The real root order, in miniature: content on top, then the bottom cluster —
 // composer, view bar, agent strip. The rows come back so the order is an
 // assertion and not a reading of the source.
-async function frameOf(frame: string, viewId = "list") {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+async function renderView(view: string, viewId = "list") {
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 90, height: 10,
   });
   const root = new BoxRenderable(renderer, {
@@ -350,15 +350,15 @@ async function frameOf(frame: string, viewId = "list") {
   root.add(strip);
   renderer.root.add(root);
 
-  const runtime = { frame };
-  applyFrameVisibility(runtime, { agentsPane, workPane });
-  tabs.content = renderViewTabs(frame, state(viewId), viewId, SESSION);
+  const runtime = { view };
+  applyViewVisibility(runtime, { agentsPane, workPane });
+  tabs.content = renderViewTabs(view, state(viewId), viewId, SESSION);
   await renderOnce();
-  const captured = captureCharFrame();
+  const captured = captureCharSnapshot();
   const lines = captured.split("\n");
   const rowOf = (needle: string) => lines.findIndex((line) => line.includes(needle));
   const rows = {
-    body: rowOf(frame === "threads" ? "THREADBODY" : "AGENTBODY"),
+    body: rowOf(view === "threads" ? "THREADBODY" : "AGENTBODY"),
     composer: rowOf("COMPOSERLINE"),
     tabs: rowOf("Agents | Threads"),
     strip: rowOf("STRIPLINE"),
@@ -368,15 +368,15 @@ async function frameOf(frame: string, viewId = "list") {
   const origins = { tabs: tabs.x, composer: composer.x };
   const visibility = { agents: agentsPane.visible, threads: workPane.visible };
   renderer.destroy();
-  return { frame: captured, visibility, rows, origins };
+  return { snapshot: captured, visibility, rows, origins };
 }
 
 // Locality of information: everything you can act on is in one cluster at the
 // bottom, and the bar that switches views sits with the composer that types
 // into them, not a screen away at the top.
 test("the view bar sits under the composer and over the strip", async () => {
-  for (const frame of ["agents", "threads"]) {
-    const { rows } = await frameOf(frame);
+  for (const view of ["agents", "threads"]) {
+    const { rows } = await renderView(view);
     expect(rows.body).toBeGreaterThanOrEqual(0);
     expect(rows.tabs).toBe(rows.composer + 1);
     expect(rows.strip).toBe(rows.tabs + 1);
@@ -389,61 +389,61 @@ test("the view bar sits under the composer and over the strip", async () => {
 // still where a click lands: column zero of the bar is still `Agents`.
 test("the bar's hit box moved rows without moving columns", async () => {
   const views = viewList(state());
-  for (const frame of ["agents", "threads"]) {
-    const { origins } = await frameOf(frame);
+  for (const view of ["agents", "threads"]) {
+    const { origins } = await renderView(view);
     expect(origins.tabs).toBe(origins.composer);
-    expect(viewTabIdAt(frame, views, 0)).toBe("agents");
-    expect(viewTabIdAt(frame, views, 9)).toBe("threads");
+    expect(viewTabIdAt(view, views, 0)).toBe("agents");
+    expect(viewTabIdAt(view, views, 9)).toBe("threads");
   }
 });
 
 test("the Agents view is alone on screen, and the bar's tail says who you are talking to", async () => {
-  const agents = await frameOf(bootFrame());
+  const agents = await renderView(bootView());
   expect(agents.visibility).toEqual({ agents: true, threads: false });
-  expect(agents.frame).toContain("Agents | Threads > claude-fable-5 xhigh");
-  expect(agents.frame).toContain("/tmp/demo");
-  expect(agents.frame).toContain("not a Git worktree");
-  expect(agents.frame).toContain("AGENTBODY");
-  expect(agents.frame).not.toContain("THREADBODY");
+  expect(agents.snapshot).toContain("Agents | Threads > claude-fable-5 xhigh");
+  expect(agents.snapshot).toContain("/tmp/demo");
+  expect(agents.snapshot).toContain("not a Git worktree");
+  expect(agents.snapshot).toContain("AGENTBODY");
+  expect(agents.snapshot).not.toContain("THREADBODY");
   // No sub-view tabs while Agents is showing, and no divider to drag.
-  expect(agents.frame).not.toContain("List");
-  expect(agents.frame).not.toContain("│");
+  expect(agents.snapshot).not.toContain("List");
+  expect(agents.snapshot).not.toContain("│");
 });
 
 test("showing Threads extends the bar with that view's own tabs", async () => {
-  const threads = await frameOf("threads", "board");
+  const threads = await renderView("threads", "board");
   expect(threads.visibility).toEqual({ agents: false, threads: true });
-  expect(threads.frame).toContain("Agents | Threads > ");
-  expect(threads.frame).toContain("THREADBODY");
-  expect(threads.frame).not.toContain("AGENTBODY");
+  expect(threads.snapshot).toContain("Agents | Threads > ");
+  expect(threads.snapshot).toContain("THREADBODY");
+  expect(threads.snapshot).not.toContain("AGENTBODY");
   // The active sub-view is bracketed; the others are drawn but plain.
-  expect(threads.frame).toContain("[Board]");
-  expect(threads.frame).toContain("List");
-  expect(threads.frame).toContain("Graph");
-  expect(threads.frame).not.toContain("│");
+  expect(threads.snapshot).toContain("[Board]");
+  expect(threads.snapshot).toContain("List");
+  expect(threads.snapshot).toContain("Graph");
+  expect(threads.snapshot).not.toContain("│");
   // The tail belongs to the active view: sub-tabs here, no session identity.
-  expect(threads.frame).not.toContain("claude-fable-5");
+  expect(threads.snapshot).not.toContain("claude-fable-5");
 
-  const list = await frameOf("threads", "list");
-  expect(list.frame).toContain("[List]");
-  expect(list.frame).not.toContain("[Board]");
+  const list = await renderView("threads", "list");
+  expect(list.snapshot).toContain("[List]");
+  expect(list.snapshot).not.toContain("[Board]");
 });
 
 // Tab's other meaning, the one it has always had: with the keyboard in the
 // composer it swaps which view is on screen. The panel's fold is a different
 // surface's verb and cannot reach here.
 test("tab swaps the view on screen, and swaps it back", async () => {
-  expect(tabSwapFrame("agents")).toBe("threads");
-  expect(tabSwapFrame("threads")).toBe("agents");
+  expect(tabSwapView("agents")).toBe("threads");
+  expect(tabSwapView("threads")).toBe("agents");
 
-  const agents = await frameOf("agents");
+  const agents = await renderView("agents");
   expect(agents.visibility).toEqual({ agents: true, threads: false });
-  expect(agents.frame).toContain("AGENTBODY");
+  expect(agents.snapshot).toContain("AGENTBODY");
 
-  const swapped = await frameOf(tabSwapFrame("agents") as string);
+  const swapped = await renderView(tabSwapView("agents") as string);
   expect(swapped.visibility).toEqual({ agents: false, threads: true });
-  expect(swapped.frame).toContain("THREADBODY");
+  expect(swapped.snapshot).toContain("THREADBODY");
 
-  const back = await frameOf(tabSwapFrame("threads") as string);
+  const back = await renderView(tabSwapView("threads") as string);
   expect(back.visibility).toEqual({ agents: true, threads: false });
 });

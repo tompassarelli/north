@@ -7,7 +7,7 @@ import {
   observationFromAnthropicRateLimit,
   anthropicTargetId,
   observeAnthropicQuery,
-	type AnthropicObservedFrame,
+	type AnthropicObservedEvent,
 } from "../src/providers/anthropic-observations";
 import type { ProviderUsageObservation } from "../src/providers/types";
 import { balancedAllocationEstimates } from "../src/provider-routing";
@@ -140,12 +140,12 @@ test("observes rate-limit messages without extra turns and preserves the stream"
 		write: async (value) => { written.push(value); },
 		onSessionId: (sessionId) => { sessionIds.push(sessionId); },
 	});
-	const received: AnthropicObservedFrame[] = [];
-	for await (const message of observed) received.push(message);
+	const received: AnthropicObservedEvent[] = [];
+	for await (const event of observed) received.push(event);
 
-	expect(received.slice(0, -1).map(({ frame }) => frame)).toEqual(messages.slice(0, -1));
+	expect(received.slice(0, -1).map(({ event }) => event)).toEqual(messages.slice(0, -1));
 	expect(received.at(-1)).toEqual({
-		frame: messages.at(-1),
+		event: messages.at(-1),
 		providerJoin: {
       version: "north-provider-join:v1",
       sessionKey: providerSessionKey("test-session"),
@@ -173,9 +173,9 @@ test("observation persistence failures never interrupt Claude output", async () 
   const message = event({ status: "allowed_warning" });
 	const source: AsyncIterable<unknown> = { async *[Symbol.asyncIterator]() { yield message; } };
 	const observed = observeAnthropicQuery(source, { write: async () => { throw new Error("disk unavailable"); } });
-	const received: AnthropicObservedFrame[] = [];
+	const received: AnthropicObservedEvent[] = [];
 	for await (const value of observed) received.push(value);
-	expect(received).toEqual([{ frame: message }]);
+	expect(received).toEqual([{ event: message }]);
 });
 
 test("interactive statusline attribution requires one verified isolated Claude config root", () => {

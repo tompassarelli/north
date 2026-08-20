@@ -68,13 +68,13 @@ describe("deathCommands", () => {
   });
 
   test("with coordinator: adds an msg-cli peer ping", () => {
-    const cmds = deathCommands("P2", "Transport is closed", { coordinator: "fram-1" }, TS);
+    const cmds = deathCommands("P2", "Transport is closed", { coordinator: "store-1" }, TS);
     expect(cmds).toHaveLength(2);
     const ping = cmds[1];
     expect(ping.cmd).toBe("bb");
     expect(ping.args).toContain("send");
     expect(ping.args).toContain("P2"); // from
-    expect(ping.args).toContain("fram-1"); // to
+    expect(ping.args).toContain("store-1"); // to
     expect(ping.args).toContain("AGENT DEATH"); // subject
   });
 

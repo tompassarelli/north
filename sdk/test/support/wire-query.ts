@@ -9,7 +9,7 @@ import {
   type WireQuery,
   type WireQueryInput,
   type WireUsageSnapshot,
-  type WireUserInputFrame,
+  type WireUserInputMessage,
 } from "../../src/wire";
 
 export interface WireTurnFixture {
@@ -208,13 +208,13 @@ export function wireTurnSequenceQuery(
       executionTransport: "managed-app-server",
       [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
         return (async function*(): AsyncGenerator<WireEvent> {
-          if (opened) throw new Error("turn-framed wire fixture iterator opened twice");
+          if (opened) throw new Error("turn-messages wire fixture iterator opened twice");
           opened = true;
           const input = wireInputIterator(args.input);
           for (const [turn, fixture] of fixtures.entries()) {
-            const frame = await input.next();
-            if (frame.done) throw new Error("wire turn fixture input ended before a user frame");
-            options.onInput?.(frame.value.text, turn);
+            const message = await input.next();
+            if (message.done) throw new Error("wire turn fixture input ended before a user message");
+            options.onInput?.(message.value.text, turn);
             yield* wireTurnEvents(args, fixture);
           }
         })();
@@ -242,9 +242,9 @@ export function wireTurnSequenceQuery(
         pendingInput = undefined;
         active = true;
         try {
-          const frame = await wireInputIterator(input).next();
-          if (frame.done) throw new Error("wire turn fixture input ended before a user frame");
-          options.onInput?.(frame.value.text, turn);
+          const message = await wireInputIterator(input).next();
+          if (message.done) throw new Error("wire turn fixture input ended before a user message");
+          options.onInput?.(message.value.text, turn);
           turn++;
           yield* wireTurnEvents(args, fixture);
         } finally {
@@ -255,9 +255,9 @@ export function wireTurnSequenceQuery(
   };
 }
 
-export function wireInputIterator(input: WireQueryInput): AsyncIterator<WireUserInputFrame> {
+export function wireInputIterator(input: WireQueryInput): AsyncIterator<WireUserInputMessage> {
   if (typeof input !== "string") return input[Symbol.asyncIterator]();
-  return (async function*(): AsyncGenerator<WireUserInputFrame> {
+  return (async function*(): AsyncGenerator<WireUserInputMessage> {
     yield { kind: "user.input", text: input };
   })();
 }

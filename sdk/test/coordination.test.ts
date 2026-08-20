@@ -71,7 +71,7 @@ interface FakeTimer {
 }
 
 function harness(options: {
-  maxFrameBytes?: number;
+  maxMessageBytes?: number;
   admissionTimeoutMs?: number;
   drainTimeoutMs?: number;
   stopKillMs?: number;
@@ -137,9 +137,9 @@ function harness(options: {
     drainTimeoutMs: options.drainTimeoutMs ?? 45_000,
     stopKillMs: options.stopKillMs ?? 250,
     stopReapMs: options.stopReapMs ?? 5_000,
-    ...(options.maxFrameBytes === undefined
+    ...(options.maxMessageBytes === undefined
       ? {}
-      : { maxFrameBytes: options.maxFrameBytes }),
+      : { maxMessageBytes: options.maxMessageBytes }),
     ...(options.deferredStart ? { deferredStart: true } : {}),
   };
   return {
@@ -714,7 +714,7 @@ test("crash after dequeue but before graph ack replays without a second provider
   stop();
 });
 
-test("duplicate frames never duplicate channel admission and every replayed claim is acked", async () => {
+test("duplicate messages never duplicate channel admission and every replayed claim is acked", async () => {
   const h = harness();
   let admissions = 0;
   const stop = subscribeFeed("agent-test", () => { admissions++; }, h.runtime);
@@ -749,7 +749,7 @@ test("failed channel admission nacks and remains eligible for a later retry", as
   stop();
 });
 
-test("duplicate JSON members and frames before readiness fail closed", async () => {
+test("duplicate JSON members and messages before readiness fail closed", async () => {
   const duplicate = harness();
   const stopDuplicate = subscribeFeed("agent-test", () => {}, duplicate.runtime);
   emitLine(
@@ -767,8 +767,8 @@ test("duplicate JSON members and frames before readiness fail closed", async () 
   stopEarly();
 });
 
-test("frame bytes, UTF-8, and newline termination are independently bounded", async () => {
-  const oversized = harness({ maxFrameBytes: 256 });
+test("message bytes, UTF-8, and newline termination are independently bounded", async () => {
+  const oversized = harness({ maxMessageBytes: 256 });
   const stopOversized = subscribeFeed("agent-test", () => {}, oversized.runtime);
   oversized.children[0]!.stdout.emit("data", Buffer.alloc(257, 0x78));
   expect(oversized.children[0]!.signals).toContain("SIGKILL");

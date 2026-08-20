@@ -1080,9 +1080,9 @@ test("private empty repair freezes live input and leaves between-turn mail repla
           const input = pendingInput;
           if (input === undefined) throw new Error("repair turn opened without input");
           pendingInput = undefined;
-          const frame = await wireInputIterator(input).next();
-          if (frame.done) throw new Error("repair turn input was empty");
-          inputs.push(frame.value.text);
+          const message = await wireInputIterator(input).next();
+          if (message.done) throw new Error("repair turn input was empty");
+          inputs.push(message.value.text);
           try {
             yield* wireTurnEvents(args, {
               provider: "anthropic",
@@ -2084,9 +2084,9 @@ test("a spawn orchestrator consumes two model terminals from one streaming query
   let continuedInput: WireQueryInput | undefined;
   const inputText = async (input: WireQueryInput): Promise<string> => {
     if (typeof input === "string") return input;
-    const frame = await input[Symbol.asyncIterator]().next();
-    if (frame.done) throw new Error("streaming query input ended before a user frame");
-    return frame.value.text;
+    const message = await input[Symbol.asyncIterator]().next();
+    if (message.done) throw new Error("streaming query input ended before a user message");
+    return message.value.text;
   };
   const queryFn = (args: RoutedQueryArguments): WireQuery => {
     queryConstructions++;
@@ -2277,7 +2277,7 @@ test("the managed token tripwire publishes once before an orchestrator continuat
   );
 });
 
-test("one late turn-framed follow-up runs exactly once on the retained provider query", async () => {
+test("one late turn-messages follow-up runs exactly once on the retained provider query", async () => {
   const priorStaffingSource = process.env.NORTH_STAFFING_SOURCE;
   process.env.NORTH_STAFFING_SOURCE = "file";
   try {
@@ -2347,7 +2347,7 @@ test("one late turn-framed follow-up runs exactly once on the retained provider 
 
     const result = await spawnUnderTest({
       prompt: "answer, then accept one late follow-up",
-      agentId: "test-turn-framed-follow-up",
+      agentId: "test-turn-messages-follow-up",
       routingMetadata: presetRequest("integrator"),
       provider: "openai",
       pinEvidence: pinEvidence("openai"),
@@ -2373,7 +2373,7 @@ test("one late turn-framed follow-up runs exactly once on the retained provider 
     ]);
 
     const replay = await readWireJsonl(
-      join(dir, "agent-test-turn-framed-follow-up.stream.jsonl"),
+      join(dir, "agent-test-turn-messages-follow-up.stream.jsonl"),
     );
     expect(replay.events.filter((event) => event.kind === "model-call.completed"))
       .toHaveLength(2);

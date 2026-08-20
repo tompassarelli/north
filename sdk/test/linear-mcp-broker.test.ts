@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { AppServerMcpBroker, StrictJsonlFrames } from "../src/integrations/linear/app-server-broker";
+import { AppServerMcpBroker, StrictJsonlMessages } from "../src/integrations/linear/app-server-broker";
 import { runLinearCommand } from "../src/integrations/linear/cli";
 import { LinearGatewayError, openLinearGateway } from "../src/integrations/linear/gateway";
 import type { McpBroker } from "../src/integrations/linear/mcp-broker";
@@ -147,8 +147,8 @@ function requests(path: string): any[] {
   return readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
-test("strict JSONL framing preserves split UTF-8 scalars without an aggregate-buffer false positive", () => {
-  const split = new StrictJsonlFrames();
+test("strict JSONL message sequencing preserves split UTF-8 scalars without an aggregate-buffer false positive", () => {
+  const split = new StrictJsonlMessages();
   const encoded = Buffer.from('{"value":"café"}\n');
   const scalar = Buffer.from("é");
   const scalarAt = encoded.indexOf(scalar);
@@ -157,7 +157,7 @@ test("strict JSONL framing preserves split UTF-8 scalars without an aggregate-bu
   expect(split.push(encoded.subarray(scalarAt + 1))).toEqual(['{"value":"café"}']);
   split.finish();
 
-  const many = new StrictJsonlFrames();
+  const many = new StrictJsonlMessages();
   const line = `${JSON.stringify({ value: "x".repeat(10_000) })}\n`;
   const aggregate = Buffer.from(line.repeat(128));
   expect(aggregate.length).toBeGreaterThan(1024 * 1024);
@@ -165,43 +165,43 @@ test("strict JSONL framing preserves split UTF-8 scalars without an aggregate-bu
   many.finish();
 });
 
-test("strict JSONL framing rejects invalid UTF-8, oversized lines, and partial EOF", () => {
-  const invalid = new StrictJsonlFrames();
+test("strict JSONL message sequencing rejects invalid UTF-8, oversized lines, and partial EOF", () => {
+  const invalid = new StrictJsonlMessages();
   expect(() => invalid.push(Buffer.from([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x7d, 0x0a])))
     .toThrow("invalid UTF-8 JSONL output");
 
-  const oversized = new StrictJsonlFrames();
+  const oversized = new StrictJsonlMessages();
   expect(() => oversized.push(Buffer.alloc(1024 * 1024 + 1, 0x78)))
     .toThrow("JSONL response exceeded 1 MiB");
 
-  const partial = new StrictJsonlFrames();
+  const partial = new StrictJsonlMessages();
   expect(partial.push(Buffer.from('{"id":1'))).toEqual([]);
-  expect(() => partial.finish()).toThrow("partial JSONL frame");
+  expect(() => partial.finish()).toThrow("partial JSONL message");
 });
 
 test("strict JSONL lifetime ceilings remain default while rolling ceilings refill", () => {
-  const lifetimeBytes = new StrictJsonlFrames({
+  const lifetimeBytes = new StrictJsonlMessages({
     maxLineBytes: 16,
     maxTotalBytes: 6,
-    maxFrames: 10,
+    maxMessages: 10,
   });
   expect(lifetimeBytes.push(Buffer.from("{}\n{}\n"))).toHaveLength(2);
   expect(() => lifetimeBytes.push(Buffer.from("{}\n")))
     .toThrow("cumulative byte bound");
 
-  const lifetimeFrames = new StrictJsonlFrames({
+  const lifetimeMessages = new StrictJsonlMessages({
     maxLineBytes: 16,
     maxTotalBytes: 64,
-    maxFrames: 2,
+    maxMessages: 2,
   });
-  expect(() => lifetimeFrames.push(Buffer.from("{}\n{}\n{}\n")))
-    .toThrow("frame-count bound");
+  expect(() => lifetimeMessages.push(Buffer.from("{}\n{}\n{}\n")))
+    .toThrow("message-count bound");
 
   let now = 0;
-  const rolling = new StrictJsonlFrames({
+  const rolling = new StrictJsonlMessages({
     maxLineBytes: 16,
     maxTotalBytes: 6,
-    maxFrames: 2,
+    maxMessages: 2,
     rollingWindowMs: 1_000,
     nowMs: () => now,
   });
@@ -212,15 +212,15 @@ test("strict JSONL lifetime ceilings remain default while rolling ceilings refil
   expect(rolling.push(Buffer.from("{}\n"))).toEqual(["{}"]);
   rolling.finish();
 
-  const rollingFrames = new StrictJsonlFrames({
+  const rollingMessages = new StrictJsonlMessages({
     maxLineBytes: 16,
     maxTotalBytes: 64,
-    maxFrames: 2,
+    maxMessages: 2,
     rollingWindowMs: 1_000,
     nowMs: () => 0,
   });
-  expect(() => rollingFrames.push(Buffer.from("{}\n{}\n{}\n")))
-    .toThrow("rolling frame-rate bound");
+  expect(() => rollingMessages.push(Buffer.from("{}\n{}\n{}\n")))
+    .toThrow("rolling message-rate bound");
 });
 
 test("uses stable app-server MCP calls without starting a model turn", async () => {
@@ -443,7 +443,7 @@ test("client close escalates a TERM-resistant app-server to a reaped KILL", asyn
   expect(() => process.kill(pid, 0)).toThrow();
 });
 
-test("split UTF-8 app-server output survives transport framing", async () => {
+test("split UTF-8 app-server output survives transport message sequencing", async () => {
   const { broker } = harness({
     servers: [linearServer()],
     afterResponse: { method: "mcpServer/tool/call", type: "splitUtf8" },
@@ -470,9 +470,9 @@ test("split UTF-8 app-server output survives transport framing", async () => {
 
 for (const [type, message] of [
   ["invalidUtf8", "invalid UTF-8 JSONL output"],
-  ["partialEof", "partial JSONL frame"],
-  ["exitBeforeEndPartial", "partial JSONL frame"],
-  ["exitBeforeEndPartialLong", "partial JSONL frame"],
+  ["partialEof", "partial JSONL message"],
+  ["exitBeforeEndPartial", "partial JSONL message"],
+  ["exitBeforeEndPartialLong", "partial JSONL message"],
 ] as const) {
   test(`${type} after a valid response invalidates the command receipt`, async () => {
     const { broker } = harness({

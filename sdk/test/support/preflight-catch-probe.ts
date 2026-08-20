@@ -1,5 +1,5 @@
 // Fault injection for the preflight CLI's terminal catch (thread 019f9cc2).
-// The catch is the last frame before an admission failure reaches an operator's
+// The catch is the last message before an admission failure reaches an operator's
 // terminal; drive it with the throw shapes that used to produce either a blank
 // line or the exact string the Clojure caller printed for a subprocess it never
 // heard from at all.

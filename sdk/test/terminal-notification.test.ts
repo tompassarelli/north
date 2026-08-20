@@ -177,7 +177,7 @@ test("one configurable wall-clock budget is split across both publications and t
 
 // thread 019f9cec: `provider_error` names a classification, not a cause. Three
 // managed Codex lanes settled provider_error/blocked/turns=0 on 2026-07-26 with
-// the provider's own account of the failure sitting in the terminal frame the
+// the provider's own account of the failure sitting in the terminal snapshot the
 // message loop dropped. These pin the render that keeps it.
 test("a failed model terminal renders typed evidence, never assistant prose", () => {
   const detail = describeProviderErrorTerminal(modelTerminalSnapshot("failure", "failed", {

@@ -24,7 +24,7 @@ import {
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // The panel reads the terminal for its window math. Pin both dimensions so the
-// frames below are arithmetic rather than a property of whoever's tty ran the
+// snapshots below are arithmetic rather than a property of whoever's tty ran the
 // suite.
 const ROWS = 40;
 const COLUMNS = 120;
@@ -305,10 +305,10 @@ function configRuntime(entries: Row[], view: string, index = 0,
   };
 }
 
-async function frameOf(view: string, entries: Row[] = MANIFEST, index = 0,
+async function snapshotOf(view: string, entries: Row[] = MANIFEST, index = 0,
                        height = 26, rosters: Membership[] = [],
                        expanded: string[] = []) {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 110, height,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -318,13 +318,13 @@ async function frameOf(view: string, entries: Row[] = MANIFEST, index = 0,
   body.content = renderConfigPanel(configRuntime(entries, view, index, rosters,
                                                  expanded));
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
-  return frame.split("\n").map((l) => l.trimEnd());
+  return snapshot.split("\n").map((l) => l.trimEnd());
 }
 
 test("the subtree renders nested under its directory, at both depths", async () => {
-  const lines = await frameOf("agentsmd");
+  const lines = await snapshotOf("agentsmd");
   const at = lines.findIndex((l) => l.includes("GLOBAL"));
   expect(at).toBeGreaterThanOrEqual(0);
   // The directory at the margin, its own two files one step in, its memories
@@ -348,17 +348,17 @@ test("the subtree renders nested under its directory, at both depths", async () 
 });
 
 test("a directory row shows the place, and the slug stays behind the screen", async () => {
-  const lines = await frameOf("agentsmd");
-  const frame = lines.join("\n");
+  const lines = await snapshotOf("agentsmd");
+  const snapshot = lines.join("\n");
   // `code  /tmp/…/code` said the same thing twice. The path is the half that
   // answers "which directory is this" — two checkouts of one repo share a slug
   // and differ only here — so the path is the row and the slug is not printed.
   expect(lines).toContain("  ▾ /tmp/switchboard-fixture/code: on");
-  expect(frame).not.toContain("code  /tmp");
-  expect(frame).not.toContain("north  /tmp");
+  expect(snapshot).not.toContain("code  /tmp");
+  expect(snapshot).not.toContain("north  /tmp");
   // The root scope is the same rule with the root's own path.
   expect(lines).toContain("› ▾ GLOBAL: on");
-  expect(frame).not.toContain("global  ~");
+  expect(snapshot).not.toContain("global  ~");
 
   // Everything the slug was is still the slug. It addresses the CLI…
   expect(configCliName("dir", "code")).toBe("code");
@@ -379,11 +379,11 @@ test("a directory row shows the place, and the slug stays behind the screen", as
   // slug rather than rendering a blank row.
   const pathless = MANIFEST.map((r) =>
     r.kind === "dir" && r.name === "north" ? { ...r, detail: "" } : r);
-  expect(await frameOf("agentsmd", pathless)).toContain("  ▾ north: on");
+  expect(await snapshotOf("agentsmd", pathless)).toContain("  ▾ north: on");
 });
 
 test("a closed directory darkens its subtree on screen, and says which row did it", async () => {
-  const lines = await frameOf("agentsmd", withState(MANIFEST, "dir", "code", "off"));
+  const lines = await snapshotOf("agentsmd", withState(MANIFEST, "dir", "code", "off"));
   const at = lines.indexOf("  ▾ /tmp/switchboard-fixture/code: off");
   expect(at).toBeGreaterThanOrEqual(0);
   expect(lines.slice(at + 1, at + 5)).toEqual([
@@ -398,7 +398,7 @@ test("a closed directory darkens its subtree on screen, and says which row did i
 });
 
 test("closing the memories keeps the instruction file, indentation and all", async () => {
-  const lines = await frameOf("agentsmd",
+  const lines = await snapshotOf("agentsmd",
                               withState(MANIFEST, "memroot", "code", "off"));
   expect(lines).toContain("    AGENTS.md: on");
   expect(lines).toContain("    MEMORIES: off");
@@ -406,14 +406,14 @@ test("closing the memories keeps the instruction file, indentation and all", asy
 });
 
 test("/config carries the subtrees inside their nodes, sections intact", async () => {
-  const lines = await frameOf("all", MANIFEST, 0, 26, [], ["global", "code"]);
-  const frame = lines.join("\n");
+  const lines = await snapshotOf("all", MANIFEST, 0, 26, [], ["global", "code"]);
+  const snapshot = lines.join("\n");
   for (const header of ["SETS", "SKILLS", "PLUGINS"]) {
-    expect(frame).toContain(header);
+    expect(snapshot).toContain(header);
   }
   // The node's own files read FIRST inside it, before everything it turns on:
   // what the directory says, then what happens to be in force there.
-  expect(frame.indexOf("AGENTS.md")).toBeLessThan(frame.indexOf("SETS"));
+  expect(snapshot.indexOf("AGENTS.md")).toBeLessThan(snapshot.indexOf("SETS"));
   expect(lines).toContain("      report-style-recommendations: on");
 });
 
@@ -448,14 +448,14 @@ test("the window follows the cursor into the subtree, and pays for no heading", 
 });
 
 test("scrolling a deep node is kind-agnostic: it follows the row, not the row's kind", async () => {
-  const top = await frameOf("agentsmd", DEEP, 0, 40);
+  const top = await snapshotOf("agentsmd", DEEP, 0, 40);
   expect(top).toContain("› ▾ GLOBAL: on");
   expect(top).toContain("      memory-00: on");
   // The tail is outside the window at the top of the list.
   expect(top).not.toContain("      memory-39: on");
 
   const rows = configViewRows(DEEP.slice(), "agentsmd") as Row[];
-  const bottom = await frameOf("agentsmd", DEEP, rows.length - 1, 40);
+  const bottom = await snapshotOf("agentsmd", DEEP, rows.length - 1, 40);
   // The cursor is on the last memory and the window came with it, still nested.
   // The marker keeps the leftmost cell on every row, whatever depth the row it
   // is on sits at.
@@ -467,7 +467,7 @@ test("scrolling a deep node is kind-agnostic: it follows the row, not the row's 
   expect(bottom[1]!.includes("memory-")).toBe(true);
 
   // Mid-list the cursor is centred, with the rows either side of it on screen.
-  const middle = await frameOf("agentsmd", DEEP, 24, 40);
+  const middle = await snapshotOf("agentsmd", DEEP, 24, 40);
   const cursor = middle.findIndex((l) => l.startsWith("›"));
   expect(middle[cursor]).toBe("›     memory-20: on");
   expect(middle[cursor - 1]).toBe("      memory-19: on");

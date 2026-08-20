@@ -15,7 +15,7 @@ import {
   beagleStoreBabashkaArguments,
   beagleStoreEnvironment,
 } from "../src/beagle-store";
-import { FramRpcClient } from "../src/store-rpc-client";
+import { StoreRpcClient } from "../src/store-rpc-client";
 import { triple } from "../src/store-rpc-codec";
 import { presetRequest } from "./routing-fixtures";
 
@@ -40,17 +40,17 @@ async function unusedPort(): Promise<number> {
   return address.port;
 }
 
-async function waitForStoreServer(port: number, spaceId: string): Promise<FramRpcClient> {
+async function waitForStoreServer(port: number, spaceId: string): Promise<StoreRpcClient> {
   for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
-      return await FramRpcClient.connect({
+      return await StoreRpcClient.connect({
         port, spaceId, connectTimeoutMs: 100, readTimeoutMs: 500,
         maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
       });
     } catch {}
     await Bun.sleep(25);
   }
-  throw new Error("isolated Beagle Store server did not become FRAMRPC-ready");
+  throw new Error("isolated Beagle Store server did not become Store RPC-ready");
 }
 
 function storeServerFixture(): {
@@ -67,7 +67,7 @@ function storeServerFixture(): {
 
 test("real MCP adapter retains its preclaim until the detached child verifies it", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "north-mcp-driver-lifetime-"));
-  const log = join(scratch, "history.framlog");
+  const log = join(scratch, "history.storelog");
   const spaceId = "north-mcp-driver-lifetime";
   const store = storeServerFixture();
   const fakeBun = join(scratch, "bun");
@@ -109,7 +109,7 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
     stderr: "pipe",
   });
 
-  let serverClient: FramRpcClient | undefined;
+  let serverClient: StoreRpcClient | undefined;
   try {
     serverClient = await waitForStoreServer(port, spaceId);
     const seeded = await serverClient.batch([{

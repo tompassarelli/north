@@ -66,20 +66,20 @@ for file in "${files[@]}"; do
   fi
 done
 
-warm_isolated_fram_server() {
-  local fram_home fram_server
-  fram_home="${BEAGLE_STORE_TEST_CHECKOUT:-${BEAGLE_STORE_HOME:-}}"
-  if [[ -z "$fram_home" ]]; then
+warm_isolated_store_server() {
+  local store_home store_server
+  store_home="${BEAGLE_STORE_TEST_CHECKOUT:-${BEAGLE_STORE_HOME:-}}"
+  if [[ -z "$store_home" ]]; then
     echo "isolated Beagle Store server warm-up requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME" >&2
     exit 2
   fi
-  fram_server="$fram_home/bin/beagle-store-server"
-  if [[ ! -x "$fram_server" ]]; then
-    echo "isolated Beagle Store server warm-up requires $fram_server" >&2
+  store_server="$store_home/bin/beagle-store-server"
+  if [[ ! -x "$store_server" ]]; then
+    echo "isolated Beagle Store server warm-up requires $store_server" >&2
     exit 1
   fi
   if ! (
-    cd "$fram_home"
+    cd "$store_home"
     BEAGLE_STORE_SERVER_RUNTIME=jvm-dev clojure -P -M server.clj
   ); then
     echo "isolated Beagle Store server dependency preparation failed" >&2
@@ -213,7 +213,7 @@ done
 
 run_lane "${parallel_files[@]}"
 if ((${#server_files[@]} != 0)); then
-  warm_isolated_fram_server
+  warm_isolated_store_server
 fi
 file_concurrency=1 run_lane "${server_files[@]}"
 

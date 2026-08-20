@@ -23,7 +23,7 @@ const COLUMNS = 120;
 Object.defineProperty(process.stdout, "rows", { value: ROWS, configurable: true });
 Object.defineProperty(process.stdout, "columns", { value: COLUMNS, configurable: true });
 
-// The layout reserves these before the docked panel gets a row: the frame
+// The layout reserves these before the docked panel gets a row: the snapshot
 // chrome and the workspace floor. A panel taller than the difference eats the
 // workspace's minimum. Chrome is four rows since the view bar moved down under
 // the composer and absorbed the session context line: padding, composer, view
@@ -236,9 +236,9 @@ test("a node with every heading in it still fits the docked panel", () => {
   expect(detailHeight(configRuntime(long, "all"))).toBeLessThanOrEqual(PANEL_BUDGET);
 });
 
-async function frameOf(view: string, entries: Row[] = MANIFEST,
+async function snapshotOf(view: string, entries: Row[] = MANIFEST,
                        expanded: string[] = []) {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 110, height: 24,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -247,55 +247,55 @@ async function frameOf(view: string, entries: Row[] = MANIFEST,
   renderer.root.add(panel);
   body.content = renderConfigPanel(configRuntime(entries, view, expanded));
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
-  return frame;
+  return snapshot;
 }
 
 test("/globals is the root node, expanded, with everything scoped to it", async () => {
-  const frame = await frameOf("globals");
-  expect(frame).toContain("globals");
-  expect(frame).toContain("▾ GLOBAL");
-  expect(frame).toContain("SETS");
-  expect(frame).toContain("SKILLS");
-  expect(frame).toContain("MODULES");
-  expect(frame).toContain("HOOKS");
-  expect(frame).toContain("OTHER");
-  expect(frame).toContain("orchestration");
-  expect(frame).toContain("statusline-script");
-  expect(frame).toContain("firn-guard");
+  const snapshot = await snapshotOf("globals");
+  expect(snapshot).toContain("globals");
+  expect(snapshot).toContain("▾ GLOBAL");
+  expect(snapshot).toContain("SETS");
+  expect(snapshot).toContain("SKILLS");
+  expect(snapshot).toContain("MODULES");
+  expect(snapshot).toContain("HOOKS");
+  expect(snapshot).toContain("OTHER");
+  expect(snapshot).toContain("orchestration");
+  expect(snapshot).toContain("statusline-script");
+  expect(snapshot).toContain("firn-guard");
   // Per-directory nodes are not global knobs, and plugins are not ours.
-  expect(frame).not.toContain("PLUGINS");
-  expect(frame).not.toContain("nixos-config");
-  expect(frame).not.toContain("/tmp/switchboard-fixture/north");
+  expect(snapshot).not.toContain("PLUGINS");
+  expect(snapshot).not.toContain("nixos-config");
+  expect(snapshot).not.toContain("/tmp/switchboard-fixture/north");
 });
 
 test("/agentsmd is every node and the files it carries", async () => {
-  const frame = await frameOf("agentsmd");
-  expect(frame).toContain("directory context");
+  const snapshot = await snapshotOf("agentsmd");
+  expect(snapshot).toContain("directory context");
   // Directories are the root level: no wrapper heading over them, and none of
   // the names the wrapper used to go by.
-  expect(frame).not.toContain("DIRECTORY");
-  expect(frame).not.toContain("DIRECTORY INSTRUCTIONS");
-  expect(frame).not.toContain("agents.md & directory context");
+  expect(snapshot).not.toContain("DIRECTORY");
+  expect(snapshot).not.toContain("DIRECTORY INSTRUCTIONS");
+  expect(snapshot).not.toContain("agents.md & directory context");
   // The root scope reads above the narrower scopes layered on it.
-  expect(frame.indexOf("▾ GLOBAL")).toBeGreaterThanOrEqual(0);
-  expect(frame.indexOf("▾ GLOBAL")).toBeLessThan(frame.indexOf("/tmp/switchboard-fixture/north"));
+  expect(snapshot.indexOf("▾ GLOBAL")).toBeGreaterThanOrEqual(0);
+  expect(snapshot.indexOf("▾ GLOBAL")).toBeLessThan(snapshot.indexOf("/tmp/switchboard-fixture/north"));
   // Slug plus state plus the directory the CLI hands over, on one row.
-  expect(frame).toContain("/tmp/switchboard-fixture/north");
-  expect(frame).toContain("/tmp/switchboard-fixture/nixos-config");
-  expect(frame).toContain("on ");
-  expect(frame).toContain("off ");
+  expect(snapshot).toContain("/tmp/switchboard-fixture/north");
+  expect(snapshot).toContain("/tmp/switchboard-fixture/nixos-config");
+  expect(snapshot).toContain("on ");
+  expect(snapshot).toContain("off ");
   // Nothing a node turns on belongs in this view.
   for (const header of ["SKILLS", "HOOKS", "SETS", "PLUGINS", "OTHER"]) {
-    expect(frame).not.toContain(header);
+    expect(snapshot).not.toContain(header);
   }
-  expect(frame).not.toContain("statusline-script");
+  expect(snapshot).not.toContain("statusline-script");
 });
 
 test("/config opens as a list of directories, and expands into the stack", async () => {
   // Folded is the default: which scopes exist, answered before what is in them.
-  const folded = await frameOf("all");
+  const folded = await snapshotOf("all");
   expect(folded).toContain("context switchboard");
   expect(folded).not.toContain("DIRECTORY");
   expect(folded).toContain("▸ GLOBAL");
@@ -304,7 +304,7 @@ test("/config opens as a list of directories, and expands into the stack", async
     expect(folded).not.toContain(header);
   }
 
-  const open = await frameOf("all", MANIFEST, ["global"]);
+  const open = await snapshotOf("all", MANIFEST, ["global"]);
   const order = ["SETS", "SKILLS", "MODULES", "HOOKS", "PLUGINS",
                  "OTHER"];
   const seen = order.map((header) => {
@@ -321,22 +321,22 @@ test("/config opens as a list of directories, and expands into the stack", async
 });
 
 test("/modules narrows to the sets, under the node that holds them", async () => {
-  const frame = await frameOf("module");
-  expect(frame).toContain("modules");
-  expect(frame).toContain("orchestration");
-  expect(frame).toContain("SETS");
+  const snapshot = await snapshotOf("module");
+  expect(snapshot).toContain("modules");
+  expect(snapshot).toContain("orchestration");
+  expect(snapshot).toContain("SETS");
   // A narrow view carries the node its rows are in and no other kind's rows.
-  expect(frame).toContain("▾ GLOBAL");
-  expect(frame).not.toContain("firn-guard");
-  expect(frame).not.toContain("statusline-script");
+  expect(snapshot).toContain("▾ GLOBAL");
+  expect(snapshot).not.toContain("firn-guard");
+  expect(snapshot).not.toContain("statusline-script");
   // …and no node that has none of them.
-  expect(frame).not.toContain("north");
+  expect(snapshot).not.toContain("north");
 });
 
 test("a view with no rows says so instead of claiming to be loading", async () => {
-  const frame = await frameOf("agentsmd", [
+  const snapshot = await snapshotOf("agentsmd", [
     row("other", "statusline-script"), row("hook", "firn-guard"),
   ]);
-  expect(frame).toContain("nothing to configure here");
-  expect(frame).not.toContain("loading");
+  expect(snapshot).toContain("nothing to configure here");
+  expect(snapshot).not.toContain("loading");
 });

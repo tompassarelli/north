@@ -58,7 +58,7 @@ test("Bridge provider executions retain artifacts behind their deterministic MCP
   const queries: AgentProviderQuery[] = [];
   const provider: AgentProvider = {
     id: "openai",
-    liveInput: "turn-framed",
+    liveInput: "turn-messages",
     probe: () => ({ provider: "openai", available: true, reason: "ready" }),
     admit: () => {},
     query(args) {

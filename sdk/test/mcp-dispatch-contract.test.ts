@@ -14,9 +14,9 @@ const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
 const MCP_PROCESS_TEST_TIMEOUT_MS = 45_000;
 function storeRpcEnvironment(root: string, port = "7977"): Record<string, string> {
   return {
-    BEAGLE_STORE_HOME: join(root, "fram"),
-    BEAGLE_STORE_BIN: join(root, "fram/bin"),
-    BEAGLE_STORE_OUT: join(root, "fram/out"),
+    BEAGLE_STORE_HOME: join(root, "store"),
+    BEAGLE_STORE_BIN: join(root, "store/bin"),
+    BEAGLE_STORE_OUT: join(root, "store/out"),
     BEAGLE_STORE_SPACE_ID: "north-coordination",
     BEAGLE_STORE_SERVER_PORT: port,
     NORTH_PORT: port,
@@ -86,9 +86,9 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
     NO_COLOR: "1",
-    BEAGLE_STORE_HOME: join(directory, "fram"),
-    BEAGLE_STORE_BIN: join(directory, "fram/bin"),
-    BEAGLE_STORE_OUT: join(directory, "fram/out"),
+    BEAGLE_STORE_HOME: join(directory, "store"),
+    BEAGLE_STORE_BIN: join(directory, "store/bin"),
+    BEAGLE_STORE_OUT: join(directory, "store/out"),
     BEAGLE_STORE_SPACE_ID: "north-coordination",
     BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
@@ -337,14 +337,14 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
   expect(() => readFileSync(marker)).toThrow();
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
-test("MCP SDK launches forward the inherited canonical FRAMRPC instance exactly", () => {
+test("MCP SDK launches forward the inherited canonical Store RPC instance exactly", () => {
   const launched = mcpSpawnEnvironment((home, env) => {
     env.BEAGLE_STORE_THREADS = join(home, "custom-threads");
   });
   expect(launched.childEnv).toMatchObject({
-    BEAGLE_STORE_HOME: join(launched.home, "../fram"),
-    BEAGLE_STORE_BIN: join(launched.home, "../fram/bin"),
-    BEAGLE_STORE_OUT: join(launched.home, "../fram/out"),
+    BEAGLE_STORE_HOME: join(launched.home, "../store"),
+    BEAGLE_STORE_BIN: join(launched.home, "../store/bin"),
+    BEAGLE_STORE_OUT: join(launched.home, "../store/out"),
     BEAGLE_STORE_SPACE_ID: "north-coordination",
     BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
@@ -355,8 +355,8 @@ test("MCP SDK launches forward the inherited canonical FRAMRPC instance exactly"
   });
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
-test("MCP launch fails closed when the inherited FRAMRPC environment is incomplete", () => {
-  const directory = mkdtempSync(join(tmpdir(), "north-mcp-missing-framrpc-"));
+test("MCP launch fails closed when the inherited Store RPC environment is incomplete", () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-mcp-missing-store-rpc-"));
   temporary.push(directory);
   const marker = join(directory, "sdk-launched");
   const fakeBun = join(directory, "bun");
@@ -367,9 +367,9 @@ test("MCP launch fails closed when the inherited FRAMRPC environment is incomple
     HOME: directory,
     NORTH_MCP_BUN: fakeBun,
     NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
-    BEAGLE_STORE_HOME: join(directory, "fram"),
-    BEAGLE_STORE_BIN: join(directory, "fram/bin"),
-    BEAGLE_STORE_OUT: join(directory, "fram/out"),
+    BEAGLE_STORE_HOME: join(directory, "store"),
+    BEAGLE_STORE_BIN: join(directory, "store/bin"),
+    BEAGLE_STORE_OUT: join(directory, "store/out"),
     BEAGLE_STORE_SERVER_PORT: "7977",
     NORTH_PORT: "7977",
     NORTH_TELEMETRY_SPACE_ID: "north-telemetry",
@@ -465,9 +465,9 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       NORTH_BIN: fakeNorth,
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
       NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
-      BEAGLE_STORE_HOME: join(directory, "fram"),
-      BEAGLE_STORE_BIN: join(directory, "fram/bin"),
-      BEAGLE_STORE_OUT: join(directory, "fram/out"),
+      BEAGLE_STORE_HOME: join(directory, "store"),
+      BEAGLE_STORE_BIN: join(directory, "store/bin"),
+      BEAGLE_STORE_OUT: join(directory, "store/out"),
       BEAGLE_STORE_SPACE_ID: "north-coordination",
       BEAGLE_STORE_SERVER_PORT: "49321",
       NORTH_PORT: "49321",

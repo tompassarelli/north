@@ -83,7 +83,7 @@ interface FakeRuntimeState {
 function fakeRuntime(
 	turns: readonly (readonly unknown[])[],
 	state: FakeRuntimeState,
-	failureAfterFrames?: Error,
+	failureAfterMessages?: Error,
 ): AnthropicQueryRuntime {
 	let turnIndex = 0;
 	return {
@@ -91,7 +91,7 @@ function fakeRuntime(
 			prompt: string | AsyncIterable<SDKUserMessage>;
 			options?: Options;
 		}) => {
-			const frames = turns[turnIndex++] ?? [];
+			const messages = turns[turnIndex++] ?? [];
 			state.resumes.push(parameters.options?.resume);
 			state.options.push({ ...parameters.options });
 			const generator = (async function*() {
@@ -99,11 +99,11 @@ function fakeRuntime(
 					state.inputs.push(parameters.prompt);
 				} else {
 					const input: SDKUserMessage[] = [];
-					for await (const frame of parameters.prompt) input.push(frame);
+					for await (const message of parameters.prompt) input.push(message);
 					state.inputs.push(input);
 				}
-				for (const frame of frames) yield frame;
-				if (failureAfterFrames) throw failureAfterFrames;
+				for (const message of messages) yield message;
+				if (failureAfterMessages) throw failureAfterMessages;
 			})();
 			return {
 				interrupt: async () => { state.interrupts += 1; },
@@ -139,7 +139,7 @@ describe("Anthropic public wire adapter", () => {
 				return { artifactId: artifact.artifactId, digest: artifact.digest };
 			},
 		};
-		const frames = [[
+		const messages = [[
 			{
 				type: "assistant",
 				uuid: "artifact-assistant",
@@ -180,7 +180,7 @@ describe("Anthropic public wire adapter", () => {
 		const providerQuery = createAnthropicQuery(
 			providerArgs("artifact-sink", "retain this", sink),
 			true,
-			fakeRuntime(frames, state),
+			fakeRuntime(messages, state),
 		);
 		const events: WireEvent[] = [];
 		for await (const event of providerQuery) events.push(event);
@@ -239,7 +239,7 @@ describe("Anthropic public wire adapter", () => {
 	test("normalizes two separately-consumed turns on one query and retains continuation privately", async () => {
 		const rawSession = "raw-session-canary";
 		const rawModel = "raw-model-canary";
-		const firstFrames = [
+		const firstMessages = [
 			{ type: "system", subtype: "init", apiKeySource: "oauth", session_id: rawSession },
 			{
 				type: "assistant",
@@ -274,10 +274,10 @@ describe("Anthropic public wire adapter", () => {
 			},
 			result("raw-result-canary", rawSession),
 		];
-		// A valid resumed turn may contain only its result frame. This forces the
+		// A valid resumed turn may contain only its result message. This forces the
 		// adapter's explicit next-turn transition to reopen the normalizer; incidental
 		// assistant/user activity cannot hide a stale completed-turn state.
-		const secondFrames = [result("raw-second-result", rawSession)];
+		const secondMessages = [result("raw-second-result", rawSession)];
 		const state: FakeRuntimeState = {
 			resumes: [], options: [], inputs: [], models: [], efforts: [], interrupts: 0, returns: 0, settles: 0,
 		};
@@ -285,7 +285,7 @@ describe("Anthropic public wire adapter", () => {
 		const providerQuery = createAnthropicQuery(
 			args,
 			true,
-			fakeRuntime([firstFrames, secondFrames], state),
+			fakeRuntime([firstMessages, secondMessages], state),
 		);
 		expect(providerQuery.executionTransport).toBe("sdk-stream");
 		const executionActivity = providerQuery.executionActivity;
@@ -359,7 +359,7 @@ describe("Anthropic public wire adapter", () => {
 		expect(executionActivity?.snapshot()).toMatchObject({
 			lastProvider: {
 				origin: "provider",
-				kind: "provider.anthropic.frame.accepted",
+				kind: "provider.anthropic.message.accepted",
 			},
 		});
 		expect(executionActivity?.snapshot().sequence).toBeGreaterThan(0);
@@ -413,7 +413,7 @@ describe("Anthropic public wire adapter", () => {
 
 	test("synthetically settles abrupt raw failure with one tool terminal and stable diagnostics", async () => {
 		const rawCanary = "RAW_PROVIDER_FAILURE_CANARY";
-		const frames = [[{
+		const messages = [[{
 			type: "assistant",
 			uuid: "raw-abrupt-assistant",
 			session_id: "raw-abrupt-session",
@@ -436,7 +436,7 @@ describe("Anthropic public wire adapter", () => {
 		const providerQuery = createAnthropicQuery(
 			providerArgs("abrupt"),
 			true,
-			fakeRuntime(frames, state, new Error(rawCanary)),
+			fakeRuntime(messages, state, new Error(rawCanary)),
 		);
 		const events: WireEvent[] = [];
 		let error: unknown;

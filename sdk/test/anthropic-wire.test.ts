@@ -160,7 +160,7 @@ describe("Anthropic wire-v2 normalization", () => {
 		expect(admitted.parentId).toBe(assistantStart?.kind === "message.recorded"
 			? assistantStart.messageId : undefined);
 
-		const terminalFrame = normalizer.accept({
+		const terminalMessage = normalizer.accept({
 			type: "user",
 			uuid: "provider-user-secret",
 			parent_tool_use_id: null,
@@ -174,7 +174,7 @@ describe("Anthropic wire-v2 normalization", () => {
 				}],
 			},
 		});
-		const terminal = terminalFrame.events.find((event) => event.kind === "tool.terminal");
+		const terminal = terminalMessage.events.find((event) => event.kind === "tool.terminal");
 		expect(terminal?.kind).toBe("tool.terminal");
 		if (!terminal || terminal.kind !== "tool.terminal") throw new Error("missing tool terminal");
 		expect(terminal.toolCallId).toBe(admitted.toolCallId);
@@ -547,7 +547,7 @@ describe("Anthropic wire-v2 normalization", () => {
 		expect(writer.events()).toEqual(before);
 	});
 
-	test("rejects malformed and orphan lifecycle frames atomically with typed errors", () => {
+	test("rejects malformed and orphan lifecycle messages atomically with typed errors", () => {
 		const malformed = setup("malformed");
 		const beforeMalformed = malformed.writer.events();
 		expectContractError(() => malformed.normalizer.accept({
