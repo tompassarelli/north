@@ -99,7 +99,6 @@
           (.redirectErrorStream true)
           (.redirectOutput server-output))
         environment (.environment builder)]
-    (.put environment "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev")
     (.put environment "BEAGLE_STORE_SERVER_QUIET" "1")
     (.put environment "BEAGLE_STORE_SERVER_XMX" "1g")
     (.put environment "CLJ_CACHE" (str (io/file scratch "clj-cache")))

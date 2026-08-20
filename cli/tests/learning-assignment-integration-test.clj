@@ -103,7 +103,6 @@
                (database/create-triple-log! log test-space)
                (proc/process
                 {:dir store :out server-output :err :out
-                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
                 (str store "/bin/beagle-store-server") "serve" (str port) log test-space))

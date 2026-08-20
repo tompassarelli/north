@@ -65,7 +65,6 @@
       unknown (str "@" unknown-id)
       first-holder "agent:first"
       second-holder "agent:second"
-      daemon-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                   "BEAGLE_STORE_SERVER_QUIET" "1"
                   "BEAGLE_STORE_SERVER_XMX" "1g"
                   "BEAGLE_STORE_SINGLE_VALUED" "title driver"}

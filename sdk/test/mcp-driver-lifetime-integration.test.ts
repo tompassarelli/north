@@ -100,7 +100,6 @@ test("real MCP adapter retains its preclaim until the detached child verifies it
     cwd: store.home,
     env: {
       ...coordinationEnvironment,
-      BEAGLE_STORE_SERVER_RUNTIME: "jvm-dev",
       BEAGLE_STORE_SERVER_QUIET: "1",
       BEAGLE_STORE_SERVER_XMX: "1g",
       BEAGLE_STORE_SNAPSHOT_BOOT: "0",

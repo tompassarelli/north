@@ -410,7 +410,6 @@
        "BEAGLE_STORE_TELEMETRY_LOG" (.getCanonicalPath telemetry-log)
        "NORTH_TELEMETRY_PARTITION" "0"
        "NORTH_TELEMETRY_PORT" (str port)
-       "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
        "BEAGLE_STORE_SERVER_QUIET" "1"
        "BEAGLE_STORE_SERVER_XMX" "1g"}
       daemon

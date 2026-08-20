@@ -214,7 +214,6 @@
 
 (defn server-env []
   (merge (isolated-environment)
-         {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
           "BEAGLE_STORE_SERVER_QUIET" "1"
           "BEAGLE_STORE_SERVER_XMX" "2g"}))
 

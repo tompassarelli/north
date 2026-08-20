@@ -24,7 +24,6 @@ while ss -tlnH "sport = :$PORT" 2>/dev/null | grep -q .; do
 done
 
 BEAGLE_STORE_SINGLE_VALUED="title exp_id arm task_id state tokens wall_s updated" \
-BEAGLE_STORE_SERVER_RUNTIME=jvm-dev \
   "$STORE/bin/beagle-store-server" serve "$PORT" "$LOG" "$SPACE" \
   >"$SERVER_LOG" 2>&1 &
 PID=$!

@@ -290,7 +290,6 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		cwd: store.home,
 		env: {
 			...environment,
-			BEAGLE_STORE_SERVER_RUNTIME: "jvm-dev",
 			BEAGLE_STORE_SERVER_QUIET: "1",
 			BEAGLE_STORE_SERVER_XMX: "1g",
 			BEAGLE_STORE_SNAPSHOT_BOOT: "0",
