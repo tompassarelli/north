@@ -11,12 +11,16 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   beagleStoreBabashkaArguments,
   beagleStoreEnvironment,
 } from "../src/beagle-store";
 import { StoreRpcClient } from "../src/store-rpc-client";
 import { triple } from "../src/store-rpc-codec";
+import { StoreBridgeCommandReceipts } from "../src/bridge/command-receipts";
+import { loadStoreSnapshot } from "../src/store-kernel-loader";
+import { safeNext } from "../src/store-kernel";
 import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
@@ -188,3 +192,88 @@ exec "$NORTH_TEST_REAL_BUN" "$NORTH_TEST_CHILD_FIXTURE" "$thread"
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 30_000);
+
+test("real Store restart reconstructs authoritative attempts without a duplicate launch or command", async () => {
+  const scratch = mkdtempSync(join(tmpdir(), "north-store-restart-case-"));
+  const restartHome = mkdtempSync(join(tmpdir(), "north-store-restart-home-"));
+  const log = join(scratch, "history.storelog");
+  const spaceId = "north-store-restart-case";
+  const store = storeServerFixture();
+  const port = await unusedPort();
+  const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+  const attemptA = `@attempt:${digest("attempt-a")}`;
+  const attemptB = `@attempt:${digest("attempt-b")}`;
+  const environment = (home: string) => beagleStoreEnvironment({
+    ...process.env, HOME: home, NORTH_PORT: String(port), BEAGLE_STORE_SERVER_PORT: String(port),
+    BEAGLE_STORE_LOG: log, BEAGLE_STORE_SPACE_ID: spaceId, BEAGLE_STORE_HOME: store.home,
+    BEAGLE_STORE_BIN: store.bin, BEAGLE_STORE_OUT: store.out, BABASHKA_CLASSPATH: store.out,
+  });
+  const start = (home: string) => Bun.spawn([store.server, "serve", String(port), log, spaceId], {
+    cwd: store.home, env: { ...environment(home), BEAGLE_STORE_SERVER_QUIET: "1", BEAGLE_STORE_SNAPSHOT_BOOT: "0" },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const facts = (attempt: string, account: string, threadId: string, run: string, state: "started" | "unsent") => {
+    const subject = `@account:${account}`;
+    const common = [
+      triple(subject, "kind", "provider_account"), triple(subject, "account_id", account),
+      triple(subject, "provider", "openai"), triple(subject, "account_role", "execution"),
+      triple(subject, "execution_eligible", "true"), triple(attempt, "kind", "execution_attempt"),
+      triple(attempt, "execution_attempt_version", "north:execution-attempt:v1"),
+      triple(attempt, "execution_attempt_manifest_sha256", attempt.slice("@attempt:".length)),
+      triple(attempt, "execution_attempt_run", run), triple(attempt, "execution_attempt_thread", threadId),
+      triple(attempt, "execution_attempt_reporter", "@agent:restart-case"), triple(attempt, "execution_attempt_ordinal", "1"),
+      triple(attempt, "execution_attempt_account", account), triple(attempt, "execution_attempt_provider", "openai"),
+      triple(attempt, "execution_attempt_model", "gpt-5"), triple(attempt, "execution_attempt_account_authority_sha256", digest(`authority-${account}`)),
+      triple(attempt, "execution_attempt_route_observation_sha256", digest(`route-${account}`)),
+      triple(attempt, "execution_attempt_run_capability_sha256", digest(`capability-${run}`)),
+      triple(attempt, "execution_attempt_run_contract_sha256", digest(`contract-${run}`)),
+      triple(attempt, "execution_attempt_reserved_at", "2026-08-20T12:00:00Z"),
+      triple(attempt, "execution_attempt_thread_lease", JSON.stringify({ resource: `thread:${threadId.slice("@thread:".length)}:dispatch`, holder: "restart-case", epoch: 1 })),
+      triple(attempt, "execution_attempt_account_lease", JSON.stringify({ resource: `codex-account:${account}:slot:0`, holder: "restart-case", epoch: 1 })),
+      triple(attempt, "execution_attempt_launch_intent_version", "north:execution-attempt-launch-intent:v1"),
+      triple(attempt, "execution_attempt_launch_intent_at", "2026-08-20T12:00:01Z"), triple(attempt, "execution_attempt_launch_intent_sha256", digest(`launch-${attempt}`)),
+    ];
+    return state === "started" ? [...common,
+      triple(attempt, "execution_attempt_provider_start_receipt_sha256", digest(`start-receipt-${attempt}`)),
+      triple(attempt, "execution_attempt_provider_start_manifest_sha256", digest(`start-${attempt}`)),
+      triple(attempt, "execution_attempt_provider_started_at", "2026-08-20T12:00:02Z"),
+    ] : [...common,
+      triple(attempt, "execution_attempt_unsent_receipt_sha256", digest(`unsent-receipt-${attempt}`)),
+      triple(attempt, "execution_attempt_unsent_manifest_sha256", digest(`unsent-${attempt}`)),
+      triple(attempt, "execution_attempt_unsent_at", "2026-08-20T12:00:02Z"),
+    ];
+  };
+  let serverProcess = start(scratch);
+  let client: StoreRpcClient | undefined;
+  try {
+    client = await waitForStoreServer(port, spaceId);
+    const oversight = "@account:oversight";
+    await client.batch([...facts(attemptA, "execution-a", "@thread:alpha", "run-alpha", "started"),
+      ...facts(attemptB, "execution-b", "@thread:beta", "run-beta", "unsent"),
+      triple(oversight, "kind", "provider_account"), triple(oversight, "account_id", "oversight"),
+      triple(oversight, "provider", "openai"), triple(oversight, "account_role", "oversight"),
+      triple(oversight, "execution_eligible", "false"),
+    ].map((proposition) => ({ op: "assert" as const, proposition })));
+    const receipts = new StoreBridgeCommandReceipts(client);
+    await receipts.bindExecution("execution-alpha", attemptA);
+    const command = await receipts.admit({ executionId: "execution-alpha", attemptId: attemptA,
+      kind: "submit-input", payloadDigest: digest("input"), payloadArtifact: "fake-provider:input",
+      delivery: "queued-next-turn" });
+    await receipts.commitIntent(command);
+    client.close(); client = undefined;
+    serverProcess.kill("SIGTERM"); await serverProcess.exited;
+
+    serverProcess = start(restartHome); // Fresh HOME: only the Store log survives the coordinator restart.
+    client = await waitForStoreServer(port, spaceId);
+    const recoveredA = await loadStoreSnapshot({ attemptId: attemptA, client });
+    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.attempt.subject).toBe(attemptA);
+    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.provenance).toContain("execution_attempt_manifest_sha256");
+    expect(safeNext(recoveredA.snapshot)).toMatchObject({ kind: "reconcile-command", attempt: { subject: attemptA } });
+    expect(safeNext((await loadStoreSnapshot({ attemptId: attemptB, client })).snapshot)).toMatchObject({ kind: "advance", attempt: { subject: attemptB } });
+    expect(safeNext((await loadStoreSnapshot({ accountId: "oversight", client })).snapshot)).toEqual({ kind: "no-op", reason: "oversight-account", replayPosition: 0 });
+    expect(command.ordinal).toBe(1);
+  } finally {
+    client?.close(); serverProcess.kill("SIGTERM"); await serverProcess.exited;
+    rmSync(scratch, { recursive: true, force: true }); rmSync(restartHome, { recursive: true, force: true });
+  }
+}, 60_000);
