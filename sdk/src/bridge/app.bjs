@@ -413,21 +413,23 @@
     width Int]
    String
    (let [source (agent-field-text value)
-        limit (Math/max 1 width)]
+         (limit Int) (Math/max 1 width)]
     (if (<= (js/call Bun .stringWidth source) limit)
       source
-      (let [room (Math/max 0 (- limit (js/call Bun .stringWidth "…")))
+      (let [(ellipsis-width Int) (js/call Bun .stringWidth "…")
+            room (Math/max 0 (- limit ellipsis-width))
             kept []
             state {:width 0 :done false}]
         (js/call
          (Array/from (js/call (js/new IntlSegmenter "en" {:granularity "grapheme"}) .segment source)) .forEach
          (fn [part Any] Any
            (let [segment (text (js/get part .segment))
-                 segment-width (js/call Bun .stringWidth segment)]
+                 (segment-width Int) (js/call Bun .stringWidth segment)
+                 (state-width Int) (js/get state .width)]
              (when (not (js/get state .done))
-               (if (<= (+ (js/get state .width) segment-width) room)
+               (if (<= (+ state-width segment-width) room)
                  (do (js/call kept .push segment)
-                     (js/set! state .width (+ (js/get state .width) segment-width)))
+                     (js/set! state .width (+ state-width segment-width)))
                  (js/set! state .done true))))))
         (str (js/call kept .join "") "…"))))))
 
@@ -435,16 +437,18 @@
   [value Any
    limit Int]
   String
-  (let [clean (clean-text value)]
-    (if (> (js/get clean .length) limit)
-      (str "…" (js/call clean .slice (- (js/get clean .length) limit)))
+  (let [clean (clean-text value)
+        (clean-length Int) (js/get clean .length)]
+    (if (> clean-length limit)
+      (str "…" (js/call clean .slice (- clean-length limit)))
       clean)))
 
 (defn next-item-id!
   [runtime Any
    prefix String]
   String
-  (js/set! runtime .itemSequence (+ (js/get runtime .itemSequence) 1))
+  (let [(sequence Int) (js/get runtime .itemSequence)]
+    (js/set! runtime .itemSequence (+ sequence 1)))
   (str prefix ":" (js/get runtime .itemSequence)))
 
 (defn owned-conversation-item
@@ -616,7 +620,8 @@
               (setInterval
                (fn []  Any
                  (when (not (js/get runtime .disposed))
-                   (js/set! runtime .spinnerIndex (+ (js/get runtime .spinnerIndex) 1))
+                   (let [(spinner-index Int) (js/get runtime .spinnerIndex)]
+                     (js/set! runtime .spinnerIndex (+ spinner-index 1)))
                    (js/call runtime .renderConversation)))
                180)]
           (js/set! runtime .spinnerTimer timer)
@@ -1048,8 +1053,9 @@
   [runtime Any
    prompt Any]
   Any
-  (let [glyph (current-prompt-glyph runtime)]
-    (js/set! prompt .width (+ (js/call Bun .stringWidth glyph) 1))
+  (let [glyph (current-prompt-glyph runtime)
+        (glyph-width Int) (js/call Bun .stringWidth glyph)]
+    (js/set! prompt .width (+ glyph-width 1))
     (js/set! prompt .content (js/new StyledText [(brightCyan (str glyph " "))]))))
 
 (defn set-prompt-glyph!
@@ -1186,8 +1192,9 @@
                     (mod (+ base-index 1) count)
                     base-index)
             path (sound-path (text (js/get runtime .soundDirectory))
-                             (text (aget files index)))]
-        (js/set! runtime .soundSequence (+ (js/get runtime .soundSequence) 1))
+                             (text (aget files index)))
+            (sound-sequence Int) (js/get runtime .soundSequence)]
+        (js/set! runtime .soundSequence (+ sound-sequence 1))
         (js/set! runtime .lastSoundPath path)
         path))))
 
@@ -1196,10 +1203,11 @@
    stream-state Any
    event String]
   Any
-  (let [now (Date/now)]
+  (let [now (Date/now)
+        (last-sound-at Number) (js/get runtime .lastSoundAt)]
     (when (and (js/get runtime .soundEnabled)
                (js/get stream-state .soundLive)
-               (>= (- now (js/get runtime .lastSoundAt)) SOUND-COOLDOWN-MS))
+               (>= (- now last-sound-at) SOUND-COOLDOWN-MS))
       (let [path (select-sound-path! runtime event)]
         (when (not (identical? path ""))
           (js/set! runtime .lastSoundAt now)
@@ -2089,9 +2097,10 @@
           (fn
             [file String
              index Int] Any
-            (config-membership-of-json
-             (js/call file .slice 0 (- (js/get file .length) 5))
-             (text (aget contents index))))))))
+            (let [(file-length Int) (js/get file .length)]
+              (config-membership-of-json
+               (js/call file .slice 0 (- file-length 5))
+               (text (aget contents index)))))))))
 
 (defn ensure-config-manifest! []  (Promise Any)
   ;; `agents status` creates the manifest; only pay for it when absent.
@@ -2153,9 +2162,9 @@
 ;; at minus one.
 (js/export
  (defn clamp-panel-cursor! [runtime Any] Any
-  (let [total (js/get (config-panel-rows runtime) .length)
+  (let [(total Int) (js/get (config-panel-rows runtime) .length)
         raw (js/get runtime .configIndex)
-        current (if raw raw 0)]
+        (current Int) (if raw raw 0)]
     (js/set! runtime .configIndex
           (if (> total 0) (Math/max 0 (Math/min current (- total 1))) 0)))))
 
@@ -2290,9 +2299,10 @@
 (defn edit-config-entry! [runtime Any] (Promise Any)
   (let [entries (config-panel-rows runtime)]
     (when (> (js/get entries .length) 0)
-      (let [raw (js/get runtime .configIndex)
-            index (Math/max 0 (Math/min (if raw raw 0)
-                                        (- (js/get entries .length) 1)))
+      (let [(entry-count Int) (js/get entries .length)
+            raw (js/get runtime .configIndex)
+            (index Int) (Math/max 0 (Math/min (if raw raw 0)
+                                              (- entry-count 1)))
             entry (aget entries index)
             ;; A memory's address carries its directory (`code/architecture`);
             ;; the instruction file's is the directory alone, because that is
@@ -2323,9 +2333,10 @@
 (defn toggle-config-entry! [runtime Any] (Promise Any)
   (let [entries (config-panel-rows runtime)]
     (when (> (js/get entries .length) 0)
-      (let [raw (js/get runtime .configIndex)
-            index (Math/max 0 (Math/min (if raw raw 0)
-                                        (- (js/get entries .length) 1)))
+      (let [(entry-count Int) (js/get entries .length)
+            raw (js/get runtime .configIndex)
+            (index Int) (Math/max 0 (Math/min (if raw raw 0)
+                                              (- entry-count 1)))
             entry (aget entries index)
             verb (config-toggle-verb (configentry-state entry))]
         (js/await (run-command [AGENTS-BIN verb
@@ -2829,9 +2840,10 @@
     selected? Bool
     width Int]
    String
-   (let [prefix (if selected? "› " "  ")]
+   (let [prefix (if selected? "› " "  ")
+         (prefix-width Int) (js/call Bun .stringWidth prefix)]
     (str prefix (agent-cell-text! (agent-summary agent)
-                                 (Math/max 1 (- width (js/call Bun .stringWidth prefix))))))))
+                                 (Math/max 1 (- width prefix-width)))))))
 
 (defn route-provider [agent Agent] String
   (let [label (agent-field-text (agent-provider-label agent))
@@ -2947,13 +2959,14 @@
      segments .forEach
      (fn
        [_segment AgentSegment
-        index Int] Any
+       index Int] Any
        (js/call starts .push
               (if (identical? index 0)
                 STRIP-INDENT
-                (+ (aget starts (- index 1))
-                   (js/get (agentsegment-label (aget segments (- index 1))) .length)
-                   (js/get STRIP-SEPARATOR .length))))))
+                (let [(previous-start Int) (aget starts (- index 1))
+                      (previous-width Int) (js/get (agentsegment-label (aget segments (- index 1))) .length)
+                      (separator-width Int) (js/get STRIP-SEPARATOR .length)]
+                  (+ previous-start previous-width separator-width))))))
     starts))
 
 (defn segment-at-column
@@ -2965,10 +2978,10 @@
                 (fn
                   [start Int
                    index Int] Bool
-                  (and (>= column start)
-                       (< column
-                          (+ start
-                             (js/get (agentsegment-label (aget segments index)) .length))))))))
+                  (let [(segment-width Int)
+                        (js/get (agentsegment-label (aget segments index)) .length)]
+                    (and (>= column start)
+                         (< column (+ start segment-width))))))))
 
 (defn push-chunk!
   [chunks Any
@@ -3080,16 +3093,18 @@
   (let [trimmed (js/call output .trimEnd)]
     (when (not (identical? trimmed ""))
       (let [lines (js/call trimmed .split "\n")
-            limit 8
-            overflow (Math/max 0 (- (js/get lines .length) limit))
+            (limit Int) 8
+            (line-count Int) (js/get lines .length)
+            (overflow Int) (Math/max 0 (- line-count limit))
             visible (js/call lines .slice 0 (if (> overflow 0) (- limit 1) limit))]
         (js/call
          visible .forEach
          (fn
            [line String
             index Int] Any
-           (let [last? (and (identical? overflow 0)
-                            (identical? index (- (js/get visible .length) 1)))]
+           (let [(visible-count Int) (js/get visible .length)
+                 last? (and (identical? overflow 0)
+                            (identical? index (- visible-count 1)))]
              (push-chunk! chunks
                           (dim (str "\n  " (if last? "└ " "│ ") line))))))
         (when (> overflow 0)
@@ -3486,18 +3501,19 @@
 ;; as broken rather than as emphasis.
 (js/export
  (defn banner-line-segments [line String] Any
-  (cond
+  (let [(line-length Int) (js/get line .length)]
+   (cond
     (banner-rule-line? line) [line "" ""]
 
     (and (js/call line .startsWith BANNER-BOX-PREFIX)
          (js/call line .endsWith BANNER-BOX-SUFFIX)
-         (>= (js/get line .length) 4))
+         (>= line-length 4))
     [BANNER-BOX-PREFIX
-     (js/call line .slice 2 (- (js/get line .length) 2))
+     (js/call line .slice 2 (- line-length 2))
      BANNER-BOX-SUFFIX]
 
     ;; The narrow banner draws no box, so the whole line is content.
-    :else ["" line ""])))
+    :else ["" line ""]))))
 
 ;; Pure: the drawn banner -> the runs that paint it, in order, each carrying the
 ;; tone it paints in. Exactly one tone is bright — the title's own text — and
@@ -3580,7 +3596,8 @@
            (do (push-chunk! chunks (brightBlack (str "• " body)))
                (push-chunk! chunks (white "\n\n")))))))
     (when (transcript-working? runtime)
-      (let [elapsed (Math/floor (/ (- (Date/now) (js/get runtime .workingSince)) 1000))]
+      (let [(working-since Number) (js/get runtime .workingSince)
+            (elapsed Int) (Math/floor (/ (- (Date/now) working-since) 1000))]
         (push-working-wave! chunks runtime)
         (push-chunk! chunks (brightBlack (str " (" elapsed "s · esc or ctrl-c to cancel)\n  ")))
         (push-chunk! chunks (brightBlack (transcript-context-text runtime)))))
@@ -3800,7 +3817,7 @@
     role String]
    String
    (let [headings (config-header-roles role)
-        depth (js/get headings .length)
+        (depth Int) (js/get headings .length)
         innermost (if (> depth 0) (aget headings (- depth 1)) "")]
     (if (or (identical? innermost "") (identical? innermost role))
       ""
@@ -3842,9 +3859,13 @@
         glyph (config-fold-glyph dir? expanded?)
         tag (config-kind-tag kind role)
         label (if dir? (config-dir-label entry) (config-row-label kind name))
-        room (Math/max 8 (- width
-                            (js/get indent .length) (js/get glyph .length) (js/get tag .length)
-                            (js/get state-text .length) (js/get detail .length) 4))]
+        (indent-width Int) (js/get indent .length)
+        (glyph-width Int) (js/get glyph .length)
+        (tag-width Int) (js/get tag .length)
+        (state-width Int) (js/get state-text .length)
+        (detail-width Int) (js/get detail .length)
+        (room Int) (Math/max 8 (- width indent-width glyph-width tag-width
+                                state-width detail-width 4))]
     {:indent indent
      :glyph glyph
      :tag tag
@@ -4127,10 +4148,12 @@
                       headings (config-header-keys entry basis)
                       prior (if (identical? i start)
                               []
-                              (config-header-keys (aget entries (- i 1)) basis))]
+                              (config-header-keys (aget entries (- i 1)) basis))
+                      (count-n Int) (js/get count .n)
+                      (heading-count Int) (js/get headings .length)]
                   (js/set! count .n
-                        (+ (js/get count .n)
-                           (- (js/get headings .length)
+                        (+ count-n
+                           (- heading-count
                               (config-header-shared! prior headings)))))))
     (js/get count .n)))
 
@@ -4263,10 +4286,11 @@
                 (brightBlack (if filtering?
                                " · esc clears filter\n"
                                " · / filter · esc closes\n"))]
-        rows (js/call matched .slice 0 (help-visible-rows query))]
+        rows (js/call matched .slice 0 (help-visible-rows query))
+        (row-count Int) (js/get rows .length)]
     ;; A query that matches nothing still owes the layout the row it was
     ;; budgeted, and owes the user a reason the panel is empty.
-    (if (identical? (js/get rows .length) 0)
+    (if (identical? row-count 0)
       (push-chunk! chunks (brightBlack " nothing matches"))
       (js/call
        rows .forEach
@@ -4276,7 +4300,7 @@
          (push-chunk! chunks (brightWhite (js/call (helprow-keys row) .padEnd
                                                    HELP-KEY-WIDTH " ")))
          (push-chunk! chunks (brightBlack (helprow-meaning row)))
-         (when (< index (- (js/get rows .length) 1))
+         (when (< index (- row-count 1))
            (push-chunk! chunks (brightBlack "\n"))))))
     (js/new StyledText chunks)))
 
@@ -4349,16 +4373,18 @@
 
 (def AGENTS-TAB-LABEL String "Agents")
 (def THREADS-TAB-LABEL String "Threads")
-(def FRAME-TAB-SEPARATOR String " | ")
+(def VIEW-TAB-SEPARATOR String " | ")
 (def SUBVIEW-TAB-SEPARATOR String " > ")
 
 (def THREADS-TAB-START Int
-  (+ (js/get AGENTS-TAB-LABEL .length) (js/get FRAME-TAB-SEPARATOR .length)))
+  (let [(agents-label-width Int) (js/get AGENTS-TAB-LABEL .length)
+        (view-separator-width Int) (js/get VIEW-TAB-SEPARATOR .length)]
+    (+ agents-label-width view-separator-width)))
 
 (def SUBVIEW-TAB-ORIGIN Int
-  (+ THREADS-TAB-START
-     (js/get THREADS-TAB-LABEL .length)
-     (js/get SUBVIEW-TAB-SEPARATOR .length)))
+  (let [(threads-label-width Int) (js/get THREADS-TAB-LABEL .length)
+        (subview-separator-width Int) (js/get SUBVIEW-TAB-SEPARATOR .length)]
+    (+ THREADS-TAB-START threads-label-width subview-separator-width)))
 
 (def SUBVIEW-TAB-GAP Int 2)
 
@@ -4390,7 +4416,7 @@
         threads? (threads-frame? frame)
         views (view-list state)]
     (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
-    (push-chunk! chunks (brightBlack FRAME-TAB-SEPARATOR))
+    (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
     (push-chunk! chunks ((if threads? brightGreen brightBlack) THREADS-TAB-LABEL))
     (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
     (if threads?
@@ -4691,14 +4717,18 @@
                (identical? target-condition "ready")))
       (if (identical? source-id target-id)
         (set-board-notice! runtime "Queue order unchanged: a card cannot be moved relative to itself.")
-        (let [position (if (identical? target-id "")
-                         (if (< (js/get event .x)
-                                (+ (js/get (js/get event .currentTarget) .screenX)
-                                   (/ (js/get (js/get event .currentTarget) .width) 2)))
-                           "first" "last")
-                         (if (< (js/get event .x)
-                                (+ (js/get target-card .screenX) (/ (js/get target-card .width) 2)))
-                           "before" "after"))]
+        (let [(event-x Number) (js/get event .x)
+              position (if (identical? target-id "")
+                         (let [(current-left Number) (js/get (js/get event .currentTarget) .screenX)
+                               (current-width Number) (js/get (js/get event .currentTarget) .width)
+                               (current-midpoint Number) (/ current-width 2)]
+                           (if (< event-x (+ current-left current-midpoint))
+                             "first" "last"))
+                         (let [(target-left Number) (js/get target-card .screenX)
+                               (target-width Number) (js/get target-card .width)
+                               (target-midpoint Number) (/ target-width 2)]
+                           (if (< event-x (+ target-left target-midpoint))
+                             "before" "after")))]
           (report-promise! runtime
                            (move-ready-thread! runtime source-id position target-id))))
 
@@ -5767,9 +5797,10 @@
    delta Int]
   Any
   (let [segments (strip-segments runtime)
-        total (js/get segments .length)]
+        (total Int) (js/get segments .length)]
     (when (> total 0)
-      (let [next-index (mod (+ (js/get runtime .stripIndex) delta total) total)]
+      (let [(strip-index Int) (js/get runtime .stripIndex)
+            (next-index Int) (mod (+ strip-index delta total) total)]
         (js/set! runtime .stripIndex next-index)
         (js/set! runtime .detailIndex 0)
         (when (detail-showing? runtime "agents")
@@ -5780,7 +5811,7 @@
   [runtime Any
    delta Int]
   Any
-  (let [total (js/get (detail-agents runtime) .length)]
+  (let [(total Int) (js/get (detail-agents runtime) .length)]
     (when (> total 0)
       (js/set! runtime .detailIndex
             (mod (+ (clamped-index (js/get runtime .detailIndex) total) delta total)
@@ -5902,9 +5933,10 @@
   (let [cursor {:x SUBVIEW-TAB-ORIGIN :id ""}]
     (js/call views .forEach
               (fn [view WorkView] Any
-                (let [start (js/get cursor .x)
+                (let [(start Int) (js/get cursor .x)
                       ;; "[Title]" when selected, " Title " otherwise: same width.
-                      width (+ (js/get (workview-title view) .length) 2)]
+                      (title-width Int) (js/get (workview-title view) .length)
+                      (width Int) (+ title-width 2)]
                   (when (and (>= column start) (< column (+ start width)))
                     (js/set! cursor .id (workview-id view)))
                   (js/set! cursor .x (+ start width SUBVIEW-TAB-GAP)))))
@@ -5916,16 +5948,18 @@
 (js/export
  (defn view-tab-id-at!
    [frame Any
-    views (Vec WorkView)
+   views (Vec WorkView)
     column Int]
    String
-   (cond
-    (and (>= column 0) (< column (js/get AGENTS-TAB-LABEL .length))) "agents"
+   (let [(agents-tab-width Int) (js/get AGENTS-TAB-LABEL .length)
+         (threads-tab-width Int) (js/get THREADS-TAB-LABEL .length)]
+    (cond
+    (and (>= column 0) (< column agents-tab-width)) "agents"
     (and (>= column THREADS-TAB-START)
-         (< column (+ THREADS-TAB-START (js/get THREADS-TAB-LABEL .length)))) "threads"
+         (< column (+ THREADS-TAB-START threads-tab-width))) "threads"
     (and (threads-frame? frame) (>= column SUBVIEW-TAB-ORIGIN))
     (subview-tab-id-at! views column)
-    :else "")))
+    :else ""))))
 
 (defn view-tab-at!
   [runtime Any
@@ -5933,9 +5967,10 @@
    event Any
    views (Vec WorkView)]
   String
-  (view-tab-id-at! (js/get runtime .frame)
-                  views
-                  (Math/floor (- (js/get event .x) (js/get tabs .x)))))
+  (let [(event-x Number) (js/get event .x)
+        (tabs-x Number) (js/get tabs .x)
+        (column Int) (Math/floor (- event-x tabs-x))]
+    (view-tab-id-at! (js/get runtime .frame) views column)))
 
 (defn complete-clicked-palette!
   [runtime Any
@@ -5948,15 +5983,18 @@
     (select-frame! runtime frame)
     (let [input (js/get ui .composerInput)
           options (palette-options frame (text (js/get input .value)))
-          row (Math/floor (- (js/get event .y) (js/get palette-renderable .y)))
+          (event-y Number) (js/get event .y)
+          (palette-y Number) (js/get palette-renderable .y)
+          (row Int) (Math/floor (- event-y palette-y))
           ;; The palette scrolls, so screen row N is option start+N. Rows past
           ;; the option rows are the overflow line, which is not clickable.
           scrolled (js/get runtime .paletteStart)
-          start (if scrolled scrolled 0)
+          (start Int) (if scrolled scrolled 0)
           drawn (js/get runtime .paletteRows)
-          rows (if drawn drawn 0)
-          picked (+ start row)]
-      (when (and (>= row 0) (< row rows) (< picked (js/get options .length)))
+          (rows Int) (if drawn drawn 0)
+          (picked Int) (+ start row)
+          (option-count Int) (js/get options .length)]
+      (when (and (>= row 0) (< row rows) (< picked option-count))
         (js/call event .preventDefault)
         (js/call event .stopPropagation)
         (js/set! runtime .paletteIndex picked)
@@ -6009,8 +6047,11 @@
       (when (identical? (workview-id view) "list")
         (let [items (workview-items view)
               rows (list-rows runtime items)
-              row-index (Math/floor (- (js/get event .y) (js/get (js/get ui .workText) .screenY)))]
-          (when (and (>= row-index 0) (< row-index (js/get rows .length)))
+              (event-y Number) (js/get event .y)
+              (list-y Number) (js/get (js/get ui .workText) .screenY)
+              (row-index Int) (Math/floor (- event-y list-y))
+              (row-count Int) (js/get rows .length)]
+          (when (and (>= row-index 0) (< row-index row-count))
             (let [row (aget rows row-index)]
               (js/call event .preventDefault)
               (js/call event .stopPropagation)
@@ -6045,8 +6086,9 @@
             (js/call event .preventDefault)
             (js/call event .stopPropagation)
             (let [segments (strip-segments runtime)
-                  column (Math/floor (- (js/get event .x)
-                                        (js/get (js/get ui .agentStripText) .screenX)))
+                  (event-x Number) (js/get event .x)
+                  (strip-x Number) (js/get (js/get ui .agentStripText) .screenX)
+                  (column Int) (Math/floor (- event-x strip-x))
                   index (segment-at-column segments column)]
               (when (>= index 0) (show-segment-detail! runtime index))
               (focus-strip! runtime ui)))))
@@ -6339,11 +6381,11 @@
                (js/call key .stopPropagation)
                (cond
                  (or up? down?)
-                 (let [total (js/get (config-panel-rows runtime) .length)]
+                 (let [(total Int) (js/get (config-panel-rows runtime) .length)]
                    (when (> total 0)
                      (let [raw (js/get runtime .configIndex)
-                           current (if raw raw 0)
-                           delta (if up? -1 1)]
+                           (current Int) (if raw raw 0)
+                           (delta Int) (if up? -1 1)]
                        (js/set! runtime .configIndex
                              (mod (+ current delta total) total)))))
 
@@ -6419,8 +6461,9 @@
                  (identical? action "type")
                  (set-panel-query! runtime (str query character))
                  (identical? action "erase")
-                 (set-panel-query! runtime
-                                   (js/call query .slice 0 (- (js/get query .length) 1)))
+                 (let [(query-length Int) (js/get query .length)]
+                   (set-panel-query! runtime
+                                     (js/call query .slice 0 (- query-length 1))))
                  :else (clear-panel-filter! runtime))
                (js/call runtime .render))
 
@@ -6471,13 +6514,14 @@
                            (or (identical? name "j") (identical? name "k")))))
              (do (js/call key .preventDefault)
                  (js/call key .stopPropagation)
-                 (js/set! runtime .paletteIndex
-                       (mod (+ (js/get runtime .paletteIndex)
-                               (if (or (identical? name "up")
-                                       (and (js/get key .ctrl) (identical? name "k")))
-                                 -1 1)
-                               (js/get palette .length))
-                            (js/get palette .length)))
+                 (let [(palette-index Int) (js/get runtime .paletteIndex)
+                       (palette-delta Int) (if (or (identical? name "up")
+                                                  (and (js/get key .ctrl) (identical? name "k")))
+                                             -1 1)
+                       (palette-count Int) (js/get palette .length)]
+                   (js/set! runtime .paletteIndex
+                         (mod (+ palette-index palette-delta palette-count)
+                              palette-count)))
                  (js/call (active-input runtime ui) .focus)
                  (render-minibuffer! runtime ui))
 
@@ -6531,13 +6575,14 @@
              (let [state (snapshot (js/get runtime .model))
                    views (view-list state)
                    current (selected-view state (js/get runtime .activeView))
-                   index (js/call views .findIndex
+                   (index Int) (js/call views .findIndex
                                      (fn [view WorkView] Bool
                                        (identical? (workview-id view)
                                                    (workview-id current))))
-                   delta (if (or (identical? name "left")
-                                 (and meta (identical? name "h"))) -1 1)
-                   next-index (mod (+ index delta (js/get views .length)) (js/get views .length))
+                   (delta Int) (if (or (identical? name "left")
+                                       (and meta (identical? name "h"))) -1 1)
+                   (view-count Int) (js/get views .length)
+                   (next-index Int) (mod (+ index delta view-count) view-count)
                    next-id (text (js/get (aget views next-index) .id))]
                (js/call key .preventDefault)
                (js/call key .stopPropagation)
@@ -6557,27 +6602,31 @@
 
              (and meta (or (identical? name "j") (identical? name "k")))
              (let [state (snapshot (js/get runtime .model))
-                   delta (if (identical? name "k") -1 1)]
+                   (delta Int) (if (identical? name "k") -1 1)]
                (js/call key .preventDefault)
                (js/call key .stopPropagation)
                (if (not (threads-frame? (js/get runtime .frame)))
                  (let [agents (bridgesnapshot-agents state)
-                       max-index (Math/max 0 (- (js/get agents .length) 1))
-                       next-index (Math/max 0 (Math/min max-index (+ (js/get runtime .agentIndex) delta)))
-                       selected-agent-id (if (> (js/get agents .length) 0)
+                       (agent-count Int) (js/get agents .length)
+                       (max-index Int) (Math/max 0 (- agent-count 1))
+                       (agent-index Int) (js/get runtime .agentIndex)
+                       (next-index Int) (Math/max 0 (Math/min max-index (+ agent-index delta)))
+                       selected-agent-id (if (> agent-count 0)
                                            (agent-id (aget agents next-index)) "")]
                    (js/set! runtime .agentIndex next-index)
                    (js/set! runtime .model
                          (select-agent (js/get runtime .model) selected-agent-id)))
                  (let [view (selected-view state (js/get runtime .activeView))
                        items (workview-items view)
-                       max-index (Math/max 0 (- (js/get items .length) 1))
-                       next-index (if (identical? (workview-id view) "list")
+                       (item-count Int) (js/get items .length)
+                       (max-index Int) (Math/max 0 (- item-count 1))
+                       (work-index Int) (js/get runtime .workIndex)
+                       (next-index Int) (if (identical? (workview-id view) "list")
                                     (next-visible-list-index runtime items
-                                                             (js/get runtime .workIndex) delta)
+                                                             work-index delta)
                                     (Math/max 0 (Math/min max-index
-                                                         (+ (js/get runtime .workIndex) delta))))
-                       thread-id (if (> (js/get items .length) 0)
+                                                         (+ work-index delta))))
+                       thread-id (if (> item-count 0)
                                    (workitem-id (aget items next-index)) "")]
                    (js/set! runtime .workIndex next-index)
                    (js/set! runtime .model (select-thread (js/get runtime .model) thread-id))
