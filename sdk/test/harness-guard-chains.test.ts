@@ -168,6 +168,13 @@ for (const [name, route] of [
     expect(broadcast.reason).toContain("pkill -f");
     expect((await decide(hook, bash("pkill -u tom"))).decision).toBe("deny");
     expect((await decide(hook, bash("loginctl terminate-user tom"))).decision).toBe("deny");
+    const detached = await decide(hook, bash("nohup bun /tmp/wake-cljs-migrate.mjs &"));
+    expect(detached.decision).toBe("deny");
+    expect(detached.reason).toContain("run-bounded <duration> -- <command>");
+    expect((await decide(hook, bash("bun /tmp/wake-cljs-migrate.mjs"))).decision).toBe("deny");
+    expect((await decide(hook, bash("node /tmp/wake-cljs-migrate.mjs"))).decision).toBe("deny");
+    expect((await decide(hook, bash("run-bounded 30m -- command &"))).decision).toBe("allow");
+    expect((await decide(hook, bash("bun task > /tmp/task.log 2>&1"))).decision).toBe("allow");
   }, CASE_TIMEOUT_MS);
 
   test.skipIf(!installed)(`${name} never traps a lane`, async () => {
