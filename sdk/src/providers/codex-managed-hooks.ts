@@ -286,9 +286,9 @@ function assertOwnedSelector(path: string, label: string, expectedOwnerUid: numb
 
 function parsePromotionRecord(source: string, deploymentName: string): PromotionRecord {
   if (!source || source.includes("\r") || source.includes("\0"))
-    throw new Error("managed Codex promotion record framing is invalid");
-  const framed = source.endsWith("\n") ? source.slice(0, -1) : source;
-  const lines = framed.split("\n");
+    throw new Error("managed Codex promotion record encoding is invalid");
+  const encoded = source.endsWith("\n") ? source.slice(0, -1) : source;
+  const lines = encoded.split("\n");
   const exactHeader = (index: number, name: string, pattern: RegExp): string => {
     const line = lines[index] ?? "";
     const match = line.match(pattern);

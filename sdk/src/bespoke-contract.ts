@@ -75,12 +75,12 @@ export function canonicalBespokeContractJson(value: unknown): string {
   return JSON.stringify(canonicalBespokeContract(value));
 }
 
-function frame(value: string): string {
+function segment(value: string): string {
   return `${Buffer.byteLength(value, "utf8")}:${value}`;
 }
 
-function frameList(values: readonly string[]): string {
-  return `${values.length}:${values.map(frame).join("")}`;
+function segmentList(values: readonly string[]): string {
+  return `${values.length}:${values.map(segment).join("")}`;
 }
 
 /** Unambiguous, domain-separated UTF-8 payload mirrored by cli/agents-cli.clj. */
@@ -88,13 +88,13 @@ export function canonicalBespokeContractPayload(value: unknown): string {
   const contract = canonicalBespokeContract(value);
   return [
     BESPOKE_FINGERPRINT_DOMAIN,
-    `responsibility=${frame(contract.responsibility)}`,
-    `deliverable=${frame(contract.deliverable)}`,
-    `capabilities=${frameList(contract.capabilities)}`,
-    `mayDecide=${frameList(contract.mayDecide)}`,
-    `mustEscalate=${frameList(contract.mustEscalate)}`,
-    `doneWhen=${frameList(contract.doneWhen)}`,
-    `report=${frame(contract.report)}`,
+    `responsibility=${segment(contract.responsibility)}`,
+    `deliverable=${segment(contract.deliverable)}`,
+    `capabilities=${segmentList(contract.capabilities)}`,
+    `mayDecide=${segmentList(contract.mayDecide)}`,
+    `mustEscalate=${segmentList(contract.mustEscalate)}`,
+    `doneWhen=${segmentList(contract.doneWhen)}`,
+    `report=${segment(contract.report)}`,
   ].join("\n");
 }
 

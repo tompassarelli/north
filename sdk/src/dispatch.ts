@@ -495,7 +495,7 @@ async function runDispatch(
   // Public wire detail is North-owned and bounded. Recursive provider causes
   // remain only in local diagnostics below.
   let preflightDetail: string | undefined;
-  // Same discipline for a provider_error terminal: the error payload the frame
+  // Same discipline for a provider_error terminal: the error payload the message
   // carried, rendered once and carried onto @run (thread 019f9cec).
   let providerErrorDetail: string | undefined;
   let deadlineExceededDetail: string | undefined;
@@ -663,7 +663,7 @@ async function runDispatch(
             await liveInputRoute.activate({
               ...activeRoute(),
               liveInput: authority.liveInput,
-            }, authority.liveInput === "turn-framed");
+            }, authority.liveInput === "turn-messages");
             console.log(
               `[dispatch] effective authority: ${formatProviderAuthoritySurface(authority)}`,
             );

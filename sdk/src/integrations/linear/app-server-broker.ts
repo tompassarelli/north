@@ -15,9 +15,9 @@ import type {
   PreparedMcpToolCall,
 } from "./mcp-broker";
 import { normalizeLinearOpaqueToken } from "./normalize";
-import { parseStrictJson, StrictJsonlFrames } from "../../strict-json";
+import { parseStrictJson, StrictJsonlMessages } from "../../strict-json";
 
-export { StrictJsonlFrames } from "../../strict-json";
+export { StrictJsonlMessages } from "../../strict-json";
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 1024 * 1024;
@@ -26,7 +26,7 @@ const MAX_MCP_SERVERS = 100;
 const MODEL_FREE_PROTOCOL_POLICY = "codex-app-server-linear-v1";
 const SUPERVISOR_CLOSE_GRACE_MS = 1_250;
 const SUPERVISOR = resolve(import.meta.dir, "../../providers/codex-supervisor.ts");
-const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
+const SUPERVISOR_MESSAGE_PREFIX = "NORTH_CODEX_RPC 1 ";
 const SAFE_OUTGOING_METHODS = new Map<string, "request" | "notification">([
   ["initialize", "request"],
   ["initialized", "notification"],
@@ -75,13 +75,13 @@ function createSupervisorControl(): SupervisorControl {
           0o600);
         const payload = Buffer.from(line, "utf8");
         const digest = createHash("sha256").update(payload).digest("hex");
-        const frame = Buffer.concat([
-          Buffer.from(`${SUPERVISOR_FRAME_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
+        const message = Buffer.concat([
+          Buffer.from(`${SUPERVISOR_MESSAGE_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
           payload,
         ]);
         let offset = 0;
-        while (offset < frame.byteLength)
-          offset += writeSync(fd, frame, offset, frame.byteLength - offset);
+        while (offset < message.byteLength)
+          offset += writeSync(fd, message, offset, message.byteLength - offset);
         fsyncSync(fd);
         closeSync(fd);
         fd = undefined;
@@ -165,7 +165,7 @@ function toolDefinition(name: string, value: unknown): McpToolDefinition {
 class JsonlRpcClient {
   private nextId = 0;
   private pending = new Map<RpcId, PendingRequest>();
-  private frames = new StrictJsonlFrames({
+  private messages = new StrictJsonlMessages({
     label: "Codex app-server",
     maxLineBytes: MAX_LINE_BYTES,
   });
@@ -181,7 +181,7 @@ class JsonlRpcClient {
   private childExitSignal: NodeJS.Signals | null | undefined;
   private supervisorStarted = false;
   private supervisorExitCode?: number;
-  private supervisorStatusFrames?: StrictJsonlFrames;
+  private supervisorStatusMessages?: StrictJsonlMessages;
   private supervisorStatusComplete?: Promise<void>;
   private resolveSupervisorStatusComplete?: () => void;
   private childClose: Promise<void>;
@@ -210,17 +210,17 @@ class JsonlRpcClient {
       this.supervisorStatusComplete = new Promise((resolve) => {
         this.resolveSupervisorStatusComplete = resolve;
       });
-      this.supervisorStatusFrames = new StrictJsonlFrames({
+      this.supervisorStatusMessages = new StrictJsonlMessages({
         label: "Codex supervisor status",
         maxLineBytes: 128,
         maxTotalBytes: 4 * 1024,
-        maxFrames: 4,
+        maxMessages: 4,
       });
       child.stderr.on("data", (chunk: Buffer | string) => this.onSupervisorStatus(
         Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
       ));
       child.stderr.on("end", () => {
-        try { this.supervisorStatusFrames?.finish(); }
+        try { this.supervisorStatusMessages?.finish(); }
         catch { this.fail(new Error("Codex app-server supervisor emitted invalid status")); }
       });
     } else {
@@ -253,7 +253,7 @@ class JsonlRpcClient {
 
   private onSupervisorStatus(chunk: Buffer): void {
     try {
-      for (const line of this.supervisorStatusFrames!.push(chunk)) {
+      for (const line of this.supervisorStatusMessages!.push(chunk)) {
         const status = line.startsWith(CODEX_SUPERVISOR_STATUS_PREFIX)
           ? line.slice(CODEX_SUPERVISOR_STATUS_PREFIX.length)
           : undefined;
@@ -378,7 +378,7 @@ class JsonlRpcClient {
 
   private onStdout(chunk: Buffer): void {
     try {
-      for (const line of this.frames.push(chunk)) {
+      for (const line of this.messages.push(chunk)) {
         this.onLine(line);
         if (this.terminalError) return;
       }
@@ -390,9 +390,9 @@ class JsonlRpcClient {
   private onStdoutEnd(): void {
     if (this.stdoutEnded) return;
     this.stdoutEnded = true;
-    try { this.frames.finish(); }
+    try { this.messages.finish(); }
     catch (error) {
-      this.fail(error instanceof Error ? error : new Error("Codex app-server closed with a partial JSONL frame"));
+      this.fail(error instanceof Error ? error : new Error("Codex app-server closed with a partial JSONL message"));
       return;
     }
     if (this.childExited && !this.supervised && !this.closingByClient && !this.terminalError)
@@ -419,16 +419,16 @@ class JsonlRpcClient {
     // say that signal won a race with a provider's own exit. The observed
     // terminal signal is the shutdown provenance boundary for stdio app-server.
     // Node may emit `exit` before it has drained the child's stdout. Defer the
-    // generic death classification so a buffered invalid/partial frame remains
+    // generic death classification so a buffered invalid/partial message remains
     // the authoritative terminal error when `end` arrives.
     if (!this.supervised) this.classifyChildExit();
   }
 
   private failUndrainedStdout(): void {
     if (this.stdoutEnded || this.terminalError) return;
-    try { this.frames.finish(); }
+    try { this.messages.finish(); }
     catch (error) {
-      this.fail(error instanceof Error ? error : new Error("Codex app-server closed with a partial JSONL frame"));
+      this.fail(error instanceof Error ? error : new Error("Codex app-server closed with a partial JSONL message"));
       return;
     }
     this.fail(new Error("Codex app-server stdout did not close after transport exit"));

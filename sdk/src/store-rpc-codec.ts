@@ -1,69 +1,69 @@
-// Binary FRAMRPC v2 codec. Every byte here MUST match fram:src/
-// store/rpc.bclj (TermCodecV1 + FRAMRPC v2) — one server decoder parses
+// Binary Store RPC v2 codec. Every byte here MUST match beagle:src/
+// store/rpc.bclj (TermCodecV1 + Store RPC v2) — one server decoder parses
 // this module and north:cli/store-rpc-client.clj alike; test/fixtures golden
-// frames come from that Clojure encoder.
-// Framing only: no IO, no retry, no publication orchestration.
+// packets come from that Clojure encoder.
+// Packet encoding only: no IO, no retry, no publication orchestration.
 // Fail-closed divergences: an Int outside Number.MAX_SAFE_INTEGER is refused
 // rather than rounded, and one aggregate node budget reports every overflow as
 // `rpc-term-node-limit`.
 import { Keyword, kw } from "./coord-wire";
 
 /** Recursive Term constructor — the only structural vocabulary the daemon reads. */
-export class FramTriple {
+export class StoreTriple {
   constructor(readonly t1: Term, readonly t2: Term, readonly t3: Term) {}
 }
-export const triple = (t1: Term, t2: Term, t3: Term): FramTriple =>
-  new FramTriple(t1, t2, t3);
+export const triple = (t1: Term, t2: Term, t3: Term): StoreTriple =>
+  new StoreTriple(t1, t2, t3);
 
 /** Float atom (tag 3). Explicit because JS cannot tell 1.0 from 1: Clojure
  * encodes `1.0` as a Float and `1` as an Int, and a round trip must not move a
  * value between tags. */
-export class FramFloat {
+export class StoreFloat {
   constructor(readonly value: number) {}
 }
-export const framFloat = (value: number): FramFloat => new FramFloat(value);
+export const storeFloat = (value: number): StoreFloat => new StoreFloat(value);
 
 /** Instant atom (tag 8): i64 epoch seconds + u32 nanos below 1e9. */
-export class FramInstant {
+export class StoreInstant {
   constructor(readonly seconds: number, readonly nanos: number) {}
 }
-export const framInstant = (seconds: number, nanos: number): FramInstant =>
-  new FramInstant(seconds, nanos);
+export const storeInstant = (seconds: number, nanos: number): StoreInstant =>
+  new StoreInstant(seconds, nanos);
 
 export type Term =
-  | string | number | boolean | Keyword | FramTriple | FramFloat | FramInstant;
+  | string | number | boolean | Keyword | StoreTriple | StoreFloat | StoreInstant;
 
-/** A local framing/codec failure. `code` carries fram's own keyword spelling
+/** A local packet encoding/codec failure. `code` carries Store's own keyword spelling
  * (without the colon) so a wire mismatch is diagnosable against the spec. */
-export class FramRpcCodecError extends Error {
+export class StoreRpcCodecError extends Error {
   constructor(readonly code: string, message: string) {
     super(message);
-    this.name = "FramRpcCodecError";
+    this.name = "StoreRpcCodecError";
   }
 }
 
 function fail(code: string, message: string): never {
-  throw new FramRpcCodecError(code, message);
+  throw new StoreRpcCodecError(code, message);
 }
 
-// --- limits (fram:src/store/rpc.bclj FRAMRPC v2) -------------------------------
+// --- limits (beagle:src/store/rpc.bclj Store RPC v2) -------------------------------
 export const RPC_V2_MAJOR = 2;
 export const RPC_V2_MINOR = 0;
 export const RPC_V2_HEADER_BYTES = 26;
 export const RPC_V2_MAX_BODY_BYTES = 1048576;
-export const RPC_V2_MAX_FRAME_BYTES = 1048602;
+export const RPC_V2_MAX_PACKET_BYTES = 1048602;
 export const RPC_V2_MAX_STRING_BYTES = 1048576;
 export const RPC_V2_MAX_SPACE_BYTES = 4096;
 export const RPC_V2_MAX_TERM_NODES = 65536;
 export const RPC_V2_MAX_TERM_DEPTH = 256;
 export const RPC_V2_MAGIC = Uint8Array.from([0x46, 0x52, 0x41, 0x4d, 0x52, 0x50, 0x43, 0x00]);
 
-export type RpcFrameKind = "request" | "response" | "cancel" | "event";
+export type RpcPacketKind = "request" | "response" | "cancel" | "event";
 
-const KIND_CODES: Record<RpcFrameKind, number> = {
+const KIND_CODES: Record<RpcPacketKind, number> = {
   request: 1, response: 2, cancel: 3, event: 4,
 };
-const CODE_KINDS: Record<number, RpcFrameKind> = {
+const CODE_KINDS: Record<number, RpcPacketKind> = {
   1: "request", 2: "response", 3: "cancel", 4: "event",
 };
 
@@ -88,8 +88,8 @@ export interface RpcResponse {
   error: RpcErrorTerm | null;
   payload: Term | null;
 }
-export interface RpcFrame {
-  kind: RpcFrameKind;
+export interface RpcPacket {
+  kind: RpcPacketKind;
   requestId: number;
   request: RpcRequest | null;
   response: RpcResponse | null;
@@ -165,7 +165,7 @@ class ByteReader {
 
   private ensure(count: number, context: string): void {
     if (this.remaining() < count)
-      fail("rpc-truncated", `FRAMRPC ended inside ${context}`);
+      fail("rpc-truncated", `Store RPC ended inside ${context}`);
   }
 
   u8(context: string): number {
@@ -234,7 +234,7 @@ class ByteReader {
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 
-/** Mirror of fram's `utf8-length!`: reject unpaired surrogates BEFORE encoding,
+/** Mirror of Store's `utf8-length!`: reject unpaired surrogates BEFORE encoding,
  * because TextEncoder would silently substitute U+FFFD and change the bytes the
  * daemon hashes. */
 function utf8Bytes(value: string, maximum: number, label: string): Uint8Array {
@@ -277,7 +277,7 @@ function countNode(budget: NodeBudget): void {
   budget.used += 1;
   if (budget.used > RPC_V2_MAX_TERM_NODES)
     fail("rpc-term-node-limit",
-         "FRAMRPC body exceeds the aggregate Term node limit");
+         "Store RPC body exceeds the aggregate Term node limit");
 }
 
 function writeSizedText(
@@ -296,7 +296,7 @@ function writeTerm(
     fail("term-depth-exceeded",
          "recursive Term exceeds the TermCodecV1 depth bound");
   countNode(budget);
-  if (term instanceof FramTriple) {
+  if (term instanceof StoreTriple) {
     writer.u8(7);
     writeTerm(writer, term.t1, depth + 1, budget, maxStringBytes);
     writeTerm(writer, term.t2, depth + 1, budget, maxStringBytes);
@@ -311,12 +311,12 @@ function writeTerm(
   if (typeof term === "number") {
     if (!Number.isInteger(term))
       fail("term-codec-unsupported-term",
-           "a non-integer number must be wrapped in FramFloat");
+           "a non-integer number must be wrapped in StoreFloat");
     writer.u8(2);
     writer.i64(term);
     return;
   }
-  if (term instanceof FramFloat) {
+  if (term instanceof StoreFloat) {
     writer.u8(3);
     writer.f64(term.value);
     return;
@@ -330,7 +330,7 @@ function writeTerm(
     writeSizedText(writer, term.name, maxStringBytes, "Keyword atom");
     return;
   }
-  if (term instanceof FramInstant) {
+  if (term instanceof StoreInstant) {
     writer.u8(8);
     writer.i64(term.seconds);
     if (!Number.isInteger(term.nanos) || term.nanos < 0 || term.nanos >= 1000000000)
@@ -364,7 +364,7 @@ function readTerm(
   switch (tag) {
     case 1: return readSizedText(reader, maxStringBytes, "String atom");
     case 2: return reader.i64("Int atom");
-    case 3: return new FramFloat(reader.f64("Float atom"));
+    case 3: return new StoreFloat(reader.f64("Float atom"));
     case 4: return false;
     case 5: return true;
     case 6: {
@@ -377,7 +377,7 @@ function readTerm(
       const t1 = readTerm(reader, depth + 1, budget, maxStringBytes);
       const t2 = readTerm(reader, depth + 1, budget, maxStringBytes);
       const t3 = readTerm(reader, depth + 1, budget, maxStringBytes);
-      return new FramTriple(t1, t2, t3);
+      return new StoreTriple(t1, t2, t3);
     }
     case 8: {
       const seconds = reader.i64("Instant atom");
@@ -385,7 +385,7 @@ function readTerm(
       if (nanos >= 1000000000)
         fail("term-codec-invalid-instant",
              "Instant nanoseconds are outside the canonical range");
-      return new FramInstant(seconds, nanos);
+      return new StoreInstant(seconds, nanos);
     }
     default:
       return fail("term-codec-bad-tag", "TermCodecV1 contains an unknown tag");
@@ -399,18 +399,18 @@ export function termEquals(left: Term | null, right: Term | null): boolean {
   if (left === null || right === null) return false;
   if (left instanceof Keyword && right instanceof Keyword)
     return left.name === right.name;
-  if (left instanceof FramTriple && right instanceof FramTriple)
+  if (left instanceof StoreTriple && right instanceof StoreTriple)
     return termEquals(left.t1, right.t1)
       && termEquals(left.t2, right.t2)
       && termEquals(left.t3, right.t3);
-  if (left instanceof FramFloat && right instanceof FramFloat)
+  if (left instanceof StoreFloat && right instanceof StoreFloat)
     return Object.is(left.value, right.value);
-  if (left instanceof FramInstant && right instanceof FramInstant)
+  if (left instanceof StoreInstant && right instanceof StoreInstant)
     return left.seconds === right.seconds && left.nanos === right.nanos;
   return false;
 }
 
-// --- frame encode -----------------------------------------------------------
+// --- packet encode -----------------------------------------------------------
 
 function writeTermField(writer: ByteWriter, term: Term, budget: NodeBudget): void {
   writeTerm(writer, term, 0, budget);
@@ -501,57 +501,57 @@ function writeResponseBody(writer: ByteWriter, response: RpcResponse): void {
     writeTermField(writer, response.payload, budget);
 }
 
-export function encodeFrame(frame: RpcFrame): Uint8Array {
-  requireSafeI64(frame.requestId, "request id");
+export function encodePacket(packet: RpcPacket): Uint8Array {
+  requireSafeI64(packet.requestId, "request id");
   const body = new ByteWriter();
-  if (frame.kind === "request") {
-    if (frame.request === null || frame.response !== null)
-      fail("rpc-invalid-shape", "request frame must carry exactly one RpcRequest");
-    writeRequestBody(body, frame.request);
-  } else if (frame.kind === "response" || frame.kind === "event") {
-    if (frame.response === null || frame.request !== null)
+  if (packet.kind === "request") {
+    if (packet.request === null || packet.response !== null)
+      fail("rpc-invalid-shape", "request packet must carry exactly one RpcRequest");
+    writeRequestBody(body, packet.request);
+  } else if (packet.kind === "response" || packet.kind === "event") {
+    if (packet.response === null || packet.request !== null)
       fail("rpc-invalid-shape",
-           "response/event frame must carry exactly one RpcResponse");
-    writeResponseBody(body, frame.response);
-  } else if (frame.kind === "cancel") {
-    if (frame.request !== null || frame.response !== null)
-      fail("rpc-invalid-shape", "cancel frame body must be empty");
+           "response/event packet must carry exactly one RpcResponse");
+    writeResponseBody(body, packet.response);
+  } else if (packet.kind === "cancel") {
+    if (packet.request !== null || packet.response !== null)
+      fail("rpc-invalid-shape", "cancel packet body must be empty");
   } else {
-    fail("rpc-invalid-kind", "FRAMRPC frame kind is unknown");
+    fail("rpc-invalid-kind", "Store RPC packet kind is unknown");
   }
   if (body.size() > RPC_V2_MAX_BODY_BYTES)
-    fail("rpc-frame-too-large", "FRAMRPC body exceeds the configured byte limit");
+    fail("rpc-packet-too-large", "Store RPC body exceeds the configured byte limit");
   const out = new ByteWriter();
   out.raw(RPC_V2_MAGIC);
   out.u16(RPC_V2_MAJOR);
   out.u16(RPC_V2_MINOR);
-  out.u8(KIND_CODES[frame.kind]);
+  out.u8(KIND_CODES[packet.kind]);
   out.u8(0);
   out.u32(body.size());
-  out.i64(frame.requestId);
+  out.i64(packet.requestId);
   out.raw(body.bytes());
   return out.bytes();
 }
 
-export function encodeRequestFrame(requestId: number, request: RpcRequest): Uint8Array {
-  return encodeFrame({ kind: "request", requestId, request, response: null });
+export function encodeRequestPacket(requestId: number, request: RpcRequest): Uint8Array {
+  return encodePacket({ kind: "request", requestId, request, response: null });
 }
 
-export function encodeResponseFrame(requestId: number, response: RpcResponse): Uint8Array {
-  return encodeFrame({ kind: "response", requestId, request: null, response });
+export function encodeResponsePacket(requestId: number, response: RpcResponse): Uint8Array {
+  return encodePacket({ kind: "response", requestId, request: null, response });
 }
 
-export function encodeCancelFrame(requestId: number): Uint8Array {
-  return encodeFrame({ kind: "cancel", requestId, request: null, response: null });
+export function encodeCancelPacket(requestId: number): Uint8Array {
+  return encodePacket({ kind: "cancel", requestId, request: null, response: null });
 }
 
-// --- frame decode -----------------------------------------------------------
+// --- packet decode -----------------------------------------------------------
 
 function readSpaceTerm(reader: ByteReader, budget: NodeBudget): string {
   countNode(budget);
   const tag = reader.u8("SpaceId Term tag");
   if (tag !== 1)
-    fail("rpc-invalid-field", "FRAMRPC SpaceId must be a String Term");
+    fail("rpc-invalid-field", "Store RPC SpaceId must be a String Term");
   return readSizedText(reader, RPC_V2_MAX_SPACE_BYTES, "SpaceId");
 }
 
@@ -617,88 +617,88 @@ function readResponseBody(reader: ByteReader, budget: NodeBudget): RpcResponse {
   return { space, op, servedVersion, page, error, payload };
 }
 
-/** Decode ONE complete frame. The caller must supply exactly the framed bytes:
- * trailing bytes are a protocol error, never a second frame, because the daemon
+/** Decode ONE complete packet. The caller must supply exactly the packet bytes:
+ * trailing bytes are a protocol error, never a second packet, because the daemon
  * serves one request per connection. */
-export function decodeFrame(bytes: Uint8Array): RpcFrame {
-  if (bytes.length > RPC_V2_MAX_FRAME_BYTES)
-    fail("rpc-frame-too-large", "FRAMRPC frame exceeds the configured byte limit");
+export function decodePacket(bytes: Uint8Array): RpcPacket {
+  if (bytes.length > RPC_V2_MAX_PACKET_BYTES)
+    fail("rpc-packet-too-large", "Store RPC packet exceeds the configured byte limit");
   if (bytes.length < RPC_V2_HEADER_BYTES)
-    fail("rpc-truncated", "FRAMRPC frame ended inside its header");
+    fail("rpc-truncated", "Store RPC packet ended inside its header");
   const reader = new ByteReader(bytes);
   for (let index = 0; index < RPC_V2_MAGIC.length; index += 1) {
     if (reader.u8("magic") !== RPC_V2_MAGIC[index])
-      fail("rpc-invalid-magic", "FRAMRPC magic does not match");
+      fail("rpc-invalid-magic", "Store RPC magic does not match");
   }
   const major = reader.u16("major version");
   const minor = reader.u16("minor version");
-  const kindCode = reader.u8("frame kind");
-  const flags = reader.u8("frame flags");
+  const kindCode = reader.u8("packet kind");
+  const flags = reader.u8("packet flags");
   const bodyLength = reader.u32("body length");
   const requestId = reader.i64("request id");
   const kind = CODE_KINDS[kindCode];
   if (kind === undefined)
-    fail("rpc-invalid-kind", "FRAMRPC frame kind is unknown");
+    fail("rpc-invalid-kind", "Store RPC packet kind is unknown");
   if (major !== RPC_V2_MAJOR || minor !== RPC_V2_MINOR)
-    fail("rpc-unsupported-version", "FRAMRPC major/minor version is unsupported");
+    fail("rpc-unsupported-version", "Store RPC major/minor version is unsupported");
   if (flags !== 0)
-    fail("rpc-invalid-flags", "FRAMRPC v2 flags must be zero");
+    fail("rpc-invalid-flags", "Store RPC v2 flags must be zero");
   if (bodyLength > RPC_V2_MAX_BODY_BYTES)
-    fail("rpc-frame-too-large",
-         "FRAMRPC declared body exceeds the configured byte limit");
+    fail("rpc-packet-too-large",
+         "Store RPC declared body exceeds the configured byte limit");
   if (reader.remaining() < bodyLength)
-    fail("rpc-truncated", "FRAMRPC body is shorter than declared");
+    fail("rpc-truncated", "Store RPC body is shorter than declared");
   if (reader.remaining() > bodyLength)
-    fail("rpc-trailing-bytes", "FRAMRPC frame has bytes beyond its declared body");
+    fail("rpc-trailing-bytes", "Store RPC packet has bytes beyond its declared body");
   const budget: NodeBudget = { used: 0 };
-  let frame: RpcFrame;
+  let packet: RpcPacket;
   if (kind === "request") {
-    frame = {
+    packet = {
       kind, requestId, request: readRequestBody(reader, budget), response: null,
     };
   } else if (kind === "response" || kind === "event") {
-    frame = {
+    packet = {
       kind, requestId, request: null, response: readResponseBody(reader, budget),
     };
   } else {
     if (bodyLength !== 0)
-      fail("rpc-invalid-shape", "FRAMRPC cancel body must be exactly empty");
-    frame = { kind, requestId, request: null, response: null };
+      fail("rpc-invalid-shape", "Store RPC cancel body must be exactly empty");
+    packet = { kind, requestId, request: null, response: null };
   }
   if (reader.remaining() !== 0)
-    fail("rpc-trailing-bytes", "FRAMRPC body decoder left trailing bytes");
-  return frame;
+    fail("rpc-trailing-bytes", "Store RPC body decoder left trailing bytes");
+  return packet;
 }
 
 /** Body length declared by a complete 26-byte header, with every header
  * invariant the reference client checks. Lets the transport size ONE read
  * without allocating an untrusted declared body. */
-export function decodeFrameHeader(
+export function decodePacketHeader(
   header: Uint8Array,
-): { kind: RpcFrameKind; requestId: number; bodyLength: number } {
+): { kind: RpcPacketKind; requestId: number; bodyLength: number } {
   if (header.length < RPC_V2_HEADER_BYTES)
-    fail("rpc-truncated", "FRAMRPC frame ended inside its header");
+    fail("rpc-truncated", "Store RPC packet ended inside its header");
   const reader = new ByteReader(header);
   for (let index = 0; index < RPC_V2_MAGIC.length; index += 1) {
     if (reader.u8("magic") !== RPC_V2_MAGIC[index])
-      fail("rpc-invalid-magic", "FRAMRPC magic does not match");
+      fail("rpc-invalid-magic", "Store RPC magic does not match");
   }
   const major = reader.u16("major version");
   const minor = reader.u16("minor version");
-  const kindCode = reader.u8("frame kind");
-  const flags = reader.u8("frame flags");
+  const kindCode = reader.u8("packet kind");
+  const flags = reader.u8("packet flags");
   const bodyLength = reader.u32("body length");
   const requestId = reader.i64("request id");
   const kind = CODE_KINDS[kindCode];
   if (major !== RPC_V2_MAJOR || minor !== RPC_V2_MINOR)
-    fail("rpc-unsupported-version", "FRAMRPC major/minor version is unsupported");
+    fail("rpc-unsupported-version", "Store RPC major/minor version is unsupported");
   if (kind === undefined)
-    fail("rpc-invalid-kind", "FRAMRPC frame kind is unknown");
+    fail("rpc-invalid-kind", "Store RPC packet kind is unknown");
   if (flags !== 0)
-    fail("rpc-invalid-flags", "FRAMRPC v2 flags must be zero");
+    fail("rpc-invalid-flags", "Store RPC v2 flags must be zero");
   if (bodyLength > RPC_V2_MAX_BODY_BYTES)
-    fail("rpc-frame-too-large",
-         "FRAMRPC declared body exceeds the configured byte limit");
+    fail("rpc-packet-too-large",
+         "Store RPC declared body exceeds the configured byte limit");
   return { kind, requestId, bodyLength };
 }
 
@@ -721,7 +721,7 @@ export type SubjectPolicy = typeof RPC_SUBJECT_ANY | typeof RPC_SUBJECT_EXISTING
 export function rpcList(values: readonly Term[]): Term {
   let tail: Term = RPC_LIST_END;
   for (let index = values.length - 1; index >= 0; index -= 1)
-    tail = new FramTriple(RPC_LIST, values[index]!, tail);
+    tail = new StoreTriple(RPC_LIST, values[index]!, tail);
   return tail;
 }
 
@@ -732,7 +732,7 @@ export function rpcListValues(value: Term): Term[] {
     if (cursor instanceof Keyword && cursor.name === RPC_LIST_END.name) return result;
     if (result.length >= RPC_V2_MAX_TERM_NODES)
       fail("rpc-invalid-list", "RPC list exceeds the Term node bound");
-    if (cursor instanceof FramTriple
+    if (cursor instanceof StoreTriple
         && cursor.t1 instanceof Keyword && cursor.t1.name === RPC_LIST.name) {
       result.push(cursor.t2);
       cursor = cursor.t3;
@@ -742,8 +742,8 @@ export function rpcListValues(value: Term): Term[] {
   }
 }
 
-export function rpcSome(value: Term): FramTriple {
-  return new FramTriple(RPC_SOME, value, RPC_OPTION);
+export function rpcSome(value: Term): StoreTriple {
+  return new StoreTriple(RPC_SOME, value, RPC_OPTION);
 }
 
 export function rpcOption(value: Term | null): Term {
@@ -752,7 +752,7 @@ export function rpcOption(value: Term | null): Term {
 
 export function rpcOptionPresent(value: Term): boolean {
   if (value instanceof Keyword && value.name === RPC_NONE.name) return false;
-  if (value instanceof FramTriple
+  if (value instanceof StoreTriple
       && value.t1 instanceof Keyword && value.t1.name === RPC_SOME.name
       && value.t3 instanceof Keyword && value.t3.name === RPC_OPTION.name)
     return true;
@@ -761,28 +761,28 @@ export function rpcOptionPresent(value: Term): boolean {
 }
 
 export function rpcOptionValue(value: Term): Term | null {
-  return rpcOptionPresent(value) ? (value as FramTriple).t2 : null;
+  return rpcOptionPresent(value) ? (value as StoreTriple).t2 : null;
 }
 
-export function rpcRecord(tag: Keyword, fields: readonly Term[]): FramTriple {
-  return new FramTriple(tag, rpcList(fields), RPC_RECORD);
+export function rpcRecord(tag: Keyword, fields: readonly Term[]): StoreTriple {
+  return new StoreTriple(tag, rpcList(fields), RPC_RECORD);
 }
 
 export function rpcRecordFields(
   value: Term | null, tag: Keyword, fieldCount: number,
 ): Term[] {
-  if (!(value instanceof FramTriple)
+  if (!(value instanceof StoreTriple)
       || !(value.t1 instanceof Keyword) || value.t1.name !== tag.name
       || !(value.t3 instanceof Keyword) || value.t3.name !== RPC_RECORD.name)
     fail("rpc-invalid-record", "RPC record tag or marker is invalid");
-  const fields = rpcListValues((value as FramTriple).t2);
+  const fields = rpcListValues((value as StoreTriple).t2);
   if (fields.length !== fieldCount)
     fail("rpc-invalid-record", "RPC record contains the wrong number of fields");
   return fields;
 }
 
 /** `(R,H,epoch)` — the native fence every fenced mutation carries. */
-export function rpcFence(resource: Term, holder: Term, epoch: number): FramTriple {
+export function rpcFence(resource: Term, holder: Term, epoch: number): StoreTriple {
   return rpcRecord(kw("rpc/fence"), [resource, holder, epoch]);
 }
 
@@ -799,11 +799,11 @@ export type MutationOp = "assert" | "retract";
 
 export interface BatchAction {
   op: MutationOp;
-  proposition: FramTriple;
+  proposition: StoreTriple;
   policy?: Keyword;
 }
 
-export function rpcAction(action: BatchAction): FramTriple {
+export function rpcAction(action: BatchAction): StoreTriple {
   return rpcRecord(kw("rpc/action"), [
     kw(action.op === "assert" ? "rpc/assert" : "rpc/retract"),
     action.proposition,
@@ -811,7 +811,7 @@ export function rpcAction(action: BatchAction): FramTriple {
   ]);
 }
 
-export function rpcBatch(actions: readonly BatchAction[], fence: Term | null): FramTriple {
+export function rpcBatch(actions: readonly BatchAction[], fence: Term | null): StoreTriple {
   return rpcRecord(kw("rpc/batch"), [
     rpcList(actions.map(rpcAction)), rpcOption(fence),
   ]);
@@ -819,7 +819,7 @@ export function rpcBatch(actions: readonly BatchAction[], fence: Term | null): F
 
 export function rpcTriplePattern(
   t1: Term | null, t2: Term | null, t3: Term | null,
-): FramTriple {
+): StoreTriple {
   return rpcRecord(kw("rpc/triple-pattern"), [
     rpcOption(t1), rpcOption(t2), rpcOption(t3),
   ]);
@@ -827,23 +827,23 @@ export function rpcTriplePattern(
 
 export function rpcLeaseAcquire(
   resource: Term, holder: Term, ttlMs: number,
-): FramTriple {
+): StoreTriple {
   return rpcRecord(kw("lease/acquire"), [resource, holder, ttlMs]);
 }
 
-export function rpcLeaseRenew(fence: Term, ttlMs: number): FramTriple {
+export function rpcLeaseRenew(fence: Term, ttlMs: number): StoreTriple {
   return rpcRecord(kw("lease/renew"), [fence, ttlMs]);
 }
 
 export interface ActionResult {
   inputIndex: number;
   changed: boolean;
-  occurrence: FramTriple;
+  occurrence: StoreTriple;
 }
 
-function requireOccurrenceCoordinate(value: Term): FramTriple {
-  if (!(value instanceof FramTriple)
-      || !(value.t1 instanceof FramTriple)
+function requireOccurrenceCoordinate(value: Term): StoreTriple {
+  if (!(value instanceof StoreTriple)
+      || !(value.t1 instanceof StoreTriple)
       || typeof value.t1.t1 !== "string" || value.t1.t1.length === 0
       || !(value.t1.t2 instanceof Keyword)
       || value.t1.t2.name !== "kernel/tx-sequence"
@@ -879,13 +879,13 @@ export function decodeTriples(payload: Term | null): Term[] {
   return rpcListValues(rows!);
 }
 
-export interface LeaseGrant { fence: FramTriple; expires: FramInstant }
+export interface LeaseGrant { fence: StoreTriple; expires: StoreInstant }
 
 export function decodeLeaseGrant(payload: Term | null): LeaseGrant {
   const [fence, expires] = rpcRecordFields(payload, kw("lease/grant"), 2);
-  if (!(fence instanceof FramTriple) || !(expires instanceof FramInstant))
+  if (!(fence instanceof StoreTriple) || !(expires instanceof StoreInstant))
     fail("rpc-invalid-record", "lease/grant fields are mistyped");
-  return { fence: fence as FramTriple, expires: expires as FramInstant };
+  return { fence: fence as StoreTriple, expires: expires as StoreInstant };
 }
 
 export function decodeLeaseReleased(payload: Term | null): boolean {
@@ -895,16 +895,16 @@ export function decodeLeaseReleased(payload: Term | null): boolean {
   return released;
 }
 
-export interface LeaseCheck { valid: boolean; expires: FramInstant | null }
+export interface LeaseCheck { valid: boolean; expires: StoreInstant | null }
 
 export function decodeLeaseCheck(payload: Term | null): LeaseCheck {
   const [valid, expiresOption] = rpcRecordFields(payload, kw("lease/check"), 2);
   if (typeof valid !== "boolean")
     fail("rpc-invalid-record", "lease/check validity is mistyped");
   const expires = rpcOptionValue(expiresOption!);
-  if (expires !== null && !(expires instanceof FramInstant))
+  if (expires !== null && !(expires instanceof StoreInstant))
     fail("rpc-invalid-record", "lease/check expiry is mistyped");
-  return { valid, expires: expires as FramInstant | null };
+  return { valid, expires: expires as StoreInstant | null };
 }
 
 export interface RpcStatus {
@@ -933,6 +933,6 @@ export function decodeStatus(payload: Term | null): RpcStatus {
 }
 
 /** Instant → epoch milliseconds, for callers whose deadlines are JS clocks. */
-export function instantToMillis(instant: FramInstant): number {
+export function instantToMillis(instant: StoreInstant): number {
   return instant.seconds * 1000 + Math.floor(instant.nanos / 1000000);
 }

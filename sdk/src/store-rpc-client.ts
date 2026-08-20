@@ -1,4 +1,4 @@
-// One-shot FRAMRPC v2 client, mirroring north:cli/store-rpc-client.clj. The server
+// One-shot Store RPC v2 client, mirroring north:cli/store-rpc-client.clj. The server
 // serves ONE request per connection. A mutation whose bytes reached the socket is
 // never auto-retried: the caller gets `requestSent` and owns the resolution.
 import { connect as netConnect, type Socket } from "node:net";
@@ -8,14 +8,14 @@ import type {
   RpcPageResponse, RpcRequest, RpcResponse, RpcStatus, Term,
 } from "./store-rpc-codec";
 import {
-  decodeFrame, decodeFrameHeader, decodeLeaseCheck, decodeLeaseGrant,
+  decodePacket, decodePacketHeader, decodeLeaseCheck, decodeLeaseGrant,
   decodeLeaseReleased, decodeMutationResult, decodeStatus, decodeTriples,
-  encodeRequestFrame, rpcBatch, rpcLeaseAcquire, rpcLeaseRenew,
+  encodeRequestPacket, rpcBatch, rpcLeaseAcquire, rpcLeaseRenew,
   rpcTriplePattern, RPC_UNIT, RPC_V2_HEADER_BYTES,
 } from "./store-rpc-codec";
 
 /** A typed refusal the server put on the wire. */
-export class FramRpcServerError extends Error {
+export class StoreRpcServerError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -26,14 +26,14 @@ export class FramRpcServerError extends Error {
     readonly attempts: number,
   ) {
     super(message);
-    this.name = "FramRpcServerError";
+    this.name = "StoreRpcServerError";
   }
 }
 
-/** A transport/framing failure. `requestSent` false means the bytes never left
+/** A transport/packet encoding failure. `requestSent` false means the bytes never left
  * this process — the ONLY case in which an unacknowledged mutation is provably
  * absent from the graph. */
-export class FramRpcTransportError extends Error {
+export class StoreRpcTransportError extends Error {
   constructor(
     readonly code: string,
     message: string,
@@ -43,11 +43,11 @@ export class FramRpcTransportError extends Error {
     options?: { cause?: unknown },
   ) {
     super(message, options);
-    this.name = "FramRpcTransportError";
+    this.name = "StoreRpcTransportError";
   }
 }
 
-/** The canonical FRAMRPC retryable set; a code the
+/** The canonical Store RPC retryable set; a code the
  * server marks retryable but the client omits strands a caller the server
  * expected to ask again. */
 export const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
@@ -69,7 +69,7 @@ const MUTATION_OPS: ReadonlySet<string> = new Set([
  * encoded inside the shared Term depth limit. */
 export const EFFECTIVE_PAGE_LIMIT = 200;
 
-export interface FramRpcClientOptions {
+export interface StoreRpcClientOptions {
   host?: string;
   port?: number;
   spaceId?: string;
@@ -79,10 +79,10 @@ export interface FramRpcClientOptions {
   retryDelayMs?: number;
   jitterMs?: number;
   /** Test/bench seam; defaults to the one-shot socket exchange. */
-  transport?: FramRpcTransport;
+  transport?: StoreRpcTransport;
 }
 
-export interface FramRpcTransportInput {
+export interface StoreRpcTransportInput {
   host: string;
   port: number;
   requestId: number;
@@ -91,7 +91,7 @@ export interface FramRpcTransportInput {
   readTimeoutMs: number;
 }
 
-export type FramRpcTransport = (input: FramRpcTransportInput) => Promise<RpcResponse>;
+export type StoreRpcTransport = (input: StoreRpcTransportInput) => Promise<RpcResponse>;
 
 export interface RequestOptions {
   expectedVersion?: number | null;
@@ -114,13 +114,13 @@ function nextRequestId(): number {
 
 function positiveInteger(label: string, value: number): number {
   if (!Number.isSafeInteger(value) || value <= 0)
-    throw new Error(`FRAMRPC ${label} must be a positive integer`);
+    throw new Error(`Store RPC ${label} must be a positive integer`);
   return value;
 }
 
 function nonNegativeInteger(label: string, value: number): number {
   if (!Number.isSafeInteger(value) || value < 0)
-    throw new Error(`FRAMRPC ${label} must be a non-negative integer`);
+    throw new Error(`Store RPC ${label} must be a non-negative integer`);
   return value;
 }
 
@@ -133,18 +133,18 @@ function transportCode(cause: unknown): string {
 
 /**
  * One unary socket exchange. Resolves with the decoded response; rejects with a
- * FramRpcTransportError whose `requestSent` distinguishes "never left this
+ * StoreRpcTransportError whose `requestSent` distinguishes "never left this
  * process" from "on the wire, outcome unknown".
  */
-export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcResponse> {
+export function socketRoundTrip(input: StoreRpcTransportInput): Promise<RpcResponse> {
   const op = input.request.op.name;
   return new Promise<RpcResponse>((resolvePromise, reject) => {
     let bytes: Uint8Array;
     try {
-      bytes = encodeRequestFrame(input.requestId, input.request);
+      bytes = encodeRequestPacket(input.requestId, input.request);
     } catch (cause) {
-      reject(new FramRpcTransportError(
-        transportCode(cause), `FRAMRPC request is not encodable: ${String(cause)}`,
+      reject(new StoreRpcTransportError(
+        transportCode(cause), `Store RPC request is not encodable: ${String(cause)}`,
         false, op, 1, { cause },
       ));
       return;
@@ -159,7 +159,7 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
       if (settled) return;
       settled = true;
       socket?.destroy();
-      reject(new FramRpcTransportError(code, message, sent, op, 1, { cause }));
+      reject(new StoreRpcTransportError(code, message, sent, op, 1, { cause }));
     };
     const succeed = (response: RpcResponse) => {
       if (settled) return;
@@ -170,8 +170,8 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
     try {
       socket = netConnect({ host: input.host, port: input.port });
     } catch (cause) {
-      reject(new FramRpcTransportError(
-        transportCode(cause), `FRAMRPC connect failed: ${String(cause)}`,
+      reject(new StoreRpcTransportError(
+        transportCode(cause), `Store RPC connect failed: ${String(cause)}`,
         false, op, 1, { cause },
       ));
       return;
@@ -179,13 +179,13 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
     socket.setTimeout(positiveInteger("connect-timeout-ms", input.connectTimeoutMs));
     socket.on("timeout", () => failWith(
       "rpc-timeout",
-      sent ? "FRAMRPC read timed out" : "FRAMRPC connect timed out",
+      sent ? "Store RPC read timed out" : "Store RPC connect timed out",
     ));
     socket.on("error", (cause) => failWith(
-      transportCode(cause), `FRAMRPC transport failed: ${String(cause)}`, cause,
+      transportCode(cause), `Store RPC transport failed: ${String(cause)}`, cause,
     ));
     socket.on("close", () => failWith(
-      "rpc-truncated", "FRAMRPC connection closed before a complete response",
+      "rpc-truncated", "Store RPC connection closed before a complete response",
     ));
     socket.on("connect", () => {
       socket.setTimeout(input.readTimeoutMs);
@@ -197,7 +197,7 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
       received += chunk.length;
       try {
         if (bodyLength === null && received >= RPC_V2_HEADER_BYTES) {
-          bodyLength = decodeFrameHeader(
+          bodyLength = decodePacketHeader(
             Uint8Array.from(Buffer.concat(chunks).subarray(0, RPC_V2_HEADER_BYTES)),
           ).bodyLength;
         }
@@ -206,37 +206,37 @@ export function socketRoundTrip(input: FramRpcTransportInput): Promise<RpcRespon
         if (received < total) return;
         if (received > total) {
           failWith("rpc-trailing-bytes",
-                   "FRAMRPC response carried bytes beyond its declared body");
+                   "Store RPC response carried bytes beyond its declared body");
           return;
         }
-        const frame = decodeFrame(Uint8Array.from(Buffer.concat(chunks)));
-        if (frame.kind !== "response" || frame.response === null) {
+        const packet = decodePacket(Uint8Array.from(Buffer.concat(chunks)));
+        if (packet.kind !== "response" || packet.response === null) {
           failWith("rpc-invalid-kind",
-                   "FRAMRPC unary request received a non-response frame");
+                   "Store RPC unary request received a non-response packet");
           return;
         }
-        if (frame.requestId !== input.requestId) {
+        if (packet.requestId !== input.requestId) {
           failWith("rpc-request-id-mismatch",
-                   "FRAMRPC response request-id does not match");
+                   "Store RPC response request-id does not match");
           return;
         }
-        const response = frame.response;
+        const response = packet.response;
         if (response.space !== input.request.space
             || response.op.name !== input.request.op.name) {
           failWith("rpc-response-mismatch",
-                   "FRAMRPC response identity does not match its request");
+                   "Store RPC response identity does not match its request");
           return;
         }
         succeed(response);
       } catch (cause) {
         failWith(transportCode(cause),
-                 `FRAMRPC response is undecodable: ${String(cause)}`, cause);
+                 `Store RPC response is undecodable: ${String(cause)}`, cause);
       }
     });
   });
 }
 
-export class FramRpcClient {
+export class StoreRpcClient {
   private closedFlag = false;
 
   private constructor(
@@ -248,16 +248,16 @@ export class FramRpcClient {
     private readonly maxAttempts: number,
     private readonly retryDelayMs: number,
     private readonly jitterMs: number,
-    private readonly transport: FramRpcTransport,
+    private readonly transport: StoreRpcTransport,
   ) {}
 
   /** Build a client WITHOUT probing the server. */
-  static create(options: FramRpcClientOptions = {}): FramRpcClient {
-    const host = options.host ?? process.env.NORTH_FRAMRPC_HOST ?? "127.0.0.1";
-    if (host.length === 0) throw new Error("FRAMRPC host must be nonblank");
+  static create(options: StoreRpcClientOptions = {}): StoreRpcClient {
+    const host = options.host ?? process.env.NORTH_STORE_HOST ?? "127.0.0.1";
+    if (host.length === 0) throw new Error("Store RPC host must be nonblank");
     const spaceId = options.spaceId ?? storeSpaceId();
-    if (spaceId.length === 0) throw new Error("FRAMRPC SpaceId must be nonblank");
-    return new FramRpcClient(
+    if (spaceId.length === 0) throw new Error("Store RPC SpaceId must be nonblank");
+    return new StoreRpcClient(
       host,
       positiveInteger("port", options.port ?? coordPort()),
       spaceId,
@@ -271,8 +271,8 @@ export class FramRpcClient {
   }
 
   /** Build a client and prove the server serves THIS SpaceId before any write. */
-  static async connect(options: FramRpcClientOptions = {}): Promise<FramRpcClient> {
-    const client = FramRpcClient.create(options);
+  static async connect(options: StoreRpcClientOptions = {}): Promise<StoreRpcClient> {
+    const client = StoreRpcClient.create(options);
     try {
       await client.status();
       return client;
@@ -297,7 +297,7 @@ export class FramRpcClient {
   async request(
     op: Keyword, payload: Term, options: RequestOptions = {},
   ): Promise<{ response: RpcResponse; attempts: number }> {
-    if (this.closedFlag) throw new Error("FRAMRPC client is closed");
+    if (this.closedFlag) throw new Error("Store RPC client is closed");
     const request: RpcRequest = {
       space: this.spaceId,
       op,
@@ -321,13 +321,13 @@ export class FramRpcClient {
           ),
         });
       } catch (error) {
-        const transportError = error instanceof FramRpcTransportError
-          ? new FramRpcTransportError(
+        const transportError = error instanceof StoreRpcTransportError
+          ? new StoreRpcTransportError(
             error.code, error.message, error.requestSent, op.name, attempt,
             { cause: error.cause },
           )
           : error;
-        if (!(transportError instanceof FramRpcTransportError)) throw transportError;
+        if (!(transportError instanceof StoreRpcTransportError)) throw transportError;
         const resendable = !mutation || !transportError.requestSent;
         if (resendable && attempt < this.maxAttempts) {
           await this.retryPause(attempt);
@@ -343,7 +343,7 @@ export class FramRpcClient {
         await this.retryPause(attempt);
         continue;
       }
-      throw new FramRpcServerError(
+      throw new StoreRpcServerError(
         code, error.message, error.retryable, response.servedVersion,
         error.detail, op.name, attempt,
       );
@@ -389,7 +389,7 @@ export class FramRpcClient {
   ): Promise<ServedResult & { rows: Term[]; pages: number }> {
     const pageSize = positiveInteger("page-size", options.pageSize ?? EFFECTIVE_PAGE_LIMIT);
     if (pageSize > EFFECTIVE_PAGE_LIMIT)
-      throw new Error("FRAMRPC page size exceeds the current TermCodec-safe limit");
+      throw new Error("Store RPC page size exceeds the current TermCodec-safe limit");
     let cursor: Term | null = null;
     let rows: Term[] = [];
     let pages = 0;
@@ -400,11 +400,11 @@ export class FramRpcClient {
         page: { limit: pageSize, cursor },
       });
       if (page.page === null)
-        throw new Error("FRAMRPC paged operation omitted page metadata");
+        throw new Error("Store RPC paged operation omitted page metadata");
       if (snapshot === null) snapshot = page.servedVersion;
       if (snapshot !== page.servedVersion)
         throw new Error(
-          `FRAMRPC page drain changed snapshot: ${snapshot} -> ${page.servedVersion}`,
+          `Store RPC page drain changed snapshot: ${snapshot} -> ${page.servedVersion}`,
         );
       rows = rows.concat(page.rows);
       pages += 1;

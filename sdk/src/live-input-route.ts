@@ -135,7 +135,7 @@ export class ManagedLiveInputRoute {
   }
 
   #admitMessage = (message: string): InputAdmission => {
-    if (this.published.liveInput !== "turn-framed") return this.pushMessage(message);
+    if (this.published.liveInput !== "turn-messages") return this.pushMessage(message);
     if (this.#followUpState !== "open") return rejectedAdmission();
 
     const owner = {};
@@ -326,7 +326,7 @@ export class ManagedLiveInputRoute {
       this.publish(route, "frozen", true);
       return;
     }
-    if (route.liveInput === "turn-framed" && !terminalFollowUpCapable) {
+    if (route.liveInput === "turn-messages" && !terminalFollowUpCapable) {
       this.publish(route, "pending", true);
       return;
     }
@@ -349,7 +349,7 @@ export class ManagedLiveInputRoute {
     }
     let subscription: FeedSubscription | undefined;
     try {
-      subscription = await this.#bindFeed(route.liveInput === "turn-framed");
+      subscription = await this.#bindFeed(route.liveInput === "turn-messages");
     } catch (error) {
       if (
         error instanceof LiveFeedStoppedBeforeReadyError
@@ -374,14 +374,14 @@ export class ManagedLiveInputRoute {
   }
 
   /**
-   * Re-poll the durable inbox at the first successful terminal. Turn-framed input
+   * Re-poll the durable inbox at the first successful terminal. Turn-message input
    * is passive: the deferred feed has established its coordinator cursor but has
    * claimed no graph mail until this boundary. The provider cannot acknowledge the
-   * admitted frame until its retained session asks the channel for a later turn.
+   * admitted message until its retained session asks the channel for a later turn.
    */
   async prepareTerminalFollowUp(signal: AbortSignal): Promise<boolean> {
     if (
-      this.published.liveInput !== "turn-framed"
+      this.published.liveInput !== "turn-messages"
       || this.published.liveInputState !== "armed"
       || signal.aborted
     ) return false;
@@ -394,7 +394,7 @@ export class ManagedLiveInputRoute {
         typeof subscription.replay !== "function"
         || !subscription.caughtUp
         || typeof subscription.caughtUp.then !== "function"
-      ) throw new Error("North turn-framed feed did not expose a replay barrier");
+      ) throw new Error("North turn-messages feed did not expose a replay barrier");
       if (this.#followUpState === "consumed") {
         return await Promise.race([
           subscription.caughtUp.then(() => false as const),

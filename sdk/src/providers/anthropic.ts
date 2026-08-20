@@ -117,7 +117,7 @@ function normalizedAnthropicMessage(message: unknown): unknown {
 	return source;
 }
 
-function normalizedAnthropicFrames(source: AsyncIterable<unknown>): AsyncIterable<unknown> {
+function normalizedAnthropicEvents(source: AsyncIterable<unknown>): AsyncIterable<unknown> {
 	return {
 		async *[Symbol.asyncIterator]() {
 			for await (const message of source) yield normalizedAnthropicMessage(message);
@@ -270,13 +270,13 @@ function anthropicInput(input: WireQueryInput): string | AsyncIterable<SDKUserMe
 	if (typeof input === "string") return input;
 	return {
 		async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-			for await (const frame of input) {
-				if (frame.kind !== "user.input" || typeof frame.text !== "string") {
-					throw new TypeError("anthropic wire input frame is malformed");
+			for await (const message of input) {
+				if (message.kind !== "user.input" || typeof message.text !== "string") {
+					throw new TypeError("anthropic wire input message is malformed");
 				}
 				yield {
 					type: "user",
-					message: { role: "user", content: frame.text },
+					message: { role: "user", content: message.text },
 					parent_tool_use_id: null,
 				};
 			}
@@ -413,7 +413,7 @@ export function createAnthropicQuery(
 				rawQuery = runtime.query({ prompt: anthropicInput(input), options });
 				const sessionIds = new Set<string>();
 				let sessionIdentityLost = false;
-				const observed = runtime.observe(normalizedAnthropicFrames(rawQuery), {
+				const observed = runtime.observe(normalizedAnthropicEvents(rawQuery), {
 					targetId: () => args.target?.id ?? "anthropic",
 					mcpAccumulator: mcp,
 					onSessionId: (sessionId) => {
@@ -533,11 +533,11 @@ export function createAnthropicQuery(
 					let failure: unknown;
 					try {
 						for await (const observed of turn.observed) {
-							const accepted = normalizer.accept(observed.frame, {
+							const accepted = normalizer.accept(observed.event, {
 								...(observed.providerJoin === undefined
 									? {} : { providerJoin: observed.providerJoin }),
 							});
-							activity.record("provider", "provider.anthropic.frame.accepted");
+							activity.record("provider", "provider.anthropic.event.accepted");
 							for (const event of accepted.events) {
 								if (event.kind === "model-call.completed" && accepted.turnOutcome) {
 									terminalSeen = true;

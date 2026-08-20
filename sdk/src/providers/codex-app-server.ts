@@ -34,7 +34,7 @@ import {
   NativeCommandActivityAccumulator, NORTH_BINARY_PROBE_SCRIPT, unknownNativeCommandActivity,
   type NativeCommandActivityObservation, type NativeCommandStatus,
 } from "../native-command-activity";
-import { parseStrictJson, StrictJsonlFrames } from "../strict-json";
+import { parseStrictJson, StrictJsonlMessages } from "../strict-json";
 import {
   trustedGitMetadataRoots, trustedGitProjectRoot, trustedManagedCodexExecutable,
 } from "../trusted-runtime";
@@ -64,15 +64,15 @@ const ENGINE = resolve(import.meta.dir, "../../../bin/north");
 const RPC_TIMEOUT_MS = 20_000;
 // codex-rs/app-server-transport/src/transport/stdio.rs feeds stdin through
 // BufReader::lines and writes every serialized JSON-RPC message plus '\n' to
-// stdout; it does not impose a 1 MiB frame ceiling. Keep each app-server frame
+// stdout; it does not impose a 1 MiB message ceiling. Keep each app-server message
 // finite, but allow legitimate large tool/result messages within our existing
 // 32 MiB cumulative transport budget.
 const MAX_LINE_BYTES = 8 * 1024 * 1024;
 // Large mutating tool results can exceed the default transport budget, so the
-// cumulative ceiling remains higher than the per-frame limit.
+// cumulative ceiling remains higher than the per-message limit.
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
-const MAX_FRAMES = 20_000;
-const MAX_PENDING_RPC_FRAMES = 256;
+const MAX_MESSAGES = 20_000;
+const MAX_PENDING_RPC_MESSAGES = 256;
 const MAX_INVENTORY_PAGES = 32;
 const MAX_MCP_SERVERS = 64;
 const MAX_ID_BYTES = 512;
@@ -90,10 +90,10 @@ export const MANAGED_CODEX_VERSION = "0.146.0";
 // The supervisor status channel now carries forwarded provider stderr, so its
 // reader is widened DELIBERATELY: one base64 diagnostic line (512 raw bytes)
 // plus the receipt prefix fits in 2 KiB, and the supervisor's own lifetime
-// forwarding budget (3_950 live + 1 notice + 40 flushed) sits under this frame
+// forwarding budget (3_950 live + 1 notice + 40 flushed) sits under this message
 // ceiling with STARTED and EXIT to spare.
 const SUPERVISOR_STATUS_MAX_LINE_BYTES = 2_048;
-const SUPERVISOR_STATUS_MAX_FRAMES = 4_096;
+const SUPERVISOR_STATUS_MAX_MESSAGES = 4_096;
 const SUPERVISOR_STATUS_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 // A turn terminal was previously awaited with no bound at all: RPC_TIMEOUT_MS
 // only covers an OUTSTANDING request, so a provider that accepts turn/start and
@@ -118,13 +118,13 @@ const PROVIDER_TURN_INTERRUPT_FAILED = "provider_turn_interrupt_failed";
 // cannot survive three provider processes is failing for a reason a fourth will
 // not fix.
 const MAX_RESPAWNS = 2;
-// The recovered-context frame is the lane's whole memory of the dead session,
+// The recovered-context message is the lane's whole memory of the dead session,
 // and it is also model input: keep it compact enough to leave the continuation
 // room to work.
 const MAX_RECOVERED_TEXT_BYTES = 8 * 1024;
 const MAX_RECOVERED_CONTEXT_BYTES = 96 * 1024;
 const MAX_PENDING_ITEM_SUMMARIES = 16;
-const SUPERVISOR_FRAME_PREFIX = "NORTH_CODEX_RPC 1 ";
+const SUPERVISOR_MESSAGE_PREFIX = "NORTH_CODEX_RPC 1 ";
 const CODEX_SHELL_PREFLIGHT_TIMEOUT_MS = 5_000;
 const CODEX_SHELL_PREFLIGHT_OUTPUT_BYTES = 4_096;
 const CODEX_SHELL_PREFLIGHT_COMMAND = Object.freeze([
@@ -311,9 +311,9 @@ export interface ManagedCodexResult {
   toolItems: number;
 }
 
-// A later North input frame for the same provider thread, or `undefined` to
+// A later North input message for the same provider thread, or `undefined` to
 // settle the session after the current turn. The session drives one Codex turn
-// per resolved frame; every turn re-proves the exact managed authority surface
+// per resolved message; every turn re-proves the exact managed authority surface
 // before it starts and again at its terminal settlement, so a continuation can
 // never widen capability (web stays disabled) mid-session.
 export type ManagedCodexNextInput = () => Promise<string | undefined>;
@@ -928,7 +928,7 @@ function createSupervisorControl(): SupervisorControl {
         const payload = Buffer.from(line, "utf8");
         const digest = createHash("sha256").update(payload).digest("hex");
         const bytes = Buffer.concat([
-          Buffer.from(`${SUPERVISOR_FRAME_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
+          Buffer.from(`${SUPERVISOR_MESSAGE_PREFIX}${payload.byteLength} ${digest}\n`, "ascii"),
           payload,
         ]);
         let offset = 0;
@@ -987,11 +987,11 @@ const SAFE_NOTIFICATIONS = new Set([
 class AppServerRpc {
   private nextId = 0;
   private pending = new Map<RpcId, Pending>();
-  private frames = new StrictJsonlFrames({
+  private messages = new StrictJsonlMessages({
     label: "managed Codex app-server",
     maxLineBytes: MAX_LINE_BYTES,
     maxTotalBytes: MAX_TOTAL_BYTES,
-    maxFrames: MAX_FRAMES,
+    maxMessages: MAX_MESSAGES,
   });
   private terminal?: Error;
   private terminalFromProcessDeath = false;
@@ -1020,10 +1020,10 @@ class AppServerRpc {
     child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
     child.stdout.on("end", () => {
       this.stdoutEnded = true;
-      try { this.frames.finish(); }
+      try { this.messages.finish(); }
       catch (cause) {
         this.queueInboundFailure(
-          new Error("managed Codex closed with a partial frame", { cause }), true,
+          new Error("managed Codex closed with a partial message", { cause }), true,
         );
       }
       if (this.deferredInboundFailure) this.startInboundDrain();
@@ -1091,9 +1091,9 @@ class AppServerRpc {
 
   private onData(chunk: Buffer): void {
     try {
-      const lines = [...this.frames.push(chunk)];
-      if (this.inboundQueue.length + lines.length > MAX_PENDING_RPC_FRAMES) {
-        this.queueInboundFailure(new Error("managed Codex inbound frame queue exceeded its bound"), false);
+      const lines = [...this.messages.push(chunk)];
+      if (this.inboundQueue.length + lines.length > MAX_PENDING_RPC_MESSAGES) {
+        this.queueInboundFailure(new Error("managed Codex inbound message queue exceeded its bound"), false);
         return;
       }
       this.inboundQueue.push(...lines);
@@ -2331,7 +2331,7 @@ function validateProgressNotification(
 /**
  * Valid protocol traffic is not synonymous with execution. Connection,
  * thread-status, rate-limit, MCP-startup, safety-buffering, token-accounting,
- * and hook frames are deliberately excluded from watchdog liveness.
+ * and hook messages are deliberately excluded from watchdog liveness.
  */
 function providerExecutionActivityKind(
   method: string,
@@ -2430,10 +2430,10 @@ function supervisorStatusChannel(
       settled() {}, stderrTail() { return []; }, exitCode() { return undefined; }, close() {},
     };
   }
-  const frames = new StrictJsonlFrames({
+  const messages = new StrictJsonlMessages({
     label: "Codex supervisor",
     maxLineBytes: SUPERVISOR_STATUS_MAX_LINE_BYTES,
-    maxFrames: SUPERVISOR_STATUS_MAX_FRAMES,
+    maxMessages: SUPERVISOR_STATUS_MAX_MESSAGES,
     maxTotalBytes: SUPERVISOR_STATUS_MAX_TOTAL_BYTES,
   });
   const ring = new ProviderStderrRing();
@@ -2472,13 +2472,13 @@ function supervisorStatusChannel(
     // post-mortem will read it instead of dropping it silently.
     if (!malformedNoted) {
       malformedNoted = true;
-      ring.add("<supervisor emitted an invalid status frame>");
+      ring.add("<supervisor emitted an invalid status message>");
     }
   };
   const onData = (chunk: Buffer) => {
     if (closed) return;
     try {
-      for (const line of frames.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+      for (const line of messages.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
         onLine(line);
     } catch (error) {
       closed = true;
@@ -2595,7 +2595,7 @@ function clip(value: string, maxBytes: number): string {
 }
 
 /**
- * The first input frame of a respawned session: the original brief, plus a
+ * The first input message of a respawned session: the original brief, plus a
  * compact recap of what the crashed session already produced.
  *
  * This is where North's respawn departs from hermes'. hermes retires the
@@ -2861,7 +2861,7 @@ export class ManagedCodexAppServerRun {
   /**
    * Same-thread continuation across provider RESTARTS. Yields one terminal
    * result per turn; after each turn the caller supplies the next North input
-   * frame (or `undefined` to settle).
+   * message (or `undefined` to settle).
    *
    * A provider process death after thread/start used to end the lane, because
    * spawn.ts refuses a process-death retry for any authoring-capable lane —
@@ -2870,7 +2870,7 @@ export class ManagedCodexAppServerRun {
    * respawn lives here: tear the dead supervisor down, re-run the FULL launch
    * preflight (same admission and attestation battery, no shortcut), start a
    * new thread, and continue by re-sending the accumulated context as the next
-   * input frame. spawn.ts's retry policy is untouched.
+   * input message. spawn.ts's retry policy is untouched.
    *
    * Only actual process death respawns. A watchdog that interrupts a wedged
    * turn while the provider is still alive settles that turn and is NOT a
@@ -2940,7 +2940,7 @@ export class ManagedCodexAppServerRun {
   }
 
   // One provider session end to end: launch preflight, thread/start, and the
-  // per-frame turn loop. Throws on any failure; `session` above owns whether
+  // per-message turn loop. Throws on any failure; `session` above owns whether
   // that failure earns another process.
   private async *attempt(
     nextInput: ManagedCodexNextInput,
@@ -3443,9 +3443,9 @@ export class ManagedCodexAppServerRun {
       if (runtimeState.hookRuns.size || queuedNotifications.length)
         throw new Error("Codex thread/start left unresolved lifecycle notifications");
 
-      // One turn per North input frame, on the same provider thread. The first
-      // frame is the launch prompt — the brief on the first attempt, the brief
-      // plus recovered context on a respawn; later frames arrive from
+      // One turn per North input message, on the same provider thread. The first
+      // message is the launch prompt — the brief on the first attempt, the brief
+      // plus recovered context on a respawn; later messages arrive from
       // `nextInput`.
       let input: string | undefined = launchPrompt;
       while (true) {

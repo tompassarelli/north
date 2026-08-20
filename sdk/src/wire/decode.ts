@@ -471,7 +471,7 @@ function abortActivityEvidence(
 		origin: oneOf(source.origin, ["provider"] as const, `${label}.origin`),
 		kind: oneOf(
 			source.kind,
-			["turn", "item", "tool", "progress", "frame", "activity"] as const,
+			["turn", "item", "tool", "progress", "event", "activity"] as const,
 			`${label}.kind`,
 		),
 		observedAt: instant(source.observedAt, `${label}.observedAt`),

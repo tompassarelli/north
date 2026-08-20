@@ -15,7 +15,7 @@ import {
 import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
-import { FramRpcClient } from "./store-rpc-client";
+import { StoreRpcClient } from "./store-rpc-client";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
@@ -38,7 +38,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "AGENT_TOPOLOGY",
   "AGENT_COORDINATOR",
   "NORTH_PORT",
-  "NORTH_FRAMRPC_HOST",
+  "NORTH_STORE_HOST",
   "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT",
   "NORTH_TELEMETRY_SPACE_ID",
@@ -409,15 +409,15 @@ async function requireCoordinator(
     throw new ExecutionAdmissionError("north_coordination_space_missing");
   if (spaceValue.trim() !== spaceValue)
     throw new ExecutionAdmissionError("north_coordination_space_invalid");
-  const hostValue = environment.NORTH_FRAMRPC_HOST ?? environment.BEAGLE_STORE_SERVER_CONNECT
+  const hostValue = environment.NORTH_STORE_HOST ?? environment.BEAGLE_STORE_SERVER_CONNECT
     ?? "127.0.0.1";
   if (typeof hostValue !== "string" || !hostValue.trim()
       || hostValue.trim() !== hostValue)
     throw new ExecutionAdmissionError("north_coordination_host_invalid");
   const boundedTimeout = Math.min(999_999, Math.max(1, timeoutMs));
-  let client: FramRpcClient | null = null;
+  let client: StoreRpcClient | null = null;
   try {
-    client = await FramRpcClient.connect({
+    client = await StoreRpcClient.connect({
       host: hostValue,
       port,
       spaceId: spaceValue,
