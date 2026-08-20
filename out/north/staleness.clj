@@ -11,7 +11,7 @@
 
 (defn review-detail [r] (:detail r))
 
-(defrecord Latest [tx l p r frame])
+(defrecord Latest [tx l p r record])
 
 (defn latest-tx [r] (:tx r))
 
@@ -21,13 +21,13 @@
 
 (defn latest-r [r] (:r r))
 
-(defn latest-frame [r] (:frame r))
+(defn latest-record [r] (:record r))
 
 (def scope-preds ["depends_on" "part_of" "body"])
 
 (def edge-preds ["relates_to" "clarifies" "amends"])
 
-(defn- ^Boolean real-edit-frame? [^String fr]
+(defn- ^Boolean real-edit-record? [^String fr]
   (or (= fr "coord") (or (= fr "agent") (= fr "cli"))))
 
 (defn time-stale [idx ^String today before?]
@@ -38,7 +38,7 @@
   (reduce (fn [acc ^String te] (if (proj/terminal-i? idx te) acc (reduce (fn [a ^String p] (reduce (fn [b ^String tgt] (if (some? (proj/string-value-at idx tgt "abandoned")) (conj b (->Review te p (str "→ " tgt " was abandoned — relationship may be stale"))) b)) a (proj/string-values-at idx te p))) acc edge-preds))) [] (proj/thread-subjects idx)))
 
 (defn- later-edit-scope-tx [latest ^String l]
-  (reduce (fn [m ^Latest v] (if (and (= (:l v) l) (and (kc/vec-member? scope-preds (:p v)) (and (real-edit-frame? (:frame v)) (> (:tx v) m)))) (:tx v) m)) 0 latest))
+  (reduce (fn [m ^Latest v] (if (and (= (:l v) l) (and (kc/vec-member? scope-preds (:p v)) (and (real-edit-record? (:record v)) (> (:tx v) m)))) (:tx v) m)) 0 latest))
 
 (defn estimate-stale [idx latest]
   (reduce (fn [acc ^Latest v] (if (and (= (:p v) "estimate_hours") (and (not (proj/terminal-i? idx (:l v))) (> (later-edit-scope-tx latest (:l v)) (:tx v)))) (conj acc (->Review (:l v) "estimate_hours" (str (:r v) "h estimated before a later scope edit — re-estimate"))) acc)) [] latest))

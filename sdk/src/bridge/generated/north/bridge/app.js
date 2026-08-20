@@ -261,11 +261,11 @@ function text_or(value, fallback) {
 
 function bare(value) {
   const value_text = text(value);
-  return (value_text.startsWith("@") ? value_text.slice(1) : value_text);
+  return (((_truthy) => _truthy !== false && _truthy != null)(value_text.startsWith("@")) ? value_text.slice(1) : value_text);
 }
 
 function error_message(error) {
-  return ((error && (typeof error === "object") && error.message) ? text(error.message) : String(error));
+  return (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((typeof error === "object") && error.message) : _logical))(error)) ? text(error.message) : String(error));
 }
 
 function safe_json(value) {
@@ -283,8 +283,8 @@ function stale_daemon_summary(live) {
 function failure_summary(data) {
   const message = text_or(data.message, text_or(data.detail, text_or(data.classification, text(data.code))));
   const causes = data.causes;
-  const cause = ((causes && (causes.length > 0)) ? text(causes[0]) : "");
-  return (((message.includes("north_coordinator_preflight") || cause.includes("ECONNREFUSED 127.0.0.1:7977"))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number((data.live || 0))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
+  const cause = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (causes.length > 0) : _logical))(causes)) ? text(causes[0]) : "");
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : cause.includes("ECONNREFUSED 127.0.0.1:7977")))(message.includes("north_coordinator_preflight")))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number(((_logical) => (_logical !== false && _logical != null ? _logical : 0))(data.live))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
 }
 
 function clean_text(value) {
@@ -293,7 +293,7 @@ function clean_text(value) {
 
 export function agent_field_text(value) {
   return Array.from(clean_text(value)).map((character) => { const code = character.charCodeAt(0);
-return ((((code === 9) || (code === 10) || (code === 13))) ? " " : (((code < 32) || ((code >= 127) && (code <= 159)))) ? "" : character); }).join("");
+return ((((_truthy) => _truthy !== false && _truthy != null)(((code === 9) || ((code === 10) || (code === 13))))) ? " " : (((_truthy) => _truthy !== false && _truthy != null)(((code < 32) || ((code >= 127) && (code <= 159))))) ? "" : character); }).join("");
 }
 
 export function agent_cell_text_bang(value, width) {
@@ -302,15 +302,17 @@ export function agent_cell_text_bang(value, width) {
   if ((Bun.stringWidth(source) <= limit)) {
     return source;
   } else {
-    const room = Math.max(0, (limit - Bun.stringWidth("…")));
+    const ellipsis_width = Bun.stringWidth("…");
+    const room = Math.max(0, (limit - ellipsis_width));
     const kept = [];
     const state = {width: 0, done: false};
     Array.from(new IntlSegmenter("en", {granularity: "grapheme"}).segment(source)).forEach((part) => { const segment = text(part.segment);
 const segment_width = Bun.stringWidth(segment);
-if ((!state.done)) {
-  if (((state.width + segment_width) <= room)) {
+const state_width = state.width;
+if ((!((_truthy) => _truthy !== false && _truthy != null)(state.done))) {
+  if (((state_width + segment_width) <= room)) {
     kept.push(segment);
-    return (state.width = (state.width + segment_width));
+    return (state.width = (state_width + segment_width));
   } else {
     return (state.done = true);
   }
@@ -321,11 +323,13 @@ if ((!state.done)) {
 
 function clipped(value, limit) {
   const clean = clean_text(value);
-  return ((clean.length > limit) ? ("".concat("…", clean.slice((clean.length - limit)))) : clean);
+  const clean_length = clean.length;
+  return ((clean_length > limit) ? ("".concat("…", clean.slice((clean_length - limit)))) : clean);
 }
 
 function next_item_id_bang(runtime, prefix) {
-  (runtime.itemSequence = (runtime.itemSequence + 1));
+  const sequence = runtime.itemSequence;
+  (runtime.itemSequence = (sequence + 1));
   return ("".concat(prefix, ":", runtime.itemSequence));
 }
 
@@ -346,8 +350,8 @@ function compare_conversation_items(left, right) {
 }
 
 function compare_execution_items(left, right) {
-  const cursor_order = (conversationitem_cursor(left) - conversationitem_cursor(right));
-  const sequence_order = (conversationitem_sequence(left) - conversationitem_sequence(right));
+  const cursor_order = _(conversationitem_cursor(left), conversationitem_cursor(right));
+  const sequence_order = _(conversationitem_sequence(left), conversationitem_sequence(right));
   return (((!(cursor_order === 0))) ? cursor_order : ((!(sequence_order === 0))) ? sequence_order : compare_text(conversationitem_id(left), conversationitem_id(right)));
 }
 
@@ -359,7 +363,7 @@ export function project_conversation(items, execution_id, aggregate) {
 function runtime_selected_agent_id(runtime) {
   const agents = bridgesnapshot_agents(snapshot(runtime.model));
   const total = agents.length;
-  const selected = Number((runtime.agentIndex || 0));
+  const selected = Number(((_logical) => (_logical !== false && _logical != null ? _logical : 0))(runtime.agentIndex));
   return ((total > 0) ? agent_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
 }
 
@@ -373,12 +377,12 @@ function projected_conversation(runtime) {
 
 function transcript_working_p(runtime) {
   const executions = runtime.workingExecutions;
-  return (executions ? (aggregate_transcript_p(runtime) ? (executions.size > 0) : executions.has(runtime_selected_agent_id(runtime))) : (runtime.working ? true : false));
+  return (((_truthy) => _truthy !== false && _truthy != null)(executions) ? (aggregate_transcript_p(runtime) ? (executions.size > 0) : executions.has(runtime_selected_agent_id(runtime))) : (((_truthy) => _truthy !== false && _truthy != null)(runtime.working) ? true : false));
 }
 
 function mark_execution_working_bang(runtime, execution_id, working) {
   const executions = runtime.workingExecutions;
-  if ((executions && (!(execution_id === "")))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!(execution_id === "")) : _logical))(executions))) {
     return (working ? executions.add(execution_id) : executions.delete(execution_id));
   }
 }
@@ -427,17 +431,18 @@ function set_working_bang(runtime, working, label) {
       (runtime.workingSince = Date.now());
     }
     if ((runtime.spinnerTimer == null)) {
-      const timer = setInterval(() => { if ((!runtime.disposed)) {
-  (runtime.spinnerIndex = (runtime.spinnerIndex + 1));
+      const timer = setInterval(() => { if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
+  const spinner_index = runtime.spinnerIndex;
+  (runtime.spinnerIndex = (spinner_index + 1));
   return runtime.renderConversation();
 } }, 180);
       (runtime.spinnerTimer = timer);
-      if (timer.unref) {
+      if (((_truthy) => _truthy !== false && _truthy != null)(timer.unref)) {
         timer.unref();
       }
     }
   } else {
-    if (runtime.spinnerTimer) {
+    if (((_truthy) => _truthy !== false && _truthy != null)(runtime.spinnerTimer)) {
       clearInterval(runtime.spinnerTimer);
     }
     (runtime.spinnerTimer = null);
@@ -449,7 +454,7 @@ function set_working_bang(runtime, working, label) {
 function set_execution_working_bang(runtime, execution_id, working, label) {
   const executions = runtime.workingExecutions;
   mark_execution_working_bang(runtime, execution_id, working);
-  if (executions) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(executions)) {
     const any_working_p = (executions.size > 0);
     return set_working_bang(runtime, any_working_p, (any_working_p ? text_or(label, runtime.workingLabel) : ""));
   } else {
@@ -459,7 +464,7 @@ function set_execution_working_bang(runtime, execution_id, working, label) {
 
 function command(input) {
   const trimmed = input.trim();
-  const normalized = (trimmed.startsWith("/") ? trimmed.slice(1) : trimmed);
+  const normalized = (((_truthy) => _truthy !== false && _truthy != null)(trimmed.startsWith("/")) ? trimmed.slice(1) : trimmed);
   const split_at = normalized.indexOf(" ");
   return ((split_at < 0) ? ParsedCommand(normalized.toLowerCase(), "") : ParsedCommand(normalized.slice(0, split_at).toLowerCase(), normalized.slice((split_at + 1)).trim()));
 }
@@ -472,14 +477,14 @@ function escape_command_p(name) {
   return ((name === "close") || (name === "esc"));
 }
 
-const BOOT_FRAME = "agents";
+const BOOT_VIEW = "agents";
 
-export function boot_frame() {
-  return BOOT_FRAME;
+export function boot_view() {
+  return BOOT_VIEW;
 }
 
-export function threads_frame_p(frame) {
-  return (text(frame) === "threads");
+export function threads_view_p(view) {
+  return (text(view) === "threads");
 }
 
 export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p) {
@@ -487,15 +492,15 @@ export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_fo
 }
 
 export function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
-  return ((palette_open_p) ? "palette" : ((panel_open_p && panel_focused_p && filtering_p)) ? "filter" : ((panel_open_p && panel_focused_p)) ? "panel" : (strip_focused_p) ? "strip" : "composer");
+  return ((palette_open_p) ? "palette" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && (panel_focused_p && filtering_p)))) ? "filter" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && panel_focused_p))) ? "panel" : (strip_focused_p) ? "strip" : "composer");
 }
 
 export function tab_action(focus, dir_row_p, expanded_p) {
-  return (((focus === "palette")) ? "complete" : (((focus === "panel") || (focus === "filter"))) ? (dir_row_p ? (expanded_p ? "collapse" : "expand") : "climb") : "swap-view");
+  return (((focus === "palette")) ? "complete" : (((_truthy) => _truthy !== false && _truthy != null)(((focus === "panel") || (focus === "filter")))) ? (dir_row_p ? (expanded_p ? "collapse" : "expand") : "climb") : "swap-view");
 }
 
-export function tab_swap_frame(frame) {
-  return (threads_frame_p(frame) ? "agents" : "threads");
+export function tab_swap_view(view) {
+  return (threads_view_p(view) ? "agents" : "threads");
 }
 
 function emoji_options(query) {
@@ -508,16 +513,16 @@ function glyph_options(query) {
   return GLYPH_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
 }
 
-export function palette_options(frame, input) {
+export function palette_options(view, input) {
   const query = input.trim().toLowerCase();
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
-  const commands = (threads_frame_p(frame) ? THREAD_COMMANDS : AGENT_COMMANDS);
-  return (((!query.startsWith("/"))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((name === "glyph") || (name === "prompt"))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
+  const commands = (threads_view_p(view) ? THREAD_COMMANDS : AGENT_COMMANDS);
+  return (((!((_truthy) => _truthy !== false && _truthy != null)(query.startsWith("/")))) ? [] : ((name === "emoji")) ? emoji_options(parsedcommand_rest(parsed)) : (((_truthy) => _truthy !== false && _truthy != null)(((name === "glyph") || (name === "prompt")))) ? glyph_options(parsedcommand_rest(parsed)) : ((query.indexOf(" ") >= 0)) ? [] : commands.filter((candidate) => slashcommand_name(candidate).startsWith(query)));
 }
 
 function submit_key_p(name) {
-  return ((name === "return") || (name === "enter") || (name === "kpenter") || (name === "linefeed"));
+  return ((name === "return") || ((name === "enter") || ((name === "kpenter") || (name === "linefeed"))));
 }
 
 async function run_command(argv) {
@@ -550,7 +555,7 @@ async function read_stream(stream, on_chunk) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   return (async () => {  while (true) {
-    const result = await reader.read(); if ((!result.done)) { on_chunk(decoder.decode(result.value, {stream: true}));  continue; } else { return null; }
+    const result = await reader.read(); if ((!((_truthy) => _truthy !== false && _truthy != null)(result.done))) { on_chunk(decoder.decode(result.value, {stream: true}));  continue; } else { return null; }
   } })();
 }
 
@@ -561,7 +566,7 @@ async function stream_command(argv, on_stdout, on_stderr) {
 }
 
 export function normalize_agents(payload) {
-  const rows = ((payload && Array.isArray(payload.agents)) ? payload.agents : []);
+  const rows = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(payload.agents) : _logical))(payload)) ? payload.agents : []);
   return rows.map((row) => { const id = bare(text_or(row.control_id, text_or(row.uuid, text(row.id))));
 const name = text_or(row.display_handle, text_or(row.display_name, id));
 const status = text_or(row.state_label, text_or(row.state, "unknown"));
@@ -582,7 +587,7 @@ function driver_of(facts, id) {
     return "";
   } else {
     const row = facts.find((fact) => ((text(fact.predicate) === "driver") && (bare(fact.subject) === id)));
-    return (row ? bare(row.value) : "");
+    return (((_truthy) => _truthy !== false && _truthy != null)(row) ? bare(row.value) : "");
   }
 }
 
@@ -595,7 +600,7 @@ function body_of(facts, id) {
     return "";
   } else {
     const row = facts.find((fact) => ((text(fact.predicate) === "body") && (bare(fact.subject) === id)));
-    return (row ? text(row.value) : "");
+    return (((_truthy) => _truthy !== false && _truthy != null)(row) ? text(row.value) : "");
   }
 }
 
@@ -610,16 +615,16 @@ return WorkItem(id, title, body, condition, driver, dependencies); }));
 }
 
 function terminal_condition_p(condition) {
-  return ((condition === "terminal") || (condition === "done") || (condition === "completed") || (condition === "failed"));
+  return ((condition === "terminal") || ((condition === "done") || ((condition === "completed") || (condition === "failed"))));
 }
 
 function list_section_id(condition) {
-  return ((terminal_condition_p(condition)) ? "terminal" : (["active", "ready", "blocked", "dormant", "draft"].includes(condition)) ? condition : "other");
+  return ((terminal_condition_p(condition)) ? "terminal" : (((_truthy) => _truthy !== false && _truthy != null)(["active", "ready", "blocked", "dormant", "draft"].includes(condition))) ? condition : "other");
 }
 
 function list_section_title(section_id) {
   const section = LIST_SECTIONS.find((candidate) => (listsection_id(candidate) === section_id));
-  return (section ? listsection_title(section) : section_id);
+  return (((_truthy) => _truthy !== false && _truthy != null)(section) ? listsection_title(section) : section_id);
 }
 
 function list_section_count(items, section_id) {
@@ -633,7 +638,7 @@ function list_rows(runtime, items) {
 const count = list_section_count(items, section_id);
 if ((count > 0)) {
   rows.push(ListRow("header", section_id, -1, count));
-  if ((!collapsed.has(section_id))) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(collapsed.has(section_id)))) {
     return items.forEach((item, index) => { if ((list_section_id(workitem_condition(item)) === section_id)) {
   return rows.push(ListRow("item", section_id, index, 0));
 } });
@@ -655,7 +660,7 @@ return ((!(condition === "ready")) && (!(condition === "active"))); });
 }
 
 function publish_line_bang(runtime, line) {
-  if (((!runtime.disposed) && (!(line.trim() === "")))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!(line.trim() === ""))))) {
     return append_system_bang(runtime, line);
   }
 }
@@ -671,12 +676,13 @@ function current_prompt_glyph(runtime) {
 
 function render_prompt_bang(runtime, prompt) {
   const glyph = current_prompt_glyph(runtime);
-  (prompt.width = (Bun.stringWidth(glyph) + 1));
+  const glyph_width = Bun.stringWidth(glyph);
+  (prompt.width = (glyph_width + 1));
   return (prompt.content = new StyledText([brightCyan(("".concat(glyph, " ")))]));
 }
 
 function set_prompt_glyph_bang(runtime, glyph) {
-  if (((glyph.trim() === "") || (!(grapheme_count(glyph) === 1)))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((glyph.trim() === "") || (!(grapheme_count(glyph) === 1))))) {
     (() => { throw new Error("glyph requires exactly one grapheme, or use /glyph reset"); })();
   }
   (runtime.promptGlyph = glyph);
@@ -686,7 +692,7 @@ function set_prompt_glyph_bang(runtime, glyph) {
 
 function sound_enabled_from_env(value) {
   const normalized = value.trim().toLowerCase();
-  return (!((normalized === "0") || (normalized === "false") || (normalized === "off") || (normalized === "no")));
+  return (!((_truthy) => _truthy !== false && _truthy != null)(((normalized === "0") || ((normalized === "false") || ((normalized === "off") || (normalized === "no"))))));
 }
 
 function sound_pack_from_env(value) {
@@ -703,18 +709,18 @@ function discover_sound_player() {
   const mpv = Bun.which("mpv");
   const ffplay = Bun.which("ffplay");
   const pw_play = Bun.which("pw-play");
-  return ((mpv) ? SoundPlayer("mpv", text(mpv)) : (ffplay) ? SoundPlayer("ffplay", text(ffplay)) : (pw_play) ? SoundPlayer("pw-play", text(pw_play)) : null);
+  return ((((_truthy) => _truthy !== false && _truthy != null)(mpv)) ? SoundPlayer("mpv", text(mpv)) : (((_truthy) => _truthy !== false && _truthy != null)(ffplay)) ? SoundPlayer("ffplay", text(ffplay)) : (((_truthy) => _truthy !== false && _truthy != null)(pw_play)) ? SoundPlayer("pw-play", text(pw_play)) : null);
 }
 
 function sound_warning_bang(runtime, message) {
-  if (((!runtime.disposed) && (!runtime.soundWarningShown))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!((_truthy) => _truthy !== false && _truthy != null)(runtime.soundWarningShown))))) {
     (runtime.soundWarningShown = true);
     return publish_line_bang(runtime, ("".concat("sound warning: ", message)));
   }
 }
 
 function sound_path(directory, filename) {
-  return ("".concat(directory, (directory.endsWith("/") ? "" : "/"), filename));
+  return ("".concat(directory, (((_truthy) => _truthy !== false && _truthy != null)(directory.endsWith("/")) ? "" : "/"), filename));
 }
 
 function sound_argv(player, path) {
@@ -744,10 +750,10 @@ return sound_warning_bang(runtime, error_message(error)); });
 
 function play_sound_path_bang(runtime, path) {
   return (() => { try {
-    return Bun.file(path).exists().then((exists) => { if ((exists && runtime.soundEnabled && (!runtime.disposed))) {
+    return Bun.file(path).exists().then((exists) => { if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? (!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) : _logical))(runtime.soundEnabled) : _logical))(exists))) {
   return spawn_sound_bang(runtime, path);
 } else {
-  if (((!exists) && runtime.soundEnabled)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(exists)) && runtime.soundEnabled))) {
     return sound_warning_bang(runtime, ("".concat("missing local asset ", path)));
   }
 } }).catch((error) => sound_warning_bang(runtime, error_message(error)));
@@ -763,12 +769,13 @@ function select_sound_path_bang(runtime, event) {
   if ((count === 0)) {
     return "";
   } else {
-    const base_index = (runtime.soundSequence % count);
+    const base_index = mod(runtime.soundSequence, count);
     const base_file = text(files[base_index]);
     const base_path = sound_path(text(runtime.soundDirectory), base_file);
-    const index = (((count > 1) && (base_path === text(runtime.lastSoundPath))) ? ((base_index + 1) % count) : base_index);
+    const index = (((_truthy) => _truthy !== false && _truthy != null)(((count > 1) && (base_path === text(runtime.lastSoundPath)))) ? mod((base_index + 1), count) : base_index);
     const path = sound_path(text(runtime.soundDirectory), text(files[index]));
-    (runtime.soundSequence = (runtime.soundSequence + 1));
+    const sound_sequence = runtime.soundSequence;
+    (runtime.soundSequence = (sound_sequence + 1));
     (runtime.lastSoundPath = path);
     return path;
   }
@@ -776,7 +783,8 @@ function select_sound_path_bang(runtime, event) {
 
 function play_sound_event_bang(runtime, stream_state, event) {
   const now = Date.now();
-  if ((runtime.soundEnabled && stream_state.soundLive && ((now - runtime.lastSoundAt) >= SOUND_COOLDOWN_MS))) {
+  const last_sound_at = runtime.lastSoundAt;
+  if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? ((now - last_sound_at) >= SOUND_COOLDOWN_MS) : _logical))(stream_state.soundLive) : _logical))(runtime.soundEnabled))) {
     const path = select_sound_path_bang(runtime, event);
     if ((!(path === ""))) {
       (runtime.lastSoundAt = now);
@@ -787,7 +795,7 @@ function play_sound_event_bang(runtime, stream_state, event) {
 
 function sound_status(runtime) {
   const player = runtime.soundPlayer;
-  return ("".concat("sound ", (runtime.soundEnabled ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (player ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory)));
+  return ("".concat("sound ", (((_truthy) => _truthy !== false && _truthy != null)(runtime.soundEnabled) ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (((_truthy) => _truthy !== false && _truthy != null)(player) ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory)));
 }
 
 function ConfigEntry(kind, name, state, detail) {
@@ -820,11 +828,11 @@ function config_owner_modules(memberships, name) {
 
 export function config_module_members(memberships, name) {
   const found = memberships.find((membership) => (modulemembership_module(membership) === name));
-  return (found ? modulemembership_members(found) : null);
+  return (((_truthy) => _truthy !== false && _truthy != null)(found) ? modulemembership_members(found) : null);
 }
 
 function config_subtree_kind_p(kind) {
-  return ((kind === "ins") || (kind === "memroot") || (kind === "mem"));
+  return ((kind === "ins") || ((kind === "memroot") || (kind === "mem")));
 }
 
 function config_row_slug(kind, name) {
@@ -875,14 +883,14 @@ function config_find_companion(manifest, name) {
 
 function config_subtree_gate(manifest, kind, name) {
   const slug = config_row_slug(kind, name);
-  return ((((kind === "ins") || (kind === "memroot"))) ? config_find_kind(manifest, "dir", slug) : ((kind === "mem")) ? (() => { const root = config_find_kind(manifest, "memroot", slug); return (root ? root : config_find_kind(manifest, "dir", slug)); })() : null);
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((kind === "ins") || (kind === "memroot")))) ? config_find_kind(manifest, "dir", slug) : ((kind === "mem")) ? (() => { const root = config_find_kind(manifest, "memroot", slug); return (((_truthy) => _truthy !== false && _truthy != null)(root) ? root : config_find_kind(manifest, "dir", slug)); })() : null);
 }
 
 function config_active_along_p(entry, manifest, memberships, trail) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const key = ("".concat(kind, " ", name));
-  if (trail.includes(key)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(trail.includes(key))) {
     return false;
   } else {
     const walked = trail.concat([key]);
@@ -891,12 +899,12 @@ function config_active_along_p(entry, manifest, memberships, trail) {
     const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
     const owners = config_owner_modules(memberships, name);
     const gated_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
-return (row ? config_active_along_p(row, manifest, memberships, walked) : false); }));
+return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_active_along_p(row, manifest, memberships, walked) : false); }));
     const companion = (hook_p ? text(configentry_detail(entry)) : "");
-    const followed_p = ((companion === "") ? true : (() => { const row = config_find_companion(manifest, companion); return (row ? config_active_along_p(row, manifest, memberships, walked) : false); })());
+    const followed_p = ((companion === "") ? true : (() => { const row = config_find_companion(manifest, companion); return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_active_along_p(row, manifest, memberships, walked) : false); })());
     const gate = config_subtree_gate(manifest, kind, name);
-    const scoped_p = (gate ? config_active_along_p(gate, manifest, memberships, walked) : true);
-    return (own_p && gated_p && followed_p && scoped_p);
+    const scoped_p = (((_truthy) => _truthy !== false && _truthy != null)(gate) ? config_active_along_p(gate, manifest, memberships, walked) : true);
+    return (own_p && ((_logical) => (_logical !== false && _logical != null ? (followed_p && scoped_p) : _logical))(gated_p));
   }
 }
 
@@ -906,18 +914,18 @@ export function config_entry_active_p(entry, manifest, memberships) {
 
 export function config_unit_active_p(manifest, memberships, name) {
   const entry = config_find_entry(manifest, name);
-  return (entry ? config_entry_active_p(entry, manifest, memberships) : false);
+  return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? config_entry_active_p(entry, manifest, memberships) : false);
 }
 
 export function config_gate_modules(entry, manifest, memberships) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const gate = config_subtree_gate(manifest, kind, name);
-  const scope = ((gate && (!config_entry_active_p(gate, manifest, memberships))) ? [config_provenance_name(configentry_kind(gate), configentry_name(gate))] : []);
+  const scope = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!config_entry_active_p(gate, manifest, memberships)) : _logical))(gate)) ? [config_provenance_name(configentry_kind(gate), configentry_name(gate))] : []);
   const owners = config_owner_modules(memberships, name);
   const open_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
-return (row ? config_entry_active_p(row, manifest, memberships) : false); }));
-  return scope.concat((open_p ? [] : owners.map((owner) => config_provenance_name("module", owner))));
+return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_entry_active_p(row, manifest, memberships) : false); }));
+  return scope.concat((((_truthy) => _truthy !== false && _truthy != null)(open_p) ? [] : owners.map((owner) => config_provenance_name("module", owner))));
 }
 
 export function config_state_text(entry, manifest, memberships, active_p, nested_p) {
@@ -928,14 +936,14 @@ export function config_state_text(entry, manifest, memberships, active_p, nested
   const gate_note = ((gates.length === 0) ? "" : ("".concat(" (", gates.join(", "), " off)")));
   const companion = (hook_p ? text(configentry_detail(entry)) : "");
   const followed = config_find_companion(manifest, companion);
-  const provenance = ((nested_p || (companion === "")) ? "" : ("".concat(" · ", config_provenance_name((followed ? configentry_kind(followed) : ""), companion))));
-  const claimant_off_p = (followed && (!config_entry_active_p(followed, manifest, memberships)));
-  const reason = (((!(gate_note === ""))) ? gate_note : (claimant_off_p) ? ("".concat(" (", config_provenance_name(configentry_kind(followed), companion), " off)")) : "");
-  return (((hook_p && (!own_p))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? ("".concat("on", provenance)) : ("".concat("off", reason)));
+  const provenance = (((_truthy) => _truthy !== false && _truthy != null)((nested_p || (companion === ""))) ? "" : ("".concat(" · ", config_provenance_name((((_truthy) => _truthy !== false && _truthy != null)(followed) ? configentry_kind(followed) : ""), companion))));
+  const claimant_off_p = and(followed, (!config_entry_active_p(followed, manifest, memberships)));
+  const reason = (((!(gate_note === ""))) ? gate_note : (((_truthy) => _truthy !== false && _truthy != null)(claimant_off_p)) ? ("".concat(" (", config_provenance_name(configentry_kind(followed), companion), " off)")) : "");
+  return ((((_truthy) => _truthy !== false && _truthy != null)(and(hook_p, (!own_p)))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? ("".concat("on", provenance)) : ("".concat("off", reason)));
 }
 
 export function config_toggle_verb(state) {
-  return (((state === "on") || (state === "enabled")) ? "off" : "on");
+  return (((_truthy) => _truthy !== false && _truthy != null)(((state === "on") || (state === "enabled"))) ? "off" : "on");
 }
 
 const GLOBAL_DIR_NAME = "global";
@@ -953,7 +961,7 @@ export function config_view_includes_p(view, kind, name) {
 }
 
 function config_view_prunes_p(view) {
-  return (!((view === "all") || (view === "globals") || (view === "agentsmd")));
+  return (!((_truthy) => _truthy !== false && _truthy != null)(((view === "all") || ((view === "globals") || (view === "agentsmd")))));
 }
 
 export function config_view_folds_p(view) {
@@ -971,7 +979,7 @@ export function config_skill_hooks(rows, name) {
 export function config_row_role(entry, rows) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  return (((kind === "module")) ? "moduleset" : ((kind === "skill")) ? ((config_skill_hooks(rows, name).length > 0) ? "module" : "skill") : ((kind === "hook")) ? (() => { const companion = config_hook_companion(entry); return (((!(companion === "")) && rows.some((row) => ((configentry_kind(row) === "skill") && (configentry_name(row) === companion)))) ? "boundhook" : "hook"); })() : kind);
+  return (((kind === "module")) ? "moduleset" : ((kind === "skill")) ? ((config_skill_hooks(rows, name).length > 0) ? "module" : "skill") : ((kind === "hook")) ? (() => { const companion = config_hook_companion(entry); return (((_truthy) => _truthy !== false && _truthy != null)(((!(companion === "")) && rows.some((row) => ((configentry_kind(row) === "skill") && (configentry_name(row) === companion))))) ? "boundhook" : "hook"); })() : kind);
 }
 
 function config_section_rank(role) {
@@ -997,24 +1005,24 @@ return sorted.forEach((child) => { if ((!(config_row_role(child, entries) === "b
     return config_skill_hooks(sorted, configentry_name(child)).forEach((hook) => tree.push(hook));
   }
 } }); });
-  return tree.concat(kids.filter((child) => (!tree.includes(child))));
+  return tree.concat(kids.filter((child) => (!((_truthy) => _truthy !== false && _truthy != null)(tree.includes(child)))));
 }
 
 export function config_view_rows(entries, view) {
   const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
-  const held = kept.filter((entry) => (((!config_view_prunes_p(view)) || (!(configentry_kind(entry) === "dir"))) ? true : kept.some((child) => ((!(configentry_kind(child) === "dir")) && (config_row_scope(configentry_kind(child), configentry_name(child)) === configentry_name(entry))))));
+  const held = kept.filter((entry) => (((_truthy) => _truthy !== false && _truthy != null)(((!config_view_prunes_p(view)) || (!(configentry_kind(entry) === "dir")))) ? true : kept.some((child) => ((!(configentry_kind(child) === "dir")) && (config_row_scope(configentry_kind(child), configentry_name(child)) === configentry_name(entry))))));
   return config_tree_rows(held);
 }
 
 export function config_node_expanded_p(expanded, slug) {
-  return (expanded ? expanded.includes(slug) : false);
+  return (((_truthy) => _truthy !== false && _truthy != null)(expanded) ? expanded.includes(slug) : false);
 }
 
 export function config_fold_rows(entries, expanded) {
   const nodes = entries.filter((entry) => (configentry_kind(entry) === "dir")).map((entry) => configentry_name(entry));
   return entries.filter((entry) => { const kind = configentry_kind(entry);
 const scope = config_row_scope(kind, configentry_name(entry));
-return ((kind === "dir") || (!nodes.includes(scope)) || config_node_expanded_p(expanded, scope)); });
+return ((kind === "dir") || ((!((_truthy) => _truthy !== false && _truthy != null)(nodes.includes(scope))) || config_node_expanded_p(expanded, scope))); });
 }
 
 export function config_row_search_text(entry) {
@@ -1044,7 +1052,7 @@ export function config_query_rows(entries, query) {
     const open_skills = entries.filter((entry) => ((configentry_kind(entry) === "skill") && config_row_matches_p(entry, query))).map((entry) => configentry_name(entry));
     return entries.filter((entry) => { const kind = configentry_kind(entry);
 const scope = config_row_scope(kind, configentry_name(entry));
-return (config_row_matches_p(entry, query) || open_nodes.includes(scope) || ((kind === "mem") && open_mems.includes(scope)) || ((kind === "dir") && held.includes(scope)) || ((kind === "memroot") && held_mems.includes(scope)) || ((kind === "skill") && held_skills.includes(configentry_name(entry))) || ((kind === "hook") && open_skills.includes(config_hook_companion(entry)))); });
+return (config_row_matches_p(entry, query) || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((kind === "hook") && open_skills.includes(config_hook_companion(entry)))))(((kind === "skill") && held_skills.includes(configentry_name(entry))))))(((kind === "memroot") && held_mems.includes(scope)))))(((kind === "dir") && held.includes(scope)))))(((kind === "mem") && open_mems.includes(scope)))))(open_nodes.includes(scope))); });
   }
 }
 
@@ -1062,8 +1070,8 @@ function config_modules_dir(runtime) {
 
 export function config_membership_of_json(module, content) {
   return (() => { try {
-    const parsed = JSON.parse(content);
-  const members = ((parsed && Array.isArray(parsed.members)) ? parsed.members : []);
+    const parsed = JSON/parse(content);
+  const members = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(parsed.members) : _logical))(parsed)) ? parsed.members : []);
   return ModuleMembership(module, members.map((member) => text(member)));
   } catch (__) {
     return ModuleMembership(module, []);
@@ -1090,7 +1098,8 @@ async function read_module_file_bang(path) {
 export async function load_config_memberships_bang(directory) {
   const files = await list_module_files_bang(directory);
   const contents = await Promise.all(files.map((file) => read_module_file_bang(("".concat(directory, "/", file)))));
-  return files.map((file, index) => config_membership_of_json(file.slice(0, (file.length - 5)), text(contents[index])));
+  return files.map((file, index) => { const file_length = file.length;
+return config_membership_of_json(file.slice(0, (file_length - 5)), text(contents[index])); });
 }
 
 async function ensure_config_manifest_bang() {
@@ -1102,7 +1111,7 @@ async function ensure_config_manifest_bang() {
 }
 
 function panel_filtering_p(runtime) {
-  return (runtime.panelFiltering ? true : false);
+  return (((_truthy) => _truthy !== false && _truthy != null)(runtime.panelFiltering) ? true : false);
 }
 
 function panel_query(runtime) {
@@ -1113,12 +1122,12 @@ const PANEL_DEFAULT_EXPANDED = [GLOBAL_DIR_NAME];
 
 function panel_expanded(runtime) {
   const stored = runtime.expandedDirs;
-  return (stored ? stored : PANEL_DEFAULT_EXPANDED);
+  return (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : PANEL_DEFAULT_EXPANDED);
 }
 
 export function config_panel_rows(runtime) {
   const stored = runtime.configEntries;
-  const entries = (stored ? stored : []);
+  const entries = (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : []);
   const query = panel_query(runtime);
   const view = text_or(text(runtime.configFilter), "all");
   return ((!(query.trim() === "")) ? config_query_rows(entries, query) : (config_view_folds_p(view) ? config_fold_rows(entries, panel_expanded(runtime)) : entries));
@@ -1131,7 +1140,7 @@ export function config_row_node(entry) {
 export function clamp_panel_cursor_bang(runtime) {
   const total = config_panel_rows(runtime).length;
   const raw = runtime.configIndex;
-  const current = (raw ? raw : 0);
+  const current = (((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0);
   return (runtime.configIndex = ((total > 0) ? Math.max(0, Math.min(current, (total - 1))) : 0));
 }
 
@@ -1155,7 +1164,7 @@ export function set_node_expanded_bang(runtime, slug, open_p) {
 }
 
 export function fold_key_action(dir_row_p, expanded_p, open_key_p) {
-  return (((open_key_p && dir_row_p)) ? (expanded_p ? "" : "expand") : (open_key_p) ? "" : (dir_row_p) ? (expanded_p ? "collapse" : "") : "climb");
+  return ((((_truthy) => _truthy !== false && _truthy != null)((open_key_p && dir_row_p))) ? (expanded_p ? "" : "expand") : (open_key_p) ? "" : (dir_row_p) ? (expanded_p ? "collapse" : "") : "climb");
 }
 
 async function load_config_entries_bang(runtime) {
@@ -1191,7 +1200,7 @@ function panel_focused_p(runtime) {
 
 function open_config_panel_bang(runtime, ui, config_filter) {
   const already = (detail_showing_p(runtime, "config") && (text(runtime.configFilter) === config_filter));
-  if (already) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(already)) {
     close_detail_bang(runtime);
     focus_composer_bang(runtime, ui);
   } else {
@@ -1209,8 +1218,9 @@ function open_config_panel_bang(runtime, ui, config_filter) {
 async function edit_config_entry_bang(runtime) {
   const entries = config_panel_rows(runtime);
   if ((entries.length > 0)) {
+    const entry_count = entries.length;
     const raw = runtime.configIndex;
-    const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
+    const index = Math/max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
     const raw_path = await run_command([AGENTS_BIN, "path", config_cli_name(configentry_kind(entry), configentry_name(entry))]);
     const path = raw_path.trim();
@@ -1219,7 +1229,7 @@ async function edit_config_entry_bang(runtime) {
     const kitty = Bun.which("kitty");
     const foot = Bun.which("foot");
     const xterm = Bun.which("xterm");
-    const argv = ((ghostty) ? [ghostty, "-e", editor, path] : (kitty) ? [kitty, "--detach", editor, path] : (foot) ? [foot, editor, path] : (xterm) ? [xterm, "-e", editor, path] : null);
+    const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", editor, path] : null);
     if ((argv == null)) {
       (() => { throw new Error("no supported terminal found for edit"); })();
     }
@@ -1232,8 +1242,9 @@ async function edit_config_entry_bang(runtime) {
 async function toggle_config_entry_bang(runtime) {
   const entries = config_panel_rows(runtime);
   if ((entries.length > 0)) {
+    const entry_count = entries.length;
     const raw = runtime.configIndex;
-    const index = Math.max(0, Math.min((raw ? raw : 0), (entries.length - 1)));
+    const index = Math/max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
     const verb = config_toggle_verb(configentry_state(entry));
     await run_command([AGENTS_BIN, verb, config_cli_name(configentry_kind(entry), configentry_name(entry))]);
@@ -1244,12 +1255,12 @@ async function toggle_config_entry_bang(runtime) {
 
 function handle_sound_command_bang(runtime, rest) {
   const request = rest.trim().toLowerCase();
-  return ((((request === "") || (request === "status"))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((request === "") || (request === "status")))) ? publish_line_bang(runtime, sound_status(runtime)) : ((request === "on")) ? (() => { (runtime.soundEnabled = true);
 publish_line_bang(runtime, sound_status(runtime));
 if ((runtime.soundPlayer == null)) {
   return sound_warning_bang(runtime, "install mpv, ffplay, or pw-play to play local assets");
 } })() : ((request === "off")) ? (() => { (runtime.soundEnabled = false);
-return publish_line_bang(runtime, sound_status(runtime)); })() : (request.startsWith("pack ")) ? (() => { const pack = request.slice(5).trim(); if ((!((pack === "peon") || (pack === "peasant")))) {
+return publish_line_bang(runtime, sound_status(runtime)); })() : (((_truthy) => _truthy !== false && _truthy != null)(request.startsWith("pack "))) ? (() => { const pack = request.slice(5).trim(); if ((!((_truthy) => _truthy !== false && _truthy != null)(((pack === "peon") || (pack === "peasant"))))) {
   (() => { throw new Error("sound pack must be peon or peasant"); })();
 }
 (runtime.soundPack = pack);
@@ -1280,13 +1291,13 @@ async function restart_daemon_bang(runtime) {
 
 export function handle_local_command_bang(runtime, ui, input) {
   const trimmed = input.trim();
-  if ((!trimmed.startsWith("/"))) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(trimmed.startsWith("/")))) {
     return false;
   } else {
     const parsed = command(trimmed);
     const name = parsedcommand_name(parsed);
     const rest = parsedcommand_rest(parsed);
-    return ((((name === "glyph") || (name === "prompt"))) ? (() => { if ((rest.toLowerCase() === "reset")) {
+    return ((((_truthy) => _truthy !== false && _truthy != null)(((name === "glyph") || (name === "prompt")))) ? (() => { if ((rest.toLowerCase() === "reset")) {
   set_prompt_glyph_bang(runtime, DEFAULT_PROMPT_GLYPH);
 } else {
   set_prompt_glyph_bang(runtime, rest);
@@ -1301,12 +1312,12 @@ runtime.render();
 return true; })() : ((name === "sound")) ? (() => { handle_sound_command_bang(runtime, rest);
 return true; })() : ((name === "mute")) ? (() => { (runtime.soundEnabled = false);
 publish_line_bang(runtime, sound_status(runtime));
-return true; })() : ((name === "transcript")) ? (() => { const requested = rest.trim().toLowerCase(); if ((!((requested === "selected") || (requested === "all")))) {
+return true; })() : ((name === "transcript")) ? (() => { const requested = rest.trim().toLowerCase(); if ((!((_truthy) => _truthy !== false && _truthy != null)(((requested === "selected") || (requested === "all"))))) {
   (() => { throw new Error("transcript requires selected or all"); })();
 }
 (runtime.transcriptView = requested);
 runtime.render();
-return true; })() : (((name === "provider") || (name === "model") || (name === "effort"))) ? (() => { set_launch_route_bang(runtime, name, rest);
+return true; })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "provider") || ((name === "model") || (name === "effort"))))) ? (() => { set_launch_route_bang(runtime, name, rest);
 return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runtime, ui, "all");
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
@@ -1317,11 +1328,11 @@ return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(run
 return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, ui, "globals");
 return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, ui, "agentsmd");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
-return true; })() : ((name === "agents")) ? (() => { show_frame_bang(runtime, ui, "agents");
+return true; })() : ((name === "agents")) ? (() => { show_view_bang(runtime, ui, "agents");
 return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
   popout_bang(runtime, text(runtime.activeView));
 } else {
-  show_frame_bang(runtime, ui, "threads");
+  show_view_bang(runtime, ui, "threads");
 }
 return true; })() : (thread_view_command_p(name)) ? (() => { show_thread_view_bang(runtime, ui, name);
 return true; })() : ((name === "help")) ? (() => { toggle_help_bang(runtime, ui);
@@ -1332,16 +1343,16 @@ return true; })() : false);
 }
 
 function render_after_suspend_bang(runtime) {
-  if (((!runtime.disposed) && runtime.render)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && runtime.render))) {
     return runtime.render();
   }
 }
 
 export function cleanup_suspend_bang(runtime, process_api) {
   const handler = runtime.suspendResume;
-  const suspended_p = (runtime.rendererSuspended ? true : false);
-  const active_p = (handler || suspended_p);
-  if (handler) {
+  const suspended_p = (((_truthy) => _truthy !== false && _truthy != null)(runtime.rendererSuspended) ? true : false);
+  const active_p = ((_logical) => (_logical !== false && _logical != null ? _logical : suspended_p))(handler);
+  if (((_truthy) => _truthy !== false && _truthy != null)(handler)) {
     process_api.removeListener("SIGCONT", handler);
   }
   (runtime.suspendResume = null);
@@ -1354,11 +1365,11 @@ export function cleanup_suspend_bang(runtime, process_api) {
   } })();
   }
   render_after_suspend_bang(runtime);
-  return (active_p ? true : false);
+  return (((_truthy) => _truthy !== false && _truthy != null)(active_p) ? true : false);
 }
 
 export function suspend_runtime_bang(runtime, platform, process_api) {
-  if (((platform === "win32") || runtime.suspendResume)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((platform === "win32") || runtime.suspendResume))) {
     return false;
   } else {
     const state = {handler: null};
@@ -1384,10 +1395,10 @@ if ((runtime.suspendResume === handler)) {
 }
 
 function quiesce_bang(runtime) {
-  if ((!runtime.disposed)) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
     (runtime.disposed = true);
     cleanup_suspend_bang(runtime, process);
-    if (runtime.spinnerTimer) {
+    if (((_truthy) => _truthy !== false && _truthy != null)(runtime.spinnerTimer)) {
       clearInterval(runtime.spinnerTimer);
     }
     (runtime.spinnerTimer = null);
@@ -1401,7 +1412,7 @@ function quiesce_bang(runtime) {
 }
 
 function destroy_bang(runtime) {
-  if ((!runtime.disposed)) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
     quiesce_bang(runtime);
     runtime.renderer.destroy();
     return process.exit(0);
@@ -1416,9 +1427,9 @@ function install_process_cleanup_bang(runtime) {
 
 function install_global_exit_bang(runtime) {
   return runtime.renderer.keyInput.on("keypress", (key) => { const name = text(key.name);
-return (((key.ctrl && (name === "z"))) ? (() => { key.preventDefault();
+return ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "z") : _logical))(key.ctrl))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return suspend_runtime_bang(runtime, text(process.platform), process); })() : ((key.ctrl && (name === "q"))) ? (() => { key.preventDefault();
+return suspend_runtime_bang(runtime, text(process.platform), process); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "q") : _logical))(key.ctrl))) ? (() => { key.preventDefault();
 key.stopPropagation();
 return destroy_bang(runtime); })() : null); });
 }
@@ -1434,7 +1445,7 @@ export function reconcile_agent_selection_bang(runtime, prior_id) {
   const agents = bridgesnapshot_agents(state);
   const total = agents.length;
   const found = agents.findIndex((agent) => (agent_id(agent) === prior_id));
-  const fallback = Math.max(0, Math.min(runtime.agentIndex, Math.max(0, (total - 1))));
+  const fallback = Math/max(0, Math.min(runtime.agentIndex, Math.max(0, (total - 1))));
   const index = ((found >= 0) ? found : fallback);
   const selected = ((total > 0) ? agent_id(agents[index]) : "");
   (runtime.agentIndex = index);
@@ -1447,15 +1458,15 @@ export function reconcile_agent_selection_bang(runtime, prior_id) {
 export async function refresh_bang(runtime) {
   const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
   const agent_payload = payloads[0];
-  const board = payloads[1];
-  const done = payloads[2];
+  const board = aget(payloads, 1);
+  const done = aget(payloads, 2);
   const state = snapshot(runtime.model);
   const current_agents = bridgesnapshot_agents(state);
-  const remote_agents = (agent_payload ? normalize_agents(agent_payload) : []);
+  const remote_agents = (((_truthy) => _truthy !== false && _truthy != null)(agent_payload) ? normalize_agents(agent_payload) : []);
   const bridge_agents = current_agents.filter((agent) => runtime.bridgeExecutions.has(agent_id(agent))).map((agent) => { const remote = remote_agents.find((candidate) => (agent_id(candidate) === agent_id(agent)));
-return (remote ? agent_with_route(agent, remote) : agent); });
-  const distinct_remote = remote_agents.filter((agent) => (!runtime.bridgeExecutions.has(agent_id(agent))));
-  const agents = (agent_payload ? bridge_agents.concat(distinct_remote) : current_agents);
+return (((_truthy) => _truthy !== false && _truthy != null)(remote) ? agent_with_route(agent, remote) : agent); });
+  const distinct_remote = remote_agents.filter((agent) => (!((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(agent_id(agent)))));
+  const agents = (((_truthy) => _truthy !== false && _truthy != null)(agent_payload) ? bridge_agents.concat(distinct_remote) : current_agents);
   const open_rows = (Array.isArray(board) ? board : []);
   const done_rows = (Array.isArray(done) ? done : []);
   const ids = board_ids(open_rows).concat(board_ids(done_rows));
@@ -1477,18 +1488,18 @@ return (remote ? agent_with_route(agent, remote) : agent); });
   if ((next_index >= 0)) {
     (runtime.workIndex = next_index);
     if ((workview_id(next_view) === "list")) {
-      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(next_items[next_index])));
+      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(aget(next_items, next_index))));
     }
   }
   return runtime.render();
 }
 
 function canonical_work_view(view_id) {
-  return ((((view_id === "graph") || (view_id === "dag"))) ? "graph" : (((view_id === "board") || (view_id === "kanban"))) ? "board" : "list");
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((view_id === "graph") || (view_id === "dag")))) ? "graph" : (((_truthy) => _truthy !== false && _truthy != null)(((view_id === "board") || (view_id === "kanban")))) ? "board" : "list");
 }
 
 export function thread_view_command_p(name) {
-  return ((name === "list") || (name === "board") || (name === "graph"));
+  return ((name === "list") || ((name === "board") || (name === "graph")));
 }
 
 export function view_list(state) {
@@ -1499,11 +1510,11 @@ function selected_view(state, view_id) {
   const views = view_list(state);
   const canonical = canonical_work_view(view_id);
   const selected = views.find((view) => (workview_id(view) === canonical));
-  return (selected || views[0]);
+  return ((_logical) => (_logical !== false && _logical != null ? _logical : views[0]))(selected);
 }
 
 export function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
-  return (banner_p && (!(supervisor_id === "")) && (agent_id === supervisor_id));
+  return (banner_p && ((!(supervisor_id === "")) && (agent_id === supervisor_id)));
 }
 
 export function roster_text_bang(state, selected, supervisor_id, banner_p) {
@@ -1531,14 +1542,15 @@ function agent_summary(agent) {
 
 export function agent_row_text_bang(agent, selected_p, width) {
   const prefix = (selected_p ? "› " : "  ");
-  return ("".concat(prefix, agent_cell_text_bang(agent_summary(agent), Math.max(1, (width - Bun.stringWidth(prefix))))));
+  const prefix_width = Bun.stringWidth(prefix);
+  return ("".concat(prefix, agent_cell_text_bang(agent_summary(agent), Math.max(1, (width - prefix_width)))));
 }
 
 function route_provider(agent) {
   const label = agent_field_text(agent_provider_label(agent));
   const provider = agent_field_text(agent_provider(agent));
   const target = agent_field_text(agent_provider_target(agent));
-  return (((!(label === ""))) ? label : (((!(provider === "")) && (!(target === "")))) ? ("".concat(provider, ":", target)) : text_or(provider, target));
+  return (((!(label === ""))) ? label : (((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(target === ""))))) ? ("".concat(provider, ":", target)) : text_or(provider, target));
 }
 
 function route_model(agent) {
@@ -1558,7 +1570,7 @@ export function agent_route_text_bang(agent, width) {
 
 function agent_bucket(status) {
   const value = status.trim().toLowerCase();
-  return (((value === "")) ? "other" : (value.startsWith("finished(")) ? ((value.includes("process:failed") || value.includes("process:error")) ? "failed" : "other") : (value.startsWith("inconsistent")) ? "blocked" : (((value === "stalled") || (value === "blocked") || (value === "waiting") || (value === "paused") || (value === "queued"))) ? "blocked" : (((value === "failed") || (value === "error") || (value === "crashed"))) ? "failed" : (((value === "working") || (value === "running") || (value === "starting") || (value === "ready") || (value === "active") || (value === "online"))) ? "running" : "other");
+  return (((value === "")) ? "other" : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("finished("))) ? (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : value.includes("process:error")))(value.includes("process:failed"))) ? "failed" : "other") : (((_truthy) => _truthy !== false && _truthy != null)(value.startsWith("inconsistent"))) ? "blocked" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "stalled") || ((value === "blocked") || ((value === "waiting") || ((value === "paused") || (value === "queued"))))))) ? "blocked" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "failed") || ((value === "error") || (value === "crashed"))))) ? "failed" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "working") || ((value === "running") || ((value === "starting") || ((value === "ready") || ((value === "active") || (value === "online")))))))) ? "running" : "other");
 }
 
 function agents_in_bucket(agents, bucket) {
@@ -1587,13 +1599,14 @@ if ((count > 0)) {
 
 function segment_columns(segments) {
   const starts = [];
-  segments.forEach((__segment, index) => starts.push(((index === 0) ? STRIP_INDENT : (starts[(index - 1)] + agentsegment_label(segments[(index - 1)]).length + STRIP_SEPARATOR.length))));
+  segments.forEach((__segment, index) => starts.push(((index === 0) ? STRIP_INDENT : (() => { const previous_start = aget(starts, (index - 1)); const previous_width = agentsegment_label(aget(segments, (index - 1))).length; const separator_width = STRIP_SEPARATOR.length; return (previous_start + previous_width + separator_width); })())));
   return starts;
 }
 
 function segment_at_column(segments, column) {
   const starts = segment_columns(segments);
-  return starts.findIndex((start, index) => ((column >= start) && (column < (start + agentsegment_label(segments[index]).length))));
+  return starts.findIndex((start, index) => { const segment_width = agentsegment_label(segments[index]).length;
+return ((column >= start) && (column < (start + segment_width))); });
 }
 
 function push_chunk_bang(chunks, chunk) {
@@ -1617,28 +1630,28 @@ if ((index < (commands.length - 1))) {
 
 function terminal_columns() {
   const stdout = process.stdout;
-  const columns = (stdout ? stdout.columns : null);
+  const columns = (((_truthy) => _truthy !== false && _truthy != null)(stdout) ? stdout.columns : null);
   return Math.max(1, ((typeof columns === "number") ? columns : 120));
 }
 
 function terminal_rows() {
   const stdout = process.stdout;
-  const rows = (stdout ? stdout.rows : null);
+  const rows = (((_truthy) => _truthy !== false && _truthy != null)(stdout) ? stdout.rows : null);
   return Math.max(1, ((typeof rows === "number") ? rows : 40));
 }
 
-export function apply_frame_visibility_bang(runtime, ui) {
-  const threads_p = threads_frame_p(runtime.frame);
+export function apply_view_visibility_bang(runtime, ui) {
+  const threads_p = threads_view_p(runtime.view);
   (ui.agentsPane.visible = (!threads_p));
   return (ui.workPane.visible = threads_p);
 }
 
-function available_frame_width() {
+function available_view_width() {
   return Math.max(24, (terminal_columns() - 6));
 }
 
 function available_agent_width(__runtime) {
-  return available_frame_width();
+  return available_view_width();
 }
 
 function user_block_text(runtime, body) {
@@ -1651,7 +1664,7 @@ return ("".concat(prefix, line)).padEnd(width, " "); }).join("\n");
 function short_directory(directory) {
   const path = text(directory);
   const home = text(process.env.HOME);
-  return (((!(home === "")) && path.startsWith(home)) ? ("".concat("~", path.slice(home.length))) : path);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((!(home === "")) && path.startsWith(home))) ? ("".concat("~", path.slice(home.length))) : path);
 }
 
 function session_context_text(runtime) {
@@ -1673,10 +1686,12 @@ function push_command_output_bang(chunks, output) {
   if ((!(trimmed === ""))) {
     const lines = trimmed.split("\n");
     const limit = 8;
-    const overflow = Math.max(0, (lines.length - limit));
+    const line_count = lines.length;
+    const overflow = Math.max(0, (line_count - limit));
     const visible = lines.slice(0, ((overflow > 0) ? (limit - 1) : limit));
-    visible.forEach((line, index) => { const last_p = ((overflow === 0) && (index === (visible.length - 1)));
-return push_chunk_bang(chunks, dim(("".concat("\n  ", (last_p ? "└ " : "│ "), line)))); });
+    visible.forEach((line, index) => { const visible_count = visible.length;
+const last_p = ((overflow === 0) && (index === (visible_count - 1)));
+return push_chunk_bang(chunks, dim(("".concat("\n  ", (((_truthy) => _truthy !== false && _truthy != null)(last_p) ? "└ " : "│ "), line)))); });
     if ((overflow > 0)) {
       return push_chunk_bang(chunks, dim(("".concat("\n  └ … +", (overflow + 1), " lines"))));
     }
@@ -1711,7 +1726,7 @@ function append_diff_row(state, row) {
 
 function diff_rows(diff) {
   const source = clean_text(diff);
-  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => ((line.startsWith("@@ ")) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : ((line.startsWith("diff --git ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ "))) ? state : (line.startsWith("+")) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (line.startsWith("-")) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (line.startsWith("\\ No newline")) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line))), DiffState(0, 0, 0, 0, [])));
+  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => ((((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("@@ "))) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : line.startsWith("+++ ")))(line.startsWith("--- "))))(line.startsWith("index "))))(line.startsWith("diff --git ")))) ? state : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("+"))) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("-"))) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("\\ No newline"))) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line))), DiffState(0, 0, 0, 0, [])));
 }
 
 function file_change_details(change) {
@@ -1732,7 +1747,8 @@ function diff_line_number(value) {
 function push_diff_rows_bang(chunks, rows, width) {
   const limit = 36;
   const visible = rows.slice(0, limit);
-  const overflow = Math.max(0, (rows.length - limit));
+  const row_count = rows.length;
+  const overflow = Math.max(0, (row_count - limit));
   visible.forEach((row) => { const kind = diffrow_kind(row);
 const numbers = ("".concat(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ "));
 const line = compact_text(("".concat(numbers, diffrow_text(row))), width);
@@ -1745,7 +1761,7 @@ return push_chunk_bang(chunks, (((kind === "add")) ? (bg("#173326"))(brightGreen
 
 function push_file_change_card_bang(chunks, item, status, runtime) {
   const data = conversationitem_data(item);
-  const changes = ((data && Array.isArray(data.changes)) ? data.changes : []);
+  const changes = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(data.changes) : _logical))(data)) ? data.changes : []);
   const summary = file_change_summary(changes);
   const files = filechangesummary_files(summary);
   const width = Math.max(24, (available_agent_width(runtime) - 2));
@@ -1775,16 +1791,16 @@ function supervisor_status(runtime) {
 
 export function transcript_placeholder(label, status, item_count, working_p) {
   const value = status.trim().toLowerCase();
-  return (((item_count > 0)) ? "" : (working_p) ? "" : (((value === "") || (value === "starting"))) ? ("".concat("Starting ", label, "…")) : (((value === "offline") || (value === "failed") || (value === "error"))) ? ("".concat(label, " is offline.")) : "");
+  return (((item_count > 0)) ? "" : (working_p) ? "" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "") || (value === "starting")))) ? ("".concat("Starting ", label, "…")) : (((_truthy) => _truthy !== false && _truthy != null)(((value === "offline") || ((value === "failed") || (value === "error"))))) ? ("".concat(label, " is offline.")) : "");
 }
 
 export function transcript_banner_p(status, item_count, working_p) {
   const value = status.trim().toLowerCase();
-  return ((item_count === 0) && (!working_p) && (!(value === "")) && (!(value === "starting")) && (!(value === "offline")) && (!(value === "failed")) && (!(value === "error")));
+  return ((item_count === 0) && ((!working_p) && ((!(value === "")) && ((!(value === "starting")) && ((!(value === "offline")) && ((!(value === "failed")) && (!(value === "error"))))))));
 }
 
 function banner_visible_p(runtime) {
-  return ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)) && transcript_banner_p(supervisor_status(runtime), projected_conversation(runtime).length, transcript_working_p(runtime)));
+  return ((!aggregate_transcript_p(runtime)) && ((runtime_selected_agent_id(runtime) === text(runtime.supervisorId)) && transcript_banner_p(supervisor_status(runtime), projected_conversation(runtime).length, transcript_working_p(runtime))));
 }
 
 const BANNER_LABEL_WIDTH = 13;
@@ -1828,12 +1844,12 @@ function widest_line_bang(lines) {
 }
 
 export function banner_box_bang(lines, width) {
-  const inner = Math.max(1, (width - 4));
+  const inner = Math/max(1, (width - 4));
   const clipped = lines.map((line) => banner_clip(line, inner));
   if ((width < BANNER_MIN_COLUMNS)) {
     return clipped;
   } else {
-    const span = Math.min(inner, widest_line_bang(clipped));
+    const span = Math/min(inner, widest_line_bang(clipped));
     const rule = "─".repeat((span + 2));
     return [("".concat("╭", rule, "╮"))].concat(clipped.map((line) => ("".concat("│ ", line.padEnd(span, " "), " │"))), [("".concat("╰", rule, "╯"))]);
   }
@@ -1848,30 +1864,31 @@ const BANNER_BOX_PREFIX = "│ ";
 const BANNER_BOX_SUFFIX = " │";
 
 export function banner_rule_line_p(line) {
-  return (line.startsWith("╭") || line.startsWith("╰"));
+  return ((_logical) => (_logical !== false && _logical != null ? _logical : line.startsWith("╰")))(line.startsWith("╭"));
 }
 
 export function banner_line_segments(line) {
-  return ((banner_rule_line_p(line)) ? [line, "", ""] : ((line.startsWith(BANNER_BOX_PREFIX) && line.endsWith(BANNER_BOX_SUFFIX) && (line.length >= 4))) ? [BANNER_BOX_PREFIX, line.slice(2, (line.length - 2)), BANNER_BOX_SUFFIX] : ["", line, ""]);
+  const line_length = line.length;
+  return ((banner_rule_line_p(line)) ? [line, "", ""] : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? (line_length >= 4) : _logical))(line.endsWith(BANNER_BOX_SUFFIX)) : _logical))(line.startsWith(BANNER_BOX_PREFIX)))) ? [BANNER_BOX_PREFIX, line.slice(2, (line_length - 2)), BANNER_BOX_SUFFIX] : ["", line, ""]);
 }
 
 export function session_banner_runs(lines) {
   const runs = [];
   lines.forEach((line, index) => { const segments = banner_line_segments(line);
 const prefix = segments[0];
-const content = segments[1];
-const suffix = segments[2];
+const content = aget(segments, 1);
+const suffix = aget(segments, 2);
 if ((index > 0)) {
-  runs.push({text: "\n", tone: "frame"});
+  runs.push({text: "\n", tone: "snapshot"});
 }
 if ((!(prefix === ""))) {
-  runs.push({text: prefix, tone: "frame"});
+  runs.push({text: prefix, tone: "snapshot"});
 }
 if ((!(content === ""))) {
-  runs.push({text: content, tone: (content.includes("North Bridge") ? "title" : "field")});
+  runs.push({text: content, tone: (((_truthy) => _truthy !== false && _truthy != null)(content.includes("North Bridge")) ? "title" : "field")});
 }
 if ((!(suffix === ""))) {
-  return runs.push({text: suffix, tone: "frame"});
+  return runs.push({text: suffix, tone: "snapshot"});
 } });
   return runs;
 }
@@ -1900,20 +1917,21 @@ push_chunk_bang(chunks, red(body.replaceAll("\n", "\n  ")));
 return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack(("".concat("• ", body))));
 return push_chunk_bang(chunks, white("\n\n")); })()); });
   if (transcript_working_p(runtime)) {
-    const elapsed = Math.floor(((Date.now() - runtime.workingSince) / 1000));
+    const working_since = runtime.workingSince;
+    const elapsed = Math.floor(((Date.now() - working_since) / 1000));
     push_working_wave_bang(chunks, runtime);
     push_chunk_bang(chunks, brightBlack(("".concat(" (", elapsed, "s · esc or ctrl-c to cancel)\n  "))));
     push_chunk_bang(chunks, brightBlack(transcript_context_text(runtime)));
   }
   const status = supervisor_status(runtime);
   const working_p = transcript_working_p(runtime);
-  const supervisor_view_p = ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
-  const placeholder = (supervisor_view_p ? transcript_placeholder(main_agent_label(runtime), status, items.length, working_p) : "");
+  const supervisor_view_p = and((!aggregate_transcript_p(runtime)), (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
+  const placeholder = (((_truthy) => _truthy !== false && _truthy != null)(supervisor_view_p) ? transcript_placeholder(main_agent_label(runtime), status, items.length, working_p) : "");
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
   }
   if (banner_visible_p(runtime)) {
-    session_banner_runs(session_banner_bang(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_frame_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
+    session_banner_runs(session_banner_bang(runtime.sourceIdentity, runtime.sessionModel, runtime.sessionEffort, short_directory(runtime.sessionCwd), runtime.sessionPermissions, available_view_width())).forEach((run) => push_chunk_bang(chunks, (((run.tone === "title") ? brightWhite : brightBlack))(run.text)));
   }
   return new StyledText(chunks);
 }
@@ -1939,7 +1957,7 @@ export function config_header_keys(entry, rows) {
 
 export function config_header_shared_bang(prior, current) {
   const count = {n: 0};
-  current.forEach((heading, index) => { if (((count.n === index) && (index < prior.length) && (prior[index] === heading))) {
+  current.forEach((heading, index) => { if (((_truthy) => _truthy !== false && _truthy != null)(((count.n === index) && ((index < prior.length) && (prior[index] === heading))))) {
   return (count.n = (index + 1));
 } });
   return count.n;
@@ -1986,20 +2004,25 @@ export function config_kind_tag(kind, role) {
   const headings = config_header_roles(role);
   const depth = headings.length;
   const innermost = ((depth > 0) ? headings[(depth - 1)] : "");
-  return (((innermost === "") || (innermost === role)) ? "" : ("".concat(kind, " · ")));
+  return (((_truthy) => _truthy !== false && _truthy != null)(((innermost === "") || (innermost === role))) ? "" : ("".concat(kind, " · ")));
 }
 
 export function config_row_parts(entry, memberships, expanded_p, role, state_text, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  const dir_p = (kind === "dir");
+  const dir_p = identical_p(kind, "dir");
   const members = config_module_members(memberships, name);
   const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
   const indent = config_row_indent(role);
   const glyph = config_fold_glyph(dir_p, expanded_p);
   const tag = config_kind_tag(kind, role);
   const label = (dir_p ? config_dir_label(entry) : config_row_label(kind, name));
-  const room = Math.max(8, (width - indent.length - glyph.length - tag.length - state_text.length - detail.length - 4));
+  const indent_width = indent.length;
+  const glyph_width = glyph.length;
+  const tag_width = tag.length;
+  const state_width = state_text.length;
+  const detail_width = detail.length;
+  const room = Math.max(8, (width - indent_width - glyph_width - tag_width - state_width - detail_width - 4));
   return {indent: indent, glyph: glyph, tag: tag, name: compact_text(label, room), state: state_text, detail: detail};
 }
 
@@ -2022,53 +2045,53 @@ export function render_config_panel_bang(runtime) {
   const total = entries.length;
   const stored_entries = runtime.configEntries;
   const stored_manifest = runtime.configAllEntries;
-  const manifest = (stored_manifest ? stored_manifest : (stored_entries ? stored_entries : entries));
+  const manifest = (((_truthy) => _truthy !== false && _truthy != null)(stored_manifest) ? stored_manifest : (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries));
   const stored_memberships = runtime.configMemberships;
-  const memberships = (stored_memberships ? stored_memberships : []);
-  const basis = (stored_entries ? stored_entries : entries);
+  const memberships = (((_truthy) => _truthy !== false && _truthy != null)(stored_memberships) ? stored_memberships : []);
+  const basis = (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries);
   const expanded = panel_expanded(runtime);
   const config_filter = text_or(text(runtime.configFilter), "all");
   const filtering_p = panel_filtering_p(runtime);
   const focused_p = panel_focused_p(runtime);
   const query = panel_query(runtime);
   if ((total === 0)) {
-    return new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(config_empty_note((runtime.configLoaded ? true : false), filtering_p))]);
+    return new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p))]);
   } else {
     const index = clamped_index(runtime.configIndex, total);
     const window = config_visible_count(total, config_filter);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    const width = Math.max(12, (terminal_columns() - 12));
+    const width = Math/max(12, (terminal_columns() - 12));
     const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(("".concat(config_panel_legend(filtering_p), "\n")))];
-    entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+    entries.slice(start, stop).forEach((entry, offset) => { const i = +(start, offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry, manifest, memberships);
-const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
+const pinned_p = and((kind === "hook"), (!config_hook_enabled_p(configentry_state(entry))));
 const context_p = config_row_context_only_p(entry, query);
 const role = config_row_role(entry, basis);
-const open_p = ((kind === "dir") && ((!(query.trim() === "")) || (!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry))));
-const nested_p = (role === "boundhook");
+const open_p = and((kind === "dir"), ((!(query.trim() === "")) || ((!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry)))));
+const nested_p = identical_p(role, "boundhook");
 const state_text = config_state_text(entry, manifest, memberships, active_p, nested_p);
 const row = config_row_parts(entry, memberships, open_p, role, state_text, width);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
 const shared = config_header_shared_bang(prior, headings);
-const tail = (((i + 1) === stop) ? "" : "\n");
+const tail = (((_truthy) => _truthy !== false && _truthy != null)(identical_p(+(i, 1), stop)) ? "" : "\n");
 config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow(("".concat(config_header_indent(at), config_section_title(heading), "\n"))));
 } });
-parts.push(((cursor_p && focused_p) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
-const name_tone = ((pinned_p) ? dimmest : ((cursor_p && focused_p)) ? brightWhite : (context_p) ? dimmest : brightBlack);
-const state_tone = ((pinned_p) ? dimmest : (active_p) ? brightGreen : brightBlack);
+parts.push((((_truthy) => _truthy !== false && _truthy != null)(and(cursor_p, focused_p)) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
+const name_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p))) ? brightWhite : (context_p) ? dimmest : brightBlack);
+const state_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (active_p) ? brightGreen : brightBlack);
 parts.push(name_tone(("".concat(row.indent, row.glyph))));
-if ((!(row.tag === ""))) {
+if ((!((_truthy) => _truthy !== false && _truthy != null)(identical_p(row.tag, "")))) {
   parts.push(dimmest(row.tag));
 }
 parts.push(name_tone(row.name));
 parts.push(name_tone(": "));
 parts.push(state_tone(row.state));
-return parts.push(name_tone(("".concat(((row.detail === "") ? "" : ("".concat("  ", row.detail))), tail)))); });
+return parts.push(name_tone(("".concat((((_truthy) => _truthy !== false && _truthy != null)(identical_p(row.detail, "")) ? "" : ("".concat("  ", row.detail))), tail)))); });
     return new StyledText(parts);
   }
 }
@@ -2123,7 +2146,7 @@ export function config_visible_count(total, view) {
 }
 
 function clamped_index(raw, total) {
-  return Math.max(0, Math.min((raw ? raw : 0), (total - 1)));
+  return Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (total - 1)));
 }
 
 function selected_detail_agent(runtime) {
@@ -2134,10 +2157,12 @@ function selected_detail_agent(runtime) {
 
 function config_header_lines_bang(entries, basis, start, stop) {
   const count = {n: 0};
-  entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+  entries.slice(start, stop).forEach((entry, offset) => { const i = +(start, offset);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
-return (count.n = (count.n + (headings.length - config_header_shared_bang(prior, headings)))); });
+const count_n = count.n;
+const heading_count = headings.length;
+return (count.n = +(count_n, (heading_count - config_header_shared_bang(prior, headings)))); });
   return count.n;
 }
 
@@ -2145,7 +2170,7 @@ export function config_detail_lines_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
-  const basis = (stored_entries ? stored_entries : entries);
+  const basis = (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries);
   const view = text_or(text(runtime.configFilter), "all");
   if ((total === 0)) {
     return 1;
@@ -2159,7 +2184,7 @@ export function config_detail_lines_bang(runtime) {
 }
 
 function detail_body_lines_bang(runtime) {
-  return ((detail_showing_p(runtime, "config")) ? config_detail_lines_bang(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (agent ? agent_route_text_bang(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
+  return ((detail_showing_p(runtime, "config")) ? config_detail_lines_bang(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (((_truthy) => _truthy !== false && _truthy != null)(agent) ? agent_route_text_bang(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
 }
 
 export function detail_height_bang(runtime) {
@@ -2185,14 +2210,14 @@ function render_agent_detail_bang(runtime) {
     const index = clamped_index(runtime.detailIndex, total);
     const width = Math.max(12, (terminal_columns() - 8));
     const selected_agent = selected_detail_agent(runtime);
-    const metadata = (selected_agent ? agent_route_text_bang(selected_agent, width) : "");
+    const metadata = (((_truthy) => _truthy !== false && _truthy != null)(selected_agent) ? agent_route_text_bang(selected_agent, width) : "");
     const extra = ((metadata === "") ? 0 : 1);
     const window = detail_visible_count(total, extra);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
+    agents.slice(start, stop).forEach((agent, offset) => { const i = +(start, offset);
 const cursor_p = (i === index);
-const tail = ((((i + 1) === stop) && (metadata === "")) ? "" : "\n");
+const tail = (((_truthy) => _truthy !== false && _truthy != null)(((+(i, 1) === stop) && (metadata === ""))) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
 return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row_bang(agent, width), tail)))); });
     if ((!(metadata === ""))) {
@@ -2230,12 +2255,13 @@ function render_help_panel_bang(runtime) {
   const matched = help_query_rows(query);
   const chunks = [brightYellow("Northbridge keys"), brightCyan(config_query_field(filtering_p, query)), brightBlack((filtering_p ? " · esc clears filter\n" : " · / filter · esc closes\n"))];
   const rows = matched.slice(0, help_visible_rows(query));
-  if ((rows.length === 0)) {
+  const row_count = rows.length;
+  if ((row_count === 0)) {
     push_chunk_bang(chunks, brightBlack(" nothing matches"));
   } else {
     rows.forEach((row, index) => { push_chunk_bang(chunks, brightWhite(helprow_keys(row).padEnd(HELP_KEY_WIDTH, " ")));
 push_chunk_bang(chunks, brightBlack(helprow_meaning(row)));
-if ((index < (rows.length - 1))) {
+if ((index < (row_count - 1))) {
   return push_chunk_bang(chunks, brightBlack("\n"));
 } });
   }
@@ -2279,13 +2305,13 @@ const AGENTS_TAB_LABEL = "Agents";
 
 const THREADS_TAB_LABEL = "Threads";
 
-const FRAME_TAB_SEPARATOR = " | ";
+const VIEW_TAB_SEPARATOR = " | ";
 
 const SUBVIEW_TAB_SEPARATOR = " > ";
 
-const THREADS_TAB_START = (AGENTS_TAB_LABEL.length + FRAME_TAB_SEPARATOR.length);
+const THREADS_TAB_START = (() => { const agents_label_width = AGENTS_TAB_LABEL.length; const view_separator_width = VIEW_TAB_SEPARATOR.length; return (agents_label_width + view_separator_width); })();
 
-const SUBVIEW_TAB_ORIGIN = (THREADS_TAB_START + THREADS_TAB_LABEL.length + SUBVIEW_TAB_SEPARATOR.length);
+const SUBVIEW_TAB_ORIGIN = (() => { const threads_label_width = THREADS_TAB_LABEL.length; const subview_separator_width = SUBVIEW_TAB_SEPARATOR.length; return (THREADS_TAB_START + threads_label_width + subview_separator_width); })();
 
 const SUBVIEW_TAB_GAP = 2;
 
@@ -2297,16 +2323,16 @@ function push_session_identity_bang(chunks, session) {
   return push_chunk_bang(chunks, dim(text_or(session.sessionBranch, "branch pending")));
 }
 
-export function render_view_tabs_bang(frame, state, view_id, session) {
+export function render_view_tabs_bang(view, state, view_id, session) {
   const chunks = [];
-  const threads_p = threads_frame_p(frame);
+  const threads_p = threads_view_p(view);
   const views = view_list(state);
   push_chunk_bang(chunks, ((threads_p ? brightBlack : brightGreen))(AGENTS_TAB_LABEL));
-  push_chunk_bang(chunks, brightBlack(FRAME_TAB_SEPARATOR));
+  push_chunk_bang(chunks, brightBlack(VIEW_TAB_SEPARATOR));
   push_chunk_bang(chunks, ((threads_p ? brightGreen : brightBlack))(THREADS_TAB_LABEL));
   push_chunk_bang(chunks, brightBlack(SUBVIEW_TAB_SEPARATOR));
   if (threads_p) {
-    views.forEach((view, index) => { const selected_p = (workview_id(view) === view_id);
+    views.forEach((view, index) => { const selected_p = identical_p(workview_id(view), view_id);
 const title = workview_title(view);
 push_chunk_bang(chunks, ((selected_p ? brightGreen : brightBlack))(("".concat((selected_p ? "[" : " "), title, (selected_p ? "]" : " ")))));
 if ((index < (views.length - 1))) {
@@ -2316,7 +2342,7 @@ if ((index < (views.length - 1))) {
   } else {
     push_session_identity_bang(chunks, session);
   }
-  if (((!threads_p) && aggregate_transcript_p(session))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!threads_p) && aggregate_transcript_p(session)))) {
     push_chunk_bang(chunks, brightYellow(" · all transcripts"));
   }
   return new StyledText(chunks);
@@ -2341,7 +2367,7 @@ function push_condition_bang(chunks, condition, label) {
 }
 
 function available_work_width(__runtime, __state) {
-  return available_frame_width();
+  return available_view_width();
 }
 
 function render_list_view_bang(runtime, items, selected, width) {
@@ -2352,12 +2378,12 @@ function render_list_view_bang(runtime, items, selected, width) {
 const condition = listrow_condition(row);
 if ((kind === "header")) {
   const collapsed_p = collapsed.has(condition);
-  const header = ("".concat(" ", (collapsed_p ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row)));
+  const header = ("".concat(" ", (((_truthy) => _truthy !== false && _truthy != null)(collapsed_p) ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row)));
   push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(header.padEnd(width, " "))));
 } else {
   const index = listrow_index(row);
   const item = items[index];
-  const title_width = Math.max(10, (width - 25));
+  const title_width = Math/max(10, (width - 25));
   const title = compact_text(workitem_title(item), title_width);
   const selected_p = (index === selected);
   push_chunk_bang(chunks, brightBlack("  "));
@@ -2394,8 +2420,8 @@ if ((dependencies.length === 0)) {
 } else {
   dependencies.forEach((dependency) => { const target = work_item_by_id(items, dependency);
 push_chunk_bang(chunks, brightBlack("    ╰─ requires ← "));
-push_chunk_bang(chunks, ((target ? brightCyan : brightBlack))(("".concat("@", dependency.slice(0, 8)))));
-return push_chunk_bang(chunks, (target ? dim(("".concat("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
+push_chunk_bang(chunks, ((((_truthy) => _truthy !== false && _truthy != null)(target) ? brightCyan : brightBlack))(("".concat("@", dependency.slice(0, 8)))));
+return push_chunk_bang(chunks, (((_truthy) => _truthy !== false && _truthy != null)(target) ? dim(("".concat("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
 }
 if ((index < (items.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
@@ -2422,7 +2448,7 @@ function board_signature(items, selected, width) {
 
 function board_card_node(source) {
   return (() => { let node = source; while (true) {
-    if (((!node) || (!(text(node.northThreadId) === "")))) { return node; } else { const _recur_0 = node.parent; node = _recur_0; continue; }
+    if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(node)) || (!(text(node.northThreadId) === ""))))) { return node; } else { const _recur_0 = node.parent; node = _recur_0; continue; }
   } })();
 }
 
@@ -2434,13 +2460,13 @@ function set_board_notice_bang(runtime, notice) {
 function select_board_card_bang(runtime, ui, item, index) {
   (runtime.workIndex = index);
   (runtime.model = select_thread(runtime.model, workitem_id(item)));
-  show_frame_bang(runtime, ui, "threads");
+  show_view_bang(runtime, ui, "threads");
   return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(item)));
 }
 
 function prefill_outcome_bang(runtime, ui, thread_id) {
   (ui.composerInput.value = ("".concat("/outcome @", thread_id, " ")));
-  show_frame_bang(runtime, ui, "threads");
+  show_view_bang(runtime, ui, "threads");
   return set_board_notice_bang(runtime, ("".concat("Finish the outcome, then press Enter; Done is derived from north tell @", thread_id, " outcome <result>.")));
 }
 
@@ -2460,14 +2486,14 @@ function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
   event.stopPropagation();
   ui.workScroll.stopAutoScroll();
   const source_card = board_card_node(event.source);
-  const source_id = (source_card ? bare(source_card.northThreadId) : "");
+  const source_id = (((_truthy) => _truthy !== false && _truthy != null)(source_card) ? bare(source_card.northThreadId) : "");
   const state = snapshot(runtime.model);
   const items = bridgesnapshot_board(state);
   const source_condition = work_item_condition_for(items, source_id);
   const source_lane = board_lane_id(source_condition);
-  const target_id = (target_card ? bare(target_card.northThreadId) : "");
+  const target_id = (((_truthy) => _truthy !== false && _truthy != null)(target_card) ? bare(target_card.northThreadId) : "");
   const target_condition = work_item_condition_for(items, target_id);
-  return (((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((target_lane === "done") && (!terminal_condition_p(source_condition)))) ? prefill_outcome_bang(runtime, ui, source_id) : (((source_lane === "not-started") && (target_lane === "not-started") && (source_condition === "ready") && ((target_id === "") || (target_condition === "ready")))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const position = ((target_id === "") ? ((event.x < (event.currentTarget.screenX + (event.currentTarget.width / 2))) ? "first" : "last") : ((event.x < (target_card.screenX + (target_card.width / 2))) ? "before" : "after")); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane)));
+  return (((source_id === "")) ? set_board_notice_bang(runtime, "Drop ignored: the dragged source was not a North work card.") : (((_truthy) => _truthy !== false && _truthy != null)(((target_lane === "done") && (!terminal_condition_p(source_condition))))) ? prefill_outcome_bang(runtime, ui, source_id) : (((_truthy) => _truthy !== false && _truthy != null)(((source_lane === "not-started") && ((target_lane === "not-started") && ((source_condition === "ready") && ((target_id === "") || (target_condition === "ready"))))))) ? ((source_id === target_id) ? set_board_notice_bang(runtime, "Queue order unchanged: a card cannot be moved relative to itself.") : (() => { const event_x = event.x; const position = ((target_id === "") ? (() => { const current_left = event.currentTarget.screenX; const current_width = event.currentTarget.width; const current_midpoint = (current_width / 2); return ((event_x < (current_left + current_midpoint)) ? "first" : "last"); })() : (() => { const target_left = target_card.screenX; const target_width = target_card.width; const target_midpoint = (target_width / 2); return ((event_x < (target_left + target_midpoint)) ? "before" : "after"); })()); return report_promise_bang(runtime, move_ready_thread_bang(runtime, source_id, position, target_id)); })()) : set_board_notice_bang(runtime, unsupported_drop_notice(source_condition, target_lane)));
 }
 
 function card_content(item, width) {
@@ -2481,8 +2507,8 @@ function make_board_card_bang(runtime, ui, item, index, lane_index, width) {
   const thread_id = workitem_id(item);
   const condition = workitem_condition(item);
   const selected_p = (index === runtime.workIndex);
-  const next_up_p = ((condition === "ready") && (lane_index === 0));
-  const card = new BoxRenderable(renderer, {id: board_card_id(thread_id), width: width, height: 4, flexShrink: 0, paddingX: 1, border: true, borderColor: (selected_p ? "#22d3ee" : "#64748b"), title: (next_up_p ? "Next Up" : null), titleColor: (next_up_p ? "#4ade80" : "#94a3b8")});
+  const next_up_p = and((condition === "ready"), (lane_index === 0));
+  const card = new BoxRenderable(renderer, {id: board_card_id(thread_id), width: width, height: 4, flexShrink: 0, paddingX: 1, border: true, borderColor: (selected_p ? "#22d3ee" : "#64748b"), title: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "Next Up" : null), titleColor: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "#4ade80" : "#94a3b8")});
   const content = new TextRenderable(renderer, {width: "100%", height: 2, selectable: false, wrapMode: "none", truncate: true, content: card_content(item, width)});
   (card.northThreadId = thread_id);
   (card.northCondition = condition);
@@ -2531,7 +2557,7 @@ function sync_board_bang(runtime, ui, items, selected, width) {
     clear_board_bang(ui.boardRoot);
     const card_width = ((width >= 54) ? 25 : Math.max(18, (width - 3)));
     BOARD_LANES.forEach((lane) => ui.boardRoot.add(make_board_lane_bang(runtime, ui, lane, items, card_width)));
-    if (((selected >= 0) && (selected < items.length))) {
+    if (((_truthy) => _truthy !== false && _truthy != null)(((selected >= 0) && (selected < items.length)))) {
       return ui.workScroll.scrollChildIntoView(board_card_id(workitem_id(items[selected])));
     }
   }
@@ -2548,7 +2574,7 @@ export function composer_hint(pane, label) {
 }
 
 function minibuffer_placeholder(runtime) {
-  return composer_hint(text(runtime.frame), main_agent_label(runtime));
+  return composer_hint(text(runtime.view), main_agent_label(runtime));
 }
 
 function palette_visible_count(total, rows, docked) {
@@ -2556,19 +2582,19 @@ function palette_visible_count(total, rows, docked) {
 }
 
 function palette_option_rows(total, window) {
-  return (((total > window) && (window > 1)) ? (window - 1) : window);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((total > window) && (window > 1))) ? (window - 1) : window);
 }
 
 function palette_overflow(total, window, rows) {
-  return (((total > rows) && (window > rows)) ? (total - rows) : 0);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((total > rows) && (window > rows))) ? (total - rows) : 0);
 }
 
 function render_minibuffer_bang(runtime, ui) {
-  const frame = text(runtime.frame);
+  const view = text(runtime.view);
   const input = ui.composerInput;
-  const options = palette_options(frame, text(input.value));
+  const options = palette_options(view, text(input.value));
   const total = options.length;
-  const index = Math.max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
+  const index = Math/max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
   const docked = (detail_open_p(runtime) ? detail_height_bang(runtime) : 0);
   const window = palette_visible_count(total, terminal_rows(), docked);
   const rows = palette_option_rows(total, window);
@@ -2584,27 +2610,27 @@ function render_minibuffer_bang(runtime, ui) {
 }
 
 function render_ui_bang(runtime, ui) {
-  if ((!runtime.disposed)) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed))) {
     const state = snapshot(runtime.model);
     const agents = bridgesnapshot_agents(state);
     const views = view_list(state);
     const requested = bridgesnapshot_active_view_id(state);
     const current = selected_view(state, requested);
     const items = workview_items(current);
-    const agent_max = Math.max(0, (agents.length - 1));
-    const work_max = Math.max(0, (items.length - 1));
-    const board_p = (workview_id(current) === "board");
+    const agent_max = Math/max(0, (agents.length - 1));
+    const work_max = Math/max(0, (items.length - 1));
+    const board_p = identical_p(workview_id(current), "board");
     const banner_p = banner_visible_p(runtime);
     const roster = roster_text_bang(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
     const roster_rows = roster_visible_rows(roster);
     const notice = status_notice(runtime, state);
-    const notice_p = (!(notice === ""));
-    (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
-    (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
-    apply_frame_visibility_bang(runtime, ui);
-    (ui.viewTabsText.content = render_view_tabs_bang(runtime.frame, state, workview_id(current), runtime));
+    const notice_p = (!((_truthy) => _truthy !== false && _truthy != null)(identical_p(notice, "")));
+    (runtime.agentIndex = Math/max(0, Math.min(runtime.agentIndex, agent_max)));
+    (runtime.workIndex = Math/max(0, Math.min(runtime.workIndex, work_max)));
+    apply_view_visibility_bang(runtime, ui);
+    (ui.viewTabsText.content = render_view_tabs_bang(runtime.view, state, workview_id(current), runtime));
     (ui.agentsText.visible = (roster_rows > 0));
-    (ui.agentsText.height = Math.max(1, roster_rows));
+    (ui.agentsText.height = Math/max(1, roster_rows));
     (ui.agentsText.content = roster);
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = (!board_p));
@@ -2616,12 +2642,12 @@ function render_ui_bang(runtime, ui) {
     }
     (ui.statusText.content = render_status(runtime, state));
     (ui.agentStatusText.content = render_status(runtime, state));
-    (ui.statusText.visible = (threads_frame_p(runtime.frame) && notice_p));
-    (ui.agentStatusText.visible = ((!threads_frame_p(runtime.frame)) && notice_p));
+    (ui.statusText.visible = (threads_view_p(runtime.view) && notice_p));
+    (ui.agentStatusText.visible = ((!threads_view_p(runtime.view)) && notice_p));
     render_prompt_bang(runtime, ui.composerPrompt);
     const segments = agent_segments(agents);
-    const strip_max = Math.max(0, (segments.length - 1));
-    (runtime.stripIndex = Math.max(0, Math.min(runtime.stripIndex, strip_max)));
+    const strip_max = Math/max(0, (segments.length - 1));
+    (runtime.stripIndex = Math/max(0, Math.min(runtime.stripIndex, strip_max)));
     (ui.agentStripText.content = render_agent_strip(state, runtime.stripFocused, runtime.stripIndex));
     const open_p = detail_open_p(runtime);
     (ui.detailPanel.visible = open_p);
@@ -2645,14 +2671,14 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
   if ((role === "supervisor")) {
     (runtime.supervisorId = execution_id);
   }
-  (runtime.model = upsert_agent(runtime.model, (existing ? agent_with_route(updated, existing) : updated)));
+  (runtime.model = upsert_agent(runtime.model, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? agent_with_route(updated, existing) : updated)));
   reconcile_agent_selection_bang(runtime, text_or(prior_id, ((role === "supervisor") ? execution_id : "")));
   return runtime.render();
 }
 
 function record_line(line) {
   const close = line.indexOf("] ");
-  if (((!line.startsWith("[")) || (close < 0))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("["))) || (close < 0)))) {
     return null;
   } else {
     const rest = line.slice((close + 2));
@@ -2677,11 +2703,11 @@ function safe_sequence(value) {
 }
 
 function wire_conversation_item(existing, id, kind, title, body, status, item_data, execution_id, event) {
-  return owned_conversation_item(id, kind, title, body, status, item_data, execution_id, (existing ? conversationitem_at(existing) : text(event.at)), (existing ? conversationitem_cursor(existing) : (safe_sequence(event.sequence) + 1)), (existing ? conversationitem_sequence(existing) : 0));
+  return owned_conversation_item(id, kind, title, body, status, item_data, execution_id, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_at(existing) : text(event.at)), (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_cursor(existing) : (safe_sequence(event.sequence) + 1)), (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_sequence(existing) : 0));
 }
 
 function control_conversation_item(execution_id, record, kind, title, body, status) {
-  const data = (parsedrecord_data(record) || {});
+  const data = or(parsedrecord_data(record), {});
   const record_sequence = parsedrecord_sequence(record);
   const cursor_candidate = Number(data.wireCursor);
   const cursor = (Number.isSafeInteger(cursor_candidate) ? cursor_candidate : 9007199254740991);
@@ -2690,9 +2716,9 @@ function control_conversation_item(execution_id, record, kind, title, body, stat
 
 function append_item_delta_bang(runtime, stream_state, event, id, kind, title, delta, status) {
   const existing = conversation_item_by_id(runtime, id);
-  const prior = (existing ? conversationitem_body(existing) : "");
-  const actual_title = (existing ? conversationitem_title(existing) : title);
-  return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (existing ? conversationitem_data(existing) : null), text(stream_state.executionId), event));
+  const prior = (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_body(existing) : "");
+  const actual_title = (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_title(existing) : title);
+  return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_data(existing) : null), text(stream_state.executionId), event));
 }
 
 function wire_content_text(value) {
@@ -2700,11 +2726,11 @@ function wire_content_text(value) {
 }
 
 function adopt_wire_model_bang(runtime, model, effort) {
-  if (model) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(model)) {
     const provider = text(model.provider);
     const tier = text(model.tier);
-    const label = ((((!(provider === "")) && (!(tier === "")))) ? ("".concat(provider, "/", tier)) : ((!(provider === ""))) ? provider : "");
-    if (((!(label === "")) && (text(runtime.sessionModel).trim() === ""))) {
+    const label = ((((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(tier === ""))))) ? ("".concat(provider, "/", tier)) : ((!(provider === ""))) ? provider : "");
+    if (((_truthy) => _truthy !== false && _truthy != null)(((!(label === "")) && (text(runtime.sessionModel).trim() === "")))) {
       (runtime.sessionModel = label);
     }
   }
@@ -2715,7 +2741,7 @@ function adopt_wire_model_bang(runtime, model, effort) {
 }
 
 function intermediate_provider_session_replacement_p(data) {
-  return ((text(data.status) === "failed") && (text(data.origin) === "north") && (text(data.errorCode) === "provider_session_replaced"));
+  return ((text(data.status) === "failed") && ((text(data.origin) === "north") && (text(data.errorCode) === "provider_session_replaced")));
 }
 
 function handle_wire_message_bang(runtime, stream_state, data) {
@@ -2725,8 +2751,8 @@ function handle_wire_message_bang(runtime, stream_state, data) {
   const id = event_item_id(execution_id, data.messageId);
   const body = clean_text(wire_content_text(data.content));
   const existing = conversation_item_by_id(runtime, id);
-  if (((role === "assistant") && (!stream_state.booting))) {
-    return (((stage === "started")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", "", "running", null, execution_id, data)) : ((stage === "delta")) ? append_item_delta_bang(runtime, stream_state, data, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (existing ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
+  if (((_truthy) => _truthy !== false && _truthy != null)(((role === "assistant") && (!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting))))) {
+    return (((stage === "started")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", "", "running", null, execution_id, data)) : ((stage === "delta")) ? append_item_delta_bang(runtime, stream_state, data, id, "assistant", "", body, "running") : ((stage === "completed")) ? (() => { const completed_body = ((body === "") ? (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_body(existing) : "") : body); (runtime.lastAssistantText = completed_body);
 return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "assistant", "", completed_body, "done", null, execution_id, data)); })() : null);
   }
 }
@@ -2734,17 +2760,17 @@ return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "a
 function handle_wire_tool_bang(runtime, stream_state, data, kind) {
   const id = event_item_id(text(stream_state.executionId), data.toolCallId);
   const existing = conversation_item_by_id(runtime, id);
-  return (((kind === "tool.admitted")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", text(data.name), clean_text(data.argumentPreview), "running", null, text(stream_state.executionId), data)) : ((kind === "tool.progress")) ? append_item_delta_bang(runtime, stream_state, data, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), wire_content_text(data.progress), "running") : ((kind === "tool.terminal")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", (existing ? conversationitem_title(existing) : "Tool activity"), text_or(data.resultPreview, (existing ? conversationitem_body(existing) : "")), ((text(data.status) === "succeeded") ? "done" : "failed"), (existing ? conversationitem_data(existing) : null), text(stream_state.executionId), data)) : null);
+  return (((kind === "tool.admitted")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", text(data.name), clean_text(data.argumentPreview), "running", null, text(stream_state.executionId), data)) : ((kind === "tool.progress")) ? append_item_delta_bang(runtime, stream_state, data, id, "tool", (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_title(existing) : "Tool activity"), wire_content_text(data.progress), "running") : ((kind === "tool.terminal")) ? upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "tool", (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_title(existing) : "Tool activity"), text_or(data.resultPreview, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_body(existing) : "")), ((text(data.status) === "succeeded") ? "done" : "failed"), (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_data(existing) : null), text(stream_state.executionId), data)) : null);
 }
 
 function handle_record_bang(runtime, stream_state, record) {
   const kind = parsedrecord_kind(record);
-  const data = (parsedrecord_data(record) || {});
+  const data = ((_logical) => (_logical !== false && _logical != null ? _logical : {}))(parsedrecord_data(record));
   const execution_id = text(stream_state.executionId);
   return (((kind === "execution.accepted")) ? (() => { const cwd = text(data.cwd); const prompt = text(data.prompt).trim(); if ((!(cwd === ""))) {
   (runtime.sessionCwd = cwd);
 }
-if (((!stream_state.booting) && (!(prompt === "")))) {
+if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(stream_state.booting)) && (!(prompt === ""))))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", prompt, "done"));
 } })() : ((kind === "session.config")) ? (() => { const model = text(data.model).trim(); const effort = text(data.effort).trim(); const cwd = text(data.cwd).trim(); const permissions = text(data.permissionMode).trim(); if ((!(model === ""))) {
   (runtime.sessionModel = model);
@@ -2757,14 +2783,14 @@ if ((!(cwd === ""))) {
 }
 if ((!(permissions === ""))) {
   return (runtime.sessionPermissions = permissions);
-} })() : (((kind === "control.submit_input") || (kind === "control.redirect_now"))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
+} })() : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "control.submit_input") || (kind === "control.redirect_now")))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
 } })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { const booting = stream_state.booting; adopt_wire_model_bang(runtime, data.model, data.effort);
-set_execution_working_bang(runtime, execution_id, true, (booting ? ("".concat("Starting ", main_agent_label(runtime), "…")) : "Agent is working"));
+set_execution_working_bang(runtime, execution_id, true, (((_truthy) => _truthy !== false && _truthy != null)(booting) ? ("".concat("Starting ", main_agent_label(runtime), "…")) : "Agent is working"));
 if ((!(execution_id === ""))) {
-  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (booting ? "starting" : "working"));
-} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((kind === "tool.admitted") || (kind === "tool.progress") || (kind === "tool.terminal"))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = (data.progress || {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
-if (progress.branch) {
+  return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (((_truthy) => _truthy !== false && _truthy != null)(booting) ? "starting" : "working"));
+} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "tool.admitted") || ((kind === "tool.progress") || (kind === "tool.terminal"))))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = or(data.progress, {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
+if (((_truthy) => _truthy !== false && _truthy != null)(progress.branch)) {
   (runtime.sessionBranch = text(progress.branch.name));
 }
 if ((lifecycle === "waiting")) {
@@ -2773,12 +2799,12 @@ if ((lifecycle === "waiting")) {
   if ((!(action === ""))) {
     return set_working_bang(runtime, true, action);
   }
-} })() : ((kind === "artifact.published")) ? (() => { const id = event_item_id(execution_id, data.artifactId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "change", text_or(data.label, "Published artifact"), text(data.mediaType), "done", null, execution_id, data)); })() : ((kind === "model-call.completed")) ? ((!intermediate_provider_session_replacement_p(data)) ? (() => { return set_execution_working_bang(runtime, execution_id, false, ""); })() : null) : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number((data.pendingInputs || 0)); const booting = stream_state.booting; set_execution_working_bang(runtime, execution_id, false, "");
-if (booting) {
+} })() : ((kind === "artifact.published")) ? (() => { const id = event_item_id(execution_id, data.artifactId); const existing = conversation_item_by_id(runtime, id); return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "change", text_or(data.label, "Published artifact"), text(data.mediaType), "done", null, execution_id, data)); })() : ((kind === "model-call.completed")) ? ((!intermediate_provider_session_replacement_p(data)) ? (() => { return set_execution_working_bang(runtime, execution_id, false, ""); })() : null) : ((kind === "session.idle")) ? (() => { const disposition = text(data.disposition); const pending_inputs = Number(((_logical) => (_logical !== false && _logical != null ? _logical : 0))(data.pendingInputs)); const booting = stream_state.booting; set_execution_working_bang(runtime, execution_id, false, "");
+if (((_truthy) => _truthy !== false && _truthy != null)(booting)) {
   play_sound_event_bang(runtime, stream_state, "ready");
 } else if ((disposition === "interrupted")) {
   play_sound_event_bang(runtime, stream_state, "interrupted");
-} else if (((disposition === "completed") && (pending_inputs <= 0))) {
+} else if (((_truthy) => _truthy !== false && _truthy != null)(((disposition === "completed") && (pending_inputs <= 0)))) {
   play_sound_event_bang(runtime, stream_state, "done");
 } else {
   null;
@@ -2787,7 +2813,7 @@ if (booting) {
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "ready");
 } })() : ((kind === "run.terminated")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
-if (((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked"))) {
+if (((_truthy) => _truthy !== false && _truthy != null)(((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked")))) {
   play_sound_event_bang(runtime, stream_state, "failed");
   const id = event_item_id(execution_id, ("".concat("terminal:", data.sequence)));
   const existing = conversation_item_by_id(runtime, id);
@@ -2804,11 +2830,11 @@ export function parse_bridge_stream_bang(runtime, stream_state, chunk) {
   const remainder = lines.pop();
   (stream_state.buffer = remainder);
   return lines.forEach((raw_line) => { const line = raw_line.trim();
-return ((line.startsWith("execution ")) ? (() => { const execution_id = line.slice(10).trim(); (stream_state.executionId = execution_id);
+return ((((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("execution "))) ? (() => { const execution_id = line.slice(10).trim(); (stream_state.executionId = execution_id);
 (stream_state.soundLive = true);
-return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : (line.startsWith("attached ")) ? (stream_state.soundLive = true) : (line.startsWith("[")) ? (() => { const record = record_line(line); if (record) {
+return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starting"); })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("attached "))) ? (stream_state.soundLive = true) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("["))) ? (() => { const record = record_line(line); if (((_truthy) => _truthy !== false && _truthy != null)(record)) {
   return handle_record_bang(runtime, stream_state, record);
-} })() : (line.startsWith("northd: ")) ? publish_line_bang(runtime, line.slice(8)) : (line.startsWith("north bridge:")) ? append_error_bang(runtime, line) : null); });
+} })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("northd: "))) ? publish_line_bang(runtime, line.slice(8)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("north bridge:"))) ? append_error_bang(runtime, line) : null); });
 }
 
 export function launch_route_flags(provider, tier, model, effort) {
@@ -2830,7 +2856,7 @@ export function set_launch_route_bang(runtime, name, value) {
     (() => { throw new Error(("".concat(name, " requires a value or auto"))); })();
   }
   if ((name === "provider")) {
-    if ((!((choice === "auto") || (choice === "anthropic") || (choice === "openai")))) {
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || ((choice === "anthropic") || (choice === "openai")))))) {
       (() => { throw new Error("provider requires anthropic, openai, or auto"); })();
     }
     (runtime.launchProvider = ((choice === "auto") ? "" : choice));
@@ -2839,7 +2865,7 @@ export function set_launch_route_bang(runtime, name, value) {
       (runtime.launchTier = "");
       (runtime.launchModel = "");
     } else {
-      if (["economy", "standard", "senior", "frontier"].includes(choice)) {
+      if (((_truthy) => _truthy !== false && _truthy != null)(["economy", "standard", "senior", "frontier"].includes(choice))) {
         (runtime.launchTier = choice);
         (runtime.launchModel = "");
       } else {
@@ -2848,7 +2874,7 @@ export function set_launch_route_bang(runtime, name, value) {
       }
     }
   } else {
-    if ((!((choice === "auto") || ["low", "medium", "high", "xhigh", "max"].includes(choice)))) {
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || ["low", "medium", "high", "xhigh", "max"].includes(choice))))) {
       (() => { throw new Error("effort requires low, medium, high, xhigh, max, or auto"); })();
     }
     (runtime.launchEffort = ((choice === "auto") ? "" : choice));
@@ -2889,7 +2915,7 @@ function popout_bang(runtime, view_id) {
   const wezterm = Bun.which("wezterm");
   const foot = Bun.which("foot");
   const xterm = Bun.which("xterm");
-  const argv = ((ghostty) ? [ghostty, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : (kitty) ? [kitty, "--detach", north_bin(), "bridge", "app", "--view-id", view_id] : (wezterm) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "app", "--view-id", view_id] : (foot) ? [foot, north_bin(), "bridge", "app", "--view-id", view_id] : (xterm) ? [xterm, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : null);
+  const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(wezterm)) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : null);
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }
@@ -2904,9 +2930,9 @@ function selected_work(runtime, selection) {
   const view = selected_view(state, view_id);
   const items = workview_items(view);
   const index = workselection_index(selection);
-  if (((index >= 0) && (index < items.length))) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((index >= 0) && (index < items.length)))) {
     const item = items[index];
-    return (((!(workview_id(view) === "list")) || (!runtime.collapsedListConditions.has(list_section_id(workitem_condition(item))))) ? item : null);
+    return (((_truthy) => _truthy !== false && _truthy != null)(((!(workview_id(view) === "list")) || (!((_truthy) => _truthy !== false && _truthy != null)(runtime.collapsedListConditions.has(list_section_id(workitem_condition(item))))))) ? item : null);
   } else {
     return null;
   }
@@ -2924,7 +2950,7 @@ async function capture_thread_bang(runtime, title) {
 export function restore_submitted_text_bang(runtime, ui) {
   const pending = text(runtime.lastSubmitted);
   const input = ui.composerInput;
-  if (((!(pending === "")) && input)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(((!(pending === "")) && input))) {
     (runtime.lastSubmitted = "");
     (input.value = pending);
     return input.focus();
@@ -2932,7 +2958,7 @@ export function restore_submitted_text_bang(runtime, ui) {
 }
 
 async function cancel_turn_bang(runtime, ui, target) {
-  if ((!runtime.bridgeExecutions.has(target))) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(target)))) {
     (() => { throw new Error("interrupt is available for Bridge-launched executions"); })();
   }
   await run_command([north_bin(), "bridge", "interrupt", target]);
@@ -2947,27 +2973,27 @@ async function submit_agent_bang(runtime, ui, input, selection) {
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
   const target = text_or(selection, text(runtime.supervisorId));
-  return (handle_local_command_bang(runtime, ui, input) ? null : (((slash_p && (name === "launch"))) ? await launch_agent_bang(runtime, rest, "worker") : ((slash_p && (name === "capture"))) ? await capture_thread_bang(runtime, rest) : ((slash_p && (name === "refresh"))) ? await refresh_bang(runtime) : ((slash_p && (name === "popout"))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : (async () => { if ((target === "")) {
+  return (handle_local_command_bang(runtime, ui, input) ? null : ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "launch") : _logical))(slash_p))) ? await launch_agent_bang(runtime, rest, "worker") : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "capture") : _logical))(slash_p))) ? await capture_thread_bang(runtime, rest) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "refresh") : _logical))(slash_p))) ? await refresh_bang(runtime) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "popout") : _logical))(slash_p))) ? popout_bang(runtime, text_or(rest, text(runtime.activeView))) : (async () => { if ((target === "")) {
   (() => { throw new Error("select an agent before messaging or interrupting"); })();
 }
-if ((slash_p && (name === "interrupt"))) {
+if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "interrupt") : _logical))(slash_p))) {
   return await cancel_turn_bang(runtime, ui, target);
 } else {
   const message = trimmed;
   if ((message === "")) {
     (() => { throw new Error("nothing to send"); })();
   }
-  if ((!runtime.bridgeExecutions.has(target))) {
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(target)))) {
     const id = next_item_id_bang(runtime, "user");
     upsert_conversation_bang(runtime, owned_conversation_item(id, "user", "", message, "done", null, target, new Date().toISOString(), runtime.itemSequence, 1));
   }
   (runtime.lastSubmitted = message);
-  if (runtime.bridgeExecutions.has(target)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(target))) {
     set_execution_working_bang(runtime, target, true, "Codex is working");
   } else {
     set_working_bang(runtime, true, "Codex is working");
   }
-  if (runtime.bridgeExecutions.has(target)) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(runtime.bridgeExecutions.has(target))) {
     await run_command([north_bin(), "bridge", "msg", target, message]);
   } else {
     await run_command([north_bin(), "msg", target, message]);
@@ -2982,8 +3008,8 @@ async function submit_work_bang(runtime, ui, input, selection) {
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
   const rest = parsedcommand_rest(parsed);
-  return ((!slash_p) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : (((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
-return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runtime) : ((name === "popout")) ? popout_bang(runtime, ((rest === "") ? runtime.activeView : rest)) : ((name === "capture")) ? await capture_thread_bang(runtime, rest) : ((name === "assign")) ? (async () => { const item = selected_work(runtime, selection); const words = rest.split(" ").filter((word) => (!(word.trim() === ""))); const current = (item ? workitem_driver(item) : ""); const prior = ((words.length > 1) ? words[0] : current); const next_driver = ((words.length > 1) ? words[1] : text(words[0])); const thread_id = (item ? workitem_id(item) : ""); if ((thread_id === "")) {
+  return ((!((_truthy) => _truthy !== false && _truthy != null)(slash_p)) ? await submit_agent_bang(runtime, ui, input, runtime.supervisorId) : (handle_local_command_bang(runtime, ui, input) ? null : (((name === "filter")) ? (() => { (runtime.model = set_filter(runtime.model, rest));
+return runtime.render(); })() : ((name === "refresh")) ? await refresh_bang(runtime) : ((name === "popout")) ? popout_bang(runtime, ((rest === "") ? runtime.activeView : rest)) : ((name === "capture")) ? await capture_thread_bang(runtime, rest) : ((name === "assign")) ? (async () => { const item = selected_work(runtime, selection); const words = rest.split(" ").filter((word) => (!(word.trim() === ""))); const current = (((_truthy) => _truthy !== false && _truthy != null)(item) ? workitem_driver(item) : ""); const prior = ((words.length > 1) ? words[0] : current); const next_driver = ((words.length > 1) ? words[1] : text(words[0])); const thread_id = (((_truthy) => _truthy !== false && _truthy != null)(item) ? workitem_id(item) : ""); if ((thread_id === "")) {
   (() => { throw new Error("select a thread before assigning"); })();
 }
 if ((prior === "")) {
@@ -3011,15 +3037,15 @@ function report_promise_bang(runtime, promise) {
   return promise.catch((error) => publish_line_bang(runtime, ("".concat("error: ", error_message(error)))));
 }
 
-function select_frame_bang(runtime, frame) {
-  (runtime.frame = frame);
+function select_view_bang(runtime, view) {
+  (runtime.view = view);
   (runtime.paletteIndex = 0);
   (runtime.workspaceNotice = "");
   return clear_strip_focus_bang(runtime);
 }
 
-function show_frame_bang(runtime, ui, frame) {
-  select_frame_bang(runtime, frame);
+function show_view_bang(runtime, ui, view) {
+  select_view_bang(runtime, view);
   ui.composerInput.focus();
   return runtime.render();
 }
@@ -3028,7 +3054,7 @@ function show_thread_view_bang(runtime, ui, view_id) {
   (runtime.model = focus_view(runtime.model, canonical_work_view(view_id)));
   (runtime.workIndex = 0);
   runtime.workScroll.scrollTo(0);
-  return show_frame_bang(runtime, ui, "threads");
+  return show_view_bang(runtime, ui, "threads");
 }
 
 function strip_segments(runtime) {
@@ -3051,7 +3077,7 @@ function leave_strip_bang(runtime, ui) {
 }
 
 function clear_strip_focus_bang(runtime) {
-  if (runtime.stripFocused) {
+  if (((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused)) {
     (runtime.stripFocused = false);
     if (detail_showing_p(runtime, "agents")) {
       return close_detail_bang(runtime);
@@ -3078,7 +3104,8 @@ function move_strip_segment_bang(runtime, delta) {
   const segments = strip_segments(runtime);
   const total = segments.length;
   if ((total > 0)) {
-    const next_index = ((runtime.stripIndex + delta + total) % total);
+    const strip_index = runtime.stripIndex;
+    const next_index = ((strip_index + delta + total) % total);
     (runtime.stripIndex = next_index);
     (runtime.detailIndex = 0);
     if (detail_showing_p(runtime, "agents")) {
@@ -3099,9 +3126,9 @@ function active_input(__runtime, ui) {
 }
 
 function active_palette_options(runtime, ui) {
-  const frame = text(runtime.frame);
+  const view = text(runtime.view);
   const input = active_input(runtime, ui);
-  return palette_options(frame, text(input.value));
+  return palette_options(view, text(input.value));
 }
 
 function install_composer_keymap_bang(runtime) {
@@ -3135,7 +3162,7 @@ export function submit_input_bang(runtime, ui, input) {
   if ((!(input === ""))) {
     (ui.composerInput.value = "");
     (runtime.paletteIndex = 0);
-    if ((!threads_frame_p(runtime.frame))) {
+    if ((!threads_view_p(runtime.view))) {
       const state = snapshot(runtime.model);
       const selected = selected_agent_id(state, runtime.agentIndex);
       return report_promise_bang(runtime, submit_agent_bang(runtime, ui, input, selected));
@@ -3146,7 +3173,7 @@ export function submit_input_bang(runtime, ui, input) {
 }
 
 export function palette_enter_action(matches, takes_arguments_p, insert_only_p, completed_p) {
-  return (((matches < 1)) ? "" : (completed_p) ? "fire" : ((insert_only_p || takes_arguments_p)) ? "complete" : "fire");
+  return (((matches < 1)) ? "" : (completed_p) ? "fire" : (((_truthy) => _truthy !== false && _truthy != null)((insert_only_p || takes_arguments_p))) ? "complete" : "fire");
 }
 
 function install_input_bang(runtime, ui) {
@@ -3158,34 +3185,43 @@ return render_minibuffer_bang(runtime, ui); });
 function subview_tab_id_at_bang(views, column) {
   const cursor = {x: SUBVIEW_TAB_ORIGIN, id: ""};
   views.forEach((view) => { const start = cursor.x;
-const width = (workview_title(view).length + 2);
-if (((column >= start) && (column < (start + width)))) {
+const title_width = workview_title(view).length;
+const width = (title_width + 2);
+if (((_truthy) => _truthy !== false && _truthy != null)(((column >= start) && (column < (start + width))))) {
   (cursor.id = workview_id(view));
 }
 return (cursor.x = (start + width + SUBVIEW_TAB_GAP)); });
   return text(cursor.id);
 }
 
-export function view_tab_id_at_bang(frame, views, column) {
-  return ((((column >= 0) && (column < AGENTS_TAB_LABEL.length))) ? "agents" : (((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + THREADS_TAB_LABEL.length)))) ? "threads" : ((threads_frame_p(frame) && (column >= SUBVIEW_TAB_ORIGIN))) ? subview_tab_id_at_bang(views, column) : "");
+export function view_tab_id_at_bang(view, views, column) {
+  const agents_tab_width = AGENTS_TAB_LABEL.length;
+  const threads_tab_width = THREADS_TAB_LABEL.length;
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((column >= 0) && (column < agents_tab_width)))) ? "agents" : (((_truthy) => _truthy !== false && _truthy != null)(((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + threads_tab_width))))) ? "threads" : (((_truthy) => _truthy !== false && _truthy != null)((threads_view_p(view) && (column >= SUBVIEW_TAB_ORIGIN)))) ? subview_tab_id_at_bang(views, column) : "");
 }
 
 function view_tab_at_bang(runtime, tabs, event, views) {
-  return view_tab_id_at_bang(runtime.frame, views, Math.floor((event.x - tabs.x)));
+  const event_x = event.x;
+  const tabs_x = tabs.x;
+  const column = Math.floor((event_x - tabs_x));
+  return view_tab_id_at_bang(runtime.view, views, column);
 }
 
-function complete_clicked_palette_bang(runtime, ui, frame, palette_renderable, event) {
+function complete_clicked_palette_bang(runtime, ui, view, palette_renderable, event) {
   if ((event.button === 0)) {
-    select_frame_bang(runtime, frame);
+    select_view_bang(runtime, view);
     const input = ui.composerInput;
-    const options = palette_options(frame, text(input.value));
-    const row = Math.floor((event.y - palette_renderable.y));
+    const options = palette_options(view, text(input.value));
+    const event_y = event.y;
+    const palette_y = palette_renderable.y;
+    const row = Math/floor((event_y - palette_y));
     const scrolled = runtime.paletteStart;
-    const start = (scrolled ? scrolled : 0);
+    const start = (((_truthy) => _truthy !== false && _truthy != null)(scrolled) ? scrolled : 0);
     const drawn = runtime.paletteRows;
-    const rows = (drawn ? drawn : 0);
+    const rows = (((_truthy) => _truthy !== false && _truthy != null)(drawn) ? drawn : 0);
     const picked = (start + row);
-    if (((row >= 0) && (row < rows) && (picked < options.length))) {
+    const option_count = options.length;
+    if (((_truthy) => _truthy !== false && _truthy != null)(((row >= 0) && ((row < rows) && (picked < option_count))))) {
       event.preventDefault();
       event.stopPropagation();
       (runtime.paletteIndex = picked);
@@ -3209,9 +3245,9 @@ function next_visible_list_index(runtime, items, current, delta) {
 function select_visible_list_fallback_bang(runtime, items) {
   const indices = visible_list_indices(runtime, items);
   const current = runtime.workIndex;
-  if (((indices.length > 0) && (!indices.includes(current)))) {
-    const index = indices[0];
-    const item = items[index];
+  if (((_truthy) => _truthy !== false && _truthy != null)(((indices.length > 0) && (!((_truthy) => _truthy !== false && _truthy != null)(indices.includes(current)))))) {
+    const index = aget(indices, 0);
+    const item = aget(items, index);
     (runtime.workIndex = index);
     return (runtime.model = select_thread(runtime.model, workitem_id(item)));
   }
@@ -3224,15 +3260,18 @@ function handle_list_click_bang(runtime, ui, event) {
     if ((workview_id(view) === "list")) {
       const items = workview_items(view);
       const rows = list_rows(runtime, items);
-      const row_index = Math.floor((event.y - ui.workText.screenY));
-      if (((row_index >= 0) && (row_index < rows.length))) {
+      const event_y = event.y;
+      const list_y = ui.workText.screenY;
+      const row_index = Math/floor((event_y - list_y));
+      const row_count = rows.length;
+      if (((_truthy) => _truthy !== false && _truthy != null)(((row_index >= 0) && (row_index < row_count)))) {
         const row = rows[row_index];
         event.preventDefault();
         event.stopPropagation();
         if ((listrow_kind(row) === "header")) {
           const condition = listrow_condition(row);
           const collapsed = runtime.collapsedListConditions;
-          if (collapsed.has(condition)) {
+          if (((_truthy) => _truthy !== false && _truthy != null)(collapsed.has(condition))) {
             collapsed.delete(condition);
           } else {
             collapsed.add(condition);
@@ -3261,28 +3300,30 @@ function install_mouse_bang(runtime, ui) {
   event.preventDefault();
   event.stopPropagation();
   const segments = strip_segments(runtime);
-  const column = Math.floor((event.x - ui.agentStripText.screenX));
+  const event_x = event.x;
+  const strip_x = ui.agentStripText.screenX;
+  const column = Math.floor((event_x - strip_x));
   const index = segment_at_column(segments, column);
   if ((index >= 0)) {
     show_segment_detail_bang(runtime, index);
   }
   return focus_strip_bang(runtime, ui);
 } });
-  (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.frame), ui.composerPalette, event));
+  (ui.composerPalette.onMouseDown = (event) => complete_clicked_palette_bang(runtime, ui, text(runtime.view), ui.composerPalette, event));
   (ui.workText.onMouseDown = (event) => handle_list_click_bang(runtime, ui, event));
   return (ui.viewTabsText.onMouseDown = (event) => { if ((event.button === 0)) {
   const tab = view_tab_at_bang(runtime, ui.viewTabsText, event, view_list(snapshot(runtime.model)));
   if ((!(tab === ""))) {
     event.preventDefault();
     event.stopPropagation();
-    return ((tab === "agents") ? show_frame_bang(runtime, ui, "agents") : ((tab === "threads") ? show_frame_bang(runtime, ui, "threads") : show_thread_view_bang(runtime, ui, tab)));
+    return ((tab === "agents") ? show_view_bang(runtime, ui, "agents") : ((tab === "threads") ? show_view_bang(runtime, ui, "threads") : show_thread_view_bang(runtime, ui, tab)));
   }
 } });
 }
 
 function escape_step_bang(runtime, ui) {
   const palette = active_palette_options(runtime, ui);
-  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (runtime.stripFocused ? true : false), threads_frame_p(runtime.frame), (runtime.working ? true : false));
+  const action = escape_rung((palette.length > 0), panel_filtering_p(runtime), detail_open_p(runtime), (((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused) ? true : false), threads_view_p(runtime.view), (((_truthy) => _truthy !== false && _truthy != null)(runtime.working) ? true : false));
   return (((action === "close-palette")) ? (() => { (active_input(runtime, ui).value = "");
 render_minibuffer_bang(runtime, ui);
 return true; })() : ((action === "clear-filter")) ? (() => { clear_panel_filter_bang(runtime);
@@ -3292,7 +3333,7 @@ focus_composer_bang(runtime, ui);
 runtime.render();
 return true; })() : ((action === "focus-composer")) ? (() => { leave_strip_bang(runtime, ui);
 runtime.render();
-return true; })() : ((action === "show-agents")) ? (() => { show_frame_bang(runtime, ui, "agents");
+return true; })() : ((action === "show-agents")) ? (() => { show_view_bang(runtime, ui, "agents");
 return true; })() : ((action === "cancel-turn")) ? (() => { const target = text(runtime.supervisorId); if ((!(target === ""))) {
   report_promise_bang(runtime, cancel_turn_bang(runtime, ui, target));
 }
@@ -3304,23 +3345,23 @@ function panel_filterable_p(runtime) {
 }
 
 export function filter_character(name, sequence, ctrl_p, meta_p) {
-  return ((ctrl_p || meta_p || (name === "space") || (!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32)) ? "" : sequence);
+  return (((_truthy) => _truthy !== false && _truthy != null)((ctrl_p || (meta_p || ((name === "space") || ((!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32)))))) ? "" : sequence);
 }
 
 export function filter_key_action(filtering_p, query, name, character) {
-  return ((((!filtering_p) && (character === "/"))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((!filtering_p) && (character === "/")))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
 }
 
 function ctrl_down_key_p(name, key) {
-  return (key.ctrl && (name === "j"));
+  return ((_logical) => (_logical !== false && _logical != null ? (name === "j") : _logical))(key.ctrl);
 }
 
 function bare_letter_p(name, key, letter) {
-  return ((name === letter) && (!key.ctrl) && (!(key.meta || key.option)));
+  return ((name === letter) && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && (!((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : key.option))(key.meta)))));
 }
 
 function fold_key_p(runtime, name, key) {
-  return ((name === "left") || (name === "right") || ((!panel_filtering_p(runtime)) && (bare_letter_p(name, key, "h") || bare_letter_p(name, key, "l"))));
+  return ((name === "left") || ((name === "right") || ((!panel_filtering_p(runtime)) && (bare_letter_p(name, key, "h") || bare_letter_p(name, key, "l")))));
 }
 
 function apply_fold_action_bang(runtime, rows, node, action) {
@@ -3335,7 +3376,7 @@ function fold_step_bang(runtime, open_key_p) {
   if ((total > 0)) {
     const index = clamped_index(runtime.configIndex, total);
     const entry = rows[index];
-    const dir_p = (configentry_kind(entry) === "dir");
+    const dir_p = identical_p(configentry_kind(entry), "dir");
     const node = config_row_node(entry);
     return apply_fold_action_bang(runtime, rows, node, fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p));
   }
@@ -3347,90 +3388,91 @@ export function tab_fold_step_bang(runtime) {
   if ((total > 0)) {
     const index = clamped_index(runtime.configIndex, total);
     const entry = rows[index];
-    const dir_p = (configentry_kind(entry) === "dir");
+    const dir_p = identical_p(configentry_kind(entry), "dir");
     const node = config_row_node(entry);
     return apply_fold_action_bang(runtime, rows, node, tab_action("panel", dir_p, config_node_expanded_p(panel_expanded(runtime), node)));
   }
 }
 
 function ctrl_up_key_p(name, key) {
-  return (key.ctrl && (name === "k"));
+  return ((_logical) => (_logical !== false && _logical != null ? (name === "k") : _logical))(key.ctrl);
 }
 
 function bare_key_p(name, key, letter) {
-  return ((name === letter) && (!key.ctrl) && (!(key.meta || key.option)));
+  return ((name === letter) && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && (!((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : key.option))(key.meta)))));
 }
 
 function strip_key_p(name, key) {
-  return ((name === "left") || (name === "right") || (name === "up") || (name === "down") || submit_key_p(name) || ctrl_down_key_p(name, key) || ctrl_up_key_p(name, key) || bare_key_p(name, key, "h") || bare_key_p(name, key, "l") || bare_key_p(name, key, "j") || bare_key_p(name, key, "k"));
+  return ((name === "left") || ((name === "right") || ((name === "up") || ((name === "down") || (submit_key_p(name) || (ctrl_down_key_p(name, key) || (ctrl_up_key_p(name, key) || (bare_key_p(name, key, "h") || (bare_key_p(name, key, "l") || (bare_key_p(name, key, "j") || bare_key_p(name, key, "k")))))))))));
 }
 
 function install_keys_bang(runtime, ui) {
-  return runtime.renderer.keyInput.on("keypress", (key) => { if (((!key.defaultPrevented) && (!key.propagationStopped))) {
+  return runtime.renderer.keyInput.on("keypress", (key) => { if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(key.defaultPrevented)) && (!((_truthy) => _truthy !== false && _truthy != null)(key.propagationStopped))))) {
   const name = text(key.name).toLowerCase();
-  const meta = (key.meta || key.option);
+  const meta = ((_logical) => (_logical !== false && _logical != null ? _logical : key.option))(key.meta);
   const palette = active_palette_options(runtime, ui);
   const palette_open = (palette.length > 0);
-  const plain_view_arrow = (threads_frame_p(runtime.frame) && (text(ui.composerInput.value).trim() === "") && (!key.ctrl) && (!meta) && ((name === "left") || (name === "right")));
-  return ((((name === "escape") || (name === "esc"))) ? (escape_step_bang(runtime, ui) ? (() => { key.preventDefault();
-return key.stopPropagation(); })() : null) : ((detail_open_p(runtime) && (!panel_focused_p(runtime)) && (!palette_open) && ctrl_down_key_p(name, key))) ? (() => { key.preventDefault();
+  const plain_view_arrow = (threads_view_p(runtime.view) && ((text(ui.composerInput.value).trim() === "") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && ((name === "left") || (name === "right"))))));
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((name === "escape") || (name === "esc")))) ? (escape_step_bang(runtime, ui) ? (() => { key.preventDefault();
+return key.stopPropagation(); })() : null) : (((_truthy) => _truthy !== false && _truthy != null)((detail_open_p(runtime) && ((!panel_focused_p(runtime)) && ((!palette_open) && ctrl_down_key_p(name, key)))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);
-return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!palette_open) && ((name === "up") || (name === "down") || ctrl_up_key_p(name, key) || ctrl_down_key_p(name, key) || (name === "space") || submit_key_p(name) || (name === "tab") || fold_key_p(runtime, name, key)))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || (submit_key_p(name) || ((name === "tab") || fold_key_p(runtime, name, key))))))))))))) ? (() => { const up_p = or((name === "up"), ctrl_up_key_p(name, key)); const down_p = or((name === "down"), ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
-if ((up_p || down_p)) {
+if (((_truthy) => _truthy !== false && _truthy != null)(or(up_p, down_p))) {
   const total = config_panel_rows(runtime).length;
   if ((total > 0)) {
     const raw = runtime.configIndex;
-    const current = (raw ? raw : 0);
-    const delta = (up_p ? -1 : 1);
+    const current = (((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0);
+    const delta = (((_truthy) => _truthy !== false && _truthy != null)(up_p) ? -1 : 1);
     (runtime.configIndex = ((current + delta + total) % total));
   }
 } else if ((name === "tab")) {
   tab_fold_step_bang(runtime);
 } else if (fold_key_p(runtime, name, key)) {
-  fold_step_bang(runtime, ((name === "right") || bare_key_p(name, key, "l")));
+  fold_step_bang(runtime, or((name === "right"), bare_key_p(name, key, "l")));
 } else if ((name === "space")) {
   report_promise_bang(runtime, toggle_config_entry_bang(runtime));
 } else {
   report_promise_bang(runtime, edit_config_entry_bang(runtime));
 }
-return runtime.render(); })() : ((detail_showing_p(runtime, "config") && panel_focused_p(runtime) && (!panel_filtering_p(runtime)) && (!palette_open) && (filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)) === "@"))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!panel_filtering_p(runtime)) && ((!palette_open) && (filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "@"))))))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
 key.stopPropagation();
 if ((total > 0)) {
-  const entry = rows[clamped_index(runtime.configIndex, total)];
+  const entry = aget(rows, clamped_index(runtime.configIndex, total));
   const input = active_input(runtime, ui);
   (input.value = ("".concat(text(input.value), config_reference_text(configentry_kind(entry), configentry_name(entry)))));
   focus_composer_bang(runtime, ui);
   render_minibuffer_bang(runtime, ui);
 }
-return runtime.render(); })() : ((panel_filterable_p(runtime) && panel_focused_p(runtime) && (!palette_open) && (!(filter_key_action(panel_filtering_p(runtime), panel_query(runtime), name, filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false))) === "")))) ? (() => { const character = filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)); const query = panel_query(runtime); const action = filter_key_action(panel_filtering_p(runtime), query, name, character); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((panel_filterable_p(runtime) && (panel_focused_p(runtime) && ((!palette_open) && (!(filter_key_action(panel_filtering_p(runtime), panel_query(runtime), name, filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false))) === ""))))))) ? (() => { const character = filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)); const query = panel_query(runtime); const action = filter_key_action(panel_filtering_p(runtime), query, name, character); key.preventDefault();
 key.stopPropagation();
 if ((action === "open")) {
   set_panel_query_bang(runtime, "");
 } else if ((action === "type")) {
   set_panel_query_bang(runtime, ("".concat(query, character)));
 } else if ((action === "erase")) {
-  set_panel_query_bang(runtime, query.slice(0, (query.length - 1)));
+  const query_length = query.length;
+  set_panel_query_bang(runtime, query.slice(0, (query_length - 1)));
 } else {
   clear_panel_filter_bang(runtime);
 }
-return runtime.render(); })() : ((panel_focused_p(runtime) && (!palette_open) && (!(filter_character(name, text(key.sequence), (key.ctrl ? true : false), (meta ? true : false)) === "")))) ? (() => { key.preventDefault();
-return key.stopPropagation(); })() : ((runtime.stripFocused && strip_key_p(name, key))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || ctrl_up_key_p(name, key) || bare_key_p(name, key, "k")); const down_p = ((name === "down") || ctrl_down_key_p(name, key) || bare_key_p(name, key, "j")); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((panel_focused_p(runtime) && ((!palette_open) && (!(filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "")))))) ? (() => { key.preventDefault();
+return key.stopPropagation(); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? strip_key_p(name, key) : _logical))(runtime.stripFocused))) ? (() => { const expanded_p = detail_showing_p(runtime, "agents"); const up_p = ((name === "up") || (ctrl_up_key_p(name, key) || bare_key_p(name, key, "k"))); const down_p = ((name === "down") || (ctrl_down_key_p(name, key) || bare_key_p(name, key, "j"))); const left_p = ((name === "left") || bare_key_p(name, key, "h")); const right_p = ((name === "right") || bare_key_p(name, key, "l")); key.preventDefault();
 key.stopPropagation();
 if (submit_key_p(name)) {
   toggle_segment_detail_bang(runtime);
-} else if (left_p) {
+} else if (((_truthy) => _truthy !== false && _truthy != null)(left_p)) {
   move_strip_segment_bang(runtime, -1);
-} else if (right_p) {
+} else if (((_truthy) => _truthy !== false && _truthy != null)(right_p)) {
   move_strip_segment_bang(runtime, 1);
-} else if (up_p) {
+} else if (((_truthy) => _truthy !== false && _truthy != null)(up_p)) {
   if (expanded_p) {
     move_detail_cursor_bang(runtime, -1);
   } else {
     leave_strip_bang(runtime, ui);
   }
-} else if (down_p) {
+} else if (((_truthy) => _truthy !== false && _truthy != null)(down_p)) {
   if (expanded_p) {
     move_detail_cursor_bang(runtime, 1);
   } else {
@@ -3439,48 +3481,55 @@ if (submit_key_p(name)) {
 } else {
   null;
 }
-return runtime.render(); })() : ((palette_open && ((name === "up") || (name === "down") || (key.ctrl && ((name === "j") || (name === "k")))))) ? (() => { key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((palette_open && ((name === "up") || ((name === "down") || ((_logical) => (_logical !== false && _logical != null ? ((name === "j") || (name === "k")) : _logical))(key.ctrl)))))) ? (() => { key.preventDefault();
 key.stopPropagation();
-(runtime.paletteIndex = ((runtime.paletteIndex + (((name === "up") || (key.ctrl && (name === "k"))) ? -1 : 1) + palette.length) % palette.length));
+const palette_index = runtime.paletteIndex;
+const palette_delta = (((_truthy) => _truthy !== false && _truthy != null)(((name === "up") || ((_logical) => (_logical !== false && _logical != null ? (name === "k") : _logical))(key.ctrl))) ? -1 : 1);
+const palette_count = palette.length;
+(runtime.paletteIndex = ((palette_index + palette_delta + palette_count) % palette_count));
 active_input(runtime, ui).focus();
-return render_minibuffer_bang(runtime, ui); })() : ((palette_open && (name === "tab"))) ? (() => { key.preventDefault();
+return render_minibuffer_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)((palette_open && (name === "tab")))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return complete_palette_bang(runtime, ui, palette); })() : ((palette_open && submit_key_p(name))) ? (() => { const candidate = palette_candidate(runtime, palette); const completed = palette_completion_text(candidate); const current = text(active_input(runtime, ui).value); const action = palette_enter_action(palette.length, slashcommand_arguments(candidate), slashcommand_emoji(candidate), (current === completed)); key.preventDefault();
+return complete_palette_bang(runtime, ui, palette); })() : (((_truthy) => _truthy !== false && _truthy != null)((palette_open && submit_key_p(name)))) ? (() => { const candidate = palette_candidate(runtime, palette); const completed = palette_completion_text(candidate); const current = text(active_input(runtime, ui).value); const action = palette_enter_action(palette.length, slashcommand_arguments(candidate), slashcommand_emoji(candidate), (current === completed)); key.preventDefault();
 key.stopPropagation();
-return ((action === "fire") ? submit_input_bang(runtime, ui, completed.trim()) : complete_palette_bang(runtime, ui, palette)); })() : (((!runtime.stripFocused) && (!palette_open) && (ctrl_down_key_p(name, key) || ((name === "down") && (!key.ctrl) && (!meta) && (text(ui.composerInput.value).trim() === ""))))) ? (() => { key.preventDefault();
+return ((action === "fire") ? submit_input_bang(runtime, ui, completed.trim()) : complete_palette_bang(runtime, ui, palette)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.stripFocused)) && ((!palette_open) && (ctrl_down_key_p(name, key) || ((name === "down") && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && ((!((_truthy) => _truthy !== false && _truthy != null)(meta)) && (text(ui.composerInput.value).trim() === ""))))))))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return focus_strip_bang(runtime, ui); })() : (((name === "tab") || (name === "f2"))) ? (() => { key.preventDefault();
+return focus_strip_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "tab") || (name === "f2")))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return show_frame_bang(runtime, ui, tab_swap_frame(text(runtime.frame))); })() : ((name === "f1")) ? (() => { key.preventDefault();
+return show_view_bang(runtime, ui, tab_swap_view(text(runtime.view))); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
-return toggle_help_bang(runtime, ui); })() : (((name === "f3") || plain_view_arrow || (meta && ((name === "h") || (name === "l"))))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((name === "left") || (meta && (name === "h"))) ? -1 : 1); const next_index = ((index + delta + views.length) % views.length); const next_id = text(views[next_index].id); key.preventDefault();
+return toggle_help_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f3") || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? ((name === "h") || (name === "l")) : _logical))(meta)))(plain_view_arrow)))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((_truthy) => _truthy !== false && _truthy != null)(((name === "left") || ((_logical) => (_logical !== false && _logical != null ? (name === "h") : _logical))(meta))) ? -1 : 1); const view_count = views.length; const next_index = mod((index + delta + view_count), view_count); const next_id = text(views[next_index].id); key.preventDefault();
 key.stopPropagation();
-return show_thread_view_bang(runtime, ui, next_id); })() : (((name === "f5") || (key.ctrl && (name === "r")))) ? (() => { key.preventDefault();
+return show_thread_view_bang(runtime, ui, next_id); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f5") || ((_logical) => (_logical !== false && _logical != null ? (name === "r") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return report_promise_bang(runtime, refresh_bang(runtime)); })() : (((name === "f6") || (key.ctrl && (name === "o")))) ? (() => { key.preventDefault();
+return report_promise_bang(runtime, refresh_bang(runtime)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f6") || ((_logical) => (_logical !== false && _logical != null ? (name === "o") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
 key.stopPropagation();
-return popout_bang(runtime, runtime.activeView); })() : ((meta && ((name === "j") || (name === "k")))) ? (() => { const state = snapshot(runtime.model); const delta = ((name === "k") ? -1 : 1); key.preventDefault();
+return popout_bang(runtime, runtime.activeView); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((name === "j") || (name === "k")) : _logical))(meta))) ? (() => { const state = snapshot(runtime.model); const delta = ((name === "k") ? -1 : 1); key.preventDefault();
 key.stopPropagation();
-if ((!threads_frame_p(runtime.frame))) {
+if ((!threads_view_p(runtime.view))) {
   const agents = bridgesnapshot_agents(state);
-  const max_index = Math.max(0, (agents.length - 1));
-  const next_index = Math.max(0, Math.min(max_index, (runtime.agentIndex + delta)));
-  const selected_agent_id = ((agents.length > 0) ? agent_id(agents[next_index]) : "");
+  const agent_count = agents.length;
+  const max_index = Math/max(0, (agent_count - 1));
+  const agent_index = runtime.agentIndex;
+  const next_index = Math/max(0, Math.min(max_index, (agent_index + delta)));
+  const selected_agent_id = ((agent_count > 0) ? agent_id(agents[next_index]) : "");
   (runtime.agentIndex = next_index);
   (runtime.model = select_agent(runtime.model, selected_agent_id));
 } else {
   const view = selected_view(state, runtime.activeView);
   const items = workview_items(view);
-  const max_index = Math.max(0, (items.length - 1));
-  const next_index = ((workview_id(view) === "list") ? next_visible_list_index(runtime, items, runtime.workIndex, delta) : Math.max(0, Math.min(max_index, (runtime.workIndex + delta))));
-  const thread_id = ((items.length > 0) ? workitem_id(items[next_index]) : "");
+  const item_count = items.length;
+  const max_index = Math.max(0, (item_count - 1));
+  const work_index = runtime.workIndex;
+  const next_index = ((workview_id(view) === "list") ? next_visible_list_index(runtime, items, work_index, delta) : Math.max(0, Math.min(max_index, (work_index + delta))));
+  const thread_id = ((item_count > 0) ? workitem_id(items[next_index]) : "");
   (runtime.workIndex = next_index);
   (runtime.model = select_thread(runtime.model, thread_id));
   ui.workScroll.scrollBy((delta * (((workview_id(view) === "board")) ? 2 : ((workview_id(view) === "graph")) ? 3 : 1)), "step");
 }
-return runtime.render(); })() : ((key.ctrl && (name === "c"))) ? (() => { const target = text(runtime.supervisorId); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (name === "c") : _logical))(key.ctrl))) ? (() => { const target = text(runtime.supervisorId); key.preventDefault();
 key.stopPropagation();
-if ((runtime.working && (!(target === "")))) {
+if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!(target === "")) : _logical))(runtime.working))) {
   return report_promise_bang(runtime, cancel_turn_bang(runtime, ui, target));
 } })() : null);
 } });
@@ -3489,7 +3538,7 @@ if ((runtime.working && (!(target === "")))) {
 async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
   const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", frame: BOOT_FRAME, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text(process.env.AGENT_REASONING), launchProvider: text(process.env.NORTH_BRIDGE_PROVIDER), launchTier: text(process.env.NORTH_BRIDGE_TIER), launchModel: text(process.env.NORTH_BRIDGE_MODEL), launchEffort: text(process.env.NORTH_BRIDGE_EFFORT), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
+  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", view: BOOT_VIEW, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text(process.env.AGENT_REASONING), launchProvider: text(process.env.NORTH_BRIDGE_PROVIDER), launchTier: text(process.env.NORTH_BRIDGE_TIER), launchModel: text(process.env.NORTH_BRIDGE_MODEL), launchEffort: text(process.env.NORTH_BRIDGE_EFFORT), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
   const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
   const view_tabs_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});

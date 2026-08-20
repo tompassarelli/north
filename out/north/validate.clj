@@ -25,9 +25,10 @@
    v-thread (reduce (fn [acc ^String p] (reduce (fn [a ^String rt] (cond
   (and (proj/subject? idx rt) (nil? (proj/string-value-at idx rt "title"))) (conj a (str p " references non-thread entity " rt))
   (not (proj/subject? idx rt)) (conj a (str p " references missing thread " rt))
-  :else a)) acc (proj/string-values-at idx te p))) [] thread-ref-preds)
-   v-ab (reduce (fn [acc ^String d] (if (and (not term?) (proj/withdrawn-i? idx d)) (conj acc (str "depends_on points at abandoned " d)) acc)) v-thread (proj/string-values-at idx te "depends_on"))]
-  v-ab))
+  :else a)) acc (proj/string-values-at idx te p))) [] thread-ref-preds)]
+  (do
+  (let [v-ab (reduce (fn [acc ^String d] (if (and (not term?) (proj/withdrawn-i? idx d)) (conj acc (str "depends_on points at abandoned " d)) acc)) v-thread (proj/string-values-at idx te "depends_on"))]
+  v-ab))))
 
 (defn violations-i [idx ^String te]
   (vec (concat (structural-violations-i idx te) (work-violations-i idx te))))
