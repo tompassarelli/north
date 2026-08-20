@@ -1101,6 +1101,75 @@
       (board-full idx today before? live? nonterm)
       (board-curated idx today before? live? nonterm))))
 
+;; A compact Store-only operator read. Account and session rows are deliberately
+;; shaped by their public facts: providers may add those facts without teaching
+;; this terminal projection about provider-private process state.
+(defn- cockpit-thread-line
+  [idx proj/ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)] String
+  (let [condition String (proj/condition-i idx te today before? live?)
+        owner (U String Nil) (proj/string-value-at idx te "owner")
+        estimate (U String Nil) (proj/string-value-at idx te "estimate_hours")
+        deps (Vec String) (proj/incomplete-deps idx te)]
+    (str "  " (short-id te) "  " condition
+         " · " (trunc (title-of idx te) 38)
+         " · owner " (if (some? owner) owner "personal")
+         " · blocks " (count deps)
+         (if (some? estimate) (str " · est " estimate "h") ""))))
+
+(defn cmd-cockpit [log String] Nil
+  (let [idx proj/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [proj/ProjectionIndex String] Bool) (default-live?)
+        threads (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "thread"))
+                                        (proj/work-thread-ids-i idx))
+        open (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) threads)
+        sessions (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "session"))
+                                         (proj/all-subjects idx))
+        accounts (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "account"))
+                                         (proj/all-subjects idx))
+        landings (Vec String) (vec (take 8 (reverse (sort-by
+          (fn [te String] String (let [at (U String Nil) (proj/string-value-at idx te "updated_at")]
+                                    (if (some? at) at "")))
+          (filterv (fn [te String] Bool
+                     (and (some? (proj/string-value-at idx te "candidate_rev"))
+                          (some (fn [reached String] Bool (= reached "landed"))
+                                (proj/string-values-at idx te "reached"))))
+                   (proj/all-subjects idx))))))]
+    (println (str "NORTH LIVE — " (count open) " open threads · Store facts at read time"))
+    (println "THREADS")
+    (doseq [te (take 12 (sort-by (fn [te String] String (title-of idx te)) open))]
+      (println (cockpit-thread-line idx te today before? live?)))
+    (println "SESSIONS")
+    (if (empty? sessions)
+      (println "  no live-session fact projection")
+      (doseq [te (take 12 sessions)]
+        (let [thread (U String Nil) (proj/string-value-at idx te "current_thread")
+              parent (U String Nil) (proj/string-value-at idx te "parent_thread")]
+          (println (str "  " (short-id te) " · thread " (if (some? thread) (short-id thread) "—")
+                        " · parent " (if (some? parent) (short-id parent) "—"))))))
+    (println "ACCOUNTS")
+    (if (empty? accounts)
+      (println "  no account headroom fact projection")
+      (doseq [te (take 12 accounts)]
+        (let [headroom (U String Nil) (proj/string-value-at idx te "headroom")
+              usage (U String Nil) (proj/string-value-at idx te "used_percent")]
+          (println (str "  " (short-id te) " · headroom " (if (some? headroom) headroom "—")
+                        " · used " (if (some? usage) usage "—"))))))
+    (println "LATEST PUBLIC LANDINGS")
+    (if (empty? landings)
+      (println "  no landed candidate revision facts")
+      (doseq [te landings]
+        (let [rev (U String Nil) (proj/string-value-at idx te "candidate_rev")]
+          (println (str "  " (if (some? rev) (trunc rev 12) "—") " · " (trunc (title-of idx te) 54))))))
+    (println "CONTROL")
+    (println "  north tell <thread> driver <agent> · north interrupt <agent> <message>")
+    (println "  north msg <agent> <message> · north account availability --json")))
+
 ;; --- structured (JSON) projections for the MCP edge --------------------------
 (defrecord JThread
   [id String
@@ -1774,6 +1843,7 @@
       [(= cmd "next")     (cmd-next log)]
       [(= cmd "agenda")   (cmd-agenda log)]
       [(= cmd "threads")  (cmd-board log (has-flag? args "--all"))]
+      [(= cmd "cockpit")  (cmd-cockpit log)]
       [(= cmd "schema")   (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))]
       [(= cmd "teaching-coverage") (cmd-teaching-coverage log)]
       [(= cmd "needs-review") (cmd-needs-review log)]
