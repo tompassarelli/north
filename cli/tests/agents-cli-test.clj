@@ -622,7 +622,7 @@
                             [["provider" "openai"]
                              ["model" "gpt-5.6-sol"]])]
               (agent-facts-one "sdk-current"))]
-  (check "one-agent identity reads use the exact-subject FRAMRPC facade"
+  (check "one-agent identity reads use the exact-subject STORE RPC facade"
          (and (= {"provider" "openai" "model" "gpt-5.6-sol"}
                  (select-keys facts ["provider" "model"]))
               (= [[7977 "@agent:sdk-current"]] @calls))))
@@ -706,8 +706,8 @@
 (let [out (with-redefs [presence-rows (fn [] {:agents []})
                         roster-facts (fn [_] {:agents {} :sessions {}})]
             (with-out-str (cmd-agents ["--verbose"])))]
-  (check "verbose roster output names the FRAMRPC presence projection"
-         (str/includes? out "FRAMRPC presence projection :7977")))
+  (check "verbose roster output names the STORE RPC presence projection"
+         (str/includes? out "STORE RPC presence projection :7977")))
 
 (let [exp (+ (System/currentTimeMillis) 8000)
       calls (atom [])

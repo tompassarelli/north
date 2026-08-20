@@ -6,17 +6,17 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (def assignment-writer (str root "/cli/learning-assignment-internal.clj"))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
                 (constantly (fn [] false)))
-(load-file (str fram "/database.clj"))
+(load-file (str store "/database.clj"))
 (require '[database :as database])
 
 (def test-space "north-coordination")
@@ -37,10 +37,10 @@
 (defn shell [port & args]
   (apply proc/shell {:out :string :err :string :continue true
                      :extra-env {"BEAGLE_STORE_SPACE_ID" test-space
-                                 "NORTH_FRAMRPC_HOST" "127.0.0.1"
+                                 "NORTH_STORE_HOST" "127.0.0.1"
                                  "NORTH_PORT" (str port)
                                  "NORTH_TELEMETRY_PARTITION" "0"}}
-         "bb" "-cp" (str root "/out:" fram "/out") args))
+         "bb" "-cp" (str root "/out:" store "/out") args))
 (defn facts-of [port subject]
   (let [rows
         (north.coord/query-rows
@@ -96,24 +96,24 @@
       temp (.toFile (java.nio.file.Files/createTempDirectory
                      "north-learning-assignment-"
                      (make-array java.nio.file.attribute.FileAttribute 0)))
-      log-file (io/file temp "facts.framlog")
+      log-file (io/file temp "facts.storelog")
       log (.getCanonicalPath log-file)
       server-output (io/file temp "beagle-store-server.log")
       server (do
                (database/create-triple-log! log test-space)
                (proc/process
-                {:dir fram :out server-output :err :out
+                {:dir store :out server-output :err :out
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port) log test-space))
+                (str store "/bin/beagle-store-server") "serve" (str port) log test-space))
       run "@run:learning-assignment-fixture"
       omitted-run "@run:learning-assignment-omitted"
       invalid-run "@run:learning-assignment-invalid"
       late-run "@run:learning-assignment-late"
       control (assignment "control")]
   (try
-    (check "throwaway current Beagle Store FRAMRPC server starts"
+    (check "throwaway current Beagle Store STORE RPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
                                 (:space-id (north.coord/status port))))))

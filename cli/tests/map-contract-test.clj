@@ -6,9 +6,9 @@
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def cli (str root "/cli/north-map.clj"))
-(def fram (or (System/getenv "BEAGLE_STORE_HOME")
-              (.getCanonicalPath (io/file root ".." ".." "fram" "main"))))
-(def fram-out (str fram "/out"))
+(def store (or (System/getenv "BEAGLE_STORE_HOME")
+              (.getCanonicalPath (io/file root ".." ".." "store" "main"))))
+(def store-out (str store "/out"))
 (def orchestration (or (System/getenv "NORTH_ORCHESTRATION_HOME")
                        (str root "/orchestration")))
 (def checks (atom []))
@@ -17,7 +17,7 @@
 (defn run [role]
   (proc/shell {:out :string :err :string :continue true
                :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration "AGENT_TOPOLOGY" "orchestrator"}}
-              "bb" "-cp" fram-out cli "59999" "map" role "1" "probe"))
+              "bb" "-cp" store-out cli "59999" "map" role "1" "probe"))
 
 (let [director (run "director") unknown (run "made-up")]
   (check "orchestrator role is rejected before batch registration"
@@ -53,7 +53,7 @@
                    :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration
                                "AGENT_TOPOLOGY" "orchestrator"
                                "NORTH_BUN" (.getCanonicalPath sentinel)}}
-                  "bb" "-cp" fram-out cli "59999" "map" "verifier" "1" "probe")]
+                  "bb" "-cp" store-out cli "59999" "map" "verifier" "1" "probe")]
   (check "ambient map fails closed before graph access or a spawn callback"
          (and (= 2 (:exit result))
               (str/includes? (:err result) "lane spawning is retired")

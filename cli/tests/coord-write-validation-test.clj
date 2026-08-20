@@ -19,22 +19,22 @@
     (catch clojure.lang.ExceptionInfo e
       (= :invalid-write (:type (ex-data e))))))
 
-(check "publication rejects nil subject before creating a FRAMRPC client"
+(check "publication rejects nil subject before creating a STORE RPC client"
        (invalid-write?
         #(north.coord/publish!
           1 [{:op :assert :subject nil :predicate "note"
               :value "x" :cardinality :many}])))
-(check "publication rejects blank subject before creating a FRAMRPC client"
+(check "publication rejects blank subject before creating a STORE RPC client"
        (invalid-write?
         #(north.coord/publish!
           1 [{:op :assert :subject " " :predicate "title"
               :value "x" :cardinality :one}])))
-(check "publication rejects blank predicate before creating a FRAMRPC client"
+(check "publication rejects blank predicate before creating a STORE RPC client"
        (invalid-write?
         #(north.coord/publish!
           1 [{:op :set :subject "@x" :predicate ""
               :values ["x"] :cardinality :one}])))
-(check "publication rejects nil retract value before creating a FRAMRPC client"
+(check "publication rejects nil retract value before creating a STORE RPC client"
        (invalid-write?
         #(north.coord/publish!
           1 [{:op :retract :subject "@x" :predicate "note" :value nil}])))

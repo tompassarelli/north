@@ -14,15 +14,15 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file *file*)) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                 "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
   (throw
    (ex-info
     "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory"
-    {:fram fram})))
+    {:store store})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/terminal-projection.clj"))
 (load-file (str root "/cli/delivery-evidence-internal.clj"))
@@ -36,7 +36,7 @@
 (defn scratch-coordinator-env [port dir log]
   {"BEAGLE_STORE_LOG" (.getPath log)
    "BEAGLE_STORE_SPACE_ID" "north-coordination"
-   "BEAGLE_STORE_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.framlog"))
+   "BEAGLE_STORE_TELEMETRY_LOG" (.getPath (io/file dir "telemetry.storelog"))
    "NORTH_PORT" (str port)
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
@@ -63,15 +63,15 @@
            (java.nio.file.Files/createTempDirectory
             "north-evidence-contention"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file dir "coordination.framlog")
+      log (io/file dir "coordination.storelog")
       subprocess-env (scratch-coordinator-env port dir log)
       daemon
       (proc/process
-       {:dir fram :out :string :err :string
+       {:dir store :out :string :err :string
         :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                     "BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
-       (str fram "/bin/beagle-store-server") "serve" (str port)
+       (str store "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value]

@@ -33,17 +33,17 @@
       false)
     (catch Exception _ true)))
 
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       (.getCanonicalPath
-       (io/file (System/getProperty "user.home") "code" "fram" "main"))))
-(def runtime-classpath (str root "/out:" fram "/out"))
+       (io/file (System/getProperty "user.home") "code" "store" "main"))))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
 ;; A silent skip in CI is a gate that can never fail; CI must set BEAGLE_STORE_TEST_CHECKOUT
 ;; (or BEAGLE_STORE_PATH) so this always runs there — an absent Beagle Store under CI is a hard error.
-(when-not (.isDirectory (io/file fram "out"))
+(when-not (.isDirectory (io/file store "out"))
   (if (System/getenv "CI")
     (do (println "FAIL — compiled Beagle Store out/ is absent under CI (BEAGLE_STORE_TEST_CHECKOUT/BEAGLE_STORE_PATH unset or wrong)")
         (System/exit 1))
@@ -57,7 +57,7 @@
   (.toFile
    (java.nio.file.Files/createTempDirectory
     "north-concern-cas" (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (io/file tmp "facts.framlog"))
+(def log (io/file tmp "facts.storelog"))
 (def canonical-log (.getCanonicalPath log))
 (def isolated-env
   {"BEAGLE_STORE_LOG" canonical-log
@@ -65,12 +65,12 @@
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
-  (p/process {:dir fram :out :string :err :string
+  (p/process {:dir store :out :string :err :string
               :extra-env (assoc isolated-env
                                 "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                                 "BEAGLE_STORE_SERVER_QUIET" "1"
                                 "BEAGLE_STORE_SERVER_XMX" "1g")}
-             (str fram "/bin/beagle-store-server") "serve" (str port)
+             (str store "/bin/beagle-store-server") "serve" (str port)
              canonical-log "north-coordination"))
 
 (defn cleanup []

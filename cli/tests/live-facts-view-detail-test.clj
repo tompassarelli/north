@@ -16,7 +16,7 @@
       (do (clojure.core/swap! failures inc) (println "FAIL" label))))
 
 (def ABORTED "coordinator paged facts query failed")
-(def PAGE-CURSOR "fram-query-page-v1.YQ")
+(def PAGE-CURSOR "store-query-page-v1.YQ")
 
 ;; --- the failure that motivated this ---------------------------------------
 (with-redefs [telemetry-partition-enabled? (constantly false)

@@ -69,7 +69,7 @@
             (java.nio.file.Files/createTempDirectory
              "north-store-runtime-attestation-"
              (make-array java.nio.file.attribute.FileAttribute 0)))
-      source (.getCanonicalPath (io/file temp "fram"))
+      source (.getCanonicalPath (io/file temp "store"))
       artifact-directory (.getCanonicalPath (io/file temp "native-build"))
       artifact (.getCanonicalPath
                 (io/file artifact-directory "bin" "beagle-store-server-native"))
@@ -77,7 +77,7 @@
       input-manifest
       (.getCanonicalPath (io/file artifact-directory "input.manifest"))
       receipt (.getCanonicalPath (io/file source attestation/release-receipt-name))
-      log (.getCanonicalPath (io/file temp "coordination.framlog"))
+      log (.getCanonicalPath (io/file temp "coordination.storelog"))
       record (.getCanonicalPath (io/file temp "north-store.runtime"))
       revision (apply str (repeat 40 "a"))
       tree (apply str (repeat 40 "b"))
@@ -107,10 +107,10 @@
     (set-mode! ready record-permissions)
     (spit artifact "sealed executable fixture\n")
     (set-mode! artifact artifact-permissions)
-    (spit log "FRAMLOG fixture\n")
+    (spit log "STORELOG fixture\n")
     (write-receipt! receipt
                     {"format" attestation/release-receipt-format
-                     "source" "/var/empty/fram-cut-from"
+                     "source" "/var/empty/store-cut-from"
                      "revision" revision
                      "tree" tree
                      "native_artifact_dir" artifact-directory
@@ -159,7 +159,7 @@
           verified
           (with-redefs-fn valid-redefs
             #(attestation/attest-active-runtime! request))]
-      (check! "canonical record binds exact source, artifact, FRAMLOG, and SpaceId"
+      (check! "canonical record binds exact source, artifact, STORELOG, and SpaceId"
               (and (= attestation/attestation-format (:format verified))
                    (= artifact-directory
                       (get-in verified [:identity :native-artifact :directory]))
@@ -189,7 +189,7 @@
                    (= source (get-in verified [:identity :source]))
                    ;; provenance only: the checkout a release was cut from is
                    ;; mutable and is never resolved
-                   (= "/var/empty/fram-cut-from"
+                   (= "/var/empty/store-cut-from"
                       (get-in verified [:identity :cut-from]))))
 
       (check! "selection-file variables consistent with the sealed release are accepted"
@@ -288,7 +288,7 @@
     (write-record! record @values)
     (write-receipt! receipt
                     {"format" attestation/release-receipt-format
-                     "source" "/var/empty/fram-cut-from"
+                     "source" "/var/empty/store-cut-from"
                      "revision" (apply str (repeat 40 "c"))
                      "tree" (apply str (repeat 40 "d"))
                      "native_artifact_dir" artifact-directory

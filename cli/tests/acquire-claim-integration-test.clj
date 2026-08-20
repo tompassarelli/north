@@ -9,11 +9,11 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def runtime-classpath (str root "/out:" fram "/out"))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (def acquire-cli (str root "/cli/acquire-cli.clj"))
 (def checks (atom []))
@@ -58,7 +58,7 @@
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-acquire-claim" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.framlog")
+      log (io/file tmp "facts.storelog")
       thread-id "019f75a8-032c-741a-b65d-e4af097e3837"
       thread (str "@" thread-id)
       unknown-id "019f75a8-032c-741a-b65d-e4af097e3838"
@@ -69,11 +69,11 @@
                   "BEAGLE_STORE_SERVER_QUIET" "1"
                   "BEAGLE_STORE_SERVER_XMX" "1g"
                   "BEAGLE_STORE_SINGLE_VALUED" "title driver"}
-      daemon (proc/process {:dir fram
+      daemon (proc/process {:dir store
                             :out :string
                             :err :string
                             :extra-env daemon-env}
-                           (str fram "/bin/beagle-store-server") "serve" (str port)
+                           (str store "/bin/beagle-store-server") "serve" (str port)
                            (.getCanonicalPath log) "north-coordination")]
   (reset! test-log (.getCanonicalPath log))
   (try

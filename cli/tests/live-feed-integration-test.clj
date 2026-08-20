@@ -9,12 +9,12 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (def live-feed-cli (str root "/cli/north-live-feed.clj"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/message-audience.clj"))
@@ -43,7 +43,7 @@
          (>= (System/currentTimeMillis) deadline) false
          :else (do (Thread/sleep 20) (recur)))))))
 
-(defn await-fram-ready! [port]
+(defn await-store-ready! [port]
   (loop [attempt 0]
     (let [status (try (north.coord/status port) (catch Exception _ nil))]
       (cond
@@ -52,7 +52,7 @@
         status
 
         (>= attempt 800)
-        (throw (ex-info "scratch Beagle Store FRAMRPC server did not become ready"
+        (throw (ex-info "scratch Beagle Store STORE RPC server did not become ready"
                         {:port port :space test-space}))
 
         :else (do (Thread/sleep 25) (recur (inc attempt)))))))
@@ -126,7 +126,7 @@
 
 (defn start-feed!
   [port recipient claim-ttl-ms ack-timeout-ms & flags]
-  (let [command (into ["bb" "-cp" (str root "/out:" fram "/out")
+  (let [command (into ["bb" "-cp" (str root "/out:" store "/out")
                        live-feed-cli (str port) recipient
                        "--claim-ttl-ms" (str claim-ttl-ms)
                        "--ack-timeout-ms" (str ack-timeout-ms)]
@@ -135,7 +135,7 @@
         _ (.directory builder (io/file root))
         environment (.environment builder)
         _ (.put environment "BEAGLE_STORE_SPACE_ID" test-space)
-        _ (.put environment "NORTH_FRAMRPC_HOST" "127.0.0.1")
+        _ (.put environment "NORTH_STORE_HOST" "127.0.0.1")
         process (.start builder)
         output (io/reader (.getInputStream process))
         errors-reader (io/reader (.getErrorStream process))
@@ -162,8 +162,8 @@
              (fn [current]
                (vec (remove #(identical? % feed) current)))))))
 
-(defn read-frame!
-  ([feed] (read-frame! feed 6000))
+(defn read-message!
+  ([feed] (read-message! feed 6000))
   ([feed timeout-ms]
    (let [item (.poll ^java.util.concurrent.BlockingQueue
                      (:queue feed)
@@ -185,15 +185,15 @@
                  {:item item
                   :errors @(:errors feed)}))))))
 
-(defn frames-until-eof!
+(defn messages-until-eof!
   "Drain a terminated feed's remaining output under one wall-clock bound."
   [feed timeout-ms]
   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-    (loop [frames []]
+    (loop [messages []]
       (let [remaining (- deadline (System/currentTimeMillis))]
         (when-not (pos? remaining)
           (throw (ex-info "timed out draining terminated feed output"
-                          {:frames frames :errors @(:errors feed)})))
+                          {:messages messages :errors @(:errors feed)})))
         (let [item (.poll ^java.util.concurrent.BlockingQueue
                           (:queue feed)
                           remaining
@@ -201,31 +201,31 @@
           (cond
             (nil? item)
             (throw (ex-info "terminated feed did not close stdout"
-                            {:frames frames :errors @(:errors feed)}))
+                            {:messages messages :errors @(:errors feed)}))
 
             (= :line (:kind item))
-            (recur (conj frames (json/parse-string-strict (:line item))))
+            (recur (conj messages (json/parse-string-strict (:line item))))
 
             (= :eof (:kind item))
-            frames
+            messages
 
             :else
             (throw (ex-info "terminated feed output reader failed"
                             {:item item :errors @(:errors feed)}))))))))
 
-(defn require-frame! [feed type]
-  (let [frame (read-frame! feed)]
-    (when-not (= type (get frame "type"))
+(defn require-message! [feed type]
+  (let [message (read-message! feed)]
+    (when-not (= type (get message "type"))
       (throw
-       (ex-info "live feed emitted an unexpected frame"
+       (ex-info "live feed emitted an unexpected message"
                 {:expected type
-                 :actual frame
+                 :actual message
                  :errors @(:errors feed)})))
-    frame))
+    message))
 
-(defn send-control! [feed frame]
+(defn send-control! [feed message]
   (let [writer ^java.io.Writer (:writer feed)]
-    (.write writer (str (json/generate-string frame) "\n"))
+    (.write writer (str (json/generate-string message) "\n"))
     (.flush writer)))
 
 (defn send-control-line! [feed line]
@@ -234,8 +234,8 @@
     (.flush writer)))
 
 (defn start! [feed recipient]
-  (let [ready (require-frame! feed "ready")]
-    (check (str recipient " receives a separate readiness frame")
+  (let [ready (require-message! feed "ready")]
+    (check (str recipient " receives a separate readiness message")
            (and (= "north-live-feed-v1" (get ready "protocol"))
                 (= recipient (get ready "recipient"))
                 (integer? (get ready "cursor"))))
@@ -244,9 +244,9 @@
 (defn ack! [feed message]
   (send-control! feed (array-map "type" "ack" "id" message)))
 
-(defn mail-id [frame]
-  (when (= "mail" (get frame "type"))
-    (get frame "id")))
+(defn mail-id [message]
+  (when (= "mail" (get message "type"))
+    (get message "id")))
 
 (defn await-acked! [port recipient messages]
   (await-predicate
@@ -297,16 +297,16 @@
            (java.nio.file.Files/createTempDirectory
             "north-live-feed"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "history.framlog")
+      facts (io/file tmp "history.storelog")
       daemon-output (io/file tmp "beagle-store-server.log")
       daemon
       (let [builder
             (doto
              (ProcessBuilder.
               ^java.util.List
-              [(str fram "/bin/beagle-store-server") "serve" (str port)
+              [(str store "/bin/beagle-store-server") "serve" (str port)
                (.getCanonicalPath facts) test-space])
-             (.directory (io/file fram))
+             (.directory (io/file store))
              (.redirectErrorStream true)
              (.redirectOutput daemon-output))
             environment (.environment builder)]
@@ -320,8 +320,8 @@
         (.put environment "BEAGLE_STORE_SNAPSHOT_BOOT" "0")
         (.start builder))]
   (try
-    (let [status (await-fram-ready! port)]
-      (check "throwaway Beagle store engine serves binary FRAMRPC"
+    (let [status (await-store-ready! port)]
+      (check "throwaway Beagle store engine serves binary STORE RPC"
              (and (= test-space (:space-id status))
                   (= :ready (:state status))
                   (= :rpc/jvm (:engine status)))))
@@ -335,7 +335,7 @@
       (check "commit-before-arm starts unacknowledged"
              (empty? (values-of port message "acked_by")))
       (start! feed "recipient")
-      (let [mail (require-frame! feed "mail")]
+      (let [mail (require-message! feed "mail")]
         (check "commit-before-arm is replayed"
                (= message (mail-id mail)))
         (check "output alone never commits acknowledgement"
@@ -348,44 +348,44 @@
     ;; The version cursor is established before `ready`. A commit landing after
     ;; readiness but before `start` cannot fall through an arm/replay gap.
     (let [feed (start-feed! port "recipient" 3000 2000)]
-      (let [ready (require-frame! feed "ready")
+      (let [ready (require-message! feed "ready")
             message
             (send-message!
              port "sender" "recipient" "during-arm" "queued while host starts")]
         (check "commit-during-arm readiness names the recipient"
                (= "recipient" (get ready "recipient")))
         (send-control! feed (array-map "type" "start"))
-        (let [mail (require-frame! feed "mail")]
+        (let [mail (require-message! feed "mail")]
           (check "commit-during-arm is delivered"
                  (= message (mail-id mail)))
           (ack! feed message)
           (check "commit-during-arm is durably acknowledged"
                  (await-acked! port "recipient" [message]))
           (check "replay/live overlap cannot emit a duplicate"
-                 (nil? (read-frame! feed 250)))))
+                 (nil? (read-message! feed 250)))))
       (stop-feed! feed))
 
     ;; A deferred feed establishes its cursor at readiness but claims nothing
     ;; until the terminal-boundary start. Its replay barrier stays open while
-    ;; the host owns a delivered frame and closes only after provider-dequeue ack.
+    ;; the host owns a delivered message and closes only after provider-dequeue ack.
     (let [feed (start-feed! port "recipient" 3000 2000
                             "--deferred-start" "true")
-          ready (require-frame! feed "ready")
+          ready (require-message! feed "ready")
           message
           (send-message!
-           port "sender" "recipient" "deferred-terminal" "one later frame")]
+           port "sender" "recipient" "deferred-terminal" "one later message")]
       (check "deferred feed arms its cursor without claiming pending mail"
              (and (= "recipient" (get ready "recipient"))
-                  (nil? (read-frame! feed 250))
+                  (nil? (read-message! feed 250))
                   (empty? (values-of port message "acked_by"))))
       (send-control! feed (array-map "type" "start"))
-      (let [mail (require-frame! feed "mail")]
+      (let [mail (require-message! feed "mail")]
         (check "terminal start replays the durable follow-up"
                (= message (mail-id mail)))
         (check "deferred replay remains open before provider dequeue"
-               (nil? (read-frame! feed 250)))
+               (nil? (read-message! feed 250)))
         (ack! feed message)
-        (let [caught-up (require-frame! feed "caught_up")]
+        (let [caught-up (require-message! feed "caught_up")]
           (check "provider dequeue closes the first replay barrier"
                  (and (= "recipient" (get caught-up "recipient"))
                       (await-acked! port "recipient" [message])))))
@@ -399,7 +399,7 @@
       (let [message
             (send-message!
              port "sender" "recipient" "duplicate-control" "reject and replay")
-            mail (require-frame! malformed-feed "mail")]
+            mail (require-message! malformed-feed "mail")]
         (check "duplicate-control fixture reaches the ack boundary"
                (= message (mail-id mail)))
         (send-control-line!
@@ -414,7 +414,7 @@
                (empty? (values-of port message "acked_by")))
         (let [replacement (start-feed! port "recipient" 3000 2000)]
           (start! replacement "recipient")
-          (let [replay (require-frame! replacement "mail")]
+          (let [replay (require-message! replacement "mail")]
             (check "mail rejected by malformed control is replayed"
                    (= message (mail-id replay)))
             (ack! replacement message)
@@ -437,8 +437,8 @@
                port "sender" "reviewer" "role-before-replay-b" "candidate b")}
             feed (start-feed! port "recipient" 3000 2000)]
         (start! feed "recipient")
-        (let [first-frame (require-frame! feed "mail")
-              first-id (mail-id first-frame)
+        (let [first-message (require-message! feed "mail")
+              first-id (mail-id first-message)
               withheld (first (disj role-mail first-id))]
           (check "role replay initially authorizes one current-role message"
                  (contains? role-mail first-id))
@@ -447,17 +447,17 @@
           (check "already-admitted role mail can finish after revocation"
                  (await-acked! port "recipient" [first-id]))
           (check "stale startup role snapshot cannot authorize later replay"
-                 (and (nil? (read-frame! feed 300))
+                 (and (nil? (read-message! feed 300))
                       (empty? (values-of port withheld "acked_by"))))
           (let [committed-without-role
                 (send-message!
                  port "sender" "reviewer" "role-before-acquire" "wake on acquire")]
             (check "role mail remains quiet before role acquisition"
-                   (nil? (read-frame! feed 250)))
+                   (nil? (read-message! feed 250)))
             (assert-fact! port agent "holds" role)
-            (let [first-recovered (require-frame! feed "mail")
+            (let [first-recovered (require-message! feed "mail")
                   _ (ack! feed (mail-id first-recovered))
-                  second-recovered (require-frame! feed "mail")
+                  second-recovered (require-message! feed "mail")
                   _ (ack! feed (mail-id second-recovered))
                   recovered
                   #{(mail-id first-recovered) (mail-id second-recovered)}]
@@ -476,7 +476,7 @@
       (let [crashed
             (send-message!
              port "sender" "recipient" "crash-before-ack" "must replay")
-            first-mail (require-frame! first-feed "mail")]
+            first-mail (require-message! first-feed "mail")]
         (check "crash fixture reached the pre-ack boundary"
                (= crashed (mail-id first-mail)))
         (stop-feed! first-feed)
@@ -488,9 +488,9 @@
           (Thread/sleep 600)
           (let [replacement (start-feed! port "recipient" 3000 2000)]
             (start! replacement "recipient")
-            (let [first-replay (require-frame! replacement "mail")
+            (let [first-replay (require-message! replacement "mail")
                   _ (ack! replacement (mail-id first-replay))
-                  second-replay (require-frame! replacement "mail")
+                  second-replay (require-message! replacement "mail")
                   _ (ack! replacement (mail-id second-replay))
                   observed (set (map mail-id [first-replay second-replay]))]
               (check "crash replay and no-listener gap both recover"
@@ -498,7 +498,7 @@
               (check "both recovered messages become durable"
                      (await-acked! port "recipient" [crashed gap]))
               (check "recovery emits each pending message once"
-                     (nil? (read-frame! replacement 250))))
+                     (nil? (read-message! replacement 250))))
             (stop-feed! replacement)))))
 
     ;; Two live consumers may observe the same commit, but the coordinator lease
@@ -510,12 +510,12 @@
       (let [message
             (send-message!
              port "sender" "recipient" "competing-listeners" "one winner")
-            left-read (future (read-frame! left 700))
-            right-read (future (read-frame! right 700))
-            left-frame @left-read
-            right-frame @right-read
-            deliveries (keep identity [left-frame right-frame])
-            winner (if left-frame left right)]
+            left-read (future (read-message! left 700))
+            right-read (future (read-message! right 700))
+            left-message @left-read
+            right-message @right-read
+            deliveries (keep identity [left-message right-message])
+            winner (if left-message left right)]
         (check "coordinator claim elects exactly one live delivery"
                (and (= 1 (count deliveries))
                     (= message (mail-id (first deliveries)))))
@@ -548,8 +548,8 @@
         (check "fixture pre-acquires the exact production delivery lease"
                (and (:ok claim) (some? (:epoch claim)))))
       (assert-fact! port message "to" "recipient")
-      (let [left-silent (future (read-frame! left 250))
-            right-silent (future (read-frame! right 250))]
+      (let [left-silent (future (read-message! left 250))
+            right-silent (future (read-message! right 250))]
         (check "both armed feeds emit nothing while the foreign claim is live"
                (and (nil? @left-silent)
                     (nil? @right-silent))))
@@ -566,17 +566,17 @@
             read-one
             (fn [feed]
               (future
-                (let [frame (read-frame! feed 1250)]
-                  (when frame (deliver winner-promise [feed frame]))
-                  frame)))
+                (let [message (read-message! feed 1250)]
+                  (when message (deliver winner-promise [feed message]))
+                  message)))
             left-read (read-one left)
             right-read (read-one right)
             winner (deref winner-promise 1500 nil)
             _ (when winner (ack! (first winner) message))
-            left-frame @left-read
-            right-frame @right-read
+            left-message @left-read
+            right-message @right-read
             _ @noise
-            deliveries (keep identity [left-frame right-frame])]
+            deliveries (keep identity [left-message right-message])]
         (check "two feeds retry nil claims on time under a commit storm and elect one output"
                (and winner
                     (= 1 (count deliveries))
@@ -637,21 +637,21 @@
           (send-control!
            feed (array-map "type" "drain" "epoch" frozen-epoch))
           (let [deadline (+ (System/currentTimeMillis) 75000)
-                frames
+                messages
                 (loop [observed []]
                   (when (>= (System/currentTimeMillis) deadline)
                     (throw
                      (ex-info "terminal drain integration timed out"
                               {:observed (count observed)
                                :errors @(:errors feed)})))
-                  (if-let [frame (read-frame! feed 2000)]
-                    (let [next-observed (conj observed frame)]
-                      (if (= "drained" (get frame "type"))
+                  (if-let [message (read-message! feed 2000)]
+                    (let [next-observed (conj observed message)]
+                      (if (= "drained" (get message "type"))
                         next-observed
                         (recur next-observed)))
                     (recur observed)))
-                progress (filter #(= "drain_progress" (get % "type")) frames)
-                receipt (last frames)]
+                progress (filter #(= "drain_progress" (get % "type")) messages)
+                receipt (last messages)]
             (check "real drain emits progress across the multi-page backlog"
                    (and (= (count messages) (count progress))
                         (every? #(= frozen-epoch (get % "epoch")) progress)))
@@ -736,7 +736,7 @@
                 #(not (.isAlive ^Process (:process premature)))))
         (check "freeze failure leaves no buffered drained receipt"
                (not-any? #(= "drained" (get % "type"))
-                         (frames-until-eof! premature 1000)))
+                         (messages-until-eof! premature 1000)))
         (check "failed freeze attempt reports the generation mismatch"
                (some #(str/includes?
                        % "terminal-msg-drain-route-mismatch")
@@ -764,7 +764,7 @@
                       (contains? (set (pending-msgs port recipient)) message)))
           (check "drain failure emits no buffered terminal receipt"
                  (not-any? #(= "drained" (get % "type"))
-                           (frames-until-eof! failed 1000)))
+                           (messages-until-eof! failed 1000)))
           (stop-feed! failed))
         (let [retry
               (start-feed! port recipient 1000 300
@@ -772,19 +772,19 @@
           (start! retry recipient)
           (send-control! retry
                          (array-map "type" "drain" "epoch" frozen-epoch))
-          (let [frames
+          (let [messages
                 (loop [observed [] deadline (+ (System/currentTimeMillis) 5000)]
                   (when (>= (System/currentTimeMillis) deadline)
                     (throw
                      (ex-info "retry settlement timed out"
                               {:observed observed :errors @(:errors retry)})))
-                  (if-let [frame (read-frame! retry 1000)]
-                    (let [next-observed (conj observed frame)]
-                      (if (= "drained" (get frame "type"))
+                  (if-let [message (read-message! retry 1000)]
+                    (let [next-observed (conj observed message)]
+                      (if (= "drained" (get message "type"))
                         next-observed
                         (recur next-observed deadline)))
                     (recur observed deadline)))
-                receipt (last frames)]
+                receipt (last messages)]
             (check "fresh settlement process proves the exact current frozen epoch"
                    (and (= "drained" (get receipt "type"))
                         (= recipient (get receipt "recipient"))
@@ -803,7 +803,7 @@
            port "sender" "*" "broadcast-before-arm" "finite replay")
           feed (start-feed! port "recipient" 3000 2000)]
       (start! feed "recipient")
-      (let [mail (require-frame! feed "mail")]
+      (let [mail (require-message! feed "mail")]
         (check "pending finite broadcast is replayed"
                (= message (mail-id mail)))
         (ack! feed message)

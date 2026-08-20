@@ -11,12 +11,12 @@
 (def root
   (-> (io/file test-script)
       .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       (.getCanonicalPath
-       (io/file (System/getProperty "user.home") "code" "fram" "main"))))
-(def runtime-classpath (str root "/out:" fram "/out"))
+       (io/file (System/getProperty "user.home") "code" "store" "main"))))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (def source-path (str root "/cli/concern-cli.clj"))
 (def source-text (slurp source-path))
@@ -54,8 +54,8 @@
    (java.nio.file.Files/createTempDirectory
     "north-concern-attention"
     (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (io/file tmp "facts.framlog"))
-(def telemetry (io/file tmp "telemetry.framlog"))
+(def log (io/file tmp "facts.storelog"))
+(def telemetry (io/file tmp "telemetry.storelog"))
 (def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
 (doseq [result
         [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
@@ -74,14 +74,14 @@
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
-  (p/process {:dir fram
+  (p/process {:dir store
               :out :string
               :err :string
               :extra-env (assoc isolated-env
                                 "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                                 "BEAGLE_STORE_SERVER_QUIET" "1"
                                 "BEAGLE_STORE_SERVER_XMX" "1g")}
-             (str fram "/bin/beagle-store-server") "serve" (str port)
+             (str store "/bin/beagle-store-server") "serve" (str port)
              canonical-log "north-coordination"))
 
 (defn cleanup []

@@ -9,12 +9,12 @@
 (def test-root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram-root
+(def store-root
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
-(when-not (.isFile (io/file fram-root "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram-root})))
+(when-not (.isFile (io/file store-root "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store-root})))
 (def writer-path (str test-root "/cli/worktree-allocation-internal.clj"))
 
 ;; Load the writer's validators/publication functions without treating its CLI
@@ -24,7 +24,7 @@
   (catch clojure.lang.ExceptionInfo error
     (when-not (str/starts-with? (.getMessage error) "usage:") (throw error))))
 
-;; The writer loaded the coordination facade, which loaded the FRAMRPC client;
+;; The writer loaded the coordination facade, which loaded the STORE RPC client;
 ;; the transport seam below is the client's own injection point.
 (require '[north.store-rpc-client :as rpc])
 
@@ -120,14 +120,14 @@
       temp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-worktree-allocation-ledger"
                     (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file temp "coordination.framlog")
+      log (io/file temp "coordination.storelog")
       daemon (do
                (proc/process
-                {:dir fram-root :out :string :err :string
+                {:dir store-root :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram-root "/bin/beagle-store-server") "serve" (str port)
+                (str store-root "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       first-registration (registration "11111111-1111-4111-8111-111111111111" "1")
       second-registration (registration "22222222-2222-4222-8222-222222222222" "2")

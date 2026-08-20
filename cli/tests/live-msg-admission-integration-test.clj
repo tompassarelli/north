@@ -11,15 +11,15 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
                 (constantly (fn [] false)))
-(load-file (str fram "/database.clj"))
+(load-file (str store "/database.clj"))
 (require '[database :as database])
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def agents-cli (str root "/cli/agents-cli.clj"))
@@ -48,8 +48,8 @@
 
 (defn test-env [port]
   {"BEAGLE_STORE_SPACE_ID" test-space
-   "NORTH_FRAMRPC_HOST" "127.0.0.1"
-   "BABASHKA_CLASSPATH" (str root "/out:" fram "/out")
+   "NORTH_STORE_HOST" "127.0.0.1"
+   "BABASHKA_CLASSPATH" (str root "/out:" store "/out")
    "NORTH_TELEMETRY_PARTITION" "0"
    "AGENT_TOPOLOGY" "orchestrator"
    "NO_COLOR" "1"})
@@ -88,7 +88,7 @@
   (apply proc/shell
          {:continue true :out :string :err :string
           :extra-env (assoc (test-env port) "NORTH_PORT" (str port))}
-         "bb" "-cp" (str root "/out:" fram "/out") path args))
+         "bb" "-cp" (str root "/out:" store "/out") path args))
 (defn run-cli-as-worker [path port self & args]
   (apply proc/shell
          {:continue true :out :string :err :string
@@ -96,7 +96,7 @@
                             "NORTH_PORT" (str port)
                             "AGENT_TOPOLOGY" "worker"
                             "AGENT_ID" self)}
-         "bb" "-cp" (str root "/out:" fram "/out") path args))
+         "bb" "-cp" (str root "/out:" store "/out") path args))
 (defn run-cli-as-worker-input [path port self input & args]
   (apply proc/shell
          {:continue true :in input :out :string :err :string
@@ -104,7 +104,7 @@
                             "NORTH_PORT" (str port)
                             "AGENT_TOPOLOGY" "worker"
                             "AGENT_ID" self)}
-         "bb" "-cp" (str root "/out:" fram "/out") path args))
+         "bb" "-cp" (str root "/out:" store "/out") path args))
 (defn publish! [port id provider live-input]
   (let [facts {"kind" "lane"
                "role" "integrator"
@@ -119,7 +119,7 @@
                                       "00000000-0000-4000-8000-000000000002"
                                       "00000000-0000-4000-8000-000000000003"))
                "shadow_reviewer_note_capability_sha256"
-               (when (= id "openai-turn-framed") (sha256 reviewer-capability))
+               (when (= id "openai-turn-message") (sha256 reviewer-capability))
                "model" (if (= provider "anthropic") "claude-opus-4-8" "gpt-5.6-sol")
                "effort" "xhigh"
                "composition_kind" "template"
@@ -193,23 +193,23 @@
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-live-msg" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "facts.framlog")
+      log (io/file tmp "facts.storelog")
       server (do
                (database/create-triple-log!
                 (.getCanonicalPath log) test-space)
                (proc/process
-                {:dir fram :out :string :err :string
+                {:dir store :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port)
+                (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) test-space))]
   (try
     (let [started?
           (await-server-boot
            #(and (port-open? port)
                  (= test-space (:space-id (north.coord/status port)))))]
-      (check "throwaway current Beagle Store FRAMRPC server starts" started?)
+      (check "throwaway current Beagle Store STORE RPC server starts" started?)
       (when-not started?
         (fail-server-boot! server)))
 
@@ -245,8 +245,8 @@
 
     (publish! port "openai-unsupported" "openai" "unsupported")
     (register! port "openai-unsupported")
-    (publish! port "openai-turn-framed" "openai" "turn-framed")
-    (register! port "openai-turn-framed")
+    (publish! port "openai-turn-message" "openai" "turn-message")
+    (register! port "openai-turn-message")
     (publish! port "anthropic-streaming" "anthropic" "streaming")
     (register! port "anthropic-streaming")
     (publish! port "anthropic-offline" "anthropic" "streaming")
@@ -274,18 +274,18 @@
              (= after-raw after-public)))
 
     (let [sent (run-cli msg-cli port (str port) "send" "director"
-                        "openai-turn-framed" "msg" "follow up after terminal")
+                        "openai-turn-message" "msg" "follow up after terminal")
           message (second (re-find #"queued for live injection (@msg:[^ ]+)"
                                    (:out sent)))]
-      (check "managed turn-framed lane accepts durable follow-up mail"
+      (check "managed turn-message lane accepts durable follow-up mail"
              (and (zero? (:exit sent))
                   (string? message)
-                  (= "openai-turn-framed" (fact-one port message "to"))))
-      (check "turn-framed mail remains pending until its terminal replay"
+                  (= "openai-turn-message" (fact-one port message "to"))))
+      (check "turn-message mail remains pending until its terminal replay"
              (contains?
               (set
                (north.message-audience/pending-message-ids
-                port "openai-turn-framed" #{"openai-turn-framed"}))
+                port "openai-turn-message" #{"openai-turn-message"}))
               message)))
 
     (let [before (graph-message-ids port)
@@ -447,7 +447,7 @@
                    port "anthropic-streaming"
                    #{"anthropic-streaming"}))))))
       (doseq [message poison-ids]
-        (check (str "poison frame " message " terminally rejects")
+        (check (str "poison message " message " terminally rejects")
                (= :rejected
                   (with-test-coordinator
                     (deliver-message!
@@ -473,7 +473,7 @@
                            (fact-values port message "delivery_rejection"))))
               poison-ids)))
 
-    (let [self "openai-turn-framed"
+    (let [self "openai-turn-message"
           reviewer (reviewer-agent-id self)
           before-review (graph-message-ids port)
           denied (run-cli-as-worker msg-cli port self (str port) "review"

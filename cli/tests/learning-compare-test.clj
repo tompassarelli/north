@@ -8,11 +8,11 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (load-file (str root "/cli/learning-compare.clj"))
 
 (def checks (atom []))

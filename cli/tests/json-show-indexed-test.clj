@@ -15,13 +15,13 @@
         (str (.getParent (io/file (System/getProperty "babashka.file")))
              "/../..")))))
 
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
 
-(classpath/add-classpath (str fram "/out"))
+(classpath/add-classpath (str store "/out"))
 (require '[store.rpc :as wire]
          '[store.types :as t])
 
@@ -49,7 +49,7 @@
 
     :admission
     ["timeout" "--kill-after=1s" "10s" "bb" "-cp"
-     (str root "/out:" fram "/out") "-e"
+     (str root "/out:" store "/out") "-e"
      (str "(System/setProperty \"north.agents.lib\" \"1\") "
           "(load-file " (pr-str (str root "/cli/agents-cli.clj")) ") "
           "(prn (select-keys (read-delegate-thread! " (pr-str id) ") "
@@ -64,34 +64,34 @@
           false
           (recur (+ position read-count) (- remaining read-count)))))))
 
-(defn read-request-frame! [input]
+(defn read-request-packet! [input]
   (let [header (byte-array wire/rpc-v2-header-bytes)]
     (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
-      (throw (ex-info "FRAMRPC request ended inside its header"
+      (throw (ex-info "STORE RPC request ended inside its header"
                       {:type :rpc-truncated})))
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN)
                    (.position 14))
           body-length (Integer/toUnsignedLong (.getInt buffer))]
       (when (> body-length wire/rpc-v2-max-body-bytes)
-        (throw (ex-info "FRAMRPC request exceeds the body limit"
-                        {:type :rpc-frame-too-large
+        (throw (ex-info "STORE RPC request exceeds the body limit"
+                        {:type :rpc-packet-too-large
                          :body-length body-length})))
       (let [body (byte-array (int body-length))
-            frame (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
+            packet (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
         (when-not (read-exact! input body 0 (int body-length))
-          (throw (ex-info "FRAMRPC request ended inside its body"
+          (throw (ex-info "STORE RPC request ended inside its body"
                           {:type :rpc-truncated})))
-        (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
-        (System/arraycopy body 0 frame wire/rpc-v2-header-bytes
+        (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
+        (System/arraycopy body 0 packet wire/rpc-v2-header-bytes
                           (int body-length))
-        (wire/decode-rpc-frame-v2! frame)))))
+        (wire/decode-rpc-packet-v2! packet)))))
 
 (defn subject-of [id]
   (if (.startsWith ^String id "@") id (str "@" id)))
 
-(defn response-for [frame expected-subject {:keys [version rows malformed?]}]
-  (let [request (t/rpcframev2-request frame)
+(defn response-for [packet expected-subject {:keys [version rows malformed?]}]
+  (let [request (t/rpcpacketv2-request packet)
         operation (t/rpcrequest-op request)
         page (when (t/rpcrequest-page request)
                (wire/rpc-page-response! 0 nil true))
@@ -116,19 +116,19 @@
                                  "fixture accepts only status and scan" nil))
         response (wire/rpc-response!
                   (t/rpcrequest-space request) operation version page error payload)]
-    (wire/rpc-response-frame (t/rpcframev2-request-id frame) response)))
+    (wire/rpc-response-packet (t/rpcpacketv2-request-id packet) response)))
 
 (defn serve-peer! [server expected-subject response requests worker-error]
   (try
     (loop []
       (with-open [socket (.accept server)]
-        (let [frame (read-request-frame! (.getInputStream socket))
-              request (t/rpcframev2-request frame)
+        (let [packet (read-request-packet! (.getInputStream socket))
+              request (t/rpcpacketv2-request packet)
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/encode-rpc-frame-v2!
-                   (response-for frame expected-subject response)))
+                  (wire/encode-rpc-packet-v2!
+                   (response-for packet expected-subject response)))
           (.flush output)))
       (recur))
     (catch java.net.SocketException _)
@@ -172,15 +172,15 @@
           :err :string
           :extra-env
           (merge
-           {"BEAGLE_STORE_HOME" fram
-            "BEAGLE_STORE_BIN" (str fram "/bin")
-            "BEAGLE_STORE_OUT" (str fram "/out")
+           {"BEAGLE_STORE_HOME" store
+            "BEAGLE_STORE_BIN" (str store "/bin")
+            "BEAGLE_STORE_OUT" (str store "/out")
             "BEAGLE_STORE_LOG" "/tmp/north-json-show-indexed-coordination.log"
             "BEAGLE_STORE_SERVER_CONNECT" "127.0.0.1"
             "BEAGLE_STORE_SERVER_PORT" port
             "BEAGLE_STORE_SPACE_ID" "north-coordination"
-            "NORTH_FRAMRPC_HOST" "127.0.0.1"
-            "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
+            "NORTH_STORE_HOST" "127.0.0.1"
+            "NORTH_STORE_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
             "NORTH_TELEMETRY_SPACE_ID" "north-telemetry"
             "NORTH_TELEMETRY_PARTITION" "0"
@@ -202,7 +202,7 @@
       parsed (when (zero? (:exit result))
                (json/parse-string (:out result) true))]
   (check! "exact JSON show exits successfully" (zero? (:exit result)))
-  (check! "wrapper sends one exact-subject FRAMRPC scan"
+  (check! "wrapper sends one exact-subject STORE RPC scan"
           (and (nil? worker-error)
                (exact-scan? requests "north-coordination" (str "@" id))))
   (check! "exact rows retain the canonical JSON fact contract"
@@ -262,7 +262,7 @@
       (check! "plain telemetry show renders exact rows without opening the origin log"
               (and (zero? (:exit result))
                    (= "  kind  run\n  run_task  bounded read\n" (:out result))))
-      (check! "plain telemetry show retains the exact-subject FRAMRPC scan"
+      (check! "plain telemetry show retains the exact-subject STORE RPC scan"
               (and (nil? worker-error)
                    (exact-scan? requests "north-telemetry" "@run:bounded"))))
     (finally
@@ -275,11 +275,11 @@
                    id
                    {:version 21 :rows [] :malformed? true}
                    {})]
-  (check! "malformed FRAMRPC scan payloads fail closed"
+  (check! "malformed STORE RPC scan payloads fail closed"
           (and (not (zero? (:exit result)))
                (nil? worker-error)
                (exact-scan? requests "north-coordination" (str "@" id))
-               (re-find #"(?i)rpc|fram" (:err result))
+               (re-find #"(?i)rpc|store" (:err result))
                (empty? (:out result)))))
 
 (let [id "019fb39e-94a9-7627-adc1-6b4dac07d837"
@@ -291,7 +291,7 @@
                (= [{:predicate "kind" :value "thread"}
                    {:predicate "title" :value "SDK admission"}]
                   (json/parse-string (:out result) true))))
-  (check! "SDK admission emits one exact-subject FRAMRPC scan"
+  (check! "SDK admission emits one exact-subject STORE RPC scan"
           (and (nil? worker-error)
                (exact-scan? requests "north-coordination" (str "@" id)))))
 
@@ -308,7 +308,7 @@
           (and (zero? (:exit result))
                (= {:id id :title "Delegate admission" :committed? true}
                   parsed)))
-  (check! "delegate intake reaches the same indexed FRAMRPC boundary"
+  (check! "delegate intake reaches the same indexed STORE RPC boundary"
           (and (nil? worker-error)
                (exact-scan? requests "north-coordination" (str "@" id)))))
 

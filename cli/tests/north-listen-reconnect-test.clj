@@ -7,7 +7,7 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file test-script)) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
@@ -16,7 +16,7 @@
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [result @(proc/process
                  ["env" "NORTH_LISTEN_LIB=1" "bb" "-cp"
-                  (str fram "/out") test-script]
+                  (str store "/out") test-script]
                  {:out :string :err :string})]
     (print (:out result))
     (binding [*out* *err*] (print (:err result)))
@@ -190,7 +190,7 @@
        "env" "-u" "NORTH_LISTEN_LIB"
        "NORTH_LISTEN_INITIAL_BACKOFF_MS=10"
        "NORTH_LISTEN_MAX_BACKOFF_MS=20"
-       "bb" "-cp" (str fram "/out")
+       "bb" "-cp" (str store "/out")
        (str root "/cli/north-listen.clj") "59999" "restart-probe")
       diagnostics (str (:out result) "\n" (:err result))]
   (check "connection refusal is transient and listener remains running"

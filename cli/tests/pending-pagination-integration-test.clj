@@ -11,12 +11,12 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       "/home/tom/code/beagle/main/store"))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
-(load-file (str fram "/database.clj"))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
+(load-file (str store "/database.clj"))
 (require '[database :as database]
          '[store.types :as t])
 (defn pagination-process-env
@@ -169,19 +169,19 @@
            (java.nio.file.Files/createTempDirectory
             "north-pending-pages"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       _ (populate-log! log)
       canonical-log (.getCanonicalPath log)
       daemon
       (proc/process
-       {:dir fram
+       {:dir store
         :out :string
         :err :string
         :env (pagination-process-env
               {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                "BEAGLE_STORE_SERVER_QUIET" "1"
                "BEAGLE_STORE_SERVER_XMX" "2g"})}
-       (str fram "/bin/beagle-store-server") "serve" (str port)
+       (str store "/bin/beagle-store-server") "serve" (str port)
        canonical-log "north-coordination")
       page-sizes (atom [])
       original-page north.message-audience/pending-message-page]

@@ -9,16 +9,16 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (load-file (str root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
                 (constantly (fn [] false)))
-(load-file (str fram "/database.clj"))
+(load-file (str store "/database.clj"))
 (require '[database :as database])
 (def listener-cli (str root "/cli/north-listen.clj"))
 (def message-cli (str root "/cli/msg-cli.clj"))
@@ -96,14 +96,14 @@
 
 (defn isolated-env [port _log]
   {"BEAGLE_STORE_SPACE_ID" test-space
-   "NORTH_FRAMRPC_HOST" "127.0.0.1"
+   "NORTH_STORE_HOST" "127.0.0.1"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_LISTENER_LEASE_TTL_MS" "600"
    "NORTH_LISTEN_INITIAL_BACKOFF_MS" "20"
    "NORTH_LISTEN_MAX_BACKOFF_MS" "50"})
 
 (defn start-listener! [port log output agent & flags]
-  (let [command (into ["bb" "-cp" (str root "/out:" fram "/out")
+  (let [command (into ["bb" "-cp" (str root "/out:" store "/out")
                        listener-cli (str port) agent]
                       flags)
         builder (ProcessBuilder. ^java.util.List command)
@@ -133,7 +133,7 @@
           :out :string
           :err :string
           :extra-env (isolated-env port log)}
-         "bb" "-cp" (str root "/out:" fram "/out")
+         "bb" "-cp" (str root "/out:" store "/out")
          message-cli (str port) args))
 
 (defn run-presence [port log & args]
@@ -142,7 +142,7 @@
           :out :string
           :err :string
           :extra-env (isolated-env port log)}
-         "bb" "-cp" (str root "/out:" fram "/out")
+         "bb" "-cp" (str root "/out:" store "/out")
          presence-cli (str port) args))
 
 (defn run-peek [port log runtime agent]
@@ -153,7 +153,7 @@
     :extra-env
     (assoc (isolated-env port log)
            "XDG_RUNTIME_DIR" (.getCanonicalPath (io/file runtime)))}
-   "bb" "-cp" (str root "/out:" fram "/out")
+   "bb" "-cp" (str root "/out:" store "/out")
    peek-cli (str port) agent))
 
 (defn output-has? [file text]
@@ -166,20 +166,20 @@
        (java.nio.file.Files/createTempDirectory
         "north-native-listener-liveness"
         (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "facts.framlog")
+      facts (io/file tmp "facts.storelog")
       log (.getCanonicalPath facts)
       _ (database/create-triple-log! log test-space)
       server
       (proc/process
-       {:dir fram
+       {:dir store
         :out :string
         :err :string
         :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                     "BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
-       (str fram "/bin/beagle-store-server") "serve" (str port) log test-space)]
+       (str store "/bin/beagle-store-server") "serve" (str port) log test-space)]
   (try
-    (check "throwaway current Beagle Store FRAMRPC server starts"
+    (check "throwaway current Beagle Store STORE RPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
                                 (:space-id (north.coord/status port))))))

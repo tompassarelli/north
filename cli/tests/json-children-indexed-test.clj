@@ -16,7 +16,7 @@
         (str (.getParent (io/file (System/getProperty "babashka.file")))
              "/../..")))))
 
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
@@ -24,7 +24,7 @@
 (def coordination-space "north-coordination")
 (def telemetry-space "north-telemetry")
 
-(classpath/add-classpath (str fram "/out"))
+(classpath/add-classpath (str store "/out"))
 (require '[store.rpc :as wire]
          '[store.types :as t])
 
@@ -59,28 +59,28 @@
           false
           (recur (+ position read-count) (- remaining read-count)))))))
 
-(defn read-request-frame! [input]
+(defn read-request-packet! [input]
   (let [header (byte-array wire/rpc-v2-header-bytes)]
     (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
-      (throw (ex-info "FRAMRPC request ended inside its header"
+      (throw (ex-info "STORE RPC request ended inside its header"
                       {:type :rpc-truncated})))
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN)
                    (.position 14))
           body-length (Integer/toUnsignedLong (.getInt buffer))]
       (when (> body-length wire/rpc-v2-max-body-bytes)
-        (throw (ex-info "FRAMRPC request exceeds the body limit"
-                        {:type :rpc-frame-too-large
+        (throw (ex-info "STORE RPC request exceeds the body limit"
+                        {:type :rpc-packet-too-large
                          :body-length body-length})))
       (let [body (byte-array (int body-length))
-            frame (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
+            packet (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
         (when-not (read-exact! input body 0 (int body-length))
-          (throw (ex-info "FRAMRPC request ended inside its body"
+          (throw (ex-info "STORE RPC request ended inside its body"
                           {:type :rpc-truncated})))
-        (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
-        (System/arraycopy body 0 frame wire/rpc-v2-header-bytes
+        (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
+        (System/arraycopy body 0 packet wire/rpc-v2-header-bytes
                           (int body-length))
-        (wire/decode-rpc-frame-v2! frame)))))
+        (wire/decode-rpc-packet-v2! packet)))))
 
 (defn scan-pattern [request]
   (mapv wire/rpc-option-value!
@@ -160,8 +160,8 @@
        (= :rpc/scan (t/rpcrequest-op request))
        (= [subject nil nil] (scan-pattern request))))
 
-(defn response-for [frame response]
-  (let [request (t/rpcframev2-request frame)
+(defn response-for [packet response]
+  (let [request (t/rpcpacketv2-request packet)
         operation (t/rpcrequest-op request)
         version (or (:version response) 0)
         error
@@ -202,19 +202,19 @@
         typed-response
         (wire/rpc-response!
          (t/rpcrequest-space request) operation version page error payload)]
-    (wire/rpc-response-frame (t/rpcframev2-request-id frame) typed-response)))
+    (wire/rpc-response-packet (t/rpcpacketv2-request-id packet) typed-response)))
 
 (defn serve-peer! [server respond requests worker-error]
   (try
     (loop []
       (with-open [socket (.accept server)]
-        (let [frame (read-request-frame! (.getInputStream socket))
-              request (t/rpcframev2-request frame)
+        (let [packet (read-request-packet! (.getInputStream socket))
+              request (t/rpcpacketv2-request packet)
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/encode-rpc-frame-v2!
-                   (response-for frame (respond request))))
+                  (wire/encode-rpc-packet-v2!
+                   (response-for packet (respond request))))
           (.flush output)))
       (recur))
     (catch java.net.SocketException _)
@@ -243,14 +243,14 @@
           :err :string
           :extra-env
           (merge
-           {"BEAGLE_STORE_HOME" fram
-            "BEAGLE_STORE_BIN" (str fram "/bin")
-            "BEAGLE_STORE_OUT" (str fram "/out")
+           {"BEAGLE_STORE_HOME" store
+            "BEAGLE_STORE_BIN" (str store "/bin")
+            "BEAGLE_STORE_OUT" (str store "/out")
             "BEAGLE_STORE_SERVER_CONNECT" "127.0.0.1"
             "BEAGLE_STORE_SERVER_PORT" port
             "BEAGLE_STORE_SPACE_ID" coordination-space
-            "NORTH_FRAMRPC_HOST" "127.0.0.1"
-            "NORTH_FRAMRPC_READ_TIMEOUT_MS" "2000"
+            "NORTH_STORE_HOST" "127.0.0.1"
+            "NORTH_STORE_READ_TIMEOUT_MS" "2000"
             "NORTH_PORT" port
             "NORTH_TELEMETRY_SPACE_ID" telemetry-space
             "NORTH_TELEMETRY_PARTITION" "0"
@@ -499,7 +499,7 @@
          :tagged-runs (constantly (ok 36 [[(str "@" child-run) "sdk-spawn-msddviyc-68c79f08-79b2-443c-b8f8-78c5118f162f"]]))})
        {})
       parsed (when (zero? (:exit result)) (json/parse-string (:out result)))]
-  (check! "SDK settleChildren accepts the bounded FRAMRPC envelope inside its deadline"
+  (check! "SDK settleChildren accepts the bounded STORE RPC envelope inside its deadline"
           (= {"kind" "settled" "children" [(str "@" child)]} parsed)))
 
 (let [failed (remove second @checks)]

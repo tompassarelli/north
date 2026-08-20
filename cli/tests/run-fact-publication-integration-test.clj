@@ -6,12 +6,12 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                 "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (def run-writer (str root "/cli/run-fact-internal.clj"))
 (def evidence-writer (str root "/cli/delivery-evidence-internal.clj"))
 (def north-mcp (str root "/bin/north-mcp"))
@@ -163,14 +163,14 @@
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-run-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       daemon (do
                (proc/process
-                {:dir fram :out :string :err :string
+                {:dir store :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port)
+                (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       run "@run-publication-v2"
       thread "@thread-publication-v2"
@@ -1008,7 +1008,7 @@
                         (str/includes? (:err warned) "reserve limit is 32")
                         (str/includes? (:err warned) "north bars prune")
                         (str/includes? (:err oversized) "per-bar reserve limit"))))))
-        ;; Only the ADVISORY hook is under test here: the sandboxed fram write
+        ;; Only the ADVISORY hook is under test here: the sandboxed store write
         ;; behind it is fenced to a different log and is expected to be refused.
         (check "an Nth done_when tell warns before the write lands"
                (let [told (north-cli port "tell" (subs crowded-thread 1)

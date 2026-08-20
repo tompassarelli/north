@@ -6,7 +6,7 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram-out
+(def store-out
   (str (or (System/getenv "BEAGLE_STORE_HOME")
            "/home/tom/code/beagle/main/store")
        "/out"))
@@ -238,7 +238,7 @@
       (proc/shell
        {:continue true :out :string :err :string}
        "env" "NORTH_DEAD_RECIPIENT_CHILD=1"
-       "bb" "-cp" fram-out (System/getProperty "babashka.file"))
+       "bb" "-cp" store-out (System/getProperty "babashka.file"))
       diagnostic (str (:out result) "\n" (:err result))]
   (check "msg-cli send admission hard-fails for a dead recipient"
          (= 2 (:exit result)))

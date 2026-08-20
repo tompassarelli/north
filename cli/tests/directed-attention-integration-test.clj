@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Directed-attention producer and public-wrapper contract against canonical
-;; FRAMRPC. Message publication atomicity has its own transaction-level tests.
+;; STORE RPC. Message publication atomicity has its own transaction-level tests.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
          '[clojure.java.io :as io]
@@ -9,10 +9,10 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       "/home/tom/code/beagle/main/store"))
-(def runtime-classpath (str root "/out:" fram "/out"))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (def msg-cli (str root "/cli/msg-cli.clj"))
 (def listener-cli (str root "/cli/north-listen.clj"))
@@ -62,7 +62,7 @@
   {"BEAGLE_STORE_LOG" log
    "BEAGLE_STORE_TELEMETRY_LOG"
    (.getCanonicalPath
-    (io/file (.getParentFile (io/file log)) "telemetry.framlog"))
+    (io/file (.getParentFile (io/file log)) "telemetry.storelog"))
    "BEAGLE_STORE_SPACE_ID" "north-coordination"
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
@@ -102,11 +102,11 @@
         tmp (.toFile
              (java.nio.file.Files/createTempDirectory
               prefix (make-array java.nio.file.attribute.FileAttribute 0)))
-        facts (io/file tmp "facts.framlog")
+        facts (io/file tmp "facts.storelog")
         log (.getCanonicalPath facts)
         daemon
         (proc/process
-         {:dir fram
+         {:dir store
           :out :string
           :err :string
           :extra-env
@@ -118,7 +118,7 @@
             "BEAGLE_STORE_SINGLE_VALUED"
             (str "title from subject body sent_at to attention_kind "
                  "delivery_class requires_ack about agent dir session_id started_at")})}
-         (str fram "/bin/beagle-store-server") "serve" (str port) log
+         (str store "/bin/beagle-store-server") "serve" (str port) log
          "north-coordination")]
     (try
       (let [started?
@@ -259,9 +259,9 @@
     (merge
      {"HOME" (.getCanonicalPath tmp)
       "XDG_CONFIG_HOME" (str (.getCanonicalPath tmp) "/config")
-      "BEAGLE_STORE_HOME" "/test/fram"
-      "BEAGLE_STORE_BIN" "/test/fram/bin"
-      "BEAGLE_STORE_OUT" "/test/fram/out"
+      "BEAGLE_STORE_HOME" "/test/store"
+      "BEAGLE_STORE_BIN" "/test/store/bin"
+      "BEAGLE_STORE_OUT" "/test/store/out"
       "NORTH_BB" "/run/current-system/sw/bin/echo"
       "NORTH_PORT" "47891"}
      env)}

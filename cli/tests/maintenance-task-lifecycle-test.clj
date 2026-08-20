@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;; Whole-run lifecycle regression for one independently scheduled maintenance
-;; task. The fixture coordinator answers in canonical FRAMRPC v2 through the
+;; task. The fixture coordinator answers in canonical STORE RPC v2 through the
 ;; locked Beagle Store wire namespace; canonical coordination state is never started or
 ;; mutated.
 (require '[babashka.classpath :as classpath]
@@ -10,13 +10,13 @@
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
 
-(classpath/add-classpath (str fram "/out"))
+(classpath/add-classpath (str store "/out"))
 (require '[store.rpc :as wire]
          '[store.types :as t])
 
@@ -52,7 +52,7 @@
    "NORTH_MAINTENANCE_TASK_TIMEOUT_MS" (str timeout-ms)
    "NORTH_MAINTENANCE_TASK_RETRY_MS" "50"
    "NORTH_COORD_CONNECT_TIMEOUT_MS" "50"
-   "NORTH_FRAMRPC_READ_TIMEOUT_MS" "10000"})
+   "NORTH_STORE_READ_TIMEOUT_MS" "10000"})
 
 (defn start-task
   ([environment] (start-task environment true))
@@ -78,29 +78,29 @@
           false
           (recur (+ position read-count) (- remaining read-count)))))))
 
-(defn read-request-frame!
-  "Read one bounded FRAMRPC v2 request frame. The declared body length lives at
+(defn read-request-packet!
+  "Read one bounded STORE RPC v2 request packet. The declared body length lives at
    header offset 14 and is never trusted past the shared 1 MiB bound."
   [input]
   (let [header (byte-array wire/rpc-v2-header-bytes)]
     (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
-      (throw (ex-info "FRAMRPC request ended inside its header"
+      (throw (ex-info "STORE RPC request ended inside its header"
                       {:type :rpc-truncated})))
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN)
                    (.position 14))
           body-length (Integer/toUnsignedLong (.getInt buffer))]
       (when (> body-length wire/rpc-v2-max-body-bytes)
-        (throw (ex-info "FRAMRPC request exceeds the body limit"
-                        {:type :rpc-frame-too-large :body-length body-length})))
+        (throw (ex-info "STORE RPC request exceeds the body limit"
+                        {:type :rpc-packet-too-large :body-length body-length})))
       (let [body (byte-array (int body-length))
-            frame (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
+            packet (byte-array (+ wire/rpc-v2-header-bytes (int body-length)))]
         (when-not (read-exact! input body 0 (int body-length))
-          (throw (ex-info "FRAMRPC request ended inside its body"
+          (throw (ex-info "STORE RPC request ended inside its body"
                           {:type :rpc-truncated})))
-        (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
-        (System/arraycopy body 0 frame wire/rpc-v2-header-bytes (int body-length))
-        (wire/decode-rpc-frame-v2! frame)))))
+        (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
+        (System/arraycopy body 0 packet wire/rpc-v2-header-bytes (int body-length))
+        (wire/decode-rpc-packet-v2! packet)))))
 
 (def fixture-served-version 0)
 
@@ -124,12 +124,12 @@
              "fixture coordinator serves only the lifecycle read operations"
              nil)}))
 
-(defn response-frame
-  "Build the v2 response frame. SpaceId and op must echo the request or the
+(defn response-packet
+  "Build the v2 response packet. SpaceId and op must echo the request or the
    client rejects the answer as a response/request identity mismatch."
-  [frame request {:keys [payload error]}]
-  (wire/rpc-response-frame
-   (t/rpcframev2-request-id frame)
+  [packet request {:keys [payload error]}]
+  (wire/rpc-response-packet
+   (t/rpcpacketv2-request-id packet)
    (wire/rpc-response!
     (t/rpcrequest-space request)
     (t/rpcrequest-op request)
@@ -157,12 +157,12 @@
                        (try
                          ;; The daemon owns one request per socket.
                          (with-open [socket socket]
-                           (let [frame (read-request-frame! (.getInputStream socket))
-                                 request (t/rpcframev2-request frame)
+                           (let [packet (read-request-packet! (.getInputStream socket))
+                                 request (t/rpcpacketv2-request packet)
                                  output (.getOutputStream socket)]
                              (.write output
-                                     (wire/encode-rpc-frame-v2!
-                                      (response-frame frame request
+                                     (wire/encode-rpc-packet-v2!
+                                      (response-packet packet request
                                                       (response-for request))))
                              (.flush output)))
                          (catch Throwable _ nil)))]
@@ -229,7 +229,7 @@
       (finally ((:stop coordinator)))))
 
   ;; A typed :query-time-limit is retryable, so one answer is absorbed inside the
-  ;; FRAMRPC client and proves nothing about the host. Serving exactly
+  ;; STORE RPC client and proves nothing about the host. Serving exactly
   ;; client-retry-budget of them escapes the same-question budget ONCE, so the
   ;; task completes only because the outer coordinator retry re-asked.
   (let [port (free-port)

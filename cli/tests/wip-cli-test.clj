@@ -129,10 +129,10 @@
           {:rows (if (= :coordination domain) coordination-rows telemetry-rows)
            :done? true :cursor nil :served-version 12})]
         (north.wip-cli/coordination-state))]
-  (check "FRAMRPC projection returns materialized work state"
+  (check "STORE RPC projection returns materialized work state"
          (some #{["@work" "title" "new \"quoted\" title"]}
                (:work state)))
-  (check "FRAMRPC projection carries presence and reservation bindings"
+  (check "STORE RPC projection carries presence and reservation bindings"
          (and (= #{"lane-a"} (:managed state))
               (= "@floor-thread"
                  (get (:session-threads state) "coordinator"))

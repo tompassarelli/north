@@ -89,10 +89,10 @@
                       :detached? true :locked? false :prunable? true}]
                     entries)))))
     (let [worktrees-cli (slurp (io/file root "cli" "worktrees-cli.clj"))]
-      (check "worktrees observability names the FRAMRPC indexed query"
+      (check "worktrees observability names the STORE RPC indexed query"
              (and (str/includes?
                    worktrees-cli
-                   "FRAMRPC indexed query predicate=worktree port=")
+                   "STORE RPC indexed query predicate=worktree port=")
                   (not (str/includes?
                         worktrees-cli
                         "north.coord/expected-log")))))

@@ -7,7 +7,7 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def pred-cli (str root "/cli/pred-cli.clj"))
-(def fram-out
+(def store-out
   (or (some #(when (and % (.isDirectory (io/file %))) %)
             [(System/getenv "BEAGLE_STORE_OUT")
              (some-> (System/getenv "BEAGLE_STORE_TEST_CHECKOUT") (str "/out"))])
@@ -21,8 +21,8 @@
   (swap! checks conj [label (boolean passed?)]))
 
 (let [{:keys [exit out err]}
-      (if fram-out
-        (shell/sh "bb" "-cp" fram-out pred-cli "7977" "lint-offline" "--strict" :dir root)
+      (if store-out
+        (shell/sh "bb" "-cp" store-out pred-cli "7977" "lint-offline" "--strict" :dir root)
         {:exit 1 :out "" :err "Beagle Store classpath is unavailable"})]
   (check "offline predicate lint executes the production registry" (zero? exit))
   (check "every fixed v2 projection predicate is registered"
