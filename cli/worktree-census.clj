@@ -243,7 +243,7 @@
 
 (defn foreign-row
   "A tree under <container>/worktrees/ Git does not register: a separate clone
-   (north-exec provisions one deliberately) or a plain directory. It is REPORTED
+   (an external provisioner provisions one deliberately) or a plain directory. It is REPORTED
    and never probed further — nothing here may be reclaimed, and the census must
    not silently omit a tree just because Git disowns it."
   [{:keys [repo container root]} base path]
@@ -298,7 +298,7 @@
                      (remove #(= (canonical (:path %)) root))
                      (filter #(in-worktrees? container (:path %))))
         known (into #{} (keep #(canonical (:path %))) entries)
-        ;; The foreign scan is the ONLY thing that sees north-exec's clones —
+        ;; The foreign scan is the ONLY thing that sees externally provisioned clones —
         ;; a clone never appears in `git worktree list`.
         foreign (->> (or (seq (.listFiles (worktrees-dir container))) [])
                      (filter #(and (.isDirectory ^java.io.File %)
