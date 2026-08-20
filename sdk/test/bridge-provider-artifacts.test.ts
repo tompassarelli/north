@@ -7,6 +7,7 @@ import {
   bridgeProviderWithDependenciesForTest,
   type BridgeProviderRouting,
 } from "../src/bridge/provider";
+import type { BridgeAttemptRouteAuthority } from "../src/bridge/command-receipts";
 import type { AgentProvider, AgentProviderQuery } from "../src/providers/types";
 import { readRunArtifactPage, RunArtifactStore } from "../src/run-artifacts";
 import {
@@ -34,7 +35,29 @@ const routing: BridgeProviderRouting = {
   refreshProviderRoutingInBackground: () => Promise.resolve(),
   selectProviderForExecution: async () => { throw new Error("no routed target"); },
   configuredDefaultTarget: () => undefined,
+  resourcePolicyFromEnv: () => ({
+    version: 1,
+    mode: "preferential",
+    targets: [{
+      id: "artifact-account", provider: "openai",
+      authMode: "isolated", profile: "artifact-profile",
+    }],
+    targetOrder: ["artifact-account"],
+    providerOrder: ["openai", "anthropic"],
+    envelopes: {},
+  }),
 };
+
+const attemptRoute = Object.freeze({
+  attemptId: `@attempt:${"a".repeat(64)}`,
+  provider: "openai",
+  accountId: "artifact-account",
+  credentialProfile: "artifact-profile",
+  model: "gpt-5.6-terra",
+  accountAuthorityReceiptSha256: "b".repeat(64),
+  routeObservationReceiptSha256: "c".repeat(64),
+  launchIntentSha256: "d".repeat(64),
+} satisfies BridgeAttemptRouteAuthority);
 
 function artifactDirectory(args: AgentProviderQuery): string {
   const north = args.options.mcpServers?.north as {
@@ -78,6 +101,8 @@ test("Bridge provider executions retain artifacts behind their deterministic MCP
     cwd: streamRoot,
     role: "implementer",
     provider: "openai",
+    model: attemptRoute.model,
+    attemptRoute,
     signal: new AbortController().signal,
     writer,
   });
@@ -116,6 +141,8 @@ test("Bridge provider executions retain artifacts behind their deterministic MCP
     cwd: streamRoot,
     role: "implementer",
     provider: "openai",
+    model: attemptRoute.model,
+    attemptRoute,
     signal: new AbortController().signal,
     writer: restored,
   });

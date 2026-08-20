@@ -268,7 +268,6 @@ async function hostedDaemon(
     // Pinned, so a launch reaches its provider immediately: headroom selection
     // is a real probe with real latency, and a session still being selected is
     // a session this test would race.
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
     onRetire: () => { retired += 1; void close(); },
   });

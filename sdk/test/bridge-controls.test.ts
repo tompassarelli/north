@@ -104,7 +104,7 @@ async function fixture(
   };
   const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
   const northd = new Northd({
-    socketPath, journalRoot, provider, selectProvider: async () => "openai",
+    socketPath, journalRoot, provider,
     commandReceipts,
     ...(providerTeardownTimeoutMs === undefined ? {} : { providerTeardownTimeoutMs }),
     ...(controlJournal === undefined ? {} : { controlJournal }),
@@ -323,7 +323,7 @@ test("restart observes an unresolved Store intent without replaying its provider
   const journalRoot = join(root, "journal");
   const executionId = "restart-intent";
   const receipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
-  await receipts.bindExecution(executionId, ATTEMPT_ID);
+  await receipts.bindExecution(executionId, ATTEMPT_ID, {});
 
   const journal = new ExecutionJournal(journalRoot, executionId);
   journal.append("execution.accepted", {
@@ -386,7 +386,6 @@ test("a durable wire start gets one failed terminal when control acceptance pers
         throw new Error("provider must not open after failed control acceptance");
       },
     },
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
     controlJournal: (journalPath, executionId) =>
       new AcceptanceFsyncFailureJournal(journalPath, executionId),
@@ -454,7 +453,6 @@ test("a forged event cannot hide a provider-owned run terminal behind the same I
         };
       },
     },
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();
@@ -657,7 +655,6 @@ test("interrupt and redirect stay gated across provider-session replacement pref
     socketPath,
     journalRoot,
     provider,
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();

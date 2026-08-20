@@ -12,6 +12,23 @@ import {
   type Term,
 } from "../store-rpc-codec";
 import { validExecutionAttemptIdentity } from "../delivery-evidence";
+import type { BridgeLaunchProvider } from "./protocol";
+
+export interface BridgeAttemptRouteRequest {
+  provider?: BridgeLaunchProvider;
+  model?: string;
+}
+
+export interface BridgeAttemptRouteAuthority {
+  attemptId: string;
+  provider: BridgeLaunchProvider;
+  accountId: string;
+  credentialProfile?: string;
+  model: string;
+  accountAuthorityReceiptSha256: string;
+  routeObservationReceiptSha256: string;
+  launchIntentSha256: string;
+}
 
 export type BridgeCommandKind =
   | "submit-input"
@@ -47,7 +64,11 @@ export interface BridgeCommandRecovery {
 }
 
 export interface BridgeCommandReceipts {
-  bindExecution(executionId: string, attemptId: string): Promise<void>;
+  bindExecution(
+    executionId: string,
+    attemptId: string,
+    request: BridgeAttemptRouteRequest,
+  ): Promise<BridgeAttemptRouteAuthority>;
   attemptForExecution(executionId: string): Promise<string>;
   admit(request: BridgeCommandAdmissionRequest): Promise<BridgeCommandAdmission>;
   reconcile(attemptId: string): Promise<BridgeCommandRecovery>;
@@ -79,6 +100,7 @@ const EXECUTION_PREDICATES = Object.freeze({
 });
 
 const SHA256 = /^[0-9a-f]{64}$/;
+const ACCOUNT_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const MAX_OCC_ATTEMPTS = 8;
 
 function requireIdentity(label: string, value: string): string {
@@ -168,6 +190,56 @@ function rowsByPredicate(rows: readonly Term[]): Map<string, Term[]> {
   return result;
 }
 
+function requireAttemptString(
+  facts: ReadonlyMap<string, readonly Term[]>, predicate: string,
+): string {
+  const value = singleton(facts, predicate);
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
+    throw new Error(`Bridge launch attempt lacks exact ${predicate}`);
+  }
+  return value;
+}
+
+function requireAttemptDigest(
+  facts: ReadonlyMap<string, readonly Term[]>, predicate: string,
+): string {
+  const value = requireAttemptString(facts, predicate);
+  if (!SHA256.test(value)) throw new Error(`Bridge launch attempt has malformed ${predicate}`);
+  return value;
+}
+
+function requireInstant(value: string, label: string): void {
+  if (!Number.isFinite(Date.parse(value))) throw new Error(`Bridge launch attempt has malformed ${label}`);
+}
+
+function requireLease(value: string, resource: string, label: string): void {
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); }
+  catch { throw new Error(`Bridge launch attempt has malformed ${label}`); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Bridge launch attempt has malformed ${label}`);
+  }
+  const lease = parsed as Record<string, unknown>;
+  if (Object.keys(lease).sort().join("\0") !== ["epoch", "holder", "resource"].join("\0")
+    || lease.resource !== resource
+    || typeof lease.holder !== "string" || lease.holder.length === 0
+    || !Number.isSafeInteger(lease.epoch) || (lease.epoch as number) < 1) {
+    throw new Error(`Bridge launch attempt has malformed ${label}`);
+  }
+}
+
+function assertRequestedRoute(
+  authority: BridgeAttemptRouteAuthority,
+  request: BridgeAttemptRouteRequest,
+): void {
+  if (request.provider !== undefined && request.provider !== authority.provider) {
+    throw new Error("Bridge launch provider conflicts with its Store attempt authority");
+  }
+  if (request.model !== undefined && request.model !== authority.model) {
+    throw new Error("Bridge launch model conflicts with its Store attempt authority");
+  }
+}
+
 function singleton(
   facts: ReadonlyMap<string, readonly Term[]>, predicate: string,
 ): Term | undefined {
@@ -231,6 +303,97 @@ function occConflict(error: unknown): boolean {
   return error instanceof StoreRpcServerError && error.code === "rpc/conflict";
 }
 
+function attemptRouteAuthority(
+  attemptId: string,
+  attemptRows: readonly Term[],
+  accountRows: readonly Term[],
+): BridgeAttemptRouteAuthority {
+  const facts = rowsByPredicate(attemptRows);
+  const manifestSha256 = attemptId.slice("@attempt:".length);
+  if (singleton(facts, "kind") !== "execution_attempt"
+    || singleton(facts, "execution_attempt_version") !== "north:execution-attempt:v1"
+    || singleton(facts, "execution_attempt_manifest_sha256") !== manifestSha256) {
+    throw new Error("Bridge launch attempt is not canonically acknowledged by Store");
+  }
+  const provider = requireAttemptString(facts, "execution_attempt_provider");
+  if (provider !== "anthropic" && provider !== "openai") {
+    throw new Error("Bridge launch attempt has an unsupported provider");
+  }
+  const accountId = requireAttemptString(facts, "execution_attempt_account");
+  if (!ACCOUNT_ID.test(accountId)) throw new Error("Bridge launch attempt has a malformed account");
+  const model = requireAttemptString(facts, "execution_attempt_model");
+  if (/\s/.test(model) || model.length > 256) {
+    throw new Error("Bridge launch attempt has a malformed model");
+  }
+  const thread = requireAttemptString(facts, "execution_attempt_thread");
+  if (!thread.startsWith("@thread:") || thread.length === "@thread:".length) {
+    throw new Error("Bridge launch attempt has a malformed thread");
+  }
+  requireAttemptString(facts, "execution_attempt_run");
+  requireAttemptString(facts, "execution_attempt_reporter");
+  const ordinal = Number(requireAttemptString(facts, "execution_attempt_ordinal"));
+  if (!Number.isSafeInteger(ordinal) || ordinal < 1) {
+    throw new Error("Bridge launch attempt has a malformed ordinal");
+  }
+  requireAttemptDigest(facts, "execution_attempt_run_capability_sha256");
+  requireAttemptDigest(facts, "execution_attempt_run_contract_sha256");
+  const accountAuthorityReceiptSha256 = requireAttemptDigest(
+    facts, "execution_attempt_account_authority_sha256",
+  );
+  const routeObservationReceiptSha256 = requireAttemptDigest(
+    facts, "execution_attempt_route_observation_sha256",
+  );
+  requireLease(
+    requireAttemptString(facts, "execution_attempt_thread_lease"),
+    `thread:${thread.slice("@thread:".length)}:dispatch`,
+    "thread lease",
+  );
+  requireLease(
+    requireAttemptString(facts, "execution_attempt_account_lease"),
+    `codex-account:${accountId}:slot:0`,
+    "account lease",
+  );
+  requireInstant(
+    requireAttemptString(facts, "execution_attempt_reserved_at"),
+    "reservation time",
+  );
+  if (singleton(facts, "execution_attempt_launch_intent_version")
+    !== "north:execution-attempt-launch-intent:v1") {
+    throw new Error("Bridge launch attempt lacks its canonical launch intent");
+  }
+  requireInstant(
+    requireAttemptString(facts, "execution_attempt_launch_intent_at"),
+    "launch-intent time",
+  );
+  const launchIntentSha256 = requireAttemptDigest(
+    facts, "execution_attempt_launch_intent_sha256",
+  );
+  let credentialProfile: string | undefined;
+  if (provider === "openai") {
+    const account = rowsByPredicate(accountRows);
+    const profile = singleton(account, "provider_profile");
+    if (singleton(account, "kind") !== "provider_account"
+      || singleton(account, "account_id") !== accountId
+      || singleton(account, "provider") !== "openai"
+      || typeof profile !== "string" || !ACCOUNT_ID.test(profile)
+      || singleton(account, "account_role") !== "execution"
+      || singleton(account, "execution_eligible") !== "true") {
+      throw new Error("Bridge launch attempt account lacks an execution Store role");
+    }
+    credentialProfile = profile;
+  }
+  return Object.freeze({
+    attemptId,
+    provider,
+    accountId,
+    ...(credentialProfile ? { credentialProfile } : {}),
+    model,
+    accountAuthorityReceiptSha256,
+    routeObservationReceiptSha256,
+    launchIntentSha256,
+  });
+}
+
 export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
   readonly #client: StoreRpcClient;
   readonly #ownsClient: boolean;
@@ -259,24 +422,45 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
     }
   }
 
-  async bindExecution(executionId: string, attemptId: string): Promise<void> {
+  async #attemptRouteSnapshot(attemptId: string): Promise<{
+    authority: BridgeAttemptRouteAuthority;
+    servedVersion: number;
+  }> {
+    for (let attempt = 0; attempt < MAX_OCC_ATTEMPTS; attempt += 1) {
+      const snapshot = await this.#commandRows(attemptId);
+      const facts = rowsByPredicate(snapshot.rows);
+      const accountId = requireAttemptString(facts, "execution_attempt_account");
+      if (!ACCOUNT_ID.test(accountId)) {
+        throw new Error("Bridge launch attempt has a malformed account");
+      }
+      const account = await this.#commandRows(`@account:${accountId}`);
+      if (account.servedVersion !== snapshot.servedVersion) continue;
+      return {
+        authority: attemptRouteAuthority(attemptId, snapshot.rows, account.rows),
+        servedVersion: snapshot.servedVersion,
+      };
+    }
+    throw new Error("Bridge launch attempt could not obtain one Store authority snapshot");
+  }
+
+  async bindExecution(
+    executionId: string,
+    attemptId: string,
+    request: BridgeAttemptRouteRequest,
+  ): Promise<BridgeAttemptRouteAuthority> {
     requireIdentity("execution ID", executionId);
     requireAttemptId(attemptId);
     const subject = executionSubject(executionId);
     for (let attempt = 0; attempt < MAX_OCC_ATTEMPTS; attempt += 1) {
       const [attemptSnapshot, snapshot, bindingIndex] = await Promise.all([
-        this.#commandRows(attemptId),
+        this.#attemptRouteSnapshot(attemptId),
         this.#commandRows(subject),
         this.#client.scanAll(null, EXECUTION_PREDICATES.attemptId, attemptId),
       ]);
       if (attemptSnapshot.servedVersion !== snapshot.servedVersion
         || bindingIndex.servedVersion !== snapshot.servedVersion) continue;
-      const attemptFacts = rowsByPredicate(attemptSnapshot.rows);
-      const manifestSha256 = attemptId.slice("@attempt:".length);
-      if (singleton(attemptFacts, "kind") !== "execution_attempt"
-        || singleton(attemptFacts, "execution_attempt_manifest_sha256") !== manifestSha256) {
-        throw new Error("Bridge launch attempt is not acknowledged by Store");
-      }
+      const authority = attemptSnapshot.authority;
+      assertRequestedRoute(authority, request);
       const bindingSubjects = bindingIndex.rows
         .map((row) => row instanceof StoreTriple ? row.t1 : undefined)
         .filter((value): value is string => typeof value === "string");
@@ -290,7 +474,7 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
         if (presentExecution !== executionId || presentAttempt !== attemptId) {
           throw new Error("Bridge execution has a conflicting Store attempt binding");
         }
-        return;
+        return authority;
       }
       const actions = [
         action(subject, EXECUTION_PREDICATES.executionId, executionId),
@@ -303,13 +487,13 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
         if (!expectedResults(actions, committed.results)) {
           throw new Error("Store returned an incomplete Bridge execution binding receipt");
         }
-        return;
+        return authority;
       } catch (error) {
         if (occConflict(error)) continue;
         if (error instanceof StoreRpcTransportError && error.requestSent) {
           const readback = rowsByPredicate((await this.#commandRows(subject)).rows);
           if (singleton(readback, EXECUTION_PREDICATES.executionId) === executionId
-            && singleton(readback, EXECUTION_PREDICATES.attemptId) === attemptId) return;
+            && singleton(readback, EXECUTION_PREDICATES.attemptId) === attemptId) return authority;
         }
         throw error;
       }
@@ -329,14 +513,8 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
       if (typeof attemptId !== "string" || !validExecutionAttemptIdentity(attemptId)) {
         throw new Error("Bridge execution lacks its Store attempt binding");
       }
-      const acknowledged = await this.#commandRows(attemptId);
+      const acknowledged = await this.#attemptRouteSnapshot(attemptId);
       if (acknowledged.servedVersion !== binding.servedVersion) continue;
-      const attemptFacts = rowsByPredicate(acknowledged.rows);
-      if (singleton(attemptFacts, "kind") !== "execution_attempt"
-        || singleton(attemptFacts, "execution_attempt_manifest_sha256")
-          !== attemptId.slice("@attempt:".length)) {
-        throw new Error("Bridge execution attempt is no longer acknowledged by Store");
-      }
       return attemptId;
     }
     throw new Error("Bridge execution attempt lookup could not obtain one Store snapshot");
@@ -496,12 +674,21 @@ export class MemoryBridgeCommandReceipts implements BridgeCommandReceipts {
   readonly receipts: Array<{ commandId: string; outcome: BridgeCommandReceiptOutcome }> = [];
   readonly executionAttempts = new Map<string, string>();
   readonly acknowledgedAttempts: Set<string>;
+  readonly attemptAuthorities = new Map<string, BridgeAttemptRouteAuthority>();
 
-  constructor(attemptIds: readonly string[] = []) {
-    this.acknowledgedAttempts = new Set(attemptIds);
+  constructor(attempts: readonly (string | BridgeAttemptRouteAuthority)[] = []) {
+    this.acknowledgedAttempts = new Set(attempts.map((attempt) =>
+      typeof attempt === "string" ? attempt : attempt.attemptId));
+    for (const attempt of attempts) {
+      if (typeof attempt !== "string") this.attemptAuthorities.set(attempt.attemptId, attempt);
+    }
   }
 
-  async bindExecution(executionId: string, attemptId: string): Promise<void> {
+  async bindExecution(
+    executionId: string,
+    attemptId: string,
+    request: BridgeAttemptRouteRequest,
+  ): Promise<BridgeAttemptRouteAuthority> {
     if (!this.acknowledgedAttempts.has(attemptId)) {
       throw new Error("Bridge launch attempt is not acknowledged by Store");
     }
@@ -514,7 +701,20 @@ export class MemoryBridgeCommandReceipts implements BridgeCommandReceipts {
     if (present !== undefined && present !== attemptId) {
       throw new Error("Bridge execution already has a different attempt binding");
     }
+    const provider = request.provider ?? "openai";
+    const authority = this.attemptAuthorities.get(attemptId) ?? Object.freeze({
+      attemptId,
+      provider,
+      accountId: provider,
+      ...(provider === "openai" ? { credentialProfile: provider } : {}),
+      model: request.model ?? (provider === "openai" ? "gpt-5.6-terra" : "claude-sonnet-4-6"),
+      accountAuthorityReceiptSha256: sha256(`memory-account-authority\0${attemptId}`),
+      routeObservationReceiptSha256: sha256(`memory-route-observation\0${attemptId}`),
+      launchIntentSha256: sha256(`memory-launch-intent\0${attemptId}`),
+    });
+    assertRequestedRoute(authority, request);
     this.executionAttempts.set(executionId, attemptId);
+    return authority;
   }
 
   async attemptForExecution(executionId: string): Promise<string> {

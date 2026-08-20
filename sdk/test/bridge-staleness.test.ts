@@ -96,7 +96,6 @@ async function fixture(
     // waits on a provider open was waiting on that probe as well — the source
     // of this file's load flake, and of a network round trip a unit suite has
     // no business making.
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_A, ATTEMPT_B]),
     sourceIdentity: identity,
     stalePollMs: 20,
@@ -177,7 +176,6 @@ test("a control-journal close failure still releases the listener and wire lock"
     provider: {
       async open(context) { return new BridgeWireTestSession(context); },
     },
-    selectProvider: async () => "openai",
     commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_A]),
     sourceIdentity: () => "rev-a",
     controlJournal: (directory, executionId) => new CloseFailureJournal(directory, executionId),

@@ -42,7 +42,6 @@ async function fixture(provider: BridgeProviderExecution): Promise<AcpFixture> {
     journalRoot,
     provider,
     commandReceipts: new MemoryBridgeCommandReceipts(attemptIds),
-    selectProvider: async () => "openai",
     sourceIdentity: () => undefined,
   });
   await northd.listen();
