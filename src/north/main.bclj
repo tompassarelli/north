@@ -41,7 +41,7 @@
   [name String
    default String]
   String
-  (let [(value (U String Nil)) (store.rt/getenv name)]
+  (let [value (U String Nil) (store.rt/getenv name)]
     (if (nil? value) default value)))
 
 (defn- to-json [value Any] String
@@ -76,7 +76,7 @@
   [operation String
    args (Vec Any)]
   Any
-  (let [(callable Any)
+  (let [callable Any
         (clojure.core/ns-resolve (symbol "north.coord") (symbol operation))]
     (if (some? callable)
       (apply callable args)
@@ -85,7 +85,7 @@
                        :operation operation})))))
 
 (defn- coord-port [] Int
-  (let [(value Any) (coord-invoke "port" [])]
+  (let [value Any (coord-invoke "port" [])]
     (if (int? value)
       value
       (throw (ex-info "north.coord returned an invalid port"
@@ -95,7 +95,7 @@
   [operation String
    args (Vec Any)]
   (Vec t/Triple)
-  (let [(value Any) (coord-invoke operation args)]
+  (let [value Any (coord-invoke operation args)]
     (if (and (vector? value) (every? t/triple? value))
       value
       (throw (ex-info "north.coord returned a malformed Triple projection"
@@ -118,10 +118,10 @@
 ;; callers and stays untouched. created_at — not the id's internal bits — is the
 ;; app's ordering/display key; the id carries only identity.
 (defn uuidv7 [] String
-  (let [ts (System/currentTimeMillis)
-        r (Random.)
-        msb (bit-or (bit-shift-left ts 16) 0x7000 (bit-and (.nextInt r) 0xFFF))
-        lsb (bit-or (bit-shift-left 2 62) (bit-and (.nextLong r) 0x3FFFFFFFFFFFFFFF))]
+  (let [ts Int (System/currentTimeMillis)
+        r Any (Random.)
+        msb Int (bit-or (bit-shift-left ts 16) 0x7000 (bit-and (.nextInt r) 0xFFF))
+        lsb Int (bit-or (bit-shift-left 2 62) (bit-and (.nextLong r) 0x3FFFFFFFFFFFFFFF))]
     (str (UUID. msb lsb))))
 
 ;; --- display helpers --------------------------------------------------------
@@ -130,7 +130,7 @@
   [idx proj/ProjectionIndex
    te String]
   String
-  (let [t (proj/string-value-at idx te "title")] (if (some? t) t "")))
+  (let [t (U String Nil) (proj/string-value-at idx te "title")] (if (some? t) t "")))
 
 (defn- short-id [te String] String
   (if (str/starts-with? te "@") (subs te 1) te))
@@ -147,9 +147,9 @@
   String
   (if (some? (proj/string-value-at idx ref "title"))
     ref
-    (let [bare (short-id ref)
-          matches (filterv (fn [te String] Bool
-                             (let [h (proj/string-value-at idx te "handle")]
+    (let [bare String (short-id ref)
+          matches (Vec String) (filterv (fn [te String] Bool
+                             (let [h (U String Nil) (proj/string-value-at idx te "handle")]
                                (and (some? h) (= h bare))))
                            (proj/thread-subjects idx))]
       (if (empty? matches)
@@ -157,7 +157,7 @@
         ;; Blank never prefix-matches (it would match every thread); an ambiguous
         ;; or unknown prefix resolves nothing here — cmd-resolve polices id-like
         ;; fallthrough so a truncated id is REFUSED instead of minting a phantom.
-        (let [pms (if (str/blank? bare)
+        (let [pms (Vec String) (if (str/blank? bare)
                     []
                     (filterv (fn [te String] Bool
                                (str/starts-with? (short-id te) bare))
@@ -168,8 +168,8 @@
                    te String] String
                   (if (str/blank? best)
                     te
-                    (let [bc (let [c (proj/string-value-at idx best "created_at")] (if (some? c) c ""))
-                          tc (let [c (proj/string-value-at idx te "created_at")] (if (some? c) c ""))]
+                    (let [bc String (let [c (U String Nil) (proj/string-value-at idx best "created_at")] (if (some? c) c ""))
+                          tc String (let [c (U String Nil) (proj/string-value-at idx te "created_at")] (if (some? c) c ""))]
                       (if (store.rt/str-lt? bc tc) te best))))
                 "" matches)))))
 
@@ -215,13 +215,13 @@
   ;; subject in `other` instead of crashing before the operator can inspect it.
   (if (nil? te)
     "other"
-    (let [explicit (proj/string-value-at idx te "entity_kind")]
+    (let [explicit (U String Nil) (proj/string-value-at idx te "entity_kind")]
       (if (some? explicit)
         explicit
-        (let [legacy (proj/string-value-at idx te "kind")]
+        (let [legacy (U String Nil) (proj/string-value-at idx te "kind")]
           (if (some? legacy)
             (legacy-entity-kind legacy)
-            (let [np (namespace-kind (short-id te))]
+            (let [np String (namespace-kind (short-id te))]
               (if (not (str/blank? np))
                 np
                 (if (some? (proj/string-value-at idx te "title"))
@@ -241,10 +241,10 @@
   [idx proj/ProjectionIndex
    te String]
   String
-  (let [d (proj/string-value-at idx te "driver")]
+  (let [d (U String Nil) (proj/string-value-at idx te "driver")]
     (if (nil? d)
       ""
-      (let [dn (proj/string-value-at idx d "display_name")]
+      (let [dn (U String Nil) (proj/string-value-at idx d "display_name")]
         (if (some? dn) dn (short-id d))))))
 
 (defrecord LevItem
@@ -293,14 +293,14 @@
   [idx proj/ProjectionIndex
    te String]
   QueueDirective?
-  (let [raw (proj/string-value-at idx te "queue_rank")
-        parts (if (some? raw) (vec (str/split raw #"\|")) [])
-        version (if (= (count parts) 4) (store.rt/parse-int (nth parts 1)) -1)
-        position (if (= (count parts) 4) (nth parts 2) "")
-        anchor-token (if (= (count parts) 4) (nth parts 3) "")
-        anchor (if (= anchor-token "_") "" anchor-token)
-        relative? (or (= position "before") (= position "after"))
-        edge? (or (= position "first") (= position "last"))]
+  (let [raw (U String Nil) (proj/string-value-at idx te "queue_rank")
+        parts (Vec String) (if (some? raw) (vec (str/split raw #"\|")) [])
+        version Int (if (= (count parts) 4) (store.rt/parse-int (nth parts 1)) -1)
+        position String (if (= (count parts) 4) (nth parts 2) "")
+        anchor-token String (if (= (count parts) 4) (nth parts 3) "")
+        anchor String (if (= anchor-token "_") "" anchor-token)
+        relative? Bool (or (= position "before") (= position "after"))
+        edge? Bool (or (= position "first") (= position "last"))]
     (if (and (= (if (some? raw) (nth parts 0) "") "v1")
              (and (>= version 0)
                   (or (and edge? (str/blank? anchor))
@@ -312,7 +312,7 @@
   [items (Vec String)
    target String]
   Int
-  (loop [i 0]
+  (loop [i Int 0]
     (cond
       [(>= i (count items)) -1]
       [(= (nth items i) target) i]
@@ -323,24 +323,24 @@
    target String
    at Int]
   (Vec String)
-  (loop [i 0
-         result []]
+  (loop [i Int 0
+         result (Vec String) []]
     (if (>= i (count items))
       (if (= at i) (conj result target) result)
-      (let [with-target (if (= at i) (conj result target) result)]
+      (let [with-target (Vec String) (if (= at i) (conj result target) result)]
         (recur (+ i 1) (conj with-target (nth items i)))))))
 
 (defn- apply-queue-directive
   [items (Vec String)
    directive QueueDirective]
   (Vec String)
-  (let [te (:te directive)
-        old-index (queue-index items te)
-        remaining (filterv (fn [item String] Bool (not (= item te))) items)
-        anchor-index (queue-index remaining (:anchor directive))
-        fallback-index (if (< old-index 0) (count remaining)
+  (let [te String (:te directive)
+        old-index Int (queue-index items te)
+        remaining (Vec String) (filterv (fn [item String] Bool (not (= item te))) items)
+        anchor-index Int (queue-index remaining (:anchor directive))
+        fallback-index Int (if (< old-index 0) (count remaining)
                            (if (> old-index (count remaining)) (count remaining) old-index))
-        insert-index
+        insert-index Int
         (cond
           [(= (:position directive) "first") 0]
           [(= (:position directive) "last") (count remaining)]
@@ -353,12 +353,12 @@
   [idx proj/ProjectionIndex
    base (Vec String)]
   (Vec String)
-  (let [directives
+  (let [directives (Vec QueueDirective)
         (reduce
          (fn
            [found (Vec QueueDirective)
             te String] (Vec QueueDirective)
-           (let [directive (queue-directive idx te)]
+           (let [directive (U QueueDirective Nil) (queue-directive idx te)]
              (if (some? directive) (conj found directive) found)))
          [] base)]
     (reduce
@@ -381,13 +381,13 @@
 ;; client-side fallback; the physical log path is projection identity only.
 (defn- coord-version [port Int] Int
   (try
-    (let [(value Any) (coord-invoke "version" [port])]
+    (let [value Any (coord-invoke "version" [port])]
       (if (int? value) value -1))
     (catch (_ Exception) -1)))
 
 (defn- live-facts [log String] (Vec t/Triple)
-  (let [port (coord-port)
-        version (coord-version port)]
+  (let [port Int (coord-port)
+        version Int (coord-version port)]
     (if (< version 0)
       (throw (ex-info (str "North Store RPC read failed on 127.0.0.1:" port
                            " (code " version ")")
@@ -413,7 +413,7 @@
   [log String
    te String]
   (Vec t/Triple)
-  (let [warm (live-subject-facts log te)]
+  (let [warm (Vec store.types/Triple) (live-subject-facts log te)]
     (if (empty? warm)
       (filterv (fn [triple t/Triple] Bool
                  (= te (triple-subject triple)))
@@ -427,7 +427,7 @@
    log String
    consequence String]
   String
-  (let [summary
+  (let [summary String
         (cond
           [(= code -1)
            (str "Store RPC SERVER UNREACHABLE on 127.0.0.1:" port)]
@@ -439,7 +439,7 @@
           [:else
            (str "Store RPC preflight failed on 127.0.0.1:" port
                 " (code " code ")")])
-        remedy
+        remedy String
         (cond
           [(= code -1) "Start the configured Beagle Store service"]
           [(= code -2)
@@ -459,16 +459,16 @@
    pred String
    rv String]
   String
-  (let [v (coord-version port)]
+  (let [v Int (coord-version port)]
     (if (< v 0)
       "server-unavailable"
       (try
-        (let [(response Any)
+        (let [response Any
               (if (= op "assert")
                 (coord-invoke "assert-at-version!" [port te pred rv v])
                 (coord-invoke "retract-at-version!" [port te pred rv v]))
-              (committed Any) (:ok response)
-              (rejected Any) (:reject response)]
+              committed Any (:ok response)
+              rejected Any (:reject response)]
           (if (some? committed)
             (str "ok:" committed)
             (if (= rejected :conflict) "conflict" (str rejected))))
@@ -483,7 +483,7 @@
    rv String
    tries Int]
   String
-  (let [resp (tell-once port log op te pred rv)]
+  (let [resp String (tell-once port log op te pred rv)]
     (if (and (= resp "conflict") (> tries 0))
       (tell-retry port log op te pred rv (- tries 1))
       resp)))
@@ -517,24 +517,24 @@
    created-at String
    today String]
   (Vec t/Triple)
-  (let [c (add-fact [] te "title" title)
+  (let [c (Vec store.types/Triple) (add-fact [] te "title" title)
         ;; Every new thread self-identifies as kind=thread in the same Store RPC
         ;; publication, so schema and database views need no subject-prefix guess.
         ;; single-valued (bin/north BEAGLE_STORE_SINGLE_VALUED); mirrors concern-cli, which
         ;; already stamps kind=concern. NO backfill of old subjects (maintenance/migration).
-        c (add-fact c te "kind" "thread")
+        c (Vec store.types/Triple) (add-fact c te "kind" "thread")
         ;; the-model §7: `personal` is the IMPLICIT owner default — store `owner`
         ;; only for a non-personal owner, so absence == personal.
-        c (if (= owner "personal") c (add-fact c te "owner" owner))
-        c (add-fact c te "source" source)
-        c (add-fact c te "created_by" (ref-or-blank author))
-        c (add-fact c te "lead" (ref-or-blank lead))
-        c (add-fact c te "proposed_by" (ref-or-blank proposed))
+        c (Vec store.types/Triple) (if (= owner "personal") c (add-fact c te "owner" owner))
+        c (Vec store.types/Triple) (add-fact c te "source" source)
+        c (Vec store.types/Triple) (add-fact c te "created_by" (ref-or-blank author))
+        c (Vec store.types/Triple) (add-fact c te "lead" (ref-or-blank lead))
+        c (Vec store.types/Triple) (add-fact c te "proposed_by" (ref-or-blank proposed))
         ;; created_at is an explicit full-ISO fact (now-iso), asserted at capture —
         ;; the id is opaque now (UUIDv7), so ordering/display read THIS, not the id.
-        c (add-fact c te "created_at" created-at)
-        c (add-fact c te "updated_at" today)
-        c (add-fact c te "committed" today)]
+        c (Vec store.types/Triple) (add-fact c te "created_at" created-at)
+        c (Vec store.types/Triple) (add-fact c te "updated_at" today)
+        c (Vec store.types/Triple) (add-fact c te "committed" today)]
     c))
 
 (defrecord CaptureReceipt
@@ -576,15 +576,15 @@
   Bool
   (if (>= i (count facts))
     true
-    (let [fact (nth facts i)
-          result (nth results i)
-          current-ok
+    (let [fact store.types/Triple (nth facts i)
+          result String (nth results i)
+          current-ok Bool
           (if (str/starts-with? result "ok:")
             (str/starts-with?
              (tell-retry port log "retract" (triple-subject fact) (triple-predicate fact) (triple-value fact) 5)
              "ok:")
             true)
-          remaining-ok
+          remaining-ok Bool
           (retract-committed-capture-facts
            port log facts results (+ i 1))]
       ;; Always attempt every acknowledged write. A failed early retraction
@@ -602,10 +602,10 @@
    facts (Vec t/Triple)
    results (Vec String)]
   Bool
-  (let [retracted
+  (let [retracted Bool
         (retract-committed-capture-facts port log facts results 0)
-        _ (store.rt/delete-file path)
-        remaining
+        _ Nil (store.rt/delete-file path)
+        remaining (Vec store.types/Triple)
         (filterv (fn [fact t/Triple] Bool (= te (triple-subject fact)))
                  (coord-live-propositions port))]
     (and retracted
@@ -618,10 +618,10 @@
    title String
    owner String]
   Nil
-  (let [source (getenv-or "NORTH_SOURCE" "self")
-        author (getenv-or "NORTH_AUTHOR" "you")
-        lead (getenv-or "NORTH_LEAD" "")
-        proposed (getenv-or "NORTH_PROPOSED_BY" "")]
+  (let [source String (getenv-or "NORTH_SOURCE" "self")
+        author String (getenv-or "NORTH_AUTHOR" "you")
+        lead String (getenv-or "NORTH_LEAD" "")
+        proposed String (getenv-or "NORTH_PROPOSED_BY" "")]
   (cond
     [(or (str/blank? title) (ctrl? title))
      (println "usage: capture <title> [owner]   (title must be a non-empty single line)")]
@@ -632,14 +632,14 @@
     [:else
      (do
        (store.rt/ensure-dir threads-dir)
-       (let [id (uuidv7)
-             slug (store.rt/slugify title)
-             today (store.rt/today-iso)
-             created-at (store.rt/now-iso)
-             te (str "@" id)
-             path (str threads-dir "/" id "-" slug ".md")
-             port (coord-port)
-             server-v (coord-version port)]
+       (let [id String (uuidv7)
+             slug String (store.rt/slugify title)
+             today String (store.rt/today-iso)
+             created-at String (store.rt/now-iso)
+             te String (str "@" id)
+             path String (str threads-dir "/" id "-" slug ".md")
+             port Int (coord-port)
+             server-v Int (coord-version port)]
          ;; Publish each capture fact through the same Store RPC path as `tell`, then
          ;; render the .md from Store log state. The file remains a regenerated view.
          ;; UUIDv7 is collision-proof, so capture no longer reserves a file-lock id
@@ -650,11 +650,11 @@
               id te title path 0 0 false "store-rpc-unavailable")
              (println (store-rpc-failure-message
                        server-v port log "capture was not recorded")))
-           (let [facts (capture-facts te title owner source author lead proposed created-at today)
-                 results (mapv (fn [c t/Triple] String
+           (let [facts (Vec store.types/Triple) (capture-facts te title owner source author lead proposed created-at today)
+                 results (Vec String) (mapv (fn [c t/Triple] String
                                  (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5))
                                facts)
-                 oks (count (filterv (fn [r String] Bool (str/starts-with? r "ok:")) results))]
+                 oks Int (count (filterv (fn [r String] Bool (str/starts-with? r "ok:")) results))]
              (if (= oks (count facts))
                (do
                  ;; Freshly minted id: an empty warm read-back means the read failed,
@@ -665,7 +665,7 @@
                  (store.rt/spit-file
                   path
                   (exp/thread-md
-                   (let [warm (live-subject-facts log te)]
+                   (let [warm (Vec store.types/Triple) (live-subject-facts log te)]
                      (if (empty? warm) facts warm))
                    te))
                  (if (structured-capture?)
@@ -675,7 +675,7 @@
                                  "  file:      " path "\n"
                                  "  committed: " oks " facts via Store RPC. Next: north tell " id " <pred> <value>"))))
                (if (structured-capture?)
-                 (let [cleaned
+                 (let [cleaned Bool
                        (cleanup-partial-capture
                         port log te path facts results)]
                    (print-capture-receipt
@@ -705,8 +705,8 @@
   [log String
    ref String]
   Nil
-  (let [idx (live-idx log)
-        r (resolve-ref idx ref)]
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        r String (resolve-ref idx ref)]
     (if (and (= r ref)
              (id-like? (short-id ref))
              (nil? (proj/string-value-at idx (str "@" (short-id ref)) "title")))
@@ -725,10 +725,10 @@
   [log String
    ref String]
   Nil
-  (let [idx (live-idx log)
-        te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
-        bars (proj/string-values-at idx te "done_when")
-        evs (proj/string-values-at idx te "bar_evidence")]
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        te String (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
+        bars (Vec String) (proj/string-values-at idx te "done_when")
+        evs (Vec String) (proj/string-values-at idx te "bar_evidence")]
     (if (empty? bars)
       nil
       (do
@@ -738,8 +738,8 @@
 
 ;; Entity-drift audit: repo path-form collisions (tags retired with relates_to).
 (defn cmd-audit [log String] Nil
-  (let [idx (live-idx log)
-        rd (audit/repo-drift idx)]
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        rd (Vec north.audit/DriftGroup) (audit/repo-drift idx)]
     (println (str "REPO DRIFT — " (count rd) " group(s):"))
     (doseq [g rd]
       (println (str "  " (:norm g) ": " (str/join ", " (:forms g)))))))
@@ -749,9 +749,9 @@
 ;; The Beagle Store CLI `validate` only runs the generic half; this is the full check, so
 ;; bin/north routes `validate` here (and the MCP validate tool through it).
 (defn cmd-validate [log String] Int
-  (let [idx (live-idx log)
-        ids (proj/thread-subjects idx)
-        problems (reduce
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        ids (Vec String) (proj/thread-subjects idx)
+        problems (Vec String) (reduce
                   (fn
                     [acc (Vec String)
                      te String] (Vec String)
@@ -800,14 +800,14 @@
   ;; is "holder|exp-ms|epoch"; slice exp-ms to seconds (drop the last 3 chars) —
   ;; parse-int is 32-bit, so 13-digit ms overflows while 10-digit secs (good to
   ;; ~2038) don't.
-  (let [handle (short-id driverref)
-        v (proj/string-value-at idx (str "@lease:session:" handle) "lease")]
+  (let [handle String (short-id driverref)
+        v (U String Nil) (proj/string-value-at idx (str "@lease:session:" handle) "lease")]
     (if (nil? v)
       -1
-      (let [parts (str/split v #"\|")]
+      (let [parts (Vec String) (str/split v #"\|")]
         (if (< (count parts) 2)
           -1
-          (let [expms (nth parts 1)]
+          (let [expms String (nth parts 1)]
             (if (> (count expms) 3)
               (store.rt/parse-int (subs expms 0 (- (count expms) 3)))
               -1)))))))
@@ -829,22 +829,22 @@
    now-secs Int
    window-secs Int]
   Bool
-  (let [d (proj/string-value-at idx te "driver")]
+  (let [d (U String Nil) (proj/string-value-at idx te "driver")]
     (if (nil? d)
       false
-      (let [e (lease-exp-secs idx d)]
+      (let [e Int (lease-exp-secs idx d)]
         (if (and (> e 0) (> e now-secs))
           true
-          (let [u (proj/string-value-at idx te "updated_at")]
+          (let [u (U String Nil) (proj/string-value-at idx te "updated_at")]
             (if (nil? u)
               false
-              (let [us (dt->secs u)]
+              (let [us Int (dt->secs u)]
                 (and (> us 0) (< (- now-secs us) window-secs))))))))))
 
 (defn- driver-stale-window-secs [] Int
   ;; NORTH_DRIVER_STALE_DAYS (default 14) -> seconds. Mirrors the env-config pattern
   ;; projections uses for the terminal/withdrawn vocab.
-  (let [d (store.rt/parse-int (getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
+  (let [d Int (store.rt/parse-int (getenv-or "NORTH_DRIVER_STALE_DAYS" "14"))]
     (* (if (> d 0) d 14) 86400)))
 
 ;; The canonical live? predicate the classifier consumes, curried over a fixed
@@ -883,19 +883,19 @@
   [log String
    all Bool]
   Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        live? (default-live?)
-        raw (proj/ready idx today store.rt/str-lt? live?)
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)
+        raw (Vec String) (proj/ready idx today store.rt/str-lt? live?)
         ;; default scopes to WORK THREADS (kind=thread) — concerns/mine/telemetry
         ;; also satisfy the ready predicate but are not actionable work items;
         ;; --all keeps the old unscoped full list unchanged.
-        rs (if all raw
+        rs (Vec String) (if all raw
              (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
         ;; Manual queue moves replay over leverage, so the default stays
         ;; high-signal until an operator explicitly orders it.
-        ranked (queue-order idx rs)
-        shown (if all ranked (vec (take 15 ranked)))]
+        ranked (Vec String) (queue-order idx rs)
+        shown (Vec String) (if all ranked (vec (take 15 ranked)))]
     (if all
       (println (str "READY NOW — " (count rs)))
       (println (str "READY NOW — top " (count shown) " of " (count rs)
@@ -907,11 +907,11 @@
       (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all")))))
 
 (defn cmd-blocked [log String] Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)
-        bs (filterv (fn [te String] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)
+        bs (Vec String) (filterv (fn [te String] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
                     (proj/work-thread-ids-i idx))]
     (println (str "BLOCKED — " (count bs)))
     (doseq [te bs]
@@ -919,14 +919,14 @@
                     "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
 
 (defn cmd-leverage [log String] Nil
-  (let [idx (live-idx log)
-        cands (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        cands (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                        (proj/work-thread-ids-i idx))
-        items (filterv (fn [it LevItem] Bool (> (:score it) 0))
+        items (Vec LevItem) (filterv (fn [it LevItem] Bool (> (:score it) 0))
                        (mapv (fn [te String] LevItem
                                (->LevItem te (proj/leverage-score idx te)))
                              cands))
-        ranked (vec (take 15 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
+        ranked (Vec LevItem) (vec (take 15 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
     (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
     (doseq [it ranked]
       (println (str "  unblocks " (:score it) "  " (short-id (:te it))
@@ -939,9 +939,9 @@
    before? (Fn [String String] Bool)
    live? (Fn [proj/ProjectionIndex String] Bool)]
   NextItem
-  (let [lev (proj/leverage-score idx te)
-        doo (proj/string-value-at idx te "do_on")
-        urg (if (some? doo)
+  (let [lev Int (proj/leverage-score idx te)
+        doo (U String Nil) (proj/string-value-at idx te "do_on")
+        urg Int (if (some? doo)
               (cond
                 [(store.rt/str-lt? doo today) 5]
                 [(= doo today) 3]
@@ -949,25 +949,25 @@
               0)
         ;; ready EXCLUDES live-driven (active) threads, so a driver fact here is a
         ;; PARKED pickup — momentum = resume-ability, not "someone's on it".
-        mom (if (some? (proj/string-value-at idx te "driver")) 2 0)
-        pri (let [p (proj/string-value-at idx te "priority")] (if (some? p) p ""))
-        sequencing (count (proj/incomplete-deps idx te))
-        eligibility (proj/explain idx te today before? live?)]
+        mom Int (if (some? (proj/string-value-at idx te "driver")) 2 0)
+        pri String (let [p (U String Nil) (proj/string-value-at idx te "priority")] (if (some? p) p ""))
+        sequencing Int (count (proj/incomplete-deps idx te))
+        eligibility north.projections/Eligibility (proj/explain idx te today before? live?)]
     (->NextItem te (+ (* 3 lev) (+ urg mom)) lev urg mom pri sequencing (:reason eligibility))))
 
 (defn cmd-next [log String] Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)
         ;; candidate set = the ONE eligibility rule (proj/ready = classify "ready"):
         ;; committed, unblocked, no live driver, not scheduled-later. Identical to
         ;; the set `ready` and the board's READY bucket render — they cannot diverge.
-        items (mapv (fn [te String] NextItem (next-item idx te today before? live?))
+        items (Vec NextItem) (mapv (fn [te String] NextItem (next-item idx te today before? live?))
                     (proj/ready idx today before? live?))
-        score-order (mapv (fn [it NextItem] String (:te it))
+        score-order (Vec String) (mapv (fn [it NextItem] String (:te it))
                           (vec (sort-by (fn [it NextItem] Int (- 0 (:score it))) items)))
-        ranked (mapv (fn [te String] NextItem (next-item idx te today before? live?))
+        ranked (Vec NextItem) (mapv (fn [te String] NextItem (next-item idx te today before? live?))
                      (vec (take 12 (queue-order-from-base idx score-order))))]
     (println (str "WHAT TO WORK ON — top picks (" today ")"))
     (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
@@ -984,18 +984,18 @@
                     " (not scored)")))))
 
 (defn cmd-agenda [log String] Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        cands (filterv (fn [te String] Bool
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        cands (Vec String) (filterv (fn [te String] Bool
                          (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on"))))
                        (proj/work-thread-ids-i idx))
-        items (mapv (fn [te String] AgendaItem
-                      (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")] (if (some? d) d ""))))
+        items (Vec AgendaItem) (mapv (fn [te String] AgendaItem
+                      (->AgendaItem te (let [d (U String Nil) (proj/string-value-at idx te "do_on")] (if (some? d) d ""))))
                     cands)
-        overdue (vec (sort-by (fn [it AgendaItem] String (:do_on it))
+        overdue (Vec AgendaItem) (vec (sort-by (fn [it AgendaItem] String (:do_on it))
                               (filterv (fn [it AgendaItem] Bool (store.rt/str-lt? (:do_on it) today)) items)))
-        todayb (filterv (fn [it AgendaItem] Bool (= (:do_on it) today)) items)
-        upcoming (vec (sort-by (fn [it AgendaItem] String (:do_on it))
+        todayb (Vec AgendaItem) (filterv (fn [it AgendaItem] Bool (= (:do_on it) today)) items)
+        upcoming (Vec AgendaItem) (vec (sort-by (fn [it AgendaItem] String (:do_on it))
                                (filterv (fn [it AgendaItem] Bool (store.rt/str-lt? today (:do_on it))) items)))]
     (println (str "AGENDA — " today))
     (println (str "OVERDUE (" (count overdue) ")"))
@@ -1071,19 +1071,19 @@
    live? (Fn [proj/ProjectionIndex String] Bool)
    nonterm (Vec String)]
   Nil
-  (let [threads (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
-        active (in-condition idx threads today before? live? "active")
-        parked (parked-assignments idx threads live?)
-        nparked (count parked)
-        readyl (in-condition idx threads today before? live? "ready")
-        blockedl (in-condition idx threads today before? live? "blocked")
+  (let [threads (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
+        active (Vec String) (in-condition idx threads today before? live? "active")
+        parked (Vec String) (parked-assignments idx threads live?)
+        nparked Int (count parked)
+        readyl (Vec String) (in-condition idx threads today before? live? "ready")
+        blockedl (Vec String) (in-condition idx threads today before? live? "blocked")
         ;; cheap concern count: subjects that classify as a concern (kind fact or
         ;; concern- prefix). NOT stale-decayed — concern liveness/decay is the
         ;; concern-lane's projection; the board reports the raw open count.
-        nconcern (count (filterv (fn [s String] Bool (= (kind-of idx s) "concern"))
+        nconcern Int (count (filterv (fn [s String] Bool (= (kind-of idx s) "concern"))
                                  (proj/all-subjects idx)))
-        ashow (vec (take 20 active))
-        rranked (mapv (fn [te String] LevItem (->LevItem te (proj/leverage-score idx te)))
+        ashow (Vec String) (vec (take 20 active))
+        rranked (Vec LevItem) (mapv (fn [te String] LevItem (->LevItem te (proj/leverage-score idx te)))
                       (vec (take 15 (queue-order idx readyl))))]
     (println (str "THREADS — " (count threads) " open threads · " (count active) " active · "
                   (count readyl) " ready · " (count blockedl) " blocked · "
@@ -1094,12 +1094,12 @@
     (when (not (empty? active))
       (println (str "\n" (proj/condition-emoji idx "active") " ACTIVE — who's on what (" (count active) ")"))
       (doseq [te ashow]
-        (println (str "  " (let [dl (driver-label idx te)] (if (str/blank? dl) "?" dl))
+        (println (str "  " (let [dl String (driver-label idx te)] (if (str/blank? dl) "?" dl))
                       "  " (short-id te) "  " (trunc (title-of idx te) 44))))
       (when (> (count active) (count ashow))
         (println (str "  … +" (- (count active) (count ashow)) " more · north threads --all"))))
     (when (> nparked 0)
-      (let [pshow (vec (take 10 parked))]
+      (let [pshow (Vec String) (vec (take 10 parked))]
         (println (str "\nPARKED ASSIGNMENTS — stale driver retained, lifecycle demoted (" nparked ")"))
         (doseq [te pshow]
           (println (str "  " (driver-label idx te) "  " (short-id te) "  "
@@ -1119,11 +1119,11 @@
   [log String
    all Bool]
   Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)
-        nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)
+        nonterm (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all
       (board-full idx today before? live? nonterm)
@@ -1170,7 +1170,7 @@
    before? (Fn [String String] Bool)
    live? (Fn [proj/ProjectionIndex String] Bool)]
   JThread
-  (let [c (proj/condition-i idx te today before? live?)]
+  (let [c String (proj/condition-i idx te today before? live?)]
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
 
 ;; CURATED JSON = the SAME slice the human board/ready render, so the AI-facing
@@ -1186,9 +1186,9 @@
    live? (Fn [proj/ProjectionIndex String] Bool)
    all? Bool]
   (Vec String)
-  (let [raw (proj/ready idx today before? live?)
-        rs (if all? raw (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
-        ranked (queue-order idx rs)]
+  (let [raw (Vec String) (proj/ready idx today before? live?)
+        rs (Vec String) (if all? raw (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
+        ranked (Vec String) (queue-order idx rs)]
     (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes
@@ -1198,21 +1198,21 @@
    live? (Fn [proj/ProjectionIndex String] Bool)
    all? Bool]
   (Vec String)
-  (let [nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
+  (let [nonterm (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all?
       nonterm
       ;; kind=thread scope (drop concern-* / unkinded ephemera), then the curated
       ;; kanban content: live-driven ACTIVE ++ top-15 READY by queue order. Blocked
       ;; is a count-only bucket on the human board, so it stays out of the slice.
-      (let [threads (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
-            active (in-condition idx threads today before? live? "active")
-            ready (vec (take 15 (queue-order idx
+      (let [threads (Vec String) (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
+            active (Vec String) (in-condition idx threads today before? live? "active")
+            ready (Vec String) (vec (take 15 (queue-order idx
                                              (in-condition idx threads today before? live? "ready"))))]
         (vec (concat active ready))))))
 
 (defn- recent-terminal-tes [idx proj/ProjectionIndex] (Vec String)
-  (let [terminal
+  (let [terminal (Vec String)
         (filterv
          (fn [te String] Bool
            (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te)))
@@ -1222,8 +1222,8 @@
            (reverse
             (sort-by
              (fn [te String] String
-               (let [updated (proj/string-value-at idx te "updated_at")
-                     created (proj/string-value-at idx te "created_at")]
+               (let [updated (U String Nil) (proj/string-value-at idx te "updated_at")
+                     created (U String Nil) (proj/string-value-at idx te "created_at")]
                  (str (if (some? updated) updated "") "|"
                       (if (some? created) created "") "|" te)))
              terminal))))))
@@ -1310,8 +1310,8 @@
      (if (and (= (kind-of idx te) "thread")
               (and (not (proj/terminal-i? idx te))
                    (parked-assignment? idx te live?)))
-       (let [d (proj/string-value-at idx te "driver")
-             eligibility (proj/explain idx te today before? live?)]
+       (let [d (U String Nil) (proj/string-value-at idx te "driver")
+             eligibility north.projections/Eligibility (proj/explain idx te today before? live?)]
          (conj acc
                (stale/->Review
                 te "driver"
@@ -1329,11 +1329,11 @@
    before? (Fn [String String] Bool)
    live? (Fn [proj/ProjectionIndex String] Bool)]
   (Vec stale/Review)
-  (let [base (vec (concat (stale/time-stale idx today before?)
+  (let [base (Vec stale/Review) (vec (concat (stale/time-stale idx today before?)
                           (vec (concat (stale/edge-stale idx)
                                        (vec (concat (stale/bars-missing idx)
                                                     (stale/bars-unevidenced idx)))))))
-        live-base (filterv
+        live-base (Vec north.staleness/Review) (filterv
                    (fn [rv stale/Review] Bool
                      (if (= (:pred rv) "done_when")
                        (live? live-idx (:te rv))
@@ -1357,11 +1357,11 @@
    arg String
    all? Bool]
   Nil
-  (let [facts (live-facts log)
-        idx (proj/index-triples facts)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)]
+  (let [facts (Vec store.types/Triple) (live-facts log)
+        idx north.projections/ProjectionIndex (proj/index-triples facts)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)]
     (cond
       [(or (= what "board") (= what "plate"))
        (println (to-json
@@ -1379,16 +1379,16 @@
                  (mapv (fn [te String] JThread (jthread idx te today before? live?))
                        (recent-terminal-tes idx))))]
       [(= what "needs-review")
-       (let [reviews (canonical-grooming-reviews idx idx today before? live?)]
+       (let [reviews (Vec north.staleness/Review) (canonical-grooming-reviews idx idx today before? live?)]
          (println (to-json
                    (mapv (fn [rv stale/Review] JReview
                            (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv)))
                          reviews))))]
       [(= what "show-many")
-       (let [subjects (filterv (fn [s String] Bool (not (str/blank? s)))
+       (let [subjects (Vec String) (filterv (fn [s String] Bool (not (str/blank? s)))
                                (mapv (fn [s String] String (short-id s))
                                      (vec (str/split arg #","))))
-             subject-set (reduce (fn
+             subject-set (Map String Bool) (reduce (fn
                                    [m (Map String Bool)
                                     s String] (Map String Bool)
                                    (assoc m (str "@" s) true))
@@ -1404,10 +1404,10 @@
        ;; consumed the deadline and concurrent child growth made the result only
        ;; consistency-checked, never atomic. Keep this read mechanical and return
        ;; every fact needed for the SDK's strict independent validation.
-       (let [children (direct-child-subjects facts arg)
-             child-ids (child-agent-ids children)
-             committed-runs (matching-subjects facts "kind" "run")
-             runs (child-run-subjects facts child-ids committed-runs)]
+       (let [children (Map String Bool) (direct-child-subjects facts arg)
+             child-ids (Map String Bool) (child-agent-ids children)
+             committed-runs (Map String Bool) (matching-subjects facts "kind" "run")
+             runs (Map String Bool) (child-run-subjects facts child-ids committed-runs)]
          (println
           (to-json
            (->JChildSettlementProjection
@@ -1433,7 +1433,7 @@
                        ;; whole bulk identity projection and erase every valid
                        ;; agent card from `north agents`.
                        (filterv (fn [c t/Triple] Bool
-                                  (let [l (triple-subject c)]
+                                  (let [l String (triple-subject c)]
                                     (and (some? l) (str/starts-with? l "@agent:"))))
                                 facts))))]
       [(= what "presentation")
@@ -1453,12 +1453,12 @@
     (cmd-json-database log what arg all?)))
 
 (defn cmd-needs-review [log String] Nil
-  (let [live-idx-now (live-idx log)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)
-        reviews (canonical-grooming-reviews live-idx-now live-idx-now today before? live?)
-        promo (stale/promotable live-idx-now)]
+  (let [live-idx-now north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)
+        reviews (Vec north.staleness/Review) (canonical-grooming-reviews live-idx-now live-idx-now today before? live?)
+        promo (Vec String) (stale/promotable live-idx-now)]
     (println (str "NEEDS REVIEW — " (count reviews) " judgment(s) whose inputs moved (" today ")"))
     (doseq [rv reviews]
       (println (str "  [" (:pred rv) "] " (short-id (:te rv)) "  " (trunc (title-of live-idx-now (:te rv)) 44)))
@@ -1489,10 +1489,10 @@
   (reduce (fn
             [best EntryPoint
              te String] EntryPoint
-            (let [note (entry-note idx te)]
+            (let [note String (entry-note idx te)]
               (if (str/blank? note)
                 best
-                (let [c (let [cc (proj/string-value-at idx te "created_at")] (if (some? cc) cc ""))]
+                (let [c String (let [cc (U String Nil) (proj/string-value-at idx te "created_at")] (if (some? cc) cc ""))]
                   (if (or (str/blank? (:te best)) (store.rt/str-lt? (:created best) c))
                     (->EntryPoint te note c)
                     best)))))
@@ -1500,35 +1500,35 @@
           (proj/thread-subjects idx)))
 
 (defn cmd-boot [log String] Nil
-  (let [idx (live-idx log)
-        today (store.rt/today-iso)
-        before? store.rt/str-lt?
-        live? (default-live?)]
+  (let [idx north.projections/ProjectionIndex (live-idx log)
+        today String (store.rt/today-iso)
+        before? (Fn [String String] Bool) store.rt/str-lt?
+        live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)]
     ;; 1. ENTRY POINT — the standing note + learnings, FULL (no truncation).
-    (let [e (find-entry idx)]
+    (let [e EntryPoint (find-entry idx)]
       (if (str/blank? (:te e))
         (println "\nENTRY POINT — none (no thread carries a `SESSION ENTRY POINT` note)")
         (do
           (println (str "\nENTRY POINT — " (short-id (:te e)) "  " (title-of idx (:te e))))
           (println (:note e))
-          (let [ls (proj/string-values-at idx (:te e) "learning")]
+          (let [ls (Vec String) (proj/string-values-at idx (:te e) "learning")]
             (when (not (empty? ls))
               (println "\nSTANDING MANDATES (learning):")
               (doseq [l ls] (println (str "  - " l))))))))
     ;; 2. board counts by derived condition.
-    (let [nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
+    (let [nonterm (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                            (proj/work-thread-ids-i idx))]
       (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? live? "active"))
                     "  ready " (count (in-condition idx nonterm today before? live? "ready"))
                     "  blocked " (count (in-condition idx nonterm today before? live? "blocked"))
                     "  draft " (count (in-condition idx nonterm today before? live? "draft"))))
       ;; 3. top 5 by leverage (finishing these frees the most stuck threads).
-      (let [cands (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) nonterm)
-            items (filterv (fn [it LevItem] Bool (> (:score it) 0))
+      (let [cands (Vec String) (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) nonterm)
+            items (Vec LevItem) (filterv (fn [it LevItem] Bool (> (:score it) 0))
                            (mapv (fn [te String] LevItem
                                    (->LevItem te (proj/leverage-score idx te)))
                                  cands))
-            ranked (vec (take 5 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
+            ranked (Vec LevItem) (vec (take 5 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
         (println "TOP LEVERAGE — finishing these transitively frees the most stuck threads")
         (doseq [it ranked]
           (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
@@ -1572,43 +1572,43 @@
   [idx proj/ProjectionIndex
    facts (Vec t/Triple)]
   (Vec KindStat)
-  (let [subj-list (proj/all-subjects idx)
+  (let [subj-list (Vec String) (proj/all-subjects idx)
         ;; subject -> kind (computed ONCE per subject, then reused per fact)
-        skind (reduce (fn
+        skind (Map String String) (reduce (fn
                         [m (Map String String)
                          s String] (Map String String)
                         (assoc m s (kind-of idx s)))
                       {} subj-list)
         ;; kind -> subject count
-        ksub (reduce (fn
+        ksub (Map String Int) (reduce (fn
                        [m (Map String Int)
                         s String] (Map String Int)
-                       (let [kd (get skind s "other")]
+                       (let [kd String (get skind s "other")]
                          (assoc m kd (+ 1 (int (get m kd 0))))))
                      {} subj-list)
         ;; kind -> fact count
-        kfacts (reduce (fn
+        kfacts (Map String Int) (reduce (fn
                          [m (Map String Int)
                           c t/Triple] (Map String Int)
-                         (let [kd (get skind (triple-subject c) "other")]
+                         (let [kd String (get skind (triple-subject c) "other")]
                            (assoc m kd (+ 1 (int (get m kd 0))))))
                        {} facts)
         ;; (kind KP-SEP pred) -> fact count  (flat map; nested Map-of-Map avoided)
-        kpreds (reduce (fn
+        kpreds (Map String Int) (reduce (fn
                          [m (Map String Int)
                           c t/Triple] (Map String Int)
-                         (let [kd (get skind (triple-subject c) "other")
-                               kk (str kd KP-SEP (triple-predicate c))]
+                         (let [kd String (get skind (triple-subject c) "other")
+                               kk String (str kd KP-SEP (triple-predicate c))]
                            (assoc m kk (+ 1 (int (get m kk 0))))))
                        {} facts)
-        kp-keys (vec (sort (set (keys kpreds))))
-        stats (mapv (fn [kd String] KindStat
-                      (let [pfx (str kd KP-SEP)
-                            off (+ (count kd) 1)
-                            plist (mapv (fn [kk String] PredCount
+        kp-keys (Vec String) (vec (sort (set (keys kpreds))))
+        stats (Vec KindStat) (mapv (fn [kd String] KindStat
+                      (let [pfx String (str kd KP-SEP)
+                            off Int (+ (count kd) 1)
+                            plist (Vec PredCount) (mapv (fn [kk String] PredCount
                                           (->PredCount (subs kk off) (int (get kpreds kk 0))))
                                         (filterv (fn [kk String] Bool (str/starts-with? kk pfx)) kp-keys))
-                            ptop (vec (take 8 (sort-by (fn [pc PredCount] Int (- 0 (:n pc))) plist)))]
+                            ptop (Vec PredCount) (vec (take 8 (sort-by (fn [pc PredCount] Int (- 0 (:n pc))) plist)))]
                         (->KindStat kd (int (get ksub kd 0)) (int (get kfacts kd 0)) ptop)))
                     (vec (sort (set (keys ksub)))))]
     (vec (sort-by (fn [ks KindStat] Int (- 0 (:facts ks))) stats))))
@@ -1628,7 +1628,7 @@
   String
   (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
 (defn- pad7 [n Int] String
-  (let [s (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
+  (let [s String (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
 (defn- kind-subjects
   [idx proj/ProjectionIndex
@@ -1648,7 +1648,7 @@
                  [a CovAcc
                   c t/Triple] CovAcc
                  (if (get subjset (triple-subject c) false)
-                   (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
+                   (let [sk String (str (triple-subject c) KP-SEP (triple-predicate c))]
                      (if (get (:seen a) sk false)
                        a
                        (->CovAcc (assoc (:seen a) sk true)
@@ -1666,18 +1666,18 @@
    facts (Vec t/Triple)
    kind String]
   (Vec FieldStat)
-  (let [ksubs (kind-subjects idx kind)
-        total (count ksubs)
-        subjset (reduce (fn
+  (let [ksubs (Vec String) (kind-subjects idx kind)
+        total Int (count ksubs)
+        subjset (Map String Bool) (reduce (fn
                           [m (Map String Bool)
                            s String] (Map String Bool)
                           (assoc m s true)) {} ksubs)
-        pc (coverage facts subjset)
-        stats (mapv (fn [p String] FieldStat
-                      (let [n (int (get pc p 0))
-                            pct (if (> total 0) (quot (* 100 n) total) 0)
+        pc (Map String Int) (coverage facts subjset)
+        stats (Vec FieldStat) (mapv (fn [p String] FieldStat
+                      (let [n Int (int (get pc p 0))
+                            pct Int (if (> total 0) (quot (* 100 n) total) 0)
                             ;; required := ≥98% coverage (integer-exact, no rounding boundary).
-                            req (if (> total 0) (>= (* n 100) (* total 98)) false)]
+                            req Bool (if (> total 0) (>= (* n 100) (* total 98)) false)]
                         (->FieldStat p n pct req)))
                     (vec (sort (set (keys pc)))))]
     ;; required first, then by coverage desc, then predicate name — a stable spec order.
@@ -1692,11 +1692,11 @@
   [idx proj/ProjectionIndex
    p String]
   String
-  (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality"))
+  (let [ps String (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality"))
                    (some? (proj/string-value-at idx (str "@" p) "value_kind")))
              (str "@" p) p)
-        card (proj/string-value-at idx ps "cardinality")
-        vk (proj/string-value-at idx ps "value_kind")]
+        card (U String Nil) (proj/string-value-at idx ps "cardinality")
+        vk (U String Nil) (proj/string-value-at idx ps "value_kind")]
     (str (if (some? card) (str "  cardinality=" card) "")
          (if (some? vk) (str " value_kind=" vk) ""))))
 
@@ -1719,13 +1719,13 @@
    facts (Vec t/Triple)
    kind String]
   Nil
-  (let [ksubs (kind-subjects idx kind)
-        total (count ksubs)]
+  (let [ksubs (Vec String) (kind-subjects idx kind)
+        total Int (count ksubs)]
     (if (= total 0)
       (println (str "SCHEMA · " kind " — no subjects of this kind. `north schema` lists the kinds in use."))
-      (let [fields (schema-fields idx facts kind)
-            req (filterv (fn [fs FieldStat] Bool (:required fs)) fields)
-            opt (filterv (fn [fs FieldStat] Bool (not (:required fs))) fields)]
+      (let [fields (Vec FieldStat) (schema-fields idx facts kind)
+            req (Vec FieldStat) (filterv (fn [fs FieldStat] Bool (:required fs)) fields)
+            opt (Vec FieldStat) (filterv (fn [fs FieldStat] Bool (not (:required fs))) fields)]
         (println (str "SCHEMA · " kind " — " total " subjects · " (count fields) " distinct predicates"))
         (println (str "  REQUIRED — carried by ≥98% of " kind " subjects (≈ every one):"))
         (doseq [fs req]
@@ -1743,12 +1743,12 @@
   [log String
    kind String]
   Nil
-  (let [facts (live-facts log)
-        idx (proj/index-triples facts)]
+  (let [facts (Vec store.types/Triple) (live-facts log)
+        idx north.projections/ProjectionIndex (proj/index-triples facts)]
     (if (not (str/blank? kind))
       (print-schema-kind idx facts kind)
-      (let [stats (census idx facts)
-            pred-subs (filterv (fn [s String] Bool
+      (let [stats (Vec KindStat) (census idx facts)
+            pred-subs (Vec String) (filterv (fn [s String] Bool
                                  (or (some? (proj/string-value-at idx s "cardinality"))
                                      (or (some? (proj/string-value-at idx s "value_kind"))
                                          (some? (proj/string-value-at idx s "acyclic")))))
@@ -1764,15 +1764,15 @@
 ;; Teaching is graph data: predicate entities point at normalized example
 ;; entities. This projection intentionally counts only that live connection.
 (defn cmd-teaching-coverage [log String] Nil
-  (let [facts (live-facts log)
-        idx (proj/index-triples facts)
-        predicates (filterv (fn [s String] Bool
+  (let [facts (Vec store.types/Triple) (live-facts log)
+        idx north.projections/ProjectionIndex (proj/index-triples facts)
+        predicates (Vec String) (filterv (fn [s String] Bool
                               (= (proj/string-value-at idx s "entity_kind") "predicate"))
                             (proj/all-subjects idx))
-        taught (filterv (fn [s String] Bool
+        taught (Vec String) (filterv (fn [s String] Bool
                            (not (empty? (proj/string-values-at idx s "predicate_example"))))
                          predicates)
-        missing (sort (map (fn [s String] String
+        missing (Vec String) (sort (map (fn [s String] String
                              (if (str/starts-with? s "@") (subs s 1) s))
                            (remove (set taught) predicates)))]
     (println (str "TEACHING COVERAGE — " (count taught) " / " (count predicates)
@@ -1795,7 +1795,7 @@
    threads-dir String
    log String]
   Nil
-  (let [cmd (if (empty? args) "" (first args))]
+  (let [cmd String (if (empty? args) "" (first args))]
     (cond
       [(= cmd "capture")
        (if (and (>= (count args) 2)
@@ -1846,8 +1846,8 @@
     [:else (do (run args threads-dir log) 0)]))
 
 (defn -main [& args] Nil
-  (let [argv (vec args)
-        threads-dir (threads-dir)
-        log (log-path)
-        status (run-status argv threads-dir log)]
+  (let [argv (Vec String) (vec args)
+        threads-dir String (threads-dir)
+        log String (log-path)
+        status Int (run-status argv threads-dir log)]
     (when (not (= status 0)) (System/exit status))))
