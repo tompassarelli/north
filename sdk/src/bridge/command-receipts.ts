@@ -12,6 +12,14 @@ import {
   type Term,
 } from "../store-rpc-codec";
 import { validExecutionAttemptIdentity } from "../delivery-evidence";
+import {
+  createWireEventStorePublisher,
+  wireRunLedgerIdentity,
+  type WireEventStorePublisher,
+  type WireLedgerBatchWriter,
+  type WireRunLedgerIdentity,
+} from "../run-ledger";
+import { wireRunId, type WireRunId } from "../wire";
 import type { BridgeLaunchProvider } from "./protocol";
 
 export interface BridgeAttemptRouteRequest {
@@ -28,6 +36,11 @@ export interface BridgeAttemptRouteAuthority {
   accountAuthorityReceiptSha256: string;
   routeObservationReceiptSha256: string;
   launchIntentSha256: string;
+}
+
+export interface BridgeAttemptWireAuthority extends BridgeAttemptRouteAuthority {
+  wireRunId: WireRunId;
+  wireLedgerIdentity: WireRunLedgerIdentity;
 }
 
 export type BridgeCommandKind =
@@ -68,8 +81,9 @@ export interface BridgeCommandReceipts {
     executionId: string,
     attemptId: string,
     request: BridgeAttemptRouteRequest,
-  ): Promise<BridgeAttemptRouteAuthority>;
-  attemptForExecution(executionId: string): Promise<string>;
+  ): Promise<BridgeAttemptWireAuthority>;
+  routeForExecution(executionId: string): Promise<BridgeAttemptWireAuthority>;
+  createWirePublisher(authority: BridgeAttemptWireAuthority): WireEventStorePublisher;
   admit(request: BridgeCommandAdmissionRequest): Promise<BridgeCommandAdmission>;
   reconcile(attemptId: string): Promise<BridgeCommandRecovery>;
   commitIntent(command: BridgeCommandAdmission): Promise<void>;
@@ -307,7 +321,7 @@ function attemptRouteAuthority(
   attemptId: string,
   attemptRows: readonly Term[],
   accountRows: readonly Term[],
-): BridgeAttemptRouteAuthority {
+): BridgeAttemptWireAuthority {
   const facts = rowsByPredicate(attemptRows);
   const manifestSha256 = attemptId.slice("@attempt:".length);
   if (singleton(facts, "kind") !== "execution_attempt"
@@ -329,8 +343,22 @@ function attemptRouteAuthority(
   if (!thread.startsWith("@thread:") || thread.length === "@thread:".length) {
     throw new Error("Bridge launch attempt has a malformed thread");
   }
-  requireAttemptString(facts, "execution_attempt_run");
-  requireAttemptString(facts, "execution_attempt_reporter");
+  let authoritativeRunId: WireRunId;
+  try { authoritativeRunId = wireRunId(requireAttemptString(facts, "execution_attempt_run")); }
+  catch { throw new Error("Bridge launch attempt has a malformed run"); }
+  const reporter = requireAttemptString(facts, "execution_attempt_reporter");
+  if (!reporter.startsWith("@agent:") || reporter.length === "@agent:".length) {
+    throw new Error("Bridge launch attempt has a malformed reporter");
+  }
+  let wireLedgerIdentity: WireRunLedgerIdentity;
+  try {
+    wireLedgerIdentity = wireRunLedgerIdentity({
+      thread,
+      agent: reporter.slice("@agent:".length),
+    });
+  } catch {
+    throw new Error("Bridge launch attempt has a malformed wire ledger identity");
+  }
   const ordinal = Number(requireAttemptString(facts, "execution_attempt_ordinal"));
   if (!Number.isSafeInteger(ordinal) || ordinal < 1) {
     throw new Error("Bridge launch attempt has a malformed ordinal");
@@ -388,6 +416,8 @@ function attemptRouteAuthority(
     accountId,
     ...(credentialProfile ? { credentialProfile } : {}),
     model,
+    wireRunId: authoritativeRunId,
+    wireLedgerIdentity,
     accountAuthorityReceiptSha256,
     routeObservationReceiptSha256,
     launchIntentSha256,
@@ -423,7 +453,7 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
   }
 
   async #attemptRouteSnapshot(attemptId: string): Promise<{
-    authority: BridgeAttemptRouteAuthority;
+    authority: BridgeAttemptWireAuthority;
     servedVersion: number;
   }> {
     for (let attempt = 0; attempt < MAX_OCC_ATTEMPTS; attempt += 1) {
@@ -447,7 +477,7 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
     executionId: string,
     attemptId: string,
     request: BridgeAttemptRouteRequest,
-  ): Promise<BridgeAttemptRouteAuthority> {
+  ): Promise<BridgeAttemptWireAuthority> {
     requireIdentity("execution ID", executionId);
     requireAttemptId(attemptId);
     const subject = executionSubject(executionId);
@@ -501,7 +531,7 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
     throw new Error("Bridge execution binding exhausted its Store OCC retries");
   }
 
-  async attemptForExecution(executionId: string): Promise<string> {
+  async routeForExecution(executionId: string): Promise<BridgeAttemptWireAuthority> {
     requireIdentity("execution ID", executionId);
     for (let attempt = 0; attempt < MAX_OCC_ATTEMPTS; attempt += 1) {
       const binding = await this.#commandRows(executionSubject(executionId));
@@ -515,9 +545,13 @@ export class StoreBridgeCommandReceipts implements BridgeCommandReceipts {
       }
       const acknowledged = await this.#attemptRouteSnapshot(attemptId);
       if (acknowledged.servedVersion !== binding.servedVersion) continue;
-      return attemptId;
+      return acknowledged.authority;
     }
     throw new Error("Bridge execution attempt lookup could not obtain one Store snapshot");
+  }
+
+  createWirePublisher(authority: BridgeAttemptWireAuthority): WireEventStorePublisher {
+    return createWireEventStorePublisher(authority.wireLedgerIdentity);
   }
 
   async admit(request: BridgeCommandAdmissionRequest): Promise<BridgeCommandAdmission> {
@@ -675,20 +709,40 @@ export class MemoryBridgeCommandReceipts implements BridgeCommandReceipts {
   readonly executionAttempts = new Map<string, string>();
   readonly acknowledgedAttempts: Set<string>;
   readonly attemptAuthorities = new Map<string, BridgeAttemptRouteAuthority>();
+  readonly #wireWriter: WireLedgerBatchWriter;
 
-  constructor(attempts: readonly (string | BridgeAttemptRouteAuthority)[] = []) {
+  constructor(
+    attempts: readonly (string | BridgeAttemptRouteAuthority)[] = [],
+    options: { wireWriter?: WireLedgerBatchWriter } = {},
+  ) {
     this.acknowledgedAttempts = new Set(attempts.map((attempt) =>
       typeof attempt === "string" ? attempt : attempt.attemptId));
     for (const attempt of attempts) {
       if (typeof attempt !== "string") this.attemptAuthorities.set(attempt.attemptId, attempt);
     }
+    this.#wireWriter = options.wireWriter ?? (async () => "recorded");
+  }
+
+  #wireAuthority(
+    executionId: string,
+    authority: BridgeAttemptRouteAuthority,
+  ): BridgeAttemptWireAuthority {
+    const extended = authority as Partial<BridgeAttemptWireAuthority>;
+    return Object.freeze({
+      ...authority,
+      wireRunId: extended.wireRunId ?? wireRunId(`bridge:${executionId}`),
+      wireLedgerIdentity: extended.wireLedgerIdentity ?? wireRunLedgerIdentity({
+        thread: "(ad-hoc)",
+        agent: `bridge:${executionId}`,
+      }),
+    });
   }
 
   async bindExecution(
     executionId: string,
     attemptId: string,
     request: BridgeAttemptRouteRequest,
-  ): Promise<BridgeAttemptRouteAuthority> {
+  ): Promise<BridgeAttemptWireAuthority> {
     if (!this.acknowledgedAttempts.has(attemptId)) {
       throw new Error("Bridge launch attempt is not acknowledged by Store");
     }
@@ -714,13 +768,29 @@ export class MemoryBridgeCommandReceipts implements BridgeCommandReceipts {
     });
     assertRequestedRoute(authority, request);
     this.executionAttempts.set(executionId, attemptId);
-    return authority;
+    return this.#wireAuthority(executionId, authority);
   }
 
-  async attemptForExecution(executionId: string): Promise<string> {
+  async routeForExecution(executionId: string): Promise<BridgeAttemptWireAuthority> {
     const attemptId = this.executionAttempts.get(executionId);
     if (attemptId === undefined) throw new Error("Bridge execution lacks an attempt binding");
-    return attemptId;
+    const authority = this.attemptAuthorities.get(attemptId) ?? {
+      attemptId,
+      provider: "openai" as const,
+      accountId: "openai",
+      credentialProfile: "openai",
+      model: "gpt-5.6-terra",
+      accountAuthorityReceiptSha256: sha256(`memory-account-authority\0${attemptId}`),
+      routeObservationReceiptSha256: sha256(`memory-route-observation\0${attemptId}`),
+      launchIntentSha256: sha256(`memory-launch-intent\0${attemptId}`),
+    };
+    return this.#wireAuthority(executionId, authority);
+  }
+
+  createWirePublisher(authority: BridgeAttemptWireAuthority): WireEventStorePublisher {
+    return createWireEventStorePublisher(authority.wireLedgerIdentity, {
+      writer: this.#wireWriter,
+    });
   }
 
   async admit(request: BridgeCommandAdmissionRequest): Promise<BridgeCommandAdmission> {

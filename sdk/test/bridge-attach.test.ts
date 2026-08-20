@@ -4,12 +4,16 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
-import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
+import {
+  MemoryBridgeCommandReceipts,
+  type BridgeAttemptWireAuthority,
+} from "../src/bridge/command-receipts";
 import {
   readBridgeWireJournal,
 } from "../src/bridge/journal";
 import type { BridgeProviderExecution } from "../src/bridge/provider";
 import type { BridgeServerMessage } from "../src/bridge/protocol";
+import { wireRunId } from "../src/wire";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 interface Client {
@@ -20,6 +24,21 @@ interface Client {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
+const STORE_WIRE_AUTHORITY = Object.freeze({
+  attemptId: ATTEMPT_ID,
+  provider: "openai",
+  accountId: "bridge-wire",
+  credentialProfile: "bridge-wire",
+  model: "gpt-5.6-terra",
+  wireRunId: wireRunId("run:bridge-store-first"),
+  wireLedgerIdentity: {
+    thread: "@thread:bridge-store-first",
+    agent: "bridge-wire",
+  },
+  accountAuthorityReceiptSha256: "b".repeat(64),
+  routeObservationReceiptSha256: "c".repeat(64),
+  launchIntentSha256: "d".repeat(64),
+} satisfies BridgeAttemptWireAuthority);
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -65,6 +84,58 @@ function launchedId(connection: Client): string {
   if (!message || message.type !== "launched") throw new Error("launch response missing");
   return message.executionId;
 }
+
+test("launch publishes Store-authoritative wire suffixes before local JSONL", async () => {
+  const paths = fixture();
+  const executionId = "11111111-1111-4111-8111-111111111111";
+  const wirePath = join(paths.journalRoot, executionId, "wire.jsonl");
+  const publicationStarts: number[] = [];
+  const localCountsAtPublication: number[] = [];
+  const commandReceipts = new MemoryBridgeCommandReceipts([STORE_WIRE_AUTHORITY], {
+    async wireWriter(projections) {
+      const sequences = projections.map(({ facts }) =>
+        Number(Object.fromEntries(facts).wire_event_sequence));
+      publicationStarts.push(sequences[0]!);
+      const local = await Bun.file(wirePath).text().catch(() => "");
+      localCountsAtPublication.push(local.length === 0 ? 0 : local.trimEnd().split("\n").length);
+      return "recorded";
+    },
+  });
+  const provider: BridgeProviderExecution = {
+    async open(context) {
+      const session = new BridgeWireTestSession(context, { initialAssistant: "Store first" });
+      session.complete("done");
+      return session;
+    },
+  };
+  const northd = new Northd({ ...paths, provider, commandReceipts });
+  await northd.listen();
+  cleanups.push(() => northd.close());
+
+  const launched = await client(paths.socketPath, {
+    op: "launch",
+    executionId,
+    prompt: "retain Store wire identity",
+    cwd: paths.root,
+    attemptId: ATTEMPT_ID,
+  });
+  await waitFor(
+    () => launched.messages.some((message) =>
+      (message.type === "event" && message.record.kind === "session.idle")
+      || message.type === "error"),
+    "Store-first idle session or provider failure",
+  );
+  expect(launched.messages.find((message) => message.type === "error")).toBeUndefined();
+  const terminated = await client(paths.socketPath, { op: "terminateSession", executionId });
+  await terminated.closed;
+  await launched.closed;
+
+  const persisted = await readBridgeWireJournal(paths.journalRoot, executionId);
+  expect(persisted.events.every((event) => event.runId === STORE_WIRE_AUTHORITY.wireRunId)).toBe(true);
+  expect(localCountsAtPublication).toEqual(publicationStarts);
+  expect(publicationStarts[0]).toBe(0);
+  expect(persisted.events.at(-1)?.kind).toBe("run.terminated");
+});
 
 test("attach maps its one-based cursor to exact zero-based wire replay, then tails live events", async () => {
   const paths = fixture();

@@ -31,7 +31,7 @@ import {
   bridgeCommandArtifactLocator,
   bridgeCommandPayloadDigest,
   bridgeCommandResultDigest,
-  type BridgeAttemptRouteAuthority,
+  type BridgeAttemptWireAuthority,
   type BridgeCommandAdmission,
   type BridgeCommandDelivery,
   type BridgeCommandKind,
@@ -47,12 +47,12 @@ import {
   type BridgeRequest,
   type BridgeServerMessage,
 } from "./protocol";
+import type { WireEventStorePublisher } from "../run-ledger";
 import {
   encodeWireJsonlLine,
   isIntermediateProviderSessionReplacement,
   isProviderNeutralWireErrorCode,
   WireEventWriter,
-  wireRunId,
   type WireAbortEvidence,
   type WireEvent,
   type WireTerminalLifecycle,
@@ -110,12 +110,13 @@ interface ExecutionRuntime {
   journal: ExecutionJournal;
   wireJournal?: BridgeWireJournal;
   writer?: WireEventWriter;
+  wirePublisher?: WireEventStorePublisher;
   wireEvents: WireEvent[];
   wireTail: Promise<void>;
   subscribers: Set<Socket>;
   abort: AbortController;
   attemptId: string;
-  attemptRoute?: BridgeAttemptRouteAuthority;
+  attemptRoute?: BridgeAttemptWireAuthority;
   pendingInputs: QueuedInput[];
   session?: BridgeProviderSession;
   activeTurn: boolean;
@@ -464,7 +465,8 @@ export class Northd {
     const journal = this.#controlJournal(this.journalRoot, executionId);
     let wireJournal: BridgeWireJournal | undefined;
     try {
-      const attemptId = await this.#commandReceipts.attemptForExecution(executionId);
+      const attemptRoute = await this.#commandReceipts.routeForExecution(executionId);
+      const attemptId = attemptRoute.attemptId;
       const controls = journal.scan();
       const accepted = controls.records.find((record) => record.kind === "execution.accepted");
       const role = parseBridgeLaunchRole(
@@ -476,6 +478,7 @@ export class Northd {
         const runtime: ExecutionRuntime = {
           executionId,
           attemptId,
+          attemptRoute,
           role,
           journal,
           wireEvents: events,
@@ -506,6 +509,7 @@ export class Northd {
         const runtime: ExecutionRuntime = {
           executionId,
           attemptId,
+          attemptRoute,
           role,
           journal,
           wireEvents: events,
@@ -525,9 +529,11 @@ export class Northd {
         return runtime;
       }
       const writer = WireEventWriter.restore(events);
-      if (writer.runId !== wireRunId(`bridge:${executionId}`)) {
+      if (writer.runId !== attemptRoute.wireRunId) {
         throw new Error("bridge wire replay belongs to another run");
       }
+      const wirePublisher = this.#commandReceipts.createWirePublisher(attemptRoute);
+      if (events.length > 0) await wirePublisher.publish(Object.freeze(events));
       // Store decides command eligibility. Local journals remain payload and UI
       // projections; in particular, an intent lacking a receipt is observed but
       // never rebuilt into pendingInputs or sent again after daemon restart.
@@ -539,6 +545,7 @@ export class Northd {
         journal,
         wireJournal,
         writer,
+        wirePublisher,
         wireEvents: events,
         wireTail: Promise.resolve(),
         subscribers: new Set<Socket>(),
@@ -618,8 +625,12 @@ export class Northd {
   }
 
   #restoreWriterFromDurablePrefix(runtime: ExecutionRuntime): void {
-    const writer = WireEventWriter.restore(runtime.wireEvents);
-    if (writer.runId !== wireRunId(`bridge:${runtime.executionId}`)) {
+    const runId = runtime.attemptRoute?.wireRunId;
+    if (!runId) throw new Error("bridge wire run authority is unavailable");
+    const writer = runtime.wireEvents.length === 0
+      ? new WireEventWriter({ runId })
+      : WireEventWriter.restore(runtime.wireEvents);
+    if (writer.runId !== runId) {
       throw new Error("bridge wire replay belongs to another run");
     }
     runtime.writer = writer;
@@ -631,7 +642,7 @@ export class Northd {
     allowTerminal = false,
   ): Promise<WirePersistence> {
     const append = runtime.wireTail.then(async () => {
-      if (!runtime.wireJournal || !runtime.writer) {
+      if (!runtime.wireJournal || !runtime.writer || !runtime.wirePublisher) {
         throw new Error("bridge wire writer is unavailable");
       }
       if (runtime.terminal) throw new Error("bridge run is already terminal");
@@ -660,26 +671,36 @@ export class Northd {
         }
         return { events: persistedEvents, idle };
       }
-      while (runtime.wireEvents.length <= event.sequence) {
-        const next = runtime.writer.events()[runtime.wireEvents.length];
+      const suffix: WireEvent[] = [];
+      for (let sequence = runtime.wireEvents.length; sequence <= event.sequence; sequence += 1) {
+        const next = runtime.writer.events()[sequence];
         if (!next) throw new Error("bridge wire writer has a sequence gap");
-        const persisted = await runtime.wireJournal.append(next);
-        if (encodeWireJsonlLine(persisted) !== encodeWireJsonlLine(next)) {
-          throw new Error("bridge wire journal changed a canonical event");
+        suffix.push(next);
+      }
+      try {
+        await runtime.wirePublisher.publish(Object.freeze(suffix));
+        for (const next of suffix) {
+          const persisted = await runtime.wireJournal.append(next);
+          if (encodeWireJsonlLine(persisted) !== encodeWireJsonlLine(next)) {
+            throw new Error("bridge wire journal changed a canonical event");
+          }
+          runtime.wireEvents.push(persisted);
+          persistedEvents.push(persisted);
+          if (persisted.kind !== "model-call.completed"
+            || allowTerminal
+            || isIntermediateProviderSessionReplacement(persisted)) continue;
+          const disposition = runtime.turnDisposition;
+          runtime.activeTurn = false;
+          runtime.turnDisposition = "completed";
+          idle.push({
+            disposition,
+            pendingInputs: runtime.pendingInputs.length,
+            wireCursor: persisted.sequence + 1,
+          });
         }
-        runtime.wireEvents.push(persisted);
-        persistedEvents.push(persisted);
-        if (persisted.kind !== "model-call.completed"
-          || allowTerminal
-          || isIntermediateProviderSessionReplacement(persisted)) continue;
-        const disposition = runtime.turnDisposition;
-        runtime.activeTurn = false;
-        runtime.turnDisposition = "completed";
-        idle.push({
-          disposition,
-          pendingInputs: runtime.pendingInputs.length,
-          wireCursor: persisted.sequence + 1,
-        });
+      } catch (error) {
+        this.#restoreWriterFromDurablePrefix(runtime);
+        throw error;
       }
       return { events: persistedEvents, idle };
     });
@@ -947,23 +968,33 @@ export class Northd {
     void admission.promise.catch(() => {});
     this.#runtimeLoads.set(executionId, admission.promise);
     try {
+      const attemptRoute = await this.#commandReceipts.bindExecution(
+        executionId,
+        request.attemptId,
+        {
+          ...(request.provider ? { provider: request.provider } : {}),
+          ...(request.model ? { model: request.model } : {}),
+        },
+      );
       const journal = this.#controlJournal(this.journalRoot, executionId);
       const wireJournal = await BridgeWireJournal.open(this.journalRoot, executionId);
-      const writer = new WireEventWriter({ runId: wireRunId(`bridge:${executionId}`) });
+      const writer = new WireEventWriter({ runId: attemptRoute.wireRunId });
+      const wirePublisher = this.#commandReceipts.createWirePublisher(attemptRoute);
       const started = writer.append({
         kind: "run.started",
         lifecycle: "running",
         owner: `bridge:${request.role}`,
       });
-      const persisted = await wireJournal.append(started);
       const runtime: ExecutionRuntime = {
         executionId,
         attemptId: request.attemptId,
+        attemptRoute,
         role: request.role,
         journal,
         wireJournal,
         writer,
-        wireEvents: [persisted],
+        wirePublisher,
+        wireEvents: [],
         wireTail: Promise.resolve(),
         subscribers: new Set(),
         abort: new AbortController(),
@@ -977,14 +1008,7 @@ export class Northd {
         teardownFailureRecorded: false,
       };
       try {
-        runtime.attemptRoute = await this.#commandReceipts.bindExecution(
-          executionId,
-          request.attemptId,
-          {
-            ...(request.provider ? { provider: request.provider } : {}),
-            ...(request.model ? { model: request.model } : {}),
-          },
-        );
+        await this.#persistWire(runtime, started);
         this.#appendControl(runtime, "execution.accepted", {
           prompt: request.prompt,
           cwd: request.cwd,
@@ -997,13 +1021,15 @@ export class Northd {
         runtime.activeTurn = false;
         runtime.terminating = true;
         let terminalFailure: unknown;
-        try {
-          await this.#finish(runtime, {
-            lifecycle: "failed",
-            reason: { code: "provider_error" },
-          });
-        } catch (failure) {
-          terminalFailure = failure;
+        if (runtime.wireEvents.length > 0) {
+          try {
+            await this.#finish(runtime, {
+              lifecycle: "failed",
+              reason: { code: "provider_error" },
+            });
+          } catch (failure) {
+            terminalFailure = failure;
+          }
         }
         let controlCloseFailure: unknown;
         let wireCloseFailure: unknown;
