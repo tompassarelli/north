@@ -19,8 +19,8 @@
    target String
    frontier (Vec String)]
   Bool
-  (loop [(remaining (Vec String)) frontier
-         (seen (Map String Bool)) {}]
+  (loop [remaining (Vec String) frontier
+         seen (Map String Bool) {}]
     (cond
       [(empty? remaining) false]
       [(= target (first remaining)) true]
