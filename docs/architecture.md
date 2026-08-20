@@ -31,6 +31,25 @@ These are authored in [Beagle](https://github.com/Autonymy/beagle) and compiled
 to Clojure under [`out/`](../out), which is committed — see
 [building-and-testing.md](building-and-testing.md).
 
+### Current Beagle dialect boundary
+
+Beagle's source selector is an execution boundary, not a style label. A `.bgl`
+file with bare `#lang beagle` selects **Beagle Native Core** and freezes one
+typed native program; `c17`, `qbe`, and `wasm` are materializers of that same
+program. “Backend-neutral” describes the frozen program before materialization;
+it does not make bare Beagle a hosted or target-agnostic dialect.
+
+North's existing `.bclj` files explicitly select `#lang beagle/clj`. They are
+hosted Clojure capsules used by the current life CLI and coordination
+projections, and [`build.sh`](../build.sh) emits their checked-in `.clj`
+runtime. The Bridge application similarly uses the explicit `#lang beagle/js`
+hosted JavaScript capsule. These hosted capsules may translate Store facts or
+perform foreign runtime work, but they do not make durable scheduling or replay
+decisions independently. New resident semantics and durability move into
+`.bgl` Native Core over Store; provider CLI, PTY, browser, filesystem, and OS
+edges remain in their host capsule until Beagle has a native target for that
+capability.
+
 **CLI** → [`bin/north`](../bin/north). It aims the Beagle Store engine at your data,
 sets capture provenance, and dispatches: life and coordination verbs
 (`ready`/`threads`/`capture`/`agents`/`spawn`/`delegate`/`watch`/
