@@ -8,7 +8,7 @@ the doctrine and record the why here.
 ## 7. Reconciliation record — provenance
 
 Consolidation exchange, 2026-07-28: my opening
-`@msg:20260728-144551-e0a5dc28` → `fram-reliability-supervisor` response
+`@msg:20260728-144551-e0a5dc28` → `coordination-reliability-supervisor` response
 `@msg:20260728-144742-de58e17f` → settlement `@msg:20260728-145018-1df6609b`
 (terminal in one round-trip — the exchange itself obeyed the stop rule).
 
@@ -35,7 +35,7 @@ spot-check" never forbade predeclared aggregate attestation — the spot-check
 budget governs the coordinator's *consumption* of delivered evidence;
 whole-outcome attestation is part of the declared bar at P2+.
 
-**Recorded concession:** the fram cache task legitimately enters P3 (mutates
+**Recorded concession:** the coordination cache task legitimately enters P3 (mutates
 the live coordination substrate whose failure blocks North admission), so a
 canary was intake-justified — but inventing it *during* verification instead
 of declaring it in the child bar was process debt. Right tier, wrong process.
