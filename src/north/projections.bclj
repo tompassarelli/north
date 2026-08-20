@@ -89,7 +89,7 @@
          (fn
            [predicates (Vec String)
             row (Vec String)] (Vec String)
-           (let [kind (nth row 1)]
+           (let [kind String (nth row 1)]
              (if (= kind "") predicates
                  (set-string-membership predicates (nth row 0) (= kind "ref")))))
          fallback-reference-predicates
@@ -98,7 +98,7 @@
          (fn
            [predicates (Vec String)
             row (Vec String)] (Vec String)
-           (let [declared (nth row 2)]
+           (let [declared String (nth row 2)]
              (if (= declared "") predicates
                  (set-string-membership predicates (nth row 0) (= declared "true")))))
          fallback-acyclic-predicates
@@ -366,7 +366,7 @@
    today String
    before? (Fn [String String] Bool)
    live? (Fn [ProjectionIndex String] Bool)] Eligibility
-  (let [st (classify idx te today before? live?)]
+  (let [st String (classify idx te today before? live?)]
     (->Eligibility
      st
      (= st "ready")
@@ -418,13 +418,13 @@
 (defn transitive-dependents
   [idx ProjectionIndex
    te String] (Vec String)
-  (loop [frontier (dependents-of idx te)
-         seen {}
-         ordered []]
+  (loop [frontier (Vec String) (dependents-of idx te)
+         seen (Map String Bool) {}
+         ordered (Vec String) []]
     (if (empty? frontier)
       ordered
-      (let [x (first frontier)
-            rest-f (vec (rest frontier))]
+      (let [x String (first frontier)
+            rest-f (Vec String) (vec (rest frontier))]
         (if (contains? seen x)
           (recur rest-f seen ordered)
           (recur (vec (concat rest-f (dependents-of idx x)))
