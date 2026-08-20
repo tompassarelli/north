@@ -576,6 +576,47 @@
    nonterm (filterv (fn [^String te] (not (proj/terminal-i? idx te))) (proj/work-thread-ids-i idx))]
   (if all (board-full idx today before? live? nonterm) (board-curated idx today before? live? nonterm))))
 
+(defn- ^String cockpit-thread-line [idx ^String te ^String today before? live?]
+  (let [condition (proj/condition-i idx te today before? live?)
+   owner (proj/string-value-at idx te "owner")
+   estimate (proj/string-value-at idx te "estimate_hours")
+   deps (proj/incomplete-deps idx te)]
+  (str "  " (short-id te) "  " condition " · " (trunc (title-of idx te) 38) " · owner " (if (some? owner) owner "personal") " · blocked by " (count deps) (if (some? estimate) (str " · est " estimate "h") ""))))
+
+(defn cmd-cockpit [^String log]
+  (let [idx (live-idx log)
+   today (store.rt/today-iso)
+   before? store.rt/str-lt?
+   live? (default-live?)
+   threads (filterv (fn [^String te] (= (kind-of idx te) "thread")) (proj/work-thread-ids-i idx))
+   open (filterv (fn [^String te] (not (proj/terminal-i? idx te))) threads)
+   sessions (filterv (fn [^String te] (or (= (kind-of idx te) "session") (some? (proj/string-value-at idx te "current_thread")) (some? (proj/string-value-at idx te "session_identity")))) (proj/all-subjects idx))
+   accounts (filterv (fn [^String te] (or (= (kind-of idx te) "account") (some? (proj/string-value-at idx te "headroom")) (some? (proj/string-value-at idx te "used_percent")))) (proj/all-subjects idx))
+   landings (vec (take 8 (reverse (sort-by (fn [^String te] (let [at (proj/string-value-at idx te "updated_at")]
+  (if (some? at) at ""))) (filterv (fn [^String te] (and (some? (proj/string-value-at idx te "candidate_rev")) (some (fn [^String reached] (= reached "landed")) (proj/string-values-at idx te "reached")))) (proj/all-subjects idx))))))]
+  (println (str "NORTH LIVE — " (count open) " open threads · Store facts at read time"))
+  (println "THREADS")
+  (doseq [te (take 12 (sort-by (fn [^String te] (title-of idx te)) open))]
+  (println (cockpit-thread-line idx te today before? live?)))
+  (println "SESSIONS")
+  (if (empty? sessions) (println "  no live-session fact projection") (doseq [te (take 12 sessions)]
+  (let [thread (proj/string-value-at idx te "current_thread")
+   parent (proj/string-value-at idx te "parent_thread")]
+  (println (str "  " (short-id te) " · thread " (if (some? thread) (short-id thread) "—") " · parent " (if (some? parent) (short-id parent) "—"))))))
+  (println "ACCOUNTS")
+  (if (empty? accounts) (println "  no account headroom fact projection") (doseq [te (take 12 accounts)]
+  (let [headroom (proj/string-value-at idx te "headroom")
+   usage (proj/string-value-at idx te "used_percent")]
+  (println (str "  " (short-id te) " · headroom " (if (some? headroom) headroom "—") " · used " (if (some? usage) usage "—"))))))
+  (println "LATEST PUBLIC LANDINGS")
+  (if (empty? landings) (println "  no landed candidate revision facts") (doseq [te landings]
+  (let [rev (proj/string-value-at idx te "candidate_rev")]
+  (println (str "  " (if (some? rev) (trunc rev 12) "—") " · " (trunc (title-of idx te) 54))))))
+  (println "CONTROL")
+  (println "  north bridge app  — select a live row, type a message, or use /interrupt")
+  (println "  north bridge attach <execution-id> [--cursor N]")
+  (println "  north bridge msg <execution-id> <message> · north bridge interrupt <execution-id>")))
+
 (defrecord JThread [id title condition emoji])
 
 (defn jthread-id [r] (:id r))
@@ -940,6 +981,7 @@
   (= cmd "next") (cmd-next log)
   (= cmd "agenda") (cmd-agenda log)
   (= cmd "threads") (cmd-board log (has-flag? args "--all"))
+  (= cmd "cockpit") (cmd-cockpit log)
   (= cmd "schema") (cmd-schema log (if (>= (count args) 2) (nth args 1) ""))
   (= cmd "teaching-coverage") (cmd-teaching-coverage log)
   (= cmd "needs-review") (cmd-needs-review log)
@@ -952,7 +994,7 @@
   (= cmd "tools") (cmd-tools)
   (= cmd "boot") (cmd-boot log)
   (= cmd "json") (cmd-json log (if (> (count args) 1) (nth args 1) "") (if (> (count args) 2) (nth args 2) "") (has-flag? args "--all"))
-  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | threads [--all] | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (threads/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/tell/retract/merge route to Beagle Store)"))))
+  :else (println "north usage: capture <title> [owner] | ready [--all] | blocked | leverage | next | agenda | threads [--all] | cockpit | schema | teaching-coverage | needs-review | audit | resolve <@handle|@id> | validate | tools | boot | listen <agent-id> | json <...>   (threads/ready default to a curated top slice; --all for the full dump. engine verbs import/export/show/tell/retract/merge route to Beagle Store)"))))
 
 (defn run-status [args ^String threads-dir ^String log]
   (cond
