@@ -237,7 +237,7 @@
    te String
    preds (Vec String)]
   Bool
-  (loop [ps preds]
+  (loop [ps (Vec String) preds]
     (if (empty? ps) false
       (if (some? (string-value-at idx te (first ps))) true (recur (rest ps))))))
 
