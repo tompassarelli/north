@@ -369,13 +369,12 @@ case "${1:-}" in
     fi
     exec "$BUN" run "$NORTH/sdk/src/acp/cli.ts" ;;
   dashboard)
-    # Compatibility alias: Bridge owns the operator cockpit command surface.
-    exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" dashboard "${@:2}" ;;
+    north_slot_exec cockpit "${@:2}" ;;
   doctor)
     # The cockpit (ported from convoy/bin/my-agents, 2026-07-10): `dashboard` =
     # what is happening (agents/concerns/board/daemons/health/profile); `doctor` =
     # is everything healthy (coordinator handshake + daemons/health/rev-skew/env/
-    # guard-hooks). Dashboard is mounted under Bridge above; doctor remains here.
+    # guard-hooks).
     exec "$BB" "$NORTH/cli/dashboard-cli.clj" "$@" ;;
   hotspots)
     # Where is the time going and what is failing, ranked (north hotspots is
