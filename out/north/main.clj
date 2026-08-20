@@ -39,7 +39,7 @@
   (string-term (t/triple-t3 value)))
 
 (defn- coord-invoke [^String operation args]
-  (let [callable (ns-resolve (symbol "north.coord") (symbol operation))]
+  (let [callable (clojure.core/ns-resolve (symbol "north.coord") (symbol operation))]
   (if (some? callable) (apply callable args) (throw (ex-info "north.coord must be loaded before a data operation" {:type :north/coord-not-loaded :operation operation})))))
 
 (defn- coord-port []
@@ -214,7 +214,7 @@
 (defn- live-facts [^String log]
   (let [port (coord-port)
    version (coord-version port)]
-  (if (< version 0) (throw (ex-info (str "North FRAMRPC read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (coord-live-propositions port))))
+  (if (< version 0) (throw (ex-info (str "North Store RPC read failed on 127.0.0.1:" port " (code " version ")") {:type :north/server-unavailable :port port :log log})) (coord-live-propositions port))))
 
 (defn- live-idx [^String log]
   (proj/index-triples (live-facts log)))
@@ -229,15 +229,15 @@
   (let [warm (live-subject-facts log te)]
   (if (empty? warm) (filterv (fn [triple] (= te (triple-subject triple))) (live-facts log)) warm)))
 
-(defn ^String framrpc-failure-message [code port ^String log ^String consequence]
+(defn ^String store-rpc-failure-message [code port ^String log ^String consequence]
   (let [summary (cond
-  (= code -1) (str "FRAMRPC SERVER UNREACHABLE on 127.0.0.1:" port)
-  (= code -2) (str "FRAMRPC SPACE MISMATCH on 127.0.0.1:" port " (this command selected FRAMLOG database " log ")")
-  (= code -3) (str "FRAMRPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
-  :else (str "FRAMRPC preflight failed on 127.0.0.1:" port " (code " code ")"))
+  (= code -1) (str "Store RPC SERVER UNREACHABLE on 127.0.0.1:" port)
+  (= code -2) (str "Store RPC SPACE MISMATCH on 127.0.0.1:" port " (this command selected Store log database " log ")")
+  (= code -3) (str "Store RPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)
+  :else (str "Store RPC preflight failed on 127.0.0.1:" port " (code " code ")"))
    remedy (cond
   (= code -1) "Start the configured Beagle Store service"
-  (= code -2) "Select the intended FRAMLOG database and SpaceId before retrying"
+  (= code -2) "Select the intended Store log database and SpaceId before retrying"
   (= code -3) "Use one matched North + Beagle Store release"
   :else "Inspect `north doctor` before retrying")]
   (str summary (if (str/blank? consequence) "" (str " — " consequence)) ". " remedy ".")))
@@ -334,14 +334,14 @@
    path (str threads-dir "/" id "-" slug ".md")
    port (coord-port)
    server-v (coord-version port)]
-  (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "framrpc-unavailable") (println (framrpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
+  (if (< server-v 0) (if (structured-capture?) (print-capture-receipt id te title path 0 0 false "store-rpc-unavailable") (println (store-rpc-failure-message server-v port log "capture was not recorded"))) (let [facts (capture-facts te title owner source author lead proposed created-at today)
    results (mapv (fn [c] (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5)) facts)
    oks (count (filterv (fn [^String r] (str/starts-with? r "ok:")) results))]
   (if (= oks (count facts)) (do
   (store.rt/spit-file path (exp/thread-md (let [warm (live-subject-facts log te)]
   (if (empty? warm) facts warm)) te))
-  (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
-  (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files.")))))))))))
+  (if (structured-capture?) (print-capture-receipt id te title path (count facts) oks true "captured") (println (str "captured -> " te "  " title "  [owner: " owner "]\n" "  file:      " path "\n" "  committed: " oks " facts via Store RPC. Next: north tell " id " <pred> <value>")))) (if (structured-capture?) (let [cleaned (cleanup-partial-capture port log te path facts results)]
+  (print-capture-receipt id te title path (count facts) oks false (if cleaned "partial-cleaned" "partial-cleanup-failed"))) (println (str "capture PARTIAL: only " oks "/" (count facts) " fact(s) committed (Store RPC publication failure). Re-run — nothing is stranded in files.")))))))))))
 
 (defn- ^Boolean id-like? [^String bare]
   (and (not (str/blank? bare)) (str/blank? (str/replace bare #"[0-9a-f-]" "")) (or (str/includes? bare "-") (>= (count bare) 8))))
@@ -425,13 +425,15 @@
    raw (proj/ready idx today store.rt/str-lt? live?)
    rs (if all raw (filterv (fn [^String te] (= (kind-of idx te) "thread")) raw))
    ranked (queue-order idx rs)
-   shown (if all ranked (vec (take 15 ranked)))]
+   shown (if all ranked (vec (take 15 ranked)))
+   rs-count (count rs)
+   shown-count (count shown)]
   (if all (println (str "READY NOW — " (count rs))) (println (str "READY NOW — top " (count shown) " of " (count rs) " by queue order (leverage fallback)")))
   (println "  ready = committed + unblocked + no live driver + not future-scheduled (vs open = merely nonterminal)")
   (doseq [te shown]
   (println (str "  " (short-id te) "  " (trunc (title-of idx te) 56))))
-  (if (and (not all) (> (count rs) (count shown))) (do
-  (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all"))))))
+  (if (and (not all) (> rs-count shown-count)) (do
+  (println (str "  … +" (- rs-count shown-count) " more · north ready --all"))))))
 
 (defn cmd-blocked [^String log]
   (let [idx (live-idx log)
@@ -537,7 +539,11 @@
    blockedl (in-condition idx threads today before? live? "blocked")
    nconcern (count (filterv (fn [^String s] (= (kind-of idx s) "concern")) (proj/all-subjects idx)))
    ashow (vec (take 20 active))
-   rranked (mapv (fn [^String te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))]
+   active-count (count active)
+   ashow-count (count ashow)
+   rranked (mapv (fn [^String te] (->LevItem te (proj/leverage-score idx te))) (vec (take 15 (queue-order idx readyl))))
+   readyl-count (count readyl)
+   rranked-count (count rranked)]
   (println (str "THREADS — " (count threads) " open threads · " (count active) " active · " (count readyl) " ready · " (count blockedl) " blocked · " nconcern " concerns   (north threads --all for the full kanban)"))
   (println "  open = not terminal · active = live driver · ready = committed + unblocked + no live driver + not future-scheduled")
   (if (not (empty? active)) (do
@@ -545,20 +551,21 @@
   (doseq [te ashow]
   (println (str "  " (let [dl (driver-label idx te)]
   (if (str/blank? dl) "?" dl)) "  " (short-id te) "  " (trunc (title-of idx te) 44))))
-  (if (> (count active) (count ashow)) (do
-  (println (str "  … +" (- (count active) (count ashow)) " more · north threads --all"))))))
+  (if (> active-count ashow-count) (do
+  (println (str "  … +" (- active-count ashow-count) " more · north threads --all"))))))
   (if (> nparked 0) (do
-  (let [pshow (vec (take 10 parked))]
+  (let [pshow (vec (take 10 parked))
+   pshow-count (count pshow)]
   (println (str "\nPARKED ASSIGNMENTS — stale driver retained, lifecycle demoted (" nparked ")"))
   (doseq [te pshow]
   (println (str "  " (driver-label idx te) "  " (short-id te) "  " (proj/condition-i idx te today before? live?) "  " (trunc (title-of idx te) 36))))
-  (if (> nparked (count pshow)) (do
-  (println (str "  … +" (- nparked (count pshow)) " more · north needs-review")))))))
+  (if (> nparked pshow-count) (do
+  (println (str "  … +" (- nparked pshow-count) " more · north needs-review")))))))
   (println (str "\n" (proj/condition-emoji idx "ready") " READY — top " (count rranked) " of " (count readyl) " by queue order (leverage fallback)"))
   (doseq [it rranked]
   (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
-  (if (> (count readyl) (count rranked)) (do
-  (println (str "  … +" (- (count readyl) (count rranked)) " more · north threads --all"))))
+  (if (> readyl-count rranked-count) (do
+  (println (str "  … +" (- readyl-count rranked-count) " more · north threads --all"))))
   (println "  machinery/agents/daemons → north dashboard")))
 
 (defn cmd-board [^String log ^Boolean all]
@@ -877,7 +884,7 @@
   (= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"
   (= kind "predicate") "executable schema -> north predicate define"
   (= kind "topic") "topic grouping anchors (topic- prefix)"
-  :else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"))
+  :else "(writer not curated — query canonical Store log state for this kind's writer)"))
 
 (defn- print-schema-kind [idx facts ^String kind]
   (let [ksubs (kind-subjects idx kind)

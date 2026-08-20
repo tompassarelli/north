@@ -88,7 +88,7 @@ export function bridgesnapshot_selected_thread(r) { return r.selected_thread; }
 export function bridgesnapshot_notice(r) { return r.notice; }
 
 function canonical_view(view_id) {
-  return ((((view_id === "board") || (view_id === "kanban"))) ? "board" : (((view_id === "graph") || (view_id === "dag"))) ? "graph" : "list");
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((view_id === "board") || (view_id === "kanban")))) ? "board" : (((_truthy) => _truthy !== false && _truthy != null)(((view_id === "graph") || (view_id === "dag")))) ? "graph" : "list");
 }
 
 export function make_model(view_id) {
@@ -134,7 +134,7 @@ export function set_filter(model, filter_text) {
 function visible_work(model, source) {
   const agent_id = bridgemodel_selected_agent(model);
   const needle = bridgemodel_filter_text(model);
-  return source.filter((item) => (((agent_id === "") || (workitem_driver(item) === agent_id)) && ((needle === "") || ("".concat(workitem_id(item), " ", workitem_title(item), " ", workitem_body(item), " ", workitem_condition(item), " ", workitem_driver(item))).toLowerCase().includes(needle))));
+  return source.filter((item) => ((_logical) => (_logical !== false && _logical != null ? ((needle === "") || ("".concat(workitem_id(item), " ", workitem_title(item), " ", workitem_body(item), " ", workitem_condition(item), " ", workitem_driver(item))).toLowerCase().includes(needle)) : _logical))(((agent_id === "") || (workitem_driver(item) === agent_id))));
 }
 
 export function snapshot(model) {
