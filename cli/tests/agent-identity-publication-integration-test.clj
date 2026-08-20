@@ -16,7 +16,6 @@
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
-   "delivery_attestation" "delivery_attestation_sha256"
    "delivery_outcome" "delivery_reason"])
 (def test-route-generation-predicates
   #{"provider" "provider_target" "live_input" "live_input_state"
@@ -124,8 +123,7 @@
       daemon (do
                (proc/process
                 {:dir store :out :string :err :string
-                 :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
-                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                 :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
                 (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
@@ -996,7 +994,7 @@
                         "display_name" "anthropic:claude-a · opus · high · orchestration:integrator")
           verifier (assoc preset
                           "role" "verifier" "composition_id" "verifier"
-                          "goal" "independently attest delivery"
+                          "goal" "independently review delivery"
                           "display_handle" "anthropic-a-opus-high-verifier-proof"
                           "display_name" "anthropic:claude-a · opus · high · orchestration:verifier")
           run-evidence (array-map
@@ -1176,9 +1174,6 @@
                                  (run-writer port "terminal" worker-subject
                                              (json/generate-string forged)))))
                     (= before (entity-facts port worker-subject)))))
-      (let [self-result (run-writer port "attest" worker-subject
-                                    (json/generate-string {"actor" worker-subject}))]
-        (check "delivery worker cannot self-attest" (not (zero? (:exit self-result)))))
     (finally
       (proc/destroy-tree daemon)
       (try @daemon (catch Exception _ nil))

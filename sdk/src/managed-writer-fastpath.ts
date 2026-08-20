@@ -40,7 +40,6 @@ const TERMINAL_MARKER_PREDICATE = "terminal_manifest_sha256";
 const TERMINAL_PREDICATES = [
   "process_outcome", "delivery_outcome", "delivery_reason",
   "delivery_evidence", "delivery_evidence_sha256",
-  "delivery_attestation", "delivery_attestation_sha256",
 ];
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_HEX = /^[0-9a-f]{64}$/;

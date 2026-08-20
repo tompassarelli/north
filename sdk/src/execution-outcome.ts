@@ -9,7 +9,7 @@ import type {
 import type { WireModelCallSnapshot, WireRunSnapshot } from "./wire/reducer";
 import type { WatchdogAbortEvidence } from "./watchdog";
 
-export type DeliveryOutcome = "unverified" | "reported" | "verified" | "blocked";
+export type DeliveryOutcome = "unverified" | "reported" | "blocked";
 
 export interface ExecutionTerminal {
 	processOutcome: string;

@@ -187,10 +187,6 @@
       (trace-verdict
        (assoc verdict-base :delivery-state
               {:outcome "blocked" :reason "inconsistent_terminal"}))
-      inconsistent-ran-verdict
-      (trace-verdict
-       (assoc verdict-base :delivery-state
-              {:outcome "verified" :reason "unsupported_legacy_projection"}))
       online-active-verdict
       (trace-verdict
        {:id "active-agent" :on-roster true
@@ -270,13 +266,6 @@
                       "(inconsistent_terminal). A ran process with blocked or "
                       "inconsistent delivery is not a done claim.")
                  blocked-ran-verdict)))
-  (check "ran plus unsupported delivery state is a red-class inconsistency"
-         (and (= :inconsistent
-                 (delivery-proof-class {:outcome "verified"}))
-              (= (str "terminal inconsistency; process=ran · delivery=verified "
-                      "(unsupported_legacy_projection). A ran process with blocked or "
-                      "inconsistent delivery is not a done claim.")
-                 inconsistent-ran-verdict)))
   (check "online without a terminal remains healthy"
          (= "healthy — online and advancing (no terminal signal yet). No failure."
             online-active-verdict))

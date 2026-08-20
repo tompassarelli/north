@@ -840,12 +840,6 @@ export function wireRunProvenanceFacts(
 	if (context.deliveryProof?.deliveryEvidenceSha256) {
 		facts.push(["delivery_evidence_sha256", context.deliveryProof.deliveryEvidenceSha256]);
 	}
-	if (context.deliveryProof?.deliveryAttestation) {
-		facts.push(["delivery_attestation", context.deliveryProof.deliveryAttestation]);
-	}
-	if (context.deliveryProof?.deliveryAttestationSha256) {
-		facts.push(["delivery_attestation_sha256", context.deliveryProof.deliveryAttestationSha256]);
-	}
 	if (context.retryOfRun) {
 		facts.push(["retry_of_run", context.retryOfRun.startsWith("@")
 			? context.retryOfRun : `@${context.retryOfRun}`]);

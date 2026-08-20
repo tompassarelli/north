@@ -5,7 +5,7 @@
 (def checks (atom []))
 (defn check! [label ok?] (swap! checks conj [label (boolean ok?)]))
 (def now (java.time.Instant/parse "2026-08-03T12:00:00Z"))
-(def runs {"@run:one" [["kind" "run"] ["at" "2026-08-03T11:00:00Z"] ["process_outcome" "ran"] ["delivery_outcome" "verified"] ["thread" "@thread-one"] ["provider" "anthropic"] ["duration_ms" "120000"]]
+(def runs {"@run:one" [["kind" "run"] ["at" "2026-08-03T11:00:00Z"] ["process_outcome" "ran"] ["delivery_outcome" "reported"] ["thread" "@thread-one"] ["provider" "anthropic"] ["duration_ms" "120000"]]
            "@run:two" [["kind" "run"] ["at" "2026-08-02T12:00:00Z"] ["process_outcome" "ran"] ["thread" "@thread-two"] ["provider" "openai"] ["composition_id" "implementer"]]
            "@run:old" [["kind" "run"] ["at" "2026-07-20T12:00:00Z"] ["process_outcome" "ran"] ["thread" "@thread-one"] ["provider" "openai"]]})
 (def threads {"@thread-one" [["title" "Ship fixture"] ["outcome" "landed in abcdef1"] ["progress" "commit 7654321"]]

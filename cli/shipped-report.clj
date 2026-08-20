@@ -84,7 +84,7 @@
 
 (defn render [rows since now]
   (let [line (fn [{:keys [title delivery outcome commits duration-ms]}]
-               (str "  " (if (= delivery "verified") "shipped" "unverified")
+               (str "  " (if (= delivery "reported") "shipped" "unverified")
                     " · " title " · " (duration-label duration-ms)
                     (when outcome (str " · outcome: " outcome))
                     (when (seq commits) (str " · commits: " (str/join ", " commits)))))

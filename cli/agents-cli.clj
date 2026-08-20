@@ -584,19 +584,7 @@
                           (:outcome resolution))
         delivery-outcome (when (= :resolved (:status resolution))
                            (:delivery-outcome resolution))
-        delivery-attestation
-        (when (and (= :agent (:source resolution))
-                   (= "verified" delivery-outcome))
-          (try
-            (json/parse-string
-             (north.terminal-projection/singleton-value facts "delivery_attestation"))
-            (catch Exception _ nil)))
-        delivery-label
-        (if-let [actor (get delivery-attestation "actor")]
-          (str delivery-outcome " by:" actor
-               (when-let [role (get delivery-attestation "role")]
-                 (str "/" role)))
-          (or delivery-outcome "unrecorded"))
+        delivery-label (or delivery-outcome "unrecorded")
         state (cond
                 process-outcome "finished"
                 (= :indeterminate (:status resolution)) "inconsistent"
