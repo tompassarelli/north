@@ -44,7 +44,7 @@
   [idx proj/ProjectionIndex
    subject String]
   (Vec String)
-  (let [reference-violations
+  (let [reference-violations (Vec String)
         (reduce
          (fn
            [violations (Vec String)
@@ -75,13 +75,13 @@
   [idx proj/ProjectionIndex
    te String]
   (Vec String)
-  (let [term? (proj/terminal-i? idx te)
+  (let [term? Bool (proj/terminal-i? idx te)
         ;; These three predicates are North thread relationships, not arbitrary
         ;; entity refs. Beagle Store verifies generic subject existence; North adds the
         ;; stronger title-bearing target rule. A missing target remains a thread
         ;; violation even when executable schema also classifies the predicate as
         ;; a generic ref; partial schema metadata cannot disable North integrity.
-        v-thread (reduce
+        v-thread (Vec String) (reduce
                   (fn
                     [acc (Vec String)
                      p String] (Vec String)
@@ -102,7 +102,7 @@
                   thread-ref-preds)
         ;; a depends_on edge to a withdrawn (abandoned) target — only suspect for
         ;; a still-open thread (a resolved thread's stale deps don't matter).
-        v-ab (reduce
+        v-ab (Vec String) (reduce
               (fn
                 [acc (Vec String)
                  d String] (Vec String)
