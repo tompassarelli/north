@@ -57,7 +57,7 @@
 
 (js/export
  (defn make-model [view-id String] BridgeModel
-  (let [view (canonical-view view-id)]
+  (let [view String (canonical-view view-id)]
     (->BridgeModel [] [] [] "vertical" view "" "" "" ""))))
 
 (js/export
@@ -75,7 +75,7 @@
  (defn upsert-agent
    [model BridgeModel
     agent Agent] BridgeModel
-   (let [agents (js/call (bridgemodel-agents model) .filter
+   (let [agents Any (js/call (bridgemodel-agents model) .filter
                         (fn [existing Agent] Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
     (with model [:agents (js/call agents .concat agent)]))))
@@ -96,7 +96,7 @@
  (defn focus-view
    [model BridgeModel
     view-id String] BridgeModel
-   (let [view (canonical-view view-id)]
+   (let [view String (canonical-view view-id)]
     (with model
       [:active-view-id view]
       [:notice (str "view " view)]))))
@@ -132,7 +132,7 @@
  (defn set-filter
    [model BridgeModel
     filter-text String] BridgeModel
-   (let [trimmed (js/call filter-text .trim)]
+   (let [trimmed String (js/call filter-text .trim)]
     (with model
       [:filter-text (js/call trimmed .toLowerCase)]
       [:notice (if (identical? trimmed "")
