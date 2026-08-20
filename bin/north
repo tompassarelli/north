@@ -415,6 +415,11 @@ case "${1:-}" in
     # With NO reservation in the environment it falls back to explicitly
     # unreserved thread-scoped evidence (never run-bound verification).
     exec "$BUN" run "$NORTH/sdk/src/delivery-evidence.ts" "${@:2}" ;;
+  recover)
+    # Read one immutable Store snapshot and project the kernel's conservative
+    # safe-next decision. The command is deliberately read-only: executors own
+    # any later effect and may not reselect the reserved route here.
+    exec "$BUN" run "$NORTH/sdk/src/store-recovery-cli.ts" "${@:2}" ;;
   bars)
     # Coordinator-facing done_when grooming: the one-step recovery the delivery
     # reserve error points at when a thread accumulates past the bar limit.
