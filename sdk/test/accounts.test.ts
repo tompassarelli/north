@@ -568,6 +568,15 @@ test("account usage groups cached per-account windows with source and reset meta
   expect(usage.stdout).toContain("output tokens: 1,234");
   expect(usage.stdout).toMatch(/last activity: \d+s ago/);
 
+  writeFileSync(join(rolloutDirectory, "rollout-fixture.jsonl"), [
+    JSON.stringify({ payload: { info: { total_token_usage: { output_tokens: 1234 } } } }),
+    JSON.stringify({ payload: { info: { total_token_usage: { output_tokens: 5678 } } } }),
+  ].join("\n"));
+  const refreshedActivity = run("usage", "codex-proton");
+  expect(refreshedActivity.status).toBe(0);
+  expect(refreshedActivity.stdout).toContain("headroom: normal (observed, cached)");
+  expect(refreshedActivity.stdout).toContain("output tokens: 5,678");
+
   const oneHour = run("usage", "codex-proton", "--hours", "1");
   expect(oneHour.status).toBe(0);
   expect(oneHour.stdout).toContain("activity: read live from provider session records (last 1h)");
