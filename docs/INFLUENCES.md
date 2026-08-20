@@ -25,7 +25,7 @@ that source was copied.
 
 | Project | License | Local evidence | Refreshed default branch |
 | --- | --- | --- | --- |
-| [oh-my-pi](https://github.com/can1357/oh-my-pi) | [MIT](https://github.com/can1357/oh-my-pi/blob/45e12e5bb758198a920c6070e7e64cb33b21beac/LICENSE) | [`45e12e5b`](https://github.com/can1357/oh-my-pi/tree/45e12e5bb758198a920c6070e7e64cb33b21beac) | `45e12e5b` |
+| [oh-my-pi](https://github.com/can1357/oh-my-pi) | [MIT](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/LICENSE) | [`45e12e5b`](https://github.com/can1357/oh-my-pi/tree/45e12e5bb758198a920c6070e7e64cb33b21beac) | [`72000acf`](https://github.com/can1357/oh-my-pi/tree/72000acfeb902e21816252699482887f34d1a5a4) |
 | [Qwen Code](https://github.com/QwenLM/qwen-code) | [Apache-2.0](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/LICENSE) | [`c1b8f1a1`](https://github.com/QwenLM/qwen-code/tree/c1b8f1a11f245e8a2a83df5dbfaafad69e02b244) | [`5f3165f1`](https://github.com/QwenLM/qwen-code/tree/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39) |
 | [Pi](https://github.com/earendil-works/pi) | [MIT](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/LICENSE) | [`b7bb00b9`](https://github.com/earendil-works/pi/tree/b7bb00b936dbe21b8e160b3e89efdec361846699) | `b7bb00b9` |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent) | [MIT](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/LICENSE) | [`3ef6bbd2`](https://github.com/NousResearch/hermes-agent/tree/3ef6bbd201263d354fd83ec55b3c306ded2eb72a) | [`b259668c`](https://github.com/NousResearch/hermes-agent/tree/b259668cac1cba7faf913c227b9262fe7a513da2) |
@@ -57,6 +57,10 @@ records no copied source.
 - Durable coordination mail plus observable live-lane steering
   ([`cli/msg-cli.clj`](../cli/msg-cli.clj),
   [`sdk/src/live-input-route.ts`](../sdk/src/live-input-route.ts)).
+- A target-neutral prompt lifecycle rule that appends an interrupted terminal
+  only for one uniquely attributable unfinished attempt and preserves ambiguous
+  ledgers as typed unknown results
+  ([`src/north/prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl)).
 
 These are not reimplemented because another harness has a similar surface.
 Upstream evidence may sharpen their invariants or reveal a missing seam.
@@ -65,7 +69,7 @@ Upstream evidence may sharpen their invariants or reveal a missing seam.
 
 | Concern | North owner | Required implementation shape | Boundary rule |
 | --- | --- | --- | --- |
-| Work lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/) | Target-neutral typed Beagle core | No provider model IDs, host process APIs, or durable side stores |
+| Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/), including [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl) | Target-neutral typed Beagle core | No provider model IDs, host process APIs, or durable side stores |
 | Durable memory and learned facts | Beagle Native modules over the canonical Store RPC selected by [`sdk/src/beagle-store.ts`](../sdk/src/beagle-store.ts) | Store-backed typed facts and derivations | Files and prompts may be projections, never the system of record |
 | Agent and session identity | [`sdk/src/identity.ts`](../sdk/src/identity.ts) and Store-backed North vocabulary | Beagle Native identity allocation and evolution | Provider conversation IDs remain adapter evidence, not North identity |
 | Scheduling and admission | [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj) and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy in Beagle; resident scheduling in Beagle Native | JavaScript may launch admitted work but may not decide provider-neutral policy |
@@ -81,21 +85,58 @@ an explicit adapter rather than a second implementation.
 
 ## Ideas North should adopt
 
-The upstream audit is evaluated against four concrete gaps:
+The five audits converge on five mechanisms. Each is owned as an independent
+North seam rather than as an imported framework.
 
-- durable, typed compaction and memory retrieval that preserve the exact
-  provenance of what was retained, omitted, or learned;
-- explicit session branching and replay where a branch records its parent
-  evidence instead of copying opaque provider state;
-- capability-scoped tool execution with admission before side effects and a
-  typed receipt afterward; and
-- observable background work whose scheduling, liveness, and terminal state
-  remain queryable after the launching process exits.
-
-Each accepted mechanism becomes one independently landable seam. Exact
-upstream findings are added only after a commit-specific source audit; this
-prevents a familiar UI feature from being mistaken for a transferable
-invariant.
+- **Prompt lifecycle reconciliation.** Qwen Code separates an append-only
+  prompt terminal ledger from workflow snapshots and only repairs unfinished
+  work when attribution is unique
+  ([design](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/docs/design/2026-08-19-prompt-terminal-ledger-design.md#L30-L88),
+  [ledger](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/cli/src/serve/prompt-terminal-ledger.ts#L130-L300),
+  [journal](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/core/src/agents/runtime/workflow-journal.ts#L7-L153)).
+  North owns the target-neutral rule in
+  [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl); Store persistence
+  and process observation remain Native boundaries.
+- **Typed memory with bounded recall.** oh-my-pi models source, scope, trust,
+  validity, and supersession
+  ([types](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/mnemopi/src/core/beam/types.ts#L106-L218),
+  [store behavior](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/mnemopi/src/core/beam/store.ts#L305-L340)),
+  while Hermes bounds asynchronous recall and lets recall failure yield no
+  injected context rather than block the turn
+  ([provider](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_provider.py#L94-L132),
+  [manager](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_manager.py#L525-L545)).
+  North's owner is a Beagle Native Store fact model and recall decision, never
+  a second database.
+- **Session lineage and immutable context projection.** Pi validates globally
+  sequenced session events, unique IDs, parent links, and leaf chaining, then
+  projects context from the latest compaction summary plus its immutable tail
+  ([types](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/types.ts#L87-L159),
+  [state](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/state.ts#L97-L157),
+  [context](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/context.ts#L45-L99)).
+  Cline reinforces explicit restore lineage and checkpoint references
+  ([session types](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/types/session.ts#L89-L127),
+  [versioning](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/session/session-versioning-service.ts#L162-L243)).
+  North owns these as typed session facts and pure projections, not copied
+  provider state.
+- **Ordered replay and provenance.** oh-my-pi preserves an append-only stable
+  prefix and explicit divergence
+  ([context](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/agent/src/append-only-context.ts#L25-L89));
+  Qwen Code separates resumable journal evidence from terminal snapshots
+  ([snapshot](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/core/src/agents/workflow-snapshot.ts#L35-L141));
+  Hermes preserves exact wire content and insertion order independently of
+  display metadata
+  ([state](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/hermes_state.py#L6512-L6557)).
+  North's canonical fold and receipts belong in Beagle Native; provider wire
+  decoding stays in adapters.
+- **Durable scheduled-run provenance.** Hermes gives scheduled work an origin,
+  predecessor-output edge, bounded imported context, and stale-owner recovery
+  ([scheduler](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/cron/scheduler.py#L590-L715),
+  [identity lock](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/gateway/status.py#L1352-L1515)).
+  Cline persists run revisions, leases, receipts, and dedupe state before
+  execution
+  ([schema](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/cron/store/cron-schema.ts#L10-L117)).
+  North owns these as Store-native scheduler facts; host processes only launch
+  or observe admitted work.
 
 ## Ideas North should reject
 
@@ -115,6 +156,20 @@ invariant.
   receipt. A successful process exit is not proof that the intended external
   state exists.
 
+The concrete upstream implementations rejected by those rules include
+oh-my-pi's runtime-selected SQLite and compatibility-shaped memory API
+([database](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/mnemopi/src/db.ts#L1-L99)),
+Qwen Code's filesystem prompt ledger and process-local attachment lease
+([sidecar](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/acp-bridge/src/prompt-ledger.ts#L19-L123),
+[lease](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/cli/src/agent-view/attach-lease.ts#L50-L145)),
+Pi's authoritative JSONL repair path
+([storage](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/jsonl/storage.ts#L69-L107)),
+Hermes's dynamic Python memory and scheduler providers
+([memory provider](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_provider.py#L43-L145)),
+and Cline's filesystem session manifests and process-local resource limiter
+([manifest](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/session/stores/session-manifest-store.ts#L1-L78),
+[limiter](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/cron/runner/resource-limiter.ts#L1-L45)).
+
 ## Adoption rule
 
 An influence moves from research to implementation only when one row can name:
@@ -127,4 +182,3 @@ An influence moves from research to implementation only when one row can name:
 
 This is the same discipline North applies to provider fallback: the architecture
 must decide before side effects become observable.
-
