@@ -28,8 +28,8 @@ that source was copied.
 | [oh-my-pi](https://github.com/can1357/oh-my-pi) | [MIT](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/LICENSE) | [`45e12e5b`](https://github.com/can1357/oh-my-pi/tree/45e12e5bb758198a920c6070e7e64cb33b21beac) | [`72000acf`](https://github.com/can1357/oh-my-pi/tree/72000acfeb902e21816252699482887f34d1a5a4) |
 | [Qwen Code](https://github.com/QwenLM/qwen-code) | [Apache-2.0](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/LICENSE) | [`c1b8f1a1`](https://github.com/QwenLM/qwen-code/tree/c1b8f1a11f245e8a2a83df5dbfaafad69e02b244) | [`5f3165f1`](https://github.com/QwenLM/qwen-code/tree/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39) |
 | [Pi](https://github.com/earendil-works/pi) | [MIT](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/LICENSE) | [`b7bb00b9`](https://github.com/earendil-works/pi/tree/b7bb00b936dbe21b8e160b3e89efdec361846699) | `b7bb00b9` |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | [MIT](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/LICENSE) | [`3ef6bbd2`](https://github.com/NousResearch/hermes-agent/tree/3ef6bbd201263d354fd83ec55b3c306ded2eb72a) | [`b259668c`](https://github.com/NousResearch/hermes-agent/tree/b259668cac1cba7faf913c227b9262fe7a513da2) |
-| [Cline](https://github.com/cline/cline) | [Apache-2.0](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/LICENSE) | [`1bb08332`](https://github.com/cline/cline/tree/1bb0833287a7c1dfbb78d53060611bd1cdb35901) | `1bb08332` |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | [MIT](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/LICENSE) | [`3ef6bbd2`](https://github.com/NousResearch/hermes-agent/tree/3ef6bbd201263d354fd83ec55b3c306ded2eb72a) | [`5ab74737`](https://github.com/NousResearch/hermes-agent/tree/5ab74737e0a49cefccafc7bb78a1c293878284a5) |
+| [Cline](https://github.com/cline/cline) | [Apache-2.0](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/LICENSE) | [`1bb08332`](https://github.com/cline/cline/tree/1bb0833287a7c1dfbb78d53060611bd1cdb35901) | [`16875140`](https://github.com/cline/cline/tree/16875140fbc7bae51aad79c203837b4f51e54aa5) |
 
 MIT and Apache-2.0 both permit studying and adapting ideas. If North later
 copies or adapts protected expression, the relevant copyright, license text,
@@ -110,8 +110,8 @@ North seam rather than as an imported framework.
   [store behavior](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/mnemopi/src/core/beam/store.ts#L305-L340)),
   while Hermes bounds asynchronous recall and lets recall failure yield no
   injected context rather than block the turn
-  ([provider](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_provider.py#L94-L132),
-  [manager](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_manager.py#L525-L545)).
+  ([provider](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/agent/memory_provider.py#L166-L198),
+  [manager](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/agent/memory_manager.py#L525-L600)).
   North's owner is a Beagle Native Store fact model and recall decision, never
   a second database.
 - **Session lineage and immutable context projection.** Pi validates globally
@@ -120,11 +120,14 @@ North seam rather than as an imported framework.
   ([types](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/types.ts#L87-L159),
   [state](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/state.ts#L97-L157),
   [context](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/context.ts#L45-L99)).
-  Cline reinforces explicit restore lineage and checkpoint references
-  ([session types](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/types/session.ts#L89-L127),
-  [versioning](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/session/session-versioning-service.ts#L162-L243)).
-  North owns these as typed session facts and pure projections, not copied
-  provider state.
+  Cline reinforces explicit restore lineage and checkpoint references, and
+  makes restore all-or-rollback across workspace mutation and replacement
+  session creation
+  ([session types](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/types/session.ts#L89-L127),
+  [versioning](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/session/session-versioning-service.ts#L134-L325),
+  [workspace transaction](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/session/checkpoint-restore.ts#L42-L154)).
+  North owns lineage and restore decisions as typed session facts and pure
+  projections; Git mutation remains a thin host adapter.
 - **Ordered replay and provenance.** oh-my-pi preserves an append-only stable
   prefix and explicit divergence
   ([context](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/agent/src/append-only-context.ts#L25-L89));
@@ -132,16 +135,20 @@ North seam rather than as an imported framework.
   ([snapshot](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/core/src/agents/workflow-snapshot.ts#L35-L141));
   Hermes preserves exact wire content and insertion order independently of
   display metadata
-  ([state](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/hermes_state.py#L6512-L6557)).
+  ([state](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/hermes_state.py#L9267-L9319)).
   North's canonical fold and receipts belong in Beagle Native; provider wire
   decoding stays in adapters.
 - **Durable scheduled-run provenance.** Hermes gives scheduled work an origin,
   predecessor-output edge, bounded imported context, and stale-owner recovery
-  ([scheduler](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/cron/scheduler.py#L590-L715),
-  [identity lock](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/gateway/status.py#L1352-L1515)).
+  ([origin](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/cron/scheduler.py#L1498-L1517),
+  [context](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/cron/scheduler.py#L3828-L3885),
+  [identity lock](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/gateway/status.py#L1459-L1647)).
+  It releases a scheduled-run claim on terminal ledger evidence only when the
+  evidence is attributable to that same claim, never merely to a previous run
+  ([claim reconciliation](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/cron/scheduler.py#L860-L999)).
   Cline persists run revisions, leases, receipts, and dedupe state before
   execution
-  ([schema](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/cron/store/cron-schema.ts#L10-L117)).
+  ([schema](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/cron/store/cron-schema.ts#L10-L117)).
   North owns these as Store-native scheduler facts; host processes only launch
   or observe admitted work.
 
@@ -172,10 +179,10 @@ Qwen Code's filesystem prompt ledger and process-local attachment lease
 Pi's authoritative JSONL repair path
 ([storage](https://github.com/earendil-works/pi/blob/b7bb00b936dbe21b8e160b3e89efdec361846699/packages/agent/src/harness/session/jsonl/storage.ts#L69-L107)),
 Hermes's dynamic Python memory and scheduler providers
-([memory provider](https://github.com/NousResearch/hermes-agent/blob/b259668cac1cba7faf913c227b9262fe7a513da2/agent/memory_provider.py#L43-L145)),
+([memory provider](https://github.com/NousResearch/hermes-agent/blob/5ab74737e0a49cefccafc7bb78a1c293878284a5/agent/memory_provider.py#L43-L199)),
 and Cline's filesystem session manifests and process-local resource limiter
-([manifest](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/session/stores/session-manifest-store.ts#L1-L78),
-[limiter](https://github.com/cline/cline/blob/1bb0833287a7c1dfbb78d53060611bd1cdb35901/sdk/packages/core/src/cron/runner/resource-limiter.ts#L1-L45)).
+([manifest](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/session/stores/session-manifest-store.ts#L1-L95),
+[limiter](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/cron/runner/resource-limiter.ts#L1-L45)).
 
 ## Adoption rule
 
