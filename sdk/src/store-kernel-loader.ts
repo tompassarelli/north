@@ -21,6 +21,34 @@ export interface LoadStoreSnapshotOptions {
 export interface LoadedStoreSnapshot {
   readonly servedVersion: number;
   readonly snapshot: StoreSnapshot;
+  /** Immutable reservation authority needed by a thin recovery executor. */
+  readonly authority?: StoreAttemptAuthority;
+}
+
+export interface StoreLeaseFence {
+  readonly resource: string;
+  readonly holder: string;
+  readonly epoch: number;
+}
+
+/** Route and capability facts reconstructed with the kernel snapshot version. */
+export interface StoreAttemptAuthority {
+  readonly subject: string;
+  readonly manifestSha256: string;
+  readonly runId: string;
+  readonly threadId: string;
+  readonly reporterAgentId: string;
+  readonly ordinal: number;
+  readonly reservedAt: string;
+  readonly provider: "openai";
+  readonly accountId: string;
+  readonly model: string;
+  readonly accountAuthorityReceiptSha256: string;
+  readonly routeObservationReceiptSha256: string;
+  readonly runCapabilitySha256: string;
+  readonly runContractSha256: string;
+  readonly threadLease: StoreLeaseFence;
+  readonly accountLease: StoreLeaseFence;
 }
 
 type Rows = ReadonlyMap<string, ReadonlyMap<string, readonly Term[]>>;
@@ -72,7 +100,11 @@ function positive(facts: ReadonlyMap<string, readonly Term[]>, predicate: string
   return value;
 }
 
-function fence(facts: ReadonlyMap<string, readonly Term[]>, predicate: string, resource: string): void {
+function fence(
+  facts: ReadonlyMap<string, readonly Term[]>,
+  predicate: string,
+  resource: string,
+): StoreLeaseFence {
   const raw = text(facts, predicate);
   let value: unknown;
   try { value = JSON.parse(raw); } catch { fail(`${predicate} is not a Store lease fence`); }
@@ -80,9 +112,14 @@ function fence(facts: ReadonlyMap<string, readonly Term[]>, predicate: string, r
   const candidate = value as Record<string, unknown>;
   if (Object.keys(candidate).sort().join("\0") !== "epoch\0holder\0resource"
     || candidate.resource !== resource
-    || typeof candidate.holder !== "string" || candidate.holder.length === 0
+    || typeof candidate.holder !== "string" || candidate.holder.length === 0 || candidate.holder.length > 256
     || !Number.isSafeInteger(candidate.epoch) || (candidate.epoch as number) < 1)
     fail(`${predicate} is not a Store lease fence`);
+  return {
+    resource: candidate.resource as string,
+    holder: candidate.holder,
+    epoch: candidate.epoch as number,
+  };
 }
 
 function commandDigest(attemptId: string): string {
@@ -95,6 +132,7 @@ interface Attempt {
   readonly run: string;
   readonly thread: string;
   readonly accountSubject: string;
+  readonly authority: StoreAttemptAuthority;
   readonly facts: ReadonlyMap<string, readonly Term[]>;
 }
 
@@ -107,20 +145,50 @@ function attemptFromRows(subject: string, facts: ReadonlyMap<string, readonly Te
     const run = text(facts, "execution_attempt_run");
     const thread = text(facts, "execution_attempt_thread");
     const accountId = text(facts, "execution_attempt_account");
-    if (!ACCOUNT_ID.test(accountId)) return undefined;
+    if (!ACCOUNT_ID.test(accountId) || !thread.startsWith("@thread:")
+      || thread.length === "@thread:".length) return undefined;
     const accountSubject = `@account:${accountId}`;
-    text(facts, "execution_attempt_provider");
-    text(facts, "execution_attempt_model");
-    digest(facts, "execution_attempt_account_authority_sha256");
-    digest(facts, "execution_attempt_route_observation_sha256");
-    digest(facts, "execution_attempt_run_capability_sha256");
-    digest(facts, "execution_attempt_run_contract_sha256");
-    if (positiveText(facts, "execution_attempt_ordinal") !== 1) return undefined;
-    text(facts, "execution_attempt_reporter");
-    text(facts, "execution_attempt_reserved_at");
-    fence(facts, "execution_attempt_thread_lease", `thread:${thread.slice("@thread:".length)}:dispatch`);
-    fence(facts, "execution_attempt_account_lease", `codex-account:${accountId}:slot:0`);
-    return { subject, manifest: match[1]!, run, thread, accountSubject, facts };
+    const provider = text(facts, "execution_attempt_provider");
+    const model = text(facts, "execution_attempt_model");
+    if (provider !== "openai" || /\s/.test(model) || model.length > 256) return undefined;
+    const accountAuthorityReceiptSha256 = digest(facts, "execution_attempt_account_authority_sha256");
+    const routeObservationReceiptSha256 = digest(facts, "execution_attempt_route_observation_sha256");
+    const runCapabilitySha256 = digest(facts, "execution_attempt_run_capability_sha256");
+    const runContractSha256 = digest(facts, "execution_attempt_run_contract_sha256");
+    const ordinal = positiveText(facts, "execution_attempt_ordinal");
+    if (ordinal !== 1) return undefined;
+    const reporterAgentId = text(facts, "execution_attempt_reporter");
+    if (!reporterAgentId.startsWith("@agent:") || reporterAgentId.length === "@agent:".length)
+      return undefined;
+    const reservedAt = text(facts, "execution_attempt_reserved_at");
+    const threadLease = fence(
+      facts, "execution_attempt_thread_lease",
+      `thread:${thread.slice("@thread:".length)}:dispatch`,
+    );
+    const accountLease = fence(
+      facts, "execution_attempt_account_lease", `codex-account:${accountId}:slot:0`,
+    );
+    return {
+      subject, manifest: match[1]!, run, thread, accountSubject, facts,
+      authority: {
+        subject,
+        manifestSha256: match[1]!,
+        runId: run,
+        threadId: thread,
+        reporterAgentId,
+        ordinal,
+        reservedAt,
+        provider,
+        accountId,
+        model,
+        accountAuthorityReceiptSha256,
+        routeObservationReceiptSha256,
+        runCapabilitySha256,
+        runContractSha256,
+        threadLease,
+        accountLease,
+      },
+    };
   } catch { return undefined; }
 }
 
@@ -287,7 +355,8 @@ export async function loadStoreSnapshot(options: LoadStoreSnapshotOptions): Prom
   const id = text(accountFacts, "account_id");
   if (!ACCOUNT_ID.test(id) || accountSubject !== `@account:${id}` || text(accountFacts, "kind") !== "provider_account")
     fail("account authority identity is invalid");
-  if (text(accountFacts, "provider") !== "openai") fail("account authority provider is invalid");
+  const provider = text(accountFacts, "provider");
+  if (provider !== "openai") fail("account authority provider is invalid");
   const role = text(accountFacts, "account_role");
   const eligible = text(accountFacts, "execution_eligible");
   if (!((role === "execution" && eligible === "true")
@@ -297,6 +366,7 @@ export async function loadStoreSnapshot(options: LoadStoreSnapshotOptions): Prom
   const account = { id, account_role: role } as const;
   if (!attempt) return loaded(served.servedVersion, { account, facts: [], wireEvents: [] });
   if (attempt.accountSubject !== accountSubject) fail("attempt account conflicts with authority");
+  if (attempt.authority.provider !== provider) fail("attempt provider conflicts with account authority");
   const facts = lifecycle(attempt, account);
   const commands = commandsFor(attempt, rows);
   facts.push(...commandFacts(commands, account, attempt));
@@ -319,11 +389,23 @@ export async function loadStoreSnapshot(options: LoadStoreSnapshotOptions): Prom
   }
   if (any(attempt.facts, terminal) && any(attempt.facts, unsent))
     fail("attempt contains conflicting terminal receipts");
-  return loaded(served.servedVersion, { account, facts, wireEvents: wireEvents(attempt, rows) });
+  return loaded(
+    served.servedVersion,
+    { account, facts, wireEvents: wireEvents(attempt, rows) },
+    attempt.authority,
+  );
 }
 
-function loaded(servedVersion: number, candidate: StoreSnapshot): LoadedStoreSnapshot {
+function loaded(
+  servedVersion: number,
+  candidate: StoreSnapshot,
+  authority?: StoreAttemptAuthority,
+): LoadedStoreSnapshot {
   const decoded = decodeStoreSnapshot(candidate);
   if (!decoded.ok) fail(`kernel snapshot is invalid (${decoded.reason})`);
-  return { servedVersion, snapshot: decoded.snapshot };
+  return {
+    servedVersion,
+    snapshot: decoded.snapshot,
+    ...(authority === undefined ? {} : { authority }),
+  };
 }

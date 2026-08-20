@@ -62,8 +62,36 @@ test("Store snapshot loader reconstructs restart facts from one served scan", as
   } });
   expect(calls).toBe(1);
   expect(loaded.servedVersion).toBe(57);
+  expect(loaded.authority).toEqual({
+    subject: attempt,
+    manifestSha256: manifest,
+    runId: "run-1",
+    threadId: "@thread:one",
+    reporterAgentId: "@agent:runner",
+    ordinal: 1,
+    reservedAt: "2026-08-20T00:00:00Z",
+    provider: "openai",
+    accountId: "runner",
+    model: "gpt-5",
+    accountAuthorityReceiptSha256: digest("b"),
+    routeObservationReceiptSha256: digest("c"),
+    runCapabilitySha256: digest("9"),
+    runContractSha256: digest("8"),
+    threadLease: { resource: "thread:one:dispatch", holder: "holder", epoch: 1 },
+    accountLease: { resource: "codex-account:runner:slot:0", holder: "holder", epoch: 2 },
+  });
   expect(loaded.snapshot.wireEvents).toEqual([{ wire_event_sequence: 1, wire_event_sha256: digest("1"), wire_event_predecessor_sha256: null }]);
   expect(safeNext(loaded.snapshot)).toMatchObject({ kind: "send", replayPosition: 1 });
+});
+
+test("Store snapshot loader rejects an attempt provider that conflicts with account authority", async () => {
+  const rows = fixture();
+  const provider = rows.findIndex((row) => row instanceof StoreTriple
+    && row.t1 === attempt && row.t2 === "execution_attempt_provider");
+  rows[provider] = triple(attempt, "execution_attempt_provider", "anthropic");
+  await expect(loadStoreSnapshot({ attemptId: attempt, client: {
+    async scanAll() { return { rows, servedVersion: 57, pages: 1, attempts: 1 }; },
+  } })).rejects.toThrow("Store snapshot reconstruction refused");
 });
 
 test("Store snapshot loader rejects conflicting role and eligibility facts", async () => {
