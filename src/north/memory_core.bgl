@@ -1,0 +1,178 @@
+#lang beagle
+
+(ns north.memory-core)
+
+(defrecord MemoryScope
+  [workspace-id String
+   subject-id String])
+
+(defunion SourceProvenance
+  (HumanSource
+    [actor-id String
+     evidence-id String])
+  (ToolSource
+    [tool-id String
+     run-id String])
+  (DerivedSource
+    [rule-id String
+     parent-fact-ids (Vec String)]))
+
+(defrecord Trust
+  [score Int])
+
+(defunion Veracity
+  Unverified
+  (Supported [evidence-id String])
+  (Contested [evidence-id String])
+  (Refuted [evidence-id String]))
+
+(defunion MemoryPayload
+  (Assertion [text String])
+  (Invalidation [reason String]))
+
+(defrecord MemoryFact
+  [fact-id String
+   scope MemoryScope
+   key String
+   payload MemoryPayload
+   source SourceProvenance
+   trust Trust
+   veracity Veracity
+   valid-from-ms Int
+   valid-until-ms Int?
+   supersedes (Vec String)
+   invalidates (Vec String)])
+
+;; A Store adapter returns one bounded, consistent page. The core does not own
+;; persistence or scheduling, so native Store operations stay at that boundary.
+(defrecord StoreMemoryPage
+  [facts (Vec MemoryFact)
+   complete Bool])
+
+(defrecord RecallRequest
+  [scope MemoryScope
+   key String
+   now-ms Int
+   minimum-trust Int
+   scan-limit Int
+   context-limit Int])
+
+(defunion RecallDecision
+  (ContextReady [facts (Vec MemoryFact)])
+  (NoContext [reason Keyword]))
+
+(defn nonempty? [value String] Bool
+  (> (count value) 0))
+
+(defn includes-id? [ids (Vec String) candidate String] Bool
+  (loop [position Int 0]
+    (if (>= position (count ids))
+      false
+      (if (= candidate (nth ids position))
+        true
+        (recur (+ position 1))))))
+
+(defn scope-valid? [scope MemoryScope] Bool
+  (and (nonempty? (memoryscope-workspace-id scope))
+       (nonempty? (memoryscope-subject-id scope))))
+
+(defn same-scope? [left MemoryScope right MemoryScope] Bool
+  (and (= (memoryscope-workspace-id left) (memoryscope-workspace-id right))
+       (= (memoryscope-subject-id left) (memoryscope-subject-id right))))
+
+(defn source-valid? [source SourceProvenance] Bool
+  (match source
+    [(HumanSource actor-id evidence-id)
+     (and (nonempty? actor-id) (nonempty? evidence-id))]
+    [(ToolSource tool-id run-id)
+     (and (nonempty? tool-id) (nonempty? run-id))]
+    [(DerivedSource rule-id parent-fact-ids)
+     (and (nonempty? rule-id) (not (empty? parent-fact-ids)))]))
+
+(defn veracity-recallable? [veracity Veracity] Bool
+  (match veracity
+    [(Unverified) true]
+    [(Supported evidence-id) (nonempty? evidence-id)]
+    [(Contested evidence-id) false]
+    [(Refuted evidence-id) false]))
+
+(defn fact-valid-now? [fact MemoryFact now-ms Int] Bool
+  (let [until Int? (memoryfact-valid-until-ms fact)]
+    (and (<= (memoryfact-valid-from-ms fact) now-ms)
+         (or (nil? until) (< now-ms until)))))
+
+(defn fact-well-formed? [fact MemoryFact] Bool
+  (let [until Int? (memoryfact-valid-until-ms fact)]
+    (and (nonempty? (memoryfact-fact-id fact))
+         (and (scope-valid? (memoryfact-scope fact))
+              (and (nonempty? (memoryfact-key fact))
+                   (and (source-valid? (memoryfact-source fact))
+                        (and (>= (trust-score (memoryfact-trust fact)) 0)
+                             (and (<= (trust-score (memoryfact-trust fact)) 100)
+                                  (or (nil? until)
+                                      (< (memoryfact-valid-from-ms fact) until))))))))))
+
+(defn retired? [facts (Vec MemoryFact) candidate MemoryFact] Bool
+  (loop [position Int 0]
+    (if (>= position (count facts))
+      false
+      (let [other MemoryFact (nth facts position)]
+        (if (or (includes-id? (memoryfact-supersedes other)
+                             (memoryfact-fact-id candidate))
+                (includes-id? (memoryfact-invalidates other)
+                             (memoryfact-fact-id candidate)))
+          true
+          (recur (+ position 1))))))
+
+(defn assertion? [payload MemoryPayload] Bool
+  (instance? Assertion payload))
+
+(defn eligible?
+  [facts (Vec MemoryFact)
+   request RecallRequest
+   candidate MemoryFact] Bool
+  (and (fact-well-formed? candidate)
+       (and (same-scope? (recallrequest-scope request) (memoryfact-scope candidate))
+            (and (= (recallrequest-key request) (memoryfact-key candidate))
+                 (and (assertion? (memoryfact-payload candidate))
+                      (and (fact-valid-now? candidate (recallrequest-now-ms request))
+                           (and (>= (trust-score (memoryfact-trust candidate))
+                                    (recallrequest-minimum-trust request))
+                                (and (veracity-recallable? (memoryfact-veracity candidate))
+                                     (not (retired? facts candidate)))))))))
+
+(defn collect-context
+  [facts (Vec MemoryFact)
+   request RecallRequest] (Vec MemoryFact)
+  (loop [position Int 0
+         selected (Vec MemoryFact) []]
+    (if (or (>= position (count facts))
+            (>= (count selected) (recallrequest-context-limit request)))
+      selected
+      (let [candidate MemoryFact (nth facts position)]
+        (if (eligible? facts request candidate)
+          (recur (+ position 1) (conj selected candidate))
+          (recur (+ position 1) selected))))))
+
+(defn request-valid? [request RecallRequest] Bool
+  (and (scope-valid? (recallrequest-scope request))
+       (and (nonempty? (recallrequest-key request))
+            (and (>= (recallrequest-minimum-trust request) 0)
+                 (and (<= (recallrequest-minimum-trust request) 100)
+                      (and (> (recallrequest-scan-limit request) 0)
+                           (> (recallrequest-context-limit request) 0)))))))
+
+(defn recall
+  [page StoreMemoryPage
+   request RecallRequest] RecallDecision
+  (cond
+    [(not (request-valid? request)) (->NoContext :memory/invalid-request)]
+    [(not (storememorypage-complete page)) (->NoContext :memory/incomplete-page)]
+    [(> (count (storememorypage-facts page)) (recallrequest-scan-limit request))
+     (->NoContext :memory/scan-limit-reached)]
+    [:else
+     (let [selected (Vec MemoryFact)
+           (collect-context (storememorypage-facts page) request)]
+       (if (empty? selected)
+         (->NoContext :memory/no-admissible-facts)
+         (->ContextReady selected)))]))
