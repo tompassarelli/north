@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { allocateCodexExecutionAccount } from "../src/providers/codex-execution-allocation";
 import type { AccountAvailabilityRow } from "../src/account-availability";
+import type { CodexAccountAuthority } from "../src/accounts";
 import type { RoutingTarget } from "../src/providers/types";
 
 const targets: RoutingTarget[] = [
@@ -18,7 +19,29 @@ function availability(account: string, pct: number): AccountAvailabilityRow {
   };
 }
 
-test("allocates supported Luna, Terra, and Sol work across fresh execution accounts, never PM", async () => {
+function authority(target: RoutingTarget, role: "execution" | "oversight", executionEligible = true): CodexAccountAuthority {
+  const subject = `@account:${target.id}`;
+  return {
+    role,
+    executionEligible,
+    receipt: {
+      version: "north:codex-account-authority:v1",
+      subject,
+      servedVersion: 42,
+      facts: [
+        { predicate: "kind", value: "provider_account" },
+        { predicate: "account_id", value: target.id },
+        { predicate: "provider", value: "openai" },
+        { predicate: "provider_profile", value: target.profile! },
+        { predicate: "account_role", value: role },
+        { predicate: "execution_eligible", value: String(executionEligible) },
+      ],
+      digest: "store-facts-digest",
+    },
+  };
+}
+
+test("allocates supported Luna, Terra, and Sol work only from Store-admitted execution accounts", async () => {
   const runtime = targets.map((target) => ({
     targetId: target.id, provider: "openai" as const, available: true, reason: "ready" as const,
   }));
@@ -33,12 +56,17 @@ test("allocates supported Luna, Terra, and Sol work across fresh execution accou
     readActivity: async (target: RoutingTarget) => ({
       hours: 24, sessions: 1, live: target.id === "codex-gmail" ? 2 : 0, outputTokens: 0,
     }),
+    readAuthority: async (target: RoutingTarget) => authority(
+      target,
+      target.id === "codex-gmail" ? "oversight" : "execution",
+    ),
   };
 
   await expect(allocateCodexExecutionAccount(targets, runtime, "economy", "low", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-apple" }, model: "gpt-5.6-luna", effort: "low" });
+    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-luna", effort: "low",
+      receipt: { accountAuthority: { subject: "@account:codex-pm" } } });
   await expect(allocateCodexExecutionAccount(targets, runtime, "standard", "medium", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-apple" }, model: "gpt-5.6-terra", effort: "medium" });
+    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-terra", effort: "medium" });
   await expect(allocateCodexExecutionAccount(targets, runtime, "senior", "high", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-apple" }, model: "gpt-5.6-sol", effort: "high" });
+    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-sol", effort: "high" });
 });

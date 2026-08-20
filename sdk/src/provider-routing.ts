@@ -41,7 +41,13 @@ import type {
   ProviderUsageObservation,
   ProviderUsageWindow,
 } from "./providers/types";
-import { codexConfigArguments, isClaudeSubscriptionStatus, observeEnvironmentForTarget } from "./accounts";
+import {
+  codexConfigArguments,
+  isClaudeSubscriptionStatus,
+  observeEnvironmentForTarget,
+  readCodexAccountAuthority,
+  type CodexAccountAuthority,
+} from "./accounts";
 import {
   providerCapabilityRejectionCode, providerSupportsCapabilities,
   type OrchestrationCapability,
@@ -1259,6 +1265,13 @@ export async function collectExecutionModelRefreshAttempts(
  * Execution selector: refresh subscription telemetry and target-scoped model
  * evidence before returning a route. Dry/status callers retain selectProvider.
  */
+export interface ExecutionRoutingDecision extends RoutingDecision {
+  /** The exact Store authority and admitted auth/quota evidence for a Codex route. */
+  readonly executionAccountReceipt?: Awaited<ReturnType<typeof allocateCodexExecutionAccount>> extends infer Allocation
+    ? Allocation extends { receipt: infer Receipt } ? Receipt : never
+    : never;
+}
+
 export async function selectProviderForExecution(
   requested?: RoutingPreference,
   policy: ResourcePolicy = resourcePolicyFromEnv(),
@@ -1271,8 +1284,9 @@ export async function selectProviderForExecution(
     probeAnthropic?: typeof probeAnthropic;
     probeOpenAI?: typeof probeOpenAI;
     refreshAccountUsages?: typeof refreshAccountUsages;
+    readCodexAccountAuthority?: (target: RoutingTarget) => Promise<CodexAccountAuthority | undefined>;
   } = {},
-): Promise<RoutingDecision> {
+): Promise<ExecutionRoutingDecision> {
   throwIfProviderRefreshCancelled(context.signal);
   const preference = requested
     ?? (process.env.AGENT_PROVIDER as ProviderPreference | undefined)
@@ -1283,7 +1297,7 @@ export async function selectProviderForExecution(
     request.target !== undefined ? target.id === request.target
       : requestedProvider !== "auto" ? target.provider === requestedProvider
         : true);
-  const availability = probeTargets.map((target) => {
+  let availability = probeTargets.map((target) => {
     try {
       return {
         ...(target.provider === "anthropic"
@@ -1297,6 +1311,20 @@ export async function selectProviderForExecution(
         authenticated: false, available: false, reason: "unknown" as const,
       };
     }
+  });
+  throwIfProviderRefreshCancelled(context.signal);
+  const codexAuthority = new Map(await Promise.all(probeTargets
+    .filter((target) => target.provider === "openai")
+    .map(async (target) => [
+      target.id,
+      await (dependencies.readCodexAccountAuthority ?? readCodexAccountAuthority)(target),
+    ] as const)));
+  availability = availability.map((entry) => {
+    if (entry.provider !== "openai" || !entry.targetId) return entry;
+    const authority = codexAuthority.get(entry.targetId);
+    return authority?.role === "execution" && authority.executionEligible
+      ? entry
+      : { ...entry, available: false, reason: "unknown" as const, detail: "Store account authority unavailable" };
   });
   throwIfProviderRefreshCancelled(context.signal);
   const reasoning = context.reasoning
@@ -1324,14 +1352,17 @@ export async function selectProviderForExecution(
   catch { /* malformed/unreadable evidence is unavailable */ }
   throwIfProviderRefreshCancelled(context.signal);
   const allocation = requestedProvider === "openai" && request.target === undefined && context.model === undefined
-    ? await allocateCodexExecutionAccount(probeTargets, availability, context.tier, reasoning)
+    ? await allocateCodexExecutionAccount(probeTargets, availability, context.tier, reasoning, {
+      readAuthority: async (target) => codexAuthority.get(target.id),
+    })
     : undefined;
   const executionPreference: RoutingPreference = allocation
     ? { provider: "openai", target: allocation.target.id }
     : preference;
-  return selectProviderFromAvailability(
+  const decision = selectProviderFromAvailability(
     executionPreference, availability, policy, context.tier, context.stableKey,
     reasoning, context.model, context.capabilities,
     { store, currentAttempts: attempts },
   );
+  return allocation ? Object.freeze({ ...decision, executionAccountReceipt: allocation.receipt }) : decision;
 }

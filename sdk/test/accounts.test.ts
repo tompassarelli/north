@@ -17,7 +17,9 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   bootstrapAccountConfig, codexConfigArguments, observeEnvironmentForTarget, providerEnvironmentForTarget,
+  readCodexAccountAuthority,
 } from "../src/accounts";
+import { StoreTriple } from "../src/store-rpc-codec";
 
 const root = join(import.meta.dir, "..");
 const cli = join(root, "src/account-cli.ts");
@@ -815,4 +817,43 @@ test("subscription targets deny hostile provider transports while preserving ord
       expect(codexConfigArguments(env)).toContain('model_provider="openai"');
     }
   }
+});
+
+test("Codex account authority accepts only exact Store singleton role and eligibility facts", async () => {
+  const target = { id: "codex-pm", provider: "openai" as const, authMode: "isolated" as const, profile: "pm" };
+  const facts = [
+    ["kind", "provider_account"],
+    ["account_id", "codex-pm"],
+    ["provider", "openai"],
+    ["provider_profile", "pm"],
+    ["account_role", "execution"],
+    ["execution_eligible", "true"],
+  ] as const;
+  const client = {
+    scanAll: async () => ({
+      rows: facts.map(([predicate, value]) => new StoreTriple("@account:codex-pm", predicate, value)),
+      servedVersion: 17, pages: 1, attempts: 1,
+    }),
+    close: () => {},
+  };
+  await expect(readCodexAccountAuthority(target, { client }))
+    .resolves.toMatchObject({ role: "execution", executionEligible: true,
+      receipt: { subject: "@account:codex-pm", servedVersion: 17,
+        facts: [{ predicate: "kind", value: "provider_account" }] } });
+});
+
+test("Codex account authority fails closed on duplicate or mismatched Store facts", async () => {
+  const target = { id: "codex-work", provider: "openai" as const, authMode: "isolated" as const, profile: "work" };
+  const client = {
+    scanAll: async () => ({
+      rows: [
+        ["kind", "provider_account"], ["account_id", "codex-work"], ["provider", "openai"],
+        ["provider_profile", "work"], ["account_role", "oversight"], ["account_role", "execution"],
+        ["execution_eligible", "true"],
+      ].map(([predicate, value]) => new StoreTriple("@account:codex-work", predicate, value)),
+      servedVersion: 18, pages: 1, attempts: 1,
+    }),
+    close: () => {},
+  };
+  await expect(readCodexAccountAuthority(target, { client })).resolves.toBeUndefined();
 });

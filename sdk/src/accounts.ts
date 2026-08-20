@@ -17,9 +17,12 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { withFileLease } from "./file-lease";
 import type { RoutingTarget } from "./providers/types";
 import { providerBilling, checkSpendBudget, spendBudgetEntityId } from "./spend-guard";
+import { RPC_SUBJECT_ANY, StoreTriple, triple } from "./store-rpc-codec";
+import { StoreRpcClient } from "./store-rpc-client";
 
 export type AccountProvider = "anthropic" | "openai";
 export type AccountAuthState =
@@ -36,6 +39,36 @@ export interface ProviderAccount {
   profile: string;
   authMode: "isolated";
   root: string;
+}
+
+export type CodexAccountRole = "execution" | "oversight";
+
+export interface StoreAccountAuthorityFact {
+  predicate: "kind" | "account_id" | "provider" | "provider_profile" | "account_role" | "execution_eligible";
+  value: string;
+}
+
+/** Exact Store snapshot that admitted this account; it travels with the route. */
+export interface StoreAccountAuthorityReceipt {
+  version: "north:codex-account-authority:v1";
+  subject: string;
+  servedVersion: number;
+  facts: readonly StoreAccountAuthorityFact[];
+  digest: string;
+}
+
+export interface CodexAccountAuthority {
+  role: CodexAccountRole;
+  executionEligible: boolean;
+  receipt: StoreAccountAuthorityReceipt;
+}
+
+export interface CodexAccountAuthorityDependencies {
+  client?: Pick<StoreRpcClient, "scanAll" | "close">;
+}
+
+export interface CodexAccountAuthorityPublisherDependencies {
+  client?: Pick<StoreRpcClient, "scanAll" | "batch" | "close">;
 }
 
 interface RoutingTargetDocument {
@@ -62,6 +95,123 @@ export function isClaudeSubscriptionStatus(status: Record<string, unknown>): boo
 
 const PROVIDERS: AccountProvider[] = ["anthropic", "openai"];
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const CODEX_ACCOUNT_AUTHORITY_PREDICATES = [
+  "kind", "account_id", "provider", "provider_profile", "account_role", "execution_eligible",
+] as const;
+
+export function codexAccountAuthoritySubject(id: string): string {
+  assertSafeAccountId(id);
+  return `@account:${id}`;
+}
+
+function authorityDigest(subject: string, servedVersion: number, facts: readonly StoreAccountAuthorityFact[]): string {
+  return createHash("sha256").update(JSON.stringify({
+    version: "north:codex-account-authority:v1", subject, servedVersion, facts,
+  })).digest("hex");
+}
+
+/**
+ * Reads the only semantic admission facts for an isolated Codex account.
+ * Configuration locates credentials; a missing, duplicate, or contradictory
+ * Store fact never authorizes an execution account.
+ */
+export async function readCodexAccountAuthority(
+  target: RoutingTarget,
+  dependencies: CodexAccountAuthorityDependencies = {},
+): Promise<CodexAccountAuthority | undefined> {
+  if (target.provider !== "openai" || target.authMode !== "isolated" || !target.profile) return undefined;
+  try {
+    assertSafeAccountId(target.id);
+    assertSafeAccountId(target.profile, "account profile");
+  } catch {
+    return undefined;
+  }
+  const subject = codexAccountAuthoritySubject(target.id);
+  const ownedClient = dependencies.client === undefined;
+  const client = dependencies.client ?? await StoreRpcClient.connect({ maxAttempts: 1, retryDelayMs: 0, jitterMs: 0 });
+  try {
+    const snapshot = await client.scanAll(subject, null, null);
+    const values = new Map<string, string[]>();
+    for (const row of snapshot.rows) {
+      if (!(row instanceof StoreTriple) || row.t1 !== subject || typeof row.t2 !== "string" || typeof row.t3 !== "string") continue;
+      if (!CODEX_ACCOUNT_AUTHORITY_PREDICATES.includes(row.t2 as typeof CODEX_ACCOUNT_AUTHORITY_PREDICATES[number])) continue;
+      values.set(row.t2, [...(values.get(row.t2) ?? []), row.t3]);
+    }
+    const singleton = (predicate: typeof CODEX_ACCOUNT_AUTHORITY_PREDICATES[number]): string | undefined => {
+      const found = values.get(predicate);
+      return found?.length === 1 ? found[0] : undefined;
+    };
+    const kind = singleton("kind");
+    const id = singleton("account_id");
+    const provider = singleton("provider");
+    const profile = singleton("provider_profile");
+    const role = singleton("account_role");
+    const eligibility = singleton("execution_eligible");
+    if (kind !== "provider_account" || id !== target.id || provider !== "openai" || profile !== target.profile
+        || (role !== "execution" && role !== "oversight") || (eligibility !== "true" && eligibility !== "false")) return undefined;
+    const facts: StoreAccountAuthorityFact[] = CODEX_ACCOUNT_AUTHORITY_PREDICATES.map((predicate) => ({
+      predicate, value: singleton(predicate)!,
+    }));
+    const receipt = Object.freeze({
+      version: "north:codex-account-authority:v1" as const,
+      subject,
+      servedVersion: snapshot.servedVersion,
+      facts: Object.freeze(facts),
+      digest: authorityDigest(subject, snapshot.servedVersion, facts),
+    });
+    return Object.freeze({ role, executionEligible: eligibility === "true", receipt });
+  } catch {
+    return undefined;
+  } finally {
+    if (ownedClient) client.close();
+  }
+}
+
+/**
+ * Seed immutable account admission facts before the local credential locator is
+ * added to routing configuration. Existing facts are accepted only when they
+ * already decode to this exact role; role changes require a distinct Store
+ * administration flow rather than a local configuration rewrite.
+ */
+export async function publishCodexAccountAuthority(
+  target: RoutingTarget,
+  role: CodexAccountRole,
+  dependencies: CodexAccountAuthorityPublisherDependencies = {},
+): Promise<StoreAccountAuthorityReceipt> {
+  if (target.provider !== "openai" || target.authMode !== "isolated" || !target.profile)
+    throw new Error("Codex account authority requires an isolated OpenAI credential locator");
+  const subject = codexAccountAuthoritySubject(target.id);
+  const ownedClient = dependencies.client === undefined;
+  const client = dependencies.client ?? await StoreRpcClient.connect({ maxAttempts: 1, retryDelayMs: 0, jitterMs: 0 });
+  try {
+    const existing = await client.scanAll(subject, null, null);
+    if (existing.rows.length) {
+      const authority = await readCodexAccountAuthority(target, { client });
+      if (!authority || authority.role !== role)
+        throw new Error(`Store account authority already exists and does not exactly admit ${target.id} as ${role}`);
+      return authority.receipt;
+    }
+    const facts: StoreAccountAuthorityFact[] = [
+      { predicate: "kind", value: "provider_account" },
+      { predicate: "account_id", value: target.id },
+      { predicate: "provider", value: "openai" },
+      { predicate: "provider_profile", value: target.profile },
+      { predicate: "account_role", value: role },
+      { predicate: "execution_eligible", value: "true" },
+    ];
+    await client.batch(facts.map(({ predicate, value }) => ({
+      op: "assert" as const,
+      proposition: triple(subject, predicate, value),
+      policy: RPC_SUBJECT_ANY,
+    })), { expectedVersion: existing.servedVersion });
+    const authority = await readCodexAccountAuthority(target, { client });
+    if (!authority || authority.role !== role)
+      throw new Error(`Store account authority publication could not be verified for ${target.id}`);
+    return authority.receipt;
+  } finally {
+    if (ownedClient) client.close();
+  }
+}
 
 // CLAUDE.md is deliberately NOT projected into account dirs: ~/.claude/CLAUDE.md
 // already loads in every session as ancestor project memory from the user's home, so an
@@ -264,8 +414,11 @@ export function bootstrapAccountConfig(account: ProviderAccount, context: Accoun
 export async function addProviderAccount(
   id: string,
   providerInput: string,
-  context: AccountContext = {},
+  roleOrContext: CodexAccountRole | AccountContext = {},
+  suppliedContext: AccountContext = {},
 ): Promise<ProviderAccount> {
+  const role = typeof roleOrContext === "string" ? roleOrContext : undefined;
+  const context = typeof roleOrContext === "string" ? suppliedContext : roleOrContext;
   assertSafeAccountId(id);
   // Config-time fail-closed (design §2): an API-billed provider target cannot be
   // configured unguarded — a complete `@spend-budget:<id>` must exist first, so
@@ -284,6 +437,10 @@ export async function addProviderAccount(
       );
   }
   assertProvider(providerInput);
+  if (role !== undefined && role !== "execution" && role !== "oversight")
+    throw new Error("Codex account role must be execution or oversight");
+  if (providerInput === "openai" && role === undefined)
+    throw new Error("Codex account creation requires explicit Store role: execution or oversight");
   const path = routingPolicyPath(context);
   return withFileLease(`${path}.lock`, async () => {
     const document = readRoutingDocument(path);
@@ -301,6 +458,15 @@ export async function addProviderAccount(
       root: accountRoot(providerInput, id, context),
     };
     bootstrapAccountConfig(account, context);
+
+    if (providerInput === "openai") {
+      await publishCodexAccountAuthority({
+        id: account.id,
+        provider: "openai",
+        profile: account.profile,
+        authMode: "isolated",
+      }, role!);
+    }
 
     const nextTargets = [...targets, { id, provider: providerInput, profile: id, authMode: "isolated" }];
     const targetOrder = Array.isArray(currentOrder)
