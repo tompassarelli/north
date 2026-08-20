@@ -36,11 +36,14 @@
 (declare-extern store.rt/slugify (Fn [String] String))
 (declare-extern store.rt/getenv (Fn [String] (U String Nil)))
 
-(defn- getenv-or [(name String) (default String)] String
+(defn- getenv-or
+  [name String
+   default String]
+  String
   (let [(value (U String Nil)) (store.rt/getenv name)]
     (if (nil? value) default value)))
 
-(defn- to-json [(value Any)] String
+(defn- to-json [value Any] String
   (cheshire.core/generate-string value))
 
 (defn- threads-dir [] String
@@ -49,26 +52,29 @@
 (defn- log-path [] String
   (getenv-or "BEAGLE_STORE_LOG" (str (System/getProperty "user.dir") "/coordination.log")))
 
-(defn- string-term [(value Any)] String
+(defn- string-term [value Any] String
   (if (string? value)
     value
     (throw (ex-info "North coordination data requires String Triple terms"
                     {:type :north/non-string-triple}))))
 
-(defn- triple-subject [(value t/Triple)] String
+(defn- triple-subject [value t/Triple] String
   (string-term (t/triple-t1 value)))
 
-(defn- triple-predicate [(value t/Triple)] String
+(defn- triple-predicate [value t/Triple] String
   (string-term (t/triple-t2 value)))
 
-(defn- triple-value [(value t/Triple)] String
+(defn- triple-value [value t/Triple] String
   (string-term (t/triple-t3 value)))
 
 ;; bin/north preloads the Clojure coordination facade before loading this
 ;; compiled namespace. Resolve that runtime boundary lazily so pure projection
 ;; consumers can still require north.main without opening a socket or loading a
 ;; CLI script.
-(defn- coord-invoke [(operation String) (args (Vec Any))] Any
+(defn- coord-invoke
+  [operation String
+   args (Vec Any)]
+  Any
   (let [(callable Any)
         (ns-resolve (symbol "north.coord") (symbol operation))]
     (if (some? callable)
@@ -84,7 +90,10 @@
       (throw (ex-info "north.coord returned an invalid port"
                       {:type :north/invalid-coord-port})))))
 
-(defn- coord-propositions [(operation String) (args (Vec Any))] (Vec t/Triple)
+(defn- coord-propositions
+  [operation String
+   args (Vec Any)]
+  (Vec t/Triple)
   (let [(value Any) (coord-invoke operation args)]
     (if (and (vector? value) (every? t/triple? value))
       value
@@ -92,10 +101,13 @@
                       {:type :north/invalid-coord-projection
                        :operation operation})))))
 
-(defn- coord-live-propositions [(port Int)] (Vec t/Triple)
+(defn- coord-live-propositions [port Int] (Vec t/Triple)
   (coord-propositions "live-propositions" [port]))
 
-(defn- coord-subject-propositions [(port Int) (subject String)] (Vec t/Triple)
+(defn- coord-subject-propositions
+  [port Int
+   subject String]
+  (Vec t/Triple)
   (coord-propositions "subject-propositions" [port subject]))
 
 ;; --- thread id: north-owned UUIDv7 minter --------------------------------
@@ -113,10 +125,13 @@
 
 ;; --- display helpers --------------------------------------------------------
 
-(defn- title-of [(idx proj/ProjectionIndex) (te String)] String
+(defn- title-of
+  [idx proj/ProjectionIndex
+   te String]
+  String
   (let [t (proj/string-value-at idx te "title")] (if (some? t) t "")))
 
-(defn- short-id [(te String)] String
+(defn- short-id [te String] String
   (if (str/starts-with? te "@") (subs te 1) te))
 
 ;; --- ref resolution: @id OR @handle -> canonical @id ------------------------
@@ -125,11 +140,14 @@
 ;; it a ref, this maps it to the canonical id first. Passthrough when the ref
 ;; already names a thread (has a title); else find a thread whose `handle` fact
 ;; equals the ref (sans @), latest created_at winning ties; else ref unchanged.
-(defn resolve-ref [(idx proj/ProjectionIndex) (ref String)] String
+(defn resolve-ref
+  [idx proj/ProjectionIndex
+   ref String]
+  String
   (if (some? (proj/string-value-at idx ref "title"))
     ref
     (let [bare (short-id ref)
-          matches (filterv (fn [(te String)] Bool
+          matches (filterv (fn [te String] Bool
                              (let [h (proj/string-value-at idx te "handle")]
                                (and (some? h) (= h bare))))
                            (proj/thread-subjects idx))]
@@ -140,11 +158,13 @@
         ;; fallthrough so a truncated id is REFUSED instead of minting a phantom.
         (let [pms (if (str/blank? bare)
                     []
-                    (filterv (fn [(te String)] Bool
+                    (filterv (fn [te String] Bool
                                (str/starts-with? (short-id te) bare))
                              (proj/thread-subjects idx)))]
           (if (= (count pms) 1) (first pms) ref))
-        (reduce (fn [(best String) (te String)] String
+        (reduce (fn
+                  [best String
+                   te String] String
                   (if (str/blank? best)
                     te
                     (let [bc (let [c (proj/string-value-at idx best "created_at")] (if (some? c) c ""))
@@ -152,7 +172,10 @@
                       (if (store.rt/str-lt? bc tc) te best))))
                 "" matches)))))
 
-(defn- trunc [(s String) (n Int)] String
+(defn- trunc
+  [s String
+   n Int]
+  String
   (if (> (count s) n) (str (subs s 0 (- n 1)) "…") s))
 
 ;; --- entity KIND: the census classifier ------------------------------------
@@ -160,7 +183,7 @@
 ;; extensions are rendered exactly as stored. Legacy `kind`, reserved namespaces,
 ;; shapes, and executable predicate metadata classify subjects without an
 ;; explicit `entity_kind` fact.
-(defn- legacy-entity-kind [(ek String)] String
+(defn- legacy-entity-kind [ek String] String
   (cond
     [(or (= ek "lane") (or (= ek "managed") (= ek "session"))) "agent"]
     [(or (= ek "msg") (= ek "command")) "message"]
@@ -171,7 +194,7 @@
 ;; whether it also carries a title (an un-kinded concern still has a title; the
 ;; `concern-` namespace is exclusive — no thread id ever starts with it). "" = not
 ;; a reserved namespace, fall through to the title/predicate check.
-(defn- namespace-kind [(bare String)] String
+(defn- namespace-kind [bare String] String
   (cond
     [(str/starts-with? bare "concern-") "concern"]
     [(str/starts-with? bare "agent:") "agent"]
@@ -185,7 +208,7 @@
     [(str/starts-with? bare "arena-") "north/arena_run"]
     [:else ""]))
 
-(defn- kind-of [(idx proj/ProjectionIndex) (te String?)] String
+(defn- kind-of [idx proj/ProjectionIndex te String?] String
   ;; Historical malformed writes can leave an unrenderable subject in a warm
   ;; store. The census is a diagnostic read: keep it total and surface that
   ;; subject in `other` instead of crashing before the operator can inspect it.
@@ -213,14 +236,19 @@
 
 ;; The human label for a thread's driver: its display_name if the agent carries
 ;; one, else the bare ref — board legibility (who's on what).
-(defn- driver-label [(idx proj/ProjectionIndex) (te String)] String
+(defn- driver-label
+  [idx proj/ProjectionIndex
+   te String]
+  String
   (let [d (proj/string-value-at idx te "driver")]
     (if (nil? d)
       ""
       (let [dn (proj/string-value-at idx d "display_name")]
         (if (some? dn) dn (short-id d))))))
 
-(defrecord LevItem [(te String) (score Int)])
+(defrecord LevItem
+  [te String
+   score Int])
 ;; A next recommendation carries its SCORE and the orthogonal components that
 ;; produced it, each a DISTINCT documented axis (never silently summed into one
 ;; opaque number):
@@ -233,25 +261,37 @@
 ;;               move the score); surfaced so the human can override the ranking.
 ;; score = 3*leverage + urgency + momentum. priority stays out of the arithmetic.
 (defrecord NextItem
-  [(te String)
-   (score Int)
-   (leverage Int)
-   (urgency Int)
-   (momentum Int)
-   (priority String)
-   (sequencing Int)
-   (basis String)])
+  [te String
+   score Int
+   leverage Int
+   urgency Int
+   momentum Int
+   priority String
+   sequencing Int
+   basis String])
 (defrecord QueueDirective
-  [(te String) (version Int) (position String) (anchor String)])
-(defrecord AgendaItem [(te String) (do_on String)])
+  [te String
+   version Int
+   position String
+   anchor String])
+(defrecord AgendaItem
+  [te String
+   do_on String])
 
 ;; queue_rank is an imperative ordering receipt, not lifecycle state. Replaying
 ;; each thread's latest move over the leverage order lets one atomic fact move a
 ;; card without rewriting every sibling rank.
-(defn queue-rank-value [(version Int) (position String) (anchor String)] String
+(defn queue-rank-value
+  [version Int
+   position String
+   anchor String]
+  String
   (str "v1|" version "|" position "|" (if (str/blank? anchor) "_" anchor)))
 
-(defn- queue-directive [(idx proj/ProjectionIndex) (te String)] QueueDirective?
+(defn- queue-directive
+  [idx proj/ProjectionIndex
+   te String]
+  QueueDirective?
   (let [raw (proj/string-value-at idx te "queue_rank")
         parts (if (some? raw) (vec (str/split raw #"\|")) [])
         version (if (= (count parts) 4) (store.rt/parse-int (nth parts 1)) -1)
@@ -267,14 +307,21 @@
       (->QueueDirective te version position anchor)
       nil)))
 
-(defn- queue-index [(items (Vec String)) (target String)] Int
+(defn- queue-index
+  [items (Vec String)
+   target String]
+  Int
   (loop [i 0]
     (cond
       [(>= i (count items)) -1]
       [(= (nth items i) target) i]
       [:else (recur (+ i 1))])))
 
-(defn- queue-insert [(items (Vec String)) (target String) (at Int)] (Vec String)
+(defn- queue-insert
+  [items (Vec String)
+   target String
+   at Int]
+  (Vec String)
   (loop [i 0
          result []]
     (if (>= i (count items))
@@ -283,10 +330,12 @@
         (recur (+ i 1) (conj with-target (nth items i)))))))
 
 (defn- apply-queue-directive
-  [(items (Vec String)) (directive QueueDirective)] (Vec String)
+  [items (Vec String)
+   directive QueueDirective]
+  (Vec String)
   (let [te (:te directive)
         old-index (queue-index items te)
-        remaining (filterv (fn [(item String)] Bool (not (= item te))) items)
+        remaining (filterv (fn [item String] Bool (not (= item te))) items)
         anchor-index (queue-index remaining (:anchor directive))
         fallback-index (if (< old-index 0) (count remaining)
                            (if (> old-index (count remaining)) (count remaining) old-index))
@@ -300,33 +349,42 @@
     (queue-insert remaining te insert-index)))
 
 (defn- queue-order-from-base
-  [(idx proj/ProjectionIndex) (base (Vec String))] (Vec String)
+  [idx proj/ProjectionIndex
+   base (Vec String)]
+  (Vec String)
   (let [directives
         (reduce
-         (fn [(found (Vec QueueDirective)) (te String)] (Vec QueueDirective)
+         (fn
+           [found (Vec QueueDirective)
+            te String] (Vec QueueDirective)
            (let [directive (queue-directive idx te)]
              (if (some? directive) (conj found directive) found)))
          [] base)]
     (reduce
-     (fn [(ordered (Vec String)) (directive QueueDirective)] (Vec String)
+     (fn
+       [ordered (Vec String)
+        directive QueueDirective] (Vec String)
        (apply-queue-directive ordered directive))
      base
-     (vec (sort-by (fn [(directive QueueDirective)] Int (:version directive)) directives)))))
+     (vec (sort-by (fn [directive QueueDirective] Int (:version directive)) directives)))))
 
-(defn queue-order [(idx proj/ProjectionIndex) (tes (Vec String))] (Vec String)
+(defn queue-order
+  [idx proj/ProjectionIndex
+   tes (Vec String)]
+  (Vec String)
   (queue-order-from-base
    idx
-   (vec (sort-by (fn [(te String)] Int (- 0 (proj/leverage-score idx te))) tes))))
+   (vec (sort-by (fn [te String] Int (- 0 (proj/leverage-score idx te))) tes))))
 
 ;; Reads are FRAMRPC-authoritative. North never opens FRAMLOG bytes as a
 ;; client-side fallback; the physical log path is projection identity only.
-(defn- coord-version [(port Int)] Int
+(defn- coord-version [port Int] Int
   (try
     (let [(value Any) (coord-invoke "version" [port])]
       (if (int? value) value -1))
     (catch (_ Exception) -1)))
 
-(defn- live-facts [(log String)] (Vec t/Triple)
+(defn- live-facts [log String] (Vec t/Triple)
   (let [port (coord-port)
         version (coord-version port)]
     (if (< version 0)
@@ -337,27 +395,37 @@
                        :log log}))
       (coord-live-propositions port))))
 
-(defn- live-idx [(log String)] proj/ProjectionIndex
+(defn- live-idx [log String] proj/ProjectionIndex
   (proj/index-triples (live-facts log)))
 
 ;; A failed exact-subject query and an absent subject both yield no local rows,
 ;; so callers retain the whole-corpus FRAMRPC fallback.
-(defn- live-subject-facts [(log String) (te String)] (Vec t/Triple)
+(defn- live-subject-facts
+  [log String
+   te String]
+  (Vec t/Triple)
   (try
     (coord-subject-propositions (coord-port) te)
     (catch (_ Exception) [])))
 
-(defn- subject-facts [(log String) (te String)] (Vec t/Triple)
+(defn- subject-facts
+  [log String
+   te String]
+  (Vec t/Triple)
   (let [warm (live-subject-facts log te)]
     (if (empty? warm)
-      (filterv (fn [(triple t/Triple)] Bool
+      (filterv (fn [triple t/Triple] Bool
                  (= te (triple-subject triple)))
                (live-facts log))
       warm)))
 
 ;; --- write through canonical FRAMRPC (serialized under concurrent agents) ---
 (defn framrpc-failure-message
-  [(code Int) (port Int) (log String) (consequence String)] String
+  [code Int
+   port Int
+   log String
+   consequence String]
+  String
   (let [summary
         (cond
           [(= code -1)
@@ -383,12 +451,12 @@
          ". " remedy ".")))
 
 (defn- tell-once
-  [(port Int)
-   (log String)
-   (op String)
-   (te String)
-   (pred String)
-   (rv String)]
+  [port Int
+   log String
+   op String
+   te String
+   pred String
+   rv String]
   String
   (let [v (coord-version port)]
     (if (< v 0)
@@ -406,13 +474,13 @@
         (catch (_ Exception) "server-unavailable")))))
 
 (defn- tell-retry
-  [(port Int)
-   (log String)
-   (op String)
-   (te String)
-   (pred String)
-   (rv String)
-   (tries Int)]
+  [port Int
+   log String
+   op String
+   te String
+   pred String
+   rv String
+   tries Int]
   String
   (let [resp (tell-once port log op te pred rv)]
     (if (and (= resp "conflict") (> tries 0))
@@ -420,29 +488,33 @@
       resp)))
 
 ;; --- terminal capture: a one-line thought -> a thread -> folded -------------
-(defn- ctrl? [(s String)] Bool
+(defn- ctrl? [s String] Bool
   (or (str/includes? s "\n") (str/includes? s "\r")))
 
 (defn- add-fact
-  [(acc (Vec t/Triple)) (te String) (p String) (v String)] (Vec t/Triple)
+  [acc (Vec t/Triple)
+   te String
+   p String
+   v String]
+  (Vec t/Triple)
   (if (str/blank? v) acc (conj acc (t/triple te p v))))
 
-(defn- ref-or-blank [(v String)] String
+(defn- ref-or-blank [v String] String
   (if (str/blank? v) "" (str "@" v)))
 
 ;; NO `driver` at birth (operating-manual): making a thread active is a deliberate
 ;; pickup (`tell <id> driver @x`), never a capture default — a driver cell here is
 ;; exactly the "stray driver" pollution the-model warns about.
 (defn- capture-facts
-  [(te String)
-   (title String)
-   (owner String)
-   (source String)
-   (author String)
-   (lead String)
-   (proposed String)
-   (created-at String)
-   (today String)]
+  [te String
+   title String
+   owner String
+   source String
+   author String
+   lead String
+   proposed String
+   created-at String
+   today String]
   (Vec t/Triple)
   (let [c (add-fact [] te "title" title)
         ;; Every new thread self-identifies as kind=thread in the same FRAMRPC
@@ -465,14 +537,14 @@
     c))
 
 (defrecord CaptureReceipt
-  [(id String)
-   (thread String)
-   (title String)
-   (path String)
-   (expected Int)
-   (committed Int)
-   (complete Bool)
-   (reason String)])
+  [id String
+   thread String
+   title String
+   path String
+   expected Int
+   committed Int
+   complete Bool
+   reason String])
 
 (defn- structured-capture? [] Bool
   ;; Internal machine boundary for adapters that must bind the exact minted
@@ -481,25 +553,25 @@
   (= "1" (getenv-or "NORTH_CAPTURE_STRUCTURED" "")))
 
 (defn- print-capture-receipt
-  [(id String)
-   (te String)
-   (title String)
-   (path String)
-   (expected Int)
-   (committed Int)
-   (complete Bool)
-   (reason String)]
+  [id String
+   te String
+   title String
+   path String
+   expected Int
+   committed Int
+   complete Bool
+   reason String]
   Nil
   (println
    (to-json
     (->CaptureReceipt id te title path expected committed complete reason))))
 
 (defn- retract-committed-capture-facts
-  [(port Int)
-   (log String)
-   (facts (Vec t/Triple))
-   (results (Vec String))
-   (i Int)]
+  [port Int
+   log String
+   facts (Vec t/Triple)
+   results (Vec String)
+   i Int]
   Bool
   (if (>= i (count facts))
     true
@@ -522,25 +594,29 @@
 ;; exactly the facts acknowledged by this attempt. Prove both graph and view
 ;; absence before describing the rollback as clean.
 (defn- cleanup-partial-capture
-  [(port Int)
-   (log String)
-   (te String)
-   (path String)
-   (facts (Vec t/Triple))
-   (results (Vec String))]
+  [port Int
+   log String
+   te String
+   path String
+   facts (Vec t/Triple)
+   results (Vec String)]
   Bool
   (let [retracted
         (retract-committed-capture-facts port log facts results 0)
         _ (store.rt/delete-file path)
         remaining
-        (filterv (fn [(fact t/Triple)] Bool (= te (triple-subject fact)))
+        (filterv (fn [fact t/Triple] Bool (= te (triple-subject fact)))
                  (coord-live-propositions port))]
     (and retracted
          (empty? remaining)
          (not (store.rt/file-exists path)))))
 
 (defn cmd-capture
-  [(threads-dir String) (log String) (title String) (owner String)] Nil
+  [threads-dir String
+   log String
+   title String
+   owner String]
+  Nil
   (let [source (getenv-or "NORTH_SOURCE" "self")
         author (getenv-or "NORTH_AUTHOR" "you")
         lead (getenv-or "NORTH_LEAD" "")
@@ -574,10 +650,10 @@
              (println (framrpc-failure-message
                        server-v port log "capture was not recorded")))
            (let [facts (capture-facts te title owner source author lead proposed created-at today)
-                 results (mapv (fn [(c t/Triple)] String
+                 results (mapv (fn [c t/Triple] String
                                  (tell-retry port log "assert" (triple-subject c) (triple-predicate c) (triple-value c) 5))
                                facts)
-                 oks (count (filterv (fn [(r String)] Bool (str/starts-with? r "ok:")) results))]
+                 oks (count (filterv (fn [r String] Bool (str/starts-with? r "ok:")) results))]
              (if (= oks (count facts))
                (do
                  ;; Freshly minted id: an empty warm read-back means the read failed,
@@ -616,7 +692,7 @@
 ;; resolved to nothing prints "ERROR ..." — the wrapper aborts the write instead
 ;; of letting Store mint a phantom subject under the truncated id. Human handles
 ;; (any other chars) still pass through untouched.
-(defn- id-like? [(bare String)] Bool
+(defn- id-like? [bare String] Bool
   ;; hex+dash only AND (dashed OR >=8 chars): catches uuidv7/date ids and their
   ;; truncations (dashed like 019f20b1-7a98, dashless like 019f20b1) while a real
   ;; human handle (letters beyond a-f, or short) still passes through.
@@ -624,7 +700,10 @@
        (str/blank? (str/replace bare #"[0-9a-f-]" ""))
        (or (str/includes? bare "-") (>= (count bare) 8))))
 
-(defn cmd-resolve [(log String) (ref String)] Nil
+(defn cmd-resolve
+  [log String
+   ref String]
+  Nil
   (let [idx (live-idx log)
         r (resolve-ref idx ref)]
     (if (and (= r ref)
@@ -641,7 +720,10 @@
 ;; closing their own thread). Silent when the thread has no bars, so the tell
 ;; path can invoke it unconditionally. ✓/○ per bar = evidence containment
 ;; (a bar_evidence fact quoting the bar text).
-(defn cmd-done-bars [(log String) (ref String)] Nil
+(defn cmd-done-bars
+  [log String
+   ref String]
+  Nil
   (let [idx (live-idx log)
         te (resolve-ref idx (if (str/starts-with? ref "@") ref (str "@" ref)))
         bars (proj/string-values-at idx te "done_when")
@@ -654,7 +736,7 @@
         (println (str "  evidence: north tell " (short-id te) " bar_evidence \"<bar> → <observed result>\""))))))
 
 ;; Entity-drift audit: repo path-form collisions (tags retired with relates_to).
-(defn cmd-audit [(log String)] Nil
+(defn cmd-audit [log String] Nil
   (let [idx (live-idx log)
         rd (audit/repo-drift idx)]
     (println (str "REPO DRIFT — " (count rd) " group(s):"))
@@ -665,12 +747,16 @@
 ;; north's WORK rules (abandoned deps, person/role refs) — north.validate.
 ;; The Beagle Store CLI `validate` only runs the generic half; this is the full check, so
 ;; bin/north routes `validate` here (and the MCP validate tool through it).
-(defn cmd-validate [(log String)] Int
+(defn cmd-validate [log String] Int
   (let [idx (live-idx log)
         ids (proj/thread-subjects idx)
         problems (reduce
-                  (fn [(acc (Vec String)) (te String)] (Vec String)
-                    (reduce (fn [(a (Vec String)) (v String)] (Vec String)
+                  (fn
+                    [acc (Vec String)
+                     te String] (Vec String)
+                    (reduce (fn
+                              [a (Vec String)
+                               v String] (Vec String)
                               (conj a (str (short-id te) ": " v)))
                             acc (val/violations-i idx te)))
                   []
@@ -708,7 +794,7 @@
 ;; ready/board/next/JSON/grooming all classify against `live-driver-pred`, so a
 ;; parked driver reads the same (not-active -> its committed/schedule state)
 ;; everywhere. `--all` changes scope only; it never changes lifecycle semantics.
-(defn- lease-exp-secs [(idx proj/ProjectionIndex) (driverref String)] Int
+(defn- lease-exp-secs [idx proj/ProjectionIndex driverref String] Int
   ;; exp of @lease:session:<handle> in EPOCH SECONDS, or -1 if no lease. Lease value
   ;; is "holder|exp-ms|epoch"; slice exp-ms to seconds (drop the last 3 chars) —
   ;; parse-int is 32-bit, so 13-digit ms overflows while 10-digit secs (good to
@@ -725,7 +811,7 @@
               (store.rt/parse-int (subs expms 0 (- (count expms) 3)))
               -1)))))))
 
-(defn- dt->secs [(s String)] Int
+(defn- dt->secs [s String] Int
   ;; ISO date OR datetime -> epoch seconds; -1 on any unparseable shape. Never
   ;; throws: iso-to-seconds parses validated shapes only, so every call is gated on
   ;; the shape check first (a bare date is padded to midnight).
@@ -737,7 +823,11 @@
     [:else -1]))
 
 (defn- driver-live?
-  [(idx proj/ProjectionIndex) (te String) (now-secs Int) (window-secs Int)] Bool
+  [idx proj/ProjectionIndex
+   te String
+   now-secs Int
+   window-secs Int]
+  Bool
   (let [d (proj/string-value-at idx te "driver")]
     (if (nil? d)
       false
@@ -759,8 +849,13 @@
 ;; The canonical live? predicate the classifier consumes, curried over a fixed
 ;; now/window so every thread in one command is judged against the same instant.
 (defn- live-driver-pred
-  [(now-secs Int) (window-secs Int)] (Fn [proj/ProjectionIndex String] Bool)
-  (fn [(idx proj/ProjectionIndex) (te String)] Bool (driver-live? idx te now-secs window-secs)))
+  [now-secs Int
+   window-secs Int]
+  (Fn [proj/ProjectionIndex String] Bool)
+  (fn
+    [idx proj/ProjectionIndex
+     te String] Bool
+    (driver-live? idx te now-secs window-secs)))
 
 ;; Build the canonical live? for "right now" — one clock read, reused for the whole
 ;; command. Callers that already hold now-secs/window use live-driver-pred directly.
@@ -770,20 +865,23 @@
 ;; Assignment and activity are orthogonal. A parked assignment remains visible
 ;; for cleanup even though it no longer forces the lifecycle to `active`.
 (defn- parked-assignment?
-  [(idx proj/ProjectionIndex)
-   (te String)
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   te String
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   Bool
   (and (proj/assigned? idx te) (not (live? idx te))))
 
 (defn- parked-assignments
-  [(idx proj/ProjectionIndex)
-   (tes (Vec String))
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   tes (Vec String)
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   (Vec String)
-  (filterv (fn [(te String)] Bool (parked-assignment? idx te live?)) tes))
+  (filterv (fn [te String] Bool (parked-assignment? idx te live?)) tes))
 
-(defn cmd-ready [(log String) (all Bool)] Nil
+(defn cmd-ready
+  [log String
+   all Bool]
+  Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
         live? (default-live?)
@@ -792,7 +890,7 @@
         ;; also satisfy the ready predicate but are not actionable work items;
         ;; --all keeps the old unscoped full list unchanged.
         rs (if all raw
-             (filterv (fn [(te String)] Bool (= (kind-of idx te) "thread")) raw))
+             (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
         ;; Manual queue moves replay over leverage, so the default stays
         ;; high-signal until an operator explicitly orders it.
         ranked (queue-order idx rs)
@@ -807,38 +905,38 @@
     (when (and (not all) (> (count rs) (count shown)))
       (println (str "  … +" (- (count rs) (count shown)) " more · north ready --all")))))
 
-(defn cmd-blocked [(log String)] Nil
+(defn cmd-blocked [log String] Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
         before? store.rt/str-lt?
         live? (default-live?)
-        bs (filterv (fn [(te String)] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
+        bs (filterv (fn [te String] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
                     (proj/work-thread-ids-i idx))]
     (println (str "BLOCKED — " (count bs)))
     (doseq [te bs]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 48)
                     "  (waiting on " (count (proj/incomplete-deps idx te)) ")")))))
 
-(defn cmd-leverage [(log String)] Nil
+(defn cmd-leverage [log String] Nil
   (let [idx (live-idx log)
-        cands (filterv (fn [(te String)] Bool (not (proj/terminal-i? idx te)))
+        cands (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                        (proj/work-thread-ids-i idx))
-        items (filterv (fn [(it LevItem)] Bool (> (:score it) 0))
-                       (mapv (fn [(te String)] LevItem
+        items (filterv (fn [it LevItem] Bool (> (:score it) 0))
+                       (mapv (fn [te String] LevItem
                                (->LevItem te (proj/leverage-score idx te)))
                              cands))
-        ranked (vec (take 15 (sort-by (fn [(it LevItem)] Int (- 0 (:score it))) items)))]
+        ranked (vec (take 15 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
     (println "TOP UNBLOCKERS — finishing this transitively frees the most stuck threads")
     (doseq [it ranked]
       (println (str "  unblocks " (:score it) "  " (short-id (:te it))
                     "  " (trunc (title-of idx (:te it)) 46))))))
 
 (defn- next-item
-  [(idx proj/ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   NextItem
   (let [lev (proj/leverage-score idx te)
         doo (proj/string-value-at idx te "do_on")
@@ -856,7 +954,7 @@
         eligibility (proj/explain idx te today before? live?)]
     (->NextItem te (+ (* 3 lev) (+ urg mom)) lev urg mom pri sequencing (:reason eligibility))))
 
-(defn cmd-next [(log String)] Nil
+(defn cmd-next [log String] Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
         before? store.rt/str-lt?
@@ -864,11 +962,11 @@
         ;; candidate set = the ONE eligibility rule (proj/ready = classify "ready"):
         ;; committed, unblocked, no live driver, not scheduled-later. Identical to
         ;; the set `ready` and the board's READY bucket render — they cannot diverge.
-        items (mapv (fn [(te String)] NextItem (next-item idx te today before? live?))
+        items (mapv (fn [te String] NextItem (next-item idx te today before? live?))
                     (proj/ready idx today before? live?))
-        score-order (mapv (fn [(it NextItem)] String (:te it))
-                          (vec (sort-by (fn [(it NextItem)] Int (- 0 (:score it))) items)))
-        ranked (mapv (fn [(te String)] NextItem (next-item idx te today before? live?))
+        score-order (mapv (fn [it NextItem] String (:te it))
+                          (vec (sort-by (fn [it NextItem] Int (- 0 (:score it))) items)))
+        ranked (mapv (fn [te String] NextItem (next-item idx te today before? live?))
                      (vec (take 12 (queue-order-from-base idx score-order))))]
     (println (str "WHAT TO WORK ON — top picks (" today ")"))
     (println "  eligible = ready (committed + unblocked + no live driver + not scheduled-later)")
@@ -884,20 +982,20 @@
                     " · priority: " (if (str/blank? (:priority it)) "none" (:priority it))
                     " (not scored)")))))
 
-(defn cmd-agenda [(log String)] Nil
+(defn cmd-agenda [log String] Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
-        cands (filterv (fn [(te String)] Bool
+        cands (filterv (fn [te String] Bool
                          (and (not (proj/terminal-i? idx te)) (some? (proj/string-value-at idx te "do_on"))))
                        (proj/work-thread-ids-i idx))
-        items (mapv (fn [(te String)] AgendaItem
+        items (mapv (fn [te String] AgendaItem
                       (->AgendaItem te (let [d (proj/string-value-at idx te "do_on")] (if (some? d) d ""))))
                     cands)
-        overdue (vec (sort-by (fn [(it AgendaItem)] String (:do_on it))
-                              (filterv (fn [(it AgendaItem)] Bool (store.rt/str-lt? (:do_on it) today)) items)))
-        todayb (filterv (fn [(it AgendaItem)] Bool (= (:do_on it) today)) items)
-        upcoming (vec (sort-by (fn [(it AgendaItem)] String (:do_on it))
-                               (filterv (fn [(it AgendaItem)] Bool (store.rt/str-lt? today (:do_on it))) items)))]
+        overdue (vec (sort-by (fn [it AgendaItem] String (:do_on it))
+                              (filterv (fn [it AgendaItem] Bool (store.rt/str-lt? (:do_on it) today)) items)))
+        todayb (filterv (fn [it AgendaItem] Bool (= (:do_on it) today)) items)
+        upcoming (vec (sort-by (fn [it AgendaItem] String (:do_on it))
+                               (filterv (fn [it AgendaItem] Bool (store.rt/str-lt? today (:do_on it))) items)))]
     (println (str "AGENDA — " today))
     (println (str "OVERDUE (" (count overdue) ")"))
     (doseq [it overdue] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))
@@ -907,28 +1005,31 @@
     (doseq [it upcoming] (println (str "  " (:do_on it) "  " (short-id (:te it)) "  " (trunc (title-of idx (:te it)) 44))))))
 
 (defn- board-group
-  [(idx proj/ProjectionIndex) (label String) (grp (Vec String))] Nil
+  [idx proj/ProjectionIndex
+   label String
+   grp (Vec String)]
+  Nil
   (when (not (empty? grp))
     (println (str "\n" (proj/condition-emoji idx label) " " label " (" (count grp) ")"))
     (doseq [te grp]
       (println (str "  " (short-id te) "  " (trunc (title-of idx te) 52))))))
 
 (defn- in-condition
-  [(idx proj/ProjectionIndex)
-   (nonterm (Vec String))
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (c String)]
+  [idx proj/ProjectionIndex
+   nonterm (Vec String)
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   c String]
   (Vec String)
-  (filterv (fn [(te String)] Bool (= (proj/condition-i idx te today before? live?) c)) nonterm))
+  (filterv (fn [te String] Bool (= (proj/condition-i idx te today before? live?) c)) nonterm))
 
 (defn- parked-group
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (grp (Vec String))]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   grp (Vec String)]
   Nil
   (when (not (empty? grp))
     (println (str "\nPARKED ASSIGNMENTS (" (count grp) ") — stale driver retained; lifecycle is not active"))
@@ -942,11 +1043,11 @@
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
 (defn- board-full
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (nonterm (Vec String))]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   nonterm (Vec String)]
   Nil
   (do
     (println (str "THREADS — " (count nonterm) " open"))
@@ -963,13 +1064,13 @@
 ;; dump keeps the unscoped set unchanged. Facts do the filtering: a concern
 ;; self-identifies kind=concern, a thread kind=thread (or is un-kinded legacy).
 (defn- board-curated
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (nonterm (Vec String))]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   nonterm (Vec String)]
   Nil
-  (let [threads (filterv (fn [(te String)] Bool (= (kind-of idx te) "thread")) nonterm)
+  (let [threads (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
         active (in-condition idx threads today before? live? "active")
         parked (parked-assignments idx threads live?)
         nparked (count parked)
@@ -978,10 +1079,10 @@
         ;; cheap concern count: subjects that classify as a concern (kind fact or
         ;; concern- prefix). NOT stale-decayed — concern liveness/decay is the
         ;; concern-lane's projection; the board reports the raw open count.
-        nconcern (count (filterv (fn [(s String)] Bool (= (kind-of idx s) "concern"))
+        nconcern (count (filterv (fn [s String] Bool (= (kind-of idx s) "concern"))
                                  (proj/all-subjects idx)))
         ashow (vec (take 20 active))
-        rranked (mapv (fn [(te String)] LevItem (->LevItem te (proj/leverage-score idx te)))
+        rranked (mapv (fn [te String] LevItem (->LevItem te (proj/leverage-score idx te)))
                       (vec (take 15 (queue-order idx readyl))))]
     (println (str "THREADS — " (count threads) " open threads · " (count active) " active · "
                   (count readyl) " ready · " (count blockedl) " blocked · "
@@ -1013,12 +1114,15 @@
       (println (str "  … +" (- (count readyl) (count rranked)) " more · north threads --all")))
     (println "  machinery/agents/daemons → north dashboard")))
 
-(defn cmd-board [(log String) (all Bool)] Nil
+(defn cmd-board
+  [log String
+   all Bool]
+  Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
         before? store.rt/str-lt?
         live? (default-live?)
-        nonterm (filterv (fn [(te String)] Bool (not (proj/terminal-i? idx te)))
+        nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all
       (board-full idx today before? live? nonterm)
@@ -1026,26 +1130,44 @@
 
 ;; --- structured (JSON) projections for the MCP edge --------------------------
 (defrecord JThread
-  [(id String) (title String) (condition String) (emoji String)])
+  [id String
+   title String
+   condition String
+   emoji String])
 (defrecord JPresentation
-  [(active String) (ready String) (blocked String) (draft String)])
-(defrecord JReview [(id String) (title String) (pred String) (detail String)])
-(defrecord JFact [(predicate String) (value String)])
-(defrecord JSubjectFact [(subject String) (predicate String) (value String)])
+  [active String
+   ready String
+   blocked String
+   draft String])
+(defrecord JReview
+  [id String
+   title String
+   pred String
+   detail String])
+(defrecord JFact
+  [predicate String
+   value String])
+(defrecord JSubjectFact
+  [subject String
+   predicate String
+   value String])
 (defrecord JChildSettlementProjection
-  [(protocol String)
-   (version Int)
-   (coordinator String)
-   (children (Vec JSubjectFact))
-   (runs (Vec JSubjectFact))])
-(defrecord JAgentFact [(id String) (predicate String) (value String)])
+  [protocol String
+   version Int
+   coordinator String
+   children (Vec JSubjectFact)
+   runs (Vec JSubjectFact)])
+(defrecord JAgentFact
+  [id String
+   predicate String
+   value String])
 
 (defn- jthread
-  [(idx proj/ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   JThread
   (let [c (proj/condition-i idx te today before? live?)]
     (->JThread (short-id te) (title-of idx te) c (proj/condition-emoji idx c))))
@@ -1057,48 +1179,48 @@
 ;; move it into the JSON path too, gated on all? — --all restores the full,
 ;; unscoped dump that discover.ts/analysis consumers still want.
 (defn- ready-curated-tes
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (all? Bool)]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   all? Bool]
   (Vec String)
   (let [raw (proj/ready idx today before? live?)
-        rs (if all? raw (filterv (fn [(te String)] Bool (= (kind-of idx te) "thread")) raw))
+        rs (if all? raw (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) raw))
         ranked (queue-order idx rs)]
     (if all? ranked (vec (take 15 ranked)))))
 
 (defn- board-curated-tes
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))
-   (all? Bool)]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)
+   all? Bool]
   (Vec String)
-  (let [nonterm (filterv (fn [(te String)] Bool (not (proj/terminal-i? idx te)))
+  (let [nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                          (proj/work-thread-ids-i idx))]
     (if all?
       nonterm
       ;; kind=thread scope (drop concern-* / unkinded ephemera), then the curated
       ;; kanban content: live-driven ACTIVE ++ top-15 READY by queue order. Blocked
       ;; is a count-only bucket on the human board, so it stays out of the slice.
-      (let [threads (filterv (fn [(te String)] Bool (= (kind-of idx te) "thread")) nonterm)
+      (let [threads (filterv (fn [te String] Bool (= (kind-of idx te) "thread")) nonterm)
             active (in-condition idx threads today before? live? "active")
             ready (vec (take 15 (queue-order idx
                                              (in-condition idx threads today before? live? "ready"))))]
         (vec (concat active ready))))))
 
-(defn- recent-terminal-tes [(idx proj/ProjectionIndex)] (Vec String)
+(defn- recent-terminal-tes [idx proj/ProjectionIndex] (Vec String)
   (let [terminal
         (filterv
-         (fn [(te String)] Bool
+         (fn [te String] Bool
            (and (= (kind-of idx te) "thread") (proj/terminal-i? idx te)))
          (proj/work-thread-ids-i idx))]
     (vec
      (take 15
            (reverse
             (sort-by
-             (fn [(te String)] String
+             (fn [te String] String
                (let [updated (proj/string-value-at idx te "updated_at")
                      created (proj/string-value-at idx te "created_at")]
                  (str (if (some? updated) updated "") "|"
@@ -1106,18 +1228,27 @@
              terminal))))))
 
 (defn- matching-subjects
-  [(facts (Vec t/Triple)) (predicate String) (value String)] (Map String Bool)
+  [facts (Vec t/Triple)
+   predicate String
+   value String]
+  (Map String Bool)
   (reduce
-   (fn [(subjects (Map String Bool)) (fact t/Triple)] (Map String Bool)
+   (fn
+     [subjects (Map String Bool)
+      fact t/Triple] (Map String Bool)
      (if (and (= (triple-predicate fact) predicate) (= (triple-value fact) value))
        (assoc subjects (triple-subject fact) true)
        subjects))
    {} facts))
 
 (defn- direct-child-subjects
-  [(facts (Vec t/Triple)) (coordinator String)] (Map String Bool)
+  [facts (Vec t/Triple)
+   coordinator String]
+  (Map String Bool)
   (reduce
-   (fn [(subjects (Map String Bool)) (fact t/Triple)] (Map String Bool)
+   (fn
+     [subjects (Map String Bool)
+      fact t/Triple] (Map String Bool)
      (if (and (= (triple-predicate fact) "coordinator")
               (= (triple-value fact) coordinator)
               (str/starts-with? (triple-subject fact) "@agent:"))
@@ -1125,23 +1256,24 @@
        subjects))
    {} facts))
 
-(defn- child-agent-ids [(subjects (Map String Bool))] (Map String Bool)
+(defn- child-agent-ids [subjects (Map String Bool)] (Map String Bool)
   (reduce-kv
    (fn
-     [(ids (Map String Bool))
-      (subject String)
-      (_present Bool)]
-     (Map String Bool)
+     [ids (Map String Bool)
+      subject String
+      _present Bool] (Map String Bool)
      (assoc ids (subs subject (count "@agent:")) true))
    {} subjects))
 
 (defn- child-run-subjects
-  [(facts (Vec t/Triple))
-   (children (Map String Bool))
-   (committed-runs (Map String Bool))]
+  [facts (Vec t/Triple)
+   children (Map String Bool)
+   committed-runs (Map String Bool)]
   (Map String Bool)
   (reduce
-   (fn [(subjects (Map String Bool)) (fact t/Triple)] (Map String Bool)
+   (fn
+     [subjects (Map String Bool)
+      fact t/Triple] (Map String Bool)
      (if (and (= (triple-predicate fact) "agent")
               (get children (triple-value fact) false)
               (get committed-runs (triple-subject fact) false))
@@ -1150,12 +1282,14 @@
    {} facts))
 
 (defn- subject-fact-projection
-  [(facts (Vec t/Triple)) (subjects (Map String Bool))] (Vec JSubjectFact)
+  [facts (Vec t/Triple)
+   subjects (Map String Bool)]
+  (Vec JSubjectFact)
   (mapv
-   (fn [(fact t/Triple)] JSubjectFact
+   (fn [fact t/Triple] JSubjectFact
      (->JSubjectFact (short-id (triple-subject fact)) (triple-predicate fact) (triple-value fact)))
    (filterv
-    (fn [(fact t/Triple)] Bool (get subjects (triple-subject fact) false))
+    (fn [fact t/Triple] Bool (get subjects (triple-subject fact) false))
     facts)))
 
 ;; Grooming consumes the same liveness decision as ready/board/next. The
@@ -1163,13 +1297,15 @@
 ;; this composition layer removes its raw-driver done-bar false positives and
 ;; adds explicit parked-assignment reviews without mutating lifecycle facts.
 (defn- parked-assignment-reviews
-  [(idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   (Vec stale/Review)
   (reduce
-   (fn [(acc (Vec stale/Review)) (te String)] (Vec stale/Review)
+   (fn
+     [acc (Vec stale/Review)
+      te String] (Vec stale/Review)
      (if (and (= (kind-of idx te) "thread")
               (and (not (proj/terminal-i? idx te))
                    (parked-assignment? idx te live?)))
@@ -1186,18 +1322,18 @@
    (proj/work-thread-ids-i idx)))
 
 (defn- canonical-grooming-reviews
-  [(idx proj/ProjectionIndex)
-   (live-idx proj/ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [proj/ProjectionIndex String] Bool))]
+  [idx proj/ProjectionIndex
+   live-idx proj/ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [proj/ProjectionIndex String] Bool)]
   (Vec stale/Review)
   (let [base (vec (concat (stale/time-stale idx today before?)
                           (vec (concat (stale/edge-stale idx)
                                        (vec (concat (stale/bars-missing idx)
                                                     (stale/bars-unevidenced idx)))))))
         live-base (filterv
-                   (fn [(rv stale/Review)] Bool
+                   (fn [rv stale/Review] Bool
                      (if (= (:pred rv) "done_when")
                        (live? live-idx (:te rv))
                        true))
@@ -1206,13 +1342,20 @@
 
 ;; Split out of cmd-json's database-wide let so a single-subject show never binds
 ;; live-facts: the whole point is that this verb touches ONE subject.
-(defn- cmd-json-show [(log String) (arg String)] Nil
+(defn- cmd-json-show
+  [log String
+   arg String]
+  Nil
   (println (to-json
-            (mapv (fn [(c t/Triple)] JFact (->JFact (triple-predicate c) (triple-value c)))
+            (mapv (fn [c t/Triple] JFact (->JFact (triple-predicate c) (triple-value c)))
                   (subject-facts log (str "@" arg))))))
 
 (defn- cmd-json-database
-  [(log String) (what String) (arg String) (all? Bool)] Nil
+  [log String
+   what String
+   arg String
+   all? Bool]
+  Nil
   (let [facts (live-facts log)
         idx (proj/index-triples facts)
         today (store.rt/today-iso)
@@ -1221,39 +1364,38 @@
     (cond
       [(or (= what "board") (= what "plate"))
        (println (to-json
-                 (mapv (fn [(te String)] JThread (jthread idx te today before? live?))
+                 (mapv (fn [te String] JThread (jthread idx te today before? live?))
                        (board-curated-tes idx today before? live? all?))))]
       [(= what "ready")
-       (println (to-json (mapv (fn [(te String)] JThread (jthread idx te today before? live?))
+       (println (to-json (mapv (fn [te String] JThread (jthread idx te today before? live?))
                                        (ready-curated-tes idx today before? live? all?))))]
       [(= what "blocked")
-       (println (to-json (mapv (fn [(te String)] JThread (jthread idx te today before? live?))
-                                       (filterv (fn [(te String)] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
+       (println (to-json (mapv (fn [te String] JThread (jthread idx te today before? live?))
+                                       (filterv (fn [te String] Bool (= (proj/condition-i idx te today before? live?) "blocked"))
                                                 (proj/work-thread-ids-i idx)))))]
       [(= what "done")
        (println (to-json
-                 (mapv (fn [(te String)] JThread (jthread idx te today before? live?))
+                 (mapv (fn [te String] JThread (jthread idx te today before? live?))
                        (recent-terminal-tes idx))))]
       [(= what "needs-review")
        (let [reviews (canonical-grooming-reviews idx idx today before? live?)]
          (println (to-json
-                   (mapv (fn [(rv stale/Review)] JReview
+                   (mapv (fn [rv stale/Review] JReview
                            (->JReview (short-id (:te rv)) (title-of idx (:te rv)) (:pred rv) (:detail rv)))
                          reviews))))]
       [(= what "show-many")
-       (let [subjects (filterv (fn [(s String)] Bool (not (str/blank? s)))
-                               (mapv (fn [(s String)] String (short-id s))
+       (let [subjects (filterv (fn [s String] Bool (not (str/blank? s)))
+                               (mapv (fn [s String] String (short-id s))
                                      (vec (str/split arg #","))))
              subject-set (reduce (fn
-                                   [(m (Map String Bool))
-                                    (s String)]
-                                   (Map String Bool)
+                                   [m (Map String Bool)
+                                    s String] (Map String Bool)
                                    (assoc m (str "@" s) true))
                                  {} subjects)]
          (println (to-json
-                   (mapv (fn [(c t/Triple)] JSubjectFact
+                   (mapv (fn [c t/Triple] JSubjectFact
                            (->JSubjectFact (short-id (triple-subject c)) (triple-predicate c) (triple-value c)))
-                         (filterv (fn [(c t/Triple)] Bool (get subject-set (triple-subject c) false))
+                         (filterv (fn [c t/Triple] Bool (get subject-set (triple-subject c) false))
                                   facts)))))]
       [(= what "child-settlement")
        ;; One warm fact-vector projection is a coherent read. The SDK used to
@@ -1282,14 +1424,14 @@
                                   (set (keys (matching-subjects facts "part_of" (str "@" arg)))))))))]
       [(= what "agents")
        (println (to-json
-                 (mapv (fn [(c t/Triple)] JAgentFact
+                 (mapv (fn [c t/Triple] JAgentFact
                          (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c)))
                        ;; The FRAMRPC server's unified warm view can contain
                        ;; lease-only/tombstone-shaped rows with no subject. They
                        ;; are not agent facts. One such row must not crash the
                        ;; whole bulk identity projection and erase every valid
                        ;; agent card from `north agents`.
-                       (filterv (fn [(c t/Triple)] Bool
+                       (filterv (fn [c t/Triple] Bool
                                   (let [l (triple-subject c)]
                                     (and (some? l) (str/starts-with? l "@agent:"))))
                                 facts))))]
@@ -1299,12 +1441,17 @@
                                   (proj/condition-emoji idx "blocked") (proj/condition-emoji idx "draft"))))]
       [:else (println "usage: json board|ready|blocked|done|needs-review|show <id>|show-many <id,id,...>|children <parent>|child-settlement <coordinator>|agents|presentation")])))
 
-(defn cmd-json [(log String) (what String) (arg String) (all? Bool)] Nil
+(defn cmd-json
+  [log String
+   what String
+   arg String
+   all? Bool]
+  Nil
   (if (= what "show")
     (cmd-json-show log arg)
     (cmd-json-database log what arg all?)))
 
-(defn cmd-needs-review [(log String)] Nil
+(defn cmd-needs-review [log String] Nil
   (let [live-idx-now (live-idx log)
         today (store.rt/today-iso)
         before? store.rt/str-lt?
@@ -1320,17 +1467,27 @@
       (println (str "  " (short-id te) "  " (trunc (title-of live-idx-now te) 52))))))
 
 ;; --- boot: the one-screen session-start view --------------------------------
-(defrecord EntryPoint [(te String) (note String) (created String)])
+(defrecord EntryPoint
+  [te String
+   note String
+   created String])
 
 ;; The SESSION ENTRY POINT note on a thread ("" if none).
-(defn- entry-note [(idx proj/ProjectionIndex) (te String)] String
-  (reduce (fn [(acc String) (v String)] String
+(defn- entry-note
+  [idx proj/ProjectionIndex
+   te String]
+  String
+  (reduce (fn
+            [acc String
+             v String] String
             (if (and (str/blank? acc) (str/starts-with? v "SESSION ENTRY POINT")) v acc))
           "" (proj/string-values-at idx te "note")))
 
 ;; The most-recent (by created_at) thread carrying a SESSION ENTRY POINT note.
-(defn- find-entry [(idx proj/ProjectionIndex)] EntryPoint
-  (reduce (fn [(best EntryPoint) (te String)] EntryPoint
+(defn- find-entry [idx proj/ProjectionIndex] EntryPoint
+  (reduce (fn
+            [best EntryPoint
+             te String] EntryPoint
             (let [note (entry-note idx te)]
               (if (str/blank? note)
                 best
@@ -1341,7 +1498,7 @@
           (->EntryPoint "" "" "")
           (proj/thread-subjects idx)))
 
-(defn cmd-boot [(log String)] Nil
+(defn cmd-boot [log String] Nil
   (let [idx (live-idx log)
         today (store.rt/today-iso)
         before? store.rt/str-lt?
@@ -1358,19 +1515,19 @@
               (println "\nSTANDING MANDATES (learning):")
               (doseq [l ls] (println (str "  - " l))))))))
     ;; 2. board counts by derived condition.
-    (let [nonterm (filterv (fn [(te String)] Bool (not (proj/terminal-i? idx te)))
+    (let [nonterm (filterv (fn [te String] Bool (not (proj/terminal-i? idx te)))
                            (proj/work-thread-ids-i idx))]
       (println (str "\nBOARD — active " (count (in-condition idx nonterm today before? live? "active"))
                     "  ready " (count (in-condition idx nonterm today before? live? "ready"))
                     "  blocked " (count (in-condition idx nonterm today before? live? "blocked"))
                     "  draft " (count (in-condition idx nonterm today before? live? "draft"))))
       ;; 3. top 5 by leverage (finishing these frees the most stuck threads).
-      (let [cands (filterv (fn [(te String)] Bool (not (proj/terminal-i? idx te))) nonterm)
-            items (filterv (fn [(it LevItem)] Bool (> (:score it) 0))
-                           (mapv (fn [(te String)] LevItem
+      (let [cands (filterv (fn [te String] Bool (not (proj/terminal-i? idx te))) nonterm)
+            items (filterv (fn [it LevItem] Bool (> (:score it) 0))
+                           (mapv (fn [te String] LevItem
                                    (->LevItem te (proj/leverage-score idx te)))
                                  cands))
-            ranked (vec (take 5 (sort-by (fn [(it LevItem)] Int (- 0 (:score it))) items)))]
+            ranked (vec (take 5 (sort-by (fn [it LevItem] Int (- 0 (:score it))) items)))]
         (println "TOP LEVERAGE — finishing these transitively frees the most stuck threads")
         (doseq [it ranked]
           (println (str "  unblocks " (:score it) "  " (short-id (:te it)) "  " (title-of idx (:te it)))))))))
@@ -1398,47 +1555,62 @@
 ;; declared predicate metadata (cardinality/value_kind/acyclic — schema-as-facts).
 ;; ONE fold (live-facts) then pure map-reduce; sorted by fact count so the biggest
 ;; blobs — the session/run telemetry bulk — name themselves loudly with numbers.
-(defrecord PredCount [(pred String) (n Int)])
+(defrecord PredCount
+  [pred String
+   n Int])
 (defrecord KindStat
-  [(kind String) (subjects Int) (facts Int) (preds (Vec PredCount))])
+  [kind String
+   subjects Int
+   facts Int
+   preds (Vec PredCount)])
 
 ;; composite-key sep for the (kind, pred) tally — neither kind nor pred contains it.
 (def ^:private KP-SEP String "")
 
-(defn- census [(idx proj/ProjectionIndex) (facts (Vec t/Triple))] (Vec KindStat)
+(defn- census
+  [idx proj/ProjectionIndex
+   facts (Vec t/Triple)]
+  (Vec KindStat)
   (let [subj-list (proj/all-subjects idx)
         ;; subject -> kind (computed ONCE per subject, then reused per fact)
         skind (reduce (fn
-                        [(m (Map String String)) (s String)] (Map String String)
+                        [m (Map String String)
+                         s String] (Map String String)
                         (assoc m s (kind-of idx s)))
                       {} subj-list)
         ;; kind -> subject count
-        ksub (reduce (fn [(m (Map String Int)) (s String)] (Map String Int)
+        ksub (reduce (fn
+                       [m (Map String Int)
+                        s String] (Map String Int)
                        (let [kd (get skind s "other")]
                          (assoc m kd (+ 1 (int (get m kd 0))))))
                      {} subj-list)
         ;; kind -> fact count
-        kfacts (reduce (fn [(m (Map String Int)) (c t/Triple)] (Map String Int)
+        kfacts (reduce (fn
+                         [m (Map String Int)
+                          c t/Triple] (Map String Int)
                          (let [kd (get skind (triple-subject c) "other")]
                            (assoc m kd (+ 1 (int (get m kd 0))))))
                        {} facts)
         ;; (kind KP-SEP pred) -> fact count  (flat map; nested Map-of-Map avoided)
-        kpreds (reduce (fn [(m (Map String Int)) (c t/Triple)] (Map String Int)
+        kpreds (reduce (fn
+                         [m (Map String Int)
+                          c t/Triple] (Map String Int)
                          (let [kd (get skind (triple-subject c) "other")
                                kk (str kd KP-SEP (triple-predicate c))]
                            (assoc m kk (+ 1 (int (get m kk 0))))))
                        {} facts)
         kp-keys (vec (sort (set (keys kpreds))))
-        stats (mapv (fn [(kd String)] KindStat
+        stats (mapv (fn [kd String] KindStat
                       (let [pfx (str kd KP-SEP)
                             off (+ (count kd) 1)
-                            plist (mapv (fn [(kk String)] PredCount
+                            plist (mapv (fn [kk String] PredCount
                                           (->PredCount (subs kk off) (int (get kpreds kk 0))))
-                                        (filterv (fn [(kk String)] Bool (str/starts-with? kk pfx)) kp-keys))
-                            ptop (vec (take 8 (sort-by (fn [(pc PredCount)] Int (- 0 (:n pc))) plist)))]
+                                        (filterv (fn [kk String] Bool (str/starts-with? kk pfx)) kp-keys))
+                            ptop (vec (take 8 (sort-by (fn [pc PredCount] Int (- 0 (:n pc))) plist)))]
                         (->KindStat kd (int (get ksub kd 0)) (int (get kfacts kd 0)) ptop)))
                     (vec (sort (set (keys ksub)))))]
-    (vec (sort-by (fn [(ks KindStat)] Int (- 0 (:facts ks))) stats))))
+    (vec (sort-by (fn [ks KindStat] Int (- 0 (:facts ks))) stats))))
 
 ;; --- per-kind field spec (`north schema <kind>`) ----------------------------
 ;; A schema here is a shape DERIVED from the live propositions, not a declared record:
@@ -1449,19 +1621,31 @@
 ;; per subject), not fact count — "how many of this kind have it", not "how often".
 
 (def ^:private SP24 String "                        ")
-(defn- padr [(s String) (n Int)] String
+(defn- padr
+  [s String
+   n Int]
+  String
   (if (>= (count s) n) s (str s (subs SP24 0 (- n (count s))))))
-(defn- pad7 [(n Int)] String
+(defn- pad7 [n Int] String
   (let [s (str n)] (if (>= (count s) 7) s (str (subs "0000000" 0 (- 7 (count s))) s))))
 
-(defn- kind-subjects [(idx proj/ProjectionIndex) (kind String)] (Vec String)
-  (filterv (fn [(s String)] Bool (= (kind-of idx s) kind)) (proj/all-subjects idx)))
+(defn- kind-subjects
+  [idx proj/ProjectionIndex
+   kind String]
+  (Vec String)
+  (filterv (fn [s String] Bool (= (kind-of idx s) kind)) (proj/all-subjects idx)))
 
 ;; distinct-subject coverage per predicate over a subject set (one pass over facts).
-(defrecord CovAcc [(seen (Map String Bool)) (pc (Map String Int))])
+(defrecord CovAcc
+  [seen (Map String Bool)
+   pc (Map String Int)])
 (defn- coverage
-  [(facts (Vec t/Triple)) (subjset (Map String Bool))] (Map String Int)
-  (:pc (reduce (fn [(a CovAcc) (c t/Triple)] CovAcc
+  [facts (Vec t/Triple)
+   subjset (Map String Bool)]
+  (Map String Int)
+  (:pc (reduce (fn
+                 [a CovAcc
+                  c t/Triple] CovAcc
                  (if (get subjset (triple-subject c) false)
                    (let [sk (str (triple-subject c) KP-SEP (triple-predicate c))]
                      (if (get (:seen a) sk false)
@@ -1471,18 +1655,24 @@
                    a))
                (->CovAcc {} {}) facts)))
 
-(defrecord FieldStat [(pred String) (subs Int) (pct Int) (required Bool)])
+(defrecord FieldStat
+  [pred String
+   subs Int
+   pct Int
+   required Bool])
 (defn- schema-fields
-  [(idx proj/ProjectionIndex)
-   (facts (Vec t/Triple))
-   (kind String)]
+  [idx proj/ProjectionIndex
+   facts (Vec t/Triple)
+   kind String]
   (Vec FieldStat)
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)
-        subjset (reduce (fn [(m (Map String Bool)) (s String)] (Map String Bool)
+        subjset (reduce (fn
+                          [m (Map String Bool)
+                           s String] (Map String Bool)
                           (assoc m s true)) {} ksubs)
         pc (coverage facts subjset)
-        stats (mapv (fn [(p String)] FieldStat
+        stats (mapv (fn [p String] FieldStat
                       (let [n (int (get pc p 0))
                             pct (if (> total 0) (quot (* 100 n) total) 0)
                             ;; required := ≥98% coverage (integer-exact, no rounding boundary).
@@ -1490,14 +1680,17 @@
                         (->FieldStat p n pct req)))
                     (vec (sort (set (keys pc)))))]
     ;; required first, then by coverage desc, then predicate name — a stable spec order.
-    (vec (sort-by (fn [(fs FieldStat)] String
+    (vec (sort-by (fn [fs FieldStat] String
                     (str (if (:required fs) "0" "1") "|"
                          (pad7 (- 9999999 (:subs fs))) "|" (:pred fs)))
                   stats))))
 
 ;; declared cardinality/value_kind for a predicate, if present (`predicate
 ;; define` writes @<pred> subjects; tolerate a bare legacy subject too).
-(defn- pred-ann [(idx proj/ProjectionIndex) (p String)] String
+(defn- pred-ann
+  [idx proj/ProjectionIndex
+   p String]
+  String
   (let [ps (if (or (some? (proj/string-value-at idx (str "@" p) "cardinality"))
                    (some? (proj/string-value-at idx (str "@" p) "value_kind")))
              (str "@" p) p)
@@ -1508,7 +1701,7 @@
 
 ;; WRITERS map: a schema here is a set of FACTS, so its "file location" is the code
 ;; that WRITES that kind. Curated + each entry grep-verified against source.
-(defn- kind-writer [(kind String)] String
+(defn- kind-writer [kind String] String
   (cond
     [(= kind "thread") "north capture -> src/north/main.bclj capture-facts (title, kind=thread, created_at, committed, …)"]
     [(= kind "concern") "concern declare -> cli/concern-cli.clj (put! kind=concern, intent, touches, reached)"]
@@ -1521,14 +1714,17 @@
     [:else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"]))
 
 (defn- print-schema-kind
-  [(idx proj/ProjectionIndex) (facts (Vec t/Triple)) (kind String)] Nil
+  [idx proj/ProjectionIndex
+   facts (Vec t/Triple)
+   kind String]
+  Nil
   (let [ksubs (kind-subjects idx kind)
         total (count ksubs)]
     (if (= total 0)
       (println (str "SCHEMA · " kind " — no subjects of this kind. `north schema` lists the kinds in use."))
       (let [fields (schema-fields idx facts kind)
-            req (filterv (fn [(fs FieldStat)] Bool (:required fs)) fields)
-            opt (filterv (fn [(fs FieldStat)] Bool (not (:required fs))) fields)]
+            req (filterv (fn [fs FieldStat] Bool (:required fs)) fields)
+            opt (filterv (fn [fs FieldStat] Bool (not (:required fs))) fields)]
         (println (str "SCHEMA · " kind " — " total " subjects · " (count fields) " distinct predicates"))
         (println (str "  REQUIRED — carried by ≥98% of " kind " subjects (≈ every one):"))
         (doseq [fs req]
@@ -1542,13 +1738,16 @@
 
 ;; `north schema`        -> the kind census (one screen: kinds + counts + hint)
 ;; `north schema <kind>` -> the per-kind field spec (required/optional + writers)
-(defn cmd-schema [(log String) (kind String)] Nil
+(defn cmd-schema
+  [log String
+   kind String]
+  Nil
   (let [facts (live-facts log)
         idx (proj/index-triples facts)]
     (if (not (str/blank? kind))
       (print-schema-kind idx facts kind)
       (let [stats (census idx facts)
-            pred-subs (filterv (fn [(s String)] Bool
+            pred-subs (filterv (fn [s String] Bool
                                  (or (some? (proj/string-value-at idx s "cardinality"))
                                      (or (some? (proj/string-value-at idx s "value_kind"))
                                          (some? (proj/string-value-at idx s "acyclic")))))
@@ -1563,16 +1762,16 @@
 
 ;; Teaching is graph data: predicate entities point at normalized example
 ;; entities. This projection intentionally counts only that live connection.
-(defn cmd-teaching-coverage [(log String)] Nil
+(defn cmd-teaching-coverage [log String] Nil
   (let [facts (live-facts log)
         idx (proj/index-triples facts)
-        predicates (filterv (fn [(s String)] Bool
+        predicates (filterv (fn [s String] Bool
                               (= (proj/string-value-at idx s "entity_kind") "predicate"))
                             (proj/all-subjects idx))
-        taught (filterv (fn [(s String)] Bool
+        taught (filterv (fn [s String] Bool
                            (not (empty? (proj/string-values-at idx s "predicate_example"))))
                          predicates)
-        missing (sort (map (fn [(s String)] String
+        missing (sort (map (fn [s String] String
                              (if (str/starts-with? s "@") (subs s 1) s))
                            (remove (set taught) predicates)))]
     (println (str "TEACHING COVERAGE — " (count taught) " / " (count predicates)
@@ -1584,10 +1783,17 @@
         (println "  add predicate_example graph facts; bootstrap tables are not authority")))))
 
 ;; --- dispatch (life verbs; engine verbs are routed to Beagle Store by the wrapper) ---
-(defn- has-flag? [(args (Vec String)) (f String)] Bool
-  (not (empty? (filterv (fn [(a String)] Bool (= a f)) args))))
+(defn- has-flag?
+  [args (Vec String)
+   f String]
+  Bool
+  (not (empty? (filterv (fn [a String] Bool (= a f)) args))))
 
-(defn run [(args (Vec String)) (threads-dir String) (log String)] Nil
+(defn run
+  [args (Vec String)
+   threads-dir String
+   log String]
+  Nil
   (let [cmd (if (empty? args) "" (first args))]
     (cond
       [(= cmd "capture")
@@ -1629,7 +1835,11 @@
 ;; Composable command boundary: returns the exact validation status without
 ;; terminating its host process; other commands succeed after their normal
 ;; `run` side effects.
-(defn run-status [(args (Vec String)) (threads-dir String) (log String)] Int
+(defn run-status
+  [args (Vec String)
+   threads-dir String
+   log String]
+  Int
   (cond
     [(and (not (empty? args)) (= (first args) "validate")) (cmd-validate log)]
     [:else (do (run args threads-dir log) 0)]))

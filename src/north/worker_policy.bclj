@@ -9,14 +9,22 @@
 (def attention-reconcile-limit Int 64)
 
 (defrecord WorkerDecision
-  [(action Keyword) (sleep-ms Int) (next-backoff-ms Int)])
+  [action Keyword
+   sleep-ms Int
+   next-backoff-ms Int])
 
-(defn bounded-double [(value Int) (maximum Int)] Int
+(defn bounded-double
+  [value Int
+   maximum Int]
+  Int
   (let [(doubled Int) (* value 2)]
     (if (> doubled maximum) maximum doubled)))
 
 (defn concern-reconciliation-decision
-  [(pending-count Int) (exit-code Int) (backoff-ms Int)] WorkerDecision
+  [pending-count Int
+   exit-code Int
+   backoff-ms Int]
+  WorkerDecision
   (cond
     (<= pending-count 0)
     (->WorkerDecision :sleep concern-idle-ms concern-idle-ms)
@@ -34,7 +42,10 @@
      (bounded-double backoff-ms concern-maximum-backoff-ms))))
 
 (defn attention-reconciliation-decision
-  [(exit-code Int) (backoff-ms Int) (more-work Bool)] WorkerDecision
+  [exit-code Int
+   backoff-ms Int
+   more-work Bool]
+  WorkerDecision
   (cond
     (not (= exit-code 0))
     (->WorkerDecision
@@ -48,14 +59,14 @@
     :else
     (->WorkerDecision :sleep attention-interval-ms attention-interval-ms)))
 
-(defn scheduled-task? [(task Keyword)] Bool
+(defn scheduled-task? [task Keyword] Bool
   (or (= task :stale-concerns)
       (or (= task :stale-lanes)
           (or (= task :worktrees)
               (or (= task :agent-logs)
                   (= task :spend-guard))))))
 
-(defn task-cadence-ms [(task Keyword)] Int
+(defn task-cadence-ms [task Keyword] Int
   (cond
     (= task :spend-guard) 60000
     (= task :stale-lanes) 300000
@@ -64,7 +75,7 @@
     (= task :agent-logs) 3600000
     :else 0))
 
-(defn task-timeout-ms [(task Keyword)] Int
+(defn task-timeout-ms [task Keyword] Int
   (cond
     (= task :spend-guard) 30000
     (= task :stale-lanes) 120000

@@ -4,79 +4,81 @@
 
 (js/export
  (defrecord Agent
-  [(id String)
-   (name String)
-   (status String)
-   (task String)
-   (provider String)
-   (provider-target String)
-   (provider-label String)
-   (model String)
-   (model-display String)
-   (effort String)
-   (orchestration-provenance String)
-   (goal String)
-   (state String)]))
+   [id String
+    name String
+    status String
+    task String
+    provider String
+    provider-target String
+    provider-label String
+    model String
+    model-display String
+    effort String
+    orchestration-provenance String
+    goal String
+    state String]))
 
 (js/export
  (defrecord WorkItem
-  [(id String)
-   (title String)
-   (body String)
-   (condition String)
-   (driver String)
-   (dependencies (Vec String))]))
+   [id String
+    title String
+    body String
+    condition String
+    driver String
+    dependencies (Vec String)]))
 
 (defrecord BridgeModel
-  [(agents (Vec Agent))
-   (list (Vec WorkItem))
-   (board (Vec WorkItem))
-   (layout String)
-   (active-view-id String)
-   (selected-agent String)
-   (selected-thread String)
-   (filter-text String)
-   (notice String)])
+  [agents (Vec Agent)
+   list (Vec WorkItem)
+   board (Vec WorkItem)
+   layout String
+   active-view-id String
+   selected-agent String
+   selected-thread String
+   filter-text String
+   notice String])
 
 (js/export
  (defrecord BridgeSnapshot
-  [(agents (Vec Agent))
-   (list (Vec WorkItem))
-   (board (Vec WorkItem))
-   (layout String)
-   (active-view-id String)
-   (selected-agent String)
-   (selected-thread String)
-   (notice String)]))
+   [agents (Vec Agent)
+    list (Vec WorkItem)
+    board (Vec WorkItem)
+    layout String
+    active-view-id String
+    selected-agent String
+    selected-thread String
+    notice String]))
 
-(defn canonical-view [(view-id String)]  String
+(defn canonical-view [view-id String] String
   (cond
     (or (identical? view-id "board") (identical? view-id "kanban")) "board"
     (or (identical? view-id "graph") (identical? view-id "dag")) "graph"
     :else "list"))
 
 (js/export
- (defn make-model [(view-id String)]  BridgeModel
+ (defn make-model [view-id String] BridgeModel
   (let [view (canonical-view view-id)]
     (->BridgeModel [] [] [] "vertical" view "" "" "" ""))))
 
 (js/export
  (defn replace-projection
-  [(model BridgeModel)
-   (agents (Vec Agent))
-   (list-items (Vec WorkItem))
-   (board-items (Vec WorkItem))]  BridgeModel
-  (with model
+   [model BridgeModel
+    agents (Vec Agent)
+    list-items (Vec WorkItem)
+    board-items (Vec WorkItem)]
+   BridgeModel
+   (with model
     [:agents agents]
     [:list list-items]
     [:board board-items])))
 
 (js/export
  (defn upsert-agent
-  [(model BridgeModel)
-   (agent Agent)]  BridgeModel
-  (let [agents (js/call (bridgemodel-agents model) .filter
-                        (fn [(existing Agent)]  Bool
+   [model BridgeModel
+    agent Agent]
+   BridgeModel
+   (let [agents (js/call (bridgemodel-agents model) .filter
+                        (fn [existing Agent] Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
     (with model [:agents (js/call agents .concat agent)]))))
 
@@ -85,33 +87,37 @@
 ;; replaced it knows that.
 (js/export
  (defn remove-agent
-  [(model BridgeModel)
-   (removed-id String)]  BridgeModel
-  (with model
+   [model BridgeModel
+    removed-id String]
+   BridgeModel
+   (with model
     [:agents (js/call (bridgemodel-agents model) .filter
-                      (fn [(existing Agent)]  Bool
+                      (fn [existing Agent] Bool
                         (not (identical? (agent-id existing) removed-id))))])))
 
 (js/export
  (defn focus-view
-  [(model BridgeModel)
-   (view-id String)]  BridgeModel
-  (let [view (canonical-view view-id)]
+   [model BridgeModel
+    view-id String]
+   BridgeModel
+   (let [view (canonical-view view-id)]
     (with model
       [:active-view-id view]
       [:notice (str "view " view)]))))
 
 (defn set-layout
-  [(model BridgeModel)
-   (layout String)]  BridgeModel
+  [model BridgeModel
+   layout String]
+  BridgeModel
   (with model
     [:layout (if (identical? layout "horizontal") "horizontal" "vertical")]))
 
 (js/export
  (defn select-agent
-  [(model BridgeModel)
-   (agent-id String)]  BridgeModel
-  (with model
+   [model BridgeModel
+    agent-id String]
+   BridgeModel
+   (with model
     [:selected-agent agent-id]
     ;; Selection is already visible in the highlighted roster row and controls
     ;; where the composer sends. Repeating an internal execution UUID in the
@@ -120,9 +126,10 @@
 
 (js/export
  (defn select-thread
-  [(model BridgeModel)
-   (thread-id String)]  BridgeModel
-  (with model
+   [model BridgeModel
+    thread-id String]
+   BridgeModel
+   (with model
     [:selected-thread thread-id]
     [:notice (if (identical? thread-id "")
                "no thread selected"
@@ -130,9 +137,10 @@
 
 (js/export
  (defn set-filter
-  [(model BridgeModel)
-   (filter-text String)]  BridgeModel
-  (let [trimmed (js/call filter-text .trim)]
+   [model BridgeModel
+    filter-text String]
+   BridgeModel
+   (let [trimmed (js/call filter-text .trim)]
     (with model
       [:filter-text (js/call trimmed .toLowerCase)]
       [:notice (if (identical? trimmed "")
@@ -140,12 +148,13 @@
                  (str "filter: " filter-text))]))))
 
 (defn visible-work
-  [(model BridgeModel)
-   (source (Vec WorkItem))]  (Vec WorkItem)
+  [model BridgeModel
+   source (Vec WorkItem)]
+  (Vec WorkItem)
   (let [agent-id (bridgemodel-selected-agent model)
         needle (bridgemodel-filter-text model)]
     (js/call source .filter
-             (fn [(item WorkItem)]  Bool
+             (fn [item WorkItem] Bool
                (and (or (identical? agent-id "")
                         (identical? (workitem-driver item) agent-id))
                     (or (identical? needle "")
@@ -159,7 +168,7 @@
                          needle)))))))
 
 (js/export
- (defn snapshot [(model BridgeModel)]  BridgeSnapshot
+ (defn snapshot [model BridgeModel] BridgeSnapshot
   (->BridgeSnapshot
    (bridgemodel-agents model)
    (visible-work model (bridgemodel-list model))

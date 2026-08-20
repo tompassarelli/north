@@ -14,32 +14,37 @@
 (defalias ReverseIndex (Map Any (Vec Any)))
 
 (defrecord ProjectionIndex
-  [(single SingleIndex)
-   (many MultiIndex)
-   (subjects (Vec Any))
-   (subject-set (Map Any Bool))
-   (reverse-dependencies ReverseIndex)
-   (reference-predicates (Vec String))
-   (acyclic-predicates (Vec String))])
+  [single SingleIndex
+   many MultiIndex
+   subjects (Vec Any)
+   subject-set (Map Any Bool)
+   reverse-dependencies ReverseIndex
+   reference-predicates (Vec String)
+   acyclic-predicates (Vec String)])
 
 (def no-terms (Vec Any) [])
 (def fallback-reference-predicates (Vec String)
   ["depends_on" "part_of" "relates_to" "clarifies" "amends"])
 (def fallback-acyclic-predicates (Vec String) ["depends_on" "part_of"])
 
-(defn- schema-predicate-name [(subject String)] String
+(defn- schema-predicate-name [subject String] String
   (if (str/starts-with? subject "@") (subs subject 1) subject))
 
 (defn- set-string-membership
-  [(members (Vec String)) (value String) (present? Bool)] (Vec String)
+  [members (Vec String)
+   value String
+   present? Bool]
+  (Vec String)
   (if present?
     (if (kc/vec-member? members value) members (conj members value))
-    (filterv (fn [(member String)] Bool (not (= member value))) members)))
+    (filterv (fn [member String] Bool (not (= member value))) members)))
 
-(defn index-triples [(triples (Vec t/Triple))] ProjectionIndex
+(defn index-triples [triples (Vec t/Triple)] ProjectionIndex
   (let [(base ProjectionIndex)
         (reduce
-         (fn [(index ProjectionIndex) (triple t/Triple)] ProjectionIndex
+         (fn
+           [index ProjectionIndex
+            triple t/Triple] ProjectionIndex
            (let [(subject Any) (t/triple-t1 triple)
                  (predicate Any) (t/triple-t2 triple)
                  (value Any) (t/triple-t3 triple)
@@ -72,7 +77,9 @@
          triples)
         (schema (Vec (Vec String)))
         (reduce
-         (fn [(rows (Vec (Vec String))) (subject Any)] (Vec (Vec String))
+         (fn
+           [rows (Vec (Vec String))
+            subject Any] (Vec (Vec String))
            (if (string? subject)
              (let [(value-kind Any)
                    (get (projectionindex-single base) [subject "value_kind"])
@@ -88,7 +95,9 @@
          (projectionindex-subjects base))
         (reference-predicates (Vec String))
         (reduce
-         (fn [(predicates (Vec String)) (row (Vec String))] (Vec String)
+         (fn
+           [predicates (Vec String)
+            row (Vec String)] (Vec String)
            (let [kind (nth row 1)]
              (if (= kind "") predicates
                  (set-string-membership predicates (nth row 0) (= kind "ref")))))
@@ -96,7 +105,9 @@
          schema)
         (acyclic-predicates (Vec String))
         (reduce
-         (fn [(predicates (Vec String)) (row (Vec String))] (Vec String)
+         (fn
+           [predicates (Vec String)
+            row (Vec String)] (Vec String)
            (let [declared (nth row 2)]
              (if (= declared "") predicates
                  (set-string-membership predicates (nth row 0) (= declared "true")))))
@@ -111,34 +122,54 @@
      reference-predicates
      acyclic-predicates)))
 
-(defn value-at [(index ProjectionIndex) (subject Any) (predicate Any)] Any
+(defn value-at
+  [index ProjectionIndex
+   subject Any
+   predicate Any]
+  Any
   (get (projectionindex-single index) [subject predicate]))
 
 (defn values-at
-  [(index ProjectionIndex) (subject Any) (predicate Any)] (Vec Any)
+  [index ProjectionIndex
+   subject Any
+   predicate Any]
+  (Vec Any)
   (get (projectionindex-many index) [subject predicate] no-terms))
 
 (defn string-value-at
-  [(index ProjectionIndex) (subject Any) (predicate Any)] String?
+  [index ProjectionIndex
+   subject Any
+   predicate Any]
+  String?
   (let [(value Any) (value-at index subject predicate)]
     (if (string? value) value nil)))
 
 (defn string-values-at
-  [(index ProjectionIndex) (subject Any) (predicate Any)] (Vec String)
+  [index ProjectionIndex
+   subject Any
+   predicate Any]
+  (Vec String)
   (reduce
-   (fn [(values (Vec String)) (value Any)] (Vec String)
+   (fn
+     [values (Vec String)
+      value Any] (Vec String)
      (if (string? value) (conj values value) values))
    []
    (values-at index subject predicate)))
 
-(defn all-subjects [(index ProjectionIndex)] (Vec String)
+(defn all-subjects [index ProjectionIndex] (Vec String)
   (reduce
-   (fn [(subjects (Vec String)) (subject Any)] (Vec String)
+   (fn
+     [subjects (Vec String)
+      subject Any] (Vec String)
      (if (string? subject) (conj subjects subject) subjects))
    []
    (projectionindex-subjects index)))
 
-(defn subject? [(index ProjectionIndex) (subject String)] Bool
+(defn subject?
+  [index ProjectionIndex
+   subject String]
+  Bool
   (contains? (projectionindex-subject-set index) subject))
 
 (def configured-single-predicates (Vec String)
@@ -147,7 +178,10 @@
       (vec (str/split configured #"\s+"))
       [])))
 
-(defn single-valued? [(index ProjectionIndex) (predicate String)] Bool
+(defn single-valued?
+  [index ProjectionIndex
+   predicate String]
+  Bool
   (let [(declared String?)
         (string-value-at index (str "@" predicate) "cardinality")]
     (kc/single-eff? (some? declared)
@@ -155,9 +189,11 @@
                     (kc/configured-single? configured-single-predicates predicate)
                     predicate)))
 
-(defn thread-subjects [(index ProjectionIndex)] (Vec String)
+(defn thread-subjects [index ProjectionIndex] (Vec String)
   (reduce
-   (fn [(subjects (Vec String)) (subject Any)] (Vec String)
+   (fn
+     [subjects (Vec String)
+      subject Any] (Vec String)
      (if (and (string? subject)
               (some? (string-value-at index subject "title")))
        (conj subjects subject)
@@ -165,9 +201,14 @@
    []
    (projectionindex-subjects index)))
 
-(defn dependents-of [(index ProjectionIndex) (subject String)] (Vec String)
+(defn dependents-of
+  [index ProjectionIndex
+   subject String]
+  (Vec String)
   (reduce
-   (fn [(subjects (Vec String)) (candidate Any)] (Vec String)
+   (fn
+     [subjects (Vec String)
+      candidate Any] (Vec String)
      (if (string? candidate) (conj subjects candidate) subjects))
    []
    (get (projectionindex-reverse-dependencies index) subject no-terms)))
@@ -191,17 +232,27 @@
       (vec (str/split env #"\s+"))
       ["abandoned"])))
 
-(defn- any-of-i? [(idx ProjectionIndex) (te String) (preds (Vec String))] Bool
+(defn- any-of-i?
+  [idx ProjectionIndex
+   te String
+   preds (Vec String)]
+  Bool
   (loop [ps preds]
     (if (empty? ps) false
       (if (some? (string-value-at idx te (first ps))) true (recur (rest ps))))))
 
 ;; terminal = resolved: any of terminal-preds present (default outcome/abandoned/superseded_by).
-(defn terminal-i? [(idx ProjectionIndex) (te String)] Bool
+(defn terminal-i?
+  [idx ProjectionIndex
+   te String]
+  Bool
   (any-of-i? idx te terminal-preds))
 
 ;; withdrawn = canceled: any of withdrawn-preds present (default abandoned).
-(defn withdrawn-i? [(idx ProjectionIndex) (te String)] Bool
+(defn withdrawn-i?
+  [idx ProjectionIndex
+   te String]
+  Bool
   (any-of-i? idx te withdrawn-preds))
 
 ;; --- work-thread set (moved out of the Store kernel) --------------------------
@@ -212,7 +263,10 @@
 ;; exclude it. The discriminator is STRUCTURAL: a titled, committed node carrying
 ;; NO work axis at all (no completion / activity / blocked / schedule /
 ;; composition / planning / accountability / chronology / navigation predicate).
-(defn anchor-i? [(idx ProjectionIndex) (te String)] Bool
+(defn anchor-i?
+  [idx ProjectionIndex
+   te String]
+  Bool
   (and (some? (string-value-at idx te "title"))
        (and (some? (string-value-at idx te "committed"))
             (and (not (terminal-i? idx te))
@@ -230,20 +284,26 @@
 
 ;; thread ids that are actual work (anchors excluded) — the basis for plate/
 ;; ready/next/leverage/agenda. Structural callers use thread-subjects directly.
-(defn work-thread-ids-i [(idx ProjectionIndex)] (Vec String)
-  (filterv (fn [(s String)] Bool (not (anchor-i? idx s)))
+(defn work-thread-ids-i [idx ProjectionIndex] (Vec String)
+  (filterv (fn [s String] Bool (not (anchor-i? idx s)))
            (thread-subjects idx)))
 
 ;; Flat eligibility reads the shared index; recursive leverage owns the graph walk.
 
 ;; Direct deps of te that are known threads and not yet terminal.
-(defn incomplete-deps [(idx ProjectionIndex) (te String)] (Vec String)
-  (filterv (fn [(d String)] Bool
+(defn incomplete-deps
+  [idx ProjectionIndex
+   te String]
+  (Vec String)
+  (filterv (fn [d String] Bool
              (and (some? (string-value-at idx d "title"))
                   (not (terminal-i? idx d))))
            (string-values-at idx te "depends_on")))
 
-(defn blocked? [(idx ProjectionIndex) (te String)] Bool
+(defn blocked?
+  [idx ProjectionIndex
+   te String]
+  Bool
   (not (empty? (incomplete-deps idx te))))
 
 ;; Schedule axis (the-model §3/§7): a thread is DORMANT iff it carries a future
@@ -252,10 +312,10 @@
 ;; are threaded through callers exactly as staleness.bclj does (before? =
 ;; store.rt/str-lt?); projections has no clock access of its own.
 (defn dormant?
-  [(idx ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))]
+  [idx ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)]
   Bool
   (let [(d String?) (string-value-at idx te "do_on")]
     (and (some? d) (before? today d))))
@@ -268,7 +328,10 @@
 ;; supply one lease+recency predicate for the entire command; tests inject a
 ;; deterministic predicate. `assigned?` remains orthogonal so grooming can show
 ;; stale assignments without inventing a second lifecycle.
-(defn assigned? [(idx ProjectionIndex) (te String)] Bool
+(defn assigned?
+  [idx ProjectionIndex
+   te String]
+  Bool
   (some? (string-value-at idx te "driver")))
 
 ;; The ONE shared precedence classifier (the-model §3): every single-bucket view
@@ -281,11 +344,11 @@
 ;; is an eligibility gate, not a display hint — the prior "committed dominates the
 ;; schedule" split let board call it ready while the work queue hid it).
 (defn classify
-  [(idx ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [ProjectionIndex String] Bool))]
+  [idx ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [ProjectionIndex String] Bool)]
   String
   (cond
     [(terminal-i? idx te) "terminal"]
@@ -300,35 +363,38 @@
 ;; live driver + not scheduled-later). ready/next/board's READY bucket all reduce
 ;; to this predicate, so their eligibility sets are identical by construction.
 (defn eligible?
-  [(idx ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [ProjectionIndex String] Bool))]
+  [idx ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [ProjectionIndex String] Bool)]
   Bool
   (= (classify idx te today before? live?) "ready"))
 
 (defn ready
-  [(idx ProjectionIndex)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [ProjectionIndex String] Bool))]
+  [idx ProjectionIndex
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [ProjectionIndex String] Bool)]
   (Vec String)
-  (filterv (fn [(te String)] Bool (eligible? idx te today before? live?))
+  (filterv (fn [te String] Bool (eligible? idx te today before? live?))
            (work-thread-ids-i idx)))
 
 ;; One-line human/agent explanation of WHY a thread is (in)eligible — the state
 ;; plus its load-bearing reason. Shared by next (per-recommendation eligibility)
 ;; and grooming so the answer to "why isn't this in my queue?" is derived from the
 ;; same classifier, never re-explained ad hoc.
-(defrecord Eligibility [(state String) (eligible Bool) (reason String)])
+(defrecord Eligibility
+  [state String
+   eligible Bool
+   reason String])
 
 (defn explain
-  [(idx ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [ProjectionIndex String] Bool))]
+  [idx ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [ProjectionIndex String] Bool)]
   Eligibility
   (let [st (classify idx te today before? live?)]
     (->Eligibility
@@ -342,8 +408,8 @@
        [(= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"]
        [:else "uncommitted draft — decide + commit before it is work"]))))
 
-(defn blocked [(idx ProjectionIndex)] (Vec String)
-  (filterv (fn [(te String)] Bool
+(defn blocked [idx ProjectionIndex] (Vec String)
+  (filterv (fn [te String] Bool
              (and (not (terminal-i? idx te)) (blocked? idx te)))
            (work-thread-ids-i idx)))
 
@@ -351,18 +417,18 @@
 ;; so plate text + json + the blocked command all agree. live? is threaded through
 ;; exactly as today/before? are (the caller owns the liveness notion).
 (defn condition-i
-  [(idx ProjectionIndex)
-   (te String)
-   (today String)
-   (before? (Fn [String String] Bool))
-   (live? (Fn [ProjectionIndex String] Bool))]
+  [idx ProjectionIndex
+   te String
+   today String
+   before? (Fn [String String] Bool)
+   live? (Fn [ProjectionIndex String] Bool)]
   String
   (classify idx te today before? live?))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
 ;; defaults here; any is overridden by a fact `@ui emoji_<condition> "<glyph>"`,
 ;; so the map is data the user owns — not the LLM's stochastic choice.
-(defn- default-emoji [(c String)] String
+(defn- default-emoji [c String] String
   (cond
     [(= c "active") "🔵"]
     [(= c "ready") "🟢"]
@@ -372,13 +438,19 @@
     [(= c "draft") "⚪"]
     [:else "•"]))
 
-(defn condition-emoji [(idx ProjectionIndex) (c String)] String
+(defn condition-emoji
+  [idx ProjectionIndex
+   c String]
+  String
   (let [(o String?) (string-value-at idx "@ui" (str "emoji_" c))]
     (if (some? o) o (default-emoji c))))
 
 ;; --- leverage: transitive reverse-dep walk over the prebuilt revdep index ----
 
-(defn transitive-dependents [(idx ProjectionIndex) (te String)] (Vec String)
+(defn transitive-dependents
+  [idx ProjectionIndex
+   te String]
+  (Vec String)
   (loop [frontier (dependents-of idx te)
          seen {}
          ordered []]
@@ -392,7 +464,10 @@
                  (assoc seen x true)
                  (conj ordered x)))))))
 
-(defn leverage-score [(idx ProjectionIndex) (te String)] Int
-  (count (filterv (fn [(d String)] Bool
+(defn leverage-score
+  [idx ProjectionIndex
+   te String]
+  Int
+  (count (filterv (fn [d String] Bool
                     (and (not (= d te)) (not (terminal-i? idx d))))
                   (transitive-dependents idx te))))
