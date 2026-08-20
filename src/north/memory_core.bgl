@@ -122,7 +122,7 @@
                 (includes-id? (memoryfact-invalidates other)
                              (memoryfact-fact-id candidate)))
           true
-          (recur (+ position 1))))))
+          (recur (+ position 1)))))))
 
 (defn assertion? [payload MemoryPayload] Bool
   (instance? Assertion payload))
@@ -139,7 +139,7 @@
                            (and (>= (trust-score (memoryfact-trust candidate))
                                     (recallrequest-minimum-trust request))
                                 (and (veracity-recallable? (memoryfact-veracity candidate))
-                                     (not (retired? facts candidate)))))))))
+                                     (not (retired? facts candidate))))))))))
 
 (defn collect-context
   [facts (Vec MemoryFact)
