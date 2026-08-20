@@ -127,7 +127,7 @@ process.exit(loggedIn ? 0 : 1);
 test("add preserves routing fields, isolates roots, and links only allowlisted config", () => {
   const { home, policy, run } = fixture();
   expect(run("add", "claude-work", "anthropic").status).toBe(0);
-  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  expect(run("add", "codex-personal", "openai", "--role", "execution").status).toBe(0);
 
   const document = JSON.parse(readFileSync(policy, "utf8"));
   expect(document.futureTopLevel).toEqual({ preserved: true });
@@ -160,7 +160,7 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
 test("remove drops the target, every reference to it, and its storage root", () => {
   const { home, policy, run } = fixture();
   expect(run("add", "claude-work", "anthropic").status).toBe(0);
-  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  expect(run("add", "codex-personal", "openai", "--role", "execution").status).toBe(0);
 
   // A target id is referenced from more than just `targets`; leaving any of
   // these behind is a dangling reference that makes the whole policy unloadable.
@@ -202,7 +202,7 @@ test("remove drops the target, every reference to it, and its storage root", () 
 
 test("remove --keep-data unlists the account while preserving its storage root", () => {
   const { home, policy, run } = fixture();
-  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  expect(run("add", "codex-personal", "openai", "--role", "execution").status).toBe(0);
   const codexRoot = join(home, ".local/state/north/accounts/openai/codex-personal");
 
   const removed = run("remove", "codex-personal", "--keep-data");
@@ -215,7 +215,7 @@ test("remove --keep-data unlists the account while preserving its storage root",
   expect(document.targetOrder).toEqual(["ambient"]);
 
   // The preserved root must still be adoptable by a later add of the same id.
-  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  expect(run("add", "codex-personal", "openai", "--role", "execution").status).toBe(0);
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("remove refuses an ambient target and an unsafe id without touching policy", () => {
@@ -351,7 +351,7 @@ test("concurrent adds serialize the read-append-replace transaction", async () =
   const first = Bun.spawn(["bun", "run", cli, "add", "claude-one", "anthropic"], {
     env, stdout: "pipe", stderr: "pipe",
   });
-  const second = Bun.spawn(["bun", "run", cli, "add", "codex-two", "openai"], {
+  const second = Bun.spawn(["bun", "run", cli, "add", "codex-two", "openai", "--role", "execution"], {
     env, stdout: "pipe", stderr: "pipe",
   });
   expect(await first.exited).toBe(0);
@@ -437,7 +437,7 @@ test("two target ids cannot double-count one isolated subscription profile", () 
 test("login and status use disjoint provider homes and normalized account identity", () => {
   const { home, run } = fixture();
   expect(run("add", "claude-work", "anthropic").status).toBe(0);
-  expect(run("add", "codex-personal", "openai").status).toBe(0);
+  expect(run("add", "codex-personal", "openai", "--role", "execution").status).toBe(0);
 
   writeFileSync(join(home, ".claude/logged-in"), "ambient login must not count\n");
   writeFileSync(join(home, ".codex/logged-in"), "ambient login must not count\n");
@@ -529,7 +529,7 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
 test("account usage groups cached per-account windows with source and reset metadata", () => {
   const { home, run, runWithEnv } = fixture();
   expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
-  expect(run("add", "codex-proton", "openai").status).toBe(0);
+  expect(run("add", "codex-proton", "openai", "--role", "execution").status).toBe(0);
   const observedAt = new Date().toISOString();
   const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const observations = join(home, ".local/state/north/provider-usage-observations.json");
@@ -589,8 +589,8 @@ test("account usage groups cached per-account windows with source and reset meta
 test("account usage degrades to a calm one-liner when every Codex account's collector is offline", () => {
   const { home, run, runWithEnv } = fixture();
   expect(run("add", "claude-gmail", "anthropic").status).toBe(0);
-  expect(run("add", "codex-proton", "openai").status).toBe(0);
-  expect(run("add", "codex-apple", "openai").status).toBe(0);
+  expect(run("add", "codex-proton", "openai", "--role", "execution").status).toBe(0);
+  expect(run("add", "codex-apple", "openai", "--role", "execution").status).toBe(0);
   const observedAt = new Date().toISOString();
   const resetsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   const observations = join(home, ".local/state/north/provider-usage-observations.json");

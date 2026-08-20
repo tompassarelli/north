@@ -48,6 +48,7 @@ import {
   readCodexAccountAuthority,
   type CodexAccountAuthority,
 } from "./accounts";
+import { loadStoreProviderUsageObservation } from "./provider-observation-store";
 import {
   providerCapabilityRejectionCode, providerSupportsCapabilities,
   type OrchestrationCapability,
@@ -1285,6 +1286,7 @@ export async function selectProviderForExecution(
     probeOpenAI?: typeof probeOpenAI;
     refreshAccountUsages?: typeof refreshAccountUsages;
     readCodexAccountAuthority?: (target: RoutingTarget) => Promise<CodexAccountAuthority | undefined>;
+    loadCodexUsage?: (target: RoutingTarget) => ReturnType<typeof loadStoreProviderUsageObservation>;
   } = {},
 ): Promise<ExecutionRoutingDecision> {
   throwIfProviderRefreshCancelled(context.signal);
@@ -1298,11 +1300,16 @@ export async function selectProviderForExecution(
       : requestedProvider !== "auto" ? target.provider === requestedProvider
         : true);
   let availability = probeTargets.map((target) => {
+    // A Codex execution route never launches a status or quota probe here.
+    // Its Store-admitted observation is selected first; a later reservation
+    // fences the chosen account before any provider side effect.
+    if (target.provider === "openai") return {
+      targetId: target.id, provider: "openai" as const, installed: true,
+      authenticated: false, available: false, reason: "unknown" as const,
+    };
     try {
       return {
-        ...(target.provider === "anthropic"
-          ? (dependencies.probeAnthropic ?? probeAnthropic)(target)
-          : (dependencies.probeOpenAI ?? probeOpenAI)(target)),
+        ...(dependencies.probeAnthropic ?? probeAnthropic)(target),
         targetId: target.id,
       };
     } catch {
@@ -1319,11 +1326,19 @@ export async function selectProviderForExecution(
       target.id,
       await (dependencies.readCodexAccountAuthority ?? readCodexAccountAuthority)(target),
     ] as const)));
+  const codexUsage = new Map(await Promise.all(probeTargets
+    .filter((target) => target.provider === "openai")
+    .map(async (target) => [
+      target.id,
+      await (dependencies.loadCodexUsage ?? ((candidate) => loadStoreProviderUsageObservation({
+        targetId: candidate.id, provider: "openai", source: "codex-app-server:account-rate-limits",
+      })))(target),
+    ] as const)));
   availability = availability.map((entry) => {
     if (entry.provider !== "openai" || !entry.targetId) return entry;
     const authority = codexAuthority.get(entry.targetId);
-    return authority?.role === "execution" && authority.executionEligible
-      ? entry
+    return authority?.role === "execution" && authority.executionEligible && codexUsage.get(entry.targetId) !== undefined
+      ? { ...entry, authenticated: true, available: true, reason: "ready" as const }
       : { ...entry, available: false, reason: "unknown" as const, detail: "Store account authority unavailable" };
   });
   throwIfProviderRefreshCancelled(context.signal);
@@ -1340,9 +1355,9 @@ export async function selectProviderForExecution(
     { enforceModelObservations: false },
   );
   const requiredRefreshTargets = staticallyRequiredTargets.filter((target) =>
-    target.provider === "anthropic" || target.id === preliminary.target);
+    target.provider === "anthropic" && target.id === preliminary.target);
   const attempts = await collectExecutionModelRefreshAttempts(
-    probeTargets, requiredRefreshTargets, preference,
+    probeTargets.filter((target) => target.provider === "anthropic"), requiredRefreshTargets, preference,
     dependencies.refreshAccountUsages ?? refreshAccountUsages,
     context.signal,
   );
@@ -1354,6 +1369,7 @@ export async function selectProviderForExecution(
   const allocation = requestedProvider === "openai" && request.target === undefined && context.model === undefined
     ? await allocateCodexExecutionAccount(probeTargets, availability, context.tier, reasoning, {
       readAuthority: async (target) => codexAuthority.get(target.id),
+      loadUsage: async (target) => codexUsage.get(target.id),
     })
     : undefined;
   const executionPreference: RoutingPreference = allocation
@@ -1364,5 +1380,13 @@ export async function selectProviderForExecution(
     reasoning, context.model, context.capabilities,
     { store, currentAttempts: attempts },
   );
-  return allocation ? Object.freeze({ ...decision, executionAccountReceipt: allocation.receipt }) : decision;
+  const selectedAuthority = codexAuthority.get(decision.target);
+  const selectedUsage = codexUsage.get(decision.target);
+  const executionAccountReceipt = allocation?.receipt
+    ?? (decision.provider === "openai" && selectedAuthority && selectedUsage
+      ? Object.freeze({ accountAuthority: selectedAuthority.receipt, usage: selectedUsage })
+      : undefined);
+  return executionAccountReceipt
+    ? Object.freeze({ ...decision, executionAccountReceipt })
+    : decision;
 }

@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { allocateCodexExecutionAccount } from "../src/providers/codex-execution-allocation";
-import type { AccountAvailabilityRow } from "../src/account-availability";
 import type { CodexAccountAuthority } from "../src/accounts";
 import type { RoutingTarget } from "../src/providers/types";
+import type { StoreObservationSnapshot } from "../src/store-observation-adapter";
+import type { ProviderUsageObservation } from "../src/providers/types";
 
 const targets: RoutingTarget[] = [
   { id: "codex-apple", provider: "openai", authMode: "isolated", profile: "apple" },
@@ -11,11 +12,17 @@ const targets: RoutingTarget[] = [
   { id: "codex-pm", provider: "openai", authMode: "isolated", profile: "pm" },
 ];
 
-function availability(account: string, pct: number): AccountAvailabilityRow {
+function usage(account: string, pct: number): StoreObservationSnapshot<ProviderUsageObservation> {
   return {
-    account, provider: "openai", observedAt: "2026-08-20T10:00:00.000Z", stale: false,
-    rungs: { window: { name: "primary", pct, resetsAt: "2026-08-27T10:00:00.000Z" }, week: null, models: {} },
-    verdict: "available", usableModels: [],
+    observation: {
+      targetId: account, provider: "openai", source: "codex-app-server:account-rate-limits",
+      observedAt: "2026-08-20T10:00:00.000Z",
+      windows: [{ limitId: "codex:primary", usedPercent: pct, resetsAt: "2026-08-27T10:00:00.000Z" }],
+    },
+    receipt: {
+      version: "north:provider-observation:v1", subject: `@provider-observation:usage:${account}`,
+      digest: "usage-store-digest", servedVersion: 43,
+    },
   };
 }
 
@@ -45,17 +52,14 @@ test("allocates supported Luna, Terra, and Sol work only from Store-admitted exe
   const runtime = targets.map((target) => ({
     targetId: target.id, provider: "openai" as const, available: true, reason: "ready" as const,
   }));
-  const rows = [
-    availability("codex-apple", 30),
-    availability("codex-proton", 98),
-    availability("codex-gmail", 10),
-    availability("codex-pm", 0),
-  ];
+  const rows = new Map([
+    ["codex-apple", usage("codex-apple", 30)],
+    ["codex-proton", usage("codex-proton", 98)],
+    ["codex-gmail", usage("codex-gmail", 10)],
+    ["codex-pm", usage("codex-pm", 0)],
+  ]);
   const dependencies = {
-    readAvailability: () => rows,
-    readActivity: async (target: RoutingTarget) => ({
-      hours: 24, sessions: 1, live: target.id === "codex-gmail" ? 2 : 0, outputTokens: 0,
-    }),
+    loadUsage: async (target: RoutingTarget) => rows.get(target.id),
     readAuthority: async (target: RoutingTarget) => authority(
       target,
       target.id === "codex-gmail" ? "oversight" : "execution",

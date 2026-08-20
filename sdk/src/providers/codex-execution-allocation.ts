@@ -1,18 +1,15 @@
 import {
-  accountsRoot,
   readCodexAccountAuthority,
   type CodexAccountAuthority,
   type StoreAccountAuthorityReceipt,
 } from "../accounts";
 import {
-  accountAvailabilityRowIsUsable,
-  readAccountAvailability,
-  type AccountAvailabilityRow,
-} from "../account-availability";
-import { readOpenAISessionActivity, type OpenAISessionActivity } from "../openai-session-activity";
+  loadStoreProviderUsageObservation,
+} from "../provider-observation-store";
+import type { StoreObservationSnapshot } from "../store-observation-adapter";
 import { resolveTier, type SemanticTier } from "./catalog";
 import type { Effort } from "../harness";
-import type { ProviderAvailability, RoutingTarget } from "./types";
+import type { ProviderAvailability, ProviderUsageObservation, RoutingTarget } from "./types";
 
 export interface CodexExecutionAllocation {
   target: RoutingTarget;
@@ -20,36 +17,33 @@ export interface CodexExecutionAllocation {
   effort?: Effort;
   receipt: Readonly<{
     accountAuthority: StoreAccountAuthorityReceipt;
-    authentication: Pick<ProviderAvailability, "provider" | "targetId" | "available" | "reason">;
-    quota: AccountAvailabilityRow;
+    usage: StoreObservationSnapshot<ProviderUsageObservation>;
   }>;
 }
 
 export interface CodexExecutionAllocatorDependencies {
-  readAvailability?: (targets: readonly RoutingTarget[]) => AccountAvailabilityRow[];
-  readActivity?: (target: RoutingTarget) => Promise<OpenAISessionActivity>;
   readAuthority?: (target: RoutingTarget) => Promise<CodexAccountAuthority | undefined>;
+  loadUsage?: (target: RoutingTarget) => Promise<StoreObservationSnapshot<ProviderUsageObservation> | undefined>;
 }
 
 function isCredentialLocator(target: RoutingTarget): boolean {
   return target.provider === "openai" && target.authMode === "isolated" && Boolean(target.profile);
 }
 
-function ready(availability: readonly ProviderAvailability[], target: RoutingTarget): boolean {
-  return availability.some((entry) => entry.targetId === target.id
-    && entry.provider === "openai" && entry.available);
-}
-
-function defaultAvailability(targets: readonly RoutingTarget[]): AccountAvailabilityRow[] {
-  return readAccountAvailability({
-    accounts: targets.map(({ id, provider }) => ({ id, provider })),
+function defaultUsage(target: RoutingTarget): Promise<StoreObservationSnapshot<ProviderUsageObservation> | undefined> {
+  return loadStoreProviderUsageObservation({
+    targetId: target.id,
+    provider: "openai",
+    source: "codex-app-server:account-rate-limits",
   });
 }
 
-function defaultActivity(target: RoutingTarget): Promise<OpenAISessionActivity> {
-  return readOpenAISessionActivity({
-    accountRoot: `${accountsRoot()}/openai/${target.profile!}`,
-  });
+function quotaUsagePercent(observation: ProviderUsageObservation, now = Date.now()): number | undefined {
+  if (observation.provider !== "openai" || observation.source !== "codex-app-server:account-rate-limits") return undefined;
+  const primary = observation.windows?.find((window) => window.limitId === "codex:primary");
+  if (!primary || !("resetsAt" in primary) || !Number.isFinite(primary.usedPercent)
+      || primary.usedPercent < 0 || primary.usedPercent >= 100 || Date.parse(primary.resetsAt) <= now) return undefined;
+  return primary.usedPercent;
 }
 
 /**
@@ -60,7 +54,7 @@ function defaultActivity(target: RoutingTarget): Promise<OpenAISessionActivity> 
  */
 export async function allocateCodexExecutionAccount(
   targets: readonly RoutingTarget[],
-  availability: readonly ProviderAvailability[],
+  _availability: readonly ProviderAvailability[],
   tier: SemanticTier | undefined,
   reasoning: Effort | undefined,
   dependencies: CodexExecutionAllocatorDependencies = {},
@@ -69,7 +63,7 @@ export async function allocateCodexExecutionAccount(
   if (!route.model) return undefined;
   const admitted = await Promise.all(targets.map(async (target) => ({
     target,
-    authority: isCredentialLocator(target) && ready(availability, target)
+    authority: isCredentialLocator(target)
       ? await (dependencies.readAuthority ?? readCodexAccountAuthority)(target)
       : undefined,
   })));
@@ -78,18 +72,11 @@ export async function allocateCodexExecutionAccount(
     .map((entry) => entry as typeof entry & { authority: CodexAccountAuthority });
   if (!candidates.length) return undefined;
 
-  const candidateTargets = candidates.map(({ target }) => target);
-  const rows = new Map((dependencies.readAvailability ?? defaultAvailability)(candidateTargets)
-    .map((row) => [row.account, row]));
   const ranked = await Promise.all(candidates.map(async ({ target, authority }, order) => {
-    const row = rows.get(target.id);
-    if (!row || row.stale || !accountAvailabilityRowIsUsable(row)) return undefined;
-    const activity = await (dependencies.readActivity ?? defaultActivity)(target);
-    const headroomPressure = row.rungs.window?.pct ?? 100;
-    const authentication = availability.find((entry) => entry.targetId === target.id
-      && entry.provider === "openai" && entry.available);
-    if (!authentication) return undefined;
-    return { target, authority, row, authentication, order, pressure: headroomPressure + activity.live * 25 };
+    const usage = await (dependencies.loadUsage ?? defaultUsage)(target);
+    const usedPercent = usage && quotaUsagePercent(usage.observation);
+    if (usedPercent === undefined) return undefined;
+    return { target, authority, usage, order, pressure: usedPercent };
   }));
   const chosen = ranked.filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
     .sort((left, right) => left.pressure - right.pressure || left.order - right.order)[0];
@@ -99,13 +86,7 @@ export async function allocateCodexExecutionAccount(
     effort: route.effort,
     receipt: Object.freeze({
       accountAuthority: chosen.authority.receipt,
-      authentication: Object.freeze({
-        provider: chosen.authentication.provider,
-        targetId: chosen.authentication.targetId,
-        available: chosen.authentication.available,
-        reason: chosen.authentication.reason,
-      }),
-      quota: chosen.row,
+      usage: chosen.usage,
     }),
   }) : undefined;
 }
