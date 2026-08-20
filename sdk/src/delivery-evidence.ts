@@ -20,6 +20,10 @@ import {
 const REPO = resolve(import.meta.dir, "..", "..");
 const WRITER = resolve(REPO, "cli", "delivery-evidence-internal.clj");
 export const RUN_RESERVATION_VERSION = "north:run-reservation:v1";
+export const EXECUTION_ATTEMPT_VERSION = "north:execution-attempt:v1";
+export const EXECUTION_ATTEMPT_LAUNCH_INTENT_VERSION = "north:execution-attempt-launch-intent:v1";
+export const EXECUTION_ATTEMPT_PROVIDER_START_VERSION = "north:execution-attempt-provider-start:v1";
+export const EXECUTION_ATTEMPT_UNSENT_VERSION = "north:execution-attempt-unsent:v1";
 // Must exceed the writer's inner coordinator windows with margin, or it kills a
 // healthy writer instead of letting it report its own typed refusal: read-retry
 // budget 15s, per-read socket deadline 30s, publication deadline 60s, readback.
@@ -37,7 +41,14 @@ const RUN_RESERVATION_BODY = [
   "run_reserved_at",
 ] as const;
 
-export type DeliveryEvidenceWriterOperation = "reserve" | "record" | "record-unreserved";
+export type DeliveryEvidenceWriterOperation =
+  | "reserve"
+  | "launch-intent"
+  | "provider-start"
+  | "attempt-terminal"
+  | "proved-unsent"
+  | "record"
+  | "record-unreserved";
 
 export class DeliveryEvidenceRetryableError extends Error {
   readonly retryable = true;
@@ -127,6 +138,60 @@ export interface DeliveryRunContext {
 export interface DeliveryReservation {
   contractOrigin: "accepted" | "worker-defined";
   baselineDoneWhen: string[];
+  attemptId: string;
+  attemptOrdinal: number;
+  predecessorReceiptSha256?: string;
+  manifestSha256: string;
+  provider: "anthropic" | "openai";
+  accountId: string;
+  model: string;
+  accountAuthorityReceiptSha256: string;
+  routeObservationReceiptSha256: string;
+  threadLease: DeliveryLeaseFence;
+  accountLease: DeliveryLeaseFence;
+}
+
+export interface DeliveryLeaseFence {
+  resource: string;
+  holder: string;
+  epoch: number;
+}
+
+export interface DeliveryAttemptRoute {
+  provider: "anthropic" | "openai";
+  accountId: string;
+  model: string;
+  accountAuthorityReceiptSha256: string;
+  routeObservationReceiptSha256: string;
+  threadLease: DeliveryLeaseFence;
+  accountLease: DeliveryLeaseFence;
+}
+
+export interface DeliveryAttemptLaunchIntent {
+  attemptId: string;
+  launchIntentSha256: string;
+  launchedAt: string;
+}
+
+export interface DeliveryAttemptProviderStart {
+  attemptId: string;
+  providerStartReceiptSha256: string;
+  providerStartManifestSha256: string;
+  providerStartedAt: string;
+}
+
+export interface DeliveryAttemptUnsent {
+  attemptId: string;
+  unsentReceiptSha256: string;
+  unsentManifestSha256: string;
+  unsentAt: string;
+}
+
+export interface DeliveryAttemptTerminal {
+  attemptId: string;
+  terminalReceiptSha256: string;
+  terminalManifestSha256: string;
+  terminalAt: string;
 }
 
 // Reservation publication is the final pre-provider gate. A writer that never
@@ -204,7 +269,11 @@ function sleepSync(ms: number): void {
  */
 export function reserveDeliveryRunWithRecovery(
   context: DeliveryRunContext,
-  reserve: (context: DeliveryRunContext) => DeliveryReservation,
+  route: DeliveryAttemptRoute,
+  reserve: (
+    context: DeliveryRunContext,
+    route: DeliveryAttemptRoute,
+  ) => DeliveryReservation,
   options: DeliveryReservationRecoveryOptions = {},
 ): DeliveryReservation {
   const maxAttempts = Math.max(
@@ -224,7 +293,7 @@ export function reserveDeliveryRunWithRecovery(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return reserve(context);
+      return reserve(context, route);
     } catch (error) {
       if (!(error instanceof DeliveryReservationReplayableFailure)
           || attempt === maxAttempts) {
@@ -366,7 +435,7 @@ export function newDeliveryRunContext(
 
 function invokeWriter(
   operation: DeliveryEvidenceWriterOperation,
-  request: Record<string, string>,
+  request: Record<string, unknown>,
   port = process.env.NORTH_PORT ?? "7977",
 ): string {
   const invocation = deliveryWriterInvocation(operation, request, port);
@@ -393,7 +462,7 @@ function invokeWriter(
 export function deliveryEvidenceWriterError(
   operation: DeliveryEvidenceWriterOperation,
   stderr: string,
-  request: Readonly<Record<string, string>> = {},
+  request: Readonly<Record<string, unknown>> = {},
   processFailure?: unknown,
 ): Error & { retryable?: boolean } {
   let reason = stderr.match(/^Message:\s+(.+)$/m)?.[1]?.trim();
@@ -482,7 +551,7 @@ export function deliveryReservationFailureCause(error: unknown): string {
 /** @internal Pure subprocess boundary used by the writer and its secrecy test. */
 export function deliveryWriterInvocation(
   operation: DeliveryEvidenceWriterOperation,
-  request: Record<string, string>,
+  request: Record<string, unknown>,
   port: string,
 ): { argv: string[]; stdin: string } {
   const serialized = JSON.stringify(request);
@@ -493,12 +562,176 @@ export function deliveryWriterInvocation(
   return { argv: [WRITER, port, operation], stdin: serialized };
 }
 
-export function reserveDeliveryRun(context: DeliveryRunContext): DeliveryReservation {
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const ACCOUNT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ATTEMPT_ID_PATTERN = /^@attempt:[0-9a-f]{64}$/;
+
+export function validExecutionAttemptIdentity(value: unknown): value is string {
+  return typeof value === "string" && ATTEMPT_ID_PATTERN.test(value);
+}
+
+export function attemptIdentityForReservationReceipt(receiptSha256: string): string {
+  if (!SHA256_PATTERN.test(receiptSha256)) {
+    throw new Error("execution attempt reservation receipt is invalid");
+  }
+  return `@attempt:${receiptSha256}`;
+}
+
+function deliveryLeaseFence(
+  value: unknown,
+  expectedResource: string,
+): DeliveryLeaseFence | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Partial<DeliveryLeaseFence>;
+  const keys = Object.keys(candidate).sort();
+  if (keys.join("\0") !== ["epoch", "holder", "resource"].join("\0")
+    || candidate.resource !== expectedResource
+    || typeof candidate.holder !== "string"
+    || candidate.holder.length === 0
+    || candidate.holder.length > 256
+    || !Number.isSafeInteger(candidate.epoch)
+    || (candidate.epoch ?? 0) < 1) return undefined;
+  return {
+    resource: candidate.resource,
+    holder: candidate.holder,
+    epoch: candidate.epoch!,
+  };
+}
+
+function deliveryAttemptRoute(route: DeliveryAttemptRoute): DeliveryAttemptRoute {
+  if (!route || typeof route !== "object" || Array.isArray(route)) {
+    throw new Error("delivery attempt route must be an object");
+  }
+  const keys = Object.keys(route).sort();
+  const expectedKeys = [
+    "accountAuthorityReceiptSha256", "accountId", "accountLease", "model", "provider",
+    "routeObservationReceiptSha256", "threadLease",
+  ].sort();
+  if (keys.join("\0") !== expectedKeys.join("\0")) {
+    throw new Error("delivery attempt route has an invalid shape");
+  }
+  if (route.provider !== "anthropic" && route.provider !== "openai") {
+    throw new Error("delivery attempt provider is unsupported");
+  }
+  if (!ACCOUNT_ID_PATTERN.test(route.accountId)) {
+    throw new Error("delivery attempt account id is invalid");
+  }
+  if (typeof route.model !== "string" || route.model.length === 0
+    || route.model.length > 256 || !validUnicodeScalars(route.model)) {
+    throw new Error("delivery attempt model is invalid");
+  }
+  if (!SHA256_PATTERN.test(route.routeObservationReceiptSha256)) {
+    throw new Error("delivery attempt route observation receipt is invalid");
+  }
+  if (!SHA256_PATTERN.test(route.accountAuthorityReceiptSha256)) {
+    throw new Error("delivery attempt account authority receipt is invalid");
+  }
+  const threadLease = deliveryLeaseFence(
+    route.threadLease,
+    `thread:${route.threadLease?.resource?.startsWith("thread:")
+      ? route.threadLease.resource.slice("thread:".length, -":dispatch".length)
+      : ""}:dispatch`,
+  );
+  const accountLease = deliveryLeaseFence(
+    route.accountLease,
+    `codex-account:${route.accountId}:slot:0`,
+  );
+  if (!threadLease || !threadLease.resource.startsWith("thread:")
+    || !threadLease.resource.endsWith(":dispatch")) {
+    throw new Error("delivery attempt thread lease is invalid");
+  }
+  if (!accountLease) throw new Error("delivery attempt account lease is invalid");
+  return { ...route, threadLease, accountLease };
+}
+
+function parsedAttemptReservation(
+  parsed: Record<string, unknown>,
+  context: DeliveryRunContext,
+  route: DeliveryAttemptRoute,
+): DeliveryReservation | undefined {
+  const baseline = parsed.baselineDoneWhen;
+  const normalizedBaseline = Array.isArray(baseline)
+    ? canonicalDoneBars(baseline)
+    : undefined;
+  const expectedKeys = [
+    "accountAuthorityReceiptSha256", "accountId", "accountLease", "attemptId", "attemptOrdinal", "baselineDoneWhen",
+    "contractOrigin", "manifestSha256", "model", "ok", "predecessorReceiptSha256",
+    "provider", "reporter", "routeObservationReceiptSha256", "run", "thread", "threadLease",
+  ];
+  const threadLease = deliveryLeaseFence(
+    parsed.threadLease,
+    `thread:${context.threadId}:dispatch`,
+  );
+  const accountLease = deliveryLeaseFence(
+    parsed.accountLease,
+    `codex-account:${route.accountId}:slot:0`,
+  );
+  const predecessor = parsed.predecessorReceiptSha256;
+  if (Object.keys(parsed).sort().join("\0") !== expectedKeys.sort().join("\0")
+    || parsed.ok !== true
+    || parsed.run !== `@${context.runId}`
+    || parsed.thread !== `@${context.threadId}`
+    || parsed.reporter !== `@agent:${context.reporterAgentId}`
+    || !validExecutionAttemptIdentity(parsed.attemptId)
+    || !Number.isSafeInteger(parsed.attemptOrdinal)
+    || (parsed.attemptOrdinal as number) < 1
+    || !SHA256_PATTERN.test(String(parsed.manifestSha256 ?? ""))
+    || (predecessor !== null && !SHA256_PATTERN.test(String(predecessor ?? "")))
+    || (parsed.attemptOrdinal === 1 ? predecessor !== null : predecessor === null)
+    || parsed.provider !== route.provider
+    || parsed.accountId !== route.accountId
+    || parsed.model !== route.model
+    || parsed.accountAuthorityReceiptSha256 !== route.accountAuthorityReceiptSha256
+    || parsed.routeObservationReceiptSha256 !== route.routeObservationReceiptSha256
+    || !threadLease || !accountLease
+    || JSON.stringify(threadLease) !== JSON.stringify(route.threadLease)
+    || JSON.stringify(accountLease) !== JSON.stringify(route.accountLease)
+    || (parsed.contractOrigin !== "accepted" && parsed.contractOrigin !== "worker-defined")
+    || !normalizedBaseline
+    || !boundedDoneBars(normalizedBaseline, true)
+    || JSON.stringify(baseline) !== JSON.stringify(normalizedBaseline)
+    || (parsed.contractOrigin === "accepted"
+      ? normalizedBaseline.length === 0
+      : normalizedBaseline.length !== 0)) return undefined;
+  return {
+    contractOrigin: parsed.contractOrigin,
+    baselineDoneWhen: normalizedBaseline,
+    attemptId: parsed.attemptId,
+    attemptOrdinal: parsed.attemptOrdinal as number,
+    ...(predecessor === null ? {} : {
+      predecessorReceiptSha256: predecessor as string,
+    }),
+    manifestSha256: parsed.manifestSha256 as string,
+    provider: parsed.provider,
+    accountId: parsed.accountId as string,
+    model: parsed.model as string,
+    accountAuthorityReceiptSha256: parsed.accountAuthorityReceiptSha256 as string,
+    routeObservationReceiptSha256: parsed.routeObservationReceiptSha256 as string,
+    threadLease,
+    accountLease,
+  };
+}
+
+export function reserveDeliveryRun(
+  context: DeliveryRunContext,
+  rawRoute: DeliveryAttemptRoute,
+): DeliveryReservation {
+  const route = deliveryAttemptRoute(rawRoute);
+  if (route.threadLease.resource !== `thread:${context.threadId}:dispatch`) {
+    throw new Error("delivery attempt thread lease does not name the reserved thread");
+  }
   const raw = invokeWriter("reserve", {
     run: context.runId,
     thread: context.threadId,
     reporter: `agent:${context.reporterAgentId}`,
     capabilitySha256: sha256(context.capability),
+    provider: route.provider,
+    accountId: route.accountId,
+    model: route.model,
+    accountAuthorityReceiptSha256: route.accountAuthorityReceiptSha256,
+    routeObservationReceiptSha256: route.routeObservationReceiptSha256,
+    threadLease: route.threadLease,
+    accountLease: route.accountLease,
   });
   let parsed: Record<string, unknown>;
   try {
@@ -506,30 +739,167 @@ export function reserveDeliveryRun(context: DeliveryRunContext): DeliveryReserva
   } catch {
     throw new Error("delivery evidence reserve returned a malformed acknowledgement");
   }
-  const baseline = parsed.baselineDoneWhen;
-  const normalizedBaseline = Array.isArray(baseline)
-    ? canonicalDoneBars(baseline)
-    : undefined;
-  const expectedKeys = [
-    "baselineDoneWhen", "contractOrigin", "ok", "reporter", "run", "thread",
-  ];
-  if (Object.keys(parsed).sort().join("\0") !== expectedKeys.sort().join("\0")
-    || parsed.ok !== true
-    || parsed.run !== `@${context.runId}`
-    || parsed.thread !== `@${context.threadId}`
-    || parsed.reporter !== `@agent:${context.reporterAgentId}`
-    || (parsed.contractOrigin !== "accepted" && parsed.contractOrigin !== "worker-defined")
-    || !normalizedBaseline
-    || !boundedDoneBars(normalizedBaseline, true)
-    || JSON.stringify(baseline) !== JSON.stringify(normalizedBaseline)
-    || (parsed.contractOrigin === "accepted"
-      ? normalizedBaseline.length === 0
-      : normalizedBaseline.length !== 0)) {
+  const reservation = parsedAttemptReservation(parsed, context, route);
+  if (!reservation) {
     throw new Error("delivery evidence reserve returned an invalid acknowledgement");
   }
+  return reservation;
+}
+
+function attemptTransitionRequest(
+  context: DeliveryRunContext,
+  reservation: DeliveryReservation,
+): Record<string, unknown> {
+  if (!validExecutionAttemptIdentity(reservation.attemptId)
+    || !SHA256_PATTERN.test(reservation.manifestSha256)) {
+    throw new Error("delivery attempt reservation identity is invalid");
+  }
   return {
-    contractOrigin: parsed.contractOrigin,
-    baselineDoneWhen: normalizedBaseline,
+    attempt: reservation.attemptId,
+    run: context.runId,
+    capability: context.capability,
+    manifestSha256: reservation.manifestSha256,
+  };
+}
+
+function parsedAttemptTransition(
+  raw: string,
+  expectedKeys: readonly string[],
+): Record<string, unknown> {
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error("delivery attempt transition returned a malformed acknowledgement");
+  }
+  if (Object.keys(parsed).sort().join("\0") !== [...expectedKeys].sort().join("\0")
+    || parsed.ok !== true) {
+    throw new Error("delivery attempt transition returned an invalid acknowledgement");
+  }
+  return parsed;
+}
+
+export function writeDeliveryAttemptLaunchIntent(
+  context: DeliveryRunContext,
+  reservation: DeliveryReservation,
+): DeliveryAttemptLaunchIntent {
+  const raw = invokeWriter("launch-intent", attemptTransitionRequest(context, reservation));
+  const parsed = parsedAttemptTransition(raw, [
+    "attempt", "launchIntentSha256", "launchedAt", "ok",
+  ]);
+  if (parsed.attempt !== reservation.attemptId
+    || !SHA256_PATTERN.test(String(parsed.launchIntentSha256 ?? ""))
+    || !validInstant(parsed.launchedAt)) {
+    throw new Error("delivery attempt transition returned an invalid acknowledgement");
+  }
+  return {
+    attemptId: reservation.attemptId,
+    launchIntentSha256: parsed.launchIntentSha256 as string,
+    launchedAt: parsed.launchedAt as string,
+  };
+}
+
+export function commitDeliveryAttemptProviderStart(
+  context: DeliveryRunContext,
+  reservation: DeliveryReservation,
+  launchIntent: DeliveryAttemptLaunchIntent,
+  providerStartReceiptSha256: string,
+): DeliveryAttemptProviderStart {
+  if (launchIntent.attemptId !== reservation.attemptId
+    || !SHA256_PATTERN.test(launchIntent.launchIntentSha256)
+    || !SHA256_PATTERN.test(providerStartReceiptSha256)) {
+    throw new Error("delivery attempt provider-start input is invalid");
+  }
+  const raw = invokeWriter("provider-start", {
+    ...attemptTransitionRequest(context, reservation),
+    launchIntentSha256: launchIntent.launchIntentSha256,
+    providerStartReceiptSha256,
+  });
+  const parsed = parsedAttemptTransition(raw, [
+    "attempt", "ok", "providerStartManifestSha256",
+    "providerStartReceiptSha256", "providerStartedAt",
+  ]);
+  if (parsed.attempt !== reservation.attemptId
+    || parsed.providerStartReceiptSha256 !== providerStartReceiptSha256
+    || !SHA256_PATTERN.test(String(parsed.providerStartManifestSha256 ?? ""))
+    || !validInstant(parsed.providerStartedAt)) {
+    throw new Error("delivery attempt transition returned an invalid acknowledgement");
+  }
+  return {
+    attemptId: reservation.attemptId,
+    providerStartReceiptSha256,
+    providerStartManifestSha256: parsed.providerStartManifestSha256 as string,
+    providerStartedAt: parsed.providerStartedAt as string,
+  };
+}
+
+export function commitDeliveryAttemptProvedUnsent(
+  context: DeliveryRunContext,
+  reservation: DeliveryReservation,
+  launchIntent: DeliveryAttemptLaunchIntent,
+  unsentReceiptSha256: string,
+): DeliveryAttemptUnsent {
+  if (launchIntent.attemptId !== reservation.attemptId
+    || !SHA256_PATTERN.test(launchIntent.launchIntentSha256)
+    || !SHA256_PATTERN.test(unsentReceiptSha256)) {
+    throw new Error("delivery attempt proved-unsent input is invalid");
+  }
+  const raw = invokeWriter("proved-unsent", {
+    ...attemptTransitionRequest(context, reservation),
+    launchIntentSha256: launchIntent.launchIntentSha256,
+    unsentReceiptSha256,
+  });
+  const parsed = parsedAttemptTransition(raw, [
+    "attempt", "ok", "unsentAt", "unsentManifestSha256", "unsentReceiptSha256",
+  ]);
+  if (parsed.attempt !== reservation.attemptId
+    || parsed.unsentReceiptSha256 !== unsentReceiptSha256
+    || !SHA256_PATTERN.test(String(parsed.unsentManifestSha256 ?? ""))
+    || !validInstant(parsed.unsentAt)) {
+    throw new Error("delivery attempt transition returned an invalid acknowledgement");
+  }
+  return {
+    attemptId: reservation.attemptId,
+    unsentReceiptSha256,
+    unsentManifestSha256: parsed.unsentManifestSha256 as string,
+    unsentAt: parsed.unsentAt as string,
+  };
+}
+
+export function commitDeliveryAttemptTerminal(
+  context: DeliveryRunContext,
+  reservation: DeliveryReservation,
+  launchIntent: DeliveryAttemptLaunchIntent,
+  providerStart: DeliveryAttemptProviderStart,
+  terminalReceiptSha256: string,
+): DeliveryAttemptTerminal {
+  if (launchIntent.attemptId !== reservation.attemptId
+    || providerStart.attemptId !== reservation.attemptId
+    || !SHA256_PATTERN.test(launchIntent.launchIntentSha256)
+    || !SHA256_PATTERN.test(providerStart.providerStartManifestSha256)
+    || !SHA256_PATTERN.test(terminalReceiptSha256)) {
+    throw new Error("delivery attempt terminal input is invalid");
+  }
+  const raw = invokeWriter("attempt-terminal", {
+    ...attemptTransitionRequest(context, reservation),
+    launchIntentSha256: launchIntent.launchIntentSha256,
+    providerStartManifestSha256: providerStart.providerStartManifestSha256,
+    terminalReceiptSha256,
+  });
+  const parsed = parsedAttemptTransition(raw, [
+    "attempt", "ok", "terminalAt", "terminalManifestSha256", "terminalReceiptSha256",
+  ]);
+  if (parsed.attempt !== reservation.attemptId
+    || parsed.terminalReceiptSha256 !== terminalReceiptSha256
+    || !SHA256_PATTERN.test(String(parsed.terminalManifestSha256 ?? ""))
+    || !validInstant(parsed.terminalAt)) {
+    throw new Error("delivery attempt transition returned an invalid acknowledgement");
+  }
+  return {
+    attemptId: reservation.attemptId,
+    terminalReceiptSha256,
+    terminalManifestSha256: parsed.terminalManifestSha256 as string,
+    terminalAt: parsed.terminalAt as string,
   };
 }
 
