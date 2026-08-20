@@ -13,7 +13,9 @@ import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  accessSync, constants, existsSync, readFileSync, readdirSync, realpathSync, statSync,
+} from "node:fs";
 import { delimiter, dirname, relative, resolve, sep } from "node:path";
 import {
   authoringGuardsOff, evaluateGuards, HOOKS_DIR, resolveManagedGuardChain,
@@ -569,7 +571,7 @@ function esoAppendix(env: NodeJS.ProcessEnv = process.env): string {
 
 // AGENT_LAWS=on|off — appends the user's provider-neutral global AGENTS.md to Anthropic
 // workers. Codex loads the same global file natively; injecting it there would duplicate
-// the constitution. Project AGENTS files are composed explicitly for both providers below.
+// the bootstrap. Project AGENTS files are composed explicitly for both providers below.
 // A custom-string systemPrompt bypasses the SDK's claude_code preset, which is the
 // only path that injects CLAUDE.md — so without this, workers get NONE of the
 // global laws interactive sessions live under. The provider-neutral bootstrap
@@ -655,188 +657,6 @@ function globalLawsAppendix(env: NodeJS.ProcessEnv = process.env): string {
   const trailingNewline = laws.text.endsWith("\n") ? "" : "\n";
   return `\n\n## Global laws — ${laws.path} (binds every provider and agent)\n\n`
     + laws.text + trailingNewline;
-}
-
-// ── P2 tiered constitution (cache-first, capability-gated) ───────────────────
-// The global constitution is injected WHOLE to every Anthropic lane today,
-// regardless of what the lane can do. P2 splits the loaded text by its own
-// section headings AT ASSEMBLY TIME (the file is never edited) and routes each
-// section to a coarse capability/repo gate, so a lane carries only the laws it
-// could violate or need. Determinism is load-bearing for cache reuse: gating is
-// a pure step-function of the capability SET + repo, section order is the file's
-// own order, and an unrecognized heading fails SAFE into CORE (rides with every
-// lane) rather than being silently dropped.
-type ConstitutionBucket = keyof {
-  core: 0; write: 0; shell: 0; orch: 0; client: 0; nixos: 0; beagle: 0;
-};
-interface ConstitutionSection {
-  heading: string;
-  text: string;
-  id: string;
-  bucket: ConstitutionBucket;
-  tagged: boolean;
-}
-
-function fallbackSectionMetadata(
-  heading: string,
-): { id: string; bucket: ConstitutionBucket } {
-  const h = heading.toLowerCase();
-  if (h.includes("done-claims")) return { id: "done-claims", bucket: "core" };
-  if (h.includes("standing guards")) return { id: "standing-guards", bucket: "core" };
-  if (h.includes("pre-edit gate")) return { id: "pre-edit-gate", bucket: "orch" };
-  if (h.includes("model +")) return { id: "model-routing", bucket: "orch" };
-  if (h.includes("push freely")) return { id: "push", bucket: "write" };
-  if (h.includes("external code")) return { id: "external-code", bucket: "write" };
-  if (h.includes("internal notes")) return { id: "internal-notes", bucket: "write" };
-  if (h.includes("nixos-config") || h.includes("global agent config"))
-    return { id: "global-agent-config", bucket: "nixos" };
-  if (h.includes("racket") || h.includes("beagle")) return { id: "beagle", bucket: "beagle" };
-  if (h.includes("new code")) return { id: "new-code", bucket: "write" };
-  if (h.includes("blocked")) return { id: "blocked", bucket: "core" };
-  if (h.includes("paths")) return { id: "paths", bucket: "core" };
-  if (h.includes("north")) return { id: "north", bucket: "core" };
-  const id = h
-    .replace(/^##\s+/, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return { id: id || "legacy-section", bucket: "core" };
-}
-
-const CONSTITUTION_TAG =
-  /^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$/;
-
-// Split into the leading preamble (everything before the first `## `) and the
-// ordered `## ` sections, each carrying its own heading line.
-function parseConstitution(raw: string): { preamble: string; sections: ConstitutionSection[] } {
-  const lines = raw.split("\n");
-  const preamble: string[] = [];
-  const sections: ConstitutionSection[] = [];
-  let cur: { heading: string; body: string[] } | null = null;
-  const flush = () => {
-    if (!cur) return;
-    const fallback = fallbackSectionMetadata(cur.heading);
-    const tag = cur.body[0]?.match(CONSTITUTION_TAG);
-    sections.push({
-      heading: cur.heading,
-      text: [cur.heading, ...cur.body].join("\n"),
-      id: tag?.[1] ?? fallback.id,
-      bucket: (tag?.[2] as ConstitutionBucket | undefined) ?? fallback.bucket,
-      tagged: Boolean(tag),
-    });
-  };
-  for (const line of lines) {
-    if (/^## /.test(line)) { flush(); cur = { heading: line, body: [] }; }
-    else if (cur) cur.body.push(line);
-    else preamble.push(line);
-  }
-  flush();
-  return { preamble: preamble.join("\n").trim(), sections };
-}
-
-type ConstitutionBuckets = Record<ConstitutionBucket, string[]>;
-
-// The synthesized one-line CORE safety stub for the API-credit ban (the full
-// bullet rides with filesystem.write). Assembly-time text; the file is unchanged.
-const API_KEYS_CORE_STUB =
-  "- **Billing: subscription entitlements only, never API credits** — full guard rides with write capability.";
-
-// done-claims: para1 (report own evidence) is universal -> CORE; the
-// reconcile/attest-the-aggregate paragraph(s) are coordinator-side -> ORCH.
-function splitDoneClaims(section: ConstitutionSection, b: ConstitutionBuckets): void {
-  let body = section.text.slice(section.heading.length).replace(/^\n+/, "");
-  let tag = "";
-  if (section.tagged) {
-    const newline = body.indexOf("\n");
-    tag = newline < 0 ? body : body.slice(0, newline);
-    body = newline < 0 ? "" : body.slice(newline + 1).replace(/^\n+/, "");
-  }
-  const paras = body.split("\n\n").map((p) => p.trim()).filter(Boolean);
-  b.core.push(`${section.heading}\n${tag ? `${tag}\n` : ""}\n${paras[0] ?? ""}`);
-  const rest = paras.slice(1).join("\n\n");
-  if (rest) b.orch.push(rest);
-}
-
-// standing-guards: one heading, five bullets each with its own gate. Bullets are
-// top-level `- ` items with 2-space continuation lines.
-function splitStandingGuards(section: ConstitutionSection, b: ConstitutionBuckets): void {
-  const bullets: string[] = [];
-  let cur: string[] | null = null;
-  for (const line of section.text.slice(section.heading.length).split("\n")) {
-    if (/^- /.test(line)) { if (cur) bullets.push(cur.join("\n")); cur = [line]; }
-    else if (cur) cur.push(line);
-  }
-  if (cur) bullets.push(cur.join("\n"));
-  for (const bullet of bullets) {
-    const t = bullet.toLowerCase();
-    if (t.includes("serialize") || t.includes("`rm`") || t.includes("rm-guard") || t.includes("rm` on variable"))
-      b.shell.push(bullet);
-    else if (t.includes("api credits") || t.includes("api-key") || t.includes("api_key"))
-      b.write.push(bullet); // full API-credit ban; a 1-line stub is added to CORE below
-    else
-      b.core.push(bullet); // translucency (on-demand), unknown -> CORE
-  }
-}
-
-function constitutionRepoClass(
-  cwd: string,
-  env: NodeJS.ProcessEnv = process.env,
-): { client: boolean; nixos: boolean; beagle: boolean } {
-  let real = cwd;
-  try { real = realpathSync(cwd); } catch { /* keep raw cwd */ }
-  const home = env.HOME ?? "";
-  const under = (base: string) => real === base || real.startsWith(`${base}${sep}`);
-  return {
-    client: Boolean(home) && under(resolve(home, "code", "client")),
-    nixos: Boolean(home) && under(resolve(home, "code", "nixos-config")),
-    beagle: (Boolean(home) && under(resolve(home, "code", "beagle"))) || /(^|\/)beagle(\/|$)/.test(real),
-  };
-}
-
-/**
- * Split the loaded constitution into contiguous cache tiers for a capability set
- * + repo. `core` is byte-identical for every lane; `cap`/`repo` are deterministic
- * step-functions of the capability SET and cwd. A metadata-less (capability-less)
- * lane keeps the whole constitution unchanged — tiering only activates when there
- * is a capability set to gate on.
- */
-export function constitutionTiers(
-  capabilities: readonly OrchestrationCapability[] | undefined,
-  cwd: string,
-  env: NodeJS.ProcessEnv = process.env,
-): { core: string; cap: string; repo: string } {
-  const laws = canonicalGlobalAgents(env);
-  if (!laws) return { core: "", cap: "", repo: "" };
-  if (!capabilities) return { core: globalLawsAppendix(env), cap: "", repo: "" };
-
-  const { preamble, sections } = parseConstitution(laws.text);
-  const b: ConstitutionBuckets = { core: [], write: [], shell: [], orch: [], client: [], nixos: [], beagle: [] };
-  if (preamble) b.core.push(preamble);
-  for (const section of sections) {
-    if (section.id === "done-claims") splitDoneClaims(section, b);
-    else if (section.id === "standing-guards") splitStandingGuards(section, b);
-    else b[section.bucket].push(section.text);
-  }
-  b.core.push(API_KEYS_CORE_STUB);
-
-  const caps = new Set(capabilities);
-  const repo = constitutionRepoClass(cwd, env);
-  const wrap = (label: string, parts: string[]) =>
-    parts.length ? `\n\n## ${label}\n\n${parts.join("\n\n")}` : "";
-  const capParts = [
-    ...(caps.has("filesystem.write") ? b.write : []),
-    ...(caps.has("shell") ? b.shell : []),
-    ...(caps.has("coordination") ? b.orch : []),
-  ];
-  const repoParts = [
-    ...(repo.client && caps.has("filesystem.write") ? b.client : []),
-    ...(repo.nixos && caps.has("filesystem.write") ? b.nixos : []),
-    ...(repo.beagle ? b.beagle : []),
-  ];
-  return {
-    core: wrap(`Global laws — ${laws.path} (binds every provider and agent)`, b.core),
-    cap: wrap("Global laws — capability-gated", capParts),
-    repo: wrap("Global laws — repo-gated", repoParts),
-  };
 }
 
 export const PROJECT_AGENTS_MAX_BYTES = 32 * 1024;
@@ -969,11 +789,7 @@ function assertCanonicalGlobalAgentsExactlyOnce(
 ): void {
   const canonical = canonicalGlobalAgents(env);
   if (!canonical) return;
-  // Tiered assembly splits the constitution across CORE/CAP/REPO, so the whole
-  // text is no longer contiguous. The preamble (before the first `## `, always
-  // in CORE) is the stable once-per-lane sentinel; a whole-constitution double
-  // injection duplicates it, which is the failure this guard exists to catch.
-  const needle = parseConstitution(canonical.text).preamble || canonical.text.trim();
+  const needle = canonical.text.trim();
   let count = 0;
   let offset = 0;
   while ((offset = prompt.indexOf(needle, offset)) !== -1) {
@@ -1074,6 +890,86 @@ export function domainSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(env.HOME ?? "", ".agents", "skills");
 }
 
+export interface ActiveSkillCandidate {
+  readonly name: string;
+  readonly description: string;
+  readonly path: string;
+}
+
+export interface ActiveSkillCatalog {
+  readonly root: string;
+  readonly candidates: readonly ActiveSkillCandidate[];
+  readonly appendix: string;
+}
+
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function skillTriggerMetadata(path: string, folder: string): ActiveSkillCandidate {
+  let bytes: Buffer;
+  try {
+    const info = statSync(path);
+    if (!info.isFile()) throw new Error(`active skill source is not a regular file: ${path}`);
+    bytes = readFileSync(path);
+  } catch (cause) {
+    throw new Error(`active skill source is stale or unreadable: ${path}`, { cause });
+  }
+  let text: string;
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch (cause) { throw new Error(`active skill source is not valid UTF-8: ${path}`, { cause }); }
+  const frontmatter = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1];
+  if (frontmatter === undefined) throw new Error(`active skill frontmatter is malformed: ${path}`);
+  let parsed: unknown;
+  try { parsed = Bun.YAML.parse(frontmatter); }
+  catch (cause) { throw new Error(`active skill frontmatter is invalid YAML: ${path}`, { cause }); }
+  const name = (parsed as any)?.name;
+  const rawDescription = (parsed as any)?.description;
+  if (typeof name !== "string" || !SKILL_NAME.test(name) || name !== folder)
+    throw new Error(`active skill name must equal its folder ${folder}: ${path}`);
+  if (typeof rawDescription !== "string" || !rawDescription.trim())
+    throw new Error(`active skill description is missing: ${path}`);
+  return Object.freeze({
+    name,
+    description: rawDescription.replace(/\s+/g, " ").trim(),
+    path,
+  });
+}
+
+/** Metadata-only view of the active provider-neutral skill farm. */
+export function activeSkillCatalog(
+  env: NodeJS.ProcessEnv = process.env,
+): ActiveSkillCatalog {
+  const root = domainSkillsDir(env);
+  let entries: import("node:fs").Dirent[];
+  try {
+    const info = statSync(root);
+    if (!info.isDirectory()) throw new Error(`active skill catalog is not a directory: ${root}`);
+    entries = readdirSync(root, { withFileTypes: true });
+  } catch (cause: any) {
+    if (cause?.code === "ENOENT") return Object.freeze({ root, candidates: Object.freeze([]), appendix: "" });
+    throw new Error(`active skill catalog is unreadable: ${root}`, { cause });
+  }
+  const candidates = entries
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+    .map((entry) => {
+      const directory = resolve(root, entry.name);
+      try {
+        if (!statSync(directory).isDirectory())
+          throw new Error(`active skill entry is not a directory: ${directory}`);
+      } catch (cause) {
+        throw new Error(`active skill entry is stale or unreadable: ${directory}`, { cause });
+      }
+      return skillTriggerMetadata(resolve(directory, "SKILL.md"), entry.name);
+    });
+  const rows = candidates.map((candidate) => `- ${JSON.stringify(candidate)}`);
+  const appendix = rows.length ? [
+    "", "", `## Active skill candidates — ${root}`,
+    "Trigger metadata only. Match the request against every description and load each",
+    "matching SKILL.md under the global skill-loading law; no skill body is injected here.",
+    ...rows,
+  ].join("\n") : "";
+  return Object.freeze({ root, candidates: Object.freeze(candidates), appendix });
+}
+
 function domainContextCandidates(
   cwd: string,
   requirement: string,
@@ -1145,7 +1041,7 @@ export interface HarnessCompositionEvidence {
   environmentReceipt?: EnvironmentReceipt;
 }
 
-export const PROMPT_COMPOSITION_VERSION = "north-harness-prompt:v1";
+export const PROMPT_COMPOSITION_VERSION = "north-harness-prompt:v2";
 export const COMPACTION_POLICY_VERSION = "north-native-auto-compact:v1";
 
 export interface PromptEconomicsEvidence {
@@ -1185,10 +1081,11 @@ function capabilityClass(
 }
 
 interface HarnessCompositionState {
-  // Tier ingredients, recomposed per route so the 4-tier order (CORE -> ROLE/CAP
-  // -> REPO -> UNIQUE-TAIL) is rebuilt identically on every provider fallback.
+  // Prompt ingredients are snapshotted once and recomposed identically on every
+  // provider fallback.
   self: string;
-  basePrompt: string; // DEFAULT (or caller override) + eso — the shared head
+  basePrompt: string;
+  skillCatalog: ActiveSkillCatalog;
   orchestrationAppendix: string;
   capabilities?: OrchestrationCapability[];
   cwd: string;
@@ -1205,12 +1102,9 @@ interface HarnessCompositionState {
   environment: NodeJS.ProcessEnv;
 }
 
-// The single 4-tier assembler. CORE (byte-identical for every lane) then
-// ROLE/CAP (deterministic per capability set) then REPO (per cwd) then the
-// per-lane UNIQUE tail. The constitution rides only for Anthropic (and the
-// provider-unknown initial route, which Anthropic re-derives); Codex loads the
-// global file natively, so its constitution tiers stay empty — its coordination
-// tail still moves last, which is harmless.
+// Anthropic receives the byte-exact canonical bootstrap; Codex loads the same
+// file natively. Both providers receive the same metadata-only active-skill
+// catalog and managed project instructions before the per-lane tail.
 function composeSystemPrompt(
   state: HarnessCompositionState,
   provider: ProviderId | undefined,
@@ -1221,19 +1115,18 @@ function composeSystemPrompt(
   economics: PromptEconomicsEvidence;
   receipt: PromptReceipt;
 } {
-  const includeConstitution = provider === undefined || provider === "anthropic";
-  const constitution = includeConstitution
-    ? constitutionTiers(state.capabilities, state.cwd, state.environment)
-    : { core: "", cap: "", repo: "" };
+  const includeBootstrap = provider === undefined || provider === "anthropic";
+  const bootstrap = includeBootstrap ? globalLawsAppendix(state.environment) : "";
+  const skillCatalog = state.dataOnly ? "" : state.skillCatalog.appendix;
   const delta = modelDeltaAppendix(
     provider,
     model,
     state.dataOnly ? "data-only contract excludes model prompt deltas" : state.omitModelDeltaReason,
   );
-  const core = state.basePrompt + constitution.core;
-  const cap = state.orchestrationAppendix + constitution.cap;
+  const core = state.basePrompt + bootstrap + skillCatalog;
+  const cap = state.orchestrationAppendix;
   const project = projectAgentsAppendix(state.cwd, state.environment);
-  const repo = project + constitution.repo;
+  const repo = project;
   const coordination = state.dataOnly
     ? ""
     : coordinationBlock(state.self, state.cwd, provider, state.capabilities);
@@ -1242,11 +1135,10 @@ function composeSystemPrompt(
   const prompt = stablePrefix + tail;
   const chunks = [
     ["core-base", state.basePrompt],
-    ["constitution-core", constitution.core],
+    ["global-bootstrap", bootstrap],
+    ["active-skill-catalog", skillCatalog],
     ["orchestration", state.orchestrationAppendix],
-    ["constitution-capability", constitution.cap],
     ["project-instructions", project],
-    ["constitution-repository", constitution.repo],
     ["coordination", coordination],
     ["model-delta", delta.appendix],
   ] as const;
@@ -1266,9 +1158,9 @@ function composeSystemPrompt(
     })),
     branches: [
       {
-        ruleId: "constitution-provider", conditionId: "provider-kind",
+        ruleId: "global-bootstrap-provider", conditionId: "provider-kind",
         inputDigest: sha256Bytes(provider ?? "unresolved"),
-        branch: includeConstitution ? "included" : "native-provider",
+        branch: includeBootstrap ? "included" : "native-provider",
       },
       {
         ruleId: "model-delta", conditionId: "resolved-model",
@@ -1783,6 +1675,7 @@ function harnessEnvironmentReceipt(args: {
   routingMetadata?: RoutingRequest;
   activatedResources?: readonly EnvironmentArtifact[];
   availableSkills?: readonly EnvironmentArtifact[];
+  skillCatalog: ActiveSkillCatalog;
 }): EnvironmentReceipt {
   const toolNames = [...args.allowedTools.map((name) => `allow:${name}`),
     ...args.disallowedTools.map((name) => `deny:${name}`)].sort();
@@ -1792,9 +1685,11 @@ function harnessEnvironmentReceipt(args: {
   const global = canonicalGlobalAgents(args.env);
   const project = projectAgentsAppendix(args.cwd, args.env);
   return buildEnvironmentReceipt({
-    availableSkills: args.availableSkills ?? [
-      { id: "available-skill-catalog-observation", coverage: "unknown" },
-    ],
+    availableSkills: args.availableSkills ?? args.skillCatalog.candidates.map((candidate) => ({
+      id: `skill:${candidate.name}`,
+      sha256: sha256Bytes(JSON.stringify(candidate)),
+      coverage: "exact" as const,
+    })),
     activatedResources: args.activatedResources ?? [
       { id: "activated-resource-observation", coverage: "unknown" },
     ],
@@ -1878,10 +1773,14 @@ export function harnessOptions(o: HarnessOpts): Options {
   const topology = metadata?.topology;
   const orchestration = orchestrationAppendix(metadata, cwd, composerEnvironment);
   const capabilities = orchestration.evidence.capabilities;
-  // Tier-0 (CORE) head shared by every lane: DEFAULT (or override) + attested fork skill +
-  // eso. Data-only transforms omit the ambient ESO presentation appendix. The
-  // capability-gated constitution CORE, ROLE/CAP, REPO, and the UNIQUE
-  // tail are composed by composeSystemPrompt from the state below.
+  const skillCatalog: ActiveSkillCatalog = o.dataOnly
+    ? Object.freeze({
+      root: domainSkillsDir(composerEnvironment), candidates: Object.freeze([]), appendix: "",
+    })
+    : activeSkillCatalog(composerEnvironment);
+  // Shared head: DEFAULT (or override) + ESO. The canonical bootstrap, skill
+  // catalog, orchestration contracts, project instructions, and unique tail are
+  // composed from the immutable state below.
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
     + (o.dataOnly ? "" : esoAppendix(composerEnvironment));
   // Orchestration is positive authority, never an ambient default. A lane with
@@ -2009,13 +1908,14 @@ export function harnessOptions(o: HarnessOpts): Options {
     routingMetadata: metadata,
     activatedResources: o.activatedResources,
     availableSkills: o.availableSkills,
+    skillCatalog,
   });
-  // Tier ingredients (P1+P2 prompt assembly): the composed 4-tier prompt is
-  // rebuilt identically on every provider route from this seed; routeBase and
-  // the sealed capability list attach after the options literal exists.
+  // Prompt ingredients are rebuilt identically on every provider route from
+  // this seed; routeBase and the sealed capability list attach afterward.
   const compositionSeed: HarnessCompositionState = {
     self: o.self,
     basePrompt,
+    skillCatalog,
     orchestrationAppendix: orchestration.appendix,
     capabilities: capabilities ? [...capabilities] : undefined,
     cwd,
