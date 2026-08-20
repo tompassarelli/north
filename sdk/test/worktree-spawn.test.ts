@@ -247,7 +247,6 @@ test("OPT-IN (worktree:true) => real worktree, cwd inside it, payload appended, 
     repositoryLayout: "standalone",
     agent: `@agent:${agentId}`,
     thread: "@thread:ad-hoc",
-    concern: "@concern:unattributed",
   });
   expect(events.map(({ type }) => type)).toEqual([
     "provisioned", "authority-profiled", "quarantined",

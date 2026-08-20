@@ -228,7 +228,6 @@ export interface SpawnOptions {
   systemPrompt?: string;
   maxTurns?: number;
   thread?: string; // exact work/evidence thread.
-  concern?: string; // exact physical-allocation concern owner; absent is explicitly unattributed.
   coordinator?: string; // spawning coordinator handle -> gets a direct peer ping on death
   provider?: ProviderPreference;
   target?: string;
@@ -285,7 +284,7 @@ interface SpawnRuntime {
 
 const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "tools", "systemPrompt", "maxTurns",
-  "thread", "concern", "coordinator", "provider", "target", "routingMetadata",
+  "thread", "coordinator", "provider", "target", "routingMetadata",
   "project", "sessionId", "worktree", "setupCmd",
   "routingAssessment", "pinEvidence", "tokenTarget",
 ]);
@@ -1859,7 +1858,6 @@ export async function spawn(opts: SpawnOptions): Promise<string> {
         setupCmd: composed.setupCmd ?? process.env.AGENT_SETUP_CMD,
         runId: allocationRunId,
         thread: composed.thread,
-        concern: composed.concern ?? process.env.NORTH_CONCERN_ID,
         provider: composed.provider,
         target: composed.target,
         writer: injected.worktreeAllocationWriter,

@@ -10,13 +10,13 @@
 
 (load-file (str (.getParent (io/file *file*)) "/coord.clj"))
 
-(def allocation-version "north:worktree-allocation:v1")
+(def allocation-version "north:worktree-allocation:v2")
 (def registration-predicates
   ["worktree_allocation_version" "worktree_repository_identity"
    "worktree_git_common_dir" "worktree_source_root" "worktree_repository_layout"
    "worktree" "worktree_durable_ref" "worktree_base_oid" "worktree_head_oid"
    "worktree_allocation_run" "worktree_allocation_agent"
-   "worktree_allocation_thread" "worktree_allocation_concern"
+   "worktree_allocation_thread"
    "worktree_allocation_nonce" "worktree_allocation_lease"
    "worktree_provider_authority_profile" "worktree_allocation_event"])
 (def marker-predicate "worktree_allocation_manifest_sha256")
@@ -194,7 +194,7 @@
     (keys-only! value
                 ["version" "subject" "repositoryIdentity" "gitCommonDir" "sourceRoot"
                  "repositoryLayout" "worktree" "durableRef" "baseOid" "headOid"
-                 "run" "agent" "thread" "concern" "allocationNonce" "lease"
+                 "run" "agent" "thread" "allocationNonce" "lease"
                  "providerAuthorityProfile" "event"]
                 "worktree allocation registration")
     (when-not (= allocation-version (get value "version"))
@@ -220,7 +220,6 @@
     (entity! (get value "run") "@run:" "allocation run")
     (entity! (get value "agent") "@agent:" "allocation agent")
     (ownership! (get value "thread") "@" "@thread:ad-hoc" "allocation thread")
-    (ownership! (get value "concern") "@concern-" "@concern:unattributed" "allocation concern")
     (lease! (get value "lease"))
     (provider-profile! (get value "providerAuthorityProfile"))
     (let [event (event! (get value "event"))]
@@ -243,7 +242,6 @@
    "worktree_allocation_run" (get registration "run")
    "worktree_allocation_agent" (get registration "agent")
    "worktree_allocation_thread" (get registration "thread")
-   "worktree_allocation_concern" (get registration "concern")
    "worktree_allocation_nonce" (get registration "allocationNonce")
    "worktree_allocation_lease" (canonical-json (get registration "lease"))
    "worktree_provider_authority_profile"

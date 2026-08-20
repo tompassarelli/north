@@ -95,7 +95,6 @@
      "run" run
      "agent" (str "@agent:allocation-" suffix)
      "thread" "@019f8a82-3dce-7418-b2c0-fc6184fc79c6"
-     "concern" "@concern-1784735694797-a27c"
      "allocationNonce" nonce
      "lease" {"version" 1
               "holder" (str "@agent:allocation-" suffix)
@@ -160,8 +159,6 @@
                        (get snapshot "worktree_durable_ref"))
                     (= #{(get first-registration "run")}
                        (get snapshot "worktree_allocation_run"))
-                    (= #{(get first-registration "concern")}
-                       (get snapshot "worktree_allocation_concern"))
                     (not (re-find #"(?i)prompt|message|transcript|content" flat))))))
 
     (let [subject (get first-registration "subject")
