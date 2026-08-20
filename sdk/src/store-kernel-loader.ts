@@ -290,10 +290,10 @@ export async function loadStoreSnapshot(options: LoadStoreSnapshotOptions): Prom
   if (text(accountFacts, "provider") !== "openai") fail("account authority provider is invalid");
   const role = text(accountFacts, "account_role");
   const eligible = text(accountFacts, "execution_eligible");
-  if ((role !== "execution" && role !== "oversight") || (eligible !== "true" && eligible !== "false"))
-    fail("account authority role or eligibility is invalid");
+  if (!((role === "execution" && eligible === "true")
+    || (role === "oversight" && eligible === "false")))
+    fail("account authority role and eligibility disagree");
   if (options.accountId !== undefined && id !== options.accountId) fail("account selector conflicts with authority");
-  if (role === "execution" && eligible !== "true") fail("execution account is ineligible");
   const account = { id, account_role: role } as const;
   if (!attempt) return loaded(served.servedVersion, { account, facts: [], wireEvents: [] });
   if (attempt.accountSubject !== accountSubject) fail("attempt account conflicts with authority");
