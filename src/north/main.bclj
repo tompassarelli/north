@@ -35,6 +35,7 @@
 (declare-extern store.rt/delete-file (Fn [String] Nil))
 (declare-extern store.rt/slugify (Fn [String] String))
 (declare-extern store.rt/getenv (Fn [String] (U String Nil)))
+(declare-extern clojure.core/ns-resolve (Fn [Any Any] Any))
 
 (defn- getenv-or
   [name String
@@ -76,7 +77,7 @@
    args (Vec Any)]
   Any
   (let [(callable Any)
-        (ns-resolve (symbol "north.coord") (symbol operation))]
+        (clojure.core/ns-resolve (symbol "north.coord") (symbol operation))]
     (if (some? callable)
       (apply callable args)
       (throw (ex-info "north.coord must be loaded before a data operation"
