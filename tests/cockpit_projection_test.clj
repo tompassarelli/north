@@ -58,7 +58,7 @@
    ["replay position stops at the greatest contiguous Store sequence"
     (str/includes? output "replay 1")]
    ["safe next derives an undelivered command from Store facts"
-    (str/includes? output "safe-next send/submit-input"))]])
+    (str/includes? output "safe-next send/submit-input")]])
 
 (let [fails (remove second checks)]
   (doseq [[name ok] checks]
