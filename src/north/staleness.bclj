@@ -57,7 +57,7 @@
    (fn
      [acc (Vec Review)
       te String] (Vec Review)
-     (let [vu (proj/string-value-at idx te "valid_until")]
+     (let [vu (U String Nil) (proj/string-value-at idx te "valid_until")]
        (if (and (not (proj/terminal-i? idx te))
                 (and (some? vu) (before? vu today)))
          (conj acc (->Review te "valid_until" (str vu " is past " today " — re-validate or drop")))
@@ -159,11 +159,11 @@
    (fn
      [acc (Vec Review)
       te String] (Vec Review)
-     (let [bars (proj/string-values-at idx te "done_when")]
+     (let [bars (Vec String) (proj/string-values-at idx te "done_when")]
        (if (and (some? (proj/string-value-at idx te "outcome")) (not (empty? bars)))
-         (let [evs (proj/string-values-at idx te "bar_evidence")
-               marks (mapv (fn [b String] String (str (bar-mark evs b) " " b)) bars)
-               open (filterv (fn [m String] Bool (str/starts-with? m "○")) marks)]
+         (let [evs (Vec String) (proj/string-values-at idx te "bar_evidence")
+               marks (Vec String) (mapv (fn [b String] String (str (bar-mark evs b) " " b)) bars)
+               open (Vec String) (filterv (fn [m String] Bool (str/starts-with? m "○")) marks)]
            (if (empty? open)
              acc
              (conj acc (->Review te "outcome"
