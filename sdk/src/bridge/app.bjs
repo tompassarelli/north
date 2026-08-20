@@ -182,8 +182,7 @@
 (defn fitted-window
   [total Int
    rows Int
-   reserved Int]
-  Int
+   reserved Int] Int
   (Math/max 1 (Math/min total (- rows reserved))))
 
 ;; Pure: keep the cursor near the middle of the window and never scroll past
@@ -191,8 +190,7 @@
 (defn window-start
   [index Int
    total Int
-   visible Int]
-  Int
+   visible Int] Int
   (Math/max 0 (Math/min (- index (Math/floor (/ visible 2)))
                         (- total visible))))
 
@@ -340,8 +338,7 @@
 
 (defn text-or
   [value Any
-   fallback String]
-  String
+   fallback String] String
   (let [candidate String (text value)]
     (if (identical? candidate "") fallback candidate)))
 
@@ -410,11 +407,10 @@
 (js/export
  (defn agent-cell-text!
    [value Any
-    width Int]
-   String
+    width Int] String
    (let [source String (agent-field-text value)
          limit Int (Math/max 1 width)]
-    (if (<= (js/call Bun .stringWidth source) limit)
+     (if (<= (js/call Bun .stringWidth source) limit)
       source
       (let [ellipsis-width Int (js/call Bun .stringWidth "…")
             room Int (Math/max 0 (- limit ellipsis-width))
@@ -435,8 +431,7 @@
 
 (defn clipped
   [value Any
-   limit Int]
-  String
+   limit Int] String
   (let [clean String (clean-text value)
         clean-length Int (js/get clean .length)]
     (if (> clean-length limit)
@@ -445,8 +440,7 @@
 
 (defn next-item-id!
   [runtime Any
-   prefix String]
-  String
+   prefix String] String
   (let [sequence Int (js/get runtime .itemSequence)]
     (js/set! runtime .itemSequence (+ sequence 1)))
   (str prefix ":" (js/get runtime .itemSequence)))
@@ -461,20 +455,17 @@
    execution-id String
    at String
    cursor Int
-   sequence Int]
-  ConversationItem
+   sequence Int] ConversationItem
   (->ConversationItem id kind title body status data execution-id at cursor sequence))
 
 (defn compare-text
   [left String
-   right String]
-  Int
+   right String] Int
   (js/call left .localeCompare right))
 
 (defn compare-conversation-items
   [left ConversationItem
-   right ConversationItem]
-  Int
+   right ConversationItem] Int
   (let [at-order Int (compare-text (conversationitem-at left) (conversationitem-at right))
         cursor-order Int (- (conversationitem-cursor left) (conversationitem-cursor right))
         owner-order Int (compare-text (conversationitem-execution-id left)
@@ -490,8 +481,7 @@
 
 (defn compare-execution-items
   [left ConversationItem
-   right ConversationItem]
-  Int
+   right ConversationItem] Int
   (let [cursor-order Int (- (conversationitem-cursor left) (conversationitem-cursor right))
         sequence-order Int (- (conversationitem-sequence left)
                           (conversationitem-sequence right))]
@@ -506,8 +496,7 @@
  (defn project-conversation
    [items Any
     execution-id String
-    aggregate Bool]
-   Any
+    aggregate Bool] Any
    (let [visible Any (if aggregate
                   (js/call items .slice)
                   (js/call items .filter
@@ -544,31 +533,27 @@
 (defn mark-execution-working!
   [runtime Any
    execution-id String
-   working Bool]
-  Any
+   working Bool] Any
   (let [executions Any (js/get runtime .workingExecutions)]
     (when (and executions (not (identical? execution-id "")))
       (if working (js/call executions .add execution-id) (js/call executions .delete execution-id)))))
 
 (defn conversation-index
   [runtime Any
-   id String]
-  Int
+   id String] Int
   (js/call (js/get runtime .conversation) .findIndex
               (fn [item ConversationItem] Bool
                 (identical? (conversationitem-id item) id))))
 
 (defn conversation-item-by-id
   [runtime Any
-   id String]
-  ConversationItem?
+   id String] ConversationItem?
   (let [index Int (conversation-index runtime id)]
     (if (>= index 0) (aget (js/get runtime .conversation) index) nil)))
 
 (defn upsert-conversation!
   [runtime Any
-   item ConversationItem]
-  Any
+   item ConversationItem] Any
   (let [index Int (conversation-index runtime (conversationitem-id item))]
     (if (>= index 0)
       (aset (js/get runtime .conversation) index item)
@@ -580,8 +565,7 @@
 
 (defn append-system!
   [runtime Any
-   body String]
-  Any
+   body String] Any
   (when (not (identical? (js/call body .trim) ""))
     (let [id String (next-item-id! runtime "system")]
       (upsert-conversation!
@@ -593,8 +577,7 @@
 
 (defn append-error!
   [runtime Any
-   body String]
-  Any
+   body String] Any
   (when (not (identical? (js/call body .trim) ""))
     (let [id String (next-item-id! runtime "error")]
       (upsert-conversation!
@@ -607,8 +590,7 @@
 (defn set-working!
   [runtime Any
    working Bool
-   label String]
-  Any
+   label String] Any
   (js/set! runtime .working working)
   (js/set! runtime .workingLabel label)
   (if working
@@ -616,8 +598,7 @@
       (when (identical? (js/get runtime .workingSince) 0)
         (js/set! runtime .workingSince (Date/now)))
       (when (nil? (js/get runtime .spinnerTimer))
-        (let [timer Any
-              (setInterval
+        (let [timer Any (setInterval
                (fn []  Any
                  (when (not (js/get runtime .disposed))
                    (let [spinner-index Int (js/get runtime .spinnerIndex)]
@@ -636,8 +617,7 @@
   [runtime Any
    execution-id String
    working Bool
-   label String]
-  Any
+   label String] Any
   (let [executions Any (js/get runtime .workingExecutions)]
     (mark-execution-working! runtime execution-id working)
     (if executions
@@ -690,8 +670,7 @@
     detail-open? Bool
     strip-focused? Bool
     threads? Bool
-    working? Bool]
-   String
+    working? Bool] String
    (cond
     palette-open? "close-palette"
     filtering? "clear-filter"
@@ -712,8 +691,7 @@
     panel-open? Bool
     panel-focused? Bool
     filtering? Bool
-    strip-focused? Bool]
-   String
+    strip-focused? Bool] String
    (cond
     palette-open? "palette"
     (and panel-open? panel-focused? filtering?) "filter"
@@ -739,8 +717,7 @@
  (defn tab-action
    [focus String
     dir-row? Bool
-    expanded? Bool]
-   String
+    expanded? Bool] String
    (cond
     (identical? focus "palette") "complete"
     (or (identical? focus "panel") (identical? focus "filter"))
@@ -781,13 +758,12 @@
 (js/export
  (defn palette-options
    [view String
-    input String]
-   (Vec SlashCommand)
+    input String] (Vec SlashCommand)
    (let [query Any (js/call (js/call input .trim) .toLowerCase)
-        parsed ParsedCommand (command input)
-        name String (parsedcommand-name parsed)
-        commands (Vec SlashCommand) (if (threads-view? view) THREAD-COMMANDS AGENT-COMMANDS)]
-    (cond
+         parsed ParsedCommand (command input)
+         name String (parsedcommand-name parsed)
+         commands (Vec SlashCommand) (if (threads-view? view) THREAD-COMMANDS AGENT-COMMANDS)]
+     (cond
       (not (js/call query .startsWith "/")) []
       (identical? name "emoji") (emoji-options (parsedcommand-rest parsed))
       (or (identical? name "glyph") (identical? name "prompt"))
@@ -836,8 +812,7 @@
 
 (defn read-stream
   [stream Any
-   on-chunk (Fn [String] Any)]
-  (Promise Any)
+   on-chunk (Fn [String] Any)] (Promise Any)
   (let [reader Any (js/call stream .getReader)
         decoder Any (js/new TextDecoder)]
     (loop []
@@ -849,8 +824,7 @@
 (defn stream-command
   [argv (Vec String)
    on-stdout (Fn [String] Any)
-   on-stderr (Fn [String] Any)]
-  (Promise Int)
+   on-stderr (Fn [String] Any)] (Promise Int)
   (let [child Any (js/call Bun .spawn {:cmd argv :stdout "pipe" :stderr "pipe"})
         results Any (js/await
                  (Promise/all [(read-stream (js/get child .stdout) on-stdout)
@@ -883,8 +857,7 @@
 
 (defn agent-with-route
   [agent Agent
-   route Agent]
-  Agent
+   route Agent] Agent
   (->Agent (agent-id agent)
            (agent-name agent)
            (agent-status agent)
@@ -908,8 +881,7 @@
 
 (defn driver-of
   [facts Any
-   id String]
-  String
+   id String] String
   (if (not (Array/isArray facts))
     ""
     (let [row Any (js/call facts .find
@@ -920,8 +892,7 @@
 
 (defn dependencies-of
   [facts Any
-   id String]
-  (Vec String)
+   id String] (Vec String)
   (if (not (Array/isArray facts))
     []
     (js/call
@@ -933,8 +904,7 @@
 
 (defn body-of
   [facts Any
-   id String]
-  String
+   id String] String
   (if (not (Array/isArray facts))
     ""
     (let [row Any (js/call facts .find
@@ -945,8 +915,7 @@
 
 (defn normalize-work
   [board Any
-   facts Any]
-  (Vec WorkItem)
+   facts Any] (Vec WorkItem)
   (if (not (Array/isArray board))
     []
     (js/call board .map
@@ -979,8 +948,7 @@
 
 (defn list-section-count
   [items (Vec WorkItem)
-   section-id String]
-  Int
+   section-id String] Int
   (js/get
    (js/call items .filter
             (fn [item WorkItem] Bool
@@ -988,8 +956,7 @@
 
 (defn list-rows
   [runtime Any
-   items (Vec WorkItem)]
-  (Vec ListRow)
+   items (Vec WorkItem)] (Vec ListRow)
   (let [rows (Vec Any) []
         collapsed Any (js/get runtime .collapsedListConditions)]
     (js/call
@@ -1017,8 +984,7 @@
 
 (defn ordered-board-items
   [open-items (Vec WorkItem)
-   done-items (Vec WorkItem)]
-  (Vec WorkItem)
+   done-items (Vec WorkItem)] (Vec WorkItem)
   (let [ready Any (js/call open-items .filter
                        (fn [item WorkItem] Bool
                          (identical? (workitem-condition item) "ready")))
@@ -1034,8 +1000,7 @@
 
 (defn publish-line!
   [runtime Any
-   line String]
-  Any
+   line String] Any
   (when (and (not (js/get runtime .disposed))
              (not (identical? (js/call line .trim) "")))
     (append-system! runtime line)))
@@ -1051,8 +1016,7 @@
 
 (defn render-prompt!
   [runtime Any
-   prompt Any]
-  Any
+   prompt Any] Any
   (let [glyph String (current-prompt-glyph runtime)
         glyph-width Int (js/call Bun .stringWidth glyph)]
     (js/set! prompt .width (+ glyph-width 1))
@@ -1060,8 +1024,7 @@
 
 (defn set-prompt-glyph!
   [runtime Any
-   glyph String]
-  Any
+   glyph String] Any
   (when (or (identical? (js/call glyph .trim) "")
             (not (identical? (grapheme-count glyph) 1)))
     (throw (js/new Error "glyph requires exactly one grapheme, or use /glyph reset")))
@@ -1101,8 +1064,7 @@
 
 (defn sound-warning!
   [runtime Any
-   message String]
-  Any
+   message String] Any
   (when (and (not (js/get runtime .disposed))
              (not (js/get runtime .soundWarningShown)))
     (js/set! runtime .soundWarningShown true)
@@ -1110,14 +1072,12 @@
 
 (defn sound-path
   [directory String
-   filename String]
-  String
+   filename String] String
   (str directory (if (js/call directory .endsWith "/") "" "/") filename))
 
 (defn sound-argv
   [player SoundPlayer
-   path String]
-  (Vec String)
+   path String] (Vec String)
   (let [executable String (soundplayer-path player)]
     (cond
       (identical? (soundplayer-kind player) "mpv")
@@ -1130,8 +1090,7 @@
 
 (defn spawn-sound!
   [runtime Any
-   path String]
-  Any
+   path String] Any
   (try
     (let [player Any (js/get runtime .soundPlayer)]
       (if (nil? player)
@@ -1154,8 +1113,7 @@
 
 (defn play-sound-path!
   [runtime Any
-   path String]
-  Any
+   path String] Any
   (try
     (js/call
      (js/call (js/call (js/call Bun .file path) .exists) .then
@@ -1171,8 +1129,7 @@
 
 (defn select-sound-path!
   [runtime Any
-   event String]
-  String
+   event String] String
   (let [pack SoundPack (if (identical? (text (js/get runtime .soundPack)) "peasant")
                PEASANT-SOUND-PACK PEON-SOUND-PACK)
         files (Vec String) (cond
@@ -1201,8 +1158,7 @@
 (defn play-sound-event!
   [runtime Any
    stream-state Any
-   event String]
-  Any
+   event String] Any
   (let [now Int (Date/now)
         last-sound-at Number (js/get runtime .lastSoundAt)]
     (when (and (js/get runtime .soundEnabled)
@@ -1253,8 +1209,7 @@
 ;; a unit shared by two bundles has two owners and needs only one of them on.
 (defn config-owner-modules
   [memberships Any
-   name String]
-  Any
+   name String] Any
   (js/call (js/call memberships .filter
                  (fn [membership Any] Bool
                    (js/call (modulemembership-members membership) .includes name))) .map
@@ -1266,8 +1221,7 @@
 (js/export
  (defn config-module-members
    [memberships Any
-    name String]
-   Any
+    name String] Any
    (let [found Any (js/call memberships .find
                      (fn [membership Any] Bool
                        (identical? (modulemembership-module membership) name)))]
@@ -1287,8 +1241,7 @@
 ;; two directories may both carry `memories/architecture` without colliding.
 (defn config-row-slug
   [kind String
-   name String]
-  String
+   name String] String
   (if (identical? kind "mem")
     (let [cut Int (js/call name .indexOf "/")]
       (if (< cut 0) name (js/call name .slice 0 cut)))
@@ -1317,8 +1270,7 @@
 (js/export
  (defn config-provenance-name
    [kind String
-    name String]
-   String
+    name String] String
    (if (identical? kind "") name (str (config-kind-word kind) ": " name))))
 
 ;; Pure: what a row calls itself on screen. A subtree row is named for its
@@ -1329,8 +1281,7 @@
 (js/export
  (defn config-row-label
    [kind String
-    name String]
-   String
+    name String] String
    (cond
     (identical? kind "ins") "AGENTS.md"
     (identical? kind "memroot") "MEMORIES"
@@ -1355,8 +1306,7 @@
 (js/export
  (defn config-cli-name
    [kind String
-    name String]
-   String
+    name String] String
    (cond
     (identical? kind "ins") (str name "/AGENTS.md")
     (identical? kind "memroot") (str name "/memories")
@@ -1369,8 +1319,7 @@
 (js/export
  (defn config-reference-text
    [kind String
-    name String]
-   String
+    name String] String
    (str "@" (config-kind-word kind) ":" (config-cli-name kind name) " ")))
 
 ;; Pure: the row a name refers to. Members may be any kind, so this spans all of
@@ -1378,8 +1327,7 @@
 ;; lookup skips them.
 (defn config-find-entry
   [manifest Any
-   name String]
-  Any
+   name String] Any
   (js/call manifest .find
          (fn [entry Any] Bool
            (identical? (configentry-name entry) name))))
@@ -1392,8 +1340,7 @@
 (defn config-find-kind
   [manifest Any
    kind String
-   name String]
-  Any
+   name String] Any
   (js/call manifest .find
          (fn [entry Any] Bool
            (and (identical? (configentry-kind entry) kind)
@@ -1401,8 +1348,7 @@
 
 (defn config-find-companion
   [manifest Any
-   name String]
-  Any
+   name String] Any
   (js/call manifest .find
          (fn [entry Any] Bool
            (and (not (identical? (configentry-kind entry) "hook"))
@@ -1425,8 +1371,7 @@
 (defn config-subtree-gate
   [manifest Any
    kind String
-   name String]
-  Any
+   name String] Any
   (let [slug String (config-row-slug kind name)]
     (cond
       (or (identical? kind "ins") (identical? kind "memroot"))
@@ -1456,8 +1401,7 @@
   [entry Any
    manifest Any
    memberships Any
-   trail Any]
-  Bool
+   trail Any] Bool
   (let [kind String (configentry-kind entry)
         name String (configentry-name entry)
         key String (str kind " " name)]
@@ -1501,8 +1445,7 @@
  (defn config-entry-active?
    [entry Any
     manifest Any
-    memberships Any]
-   Bool
+    memberships Any] Bool
    (config-active-along? entry manifest memberships [])))
 
 ;; Pure: the same question asked by name, for callers holding a companion or a
@@ -1512,8 +1455,7 @@
  (defn config-unit-active?
    [manifest Any
     memberships Any
-    name String]
-   Bool
+    name String] Bool
    (let [entry Any (config-find-entry manifest name)]
     (if entry (config-entry-active? entry manifest memberships) false))))
 
@@ -1531,25 +1473,24 @@
  (defn config-gate-modules
    [entry Any
     manifest Any
-    memberships Any]
-   Any
+    memberships Any] Any
    (let [kind String (configentry-kind entry)
-        name String (configentry-name entry)
-        gate Any (config-subtree-gate manifest kind name)
-        scope (Vec String) (if (and gate
+         name String (configentry-name entry)
+         gate Any (config-subtree-gate manifest kind name)
+         scope (Vec String) (if (and gate
                        (not (config-entry-active? gate manifest memberships)))
                 [(config-provenance-name (configentry-kind gate)
                                          (configentry-name gate))]
                 [])
-        owners Any (config-owner-modules memberships name)
-        open? Any (or (identical? (js/get owners .length) 0)
+         owners Any (config-owner-modules memberships name)
+         open? Any (or (identical? (js/get owners .length) 0)
                   (js/call owners .some
                          (fn [owner String] Bool
                            (let [row Any (config-find-kind manifest "module" owner)]
                              (if row
                                (config-entry-active? row manifest memberships)
                                false)))))]
-    (js/call scope .concat
+     (js/call scope .concat
              (if open?
                []
                (js/call owners .map
@@ -1571,47 +1512,43 @@
 ;; hook unreadable. Printed only where the row is not nested under its claimant:
 ;; the flat hooks view, and hooks nobody claimed. Where the row is off BECAUSE
 ;; of that claimant, the reason already names it and nothing repeats it.
+;; The claimant IS the reason a bound hook is not running, and it is the one
+;; provenance a nested row still has to print — as the divergence, since the
+;; parent row already gives its provenance. The kind comes with a companion's
+;; name; an absent companion has no kind to state.
 (js/export
  (defn config-state-text
    [entry Any
     manifest Any
     memberships Any
     active? Bool
-    nested? Bool]
-   String
-   ;; The claimant IS the reason a bound hook is not running, and it is the
-   ;; one provenance a nested row still has to print — not as provenance,
-   ;; which the parent row already gives, but as the divergence.
+    nested? Bool] String
    (let [state String (configentry-state entry)
-        hook? Bool (identical? (configentry-kind entry) "hook")
-        own? Bool (if hook? (config-hook-enabled? state) (identical? state "on"))
-        gates Any (config-gate-modules entry manifest memberships)
-        gate-note String (if (identical? (js/get gates .length) 0)
+         hook? Bool (identical? (configentry-kind entry) "hook")
+         own? Bool (if hook? (config-hook-enabled? state) (identical? state "on"))
+         gates Any (config-gate-modules entry manifest memberships)
+         gate-note String (if (identical? (js/get gates .length) 0)
                     ""
                     (str " (" (js/call gates .join ", ") " off)"))
-        companion String (if hook? (text (configentry-detail entry)) "")
-        followed Any (config-find-companion manifest companion)
-        provenance String (if (or nested? (identical? companion ""))
+         companion String (if hook? (text (configentry-detail entry)) "")
+         followed Any (config-find-companion manifest companion)
+         provenance String (if (or nested? (identical? companion ""))
                      ""
-                     ;; The kind comes with the name, so the unit a hook follows
-                     ;; cannot be misread as another hook. A companion the
-                     ;; manifest does not carry gets no kind, because there is
-                     ;; none to state.
                      (str " · "
                           (config-provenance-name
                            (if followed (configentry-kind followed) "")
                            companion)))
-        claimant-off? Any (and followed
+         claimant-off? Any (and followed
                            (not (config-entry-active? followed manifest
                                                       memberships)))
-        reason String (cond
+         reason String (cond
                  (not (identical? gate-note "")) gate-note
                  claimant-off? (str " ("
                                     (config-provenance-name
                                      (configentry-kind followed) companion)
                                     " off)")
                  :else "")]
-    (cond
+     (cond
       (and hook? (not own?)) "disabled"
       (not own?) "off"
       active? (str "on" provenance)
@@ -1632,8 +1569,7 @@
 
 (defn config-global-row?
   [kind String
-   name String]
-  Bool
+   name String] Bool
   (and (identical? kind "dir") (identical? name GLOBAL-DIR-NAME)))
 
 ;; ---------------------------------------------------------------------------
@@ -1656,8 +1592,7 @@
 (js/export
  (defn config-row-scope
    [kind String
-    name String]
-   String
+    name String] String
    (cond
     (identical? kind "dir") name
     (config-subtree-kind? kind) (config-row-slug kind name)
@@ -1674,8 +1609,7 @@
  (defn config-view-includes?
    [view String
     kind String
-    name String]
-   Bool
+    name String] Bool
    (cond
     (identical? view "all") true
     (identical? kind "dir")
@@ -1730,8 +1664,7 @@
 (js/export
  (defn config-skill-hooks
    [rows Any
-    name String]
-   Any
+    name String] Any
    (js/call rows .filter
            (fn [entry Any] Bool
              (and (identical? (configentry-kind entry) "hook")
@@ -1740,11 +1673,10 @@
 (js/export
  (defn config-row-role
    [entry Any
-    rows Any]
-   String
+    rows Any] String
    (let [kind String (configentry-kind entry)
-        name String (configentry-name entry)]
-    (cond
+         name String (configentry-name entry)]
+     (cond
       (identical? kind "module") "moduleset"
 
       (identical? kind "skill")
@@ -1851,23 +1783,22 @@
                       (fn [child Any] Bool
                         (not (js/call tree .includes child)))))))
 
-;; Pure: manifest rows -> the rows this view shows, as a tree.
+;; Pure: manifest rows -> the rows this view shows, as a tree. A node earns its
+;; row by having something under it.
 (js/export
  (defn config-view-rows
    [entries Any
-    view String]
-   Any
+    view String] Any
    (let [kept Any (js/call entries .filter
                       (fn [entry Any] Bool
                         (config-view-includes? view
                                                (configentry-kind entry)
                                                (configentry-name entry))))
-        held Any (js/call kept .filter
+         held Any (js/call kept .filter
                       (fn [entry Any] Bool
                         (if (or (not (config-view-prunes? view))
                                 (not (identical? (configentry-kind entry) "dir")))
                           true
-                          ;; A node earns its row by having something under it.
                           (js/call kept .some
                                  (fn [child Any] Bool
                                    (and (not (identical? (configentry-kind child)
@@ -1877,7 +1808,7 @@
                                           (configentry-kind child)
                                           (configentry-name child))
                                          (configentry-name entry))))))))]
-    (config-tree-rows held))))
+     (config-tree-rows held))))
 
 ;; Pure: which nodes are open. Session-local and defaulting to none, so the panel
 ;; opens as a list of directories — the question "which scopes exist" answered
@@ -1885,8 +1816,7 @@
 (js/export
  (defn config-node-expanded?
    [expanded Any
-    slug String]
-   Bool
+    slug String] Bool
    (if expanded (js/call expanded .includes slug) false)))
 
 ;; Pure: the tree minus the nodes that are folded shut. A row whose node is not
@@ -1895,8 +1825,7 @@
 (js/export
  (defn config-fold-rows
    [entries Any
-    expanded Any]
-   Any
+    expanded Any] Any
    (let [nodes Any (js/call (js/call entries .filter
                              (fn [entry Any] Bool
                                (identical? (configentry-kind entry) "dir"))) .map
@@ -1935,8 +1864,7 @@
 (js/export
  (defn config-row-matches?
    [entry Any
-    query String]
-   Bool
+    query String] Bool
    (let [needle Any (js/call (js/call query .trim) .toLowerCase)]
     (or (identical? needle "")
         (js/call (config-row-search-text entry) .includes needle)))))
@@ -1946,8 +1874,7 @@
 (defn config-matched-slugs
   [entries Any
    query String
-   kind String]
-  Any
+   kind String] Any
   (js/call (js/call entries .filter
                  (fn [entry Any] Bool
                    (and (identical? (configentry-kind entry) kind)
@@ -1969,8 +1896,7 @@
 (js/export
  (defn config-query-rows
    [entries Any
-    query String]
-   Any
+    query String] Any
    (if (identical? (js/call query .trim) "")
     entries
     ;; The nodes some matched row hangs off, which is what keeps a
@@ -2035,8 +1961,7 @@
 (js/export
  (defn config-row-context-only?
    [entry Any
-    query String]
-   Bool
+    query String] Bool
    (and (not (identical? (js/call query .trim) ""))
        (not (config-row-matches? entry query)))))
 
@@ -2058,8 +1983,7 @@
 (js/export
  (defn config-membership-of-json
    [module String
-    content String]
-   Any
+    content String] Any
    (try
     (let [parsed Any (JSON/parse content)
           members Any (if (and parsed (Array/isArray (js/get parsed .members)))
@@ -2171,8 +2095,7 @@
 (js/export
  (defn set-panel-query!
    [runtime Any
-    query String]
-   Any
+    query String] Any
    (js/set! runtime .panelFiltering true)
   (js/set! runtime .panelQuery query)
   (clamp-panel-cursor! runtime)))
@@ -2190,13 +2113,12 @@
  (defn set-node-expanded!
    [runtime Any
     slug String
-    open? Bool]
-   Any
+    open? Bool] Any
    (let [current Any (panel-expanded runtime)
-        without Any (js/call current .filter
+         without Any (js/call current .filter
                          (fn [held String] Bool
                            (not (identical? held slug))))]
-    (js/set! runtime .expandedDirs
+     (js/set! runtime .expandedDirs
           (if open? (js/call without .concat [slug]) without))
     (clamp-panel-cursor! runtime))))
 
@@ -2207,8 +2129,7 @@
  (defn fold-key-action
    [dir-row? Bool
     expanded? Bool
-    open-key? Bool]
-   String
+    open-key? Bool] String
    (cond
     (and open-key? dir-row?) (if expanded? "" "expand")
     open-key? ""
@@ -2217,6 +2138,9 @@
 
 (defn load-config-entries! [runtime Any] (Promise Any)
   (js/await (ensure-config-manifest!))
+  ;; The filtered rows drive the panel, while the full manifest and rosters
+  ;; derive activity. Cursor clamping follows the filtered list, and this load
+  ;; owns the render that exposes its result.
   (let [content String (js/await (run-command ["cat" (config-manifest-path)]))
         memberships Any (js/await (load-config-memberships!
                                (config-modules-dir runtime)))
@@ -2234,20 +2158,11 @@
                                              (text (aget parts 2))
                                              (js/call (js/call parts .slice 3) .join " ")))))
         entries Any (config-view-rows all-entries config-filter)]
-    ;; The view's rows are what the panel shows; the whole manifest plus the
-    ;; rosters are what it needs to derive activity, because a narrowed view
-    ;; drops the very rows that decide it and no row mentions its bundle.
     (js/set! runtime .configAllEntries all-entries)
     (js/set! runtime .configMemberships memberships)
     (js/set! runtime .configEntries entries)
-    ;; Against the FILTERED list: a reload under a live query must not park the
-    ;; cursor past the end of what is on screen.
     (clamp-panel-cursor! runtime)
     (js/set! runtime .configLoaded true)
-    ;; The switchboard reads the manifest, never the control daemon, so it owns
-    ;; the render that shows its own result. Waiting for someone else's render
-    ;; left the panel stuck on "loading…" whenever nothing else was ticking —
-    ;; exactly the case when the daemon handshake has already failed.
     (js/call runtime .render)))
 
 ;; An open panel holds the keyboard. The strip already works this way and for
@@ -2256,15 +2171,13 @@
 ;; by accident. The composer keeps its content — it only loses the cursor.
 (defn focus-panel!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/set! runtime .panelFocused true)
   (js/call (js/get ui .composerInput) .blur))
 
 (defn focus-composer!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/set! runtime .panelFocused false)
   (js/call (js/get ui .composerInput) .focus))
 
@@ -2278,8 +2191,7 @@
 (defn open-config-panel!
   [runtime Any
    ui Any
-   config-filter String]
-  Any
+   config-filter String] Any
   (let [already Any (and (detail-showing? runtime "config")
                      (identical? (text (js/get runtime .configFilter)) config-filter))]
     (if already
@@ -2353,8 +2265,7 @@
 
 (defn handle-sound-command!
   [runtime Any
-   rest String]
-  Any
+   rest String] Any
   (let [request Any (js/call (js/call rest .trim) .toLowerCase)]
     (cond
       (or (identical? request "") (identical? request "status"))
@@ -2411,8 +2322,7 @@
 (defn handle-local-command!
   [runtime Any
    ui Any
-   input String]
-  Bool
+   input String] Bool
   (let [trimmed String (js/call input .trim)]
     (if (not (js/call trimmed .startsWith "/"))
       false
@@ -2540,12 +2450,11 @@
 (js/export
  (defn cleanup-suspend!
    [runtime Any
-    process-api Any]
-   Bool
+    process-api Any] Bool
    (let [handler Any (js/get runtime .suspendResume)
-        suspended? Bool (if (js/get runtime .rendererSuspended) true false)
-        active? Any (or handler suspended?)]
-    (when handler
+         suspended? Bool (if (js/get runtime .rendererSuspended) true false)
+         active? Any (or handler suspended?)]
+     (when handler
       (js/call process-api .removeListener "SIGCONT" handler))
     (js/set! runtime .suspendResume nil)
     (js/set! runtime .rendererSuspended false)
@@ -2564,13 +2473,11 @@
  (defn suspend-runtime!
    [runtime Any
     platform String
-    process-api Any]
-   Bool
+    process-api Any] Bool
    (if (or (identical? platform "win32") (js/get runtime .suspendResume))
     false
     (let [state (Map Keyword Nil) {:handler nil}
-          resume (Fn [] Any)
-          (fn []  Any
+          resume (Fn [] Any) (fn []  Any
             (let [handler Any (js/get state .handler)]
               (when (identical? (js/get runtime .suspendResume) handler)
                 (cleanup-suspend! runtime process-api))))]
@@ -2638,39 +2545,36 @@
 (js/export
  (defn selected-agent-id
    [state BridgeSnapshot
-    selected Int]
-   String
+    selected Int] String
    (let [agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
-        total Int (js/get agents .length)]
-    (if (> total 0)
+         total Int (js/get agents .length)]
+     (if (> total 0)
       (agent-id (aget agents (Math/max 0 (Math/min selected (- total 1)))))
       ""))))
 
 (js/export
  (defn reconcile-agent-selection!
    [runtime Any
-    prior-id String]
-   String
+    prior-id String] String
    (let [state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
-        agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
-        total Int (js/get agents .length)
-        found Any (js/call agents .findIndex
+         agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
+         total Int (js/get agents .length)
+         found Any (js/call agents .findIndex
                           (fn [agent Agent] Bool
                             (identical? (agent-id agent) prior-id)))
-        fallback Int (Math/max 0
+         fallback Int (Math/max 0
                            (Math/min (js/get runtime .agentIndex)
                                      (Math/max 0 (- total 1))))
-        index Any (if (>= found 0) found fallback)
-        selected String (if (> total 0) (agent-id (aget agents index)) "")]
-    (js/set! runtime .agentIndex index)
+         index Any (if (>= found 0) found fallback)
+         selected String (if (> total 0) (agent-id (aget agents index)) "")]
+     (js/set! runtime .agentIndex index)
     (when (not (identical? (bridgesnapshot-selected-agent state) selected))
       (js/set! runtime .model (select-agent (js/get runtime .model) selected)))
     selected)))
 
 (js/export
  (defn refresh! [runtime Any] (Promise Any)
-  (let [payloads Any
-        (js/await
+  (let [payloads Any (js/await
          (Promise/all
           [(js/call (run-json [(north-bin) "agents" "--json"]) .catch
                    (fn [_ Any] Any nil))
@@ -2684,8 +2588,7 @@
         state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
         current-agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
         remote-agents (Vec Agent) (if agent-payload (normalize-agents agent-payload) [])
-        bridge-agents Any
-        (js/call
+        bridge-agents Any (js/call
          (js/call current-agents .filter
                   (fn [agent Agent] Bool
                     (js/call (js/get runtime .bridgeExecutions) .has (agent-id agent)))) .map
@@ -2758,8 +2661,7 @@
 
 (defn selected-view
   [state BridgeSnapshot
-   view-id String]
-  WorkView
+   view-id String] WorkView
   (let [views (Vec WorkView) (view-list state)
         canonical String (canonical-work-view view-id)
         selected Any (js/call views .find
@@ -2778,8 +2680,7 @@
  (defn roster-row-suppressed?
    [agent-id String
     supervisor-id String
-    banner? Bool]
-   Bool
+    banner? Bool] Bool
    (and banner?
        (not (identical? supervisor-id ""))
        (identical? agent-id supervisor-id))))
@@ -2789,11 +2690,10 @@
    [state BridgeSnapshot
     selected Int
     supervisor-id String
-    banner? Bool]
-   String
+    banner? Bool] String
    (let [agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
-        width Int (Math/max 1 (- (terminal-columns) 6))
-        rows Any (js/call
+         width Int (Math/max 1 (- (terminal-columns) 6))
+         rows Any (js/call
               (js/call agents .map
                     (fn
                       [agent Agent
@@ -2804,7 +2704,7 @@
                                              width)})) .filter
               (fn [row Any] Bool
                 (not (roster-row-suppressed? (js/get row .id) supervisor-id banner?))))]
-    (cond
+     (cond
       (identical? (js/get agents .length) 0) "No agents attached"
       ;; Everything the roster had to show is what the banner is showing. The
       ;; pane says nothing rather than reporting "no agents" about a session
@@ -2838,11 +2738,10 @@
  (defn agent-row-text!
    [agent Agent
     selected? Bool
-    width Int]
-   String
+    width Int] String
    (let [prefix String (if selected? "› " "  ")
          prefix-width Int (js/call Bun .stringWidth prefix)]
-    (str prefix (agent-cell-text! (agent-summary agent)
+     (str prefix (agent-cell-text! (agent-summary agent)
                                  (Math/max 1 (- width prefix-width)))))))
 
 (defn route-provider [agent Agent] String
@@ -2862,15 +2761,14 @@
 (js/export
  (defn agent-route-text!
    [agent Agent
-    width Int]
-   String
+    width Int] String
    (let [provider String (route-provider agent)
-        model String (route-model agent)
-        effort String (agent-field-text (agent-effort agent))
-        provenance String (agent-field-text (agent-orchestration-provenance agent))
-        state String (agent-field-text (agent-state agent))
-        goal String (agent-field-text (agent-goal agent))
-        parts Any (js/call
+         model String (route-model agent)
+         effort String (agent-field-text (agent-effort agent))
+         provenance String (agent-field-text (agent-orchestration-provenance agent))
+         state String (agent-field-text (agent-state agent))
+         goal String (agent-field-text (agent-goal agent))
+         parts Any (js/call
                [(if (identical? provider "") "" (str "provider " provider))
                 (if (identical? model "") "" (str "model " model))
                 (if (identical? effort "") "" (str "effort " effort))
@@ -2878,7 +2776,7 @@
                 (if (identical? state "") "" (str "state " state))
                 (if (identical? goal "") "" (str "goal " goal))] .filter
                (fn [part String] Bool (not (identical? part ""))))]
-    (agent-cell-text! (js/call parts .join " · ") width))))
+     (agent-cell-text! (js/call parts .join " · ") width))))
 
 ;; Pure: every agent state this app can observe folded onto the strip's
 ;; vocabulary. Bridge-local executions report starting/working/ready/offline;
@@ -2918,16 +2816,14 @@
 
 (defn agents-in-bucket
   [agents (Vec Agent)
-   bucket String]
-  (Vec Agent)
+   bucket String] (Vec Agent)
   (js/call agents .filter
            (fn [agent Agent] Bool
              (identical? (agent-bucket (agent-status agent)) bucket))))
 
 (defn segment-agents
   [agents (Vec Agent)
-   segment-id String]
-  (Vec Agent)
+   segment-id String] (Vec Agent)
   (if (identical? segment-id "all")
     agents
     (agents-in-bucket agents segment-id)))
@@ -2959,7 +2855,7 @@
      segments .forEach
      (fn
        [_segment AgentSegment
-       index Int] Any
+        index Int] Any
        (js/call starts .push
               (if (identical? index 0)
                 STRIP-INDENT
@@ -2971,29 +2867,25 @@
 
 (defn segment-at-column
   [segments (Vec AgentSegment)
-   column Int]
-  Int
+   column Int] Int
   (let [starts (Vec Int) (segment-columns segments)]
     (js/call starts .findIndex
                 (fn
                   [start Int
                    index Int] Bool
-                  (let [segment-width Int
-                        (js/get (agentsegment-label (aget segments index)) .length)]
+                  (let [segment-width Int (js/get (agentsegment-label (aget segments index)) .length)]
                     (and (>= column start)
                          (< column (+ start segment-width))))))))
 
 (defn push-chunk!
   [chunks Any
-   chunk Any]
-  Any
+   chunk Any] Any
   (js/call chunks .push chunk))
 
 (defn render-command-palette!
   [commands (Vec SlashCommand)
    selected Int
-   more Int]
-  Any
+   more Int] Any
   (let [chunks (Vec Any) []]
     (js/call
      commands .forEach
@@ -3030,8 +2922,7 @@
 (js/export
  (defn apply-view-visibility!
    [runtime Any
-    ui Any]
-   Any
+    ui Any] Any
    (let [threads? Bool (threads-view? (js/get runtime .view))]
     (js/set! (js/get ui .agentsPane) .visible (not threads?))
     (js/set! (js/get ui .workPane) .visible threads?))))
@@ -3045,8 +2936,7 @@
 
 (defn user-block-text
   [runtime Any
-   body String]
-  String
+   body String] String
   (let [width Int (available-agent-width runtime)
         lines Any (js/call body .split "\n")]
     (js/call
@@ -3088,8 +2978,7 @@
 
 (defn push-command-output!
   [chunks Any
-   output String]
-  Any
+   output String] Any
   (let [trimmed Any (js/call output .trimEnd)]
     (when (not (identical? trimmed ""))
       (let [lines Any (js/call trimmed .split "\n")
@@ -3114,8 +3003,7 @@
   [chunks Any
    title String
    body String
-   status String]
-  Any
+   status String] Any
   (let [parts CommandParts (command-parts title)
         running? Bool (identical? status "running")]
     (push-chunk! chunks
@@ -3141,8 +3029,7 @@
 
 (defn append-diff-row
   [state DiffState
-   row DiffRow]
-  DiffState
+   row DiffRow] DiffState
   (with state [:rows (js/call (diffstate-rows state) .concat row)]))
 
 (defn diff-rows [diff Any] DiffState
@@ -3226,8 +3113,7 @@
 (defn push-diff-rows!
   [chunks Any
    rows (Vec DiffRow)
-   width Int]
-  Any
+   width Int] Any
   (let [limit Int 36
         visible (Vec DiffRow) (js/call rows .slice 0 limit)
         row-count Int (js/get rows .length)
@@ -3253,8 +3139,7 @@
   [chunks Any
    item ConversationItem
    status String
-   runtime Any]
-  Any
+   runtime Any] Any
   (let [data Any (conversationitem-data item)
         changes Any (if (and data (Array/isArray (js/get data .changes))) (js/get data .changes) [])
         summary FileChangeSummary (file-change-summary changes)
@@ -3285,8 +3170,7 @@
 
 (defn push-working-wave!
   [chunks Any
-   runtime Any]
-  Any
+   runtime Any] Any
   (let [letters Any (js/call (text-or (js/get runtime .workingLabel) "Working") .split "")
         cursor Int (mod (js/get runtime .spinnerIndex) (js/get letters .length))]
     (push-chunk! chunks (brightBlack "• "))
@@ -3328,8 +3212,7 @@
    [label String
     status String
     item-count Int
-    working? Bool]
-   String
+    working? Bool] String
    (let [value Any (js/call (js/call status .trim) .toLowerCase)]
     (cond
       (> item-count 0) ""
@@ -3349,8 +3232,7 @@
  (defn transcript-banner?
    [status String
     item-count Int
-    working? Bool]
-   Bool
+    working? Bool] Bool
    (let [value Any (js/call (js/call status .trim) .toLowerCase)]
     (and (identical? item-count 0)
          (not working?)
@@ -3404,8 +3286,7 @@
 
 (defn banner-field
   [label String
-   value String]
-  String
+   value String] String
   (str (js/call (str label ":") .padEnd BANNER-LABEL-WIDTH " ") value))
 
 ;; Pure: session facts -> the banner's content lines, before any box is drawn
@@ -3417,12 +3298,11 @@
     model Any
     effort Any
     directory Any
-    permissions Any]
-   Any
+    permissions Any] Any
    (let [named String (text-or (text model) "pending")
-        graded String (text effort)
-        model-text String (if (identical? graded "") named (str named " " graded))]
-    [(str ">_ North Bridge (" (banner-revision identity) ")")
+         graded String (text effort)
+         model-text String (if (identical? graded "") named (str named " " graded))]
+     [(str ">_ North Bridge (" (banner-revision identity) ")")
      ""
      (banner-field "model" (str model-text "   " BANNER-MODEL-HINT))
      (banner-field "directory" (text-or (text directory) "pending"))
@@ -3432,8 +3312,7 @@
 ;; is what survives — the part that distinguishes it from its neighbours.
 (defn banner-clip
   [line String
-   width Int]
-  String
+   width Int] String
   (let [limit Int (Math/max 1 width)]
     (if (> (grapheme-count line) limit)
       (str (js/call line .slice 0 (Math/max 0 (- limit 1))) "…")
@@ -3456,12 +3335,11 @@
 (js/export
  (defn banner-box!
    [lines Any
-    width Int]
-   Any
+    width Int] Any
    (let [inner Int (Math/max 1 (- width 4))
-        clipped Any (js/call lines .map
+         clipped Any (js/call lines .map
                       (fn [line String] String (banner-clip line inner)))]
-    (if (< width BANNER-MIN-COLUMNS)
+     (if (< width BANNER-MIN-COLUMNS)
       clipped
       (let [span Int (Math/min inner (widest-line! clipped))
             rule Any (js/call "─" .repeat (+ span 2))]
@@ -3478,8 +3356,7 @@
     effort Any
     directory Any
     permissions Any
-    width Int]
-   Any
+    width Int] Any
    (banner-box! (session-banner-lines identity model effort directory permissions)
               width)))
 
@@ -3683,12 +3560,11 @@
 (js/export
  (defn config-header-keys
    [entry Any
-    rows Any]
-   Any
+    rows Any] Any
    (let [role String (config-row-role entry rows)
-        scope String (config-row-scope (configentry-kind entry)
+         scope String (config-row-scope (configentry-kind entry)
                                 (configentry-name entry))]
-    (js/call (config-header-roles role) .map
+     (js/call (config-header-roles role) .map
           (fn [heading String] String
             (str scope " " heading))))))
 
@@ -3697,8 +3573,7 @@
 (js/export
  (defn config-header-shared!
    [prior Any
-    current Any]
-   Int
+    current Any] Int
    (let [count (Map Keyword Int) {:n 0}]
     (js/call current .forEach
               (fn
@@ -3727,8 +3602,7 @@
 (js/export
  (defn config-empty-note
    [loaded? Bool
-    filtering? Bool]
-   String
+    filtering? Bool] String
    (cond
     (not loaded?) " loading…"
     filtering? " nothing matches"
@@ -3741,8 +3615,7 @@
 (js/export
  (defn config-query-field
    [filtering? Bool
-    query String]
-   String
+    query String] String
    (if filtering? (str "  /" query) "")))
 
 ;; The key legend, which has one more rung to name while a filter is up: escape
@@ -3780,8 +3653,7 @@
 ;; must never have to match it.
 (defn config-fold-glyph
   [dir-row? Bool
-   expanded? Bool]
-  String
+   expanded? Bool] String
   (if (not dir-row?) "" (if expanded? "▾ " "▸ ")))
 
 ;; Pure: what a directory row calls itself on screen — the place, not the slug.
@@ -3815,12 +3687,11 @@
 (js/export
  (defn config-kind-tag
    [kind String
-    role String]
-   String
+    role String] String
    (let [headings Any (config-header-roles role)
-        depth Int (js/get headings .length)
-        innermost Any (if (> depth 0) (aget headings (- depth 1)) "")]
-    (if (or (identical? innermost "") (identical? innermost role))
+         depth Int (js/get headings .length)
+         innermost Any (if (> depth 0) (aget headings (- depth 1)) "")]
+     (if (or (identical? innermost "") (identical? innermost role))
       ""
       (str kind " · ")))))
 
@@ -3832,6 +3703,7 @@
 ;;
 ;; The name is what gives way when the panel is narrow: a clipped state is not a
 ;; smaller answer, it is a wrong one.
+;; A directory's path is its label, so it is never repeated as detail.
 (js/export
  (defn config-row-parts
    [entry Any
@@ -3839,35 +3711,32 @@
     expanded? Bool
     role String
     state-text String
-    width Int]
-   Any
+    width Int] Any
    (let [kind String (configentry-kind entry)
-        name String (configentry-name entry)
-        dir? Bool (identical? kind "dir")
-        members Any (config-module-members memberships name)
-        detail String (cond
+         name String (configentry-name entry)
+         dir? Bool (identical? kind "dir")
+         members Any (config-module-members memberships name)
+         detail String (cond
                  (identical? kind "hook") ""
                  (config-subtree-kind? kind) ""
-                 ;; The path IS the directory row's label now, so it is not also
-                 ;; the thing printed after it.
                  dir? ""
                  (identical? kind "module")
                  (if (nil? members)
                    ""
                    (config-member-count-text (js/get members .length)))
                  :else (text (configentry-detail entry)))
-        indent String (config-row-indent role)
-        glyph String (config-fold-glyph dir? expanded?)
-        tag String (config-kind-tag kind role)
-        label String (if dir? (config-dir-label entry) (config-row-label kind name))
-        indent-width Int (js/get indent .length)
-        glyph-width Int (js/get glyph .length)
-        tag-width Int (js/get tag .length)
-        state-width Int (js/get state-text .length)
-        detail-width Int (js/get detail .length)
-        room Int (Math/max 8 (- width indent-width glyph-width tag-width
+         indent String (config-row-indent role)
+         glyph String (config-fold-glyph dir? expanded?)
+         tag String (config-kind-tag kind role)
+         label String (if dir? (config-dir-label entry) (config-row-label kind name))
+         indent-width Int (js/get indent .length)
+         glyph-width Int (js/get glyph .length)
+         tag-width Int (js/get tag .length)
+         state-width Int (js/get state-text .length)
+         detail-width Int (js/get detail .length)
+         room Int (Math/max 8 (- width indent-width glyph-width tag-width
                                 state-width detail-width 4))]
-    {:indent indent
+     {:indent indent
      :glyph glyph
      :tag tag
      :name (compact-text label room)
@@ -3917,7 +3786,7 @@
   ;; An unfocused panel is still on screen and no longer yours: the cursor
   ;; stops burning and the row it is on stops standing out, so the view
   ;; says where the keyboard went without moving anything.
-  (let [        entries Any (config-panel-rows runtime)
+  (let [entries Any (config-panel-rows runtime)
         total Any (js/get entries .length)
         stored-entries Any (js/get runtime .configEntries)
         stored-manifest Any (js/get runtime .configAllEntries)
@@ -3938,6 +3807,10 @@
                     (brightBlack (config-empty-note
                                   (if (js/get runtime .configLoaded) true false)
                                   filtering?))])
+      ;; A user pin stays dim even under the cursor. Filter context is dimmed;
+      ;; a bound hook omits provenance already supplied by its parent. Section
+      ;; headings print only where they diverge from the preceding row, and
+      ;; kind tags stay quiet where the heading already supplies the kind.
       (let [index Int (clamped-index (js/get runtime .configIndex) total)
             window Int (config-visible-count total config-filter)
             start Int (window-start index total window)
@@ -3950,17 +3823,6 @@
                   (fn
                     [entry Any
                      offset Int] Any
-                    ;; A user pin is neither on nor off — it is the reason
-                    ;; a skill flip will not move this row — and it is the
-                    ;; quietest thing in the panel: the whole row recedes,
-                    ;; state and name together. What you deliberately
-                    ;; turned off should not be the loudest line on a
-                    ;; screen listing what is running.
-                    ;; On screen to give a match its context, rather than
-                    ;; because it matched: scaffolding, dimmed.
-                    ;; A row drawn under the unit that claims it is
-                    ;; standing in its own provenance, and says one token
-                    ;; less for it.
                     (let [i Int (+ start offset)
                           cursor? Bool (identical? i index)
                           kind String (configentry-kind entry)
@@ -3989,9 +3851,6 @@
                                                       basis))
                           shared Int (config-header-shared! prior headings)
                           tail String (if (identical? (+ i 1) stop) "" "\n")]
-                      ;; Only the headings this row does not share with the one
-                      ;; above it, so a section prints its heading once and a
-                      ;; window that opens mid-node still says where it is.
                       (js/call (config-header-roles role) .forEach
                                 (fn
                                   [heading String
@@ -4006,9 +3865,6 @@
                                      (brightCyan "› ")
                                      (if cursor? (brightBlack "› ")
                                          (brightBlack "  "))))
-                      ;; The cursor still lights its row, and a pinned row is
-                      ;; the one exception: it stays dim under the cursor, which
-                      ;; the marker in the gutter is there to locate.
                       (let [name-tone Any (cond pinned? dimmest
                                             (and cursor? focused?) brightWhite
                                             context? dimmest
@@ -4018,9 +3874,6 @@
                                              :else brightBlack)]
                         (js/call parts .push (name-tone (str (js/get row .indent)
                                                      (js/get row .glyph))))
-                        ;; The kind, said only where the heading above does not
-                        ;; already say it, and said quietly: it tells you what
-                        ;; sort of thing this is, not which thing.
                         (when (not (identical? (js/get row .tag) ""))
                           (js/call parts .push (dimmest (js/get row .tag))))
                         (js/call parts .push (name-tone (js/get row .name)))
@@ -4045,14 +3898,12 @@
 
 (defn detail-showing?
   [runtime Any
-   view String]
-  Bool
+   view String] Bool
   (identical? (text (js/get runtime .detailView)) view))
 
 (defn open-detail!
   [runtime Any
-   view String]
-  Any
+   view String] Any
   (js/set! runtime .detailView view))
 
 ;; A closed panel holds no query. The filter is a state of the surface, so it
@@ -4065,8 +3916,7 @@
 ;; /help and F1 are the same switch, and the panel is where it lands.
 (defn toggle-help!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (if (detail-showing? runtime "help")
     (do (close-detail! runtime) (focus-composer! runtime ui))
     (do (open-detail! runtime "help") (focus-panel! runtime ui)))
@@ -4092,8 +3942,7 @@
 
 (defn detail-visible-count
   [total Int
-   extra Int]
-  Int
+   extra Int] Int
   (fitted-window total (terminal-rows)
                  (+ CHROME-ROWS MIN-WORKSPACE-ROWS DETAIL-CHROME-ROWS extra)))
 
@@ -4113,14 +3962,12 @@
 (js/export
  (defn config-visible-count
    [total Int
-    view String]
-   Int
+    view String] Int
    (detail-visible-count total (config-section-rows view))))
 
 (defn clamped-index
   [raw Any
-   total Int]
-  Int
+   total Int] Int
   (Math/max 0 (Math/min (if raw raw 0) (- total 1))))
 
 (defn selected-detail-agent [runtime Any] Agent?
@@ -4138,8 +3985,7 @@
   [entries Any
    basis Any
    start Int
-   stop Int]
-  Int
+   stop Int] Int
   (let [count (Map Keyword Int) {:n 0}]
     (js/call (js/call entries .slice start stop) .forEach
               (fn
@@ -4197,8 +4043,7 @@
 
 (defn agent-detail-row!
   [agent Agent
-   width Int]
-  String
+   width Int] String
   (agent-cell-text! (agent-summary agent) width))
 
 (defn render-agent-detail! [runtime Any] Any
@@ -4279,6 +4124,7 @@
     (Math/max 1 (Math/min total (detail-visible-count total 0)))))
 
 (defn render-help-panel! [runtime Any] Any
+  ;; An empty query result still occupies its budgeted row and explains itself.
   (let [filtering? Bool (panel-filtering? runtime)
         query String (panel-query runtime)
         matched Any (help-query-rows query)
@@ -4289,8 +4135,6 @@
                                " · / filter · esc closes\n"))]
         rows Any (js/call matched .slice 0 (help-visible-rows query))
         row-count Int (js/get rows .length)]
-    ;; A query that matches nothing still owes the layout the row it was
-    ;; budgeted, and owes the user a reason the panel is empty.
     (if (identical? row-count 0)
       (push-chunk! chunks (brightBlack " nothing matches"))
       (js/call
@@ -4315,8 +4159,7 @@
 
 (defn segment-chunk
   [segment AgentSegment
-   highlighted? Bool]
-  Any
+   highlighted? Bool] Any
   (let [label String (agentsegment-label segment)
         id String (agentsegment-id segment)]
     (cond
@@ -4329,8 +4172,7 @@
 (defn render-agent-strip
   [state BridgeSnapshot
    focused? Bool
-   selected Int]
-  Any
+   selected Int] Any
   (let [segments (Vec AgentSegment) (agent-segments (bridgesnapshot-agents state))
         chunks (Vec Any) [(if focused? (brightCyan "› ") (brightBlack "  "))]]
     (js/call
@@ -4347,8 +4189,7 @@
 
 (defn status-notice
   [runtime Any
-   state BridgeSnapshot]
-  String
+   state BridgeSnapshot] String
   (let [workspace-notice String (text (js/get runtime .workspaceNotice))
         notice String (if (identical? workspace-notice "")
                  (visible-notice (bridgesnapshot-notice state)) workspace-notice)]
@@ -4356,8 +4197,7 @@
 
 (defn render-status
   [runtime Any
-   state BridgeSnapshot]
-  Any
+   state BridgeSnapshot] Any
   (js/new StyledText [(brightBlack (status-notice runtime state))]))
 
 ;; ---------------------------------------------------------------------------
@@ -4393,8 +4233,7 @@
 ;; StyledText, so the bar can splice them in after its own labels.
 (defn push-session-identity!
   [chunks Any
-   session Any]
-  Any
+   session Any] Any
   (push-chunk! chunks
                (brightYellow
                 (str (text-or (js/get session .sessionModel) "model pending") " "
@@ -4411,12 +4250,11 @@
    [view Any
     state BridgeSnapshot
     view-id String
-    session Any]
-   Any
+    session Any] Any
    (let [chunks (Vec Any) []
-        threads? Bool (threads-view? view)
-        views (Vec WorkView) (view-list state)]
-    (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
+         threads? Bool (threads-view? view)
+         views (Vec WorkView) (view-list state)]
+     (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
     (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
     (push-chunk! chunks ((if threads? brightGreen brightBlack) THREADS-TAB-LABEL))
     (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
@@ -4442,8 +4280,7 @@
 
 (defn compact-text
   [value Any
-   width Int]
-  String
+   width Int] String
   (let [source String (text value)
         limit Int (Math/max 1 width)]
     (if (> (js/get source .length) limit)
@@ -4452,8 +4289,7 @@
 
 (defn cell-text
   [value Any
-   width Int]
-  String
+   width Int] String
   (js/call (compact-text value width) .padEnd width " "))
 
 (defn short-thread-id [item WorkItem] String
@@ -4462,8 +4298,7 @@
 (defn push-condition!
   [chunks Any
    condition String
-   label String]
-  Any
+   label String] Any
   (push-chunk! chunks
                ((cond
                   (identical? condition "active") brightCyan
@@ -4474,16 +4309,14 @@
 
 (defn available-work-width
   [_runtime Any
-   _state BridgeSnapshot]
-  Int
+   _state BridgeSnapshot] Int
   (available-view-width))
 
 (defn render-list-view!
   [runtime Any
    items (Vec WorkItem)
    selected Int
-   width Int]
-  Any
+   width Int] Any
   (let [chunks (Vec Any) []
         rows (Vec ListRow) (list-rows runtime items)
         collapsed Any (js/get runtime .collapsedListConditions)]
@@ -4519,16 +4352,14 @@
 
 (defn work-item-by-id
   [items (Vec WorkItem)
-   id String]
-  WorkItem?
+   id String] WorkItem?
   (js/call items .find
          (fn [item WorkItem] Bool
            (identical? (workitem-id item) id))))
 
 (defn work-item-condition-for
   [items (Vec WorkItem)
-   id String]
-  String
+   id String] String
   (js/call items .reduce
            (fn
              [condition String
@@ -4541,8 +4372,7 @@
 (defn render-dag-view!
   [items (Vec WorkItem)
    selected Int
-   width Int]
-  Any
+   width Int] Any
   (let [chunks (Vec Any) []]
     (js/call
      items .forEach
@@ -4581,16 +4411,14 @@
 
 (defn board-lane-items
   [items (Vec WorkItem)
-   lane-id String]
-  (Vec WorkItem)
+   lane-id String] (Vec WorkItem)
   (js/call items .filter
            (fn [item WorkItem] Bool
              (identical? (board-lane-id (workitem-condition item)) lane-id))))
 
 (defn compact-body
   [value Any
-   width Int]
-  String
+   width Int] String
   (let [lines Any (js/call
                (js/call (js/call (text value) .split "\n") .map
                      (fn [line String] String (js/call line .trim))) .filter
@@ -4603,8 +4431,7 @@
 (defn board-signature
   [items (Vec WorkItem)
    selected Int
-   width Int]
-  String
+   width Int] String
   (str width "|" selected "|"
        (js/call
         (js/call items .map
@@ -4624,8 +4451,7 @@
 
 (defn set-board-notice!
   [runtime Any
-   notice String]
-  Any
+   notice String] Any
   (js/set! runtime .workspaceNotice notice)
   (js/call runtime .render))
 
@@ -4633,8 +4459,7 @@
   [runtime Any
    ui Any
    item WorkItem
-   index Int]
-  Any
+   index Int] Any
   (js/set! runtime .workIndex index)
   (js/set! runtime .model
         (select-thread (js/get runtime .model) (workitem-id item)))
@@ -4644,8 +4469,7 @@
 (defn prefill-outcome!
   [runtime Any
    ui Any
-   thread-id String]
-  Any
+   thread-id String] Any
   (js/set! (js/get ui .composerInput) .value (str "/outcome @" thread-id " "))
   (show-view! runtime ui "threads")
   (set-board-notice! runtime
@@ -4656,8 +4480,7 @@
   [runtime Any
    thread-id String
    position String
-   anchor-id String]
-  (Promise Any)
+   anchor-id String] (Promise Any)
   (let [argv (Vec String) (if (identical? anchor-id "")
                [(north-bin) "queue" "move" thread-id position]
                [(north-bin) "queue" "move" thread-id position anchor-id])
@@ -4667,8 +4490,7 @@
 
 (defn unsupported-drop-notice
   [source-condition String
-   target-lane String]
-  String
+   target-lane String] String
   (cond
     (terminal-condition? source-condition)
     "Done is derived from an outcome; reopening requires explicitly retracting that outcome."
@@ -4690,8 +4512,7 @@
    ui Any
    target-lane String
    target-card Any
-   event Any]
-  Any
+   event Any] Any
   (js/call event .preventDefault)
   (js/call event .stopPropagation)
   (js/call (js/get ui .workScroll) .stopAutoScroll)
@@ -4739,8 +4560,7 @@
 
 (defn card-content
   [item WorkItem
-   width Int]
-  Any
+   width Int] Any
   (let [body String (compact-body (workitem-body item) (Math/max 8 (- width 4)))
         fallback String (str "@" (short-thread-id item))]
     (js/new StyledText
@@ -4754,8 +4574,7 @@
    item WorkItem
    index Int
    lane-index Int
-   width Int]
-  Any
+   width Int] Any
   (let [renderer Any (js/get runtime .renderer)
         thread-id String (workitem-id item)
         condition String (workitem-condition item)
@@ -4804,8 +4623,7 @@
    ui Any
    lane BoardLane
    items (Vec WorkItem)
-   card-width Int]
-  Any
+   card-width Int] Any
   (let [renderer Any (js/get runtime .renderer)
         lane-id String (boardlane-id lane)
         title String (boardlane-title lane)
@@ -4852,8 +4670,7 @@
    ui Any
    items (Vec WorkItem)
    selected Int
-   width Int]
-  Any
+   width Int] Any
   (let [signature String (board-signature items selected width)]
     (when (not (identical? signature (text (js/get runtime .boardSignature))))
       (js/set! runtime .boardSignature signature)
@@ -4871,8 +4688,7 @@
   [runtime Any
    state BridgeSnapshot
    view WorkView
-   selected Int]
-  Any
+   selected Int] Any
   (let [items (Vec WorkItem) (workview-items view)
         width Int (available-work-width runtime state)]
     (if (identical? (js/get items .length) 0)
@@ -4890,8 +4706,7 @@
 (js/export
  (defn composer-hint
    [pane String
-    label String]
-   String
+    label String] String
    (if (identical? pane "agents")
     (str "Message " label "…")
     "/list, /board, /graph, /capture, /filter, /assign")))
@@ -4905,16 +4720,14 @@
 (defn palette-visible-count
   [total Int
    rows Int
-   docked Int]
-  Int
+   docked Int] Int
   (fitted-window total rows (+ CHROME-ROWS MIN-WORKSPACE-ROWS docked)))
 
 ;; Pure: option rows inside the window. When the list overflows, one row of the
 ;; window is spent on the "… N more" line instead of an option.
 (defn palette-option-rows
   [total Int
-   window Int]
-  Int
+   window Int] Int
   (if (and (> total window) (> window 1)) (- window 1) window))
 
 ;; Pure: what the overflow line reports, 0 when there is nothing to report or
@@ -4922,14 +4735,12 @@
 (defn palette-overflow
   [total Int
    window Int
-   rows Int]
-  Int
+   rows Int] Int
   (if (and (> total rows) (> window rows)) (- total rows) 0))
 
 (defn render-minibuffer!
   [runtime Any
-   ui Any]
-  (Vec SlashCommand)
+   ui Any] (Vec SlashCommand)
   (let [view String (text (js/get runtime .view))
         input Any (js/get ui .composerInput)
         options (Vec SlashCommand) (palette-options view (text (js/get input .value)))
@@ -4955,25 +4766,24 @@
 
 (defn render-ui!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (when (not (js/get runtime .disposed))
     (let [state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
-        agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
-        views (Vec WorkView) (view-list state)
-        requested String (bridgesnapshot-active-view-id state)
-        current WorkView (selected-view state requested)
-        items (Vec WorkItem) (workview-items current)
-        agent-max Int (Math/max 0 (- (js/get agents .length) 1))
-        work-max Int (Math/max 0 (- (js/get items .length) 1))
-        board? Bool (identical? (workview-id current) "board")
-        banner? Bool (banner-visible? runtime)
-        roster String (roster-text! state (js/get runtime .agentIndex)
+          agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
+          views (Vec WorkView) (view-list state)
+          requested String (bridgesnapshot-active-view-id state)
+          current WorkView (selected-view state requested)
+          items (Vec WorkItem) (workview-items current)
+          agent-max Int (Math/max 0 (- (js/get agents .length) 1))
+          work-max Int (Math/max 0 (- (js/get items .length) 1))
+          board? Bool (identical? (workview-id current) "board")
+          banner? Bool (banner-visible? runtime)
+          roster String (roster-text! state (js/get runtime .agentIndex)
                             (text (js/get runtime .supervisorId)) banner?)
-        roster-rows Int (roster-visible-rows roster)
-        notice String (status-notice runtime state)
-        notice? Bool (not (identical? notice ""))]
-    (js/set! runtime .agentIndex (Math/max 0 (Math/min (js/get runtime .agentIndex) agent-max)))
+          roster-rows Int (roster-visible-rows roster)
+          notice String (status-notice runtime state)
+          notice? Bool (not (identical? notice ""))]
+      (js/set! runtime .agentIndex (Math/max 0 (Math/min (js/get runtime .agentIndex) agent-max)))
     (js/set! runtime .workIndex (Math/max 0 (Math/min (js/get runtime .workIndex) work-max)))
     (apply-view-visibility! runtime ui)
     (js/set! (js/get ui .viewTabsText) .content
@@ -5017,8 +4827,7 @@
   [runtime Any
    execution-id String
    role String
-   status String]
-  Any
+   status String] Any
   (let [state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
         agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
         prior-id String (selected-agent-id state (js/get runtime .agentIndex))
@@ -5060,8 +4869,7 @@
 
 (defn event-item-id
   [execution-id String
-   item-id Any]
-  String
+   item-id Any] String
   (str execution-id ":" (text item-id)))
 
 (defn safe-sequence [value Any] Int
@@ -5077,8 +4885,7 @@
    status String
    item-data Any
    execution-id String
-   event Any]
-  ConversationItem
+   event Any] ConversationItem
   (owned-conversation-item
    id kind title body status item-data execution-id
    (if existing (conversationitem-at existing) (text (js/get event .at)))
@@ -5092,8 +4899,7 @@
    kind String
    title String
    body String
-   status String]
-  ConversationItem
+   status String] ConversationItem
   (let [data Any (or (parsedrecord-data record) {})
         record-sequence Int (parsedrecord-sequence record)
         cursor-candidate Any (Number (js/get data .wireCursor))
@@ -5112,8 +4918,7 @@
    kind String
    title String
    delta String
-   status String]
-  Any
+   status String] Any
   (let [existing (U ConversationItem Nil) (conversation-item-by-id runtime id)
         prior String (if existing (conversationitem-body existing) "")
         actual-title String (if existing (conversationitem-title existing) title)]
@@ -5139,9 +4944,10 @@
 (defn adopt-wire-model!
   [runtime Any
    model Any
-   effort Any]
-  Any
+   effort Any] Any
   (when model
+    ;; The wire's provider-neutral route is only a fallback; it never replaces
+    ;; the concrete provider model already carried by session configuration.
     (let [provider String (text (js/get model .provider))
           tier String (text (js/get model .tier))
           label String (cond
@@ -5149,9 +4955,6 @@
                        (not (identical? tier ""))) (str provider "/" tier)
                   (not (identical? provider "")) provider
                   :else "")]
-      ;; Wire carries the provider-neutral route, while session.config carries
-      ;; the concrete model the provider actually opened. The generic route is
-      ;; only a fallback and must never replace that exact display value.
       (when (and (not (identical? label ""))
                  (identical? (js/call (text (js/get runtime .sessionModel)) .trim) ""))
         (js/set! runtime .sessionModel label))))
@@ -5167,8 +4970,7 @@
 (defn handle-wire-message!
   [runtime Any
    stream-state Any
-   data Any]
-  Any
+   data Any] Any
   (let [role String (text (js/get data .role))
         stage String (text (js/get data .stage))
         execution-id String (text (js/get stream-state .executionId))
@@ -5202,8 +5004,7 @@
   [runtime Any
    stream-state Any
    data Any
-   kind String]
-  Any
+   kind String] Any
   (let [id String (event-item-id (text (js/get stream-state .executionId)) (js/get data .toolCallId))
         existing (U ConversationItem Nil) (conversation-item-by-id runtime id)]
     (cond
@@ -5236,8 +5037,7 @@
 (defn handle-record!
   [runtime Any
    stream-state Any
-   record ParsedRecord]
-  Any
+   record ParsedRecord] Any
   (let [kind String (parsedrecord-kind record)
         data Any (or (parsedrecord-data record) {})
         execution-id String (text (js/get stream-state .executionId))]
@@ -5370,11 +5170,10 @@
  (defn parse-bridge-stream!
    [runtime Any
     stream-state Any
-    chunk String]
-   Any
+    chunk String] Any
    (let [lines Any (js/call (str (js/get stream-state .buffer) chunk) .split "\n")
-        remainder Any (js/call lines .pop)]
-    (js/set! stream-state .buffer remainder)
+         remainder Any (js/call lines .pop)]
+     (js/set! stream-state .buffer remainder)
     (js/call
      lines .forEach
      (fn [raw-line String] Any
@@ -5409,13 +5208,12 @@
    [provider Any
     tier Any
     model Any
-    effort Any]
-   (Vec String)
+    effort Any] (Vec String)
    (let [provider-value String (js/call (text provider) .trim)
-        tier-value String (js/call (text tier) .trim)
-        model-value String (js/call (text model) .trim)
-        effort-value String (js/call (text effort) .trim)]
-    (js/call [] .concat
+         tier-value String (js/call (text tier) .trim)
+         model-value String (js/call (text model) .trim)
+         effort-value String (js/call (text effort) .trim)]
+     (js/call [] .concat
              (if (identical? provider-value "") [] ["--provider" provider-value])
              (if (identical? tier-value "") [] ["--tier" tier-value])
              (if (identical? model-value "") [] ["--model" model-value])
@@ -5431,11 +5229,10 @@
  (defn set-launch-route!
    [runtime Any
     name String
-    value String]
-   Any
+    value String] Any
    (let [trimmed String (js/call value .trim)
-        choice Any (js/call trimmed .toLowerCase)]
-    (when (identical? choice "")
+         choice Any (js/call trimmed .toLowerCase)]
+     (when (identical? choice "")
       (throw (js/new Error (str name " requires a value or auto"))))
     (cond
       (identical? name "provider")
@@ -5489,15 +5286,13 @@
 (defn launch-agent!
   [runtime Any
    prompt String
-   role String]
-  (Promise Any)
+   role String] (Promise Any)
   (when (identical? (js/call prompt .trim) "")
     (throw (js/new Error "launch requires a prompt")))
   (set-working! runtime true (str "Starting " (main-agent-label runtime) "…"))
   (let [stream-state (Map Keyword Any) {:buffer "" :stderr "" :executionId "" :role role
                       :booting (identical? role "supervisor") :soundLive false}
-        exit-code Int
-        (js/await
+        exit-code Int (js/await
          (stream-command
           (js/call [(north-bin) "bridge" "--role"
                     (if (identical? role "supervisor") "director" "implementer")]
@@ -5518,8 +5313,7 @@
 
 (defn popout!
   [runtime Any
-   view-id String]
-  Any
+   view-id String] Any
   (let [ghostty Any (js/call Bun .which "ghostty")
         kitty Any (js/call Bun .which "kitty")
         wezterm Any (js/call Bun .which "wezterm")
@@ -5540,8 +5334,7 @@
 
 (defn selected-work
   [runtime Any
-   selection WorkSelection]
-  WorkItem?
+   selection WorkSelection] WorkItem?
   (let [state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
         view-id String (text-or (workselection-view selection) (text (js/get runtime .activeView)))
         view WorkView (selected-view state view-id)
@@ -5561,8 +5354,7 @@
 ;; Both views call this, which is why /capture is in both command sets.
 (defn capture-thread!
   [runtime Any
-   title String]
-  (Promise Any)
+   title String] (Promise Any)
   (when (identical? title "") (throw (js/new Error "capture requires a title")))
   (let [output String (js/await (run-command [(north-bin) "capture" title]))]
     (publish-line! runtime (js/call (text output) .trim)))
@@ -5575,11 +5367,10 @@
 (js/export
  (defn restore-submitted-text!
    [runtime Any
-    ui Any]
-   Any
+    ui Any] Any
    (let [pending String (text (js/get runtime .lastSubmitted))
-        input Any (js/get ui .composerInput)]
-    (when (and (not (identical? pending "")) input)
+         input Any (js/get ui .composerInput)]
+     (when (and (not (identical? pending "")) input)
       (js/set! runtime .lastSubmitted "")
       (js/set! input .value pending)
       (js/call input .focus)))))
@@ -5590,8 +5381,7 @@
 (defn cancel-turn!
   [runtime Any
    ui Any
-   target String]
-  (Promise Any)
+   target String] (Promise Any)
   (when (not (js/call (js/get runtime .bridgeExecutions) .has target))
     (throw (js/new Error "interrupt is available for Bridge-launched executions")))
   (js/await (run-command [(north-bin) "bridge" "interrupt" target]))
@@ -5602,8 +5392,7 @@
   [runtime Any
    ui Any
    input String
-   selection String]
-  (Promise Any)
+   selection String] (Promise Any)
   (let [trimmed String (js/call input .trim)
         slash? Any (js/call trimmed .startsWith "/")
         parsed ParsedCommand (command input)
@@ -5653,8 +5442,7 @@
   [runtime Any
    ui Any
    input String
-   selection WorkSelection]
-  (Promise Any)
+   selection WorkSelection] (Promise Any)
   (let [trimmed String (js/call input .trim)
         slash? Any (js/call trimmed .startsWith "/")
         parsed ParsedCommand (command input)
@@ -5709,16 +5497,14 @@
 
 (defn report-promise!
   [runtime Any
-   promise Any]
-  Any
+   promise Any] Any
   (js/call promise .catch
           (fn [error Any] Any
             (publish-line! runtime (str "error: " (error-message error))))))
 
 (defn select-view!
   [runtime Any
-   view String]
-  Any
+   view String] Any
   (js/set! runtime .view view)
   (js/set! runtime .paletteIndex 0)
   (js/set! runtime .workspaceNotice "")
@@ -5729,8 +5515,7 @@
 (defn show-view!
   [runtime Any
    ui Any
-   view String]
-  Any
+   view String] Any
   (select-view! runtime view)
   (js/call (js/get ui .composerInput) .focus)
   (js/call runtime .render))
@@ -5741,8 +5526,7 @@
 (defn show-thread-view!
   [runtime Any
    ui Any
-   view-id String]
-  Any
+   view-id String] Any
   (js/set! runtime .model (focus-view (js/get runtime .model) (canonical-work-view view-id)))
   (js/set! runtime .workIndex 0)
   (js/call (js/get runtime .workScroll) .scrollTo 0)
@@ -5755,16 +5539,14 @@
 ;; the cursor, so nothing typed can be swallowed by the strip's h/l/j/k bindings.
 (defn focus-strip!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/set! runtime .stripFocused true)
   (js/call (js/get ui .composerInput) .blur)
   (js/call runtime .render))
 
 (defn leave-strip!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/set! runtime .stripFocused false)
   (when (detail-showing? runtime "agents") (close-detail! runtime))
   (js/call (js/get ui .composerInput) .focus)
@@ -5777,8 +5559,7 @@
 
 (defn show-segment-detail!
   [runtime Any
-   index Int]
-  Any
+   index Int] Any
   (let [segments (Vec AgentSegment) (strip-segments runtime)]
     (when (> (js/get segments .length) 0)
       (let [selected Int (clamped-index index (js/get segments .length))]
@@ -5795,8 +5576,7 @@
 
 (defn move-strip-segment!
   [runtime Any
-   delta Int]
-  Any
+   delta Int] Any
   (let [segments (Vec AgentSegment) (strip-segments runtime)
         total Int (js/get segments .length)]
     (when (> total 0)
@@ -5810,8 +5590,7 @@
 
 (defn move-detail-cursor!
   [runtime Any
-   delta Int]
-  Any
+   delta Int] Any
   (let [total Int (js/get (detail-agents runtime) .length)]
     (when (> total 0)
       (js/set! runtime .detailIndex
@@ -5820,14 +5599,12 @@
 
 (defn active-input
   [_runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/get ui .composerInput))
 
 (defn active-palette-options
   [runtime Any
-   ui Any]
-  (Vec SlashCommand)
+   ui Any] (Vec SlashCommand)
   (let [view String (text (js/get runtime .view))
         input Any (active-input runtime ui)]
     (palette-options view (text (js/get input .value)))))
@@ -5852,16 +5629,14 @@
 
 (defn palette-candidate
   [runtime Any
-   commands (Vec SlashCommand)]
-  SlashCommand
+   commands (Vec SlashCommand)] SlashCommand
   (aget commands
         (Math/max 0 (Math/min (js/get runtime .paletteIndex) (- (js/get commands .length) 1)))))
 
 (defn complete-palette!
   [runtime Any
    ui Any
-   commands (Vec SlashCommand)]
-  Any
+   commands (Vec SlashCommand)] Any
   (when (> (js/get commands .length) 0)
     (let [candidate SlashCommand (palette-candidate runtime commands)
           input Any (active-input runtime ui)]
@@ -5877,8 +5652,7 @@
  (defn submit-input!
    [runtime Any
     ui Any
-    input String]
-   Any
+    input String] Any
    (when (not (identical? input ""))
     (js/set! (js/get ui .composerInput) .value "")
     (js/set! runtime .paletteIndex 0)
@@ -5903,8 +5677,7 @@
    [matches Int
     takes-arguments? Bool
     insert-only? Bool
-    completed? Bool]
-   String
+    completed? Bool] String
    (cond
     (< matches 1) ""
     completed? "fire"
@@ -5913,8 +5686,7 @@
 
 (defn install-input!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/call (js/get ui .composerInput) .on (js/get InputRenderableEvents .INPUT)
        (fn [_value Any] Any
          (js/set! runtime .paletteIndex 0)
@@ -5929,8 +5701,7 @@
 ;; there are no hand-counted column ranges left to drift out of step.
 (defn subview-tab-id-at!
   [views (Vec WorkView)
-   column Int]
-  String
+   column Int] String
   (let [cursor (Map Keyword Any) {:x SUBVIEW-TAB-ORIGIN :id ""}]
     (js/call views .forEach
               (fn [view WorkView] Any
@@ -5949,12 +5720,11 @@
 (js/export
  (defn view-tab-id-at!
    [view Any
-   views (Vec WorkView)
-    column Int]
-   String
+    views (Vec WorkView)
+    column Int] String
    (let [agents-tab-width Int (js/get AGENTS-TAB-LABEL .length)
          threads-tab-width Int (js/get THREADS-TAB-LABEL .length)]
-    (cond
+     (cond
     (and (>= column 0) (< column agents-tab-width)) "agents"
     (and (>= column THREADS-TAB-START)
          (< column (+ THREADS-TAB-START threads-tab-width))) "threads"
@@ -5966,8 +5736,7 @@
   [runtime Any
    tabs Any
    event Any
-   views (Vec WorkView)]
-  String
+   views (Vec WorkView)] String
   (let [event-x Number (js/get event .x)
         tabs-x Number (js/get tabs .x)
         column Int (Math/floor (- event-x tabs-x))]
@@ -5978,8 +5747,7 @@
    ui Any
    view String
    palette-renderable Any
-   event Any]
-  Any
+   event Any] Any
   (when (identical? (js/get event .button) 0)
     (select-view! runtime view)
     ;; The palette scrolls, so screen row N is option start+N. Rows past
@@ -6003,8 +5771,7 @@
 
 (defn visible-list-indices
   [runtime Any
-   items (Vec WorkItem)]
-  (Vec Int)
+   items (Vec WorkItem)] (Vec Int)
   (js/call
    (js/call (list-rows runtime items) .filter
             (fn [row ListRow] Bool
@@ -6015,8 +5782,7 @@
   [runtime Any
    items (Vec WorkItem)
    current Int
-   delta Int]
-  Int
+   delta Int] Int
   (let [indices (Vec Int) (visible-list-indices runtime items)
         position Int (js/call indices .indexOf current)
         start Int (if (>= position 0) position (if (> delta 0) -1 (js/get indices .length)))
@@ -6025,8 +5791,7 @@
 
 (defn select-visible-list-fallback!
   [runtime Any
-   items (Vec WorkItem)]
-  Any
+   items (Vec WorkItem)] Any
   (let [indices (Vec Int) (visible-list-indices runtime items)
         current Any (js/get runtime .workIndex)]
     (when (and (> (js/get indices .length) 0)
@@ -6040,8 +5805,7 @@
 (defn handle-list-click!
   [runtime Any
    ui Any
-   event Any]
-  Any
+   event Any] Any
   (when (identical? (js/get event .button) 0)
     (let [state north.bridge.model/BridgeSnapshot (snapshot (js/get runtime .model))
           view WorkView (selected-view state (js/get runtime .activeView))]
@@ -6072,8 +5836,7 @@
 
 (defn install-mouse!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/set! (js/get ui .composer) .onMouseDown
         (fn [event Any] Any
           (when (identical? (js/get event .button) 0)
@@ -6120,8 +5883,7 @@
 ;; the keystroke and the command handler that it was a command.
 (defn escape-step!
   [runtime Any
-   ui Any]
-  Bool
+   ui Any] Bool
   (let [palette (Vec SlashCommand) (active-palette-options runtime ui)
         action String (escape-rung (> (js/get palette .length) 0)
                             (panel-filtering? runtime)
@@ -6175,8 +5937,7 @@
    [name String
     sequence String
     ctrl? Bool
-    meta? Bool]
-   String
+    meta? Bool] String
    (if (or ctrl? meta?
           (identical? name "space")
           (not (identical? (js/get sequence .length) 1))
@@ -6193,8 +5954,7 @@
    [filtering? Bool
     query String
     name String
-    character String]
-   String
+    character String] String
    (cond
     (and (not filtering?) (identical? character "/")) "open"
     (not filtering?) ""
@@ -6205,15 +5965,13 @@
 
 (defn ctrl-down-key?
   [name String
-   key Any]
-  Bool
+   key Any] Bool
   (and (js/get key .ctrl) (identical? name "j")))
 
 (defn bare-letter?
   [name String
    key Any
-   letter String]
-  Bool
+   letter String] Bool
   (and (identical? name letter)
        (not (js/get key .ctrl))
        (not (or (js/get key .meta) (js/get key .option)))))
@@ -6224,8 +5982,7 @@
 (defn fold-key?
   [runtime Any
    name String
-   key Any]
-  Bool
+   key Any] Bool
   (or (identical? name "left")
       (identical? name "right")
       (and (not (panel-filtering? runtime))
@@ -6238,8 +5995,7 @@
   [runtime Any
    rows Any
    node String
-   action String]
-  Any
+   action String] Any
   (cond
     (identical? action "expand") (set-node-expanded! runtime node true)
     (identical? action "collapse") (set-node-expanded! runtime node false)
@@ -6257,8 +6013,7 @@
 ;; to act on.
 (defn fold-step!
   [runtime Any
-   open-key? Bool]
-  Any
+   open-key? Bool] Any
   (let [rows Any (config-panel-rows runtime)
         total Any (js/get rows .length)]
     (when (> total 0)
@@ -6291,15 +6046,13 @@
 
 (defn ctrl-up-key?
   [name String
-   key Any]
-  Bool
+   key Any] Bool
   (and (js/get key .ctrl) (identical? name "k")))
 
 (defn bare-key?
   [name String
    key Any
-   letter String]
-  Bool
+   letter String] Bool
   (and (identical? name letter)
        (not (js/get key .ctrl))
        (not (or (js/get key .meta) (js/get key .option)))))
@@ -6308,8 +6061,7 @@
 ;; the branches below, so nothing the strip does not name is stolen.
 (defn strip-key?
   [name String
-   key Any]
-  Bool
+   key Any] Bool
   (or (identical? name "left")
       (identical? name "right")
       (identical? name "up")
@@ -6324,8 +6076,7 @@
 
 (defn install-keys!
   [runtime Any
-   ui Any]
-  Any
+   ui Any] Any
   (js/call (js/get (js/get runtime .renderer) .keyInput) .on "keypress"
        (fn [key Any] Any
          (when (and (not (js/get key .defaultPrevented))
@@ -6334,8 +6085,7 @@
                  meta Any (or (js/get key .meta) (js/get key .option))
                  palette (Vec SlashCommand) (active-palette-options runtime ui)
                  palette-open Bool (> (js/get palette .length) 0)
-                 plain-view-arrow Any
-                 (and (threads-view? (js/get runtime .view))
+                 plain-view-arrow Any (and (threads-view? (js/get runtime .view))
                       (identical? (js/call (text (js/get (js/get ui .composerInput) .value)) .trim) "")
                       (not (js/get key .ctrl))
                       (not meta)
@@ -6652,14 +6402,12 @@
 
              :else nil))))))
 
+;; One view at a time: the workspace holds two full-width containers and shows
+;; exactly one. The single-row InputRenderable gets one line and no vertical
+;; padding; the fill remains.
 (defn open-app!
   [view-id String
-   source-identity String]
-  (Promise Any)
-  ;; One view at a time, so the workspace holds two full-width
-  ;; containers and shows exactly one of them.
-  ;; One line high: the InputRenderable is always a single row, so the
-  ;; box owes it exactly one and no vertical padding. The fill stays.
+   source-identity String] (Promise Any)
   (let [view String (canonical-work-view view-id)
         renderer Any (js/await (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true}))
         runtime (Map Keyword Any) {:model (make-model view)
