@@ -185,3 +185,33 @@ test("a submitted turn wakes a provider whose prior turn iterator already return
   expect((await idle).done).toBe(true);
   expect(query.inputs).toEqual(["start a fresh per-turn iterator"]);
 });
+
+test("abort teardown is handled while its cached rejection remains observable", async () => {
+  const teardownError = new Error("provider close failed");
+  const signal = new AbortController();
+  const session = new BridgeWireSession(
+    {
+      async close(): Promise<void> {
+        throw teardownError;
+      },
+      async *[Symbol.asyncIterator](): AsyncIterator<WireEvent> {},
+    },
+    new AbortController(),
+    signal.signal,
+  );
+  const unhandled: unknown[] = [];
+  const observeUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", observeUnhandled);
+
+  try {
+    signal.abort();
+    await Bun.sleep(0);
+    expect(unhandled).toEqual([]);
+
+    const firstExplicitTermination = session.terminateSession();
+    expect(session.terminateSession()).toBe(firstExplicitTermination);
+    await expect(firstExplicitTermination).rejects.toBe(teardownError);
+  } finally {
+    process.off("unhandledRejection", observeUnhandled);
+  }
+});
