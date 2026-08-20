@@ -1,0 +1,117 @@
+#lang beagle
+
+(ns north.session-core)
+
+;; Session events receive one ledger-wide sequence.  A session either starts at
+;; its own root or identifies the exact parent-session checkpoint it branches from.
+(defrecord BranchProvenance
+  [parent-session-id String
+   checkpoint-event-id String])
+
+(defrecord SessionEvent
+  [event-id String
+   sequence Int
+   session-id String
+   parent-event-id String?
+   branch BranchProvenance?
+   kind Keyword
+   body String])
+
+(defrecord SessionLedger [events (Vec SessionEvent)])
+
+(defrecord ContextProjection
+  [summary String?
+   tail (Vec SessionEvent)])
+
+(def empty-events (Vec SessionEvent) [])
+(def empty-ledger SessionLedger (->SessionLedger empty-events))
+
+(defn- non-empty-id? [value String] Bool
+  (pos? (count value)))
+
+(defn- event-id-known?
+  [events (Vec SessionEvent)
+   event-id String] Bool
+  (some? (first (filterv (fn [event SessionEvent] Bool
+                           (= (sessionevent-event-id event) event-id))
+                         events))))
+
+(defn- events-for-session
+  [events (Vec SessionEvent)
+   session-id String] (Vec SessionEvent)
+  (filterv (fn [event SessionEvent] Bool
+             (= (sessionevent-session-id event) session-id))
+           events))
+
+(defn- branch-checkpoint-known?
+  [events (Vec SessionEvent)
+   branch BranchProvenance] Bool
+  (some? (first (filterv (fn [event SessionEvent] Bool
+                           (and (= (sessionevent-session-id event)
+                                   (branchprovenance-parent-session-id branch))
+                                (= (sessionevent-event-id event)
+                                   (branchprovenance-checkpoint-event-id branch))))
+                         events))))
+
+(defn- valid-event? [event SessionEvent] Bool
+  (and (non-empty-id? (sessionevent-event-id event))
+       (and (non-empty-id? (sessionevent-session-id event))
+            (>= (sessionevent-sequence event) 0))))
+
+(defn- valid-new-session?
+  [events (Vec SessionEvent)
+   event SessionEvent] Bool
+  (let [branch BranchProvenance? (sessionevent-branch event)
+        parent-event-id String? (sessionevent-parent-event-id event)]
+    (if (some? branch)
+      (and (some? parent-event-id)
+           (and (= parent-event-id (branchprovenance-checkpoint-event-id branch))
+                (branch-checkpoint-known? events branch)))
+      (nil? parent-event-id))))
+
+(defn- valid-continuation?
+  [prior (Vec SessionEvent)
+   event SessionEvent] Bool
+  (let [leaf SessionEvent (last prior)]
+    (and (nil? (sessionevent-branch event))
+         (= (sessionevent-parent-event-id event)
+            (sessionevent-event-id leaf)))))
+
+(defn valid-append?
+  [ledger SessionLedger
+   event SessionEvent] Bool
+  (let [events (Vec SessionEvent) (sessionledger-events ledger)
+        prior (Vec SessionEvent) (events-for-session events (sessionevent-session-id event))]
+    (and (valid-event? event)
+         (and (= (sessionevent-sequence event) (count events))
+              (and (not (event-id-known? events (sessionevent-event-id event)))
+                   (if (empty? prior)
+                     (valid-new-session? events event)
+                     (valid-continuation? prior event)))))))
+
+(defn append-event
+  [ledger SessionLedger
+   event SessionEvent] SessionLedger
+  (if (valid-append? ledger event)
+    (->SessionLedger (conj (sessionledger-events ledger) event))
+    (throw (ex-info "north: invalid session lineage append"
+                    {:type :invalid-session-lineage-append}))))
+
+(defn- latest-compaction [events (Vec SessionEvent)] SessionEvent?
+  (last (filterv (fn [event SessionEvent] Bool
+                  (= (sessionevent-kind event) :compaction))
+                events)))
+
+(defn context-projection
+  [ledger SessionLedger
+   session-id String] ContextProjection
+  (let [session-events (Vec SessionEvent) (events-for-session (sessionledger-events ledger) session-id)
+        compaction SessionEvent? (latest-compaction session-events)]
+    (if (some? compaction)
+      (->ContextProjection
+       (sessionevent-body compaction)
+       (filterv (fn [event SessionEvent] Bool
+                  (> (sessionevent-sequence event)
+                     (sessionevent-sequence compaction)))
+                session-events))
+      (->ContextProjection nil session-events))))
