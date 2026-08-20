@@ -19,7 +19,7 @@ import {
 } from "./coordination";
 import { newRunId, recordWireRunTelemetry } from "./telemetry";
 import { runEstimateFromThreadFacts, type RunEstimateSnapshot } from "./run-estimate";
-import { publishWireEvents, wireLedgerSummary } from "./run-ledger";
+import { createWireEventStorePublisher, wireLedgerSummary } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import {
   describeWatchdogAbortEvidence, withStallWatchdog, stallMs, notifyStall, notifyTurnCap,
@@ -86,10 +86,15 @@ import {
 import {
   notifyTerminalSettlement, TerminalPublicationBudget, type TerminalNotification,
 } from "./terminal-notification";
-import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
+import { assessThreadDelivery, sha256, type DeliveryAssessment } from "./delivery-verification";
 import {
-  loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  acquireDeliveryAttemptLeases, commitDeliveryAttemptProviderStart,
+  commitDeliveryAttemptTerminal, loadDeliveryRunState, newDeliveryRunContext,
+  reserveDeliveryRun,
   reserveDeliveryRunWithRecovery, resolveDeliveryRunState, resolveThreadFacts,
+  writeDeliveryAttemptLaunchIntent,
+  type DeliveryAttemptLaunchIntent, type DeliveryAttemptLeaseClaim,
+  type DeliveryAttemptProviderStart, type DeliveryAttemptRoute,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
   type DeliveryReservationRecoveryOptions, type DeliveryRunStateLoadOptions,
   type ThreadFactsLoadOptions,
@@ -179,8 +184,14 @@ interface DispatchRuntime {
   loadThreadFacts?: typeof getThreadFacts;
   loadChildren?: typeof getChildren;
   deliveryRuntime?: {
-    reserve: (context: DeliveryRunContext) => DeliveryReservation;
+    reserve: (context: DeliveryRunContext, route: DeliveryAttemptRoute) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    acquireLeases?: typeof acquireDeliveryAttemptLeases;
+    launchIntent?: typeof writeDeliveryAttemptLaunchIntent;
+    providerStart?: typeof commitDeliveryAttemptProviderStart;
+    terminal?: typeof commitDeliveryAttemptTerminal;
+    /** Store-authoritative fixture route; production derives this from execution allocation. */
+    attemptRoute?: DeliveryAttemptRoute;
     /** Bounded pre-provider writer relaunch shape; tests inject timing only. */
     reserveOptions?: DeliveryReservationRecoveryOptions;
     /** Bounded retry shape for the finalize-time load; tests inject it. */
@@ -325,7 +336,7 @@ async function runDispatch(
       : "composite";
 
   const agentId = hydratedAgentId ?? createDispatchAgentId(threadId);
-  let runId = newRunId(agentId);
+  const runId = newRunId(agentId);
   if (!learningAssignment)
     throw new Error("managed North dispatch execution requires a learning assignment");
   const assignmentWriter = preflightRuntime.publishLearningAssignment
@@ -343,6 +354,9 @@ async function runDispatch(
   });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
+  let deliveryLaunchIntent: DeliveryAttemptLaunchIntent | undefined;
+  let deliveryProviderStart: DeliveryAttemptProviderStart | undefined;
+  let deliveryLeaseClaim: DeliveryAttemptLeaseClaim | undefined;
   const requestedTier = routingMetadata.tier;
   const requestedReasoning = routingMetadata.reasoning;
   const providerPreference = process.env.AGENT_PROVIDER as ProviderPreference | undefined ?? "auto";
@@ -351,6 +365,11 @@ async function runDispatch(
   const routingRequest = { provider: providerPreference, target: targetPreference };
   if (!queryFn) {
     admitPinnedProvider(providerPreference, capabilities);
+    if (providerPreference !== "openai") {
+      throw new Error(
+        "managed North dispatch requires an explicit Store-authorized OpenAI route",
+      );
+    }
   }
   const routingContext = { tier: requestedTier, reasoning: requestedReasoning,
     model: requestedModel, stableKey: agentId, capabilities, signal: termination.signal };
@@ -375,6 +394,41 @@ async function runDispatch(
     }
   }
   termination.throwIfTerminated();
+  if (runtime) {
+    const receipt = "executionAccountReceipt" in routing
+      ? routing.executionAccountReceipt : undefined;
+    let attemptRoute = runtime.attemptRoute;
+    if (!attemptRoute) {
+      if (routing.provider !== "openai" || !receipt) {
+        throw new Error("managed North dispatch requires a Store-authorized execution account route");
+      }
+      deliveryLeaseClaim = await (runtime.acquireLeases ?? acquireDeliveryAttemptLeases)(
+        runContext, routing.target,
+      );
+      attemptRoute = {
+        provider: routing.provider,
+        accountId: routing.target,
+        model: resolveTier(routing.provider, requestedTier,
+          requestedModel, requestedReasoning).model!,
+        accountAuthorityReceiptSha256: receipt.accountAuthority.digest,
+        routeObservationReceiptSha256: receipt.usage.receipt.digest,
+        threadLease: deliveryLeaseClaim.threadLease,
+        accountLease: deliveryLeaseClaim.accountLease,
+      };
+    }
+    try {
+      deliveryReservation = reserveDeliveryRunWithRecovery(
+        runContext, attemptRoute, runtime.reserve, runtime.reserveOptions,
+      );
+      deliveryReservationReady = true;
+      deliveryLaunchIntent = (runtime.launchIntent ?? writeDeliveryAttemptLaunchIntent)(
+        runContext, deliveryReservation,
+      );
+    } catch (error) {
+      await deliveryLeaseClaim?.release();
+      throw error;
+    }
+  }
   const shadowTarget = assignedShadowReviewerTarget(
     shadowConfig,
     learningAssignment,
@@ -464,6 +518,15 @@ async function runDispatch(
       throw new Error("provider yielded an event that differs from its shared writer canonical event");
     }
     await wireCommitter.commitThrough(canonical);
+    if (canonical.kind === "model-call.started" && runtime && deliveryReservation
+        && deliveryLaunchIntent && !deliveryProviderStart) {
+      deliveryProviderStart = (runtime.providerStart ?? commitDeliveryAttemptProviderStart)(
+        runContext,
+        deliveryReservation,
+        deliveryLaunchIntent,
+        sha256(encodeWireJsonlLine(canonical)),
+      );
+    }
     const observation = executionFold.observe(canonical);
     shadowReviewerInterruptGate.observe(canonical);
     shadowReviewer?.observe(canonical);
@@ -483,7 +546,13 @@ async function runDispatch(
     const writer = new WireEventWriter({ runId: wireRunId(runId) });
     stream = opened;
     wireWriter = writer;
-    wireCommitter = new SerializedWireEventCommitter(writer, opened);
+    const publisher = createWireEventStorePublisher({
+      thread: threadId,
+      agent: agentId,
+      ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
+      ...(process.env.AGENT_COORDINATOR ? { coordinator: process.env.AGENT_COORDINATOR } : {}),
+    });
+    wireCommitter = new SerializedWireEventCommitter(writer, publisher, opened);
     const started = writer.append({
       kind: "run.started",
       lifecycle: "running",
@@ -547,39 +616,6 @@ async function runDispatch(
   // after the committed terminal and run publication attempts have settled.
   try {
   try {
-    // Reserve only at the last pre-provider seam. Earlier routing/admission
-    // failures must not strand undiscoverable reservation-only subjects.
-    try {
-      if (runtime) {
-        deliveryReservation = reserveDeliveryRunWithRecovery(
-          runContext,
-          runtime.reserve,
-          {
-            ...runtime.reserveOptions,
-            onRetry: (error, nextAttempt, maxAttempts, backoffMs) => {
-              console.error(
-                `[delivery] @${runId} reservation writer failed before provider; `
-                + `relaunching the same reservation identity after ${backoffMs}ms `
-                + `(attempt ${nextAttempt}/${maxAttempts}): ${error.message}`,
-              );
-            },
-          },
-        );
-        if (!deliveryReservation) throw new Error("reservation acknowledgement unavailable");
-        deliveryReservationReady = true;
-      }
-    } catch (error) {
-      const abandonedRunId = runId;
-      runId = newRunId(agentId);
-      await publishAssignmentForRun(runId);
-      // Loud + diagnosable (thread 019f9063): surface the writer's exact
-      // rejection instead of a uniform "unavailable" that hides freshness,
-      // thread-identity, and malformed-ack failures alike.
-      console.error(
-        `[delivery] @${abandonedRunId} reservation unavailable; rotating telemetry to @${runId} `
-        + `and leaving delivery unverified: ${(error as Error)?.message ?? String(error)}`,
-      );
-    }
     if (shadowTarget) {
       const reviewRunner = preflightRuntime.shadowReviewRunner ?? ((update, signal) =>
         runAnthropicShadowReview({
@@ -648,6 +684,9 @@ async function runDispatch(
       ? queryFn(queryArgs)
       : routedQuery(routing, queryArgs, requestedTier,
         async (transition) => {
+          if (deliveryReservation) {
+            throw new Error("provider fallback requires a distinct durable execution attempt");
+          }
           await liveInputRoute.beforeFallback(
             transition,
             () => reserveResourceEnvelopeRetry(envelopeAdmission),
@@ -1204,6 +1243,15 @@ async function runDispatch(
   const wireTerminalEvents = finalWriter.terminate(wireTerminal);
   for (const event of wireTerminalEvents) await observeWireEvent(event);
   await wireCommitter?.commitAll();
+  if (runtime && deliveryReservation && deliveryLaunchIntent && deliveryProviderStart) {
+    (runtime.terminal ?? commitDeliveryAttemptTerminal)(
+      runContext,
+      deliveryReservation,
+      deliveryLaunchIntent,
+      deliveryProviderStart,
+      sha256(encodeWireJsonlLine(wireTerminalEvents.at(-1)!)),
+    );
+  }
   const finalExecution = executionFold.snapshot();
   if (!finalExecution || finalExecution.run.lifecycle === "running"
       || finalExecution.run.lifecycle === "waiting") {
@@ -1320,11 +1368,7 @@ async function runDispatch(
     ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
     ...(coordHandle ? { coordinator: coordHandle } : {}),
   };
-  const wireLedgerStatus = await publishWireEvents(
-    wireIdentity,
-    wireEvents,
-    publicationBudget.publicationTimeout(2),
-  ).catch(() => "unavailable" as const);
+  const wireLedgerStatus = "recorded" as const;
   const runLedger = wireLedgerStatus === "recorded"
     ? wireLedgerSummary(wireEvents) : undefined;
   const runPublication = runLedger === undefined
