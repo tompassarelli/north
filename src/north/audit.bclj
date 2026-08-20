@@ -28,7 +28,7 @@
           {} (proj/thread-subjects idx)))
 
 (defn- norm-repo [v String] String
-  (let [low (str/lower-case v)]
+  (let [low String (str/lower-case v)]
     (if (str/starts-with? low "~/code/") (subs low 7) low)))
 
 ;; group distinct surface forms by a normalized key; keep groups with >1 form
@@ -41,11 +41,11 @@
 
 ;; repo values are bare literals now (no `repo:` prefix to strip).
 (defn repo-drift [idx proj/ProjectionIndex] (Vec DriftGroup)
-  (let [forms (vec (sort (set (keys (tally idx "repo")))))
-        grouped (reduce (fn
+  (let [forms (Vec String) (vec (sort (set (keys (tally idx "repo")))))
+        grouped (Map String (Vec String)) (reduce (fn
                           [m (Map String (Vec String))
                            t String] (Map String (Vec String))
-                          (let [kk (norm-repo t)]
+                          (let [kk String (norm-repo t)]
                             (assoc m kk (conj (get m kk []) t))))
                         {} forms)]
     (collisions forms grouped)))
