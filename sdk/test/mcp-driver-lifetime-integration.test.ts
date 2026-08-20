@@ -196,6 +196,7 @@ exec "$NORTH_TEST_REAL_BUN" "$NORTH_TEST_CHILD_FIXTURE" "$thread"
 test("real Store restart reconstructs authoritative attempts without a duplicate launch or command", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "north-store-restart-case-"));
   const restartHome = mkdtempSync(join(tmpdir(), "north-store-restart-home-"));
+  const secondRestartHome = mkdtempSync(join(tmpdir(), "north-store-restart-home-"));
   const log = join(scratch, "history.storelog");
   const spaceId = "north-store-restart-case";
   const store = storeServerFixture();
@@ -212,7 +213,7 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
     cwd: store.home, env: { ...environment(home), BEAGLE_STORE_SERVER_QUIET: "1", BEAGLE_STORE_SNAPSHOT_BOOT: "0" },
     stdout: "pipe", stderr: "pipe",
   });
-  const facts = (attempt: string, account: string, threadId: string, run: string, state: "started" | "unsent") => {
+  const facts = (attempt: string, account: string, threadId: string, run: string, state: "launching" | "started" | "unsent") => {
     const subject = `@account:${account}`;
     const common = [
       triple(subject, "kind", "provider_account"), triple(subject, "account_id", account),
@@ -237,22 +238,42 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
       triple(attempt, "execution_attempt_provider_start_receipt_sha256", digest(`start-receipt-${attempt}`)),
       triple(attempt, "execution_attempt_provider_start_manifest_sha256", digest(`start-${attempt}`)),
       triple(attempt, "execution_attempt_provider_started_at", "2026-08-20T12:00:02Z"),
-    ] : [...common,
+    ] : state === "unsent" ? [...common,
       triple(attempt, "execution_attempt_unsent_receipt_sha256", digest(`unsent-receipt-${attempt}`)),
       triple(attempt, "execution_attempt_unsent_manifest_sha256", digest(`unsent-${attempt}`)),
       triple(attempt, "execution_attempt_unsent_at", "2026-08-20T12:00:02Z"),
-    ];
+    ] : common;
   };
   let serverProcess = start(scratch);
   let client: StoreRpcClient | undefined;
   try {
     client = await waitForStoreServer(port, spaceId);
     const oversight = "@account:oversight";
-    await client.batch([...facts(attemptA, "execution-a", "@thread:alpha", "run-alpha", "started"),
+    await client.batch([...facts(attemptA, "execution-a", "@thread:alpha", "run-alpha", "launching"),
       ...facts(attemptB, "execution-b", "@thread:beta", "run-beta", "unsent"),
       triple(oversight, "kind", "provider_account"), triple(oversight, "account_id", "oversight"),
       triple(oversight, "provider", "openai"), triple(oversight, "account_role", "oversight"),
       triple(oversight, "execution_eligible", "false"),
+      triple("@run:wire-alpha", "kind", "wire_event"), triple("@run:wire-alpha", "wire_run_id", "run-alpha"),
+      triple("@run:wire-alpha", "wire_event_sequence", "0"), triple("@run:wire-alpha", "wire_event_json", "{}"),
+      triple("@run:wire-alpha", "wire_event_sha256", digest("wire-alpha")),
+    ].map((proposition) => ({ op: "assert" as const, proposition })));
+    const beforeCrash = await loadStoreSnapshot({ attemptId: attemptA, client });
+    expect(safeNext(beforeCrash.snapshot)).toMatchObject({ kind: "reconcile-launch", attempt: { subject: attemptA }, replayPosition: 1 });
+    client.close(); client = undefined;
+    serverProcess.kill("SIGTERM"); await serverProcess.exited;
+
+    serverProcess = start(restartHome); // Fresh HOME: only the Store log survives the coordinator restart.
+    client = await waitForStoreServer(port, spaceId);
+    const recoveredA = await loadStoreSnapshot({ attemptId: attemptA, client });
+    expect(recoveredA).toEqual(beforeCrash);
+    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.attempt.subject).toBe(attemptA);
+    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.provenance).toContain("execution_attempt_manifest_sha256");
+    expect(safeNext(recoveredA.snapshot)).toMatchObject({ kind: "reconcile-launch", attempt: { subject: attemptA }, replayPosition: 1 });
+    await client.batch([
+      triple(attemptA, "execution_attempt_provider_start_receipt_sha256", digest("start-receipt-a")),
+      triple(attemptA, "execution_attempt_provider_start_manifest_sha256", digest("start-a")),
+      triple(attemptA, "execution_attempt_provider_started_at", "2026-08-20T12:00:02Z"),
     ].map((proposition) => ({ op: "assert" as const, proposition })));
     const receipts = new StoreBridgeCommandReceipts(client);
     await receipts.bindExecution("execution-alpha", attemptA);
@@ -263,24 +284,23 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
     client.close(); client = undefined;
     serverProcess.kill("SIGTERM"); await serverProcess.exited;
 
-    serverProcess = start(restartHome); // Fresh HOME: only the Store log survives the coordinator restart.
+    serverProcess = start(secondRestartHome);
     client = await waitForStoreServer(port, spaceId);
-    const recoveredA = await loadStoreSnapshot({ attemptId: attemptA, client });
-    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.attempt.subject).toBe(attemptA);
-    expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.provenance).toContain("execution_attempt_manifest_sha256");
-    expect(safeNext(recoveredA.snapshot)).toMatchObject({ kind: "reconcile-command", attempt: { subject: attemptA } });
+    expect(safeNext((await loadStoreSnapshot({ attemptId: attemptA, client })).snapshot))
+      .toMatchObject({ kind: "reconcile-command", attempt: { subject: attemptA }, replayPosition: 1 });
     await client.batch([
       triple(attemptA, "execution_attempt_terminal_receipt_sha256", digest("terminal-receipt")),
       triple(attemptA, "execution_attempt_terminal_manifest_sha256", digest("terminal")),
       triple(attemptA, "execution_attempt_terminal_at", "2026-08-20T12:00:03Z"),
     ].map((proposition) => ({ op: "assert" as const, proposition })));
     expect(safeNext((await loadStoreSnapshot({ attemptId: attemptA, client })).snapshot))
-      .toMatchObject({ kind: "advance", attempt: { subject: attemptA } });
-    expect(safeNext((await loadStoreSnapshot({ attemptId: attemptB, client })).snapshot)).toMatchObject({ kind: "advance", attempt: { subject: attemptB } });
+      .toMatchObject({ kind: "advance", attempt: { subject: attemptA }, replayPosition: 1 });
+    expect(safeNext((await loadStoreSnapshot({ attemptId: attemptB, client })).snapshot)).toMatchObject({ kind: "advance", attempt: { subject: attemptB }, replayPosition: 0 });
     expect(safeNext((await loadStoreSnapshot({ accountId: "oversight", client })).snapshot)).toEqual({ kind: "no-op", reason: "oversight-account", replayPosition: 0 });
     expect(command.ordinal).toBe(1);
   } finally {
     client?.close(); serverProcess.kill("SIGTERM"); await serverProcess.exited;
     rmSync(scratch, { recursive: true, force: true }); rmSync(restartHome, { recursive: true, force: true });
+    rmSync(secondRestartHome, { recursive: true, force: true });
   }
 }, 60_000);
