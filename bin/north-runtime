@@ -182,13 +182,12 @@ validate_deployment() {
     die "deployment HEAD is $observed, not the promoted $revision: $deployment"
   # Worker units run with cwd = the resolved deployment root. An incomplete
   # tree must never reach the selector.
-  for entry in bin/north bin/north-stream-sync-all bin/concern; do
+  for entry in bin/north bin/north-stream-sync-all; do
     [ -f "$deployment/$entry" ] && [ -x "$deployment/$entry" ] ||
       die "deployment entrypoint is missing or not executable: $deployment/$entry"
   done
   for entry in \
     cli/coordination-maintenance-task-host.clj \
-    cli/reconciliation-worker-host.clj \
     cli/coord.clj \
     out/north/worker_policy.clj; do
     [ -f "$deployment/$entry" ] ||

@@ -441,7 +441,6 @@ PY
             ./bin/north-stream-sync
             ./bin/north-stream-sync-all
             ./bin/docctl
-            ./bin/concern
             ./bin/ensure-private-docs
           ];
         };
@@ -600,7 +599,7 @@ EOF
               bin/north-on-tooluse \
               bin/north-stream-sync bin/north-stream-sync-all \
               bin/north-succession \
-              bin/docctl bin/concern bin/ensure-private-docs \
+              bin/docctl bin/ensure-private-docs \
               $out/bin/
             patchShebangs $out/bin
 
@@ -663,12 +662,6 @@ EOF
             wrapProgram $out/bin/docctl \
               --prefix PATH : ${runtimePath}
 
-            wrapProgram $out/bin/concern \
-              --prefix PATH : ${runtimePath} \
-              --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
-              --set NORTH_HOME $out \
-              --set NORTH_BB ${pkgs.babashka}/bin/bb
-
             wrapProgram $out/bin/ensure-private-docs \
               --prefix PATH : ${runtimePath} \
               --set NORTH_HOME $out
@@ -684,14 +677,14 @@ EOF
             # NORTH_GIT_BIN / NORTH_BB. The exemption is line-exact: any other
             # path in that same file, any other system-profile target, and every
             # match in every other file stays fatal.
-            # (2) bin/{north,concern}'s fixed bb fallback. Packaged launchers
+            # (2) bin/north's fixed bb fallback. Packaged launchers
             # receive NORTH_BB from their wrappers; promoted checkout launchers
             # retain this root-managed entry hint for units with a minimal PATH.
-            # Only the three exact fallback expressions in each wrapped launcher
+            # Only the three exact fallback expressions in the wrapped launcher
             # are exempt.
             # (3) The installed North entrypoints source the one host-published
             # Beagle Store RPC identity file. It is data authority, not executable code.
-            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/[.]concern-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "concern: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|concern|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
+            sanctioned='(^|/)sdk/src/trusted-runtime\.ts:[0-9]+:[[:space:]]*"/run/current-system/sw/bin/(git|bb|codex|mkfifo)",$|(^|/)bin/[.]north-wrapped:[0-9]+:[[:space:]]*(elif \[ -x /run/current-system/sw/bin/bb \]; then|BB="/run/current-system/sw/bin/bb"|echo "north: cannot find babashka — tried \\[$]NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2)$|(^|/)bin/(north|north-mcp|north-on-spawn|north-on-tooluse):[0-9]+:source /home/tom/[.]local/state/north/beagle-store[.]env$'
             residual=$(LC_ALL=C rg --hidden -n "$impurity_pattern" "$out" \
               | LC_ALL=C rg -v "$sanctioned" || true)
             if [ -n "$residual" ]; then
@@ -749,7 +742,6 @@ EOF
               test "$(grep -Fc 'NORTH_MKFIFO_BIN=' "$wrapper")" -eq 1
               test "$(grep -Fxc 'source ${storeRpcEnvironment}' "$wrapper")" -eq 1
             done
-            test "$(grep -Fxc 'source ${storeRpcEnvironment}' "$out/bin/concern")" -eq 1
             mkdir -p "$smoke/home/.local/state/north/threads"
             client_repo="$smoke/home/code/client/smoke/widget"
             mkdir -p "$client_repo"

@@ -4,7 +4,7 @@
 # The guard rejects any embedded checkout/home/cache path in the packaged
 # output, with narrow audited exceptions: the NixOS runtime entry-hint
 # pointers in sdk/src/trusted-runtime.ts and the fixed bb fallback expressions
-# in the packaged north/concern launchers.
+# in the packaged North launcher.
 # Those are root-managed symlinks that trustedStoreExecutable() still forces to
 # canonicalize into the immutable /nix/store, so they never widen trust; they
 # exist because managed spawns do not always inherit NORTH_GIT_BIN / NORTH_BB.
@@ -94,19 +94,14 @@ mkdir -p "$work/g/cli"
 printf '    (str home "/code/north/cli/coord.clj")\n' > "$work/g/cli/coord.clj"
 expect_flagged "$work/g" "north checkout descendants remain fatal"
 
-# H: only the packaged north/concern wrappers' exact fixed-bb fallback
-# expressions are exempted. Source launchers retain these entry hints for a
+# H: only the packaged North wrapper's exact fixed-bb fallback expressions are
+# exempted. The source launcher retains these entry hints for a
 # promoted checkout; package wrappers set NORTH_BB before they can be reached.
 mkdir -p "$work/h/bin"
 cat > "$work/h/bin/.north-wrapped" <<'EOF'
 elif [ -x /run/current-system/sw/bin/bb ]; then
   BB="/run/current-system/sw/bin/bb"
   echo "north: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
-EOF
-cat > "$work/h/bin/.concern-wrapped" <<'EOF'
-elif [ -x /run/current-system/sw/bin/bb ]; then
-  BB="/run/current-system/sw/bin/bb"
-  echo "concern: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
 EOF
 expect_clean "$work/h" "packaged launcher bb fallback expressions are exempted"
 

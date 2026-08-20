@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # north-on-spawn — Claude Code / Codex SessionStart + SubagentStart hook.
-# Registers the agent's presence on the north roster and injects the concern-
-# coordination protocol into the new session via hookSpecificOutput.additionalContext
+# Registers the agent's presence on the north roster and injects coordination
+# context into the new session via hookSpecificOutput.additionalContext
 # — so an agent coordinates the moment it spawns, no human pasting anything.
 # SessionStart cannot block startup; all graph maintenance is best-effort.
 set -uo pipefail
@@ -18,13 +18,13 @@ export NORTH_HOME BEAGLE_STORE_HOME BEAGLE_STORE_BIN BEAGLE_STORE_OUT
 export NORTH_RUNTIME_CLASSPATH BABASHKA_CLASSPATH
 ACTOR_KEY="$SCRIPT_DIR/north-actor-key"
 
-# additionalContext is emitted into a long-lived prompt. North and concern use
-# the live main checkout even when the hook itself came from a Nix generation.
+# additionalContext is emitted into a long-lived prompt. North uses the live
+# main checkout even when the hook itself came from a Nix generation.
 stable_bin() {
   case "$NORTH_HOME" in
     /nix/store/*)
       case "$1" in
-        north|concern) printf '%s/code/%s/main/bin/%s' "$HOME" north "$1" ;;
+        north) printf '%s/code/%s/main/bin/%s' "$HOME" north "$1" ;;
         *) printf '%s' "$1" ;;
       esac
       ;;
@@ -32,7 +32,6 @@ stable_bin() {
   esac
 }
 NORTH_BIN="$(stable_bin north)"
-CONCERN_BIN="$(stable_bin concern)"
 ENSURE_PRIVATE_DOCS_BIN="$(stable_bin ensure-private-docs)"
 NORTH_COMMS_BIN="$(stable_bin north-comms)"
 
@@ -403,13 +402,10 @@ Eight deliveries sat unlanded when coordinators were unarmed. Dormant (no tokens
 addresses you; when it returns you have mail — read it, act, re-arm. Watchers match invariants,
 never cohort names; a hand-rolled poller never substitutes for the designed channel.
 
-Other agents may be working here concurrently. You coordinate through CONCERNS, not locks —
-work coexists; declaring never blocks. See who else is in your footprint, and shape your
-feature against what is likely to land before it is in main.
-  $CONCERN_BIN declare $ID $RN "<what you're building>" <file1,file2,...>
-  $CONCERN_BIN overlap <your-id>   # who's in your footprint; likely-to-land marked -> build against it
-  $CONCERN_BIN candidate <id> [git-rev] · done <id> · ls [repo]
-Declare a concern before editing code for a feature, so others can see + shape around your work.
+Other agents may be working here concurrently. Coordinate through North threads, lane
+registrations, and mail. Inspect \
+  \`$NORTH_BIN board\` and \`$NORTH_BIN agents\`,
+then keep the current thread and affected peers updated as the work changes or lands.
 
 Internal notes / status / scratch / handoffs -> docs/private/ (gitignored), NEVER public docs/.
 Run \`$ENSURE_PRIVATE_DOCS_BIN\` to set up the ignore in a repo before writing there.
