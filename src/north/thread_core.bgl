@@ -51,9 +51,9 @@
   (WorldRejected [reason Keyword]))
 
 (defunion ThreadStatus
-  ThreadOpen
-  ThreadBlocked
-  ThreadResolved)
+  (ThreadOpen [derived Bool])
+  (ThreadBlocked [derived Bool])
+  (ThreadResolved [derived Bool]))
 
 (def empty-world ThreadWorld
   (->ThreadWorld [] [] [] [] []))
@@ -218,15 +218,15 @@
 
 (defn status-after [status ThreadStatus fact ThreadFact] ThreadStatus
   (cond
-    [(= :thread/blocked (threadfact-kind fact)) (->ThreadBlocked)]
-    [(= :thread/resolved (threadfact-kind fact)) (->ThreadResolved)]
+    [(= :thread/blocked (threadfact-kind fact)) (->ThreadBlocked true)]
+    [(= :thread/resolved (threadfact-kind fact)) (->ThreadResolved true)]
     [:else status]))
 
 (defn status-for [world ThreadWorld thread-id String] ThreadStatus?
   (if (not (thread-known? world thread-id))
     nil
     (loop [position Int 0
-           status ThreadStatus (->ThreadOpen)]
+           status ThreadStatus (->ThreadOpen true)]
       (if (>= position (count (threadworld-facts world)))
         status
         (let [fact ThreadFact (nth (threadworld-facts world) position)]
