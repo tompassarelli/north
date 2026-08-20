@@ -26,10 +26,9 @@ pass() { echo "ok: $1"; }
 
 mkdir -p "$origin/bin" "$origin/cli" "$origin/out/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north"
-printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/concern"
 printf '#!/usr/bin/env bash\ntrue\n' >"$origin/bin/north-stream-sync-all"
-chmod +x "$origin/bin/north" "$origin/bin/concern" "$origin/bin/north-stream-sync-all"
-for entry in coordination-maintenance-task-host.clj reconciliation-worker-host.clj; do
+chmod +x "$origin/bin/north" "$origin/bin/north-stream-sync-all"
+for entry in coordination-maintenance-task-host.clj; do
   printf '(println "worker one")\n' >"$origin/cli/$entry"
 done
 printf '(ns north.coord)\n' >"$origin/cli/coord.clj"
@@ -103,10 +102,8 @@ pass "rollback is itself rollback-able"
 thin=$work/thin
 mkdir -p "$thin/bin" "$thin/cli" "$thin/out/north"
 printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/north"
-printf '#!/usr/bin/env bash\ntrue\n' >"$thin/bin/concern"
-chmod +x "$thin/bin/north" "$thin/bin/concern"
+chmod +x "$thin/bin/north"
 touch "$thin/cli/coordination-maintenance-task-host.clj" \
-  "$thin/cli/reconciliation-worker-host.clj" \
   "$thin/cli/coord.clj" "$thin/out/north/worker_policy.clj"
 git -C "$thin" init -q -b main
 git -C "$thin" -c user.email=t@example.com -c user.name=t add -A
