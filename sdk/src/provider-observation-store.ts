@@ -8,9 +8,44 @@ import {
 import type { ProviderUsageObservation, ProviderUsageObservationStore } from "./providers/types";
 import { withFileLease } from "./file-lease";
 import { throwIfProviderRefreshCancelled } from "./provider-cancellation";
+import {
+  admitStoreObservation, loadStoreObservation, storeObservationSubject,
+  type StoreObservationClient, type StoreObservationCodec, type StoreObservationSnapshot,
+} from "./store-observation-adapter";
 
 function observationKey({ targetId, provider, source }: ProviderUsageObservation): string {
   return `${targetId}\u0000${provider}\u0000${source ?? "legacy"}`;
+}
+
+export interface ProviderUsageObservationIdentity {
+  readonly targetId: string;
+  readonly provider: ProviderUsageObservation["provider"];
+  readonly source?: ProviderUsageObservation["source"];
+}
+
+const providerUsageObservationCodec: StoreObservationCodec<ProviderUsageObservation> = {
+  kind: "usage",
+  parse(value) {
+    return parseProviderUsageObservations({ version: 1, observations: [value] }, "Store usage observation")
+      .observations[0]!;
+  },
+  observedAt: (observation) => observation.observedAt,
+};
+
+export function providerUsageObservationSubject(identity: ProviderUsageObservationIdentity): string {
+  return storeObservationSubject("usage", [
+    identity.provider, identity.targetId, identity.source ?? "legacy",
+  ]);
+}
+
+/** Store-backed, fail-closed observation loader for routing admission. */
+export async function loadStoreProviderUsageObservation(
+  identity: ProviderUsageObservationIdentity,
+  client?: StoreObservationClient,
+): Promise<StoreObservationSnapshot<ProviderUsageObservation> | undefined> {
+  return loadStoreObservation({
+    subject: providerUsageObservationSubject(identity), codec: providerUsageObservationCodec, client,
+  });
 }
 
 /** Keep one newest observation for each target/provider/source tuple. */
@@ -60,6 +95,15 @@ export async function writeProviderUsageObservations(
 ): Promise<ProviderUsageObservationStore> {
   throwIfProviderRefreshCancelled(options.signal);
   const validatedIncoming = parseProviderUsageObservations({ version: 1, observations: [incoming].flat() }, "<incoming observations>");
+  const now = new Date();
+  const admitted: ProviderUsageObservation[] = [];
+  for (const observation of validatedIncoming.observations) {
+    if (Date.parse(observation.observedAt) > now.getTime() + OBSERVATION_CLOCK_SKEW_MS) continue;
+    throwIfProviderRefreshCancelled(options.signal);
+    admitted.push((await admitStoreObservation({
+      subject: providerUsageObservationSubject(observation), observation, codec: providerUsageObservationCodec,
+    })).observation);
+  }
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   throwIfProviderRefreshCancelled(options.signal);
@@ -68,7 +112,7 @@ export async function writeProviderUsageObservations(
     throwIfProviderRefreshCancelled(options.signal);
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      const merged = mergeProviderUsageObservations(await readExisting(path), validatedIncoming.observations);
+      const merged = mergeProviderUsageObservations(await readExisting(path), admitted, now);
       throwIfProviderRefreshCancelled(options.signal);
       await writeFile(temporary, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600, flag: "wx" });
       await chmod(temporary, 0o600);
