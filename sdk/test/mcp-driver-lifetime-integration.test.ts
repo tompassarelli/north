@@ -217,7 +217,8 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
     const subject = `@account:${account}`;
     const common = [
       triple(subject, "kind", "provider_account"), triple(subject, "account_id", account),
-      triple(subject, "provider", "openai"), triple(subject, "account_role", "execution"),
+      triple(subject, "provider", "openai"), triple(subject, "provider_profile", account),
+      triple(subject, "account_role", "execution"),
       triple(subject, "execution_eligible", "true"), triple(attempt, "kind", "execution_attempt"),
       triple(attempt, "execution_attempt_version", "north:execution-attempt:v1"),
       triple(attempt, "execution_attempt_manifest_sha256", attempt.slice("@attempt:".length)),
@@ -276,7 +277,9 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
       triple(attemptA, "execution_attempt_provider_started_at", "2026-08-20T12:00:02Z"),
     ].map((proposition) => ({ op: "assert" as const, proposition })));
     const receipts = new StoreBridgeCommandReceipts(client);
-    await receipts.bindExecution("execution-alpha", attemptA);
+    await receipts.bindExecution("execution-alpha", attemptA, {
+      provider: "openai", model: "gpt-5",
+    });
     const command = await receipts.admit({ executionId: "execution-alpha", attemptId: attemptA,
       kind: "submit-input", payloadDigest: digest("input"), payloadArtifact: "fake-provider:input",
       delivery: "queued-next-turn" });

@@ -19,6 +19,7 @@ import implementerPrompt from "./implementer-prompt.md" with { type: "text" };
 import type {
   BridgeLaunchProvider, BridgeLaunchRole, BridgeLaunchSelection,
 } from "./protocol";
+import type { BridgeAttemptRouteAuthority } from "./command-receipts";
 
 export interface BridgeSessionPresentation {
   model?: string;
@@ -42,6 +43,7 @@ export interface BridgeProviderOpenContext extends BridgeLaunchSelection {
   cwd: string;
   role: BridgeLaunchRole;
   provider: BridgeLaunchProvider;
+  attemptRoute: BridgeAttemptRouteAuthority;
   signal: AbortSignal;
   /** Shared writer whose run.started event is already durable. */
   writer: WireEventWriter;
@@ -282,7 +284,27 @@ export class BridgeWireSession implements BridgeProviderSession {
 
 export type BridgeProviderRouting = Pick<typeof providerRouting,
   "selectProviderFromCachedState" | "refreshProviderRoutingInBackground"
-  | "selectProviderForExecution" | "configuredDefaultTarget" | "BOOT_ROUTING_TIMEOUT_MS">;
+  | "selectProviderForExecution" | "configuredDefaultTarget" | "BOOT_ROUTING_TIMEOUT_MS">
+  & Partial<Pick<typeof providerRouting, "resourcePolicyFromEnv">>;
+
+function attemptCredentialTarget(
+  routing: BridgeProviderRouting,
+  authority: BridgeAttemptRouteAuthority,
+): RoutingTarget {
+  const policy = (routing.resourcePolicyFromEnv ?? providerRouting.resourcePolicyFromEnv)();
+  const matches = (policy.targets ?? []).filter((target) =>
+    target.id === authority.accountId && target.provider === authority.provider);
+  if (matches.length !== 1) {
+    throw new Error("Bridge Store attempt account has no unique configured credential locator");
+  }
+  const target = matches[0]!;
+  if (authority.provider === "openai"
+    && (target.authMode !== "isolated" || !target.profile
+      || target.profile !== authority.credentialProfile)) {
+    throw new Error("Bridge Store-authorized OpenAI account lacks an isolated credential locator");
+  }
+  return target;
+}
 
 /** Select an authenticated target without making Bridge's open path unbounded. */
 export async function bridgeRoute(
@@ -332,37 +354,34 @@ export function bridgeProviderWithDependenciesForTest(
 ): BridgeProviderExecution {
   return Object.freeze({
     async open(context: BridgeProviderOpenContext): Promise<BridgeProviderSession> {
-      const agentProvider = providers[context.provider];
-      const model = context.model ?? process.env.NORTH_BRIDGE_MODEL;
-      const selection = resolveBridgeLaunchSelection(context.provider, context.role, {
+      const authority = context.attemptRoute;
+      if (context.provider !== authority.provider || context.model !== authority.model) {
+        throw new Error("Bridge provider context conflicts with its Store attempt authority");
+      }
+      const agentProvider = providers[authority.provider];
+      const model = authority.model;
+      const target = attemptCredentialTarget(routing, authority);
+      const selection = resolveBridgeLaunchSelection(authority.provider, context.role, {
         ...(context.tier ? { tier: context.tier } : {}),
-        ...(model ? { model } : {}),
+        model,
         ...(context.effort ? { effort: context.effort } : {}),
       });
-      const route = await bridgeRoute(routing, context.provider, {
-        tier: selection.resolved.tier,
-        reasoning: selection.resolved.effort,
-        ...(model ? { model } : {}),
-      });
-      const target = route.target;
-      if (model && !target)
-        throw new Error(`bridge exact model ${model} lacks fresh selected-target availability`);
+      if (selection.resolved.model !== model) {
+        throw new Error("Bridge Store attempt model is not an exact canonical route");
+      }
       const routingMetadata = selection.routingMetadata;
       const abortController = new AbortController();
       const artifacts = new RunArtifactStore(context.writer.runId);
       const options = harnessOptions({
         self: `bridge-${context.executionId}`,
-        provider: context.provider,
+        provider: authority.provider,
         routingMetadata,
         cwd: context.cwd,
         model,
-        ...(model && target ? {
-          modelAvailability: {
-            exactModelPinned: true,
-            targetId: target.id,
-            receipt: route.receipt,
-          },
-        } : {}),
+        modelAvailability: {
+          exactModelPinned: false,
+          targetId: target.id,
+        },
         presenceRegistrar: false,
         presenceRenewer: false,
         systemPrompt: bridgeSystemPrompt(context.role),
@@ -370,18 +389,18 @@ export function bridgeProviderWithDependenciesForTest(
         artifactDirectory: artifacts.directory,
       });
       markCoordinationOptional(options);
-      await agentProvider.admit?.({ options, ...(target ? { target } : {}) });
+      await agentProvider.admit?.({ options, target });
       const effort = options.effort ?? "high";
       const query = agentProvider.query({
         input: context.prompt,
         options,
-        ...(target ? { target } : {}),
+        target,
         context: {
           writer: context.writer,
           artifacts,
           route: wireQueryRoute({
             model: {
-              provider: context.provider,
+              provider: authority.provider,
               tier: routingMetadata.tier,
               capabilityClass: context.role === "director" ? "orchestrator" : "authoring",
             },
@@ -396,7 +415,7 @@ export function bridgeProviderWithDependenciesForTest(
         cwd: options.cwd ?? context.cwd,
         // Managed Codex is launched with approvalPolicy=never. The operator's
         // established name for that no-prompt mode is the banner's YOLO mode.
-        permissionMode: context.provider === "openai"
+        permissionMode: authority.provider === "openai"
           ? "bypassPermissions"
           : options.permissionMode,
       }));

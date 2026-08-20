@@ -4,12 +4,16 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
-import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
-import { parseBridgeLaunchArguments } from "../src/bridge/cli";
-import { parseBridgeRequest, type BridgeLaunchProvider, type BridgeServerMessage } from "../src/bridge/protocol";
 import {
-  bridgeRoute, resolveBridgeLaunchSelection, selectBridgeProvider,
-  type BridgeAutomaticProviderSelection, type BridgeProviderExecution,
+  MemoryBridgeCommandReceipts,
+  type BridgeAttemptRouteAuthority,
+} from "../src/bridge/command-receipts";
+import { parseBridgeLaunchArguments } from "../src/bridge/cli";
+import { parseBridgeRequest, type BridgeServerMessage } from "../src/bridge/protocol";
+import {
+  bridgeProviderWithDependenciesForTest, bridgeRoute,
+  resolveBridgeLaunchSelection, selectBridgeProvider,
+  type BridgeProviderExecution,
   type BridgeProviderOpenContext,
 } from "../src/bridge/provider";
 import { authCacheKey, writeAuthState } from "../src/provider-auth-cache";
@@ -17,10 +21,27 @@ import {
   BOOT_ROUTING_TIMEOUT_MS, refreshProviderRoutingInBackground,
   selectProviderFromCachedState,
 } from "../src/provider-routing";
-import type { RoutingDecision } from "../src/providers/types";
+import type { AgentProvider, AgentProviderQuery, RoutingDecision } from "../src/providers/types";
+import { WireEventWriter, wireRunId, type WireEvent, type WireQuery } from "../src/wire";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
+const STORE_ROUTE = Object.freeze({
+  attemptId: ATTEMPT_ID,
+  provider: "openai",
+  accountId: "codex-store",
+  credentialProfile: "store-profile",
+  model: "gpt-5.6-terra",
+  accountAuthorityReceiptSha256: "b".repeat(64),
+  routeObservationReceiptSha256: "c".repeat(64),
+  launchIntentSha256: "d".repeat(64),
+} satisfies BridgeAttemptRouteAuthority);
+
+class EmptyQuery implements WireQuery {
+  async interrupt(): Promise<void> {}
+  async close(): Promise<void> {}
+  async *[Symbol.asyncIterator](): AsyncIterator<WireEvent> {}
+}
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -115,9 +136,7 @@ test("automatic effort follows the selected provider and tier", () => {
 
 async function launched(
   request: object,
-  selectProvider: (
-    selection: BridgeAutomaticProviderSelection,
-  ) => Promise<BridgeLaunchProvider>,
+  authority: BridgeAttemptRouteAuthority = STORE_ROUTE,
 ): Promise<BridgeProviderOpenContext | undefined> {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-select-"));
   const socketPath = join(root, "northd.sock");
@@ -130,8 +149,8 @@ async function launched(
   };
   const northd = new Northd({
     socketPath, journalRoot: join(root, "journal"), provider,
-    sourceIdentity: () => undefined, selectProvider,
-    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
+    sourceIdentity: () => undefined,
+    commandReceipts: new MemoryBridgeCommandReceipts([authority]),
   });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
@@ -156,53 +175,87 @@ async function launched(
   });
   const closed = Promise.withResolvers<void>();
   socket.once("close", () => closed.resolve());
-  socket.write(`${JSON.stringify({ ...request, attemptId: ATTEMPT_ID })}\n`);
+  socket.write(`${JSON.stringify({ ...request, attemptId: authority.attemptId })}\n`);
   await closed.promise;
   return opened[0];
 }
 
-test("an unpinned launch takes the headroom selection", async () => {
-  const result = await launched(
-    { op: "launch", prompt: "go", cwd: "/" },
-    async () => "anthropic",
-  );
-  expect(result?.provider).toBe("anthropic");
-});
-
-test("a pinned launch never consults headroom", async () => {
-  let consulted = 0;
-  const result = await launched(
-    { op: "launch", prompt: "go", cwd: "/", provider: "openai" },
-    async () => { consulted += 1; return "anthropic"; },
-  );
-  expect(result?.provider).toBe("openai");
-  expect(consulted).toBe(0);
-});
-
-test("an automatic launch gives its route axes to provider selection", async () => {
-  let selected: BridgeAutomaticProviderSelection | undefined;
+test("the host refuses request route conflicts and forwards exact Store authority", async () => {
+  expect(await launched({
+    op: "launch", prompt: "wrong", cwd: "/", role: "implementer",
+    provider: "anthropic", model: "claude-sonnet-4-6",
+  })).toBeUndefined();
   const result = await launched({
-    op: "launch", prompt: "go", cwd: "/", role: "director",
-    tier: "frontier", model: "gpt-5.6-sol", effort: "max",
-  }, async (selection) => {
-    selected = selection;
-    return "openai";
+    op: "launch", prompt: "go", cwd: "/", role: "implementer",
+    provider: "openai", model: "gpt-5.6-terra",
   });
-  expect(selected).toEqual({
-    role: "director", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
-  });
-  expect(result?.provider).toBe("openai");
-});
-
-test("the host forwards route overrides to the selected provider", async () => {
-  const result = await launched({
-    op: "launch", prompt: "go", cwd: "/", role: "director",
-    provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
-  }, async () => "anthropic");
   expect(result).toMatchObject({
-    prompt: "go", cwd: "/", role: "director", provider: "openai",
-    tier: "frontier", model: "gpt-5.6-sol", effort: "max",
+    prompt: "go", cwd: "/", role: "implementer", provider: "openai",
+    model: "gpt-5.6-terra", attemptRoute: STORE_ROUTE,
   });
+
+  let dynamicRouteReads = 0;
+  let admittedTarget: unknown;
+  let query: AgentProviderQuery | undefined;
+  const adapter: AgentProvider = {
+    id: "openai",
+    liveInput: "turn-messages",
+    probe: () => ({ provider: "openai", available: true, reason: "ready" }),
+    admit: ({ target }) => { admittedTarget = target; },
+    query: (args) => { query = args; return new EmptyQuery(); },
+  };
+  const exactTarget = {
+    id: "codex-store", provider: "openai" as const,
+    authMode: "isolated" as const, profile: "store-profile",
+  };
+  const bridge = bridgeProviderWithDependenciesForTest(
+    { anthropic: adapter, openai: adapter },
+    {
+      BOOT_ROUTING_TIMEOUT_MS,
+      selectProviderFromCachedState: async () => {
+        dynamicRouteReads += 1;
+        return undefined;
+      },
+      refreshProviderRoutingInBackground: () => {
+        dynamicRouteReads += 1;
+        return Promise.resolve();
+      },
+      selectProviderForExecution: async () => {
+        dynamicRouteReads += 1;
+        throw new Error("dynamic route must not run");
+      },
+      configuredDefaultTarget: () => {
+        dynamicRouteReads += 1;
+        return { id: "wrong", provider: "openai" };
+      },
+      resourcePolicyFromEnv: () => ({
+        version: 1,
+        mode: "preferential",
+        targets: [exactTarget, { id: "wrong", provider: "openai", authMode: "ambient" }],
+        targetOrder: ["wrong", exactTarget.id],
+        providerOrder: ["anthropic", "openai"],
+        envelopes: {},
+      }),
+    },
+  );
+  const writer = new WireEventWriter({ runId: wireRunId("run:bridge-store-route") });
+  writer.append({ kind: "run.started", lifecycle: "running", owner: "bridge:implementer" });
+  const session = await bridge.open({
+    executionId: "store-route",
+    prompt: "go",
+    cwd: "/",
+    role: "implementer",
+    provider: "openai",
+    model: "gpt-5.6-terra",
+    attemptRoute: STORE_ROUTE,
+    signal: new AbortController().signal,
+    writer,
+  });
+  expect(dynamicRouteReads).toBe(0);
+  expect(admittedTarget).toEqual(exactTarget);
+  expect(query?.target).toEqual(exactTarget);
+  expect(query?.options.model).toBe("gpt-5.6-terra");
+  await session.terminateSession();
 });
 
 // --- Boot routing -----------------------------------------------------------

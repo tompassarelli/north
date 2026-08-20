@@ -19,8 +19,6 @@ import {
 import {
   BridgeProviderTeardownTimeoutError,
   bridgeProvider,
-  selectBridgeProvider,
-  type BridgeAutomaticProviderSelection,
   type BridgeProviderExecution,
   type BridgeProviderSession,
 } from "./provider";
@@ -33,6 +31,7 @@ import {
   bridgeCommandArtifactLocator,
   bridgeCommandPayloadDigest,
   bridgeCommandResultDigest,
+  type BridgeAttemptRouteAuthority,
   type BridgeCommandAdmission,
   type BridgeCommandDelivery,
   type BridgeCommandKind,
@@ -44,7 +43,6 @@ import {
   bridgeSourceIdentity,
   parseBridgeLaunchRole,
   parseBridgeRequest,
-  type BridgeLaunchProvider,
   type BridgeLaunchRole,
   type BridgeRequest,
   type BridgeServerMessage,
@@ -84,8 +82,6 @@ export interface NorthdOptions {
   socketPath?: string;
   journalRoot?: string;
   provider?: BridgeProviderExecution;
-  /** Test injection. Production selects by entitlement headroom. */
-  selectProvider?: (selection: BridgeAutomaticProviderSelection) => Promise<BridgeLaunchProvider>;
   /** Test injection. Production reads this checkout's HEAD. */
   sourceIdentity?: () => string | undefined;
   stalePollMs?: number;
@@ -119,6 +115,7 @@ interface ExecutionRuntime {
   subscribers: Set<Socket>;
   abort: AbortController;
   attemptId: string;
+  attemptRoute?: BridgeAttemptRouteAuthority;
   pendingInputs: QueuedInput[];
   session?: BridgeProviderSession;
   activeTurn: boolean;
@@ -282,7 +279,6 @@ export class Northd {
   readonly socketPath: string;
   readonly journalRoot: string;
   #provider: BridgeProviderExecution;
-  #selectProvider: (selection: BridgeAutomaticProviderSelection) => Promise<BridgeLaunchProvider>;
   #server: Server;
   #runtimes = new Map<string, ExecutionRuntime>();
   #runtimeLoads = new Map<string, Promise<ExecutionRuntime>>();
@@ -303,7 +299,6 @@ export class Northd {
     this.socketPath = options.socketPath ?? bridgeSocketPath();
     this.journalRoot = options.journalRoot ?? bridgeJournalRoot();
     this.#provider = options.provider ?? bridgeProvider;
-    this.#selectProvider = options.selectProvider ?? selectBridgeProvider;
     this.#sourceIdentity = options.sourceIdentity ?? bridgeSourceIdentity;
     this.#stalePollMs = options.stalePollMs ?? STALE_POLL_MS;
     this.#providerTeardownTimeoutMs = options.providerTeardownTimeoutMs
@@ -876,23 +871,20 @@ export class Northd {
     request: Extract<BridgeRequest, { op: "launch" }>,
   ): Promise<void> {
     try {
-      const provider = request.provider ?? await this.#selectProvider({
-        role: request.role,
-        ...(request.tier ? { tier: request.tier } : {}),
-        ...(request.model ? { model: request.model } : {}),
-        ...(request.effort ? { effort: request.effort } : {}),
-      });
+      const attemptRoute = runtime.attemptRoute;
+      if (!attemptRoute) throw new Error("Bridge launch lacks Store attempt route authority");
       const session = await this.#provider.open({
         executionId: runtime.executionId,
         prompt: request.prompt,
         cwd: request.cwd,
         role: request.role,
-        provider,
+        provider: attemptRoute.provider,
         ...(request.tier ? { tier: request.tier } : {}),
-        ...(request.model ? { model: request.model } : {}),
+        model: attemptRoute.model,
         ...(request.effort ? { effort: request.effort } : {}),
         signal: runtime.abort.signal,
         writer: runtime.writer!,
+        attemptRoute,
       });
       runtime.session = session;
       if (session.presentation) {
@@ -985,7 +977,14 @@ export class Northd {
         teardownFailureRecorded: false,
       };
       try {
-        await this.#commandReceipts.bindExecution(executionId, request.attemptId);
+        runtime.attemptRoute = await this.#commandReceipts.bindExecution(
+          executionId,
+          request.attemptId,
+          {
+            ...(request.provider ? { provider: request.provider } : {}),
+            ...(request.model ? { model: request.model } : {}),
+          },
+        );
         this.#appendControl(runtime, "execution.accepted", {
           prompt: request.prompt,
           cwd: request.cwd,

@@ -241,7 +241,7 @@ test("restart recovery closes an exact incomplete run once under concurrent and 
 
   let providerCalls = 0;
   const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
-  await commandReceipts.bindExecution(executionId, ATTEMPT_ID);
+  await commandReceipts.bindExecution(executionId, ATTEMPT_ID, {});
   const unavailableProvider: BridgeProviderExecution = {
     async open() {
       providerCalls += 1;
