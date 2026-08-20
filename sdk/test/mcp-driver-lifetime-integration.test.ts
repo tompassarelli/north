@@ -269,6 +269,13 @@ test("real Store restart reconstructs authoritative attempts without a duplicate
     expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.attempt.subject).toBe(attemptA);
     expect(recoveredA.snapshot.facts.find((fact) => fact.kind === "reserved")?.provenance).toContain("execution_attempt_manifest_sha256");
     expect(safeNext(recoveredA.snapshot)).toMatchObject({ kind: "reconcile-command", attempt: { subject: attemptA } });
+    await client.batch([
+      triple(attemptA, "execution_attempt_terminal_receipt_sha256", digest("terminal-receipt")),
+      triple(attemptA, "execution_attempt_terminal_manifest_sha256", digest("terminal")),
+      triple(attemptA, "execution_attempt_terminal_at", "2026-08-20T12:00:03Z"),
+    ].map((proposition) => ({ op: "assert" as const, proposition })));
+    expect(safeNext((await loadStoreSnapshot({ attemptId: attemptA, client })).snapshot))
+      .toMatchObject({ kind: "advance", attempt: { subject: attemptA } });
     expect(safeNext((await loadStoreSnapshot({ attemptId: attemptB, client })).snapshot)).toMatchObject({ kind: "advance", attempt: { subject: attemptB } });
     expect(safeNext((await loadStoreSnapshot({ accountId: "oversight", client })).snapshot)).toEqual({ kind: "no-op", reason: "oversight-account", replayPosition: 0 });
     expect(command.ordinal).toBe(1);
