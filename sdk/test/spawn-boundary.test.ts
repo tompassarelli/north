@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { presetRequest } from "./routing-fixtures";
 import { LiveFeedReapTimeoutError } from "../src/coordination";
+import type { DeliveryAttemptRoute } from "../src/delivery-evidence";
 import type { RoutedQueryArguments } from "../src/providers";
 import { readRunArtifactPage, RunArtifactStore } from "../src/run-artifacts";
 import {
@@ -66,6 +67,22 @@ function pinEvidence(provider: "anthropic" | "openai") {
     reasonCode: "explicit-human-request" as const,
     detail: "spawn boundary fixture",
     pins: [{ kind: "provider" as const, value: provider }],
+  };
+}
+
+function attemptRoute(threadId: string): DeliveryAttemptRoute {
+  return {
+    provider: "openai",
+    accountId: "codex-test",
+    model: "gpt-test",
+    accountAuthorityReceiptSha256: "1".repeat(64),
+    routeObservationReceiptSha256: "2".repeat(64),
+    threadLease: {
+      resource: `thread:${threadId}:dispatch`, holder: "test-holder", epoch: 1,
+    },
+    accountLease: {
+      resource: "codex-account:codex-test:slot:0", holder: "test-holder", epoch: 1,
+    },
   };
 }
 
@@ -762,15 +779,21 @@ test("public spawn and dispatch reject hermetic runtime fields before invoking t
 test("a thread bound via AGENT_THREAD still reserves a delivery run", async () => {
   const original = process.env.AGENT_THREAD;
   process.env.AGENT_THREAD = "019f93bb-37b2-7bb6-8ee0-7f0b5e976260";
-  let reserved: { runId: string; threadId: string } | undefined;
+  const route = attemptRoute(process.env.AGENT_THREAD);
+  let reserved: { runId: string; threadId: string; route: DeliveryAttemptRoute } | undefined;
   try {
     await (await import("./support/spawn")).spawn({
       prompt: "bound by environment",
       agentId: "env-bound-thread-reserves",
       routingMetadata: presetRequest("integrator"),
       deliveryRuntime: {
-        reserve(context) {
-          reserved = { runId: context.runId, threadId: context.threadId };
+        attemptRoute: route,
+        reserve(context, reservedRoute) {
+          reserved = {
+            runId: context.runId,
+            threadId: context.threadId,
+            route: reservedRoute,
+          };
           return { contractOrigin: "accepted", baselineDoneWhen: ["bar"] };
         },
         load: () => ({ reservationValid: true, evidence: [] }),
@@ -786,6 +809,7 @@ test("a thread bound via AGENT_THREAD still reserves a delivery run", async () =
   }
   expect(reserved?.threadId).toBe("019f93bb-37b2-7bb6-8ee0-7f0b5e976260");
   expect(reserved?.runId.startsWith("run:env-bound-thread-reserves-")).toBe(true);
+  expect(reserved?.route).toBe(route);
 });
 
 test("a recursive public spawn persists its admitted parent run on run.started", async () => {
@@ -815,6 +839,7 @@ test("a recursive public spawn persists its admitted parent run on run.started",
         { predicate: "judgment_grade", value: "s" },
       ],
       deliveryRuntime: {
+        attemptRoute: attemptRoute("recursive-child-thread"),
         reserve: () => ({ contractOrigin: "accepted", baselineDoneWhen: [] }),
         load: () => ({ reservationValid: true, evidence: [] }),
       },

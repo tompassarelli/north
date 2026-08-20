@@ -171,8 +171,9 @@ import {
 import { assessThreadDelivery, type DeliveryAssessment } from "./delivery-verification";
 import { getThreadFacts, normalizeNorthEntityId } from "./north-client";
 import {
-  loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
+  acquireDeliveryAttemptLeases, loadDeliveryRunState, newDeliveryRunContext, reserveDeliveryRun,
   reserveDeliveryRunWithRecovery, resolveDeliveryRunState, resolveThreadFacts,
+  type DeliveryAttemptLeaseClaim, type DeliveryAttemptRoute,
   type DeliveryReservation, type DeliveryRunContext, type DeliveryRunState,
   type DeliveryReservationRecoveryOptions, type DeliveryRunStateLoadOptions,
   type ThreadFactsLoadOptions,
@@ -247,8 +248,11 @@ export interface SpawnOptions {
 interface SpawnRuntime {
   queryFn?: (args: RoutedQueryArguments) => WireQuery;
   deliveryRuntime?: {
-    reserve: (context: DeliveryRunContext) => DeliveryReservation;
+    reserve: (context: DeliveryRunContext, route: DeliveryAttemptRoute) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
+    acquireLeases?: typeof acquireDeliveryAttemptLeases;
+    /** Store-authoritative fixture route; production derives this from execution allocation. */
+    attemptRoute?: DeliveryAttemptRoute;
     /** Bounded pre-provider writer relaunch shape; tests inject timing only. */
     reserveOptions?: DeliveryReservationRecoveryOptions;
     /** Bounded retry shape for the finalize-time load; tests inject it. */
@@ -479,6 +483,7 @@ async function runSpawn(
     });
   let deliveryReservation: DeliveryReservation | undefined;
   let deliveryReservationReady = false;
+  let deliveryLeaseClaim: DeliveryAttemptLeaseClaim | undefined;
   const requestedTier = routingMetadata.tier;
   const requestedReasoning = routingMetadata.reasoning;
   const providerPreference = opts.provider ?? "auto";
@@ -791,8 +796,31 @@ async function runSpawn(
   if (runContext) {
     try {
       if (deliveryRuntime) {
+        const receipt = "executionAccountReceipt" in routing
+          ? routing.executionAccountReceipt : undefined;
+        let attemptRoute = deliveryRuntime.attemptRoute;
+        if (!attemptRoute) {
+          if (routing.provider !== "openai" || !receipt) {
+            throw new Error("managed North spawn requires a Store-authorized execution account route");
+          }
+          deliveryLeaseClaim = await (
+            deliveryRuntime.acquireLeases ?? acquireDeliveryAttemptLeases
+          )(runContext, routing.target);
+          attemptRoute = {
+            provider: routing.provider,
+            accountId: routing.target,
+            model: resolveTier(
+              routing.provider, requestedTier, opts.model, requestedReasoning,
+            ).model!,
+            accountAuthorityReceiptSha256: receipt.accountAuthority.digest,
+            routeObservationReceiptSha256: receipt.usage.receipt.digest,
+            threadLease: deliveryLeaseClaim.threadLease,
+            accountLease: deliveryLeaseClaim.accountLease,
+          };
+        }
         deliveryReservation = reserveDeliveryRunWithRecovery(
           runContext,
+          attemptRoute,
           deliveryRuntime.reserve,
           {
             ...deliveryRuntime.reserveOptions,
@@ -810,6 +838,7 @@ async function runSpawn(
       }
     } catch (error) {
       if (!deliveryReservationReady) {
+        await deliveryLeaseClaim?.release();
         const attemptedRunId = runId;
         runId = newRunId(agentId);
         if (wt) recordWorktreeRunRotation(wt.allocation, runId);
