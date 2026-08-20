@@ -96,8 +96,7 @@
 ;; estimate-stale; the rule lights up only once a real edit moves the scope.
 (defn- later-edit-scope-tx
   [latest (Vec Latest)
-   l String]
-  Int
+   l String] Int
   (reduce (fn
             [m Int
              v Latest] Int
@@ -134,8 +133,7 @@
 ;;                    the done-claim itself is the judgment under review.
 (defn bar-mark
   [evs (Vec String)
-   bar String]
-  String
+   bar String] String
   (if (some? (first (filterv (fn [e String] Bool (str/includes? e bar)) evs)))
     "✓" "○"))
 
