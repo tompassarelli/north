@@ -250,7 +250,7 @@ class BridgeFeed {
 }
 
 export interface BridgeAcpAgentOptions {
-  attemptId: string;
+  attemptIds: readonly string[];
   socketPath?: string;
   connectBridge?: () => Promise<Socket>;
   controlTimeoutMs?: number;
@@ -260,7 +260,7 @@ export class BridgeAcpAgent {
   #sessions = new Map<string, ManagedSession>();
   #connectBridge: () => Promise<Socket>;
   #controlTimeoutMs: number;
-  #attemptId: string;
+  #attemptIds: string[];
   #initialized = false;
   #disposed = false;
 
@@ -269,7 +269,7 @@ export class BridgeAcpAgent {
     this.#connectBridge = options.connectBridge
       ?? (async () => (await verifiedSocket(socketPath, stderrBridgeOutput)).socket);
     this.#controlTimeoutMs = options.controlTimeoutMs ?? DEFAULT_CONTROL_TIMEOUT_MS;
-    this.#attemptId = options.attemptId;
+    this.#attemptIds = [...options.attemptIds];
   }
 
   initialize(_params: acp.InitializeRequest): acp.InitializeResponse {
@@ -292,14 +292,22 @@ export class BridgeAcpAgent {
   ): acp.NewSessionResponse {
     this.#assertInitialized();
     this.#validateSessionScope(params);
+    const rawAttemptId = this.#attemptIds.at(0);
+    if (rawAttemptId === undefined) {
+      throw acp.RequestError.invalidParams(
+        undefined,
+        "North ACP requires a distinct canonical reserved attempt ID for each new session",
+      );
+    }
     let attemptId: string;
-    try { attemptId = parseBridgeLaunchAttemptId(this.#attemptId); }
+    try { attemptId = parseBridgeLaunchAttemptId(rawAttemptId); }
     catch (error) {
       throw acp.RequestError.invalidParams(
         undefined,
         errorMessage(error),
       );
     }
+    this.#attemptIds.shift();
     const id = randomUUID();
     this.#sessions.set(id, {
       id,
