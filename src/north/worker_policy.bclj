@@ -15,16 +15,14 @@
 
 (defn bounded-double
   [value Int
-   maximum Int]
-  Int
-  (let [(doubled Int) (* value 2)]
+   maximum Int] Int
+  (let [doubled Int (* value 2)]
     (if (> doubled maximum) maximum doubled)))
 
 (defn concern-reconciliation-decision
   [pending-count Int
    exit-code Int
-   backoff-ms Int]
-  WorkerDecision
+   backoff-ms Int] WorkerDecision
   (cond
     (<= pending-count 0)
     (->WorkerDecision :sleep concern-idle-ms concern-idle-ms)
@@ -44,8 +42,7 @@
 (defn attention-reconciliation-decision
   [exit-code Int
    backoff-ms Int
-   more-work Bool]
-  WorkerDecision
+   more-work Bool] WorkerDecision
   (cond
     (not (= exit-code 0))
     (->WorkerDecision
