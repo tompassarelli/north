@@ -92,7 +92,7 @@ test("ACP refuses session creation without a reserved attempt before provider la
     await expect(client.request(acp.methods.agent.session.new, {
       cwd: f.root,
       mcpServers: [],
-    })).rejects.toThrow("bridge launch requires a canonical reserved attempt id");
+    })).rejects.toThrow("requires a distinct canonical reserved attempt ID");
   });
   expect(providerOpened).toBe(false);
 });
