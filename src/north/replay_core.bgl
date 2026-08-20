@@ -1,0 +1,179 @@
+#lang beagle
+
+(ns north.replay-core)
+
+;; A journal is the resumable evidence stream. Terminal provenance is derived
+;; separately so a final claim cannot be mistaken for another journal event.
+(defrecord ReplayEvent
+  [ordinal Int
+   subject String
+   kind Keyword
+   evidence String])
+
+(defrecord ReplayJournal
+  [run-id String
+   events (Vec ReplayEvent)])
+
+(defrecord TerminalProvenance
+  [run-id String
+   terminal-event ReplayEvent
+   journal-size Int])
+
+(defunion JournalAppend
+  (JournalAppended [journal ReplayJournal])
+  (JournalRejected
+    [code Keyword
+     detail String]))
+
+(defunion ReplayComparison
+  (ReplayEqual [stable-count Int])
+  (ReplayExpectedPrefix [stable-count Int])
+  (ReplayObservedPrefix [stable-count Int])
+  (ReplayDiverged
+    [stable-count Int
+     expected ReplayEvent
+     observed ReplayEvent])
+  (ReplayInvalid
+    [code Keyword
+     detail String]))
+
+(defunion TerminalSummary
+  (TerminalSummarized [provenance TerminalProvenance])
+  (TerminalNotReady
+    [code Keyword
+     detail String]))
+
+(defunion ProvenanceAdmission
+  (ProvenanceRecorded [provenance TerminalProvenance])
+  (ProvenanceRejected
+    [code Keyword
+     detail String]))
+
+(defn nonempty? [value String] Bool (> (count value) 0))
+
+(defn event-valid? [event ReplayEvent] Bool
+  (and (>= (replayevent-ordinal event) 0)
+       (and (nonempty? (replayevent-subject event))
+            (nonempty? (replayevent-evidence event)))))
+
+(defn journal-valid? [journal ReplayJournal] Bool
+  (if (not (nonempty? (replayjournal-run-id journal)))
+    false
+    (loop [position Int 0]
+      (if (>= position (count (replayjournal-events journal)))
+        true
+        (let [event ReplayEvent (nth (replayjournal-events journal) position)]
+          (if (and (event-valid? event)
+                   (= position (replayevent-ordinal event)))
+            (recur (+ position 1))
+            false))))))
+
+(defn terminal-event? [event ReplayEvent] Bool
+  (= :replay/terminal (replayevent-kind event)))
+
+(defn journal-terminated? [journal ReplayJournal] Bool
+  (let [events (Vec ReplayEvent) (replayjournal-events journal)]
+    (if (= 0 (count events))
+      false
+      (terminal-event? (nth events (- (count events) 1))))))
+
+(defn empty-journal [run-id String] ReplayJournal
+  (->ReplayJournal run-id []))
+
+(defn append-event
+  [journal ReplayJournal
+   event ReplayEvent] JournalAppend
+  (cond
+    [(not (journal-valid? journal))
+     (->JournalRejected :replay/invalid-journal
+       "journal evidence must have contiguous event ordinals")]
+    [(not (event-valid? event))
+     (->JournalRejected :replay/invalid-event
+       "event subject and evidence must be present")]
+    [(journal-terminated? journal)
+     (->JournalRejected :replay/closed-journal
+       "terminal evidence closes a resumable journal")]
+    [(not= (count (replayjournal-events journal))
+           (replayevent-ordinal event))
+     (->JournalRejected :replay/ordinal-discontinuity
+       "event ordinal must continue the journal exactly")]
+    [:else
+     (->JournalAppended
+      (->ReplayJournal
+       (replayjournal-run-id journal)
+       (conj (replayjournal-events journal) event)))]))
+
+(defn compare-replay
+  [expected ReplayJournal
+   observed ReplayJournal] ReplayComparison
+  (cond
+    [(not (journal-valid? expected))
+     (->ReplayInvalid :replay/invalid-expected
+       "expected journal violates ordered evidence invariants")]
+    [(not (journal-valid? observed))
+     (->ReplayInvalid :replay/invalid-observed
+       "observed journal violates ordered evidence invariants")]
+    [(not= (replayjournal-run-id expected) (replayjournal-run-id observed))
+     (->ReplayInvalid :replay/run-mismatch
+       "journals from different runs cannot establish a stable prefix")]
+    [:else
+     (loop [position Int 0]
+       (let [expected-events (Vec ReplayEvent) (replayjournal-events expected)
+             observed-events (Vec ReplayEvent) (replayjournal-events observed)]
+         (cond
+           [(and (= position (count expected-events))
+                 (= position (count observed-events)))
+            (->ReplayEqual position)]
+           [(= position (count expected-events))
+            (->ReplayExpectedPrefix position)]
+           [(= position (count observed-events))
+            (->ReplayObservedPrefix position)]
+           [(= (nth expected-events position) (nth observed-events position))
+            (recur (+ position 1))]
+           [:else
+            (->ReplayDiverged position
+              (nth expected-events position)
+              (nth observed-events position))])))]))
+
+(defn terminal-summary [journal ReplayJournal] TerminalSummary
+  (cond
+    [(not (journal-valid? journal))
+     (->TerminalNotReady :provenance/invalid-journal
+       "terminal provenance requires valid journal evidence")]
+    [(not (journal-terminated? journal))
+     (->TerminalNotReady :provenance/not-terminal
+       "terminal provenance requires final terminal evidence")]
+    [:else
+     (let [events (Vec ReplayEvent) (replayjournal-events journal)]
+       (->TerminalSummarized
+        (->TerminalProvenance
+         (replayjournal-run-id journal)
+         (nth events (- (count events) 1))
+         (count events))))]))
+
+(defn provenance-valid? [provenance TerminalProvenance] Bool
+  (and (nonempty? (terminalprovenance-run-id provenance))
+       (and (> (terminalprovenance-journal-size provenance) 0)
+            (and (terminal-event? (terminalprovenance-terminal-event provenance))
+                 (= (- (terminalprovenance-journal-size provenance) 1)
+                    (replayevent-ordinal
+                     (terminalprovenance-terminal-event provenance)))))))
+
+(defn admit-provenance
+  [existing TerminalProvenance?
+   candidate TerminalProvenance] ProvenanceAdmission
+  (cond
+    [(not (provenance-valid? candidate))
+     (->ProvenanceRejected :provenance/invalid-summary
+       "terminal provenance must name a terminal final journal event")]
+    [(nil? existing)
+     (->ProvenanceRecorded candidate)]
+    [(not= (terminalprovenance-run-id existing)
+           (terminalprovenance-run-id candidate))
+     (->ProvenanceRejected :provenance/run-mismatch
+       "provenance can only be recorded against its own run")]
+    [(= existing candidate)
+     (->ProvenanceRecorded candidate)]
+    [:else
+     (->ProvenanceRejected :provenance/contradiction
+       "a run already has different terminal provenance")]))
