@@ -61,7 +61,7 @@
     canonical))
 
 (defn query-rows!
-  "Rows of one typed FRAMRPC query. A transport or evaluation failure is never
+  "Rows of one typed Store RPC query. A transport or evaluation failure is never
    converted into an empty subject."
   [port subject query]
   (try

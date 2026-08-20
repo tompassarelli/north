@@ -6,7 +6,7 @@
 ;; coordinator — the mining dual of sdk/src/telemetry.ts (which records run tuples) and
 ;; sdk/src/struggle.ts (which scores a LIVE run; same fingerprint scheme, applied post-hoc).
 ;;
-;; The key reframe (program thread 019f200f-46f6): an agent's WRONG GUESSES are
+;; The key shift (program thread 019f200f-46f6): an agent's WRONG GUESSES are
 ;; VOCABULARY VOTES — when it calls a tool that doesn't exist, the name it reached for
 ;; is empirical evidence of the right surface. Signals mined per transcript unit:
 ;;   verb votes    — "No such tool available: X" tool_result errors -> attempted name
@@ -35,7 +35,7 @@
 ;; prompt, posture, model, provider, or any Orchestration routing predicate.
 ;;
 ;; Facts land on a titleless "@mine:<transcript-stem>" subject (the @run:* pattern —
-;; queryable via fram, invisible to the work views). Predicate vocabulary is kept SMALL,
+;; queryable via the store, invisible to the work views). Predicate vocabulary is kept SMALL,
 ;; reusing kind/north_session_id/repo/at/error_count/note; the one minted predicate is
 ;; `verb_vote` (multi, one fact per attempted name per session — a session votes once).
 ;;
@@ -48,7 +48,7 @@
 ;; PRIVACY: signals, not surveillance — only short verb/tool/doc names and truncated
 ;; error reasons are recorded, never message content.
 ;;
-;; All writes go through canonical FRAMRPC batches — never a log file directly.
+;; All writes go through canonical Store RPC batches — never a log file directly.
 ;; Streaming line-reader; snapshot lines and >8MB lines are
 ;; skipped unparsed; per-file line cap keeps a pathological transcript bounded.
 (require '[clojure.java.io :as io]
@@ -326,7 +326,7 @@
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
-      (throw (ex-info "FRAMRPC rejected telemetry publication"
+      (throw (ex-info "Store RPC rejected telemetry publication"
                       {:type :mine-publication-rejected :result result})))
     result))
 
@@ -583,7 +583,7 @@
       (binding [*out* *err*]
         (println (format "north-mine: scanned %d, findings in %d, facts %s"
                          (count us) (count with-findings)
-                         (if dry? "SKIPPED (dry-run)" "written via FRAMRPC")))
+                         (if dry? "SKIPPED (dry-run)" "written via Store RPC")))
         (println (format "north-mine: verbosity advisory = %s (%d text-turns / %d sessions)"
                          (:verdict adv) (:responses adv) (:sessions adv))))
       ;; the aggregate advisory reflects the WHOLE corpus, so it is only PUT on a

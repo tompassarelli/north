@@ -4,7 +4,7 @@
 ;; exercised offline (the shape-lint corpus fold, cli/tests/*) and lifted onto
 ;; Beagle Store's one serialized server write path when that is authorized.
 ;;
-;; PLACEMENT (load-bearing, recorded on 019f8f5c): `fram:server.clj` owns that
+;; PLACEMENT (load-bearing, recorded on 019f8f5c): `beagle:store/server.clj` owns that
 ;; write path. This library therefore contains the North-side interpreter and
 ;; finite structural-rule vocabulary; `north:cli/coord.clj` remains a client and
 ;; cannot substitute for server-side admission.
@@ -12,7 +12,7 @@
 ;; MODEL (design §2.1): every subject whose CURRENT `kind` fact has a @shape:<kind>
 ;; subject is default-deny — a write of predicate p is admitted iff p is in that
 ;; shape's allowed_predicate set. Value legality comes from the predicate entity
-;; (cardinality/value_kind already fram-enforced; one_of_kind membership is a
+;; (cardinality/value_kind already store-enforced; one_of_kind membership is a
 ;; separate layer). Cross-fact invariants (e.g. proposed_by ≠ delegate) are
 ;; `structural_rule` facts naming entries in THIS finite vocabulary — the rule
 ;; IMPLEMENTATIONS are code, the BINDING (which rule on which kind) is data.

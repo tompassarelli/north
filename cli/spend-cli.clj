@@ -4,7 +4,7 @@
 ;; Owns every ledger side effect: schema declaration, budget creation, the
 ;; cap-checked OCC RESERVATION at admission, terminal SETTLEMENT, human
 ;; overrides, and read-only status/headroom. Lives in clj — not TS — because the
-;; canonical FRAMRPC publication and transaction facade is exposed through
+;; canonical Store RPC publication and transaction facade is exposed through
 ;; cli/coord.clj; the TS admission seam shells out to the machine verbs here.
 ;; The reservation is a read-check-commit loop, never a bare read-then-write.
 ;;

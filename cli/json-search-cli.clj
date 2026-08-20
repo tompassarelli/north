@@ -58,7 +58,7 @@
 (defn search-results [port query]
   (let [view (north.coord/live-facts-view port)]
     (when-not (:complete view)
-      (throw (ex-info "FRAMRPC live projection is incomplete"
+      (throw (ex-info "Store RPC live projection is incomplete"
                       {:type :incomplete-live-projection
                        :unavailable (:unavailable view)})))
     (search-rows (:facts view) query)))

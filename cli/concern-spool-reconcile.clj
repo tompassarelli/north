@@ -694,7 +694,7 @@
 
       :else
       (deferred!
-       "FRAMRPC returned a malformed show response"
+       "Store RPC returned a malformed show response"
        {:subject subject
         :response response}))))
 
@@ -955,7 +955,7 @@
 (defn- declaration-commit-attempt! [port operation]
   (when (code-store-operation? operation)
     (deferred!
-     "code-store concern reconciliation requires an explicit FRAMRPC SpaceId"
+     "code-store concern reconciliation requires an explicit Store RPC SpaceId"
      {:operation-id (:operation-id operation)}))
   (let [snapshot (read-snapshot-at-base port operation)]
     (if (= :conflict (:reject snapshot))
@@ -1004,7 +1004,7 @@
 
                :else
                (deferred!
-                "FRAMRPC acknowledgement for reconciled concern is ambiguous"
+                "Store RPC acknowledgement for reconciled concern is ambiguous"
                 {:response response})))))))))
 
 (defn- transition-snapshot-at-base [port operation]
@@ -1072,7 +1072,7 @@
 
                     :else
                     (deferred!
-                     "FRAMRPC acknowledgement for reconciled concern transition is ambiguous"
+                     "Store RPC acknowledgement for reconciled concern transition is ambiguous"
                      {:response response})))))))))))
 
 (defn- commit-attempt! [port operation]

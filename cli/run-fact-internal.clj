@@ -787,7 +787,7 @@
   #{"sdk-stream" "managed-app-server" "cli-jsonl"})
 (def watchdog-activity-kinds
   {"outer" #{"message" "model" "tool" "artifact" "compaction" "activity"}
-   "provider" #{"turn" "item" "tool" "progress" "frame" "activity"}})
+   "provider" #{"turn" "item" "tool" "progress" "message" "activity"}})
 
 (defn nonnegative-bigint! [label value]
   (let [parsed (try (bigint value) (catch Exception _ nil))]

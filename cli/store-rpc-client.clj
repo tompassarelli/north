@@ -62,7 +62,7 @@
   (dotimes [index 8]
     (when-not (= (bit-and 255 (int (aget header index)))
                  (bit-and 255 (int (aget wire/rpc-v2-magic index))))
-      (throw (ex-info "FRAMRPC response magic does not match"
+      (throw (ex-info "Store RPC response magic does not match"
                       {:type :rpc-invalid-magic}))))
   (let [buffer (doto (ByteBuffer/wrap header) (.order ByteOrder/LITTLE_ENDIAN))]
     (.position buffer 8)
@@ -73,44 +73,44 @@
           body-length (Integer/toUnsignedLong (.getInt buffer))]
       (when-not (and (= major wire/rpc-v2-major)
                      (= minor wire/rpc-v2-minor))
-        (throw (ex-info "FRAMRPC response version is unsupported"
+        (throw (ex-info "Store RPC response version is unsupported"
                         {:type :rpc-unsupported-version
                          :major major :minor minor})))
       (when-not (contains? #{2 4} kind)
-        (throw (ex-info "FRAMRPC client expected a response or event frame"
+        (throw (ex-info "Store RPC client expected a response or event packet"
                         {:type :rpc-invalid-kind :kind kind})))
       (when-not (zero? flags)
-        (throw (ex-info "FRAMRPC response flags must be zero"
+        (throw (ex-info "Store RPC response flags must be zero"
                         {:type :rpc-invalid-flags :flags flags})))
       (when (> body-length max-body-bytes)
-        (throw (ex-info "FRAMRPC response body exceeds the 1 MiB limit"
-                        {:type :rpc-frame-too-large
+        (throw (ex-info "Store RPC response body exceeds the 1 MiB limit"
+                        {:type :rpc-packet-too-large
                          :body-length body-length
                          :limit max-body-bytes})))
       (int body-length))))
 
-(defn read-frame!
-  "Read one bounded FRAMRPC response/event frame without allocating an
+(defn read-packet!
+  "Read one bounded Store RPC response/event packet without allocating an
    untrusted declared body."
   [input]
   (let [header (byte-array wire/rpc-v2-header-bytes)]
     (when-not (read-exact! input header 0 wire/rpc-v2-header-bytes)
-      (throw (ex-info "FRAMRPC response ended inside its header"
+      (throw (ex-info "Store RPC response ended inside its header"
                       {:type :rpc-truncated})))
     (let [body-length (header-body-length! header)
           body (byte-array body-length)
-          frame (byte-array (+ wire/rpc-v2-header-bytes body-length))]
+          packet (byte-array (+ wire/rpc-v2-header-bytes body-length))]
       (when-not (read-exact! input body 0 body-length)
-        (throw (ex-info "FRAMRPC response ended inside its body"
+        (throw (ex-info "Store RPC response ended inside its body"
                         {:type :rpc-truncated})))
-      (System/arraycopy header 0 frame 0 wire/rpc-v2-header-bytes)
-      (System/arraycopy body 0 frame wire/rpc-v2-header-bytes body-length)
-      (wire/decode-rpc-frame-v2! frame))))
+      (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
+      (System/arraycopy body 0 packet wire/rpc-v2-header-bytes body-length)
+      (wire/decode-rpc-packet-v2! packet))))
 
-(defn encode-request-frame!
+(defn encode-request-packet!
   "Encode one request through TermCodecV1 and enforce the shared body limit."
   [request-id request]
-  (wire/encode-rpc-frame-v2! (wire/rpc-request-frame request-id request)))
+  (wire/encode-rpc-packet-v2! (wire/rpc-request-packet request-id request)))
 
 (defn transport-round-trip!
   "Perform one unary socket exchange. The daemon owns one request per socket."
@@ -118,7 +118,7 @@
   (let [request-id (next-request-id)
         sent? (atom false)]
     (try
-      (let [bytes (encode-request-frame! request-id request)]
+      (let [bytes (encode-request-packet! request-id request)]
         (with-open [socket (Socket.)]
           (.connect socket
                     (InetSocketAddress. ^String (:host client) (int (:port client)))
@@ -130,19 +130,19 @@
             (reset! sent? true)
             (.write output bytes)
             (.flush output))
-          (let [frame (read-frame! (.getInputStream socket))
-                response (t/rpcframev2-response frame)]
-            (when-not (= :response (t/rpcframev2-kind frame))
-              (throw (ex-info "FRAMRPC unary request received a non-response frame"
+          (let [packet (read-packet! (.getInputStream socket))
+                response (t/rpcpacketv2-response packet)]
+            (when-not (= :response (t/rpcpacketv2-kind packet))
+              (throw (ex-info "Store RPC unary request received a non-response packet"
                               {:type :rpc-invalid-kind})))
-            (when-not (= request-id (t/rpcframev2-request-id frame))
-              (throw (ex-info "FRAMRPC response request-id does not match"
+            (when-not (= request-id (t/rpcpacketv2-request-id packet))
+              (throw (ex-info "Store RPC response request-id does not match"
                               {:type :rpc-request-id-mismatch})))
             (when-not (and (= (t/rpcrequest-space request)
                               (t/rpcresponse-space response))
                            (= (t/rpcrequest-op request)
                               (t/rpcresponse-op response)))
-              (throw (ex-info "FRAMRPC response identity does not match its request"
+              (throw (ex-info "Store RPC response identity does not match its request"
                               {:type :rpc-response-mismatch
                                :expected-space (t/rpcrequest-space request)
                                :actual-space (t/rpcresponse-space response)
@@ -152,7 +152,7 @@
       (catch Throwable error
         (if (contains? (ex-data error) :request-sent?)
           (throw error)
-          (throw (ex-info (or (.getMessage error) "FRAMRPC transport failed")
+          (throw (ex-info (or (.getMessage error) "Store RPC transport failed")
                           (assoc (or (ex-data error) {})
                                  :request-sent? @sent?)
                           error)))))))
@@ -161,7 +161,7 @@
 
 (defn- open! [client]
   (when @(:closed client)
-    (throw (ex-info "FRAMRPC client is closed" {:type :rpc/client-closed})))
+    (throw (ex-info "Store RPC client is closed" {:type :rpc/client-closed})))
   client)
 
 (defn close! [client]
@@ -185,7 +185,7 @@
   (or (instance? IOException error)
       (instance? SocketTimeoutException error)
       (contains? #{:rpc-truncated :rpc-invalid-magic :rpc-unsupported-version
-                   :rpc-invalid-kind :rpc-invalid-flags :rpc-frame-too-large
+                   :rpc-invalid-kind :rpc-invalid-flags :rpc-packet-too-large
                    :rpc-request-id-mismatch :rpc-response-mismatch}
                  (:type (ex-data error)))))
 
@@ -199,7 +199,7 @@
 
 (defn- resolve-ambiguous! [resolver client request error attempt]
   (if-not resolver
-    (throw (ex-info "FRAMRPC mutation outcome is ambiguous and no exact projection resolver was supplied"
+    (throw (ex-info "Store RPC mutation outcome is ambiguous and no exact projection resolver was supplied"
                     {:type :rpc/ambiguous-write
                      :operation (t/rpcrequest-op request)
                      :attempts attempt}
@@ -209,7 +209,7 @@
       (case resolution
         :committed {:resolved decision :attempts attempt}
         :retry :retry
-        (throw (ex-info "FRAMRPC mutation could not be resolved from its exact projection"
+        (throw (ex-info "Store RPC mutation could not be resolved from its exact projection"
                         {:type :rpc/ambiguous-write
                          :operation (t/rpcrequest-op request)
                          :attempts attempt
@@ -234,7 +234,7 @@
                 (if (= :retry decision)
                   (if (< attempt (:max-attempts client))
                     (do (retry-pause! client attempt) (recur (inc attempt)))
-                    (throw (ex-info "FRAMRPC same-question retry budget exhausted"
+                    (throw (ex-info "Store RPC same-question retry budget exhausted"
                                     {:type :rpc/retry-exhausted
                                      :operation (t/rpcrequest-op request)
                                      :attempts attempt}
@@ -244,7 +244,7 @@
                 (do (retry-pause! client attempt) (recur (inc attempt)))
                 (if (= false (:request-sent? (ex-data error)))
                   (throw error)
-                  (throw (ex-info "FRAMRPC same-question retry budget exhausted"
+                  (throw (ex-info "Store RPC same-question retry budget exhausted"
                                   {:type :rpc/retry-exhausted
                                    :operation (t/rpcrequest-op request)
                                    :attempts attempt}
@@ -314,7 +314,7 @@
                          (when-not (t/occurrence-coordinate? occurrence)
                            (throw
                             (ex-info
-                             "FRAMRPC action result requires one occurrence coordinate"
+                             "Store RPC action result requires one occurrence coordinate"
                              {:type :rpc-invalid-occurrence
                               :occurrence occurrence})))
                          {:input-index input-index
@@ -342,17 +342,17 @@
 (declare connect)
 
 (defn client
-  "Construct a canonical FRAMRPC client without an implicit probe. The client
+  "Construct a canonical Store RPC client without an implicit probe. The client
    owns configuration, not a persistent socket; each named operation performs
    exactly its own bounded request. Use connect when an eager status probe is
    itself part of the caller's contract."
   ([host port space-id] (client host port space-id {}))
   ([host port space-id options]
    (when (str/blank? host)
-     (throw (ex-info "FRAMRPC host must be nonblank"
+     (throw (ex-info "Store RPC host must be nonblank"
                      {:type :rpc/invalid-client-option :option :host})))
    (when (str/blank? space-id)
-     (throw (ex-info "FRAMRPC SpaceId must be nonblank"
+     (throw (ex-info "Store RPC SpaceId must be nonblank"
                      {:type :rpc/invalid-client-option :option :space-id})))
    (let [client (->Client host
                           (positive-integer! :port port)
@@ -458,7 +458,7 @@
   (let [page-size (get options :page-size effective-page-limit)]
     (positive-integer! :page-size page-size)
     (when (> page-size effective-page-limit)
-      (throw (ex-info "FRAMRPC page size exceeds the current TermCodec-safe limit"
+      (throw (ex-info "Store RPC page size exceeds the current TermCodec-safe limit"
                       {:type :rpc/page-size-unsafe
                        :page-size page-size
                        :effective-limit effective-page-limit})))
@@ -475,10 +475,10 @@
             page (:page response)
             snapshot (or snapshot served)]
         (when-not page
-          (throw (ex-info "FRAMRPC paged operation omitted page metadata"
+          (throw (ex-info "Store RPC paged operation omitted page metadata"
                           {:type :rpc/missing-page})))
         (when-not (= snapshot served)
-          (throw (ex-info "FRAMRPC page drain changed snapshot"
+          (throw (ex-info "Store RPC page drain changed snapshot"
                           {:type :rpc/page-snapshot-changed
                            :expected snapshot :actual served})))
         (let [all-rows (into rows (:rows response))
@@ -871,7 +871,7 @@
   (let [results (:results result)]
     (when-not (and (= (count results) (count actions))
                    (= (map :input-index results) (range (count actions))))
-      (throw (ex-info "FRAMRPC batch acknowledged an action-result shape that does not match its actions"
+      (throw (ex-info "Store RPC batch acknowledged an action-result shape that does not match its actions"
                       {:type :rpc/unexpected-action-results
                        :actions (count actions)
                        :results (mapv :input-index results)}))))
@@ -1007,7 +1007,7 @@
                 :candidate-fence candidate))))))
 
 (defn subscribe! [& _]
-  (throw (ex-info "FRAMRPC subscription is reserved for the daemon-side v2 operation"
+  (throw (ex-info "Store RPC subscription is reserved for the daemon-side v2 operation"
                   {:type :rpc/subscription-unavailable
                    :operation subscription-operation
                    :stage :post-stage-1})))

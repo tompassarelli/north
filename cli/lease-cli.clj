@@ -1,5 +1,5 @@
 ;; lease-cli.clj — agent-side North lease helper (P0 shadow).
-;; Speaks canonical typed FRAMRPC lease operations. Human output remains EDN;
+;; Speaks canonical typed Store RPC lease operations. Human output remains EDN;
 ;; --json is the exact machine envelope used by the Linear bridge.
 ;; This is the contract every agent session uses to take the build mutex over the socket
 ;; INSTEAD of dropping a per-agent BUILD-LOCK-<agent>.md lockfile.
@@ -32,7 +32,7 @@
   (when (str/blank? value) (fail! (str label " must not be blank")))
   value)
 
-;; Stay below both FRAMRPC's body cap and Linux's per-argument ceiling.
+;; Stay below both Store RPC's body cap and Linux's per-argument ceiling.
 (def max-fenced-value-bytes (* 160 1024))
 
 (defn read-fenced-value []

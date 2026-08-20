@@ -44,7 +44,7 @@
 ;; SpaceId is the whole fence: connect validates the served space before any
 ;; read, so a coordinator serving another corpus is refused rather than answered.
 (defn- connect! []
-  (let [host (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1")
+  (let [host (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1")
         port (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977"))
         space (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination")]
     (try

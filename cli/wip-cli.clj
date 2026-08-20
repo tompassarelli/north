@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; wip-cli.clj — `north wip`: live managed-lane capacity against ready work.
 ;;
-;; READ-ONLY. Work and presence come from bounded FRAMRPC projections limited
+;; READ-ONLY. Work and presence come from bounded Store RPC projections limited
 ;; to facts consumed by ready/leverage and live-lane projection. A configured
 ;; telemetry origin contributes reservation bindings.
 (ns north.wip-cli

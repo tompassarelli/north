@@ -86,7 +86,7 @@
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
-      (throw (ex-info "FRAMRPC rejected orchestration contract publication"
+      (throw (ex-info "Store RPC rejected orchestration contract publication"
                       {:type :contract-publication-rejected :result result})))
     result))
 

@@ -8,7 +8,7 @@
 ;;
 ;; Lifts the machine catalog into the coordination graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
-;; pointer in one atomic FRAMRPC transaction — the atomic pointer flip of
+;; pointer in one atomic Store RPC transaction — the atomic pointer flip of
 ;; design R3. Consumers read the pointer, so a torn/partial import is never
 ;; visible. Sources (all Orchestration-repo-relative, read at runtime):
 ;;   staffing/catalog.json          templates + axis vocabulary + defaults
@@ -137,7 +137,7 @@
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
-      (throw (ex-info "FRAMRPC rejected orchestration catalog publication"
+      (throw (ex-info "Store RPC rejected orchestration catalog publication"
                       {:type :catalog-publication-rejected :result result})))
     result))
 

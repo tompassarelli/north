@@ -61,8 +61,8 @@
        :mean (long (/ (reduce + 0 s) n))})))
 
 ;; ---- coordinator reads ------------------------------------------------------
-;; Emitted by fram's slow-read attribution:
-;;   [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms
+;; Emitted by the store's slow-read attribution:
+;;   [store] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms
 ;; Only reads OVER the threshold appear, so this is explicitly the TAIL, not the
 ;; whole population — labelled as such below rather than presented as typical.
 (def slow-read-re

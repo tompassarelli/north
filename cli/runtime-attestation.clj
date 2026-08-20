@@ -1,6 +1,6 @@
 (ns north.runtime-attestation
-  "Bind one canonical FRAMRPC listener to the sealed Beagle Store release the live
-  selection names, its Native READY artifact, FRAMLOG, SpaceId, and systemd
+  "Bind one canonical Store RPC listener to the sealed Beagle Store release the live
+  selection names, its Native READY artifact, Beagle Store log, SpaceId, and systemd
   owner."
   (:require [babashka.process :as proc]
             [clojure.java.io :as io]
@@ -129,23 +129,23 @@
 
 (defn- read-record! [path]
   (let [{canonical :path before :state}
-        (canonical-regular-file! "FRAMRPC runtime identity" path)]
+        (canonical-regular-file! "Store RPC runtime identity" path)]
     (when-not (and (= 384 (:mode before)) (= 1 (:nlink before)))
-      (fail! "FRAMRPC runtime identity must be one 0600 regular file"
+      (fail! "Store RPC runtime identity must be one 0600 regular file"
              :runtime-record-invalid {:path canonical :state before}))
     (when (> (:size before) record-read-limit)
-      (fail! "FRAMRPC runtime identity exceeds its read bound"
+      (fail! "Store RPC runtime identity exceeds its read bound"
              :runtime-record-invalid
              {:path canonical :bytes (:size before) :limit record-read-limit}))
     (let [payload (java.nio.file.Files/readAllBytes (.toPath (io/file canonical)))
-          after (unix-file-state! "FRAMRPC runtime identity" canonical)]
+          after (unix-file-state! "Store RPC runtime identity" canonical)]
       (when-not (and (= before after) (= (:size before) (alength payload)))
-        (fail! "FRAMRPC runtime identity changed while it was read"
+        (fail! "Store RPC runtime identity changed while it was read"
                :runtime-record-raced {:path canonical}))
       (when (or (zero? (alength payload))
                 (not= 10 (bit-and 255 (aget payload (dec (alength payload)))))
                 (some #(= 13 (bit-and 255 %)) payload))
-        (fail! "FRAMRPC runtime identity must be canonical LF text"
+        (fail! "Store RPC runtime identity must be canonical LF text"
                :runtime-record-invalid {:path canonical}))
       (let [lines (str/split-lines
                    (String. ^bytes payload
@@ -155,7 +155,7 @@
              (fn [line]
                (let [index (str/index-of line "=")]
                  (when-not (and index (pos? index))
-                   (fail! "FRAMRPC runtime identity has a malformed line"
+                   (fail! "Store RPC runtime identity has a malformed line"
                           :runtime-record-invalid {:path canonical :line line}))
                  [(subs line 0 index) (subs line (inc index))]))
              lines)
@@ -163,14 +163,14 @@
             (reduce
              (fn [result [key value]]
                (when (or (str/blank? value) (contains? result key))
-                 (fail! "FRAMRPC runtime identity has a blank or duplicate field"
+                 (fail! "Store RPC runtime identity has a blank or duplicate field"
                         :runtime-record-invalid {:path canonical :key key}))
                (assoc result key value))
              {} pairs)]
         (when-not (and (= runtime-record-order (mapv first pairs))
                        (= runtime-record-keys (set (keys values)))
                        (= active-runtime-record-format (get values "FORMAT")))
-          (fail! "FRAMRPC runtime identity has the wrong exact field set"
+          (fail! "Store RPC runtime identity has the wrong exact field set"
                  :runtime-record-invalid
                  {:path canonical :fields (mapv first pairs)}))
         {:path canonical :bytes payload :sha256 (sha256-bytes payload)
@@ -395,7 +395,7 @@
 
 (defn systemd-main-pid! [unit]
   (when-not (re-matches #"[A-Za-z0-9@_.:-]+" (str unit))
-    (fail! "FRAMRPC controller unit is unsafe"
+    (fail! "Store RPC controller unit is unsafe"
            :runtime-controller-invalid {:unit unit}))
   (let [{:keys [exit error values]} (systemd-properties unit)
         pid (parse-long (get values "MainPID"))]
@@ -404,7 +404,7 @@
                    (= "active" (get values "ActiveState"))
                    (= "running" (get values "SubState"))
                    pid (pos? pid))
-      (fail! "FRAMRPC controller is not one loaded running systemd unit"
+      (fail! "Store RPC controller is not one loaded running systemd unit"
              :runtime-controller-invalid
              {:unit unit :properties values :error error}))
     pid))
@@ -417,7 +417,7 @@
         expected [artifact]]
     (when-not (and (= source cwd) (= artifact executable)
                    (= expected arguments))
-      (fail! "FRAMRPC listener is not the sealed Native executable"
+      (fail! "Store RPC listener is not the sealed Native executable"
              :runtime-process-attestation-failed
              {:reason :process-shape-mismatch :pid pid
               :expected {:cwd source :executable artifact :arguments expected}
@@ -436,7 +436,7 @@
 ;; A unit that loads the selection file carries more BEAGLE_STORE_/NORTH_ variables
 ;; than the seven that name identity, so exact-set equality would reject the
 ;; supported launch shape. What must never disagree is any variable that can
-;; select a different engine, artifact, FRAMLOG, port, or SpaceId: required
+;; select a different engine, artifact, Beagle Store log, port, or SpaceId: required
 ;; names must be present and exact, constrained names must be exact when
 ;; present, and the names that would route the launcher away from the sealed
 ;; Native artifact must be absent.
@@ -482,7 +482,7 @@
   "Attest one active canonical writer from its launcher-owned 0600 record."
   [{:keys [port served-log space-id record-path controller-unit]}]
   (when-not (and port served-log space-id record-path controller-unit)
-    (fail! "FRAMRPC runtime attestation requires port, log, SpaceId, record, and unit"
+    (fail! "Store RPC runtime attestation requires port, log, SpaceId, record, and unit"
            :runtime-attestation-request-invalid))
   (let [release (sealed-release-identity! (sealed-release-home))
         sealed (read-record! record-path)
@@ -530,7 +530,7 @@
                    (= (:sha256 server-artifact)
                       (get values "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"))
                    (.canExecute (io/file expected-server-path)))
-      (fail! "FRAMRPC runtime record does not bind the requested canonical writer"
+      (fail! "Store RPC runtime record does not bind the requested canonical writer"
              :runtime-record-invalid
              {:request {:port port :log requested-log :space-id space-id
                         :controller-unit controller-unit}
@@ -555,7 +555,7 @@
                      (integer? start)
                      (= pid controller-pid)
                      (empty? disagreements))
-        (fail! "FRAMRPC runtime record, listener, environment, and systemd owner disagree"
+        (fail! "Store RPC runtime record, listener, environment, and systemd owner disagree"
                :runtime-process-attestation-failed
                {:pid pid :listener-pids listener-owners
                 :expected-birth (get values "PID_BIRTH") :actual-birth birth

@@ -11,7 +11,7 @@
 (require '[clojure.java.io :as io]
          '[clojure.string :as str])
 
-;; Shared FRAMRPC coordination facade.
+;; Shared Store RPC coordination facade.
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (defn all-runs [port]
