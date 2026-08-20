@@ -810,7 +810,7 @@
                        "freshness" (if (:online row) "fresh" "stale")
                        "freshness_evidence" (if (:online row)
                                               "Store presence lease"
-                                              "Store presence lease absent")})))
+                                              "Store presence lease absent")}))))
           (sort-by #(get % "control_id")) vec)}))
 
 (def comparable-roster-fields
@@ -840,7 +840,7 @@
              :agents agents
              :sessions sessions
              :snapshot (assoc (roster-contract rows agents sessions)
-                              "codex_census" (codex-census rows agents))})))))
+                              "codex_census" (codex-census rows agents))}))))))
 
 (defn- comparable-roster [snapshot]
   (when (and (= ROSTER-CONTRACT-VERSION (get snapshot "version"))
