@@ -25,6 +25,7 @@
                          (str ORCHESTRATION "/staffing/catalog.json")))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION "north:agent-roster:v1")
+(def CODEX-CENSUS-CLI (str NORTH "/sdk/src/codex-census-cli.ts"))
 (def STRUGGLE-POLICY-CLI (str NORTH "/sdk/src/struggle.ts"))
 (def PROVIDER-CAPABILITY-ADMISSION-CLI
   (str NORTH "/sdk/src/provider-capability-admission-cli.ts"))
@@ -774,6 +775,44 @@
         (sort-by roster-row-key)
         vec)})
 
+(defn- configured-codex-accounts []
+  (let [result (run [POLICY-BUN "run" CODEX-CENSUS-CLI] :timeout 4000)
+        parsed (try (json/parse-string (str/trim (:out result)) false)
+                    (catch Exception _ nil))]
+    (if (and (:ok result) (vector? parsed)
+             (every? #(and (string? %) (not (str/blank? %))) parsed))
+      (vec (sort (distinct parsed))) [])))
+
+(defn- census-fact [facts predicate]
+  (when-not (contains? (get facts roster-conflict-key #{}) predicate)
+    (known (get facts predicate))))
+
+(defn- codex-census [rows agents]
+  (let [parent-of (fn [facts] (or (census-fact facts "coordinator")
+                                  (census-fact facts "supervisor")))
+        children (reduce (fn [out row]
+                           (let [facts (get agents (:id row) {}) parent (parent-of facts)]
+                             (if (and (= "openai" (census-fact facts "provider")) parent)
+                               (update out parent (fnil conj []) (:id row)) out))) {} rows)]
+    {"configured_accounts" (configured-codex-accounts)
+     "sessions"
+     (->> rows
+          (keep (fn [row]
+                  (let [facts (get agents (:id row) {}) parent (parent-of facts)]
+                    (when (= "openai" (census-fact facts "provider"))
+                      {"control_id" (:id row)
+                       "account_id" (or (census-fact facts "provider_target") "ambient")
+                       "session_identity" (:id row)
+                       "parent_control_id" (or parent "")
+                       "child_control_ids" (vec (sort (get children (:id row) [])))
+                       "activity_at" (or (census-fact facts "started_at")
+                                          (census-fact facts "spawned_at") "")
+                       "freshness" (if (:online row) "fresh" "stale")
+                       "freshness_evidence" (if (:online row)
+                                              "Store presence lease"
+                                              "Store presence lease absent")})))
+          (sort-by #(get % "control_id")) vec)}))
+
 (def comparable-roster-fields
   ;; Parity is identity, not a distributed snapshot transaction. Task and
   ;; lifecycle can honestly change between the CLI coordinator read and the
@@ -800,7 +839,8 @@
             {:rows rows
              :agents agents
              :sessions sessions
-             :snapshot (roster-contract rows agents sessions)}))))))
+             :snapshot (assoc (roster-contract rows agents sessions)
+                              "codex_census" (codex-census rows agents))})))))
 
 (defn- comparable-roster [snapshot]
   (when (and (= ROSTER-CONTRACT-VERSION (get snapshot "version"))
