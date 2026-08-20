@@ -233,3 +233,19 @@
           (if (= thread-id (threadfact-thread-id fact))
             (recur (+ position 1) (status-after status fact))
             (recur (+ position 1) status)))))))
+
+(defn thread-blocked? [status ThreadStatus?] Bool
+  (if (nil? status)
+    false
+    (match status
+      [(ThreadOpen derived) false]
+      [(ThreadBlocked derived) true]
+      [(ThreadResolved derived) false])))
+
+(defn thread-resolved? [status ThreadStatus?] Bool
+  (if (nil? status)
+    false
+    (match status
+      [(ThreadOpen derived) false]
+      [(ThreadBlocked derived) false]
+      [(ThreadResolved derived) true])))

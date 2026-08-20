@@ -13,16 +13,6 @@
     [(core/WorldAdmitted world) true]
     [(core/WorldRejected reason) false]))
 
-(defn blocked? [status core/ThreadStatus?] Bool
-  (if (some? status)
-    (instance? core/ThreadBlocked status)
-    false))
-
-(defn resolved? [status core/ThreadStatus?] Bool
-  (if (some? status)
-    (instance? core/ThreadResolved status)
-    false))
-
 (defn main [] Int
   (let [launch core/Thread (core/->Thread "thread/launch" "Land live harness" "operator")
         check core/Thread (core/->Thread "thread/check" "Verify harness" "worker")
@@ -58,8 +48,8 @@
              (admitted? resolved)
              (admitted? effect)
              (= "operator" (core/thread-owner resolved-world "thread/launch"))
-             (blocked? (core/status-for blocked-world "thread/launch"))
-             (resolved? (core/status-for resolved-world "thread/launch"))
+             (core/thread-blocked? (core/status-for blocked-world "thread/launch"))
+             (core/thread-resolved? (core/status-for resolved-world "thread/launch"))
              (not (admitted? (core/admit-thread resolved-world launch))))
       0
       1)))
