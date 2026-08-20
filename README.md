@@ -1,223 +1,178 @@
 # North
 
-North is a Beagle-native, Store-backed harness for running agents against one
-durable model of work. Threads, dependencies, agent identities, observations,
-run evidence, and outcomes are related facts rather than records scattered
-across a task tracker, transcript directory, scheduler, and provider dashboard.
+North is a text-first, multi-account agent harness built on
+[Beagle Store](https://github.com/tompassarelli/beagle). It keeps work,
+execution authority, and run evidence in one durable fact model, then uses
+provider CLIs, PTYs, MCP, and a terminal cockpit to execute and inspect that
+model.
 
-The result is a harness that can answer both “what should happen next?” and
-“what actually happened?” from preserved state. North coordinates multiple
-provider accounts, launches and steers agent lanes, records replayable execution
-evidence, and projects the same state into a live text cockpit.
+North is for running several agents across several authenticated subscription
+accounts without turning a transcript folder, process table, or provider UI
+into the scheduler. It can answer two separate questions after a process dies:
+what work was authoritative, and what execution evidence was actually observed?
 
-North is pre-1.0 and currently developed for its author's own hosts. The core
-model is landed; some ownership is still moving from existing Clojure,
-TypeScript, and process adapters into Beagle Native over Beagle Store. The
-[current state and near destination](#current-state-and-near-destination) are
-separated below.
+North is pre-1.0 and currently operated on its author's configured hosts. The
+core below is on public `main`; portable installation is still in progress.
 
-## The model
-
-The durable unit is a typed **thread**. A thread can describe a human intention,
-an agent lane, or a larger body of work. `part_of` and `depends_on` relate
-threads without introducing a parallel project/task hierarchy. Conditions such
-as ready, blocked, active, and resolved are projections from facts, not a
-mutable status field.
-
-An admitted semantic change produces a new immutable **world revision**. A
-world revision contains the typed threads, their edges, facts, and effect
-records known at that point. A **branch** is only a mutable lineage pointer to a
-world revision; it is not the semantic state itself. This distinction keeps
-replay, comparison, and provenance about immutable values even when current
-work moves forward.
-
-North's typed [`ThreadWorld`](src/north/thread_core.bgl) gives facts explicit
-epistemic status:
-
-| Fact status | What it means | Required provenance |
-| --- | --- | --- |
-| **Declared** | An actor asserted an intention or claim. | Actor identity |
-| **Derived** | A rule computed a claim from existing facts. | Rule identity and parent fact identities |
-| **Observed** | An observer or probe witnessed a result. | Observer and observation identities |
-| **Effect record** | An admitted executor reports an attempted or completed effect. | Effect and executor identities |
-
-These categories are not interchangeable. A declaration is not proof, a
-derivation remains inspectable through its inputs, an observation names its
-witness, and an effect record does not become an external-state guarantee merely
-because a process exited successfully.
-
-## Architecture
+## One authority, explicit edges
 
 ```text
-typed Beagle semantics
-  threads · world revisions · memory · replay · provenance · scheduling
-                              │
-                    Beagle Store authority
-                 durable facts · serialized admission
-                              │
-                projections and capability edges
-           CLI · MCP · provider APIs · PTYs · terminal UI
+Beagle semantics                 Beagle Store
+work · roles · policy    ──►     durable authority
+                                 threads · account eligibility
+                                 leases · attempts · observations
+                                 replay position · receipts · safe next
+                                              │
+                                              ▼
+provider capability edges        Codex / Claude CLIs · PTYs · MCP
+                                 transcripts / JSONL · terminal UI
 ```
 
-- **Semantics are target-neutral Beagle.** Work and prompt lifecycle,
-  dependency and admission rules, memory selection, session lineage, replay,
-  provenance, and scheduling decisions must not name a provider model or host
-  process API. The landed typed cores live under [`src/north/`](src/north/).
-- **Beagle Store is the durable substrate.** The current coordination graph is
-  published through one serialized, rule-checked Store RPC path. Canonical
-  Store logs live in runtime state, outside this repository. See
-  [the write path](docs/architecture.md#the-write-path).
-- **Beagle JS and TypeScript are capability edges.** They integrate provider
-  CLIs and SDKs, authenticated subscription accounts, MCP, filesystems,
-  browsers, PTYs, and the terminal. Provider decoding stays under
-  [`sdk/src/providers/`](sdk/src/providers/); host execution and the cockpit
-  stay under [`sdk/src/bridge/`](sdk/src/bridge/). They report evidence inward
-  rather than becoming a second semantic authority.
+Store-authoritative state includes:
 
-North uses one durable identity and provenance model across the system, but it
-does not pretend every boundary is the same:
+- work and its relationships, roles, and derived readiness;
+- exact account role and execution eligibility;
+- fenced thread and account leases;
+- immutable execution attempts and their launch, provider-start, terminal, or
+  proved-unsent evidence;
+- admitted observations and effect or command receipts;
+- the greatest contiguous, digest-linked wire-event position; and
+- the conservative next action: reserve, launch, send, cancel, reconcile,
+  advance, or no-op.
 
-- The **execution boundary** decides which provider account and process may run
-  a lane and records the resolved route.
-- The **security boundary** admits a capability envelope. North enforces
-  application authority; hostile same-user code still requires an OS or
-  container boundary outside the harness.
-- The **effect boundary** separates a semantic decision from a host or external
-  side effect. Admission happens before the effect and a receipt comes back
-  afterward.
+The other side of the boundary is deliberately thinner. Provider adapters
+resolve protocols and stream events. PTYs launch processes. MCP exposes bounded
+tools. Transcripts and JSONL preserve provider evidence. The dashboard renders
+the current projection. None of them independently decides that work is ready,
+that an account may execute it, or that an uncertain effect is safe to repeat.
 
-Identity can therefore remain stable across retries, provider sessions, and
-processes without conflating who or what a run is with where it executes, what
-it may access, or which effects it performed.
+See the [architecture](docs/architecture.md) and
+[harness boundary](docs/harness-architecture.md) for the detailed ownership
+rules.
 
-## What is available now
+## Routing work to models and accounts
 
-### Typed work and durable coordination
+Orchestration asks for a provider-neutral role, capability tier, deliberation
+level, posture, and topology. North then filters authenticated accounts by
+Store authority, provider capability, subscription pressure, resource policy,
+and any explicit pin before an adapter resolves a concrete model.
 
-- The coordination graph stores intentions, agent lanes, assignments,
-  dependencies, concerns, leases, mail, evidence, and outcomes. Lifecycle is
-  derived from those facts
-  ([`src/north/projections.bclj`](src/north/projections.bclj)).
-- The typed thread-world core admits threads, `part_of` and `depends_on` edges,
-  provenance-bearing facts, and effect records as immutable values
-  ([`src/north/thread_core.bgl`](src/north/thread_core.bgl)).
-- Every managed lane receives a full UUID identity, a pre-provider run
-  reservation, an ordered event ledger, run provenance, and an explicit
-  terminal outcome
-  ([`sdk/src/spawn.ts`](sdk/src/spawn.ts),
-  [`sdk/src/run-ledger.ts`](sdk/src/run-ledger.ts)).
+An OpenAI account is admitted by exact singleton Store facts. Its role is
+either `execution` with `execution_eligible=true`, or `oversight` with
+`execution_eligible=false`. Oversight accounts remain visible in Store-backed
+projections, but North will not launch work through them. A missing, duplicated,
+or contradictory authority fact also fails closed.
 
-### Memory, lineage, replay, and scheduling
+Automatic allocation can be preferential, balanced, or reserved. A provider
+pin may fall back only to another eligible account for that provider; an exact
+account pin has no fallback. Any fallback must be proven pre-side-effect. The
+resolved provider, account, model, reasoning, authority receipt, and fallback
+path stay attached to the run.
 
-Target-neutral Beagle cores are landed for:
+Luna, Terra, and Sol are concrete OpenAI model families, not hard-coded agent
+personas. The checked-in provider catalog currently maps the semantic ramp this
+way:
 
-- scoped memory with source, trust, validity, supersession, and bounded recall
-  ([`memory_core.bgl`](src/north/memory_core.bgl));
-- immutable session lineage and context projection from a compaction plus its
-  tail ([`session_core.bgl`](src/north/session_core.bgl));
-- ordered replay, stable-prefix comparison, divergence, and terminal provenance
-  ([`replay_core.bgl`](src/north/replay_core.bgl)); and
-- scheduled-run origin, deduplication, revision checks, leases, and stale-owner
-  reclamation ([`scheduled_run_core.bgl`](src/north/scheduled_run_core.bgl)).
+| Requested tier | Current OpenAI resolution |
+| --- | --- |
+| `economy` | Luna at low or medium reasoning |
+| `standard` | Terra at low or medium reasoning |
+| `senior` | Sol at medium or high reasoning |
+| `frontier` | Sol at xhigh or max reasoning |
 
-The Bridge also keeps an append-and-replay host journal so local execution can
-be recovered across a Store outage. That journal is execution evidence, not a
-second coordination database.
+The catalog is policy data, so callers request the semantic tier and reasoning
+they need instead of embedding that table in work. Current mappings and their
+calibrated model notes live under
+[`orchestration/providers/`](orchestration/providers/) and
+[`orchestration/docs/deltas/`](orchestration/docs/deltas/).
 
-### Allocation and orchestration
+## Quick start
 
-North separates semantic staffing from concrete execution. Orchestration
-selects a role, capability tier, reasoning level, posture, and topology without
-naming a provider model. North then resolves that request against authenticated
-provider accounts and their current model availability.
-
-Automatic routing allocates work across subscription accounts using configured
-order, per-account entitlement pressure, weights, and reserved capacity. A
-provider or account fallback is allowed only when the adapter proves the failed
-attempt produced no observable side effect. The selected provider, account,
-model, reasoning level, allocation reason, and fallback path remain in run
-provenance. See [provider architecture](docs/provider-architecture.md).
-
-### Live cockpit and control
-
-`north dashboard` presents fleet, health, work, and account snapshots in one
-text cockpit. The CLI and MCP surfaces can inspect live agents, tail transcripts,
-send mid-run input, redirect a goal, and query durable lane receipts. The
-cockpit is a projection of coordination and execution evidence; it is not the
-authority those records depend on.
-
-## A minimal current path
-
-On a host with North, Babashka, Bun, and the selected Beagle Store runtime
-configured:
+From a checkout, the shortest entry point is the generated CLI card. It works
+without a running Store:
 
 ```console
-$ north dashboard
+$ ./bin/north help
+```
+
+Operational commands currently require a host-selected, matching Beagle Store
+runtime. On a configured host, the shortest useful path is:
+
+```console
+$ north doctor
 $ north capture "Document the release boundary"
 $ north ready
 $ north delegate "Document the release boundary"
 $ north agents
-$ north watch <agent-id>
-$ north show <thread-id>
+$ north dashboard --once
 ```
 
-Use `north help <topic>` for `work`, `agents`, `comms`, `routing`, `store`, or
-`ops`; `north help --all` prints the complete registered surface. The command
-registry is [`cli/surface.edn`](cli/surface.edn), and a test keeps it aligned
-with generated help and [`bin/north`](bin/north).
+Add an isolated Codex execution account explicitly, then inspect the route:
 
-Running the coordination ledger needs Babashka and the host-selected Beagle
-Store runtime. The agent SDK, MCP edge, and cockpit also need Bun. See
-[building and testing](docs/building-and-testing.md).
+```console
+$ north account add codex-personal openai --role execution
+$ north account login codex-personal
+$ north providers
+$ north spawn implementer "Add the parser regression" --tier standard
+```
 
-The flake is not portable yet: its packaged entrypoint still selects a
-machine-local `beagle-store.env`, so `nix run github:tompassarelli/north` does
-not currently work on an unconfigured host.
+Useful inspection and control commands are:
 
-## Why this helps multi-agent development
+```console
+$ north show <thread-id>
+$ north watch <agent-id>
+$ north msg <agent-id> "Use the smaller seam"
+$ north lanes
+$ north help routing
+$ north help --all
+```
 
-Multiple agents create leverage only when their work remains attributable and
-recoverable. North gives each lane a stable identity, binds it to the intention
-it serves, records what route and authority it received, and preserves ordered
-evidence about what ran. Dependencies and ownership are queryable before work;
-receipts and outcomes are queryable afterward.
+The public command registry is [`cli/surface.edn`](cli/surface.edn); generated
+help is checked against both that registry and [`bin/north`](bin/north).
+[Building and testing](docs/building-and-testing.md) describes the current
+Babashka, Bun, and Store requirements.
 
-That reduces three ordinary coordination costs: duplicate work is visible,
-blocked work can be scheduled from explicit dependencies, and a dead or
-interrupted process can be understood from durable evidence instead of guessed
-from a partial transcript. Account allocation also lets concurrent work use
-available subscription capacity without putting provider-specific choices into
-the work model.
+## Restartability and replay
 
-## Current state and near destination
+North records intent before crossing an execution edge, then records provider
+start, command delivery, terminal, or proved-unsent receipts afterward. Thread
+and account leases fence concurrent ownership. On restart, the Store snapshot
+is decoded fail-closed, wire events are reconstructed only through the greatest
+contiguous digest-linked position, and the kernel computes a safe next action
+from those immutable facts.
 
-| Area | Shipped now | Near destination |
-| --- | --- | --- |
-| Work | A live Store-backed coordination graph plus a typed `ThreadWorld` admission core. | Store-persisted world revisions become the sole authority for the typed thread model and its projections. |
-| Memory and context | Typed Beagle memory, session-lineage, replay, provenance, and scheduled-run cores; existing execution journals and receipts. | Beagle Native owns their resident Store operations and scheduling, with no parallel host-language decision path. |
-| Execution | Managed Anthropic and OpenAI/Codex lanes, semantic routing, authenticated account selection, subscription-pressure allocation, replay-safe fallback, MCP, and live steering. | Provider adapters contain only wire decoding and process capabilities; all provider-neutral policy is evaluated before crossing the edge. |
-| Cockpit | A live terminal view over fleet, health, board, accounts, and Bridge sessions. | Every view is a bounded projection from the same world revisions and execution receipts. |
-| Distribution | Works on the configured development hosts and remains pre-1.0. | A portable package with parameterized Store selection and documented setup. |
+That makes interruption explicit instead of magical. A reserved attempt with
+no launch intent may be launched. A launch intent without a provider-start
+receipt requires reconciliation. A delivered command is not sent again. A
+terminal or proved-unsent attempt can advance once. Conflicting facts, replay
+gaps, or digest conflicts produce no executable guess.
 
-The ownership direction is explicit in
-[Influences and ownership](docs/INFLUENCES.md): durable meaning moves inward to
-typed Beagle and Beagle Native over Store; JavaScript remains only where the
-operating system, terminal, browser, or provider requires it.
+Bridge journals, provider transcripts, and exported JSONL remain valuable:
+they preserve exact wire evidence, support local recovery during a Store
+outage, and feed projections. They are not scheduler truth. A partial
+transcript cannot grant a lease, make an oversight account executable, or prove
+an external effect completed.
 
-## Documentation
+`north dashboard` is the live text cockpit over fleet, health, work, accounts,
+and execution evidence. Its Store-backed view includes account role and
+eligibility, attempt state, lease fences, replay position, and safe-next
+decisions. It is a control and inspection surface, not another authority.
 
-- [Operating manual](docs/operating-manual.md) — the current thread model,
-  derived lifecycle, CLI, agent lifecycle, and concurrent-write behavior.
-- [Architecture](docs/architecture.md) — layer ownership and the Store write
-  path.
-- [Harness architecture](docs/harness-architecture.md) — execution, replay,
-  and Bridge boundaries.
-- [Provider architecture](docs/provider-architecture.md) — routing, accounts,
-  subscription allocation, fallback, and run evidence.
-- [Influences and ownership](docs/INFLUENCES.md) — landed typed cores, intended
-  owners, rejected architecture, and license-aware provenance.
-- [Building and testing](docs/building-and-testing.md) — runtime requirements,
-  rebuilding, and repository checks.
+## What exists now
+
+| On public `main` | Near-term direction |
+| --- | --- |
+| Store-backed coordination graph and typed Beagle work, memory, session, replay, prompt-lifecycle, and scheduled-run cores | Move the remaining provider-neutral resident decisions into Beagle Native over Store |
+| Store-authoritative Codex account roles and execution eligibility; oversight excluded from execution | Extend the same explicit authority boundary wherever another provider or account class needs it |
+| Durable attempt reservations, thread/account lease fences, launch and provider-start evidence, terminal/proved-unsent receipts, command delivery receipts, replay reconstruction, and safe-next decisions | Complete the resident scheduler loop without a parallel host-language decision path |
+| Managed Claude and Codex execution, multi-account routing, pre-side-effect fallback, MCP, steering, journals, receipts, and a live text dashboard | Keep JavaScript only at provider, process, terminal, browser, and Node-only capability edges |
+| A Nix flake and working configured-host deployment | Parameterize Store selection and document a portable first-run setup |
+
+North's [influences](docs/INFLUENCES.md) are useful mainly for provenance: the
+project studies bounded mechanisms from other agent harnesses, records the
+exact licensed sources, and adopts ideas only when North can name their typed
+owner, durable evidence, adapter boundary, and focused check. It does not use
+an upstream harness as a hidden runtime or source of scheduler truth.
 
 ## License
 
