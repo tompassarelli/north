@@ -13,13 +13,13 @@
       .getParentFile
       .getParentFile
       .getCanonicalPath))
-(def fram-home (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
+(def store-home (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                    (System/getenv "BEAGLE_STORE_HOME")))
-(when-not fram-home
+(when-not store-home
   (binding [*out* *err*]
     (println "validate process test requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME"))
   (System/exit 2))
-(def fram (.getCanonicalPath (java.io.File. fram-home)))
+(def store (.getCanonicalPath (java.io.File. store-home)))
 (def root
   (.toFile
    (java.nio.file.Files/createTempDirectory
@@ -30,7 +30,7 @@
 (def threads-dir (str root "/threads"))
 
 (defn fact-line [tx l p r]
-  (pr-str {:tx tx :op "assert" :l l :p p :r r :frame "fixture"}))
+  (pr-str {:tx tx :op "assert" :l l :p p :r r :record "fixture"}))
 
 (spit clean-log
       (str (fact-line 1 "@clean" "title" "Clean validation fixture") "\n"))
@@ -44,7 +44,7 @@
     :dir repo
     :out :string
     :err :string
-    :extra-env {"BEAGLE_STORE_HOME" fram
+    :extra-env {"BEAGLE_STORE_HOME" store
                 "BEAGLE_STORE_LOG" log
                 "BEAGLE_STORE_TELEMETRY_LOG" ""
                 "BEAGLE_STORE_THREADS" threads-dir

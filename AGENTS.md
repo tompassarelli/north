@@ -25,7 +25,7 @@ is canonical; `threads/` is a projection.
   for SDK changes. The package script owns the hermetic preloads and test
   isolation; do not bypass it.
 - The bridge TUI is headless-testable: `createTestRenderer` from
-  `@opentui/core/testing` renders the real widget tree and captures frames, so
+  `@opentui/core/testing` renders the real widget tree and captures snapshots, so
   TUI changes get assertions rather than a screenshot.
 - A provider fallback is permitted only before side effects are observable.
 

@@ -63,9 +63,9 @@ printf '%s\n' \
   >"$tmp/bin/bun"
 chmod +x "$tmp/bin/bun"
 
-mkdir -p "$tmp/fram/bin"
-printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tmp/fram/bin/beagle-store-server"
-chmod +x "$tmp/fram/bin/beagle-store-server"
+mkdir -p "$tmp/store/bin"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$tmp/store/bin/beagle-store-server"
+chmod +x "$tmp/store/bin/beagle-store-server"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'printf "clojure %s\n" "$*" >> "${NORTH_SDK_TEST_TRACE:?}"' \
@@ -85,7 +85,7 @@ grep -Eq '^SDK tests: 2 files · 2 pass · 0 skip · 0 fail · 4 expects · [0-9
 
 printf '%s\n' '// isolated Beagle Store server fixture' >"$tmp/sdk/test/mcp-driver-lifetime-integration.test.ts"
 : >"$trace"
-PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" BEAGLE_STORE_TEST_CHECKOUT="$tmp/fram" \
+PATH="$tmp/bin:$PATH" NORTH_SDK_TEST_TRACE="$trace" BEAGLE_STORE_TEST_CHECKOUT="$tmp/store" \
   bash "$tmp/sdk/test/support/run-suite.sh" >"$tmp/server-lane.out"
 grep -Eq '^SDK tests: 3 files · 3 pass · 0 skip · 0 fail · 6 expects · [0-9]+s$' "$tmp/server-lane.out"
 grep -Fxq 'clojure -P -M server.clj' "$trace"

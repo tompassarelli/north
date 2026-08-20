@@ -6,10 +6,10 @@ change X."
 
 ## The layer stack
 
-**Engine** → [Beagle Store](https://github.com/Autonymy/fram), selected by the installed
-wrapper through the sealed FRAMRPC environment.
+**Engine** → Beagle Store, selected by the installed
+wrapper through the sealed Store RPC environment.
 Beagle Store is a slot-addressable, typed-triple substrate: the triple store, the
-Datalog evaluator, and the canonical FRAMRPC server. North does not vendor it,
+Datalog evaluator, and the canonical Store RPC server. North does not vendor it,
 fork it, or package it: [`flake.nix`](../flake.nix) deliberately does not select
 a second engine, and both the checkout launcher and the installed package source
 the host-published `beagle-store.env` for the engine's identity. That one sealed
@@ -70,14 +70,14 @@ maps to a tested CLI operation through the Beagle Store server write path, so in
 agents dispatch through `mcp__north__dispatch` / `spawn` rather than the shell
 verbs.
 
-**Data** → your own private store. Canonical FRAMLOG databases live in runtime
+**Data** → your own private store. Canonical store-log databases live in runtime
 state and are **not** part of this repository.
 
 ## The write path
 
 Every **coordination-graph** write serializes through one current Beagle Store server,
 which rule-checks it before it lands. The configured server listens locally on
-`127.0.0.1:7977` (`NORTH_PORT`); canonical FRAMRPC requests carry the selected
+`127.0.0.1:7977` (`NORTH_PORT`); canonical Store RPC requests carry the selected
 SpaceId, and `north:cli/runtime-attestation.clj` binds the live listener to the
 sealed Beagle Store release `BEAGLE_STORE_HOME` names — its receipt's revision and tree, its
 Native artifact, database, and service owner.
@@ -102,7 +102,7 @@ through the chosen provider's catalog. See
 ## Emergency recovery
 
 `north panic` is a Bash-only kill switch that works when babashka, Beagle Store, or the
-FRAMRPC server are unavailable. It writes `dispatch=native` and `guards=off` to
+Store RPC server are unavailable. It writes `dispatch=native` and `guards=off` to
 `~/.local/state/north/harness.conf`, preserves the other keys, and prints the
 exact restore commands. Use it to return to stock native operation while
 repairing North, not as a routine posture change — `north config` is the

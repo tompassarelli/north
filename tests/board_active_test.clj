@@ -8,7 +8,7 @@
 ;; Asserts: fresh lease => live; expired lease falls through to recency; a human
 ;; (no lease) rides recency; stale on both axes => parked; no driver => not-active;
 ;; a garbage updated_at never crashes.
-;;   BEAGLE_STORE_OUT=/path/to/fram/out bb -cp out:"$BEAGLE_STORE_OUT" tests/board_active_test.clj
+;;   BEAGLE_STORE_OUT=/path/to/store/out bb -cp out:"$BEAGLE_STORE_OUT" tests/board_active_test.clj
 (require '[store.types :as t] '[north.projections :as proj]
          '[north.main :as m] '[store.rt :as rt])
 

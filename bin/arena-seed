@@ -7,7 +7,7 @@
 ;; renders + updates live. The graph arm uses fewer tokens and less wall time;
 ;; the control arm burns extra attempts and usage, one task blocks, one fails.
 ;;
-;; One process speaking canonical FRAMRPC to the current Beagle Store server.
+;; One process speaking canonical Store RPC to the current Beagle Store server.
 ;; Re-drivable: each run mints a FRESH exp id unless one is passed.
 ;;
 ;;   usage: bin/arena-seed [exp_id]
@@ -47,7 +47,7 @@
 (def PORT
   (parse-port (or (System/getenv "NORTH_PORT") "7977")))
 (def HOST
-  (or (not-empty (System/getenv "NORTH_FRAMRPC_HOST")) "127.0.0.1"))
+  (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1"))
 (def SPACE-ID
   (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination"))
 (def exp (or (first *command-line-args*)
@@ -60,7 +60,7 @@
            (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss'Z'")))
 
 (defn set-subject!
-  "Drive every predicate in FACTS to one exact value as one atomic FRAMRPC
+  "Drive every predicate in FACTS to one exact value as one atomic Store RPC
    transaction. A conflict re-reads and replans; no individual field write can
    expose a partially updated arena row."
   [client subject facts]

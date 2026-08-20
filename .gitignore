@@ -1,5 +1,5 @@
 # engine sources symlinked in for the Beagle build (Beagle Store is the source of truth)
-src/fram
+src/store
 
 # tenant registry holds token hashes + topology — keep it out of git
 
@@ -27,7 +27,7 @@ streams/raw/
 /REPORT.md
 
 # Graph-native code-authoring cache, corpus, and local coordinator state.
-.fram/
+.store/
 
 # docctl state is normally outside the checkout; keep explicit local overrides out.
 .docctl/
