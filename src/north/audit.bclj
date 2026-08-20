@@ -43,9 +43,9 @@
 (defn repo-drift [idx proj/ProjectionIndex] (Vec DriftGroup)
   (let [forms (Vec String) (vec (sort (set (keys (tally idx "repo")))))
         grouped (Map String (Vec String)) (reduce (fn
-                          [m (Map String (Vec String))
-                           t String] (Map String (Vec String))
-                          (let [kk String (norm-repo t)]
+                                                    [m (Map String (Vec String))
+                                                     t String] (Map String (Vec String))
+                                                    (let [kk String (norm-repo t)]
                             (assoc m kk (conj (get m kk []) t))))
                         {} forms)]
     (collisions forms grouped)))
