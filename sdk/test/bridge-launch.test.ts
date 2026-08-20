@@ -10,6 +10,7 @@ import { readHello, runBridgeRestart, verifiedSocket } from "../src/bridge/cli";
 import * as bridgeApp from "../src/bridge/generated/north/bridge/app.js";
 import * as bridgeModel from "../src/bridge/generated/north/bridge/model.js";
 import { Northd } from "../src/bridge/host";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
   bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity,
 } from "../src/bridge/protocol";
@@ -29,6 +30,7 @@ import { BridgeWireTestSession } from "./support/bridge-wire-session";
 const REV_A = "a".repeat(40);
 const REV_B = "b1".repeat(20);
 const REV_C = "c2".repeat(20);
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 
 const cleanups: Array<() => Promise<void> | void> = [];
 let root: string;
@@ -193,7 +195,9 @@ function started(wire: Wire): boolean {
 
 async function launch(prompt: string, role = "implementer"): Promise<Wire> {
   const wire = await opened();
-  wire.socket.write(`${JSON.stringify({ op: "launch", prompt, cwd: root, role })}\n`);
+  wire.socket.write(`${JSON.stringify({
+    op: "launch", prompt, cwd: root, role, attemptId: ATTEMPT_ID,
+  })}\n`);
   return wire;
 }
 
@@ -265,6 +269,7 @@ async function hostedDaemon(
     // is a real probe with real latency, and a session still being selected is
     // a session this test would race.
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
     onRetire: () => { retired += 1; void close(); },
   });
   await northd.listen();

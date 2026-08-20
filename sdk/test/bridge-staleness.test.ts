@@ -4,6 +4,7 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import { bridgeWirePath, ExecutionJournal } from "../src/bridge/journal";
 import type {
   BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
@@ -18,6 +19,8 @@ interface Client {
 }
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const ATTEMPT_A = `@attempt:${"a".repeat(64)}`;
+const ATTEMPT_B = `@attempt:${"b".repeat(64)}`;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -94,6 +97,7 @@ async function fixture(
     // of this file's load flake, and of a network round trip a unit suite has
     // no business making.
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_A, ATTEMPT_B]),
     sourceIdentity: identity,
     stalePollMs: 20,
     onRetire: () => { retired += 1; void northd.close(); },
@@ -117,7 +121,9 @@ test("a fresh idle daemon never retires", async () => {
 
 test("an unknown identity disarms the watchdog and admits launches", async () => {
   const { socketPath, openCount, retireCount } = await fixture(() => undefined);
-  const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "go", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(() => openCount() === 1, "provider open");
   await Bun.sleep(120);
   expect(retireCount()).toBe(0);
@@ -141,7 +147,9 @@ test("a retiring daemon keeps its listener until provider locks are released", a
       return session;
     },
   );
-  const launched = await client(socketPath, { op: "launch", prompt: "stay", cwd: "/" });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "stay", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(() => openCount() === 1, "provider open");
   if (!session) throw new Error("provider session missing");
 
@@ -170,12 +178,15 @@ test("a control-journal close failure still releases the listener and wire lock"
       async open(context) { return new BridgeWireTestSession(context); },
     },
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_A]),
     sourceIdentity: () => "rev-a",
     controlJournal: (directory, executionId) => new CloseFailureJournal(directory, executionId),
   });
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   await northd.listen();
-  const launched = await client(socketPath, { op: "launch", prompt: "stay", cwd: "/" });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "stay", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(
     () => launched.messages.some((message) => message.type === "launched"),
     "execution launch",
@@ -192,13 +203,17 @@ test("a control-journal close failure still releases the listener and wire lock"
 test("live executions pin a stale daemon and new launches fail explicitly", async () => {
   let disk = "rev-a";
   const { socketPath, openCount, retireCount } = await fixture(() => disk);
-  const live = await client(socketPath, { op: "launch", prompt: "stay", cwd: "/" });
+  const live = await client(socketPath, {
+    op: "launch", prompt: "stay", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(() => openCount() === 1, "provider open");
   disk = "rev-b";
   await Bun.sleep(120);
   expect(retireCount()).toBe(0);
 
-  const refused = await client(socketPath, { op: "launch", prompt: "again", cwd: "/" });
+  const refused = await client(socketPath, {
+    op: "launch", prompt: "again", cwd: "/", attemptId: ATTEMPT_B,
+  });
   await refused.closed;
   const failed = refused.messages.find((message) =>
     message.type === "event" && message.record.kind === "execution.failure");
@@ -271,7 +286,9 @@ test("a session whose provider refuses at admit stops holding the daemon open", 
   const { socketPath, retireCount } = await fixture(() => disk, async () => {
     throw new Error("bwrap_executable_unavailable");
   });
-  const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "go", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(
     () => launched.messages.some((message) =>
       message.type === "event" && message.record.kind === "execution.failure"),
@@ -291,7 +308,9 @@ test("oversized provider prose is omitted from Bridge evidence and releases the 
   const { socketPath, retireCount } = await fixture(() => disk, async () => {
     throw new Error("x".repeat(9 * 1024 * 1024));
   });
-  const launched = await client(socketPath, { op: "launch", prompt: "go", cwd: "/" });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "go", cwd: "/", attemptId: ATTEMPT_A,
+  });
   await waitFor(
     () => launched.messages.some((message) =>
       message.type === "event" && message.record.kind === "execution.failure"),

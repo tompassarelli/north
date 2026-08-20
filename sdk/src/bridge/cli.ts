@@ -7,6 +7,7 @@ import { runBridgeAcceptance } from "./accept";
 import type { WireEvent } from "../wire/events";
 import {
   bridgeSocketPath, bridgeSourceIdentity, parseBridgeLaunchEffort,
+  parseBridgeLaunchAttemptId,
   parseBridgeLaunchModel, parseBridgeLaunchProvider, parseBridgeLaunchRole,
   parseBridgeLaunchTier, pinningExecutions,
   type BridgeLaunchSelection,
@@ -18,13 +19,14 @@ import { markLaneConsumed, pendingLanes, type PendingLane } from "./pending";
 
 export interface BridgeLaunchArguments extends BridgeLaunchSelection {
   role: BridgeLaunchRole;
+  attemptId: string;
   promptArguments: string[];
 }
 
 function usage(): never {
   console.error(
     "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
-    + " | north bridge [--role director|implementer] [route flags] <prompt>"
+    + " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
     + " | north bridge dashboard [--once] [--ids] | north bridge accept"
     + " | north bridge restart  (retire the control daemon now)"
     + " | north bridge pending [--json | --consume <execution-id>]"
@@ -33,7 +35,7 @@ function usage(): never {
     + "\nroute flags: --provider anthropic|openai | --claude | --openai"
     + " --tier economy|standard|senior|frontier --model ID"
     + " --effort low|medium|high|xhigh|max"
-    + "\nlaunch role defaults to implementer",
+    + "\nlaunch requires a reserved attempt id; role defaults to implementer",
   );
   process.exit(2);
 }
@@ -44,6 +46,7 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
   let tier: BridgeLaunchSelection["tier"];
   let model: string | undefined;
   let effort: BridgeLaunchSelection["effort"];
+  let attemptId: string | undefined;
   let index = 0;
   while (index < args.length) {
     const argument = args[index];
@@ -51,6 +54,14 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
       if (index + 1 >= args.length)
         throw new Error("bridge --role requires director or implementer");
       role = parseBridgeLaunchRole(args[index + 1]);
+      index += 2;
+      continue;
+    }
+    if (argument === "--attempt") {
+      if (index + 1 >= args.length) {
+        throw new Error("bridge --attempt requires a canonical reserved attempt id");
+      }
+      attemptId = parseBridgeLaunchAttemptId(args[index + 1]);
       index += 2;
       continue;
     }
@@ -76,8 +87,12 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
     }
     break;
   }
+  if (attemptId === undefined) {
+    throw new Error("bridge launch requires --attempt with a reserved attempt id");
+  }
   return {
     role,
+    attemptId,
     ...(provider ? { provider } : {}),
     ...(tier ? { tier } : {}),
     ...(model ? { model } : {}),
@@ -520,6 +535,7 @@ async function main(args: string[]): Promise<number> {
     if (!prompt) usage();
     request = {
       op: "launch", prompt, cwd: process.cwd(), role: launch.role,
+      attemptId: launch.attemptId,
       ...(launch.provider ? { provider: launch.provider } : {}),
       ...(launch.tier ? { tier: launch.tier } : {}),
       ...(launch.model ? { model: launch.model } : {}),
