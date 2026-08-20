@@ -75,10 +75,10 @@
  (defn upsert-agent
    [model BridgeModel
     agent Agent] BridgeModel
-   (let [agents Any (js/call (bridgemodel-agents model) .filter
+   (let [agents Any (.filter (bridgemodel-agents model)
                         (fn [existing Agent] Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
-    (with model [:agents (js/call agents .concat agent)]))))
+    (with model [:agents (.concat agents agent)]))))
 
 ;; The roster can lose a member. A session that has been replaced is not a row
 ;; with a sad status — it is not on the roster at all, and only the caller that
@@ -88,7 +88,7 @@
    [model BridgeModel
     removed-id String] BridgeModel
    (with model
-    [:agents (js/call (bridgemodel-agents model) .filter
+    [:agents (.filter (bridgemodel-agents model)
                       (fn [existing Agent] Bool
                         (not (identical? (agent-id existing) removed-id))))])))
 
@@ -132,9 +132,9 @@
  (defn set-filter
    [model BridgeModel
     filter-text String] BridgeModel
-   (let [trimmed String (js/call filter-text .trim)]
+   (let [trimmed String (.trim filter-text)]
     (with model
-      [:filter-text (js/call trimmed .toLowerCase)]
+      [:filter-text (.toLowerCase trimmed)]
       [:notice (if (identical? trimmed "")
                  "filter cleared"
                  (str "filter: " filter-text))]))))
@@ -144,18 +144,18 @@
    source (Vec WorkItem)] (Vec WorkItem)
   (let [agent-id String (bridgemodel-selected-agent model)
         needle String (bridgemodel-filter-text model)]
-    (js/call source .filter
+    (.filter source
              (fn [item WorkItem] Bool
                (and (or (identical? agent-id "")
                         (identical? (workitem-driver item) agent-id))
                     (or (identical? needle "")
-                        (js/call
-                         (js/call
+                        (.includes
+                         (.toLowerCase
                           (str (workitem-id item) " "
                                (workitem-title item) " "
                                (workitem-body item) " "
                                (workitem-condition item) " "
-                               (workitem-driver item)) .toLowerCase) .includes
+                               (workitem-driver item)))
                          needle)))))))
 
 (js/export
