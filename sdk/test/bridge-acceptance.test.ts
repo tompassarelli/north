@@ -3,7 +3,10 @@ import { runBridgeAcceptance } from "../src/bridge/accept";
 
 test("Stage 3 acceptance survives UI death and explains two controlled sessions from journals", async () => {
   const output: string[] = [];
-  const result = await runBridgeAcceptance({ output: (line) => output.push(line) });
+  const result = await runBridgeAcceptance({
+    attemptIds: [`@attempt:${"a".repeat(64)}`, `@attempt:${"b".repeat(64)}`],
+    output: (line) => output.push(line),
+  });
 
   expect(result).toEqual(output);
   expect(output.filter((line) => line.startsWith("PASS "))).toHaveLength(8);
