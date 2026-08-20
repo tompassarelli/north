@@ -1749,18 +1749,19 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // by construction.
 // BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
 // (agent-spawn-guard): repository layout and staging discipline bind every lane.
+const FIRN_SYSTEM_POLICY = "/run/current-system/sw/bin/firn-system-policy";
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "launch-critical-worktree-guard.sh", "firn-guard.sh",
+  "launch-critical-worktree-guard.sh", FIRN_SYSTEM_POLICY,
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", FIRN_SYSTEM_POLICY, "corpus-scan-guard.sh",
   "session-kill-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "firn-guard.sh", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", FIRN_SYSTEM_POLICY, "corpus-scan-guard.sh",
   "session-kill-guard.sh",
 ]);
 

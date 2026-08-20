@@ -8,6 +8,7 @@ import { providerPreacceptError } from "./types";
 
 export const CODEX_MANAGED_REQUIREMENTS = "/etc/codex/requirements.toml";
 export const CODEX_MANAGED_HOOKS_DIR = "/etc/codex/hooks";
+export const FIRN_SYSTEM_POLICY = "/run/current-system/sw/bin/firn-system-policy";
 const MAX_REQUIREMENTS_BYTES = 128 * 1024;
 const NORTH_ENFORCEMENT_ROOT = "/var/lib/north-enforcement";
 const NIX_STORE_ROOT = "/nix/store";
@@ -71,6 +72,8 @@ export interface ManagedCodexHookInstallation {
   nixStoreRoot: string;
   enforcementRoot: string;
   expectedOwnerUid: number;
+  /** Hermetic-test override; production always uses FIRN_SYSTEM_POLICY. */
+  systemPolicyPath?: string;
 }
 
 interface ManagedCommandHook {
@@ -101,6 +104,21 @@ const command = (
   timeout,
 });
 
+const nativeCommand = (
+  path: string,
+  timeout = 10,
+  managedDir = CODEX_MANAGED_HOOKS_DIR,
+): ManagedCommandHook => ({
+  type: "command",
+  command: [
+    resolve(managedDir, "runtime/env"),
+    "-u", "BASH_ENV",
+    "-u", "ENV",
+    path,
+  ].join(" "),
+  timeout,
+});
+
 /**
  * Exact provider-native lifecycle/authoring/activity boundary for Codex.
  *
@@ -117,6 +135,7 @@ const command = (
  */
 export function expectedManagedCodexHooks(
   managedDir = CODEX_MANAGED_HOOKS_DIR,
+  systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): Record<
   "SessionStart" | "SubagentStart" | "PreToolUse" | "PostToolUse" | "Stop",
   ManagedMatcher[]
@@ -139,7 +158,7 @@ export function expectedManagedCodexHooks(
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
         hooks: [
-          command("firn-guard.sh", 10, managedDir),
+          nativeCommand(systemPolicyPath, 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
         ],
       },
@@ -148,7 +167,7 @@ export function expectedManagedCodexHooks(
         hooks: [
           command("agent-spawn-guard.sh", 10, managedDir),
           command("tripwire-guard.sh", 10, managedDir),
-          command("firn-guard.sh", 10, managedDir),
+          nativeCommand(systemPolicyPath, 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
@@ -198,6 +217,7 @@ function exact(value: unknown, expected: unknown, label: string): void {
 export function validateManagedCodexRequirements(
   source: string,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
+  systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): void {
   let parsed: any;
   try { parsed = Bun.TOML.parse(source); }
@@ -221,7 +241,7 @@ export function validateManagedCodexRequirements(
   exact(parsed.features, { hooks: true }, "managed Codex feature requirements");
   if (parsed.hooks?.managed_dir !== managedDir)
     throw new Error(`managed Codex requirements must pin hooks.managed_dir=${managedDir}`);
-  const expected = expectedManagedCodexHooks(managedDir);
+  const expected = expectedManagedCodexHooks(managedDir, systemPolicyPath);
   const expectedKeys = [...Object.keys(expected), "managed_dir"].sort();
   if (Object.keys(parsed.hooks ?? {}).sort().join(",") !== expectedKeys.join(","))
     throw new Error("managed Codex hook event surface is not exact");
@@ -402,13 +422,18 @@ function assertSealedPromotedHook(
 function managedCommandPaths(
   value: string,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
-): { env: string; interpreter: string; script: string } {
+  systemPolicyPath = FIRN_SYSTEM_POLICY,
+): { env: string; interpreter?: string; executable: string; script?: string } {
   const env = resolve(managedDir, "runtime/env");
   const prefix = `${env} -u BASH_ENV -u ENV `;
   if (!value.startsWith(prefix))
     throw new Error("managed Codex hook command does not scrub shell startup authority");
   const tokens = value.slice(prefix.length).split(" ");
-  if (tokens.length !== 2 || tokens.some((token) => !token))
+  if (tokens.some((token) => !token))
+    throw new Error("managed Codex hook command token sequence is not exact");
+  if (tokens.length === 1 && tokens[0] === systemPolicyPath)
+    return { env, executable: systemPolicyPath };
+  if (tokens.length !== 2)
     throw new Error("managed Codex hook command token sequence is not exact");
   const [interpreter, script] = tokens as [string, string];
   const allowedInterpreters = new Set([
@@ -420,7 +445,7 @@ function managedCommandPaths(
       || resolve(script) !== script) {
     throw new Error("managed Codex hook command paths are outside the managed closure");
   }
-  return { env, interpreter, script };
+  return { env, interpreter, executable: script, script };
 }
 
 /**
@@ -440,16 +465,21 @@ export function validateManagedCodexHookInstallation(
   if (bytes.byteLength > MAX_REQUIREMENTS_BYTES)
     throw new Error("managed Codex requirements exceed the bounded size");
   const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  validateManagedCodexRequirements(source, installation.managedDir);
-  const expected = expectedManagedCodexHooks(installation.managedDir);
+  const systemPolicyPath = installation.systemPolicyPath ?? FIRN_SYSTEM_POLICY;
+  validateManagedCodexRequirements(source, installation.managedDir, systemPolicyPath);
+  const expected = expectedManagedCodexHooks(installation.managedDir, systemPolicyPath);
   const commands = new Set(Object.values(expected)
     .flatMap((entries) => entries.flatMap((entry) =>
       entry.hooks.map((hook) => hook.command))));
   let promotion: CapturedPromotion | undefined;
   for (const commandLine of commands) {
-    const paths = managedCommandPaths(commandLine, installation.managedDir);
+    const paths = managedCommandPaths(commandLine, installation.managedDir, systemPolicyPath);
     assertNixManagedFile(paths.env, true, installation.nixStoreRoot);
-    assertNixManagedFile(paths.interpreter, true, installation.nixStoreRoot);
+    if (!paths.script) {
+      assertNixManagedFile(paths.executable, true, installation.nixStoreRoot);
+      continue;
+    }
+    assertNixManagedFile(paths.interpreter!, true, installation.nixStoreRoot);
     try {
       assertNixManagedFile(paths.script, false, installation.nixStoreRoot);
     } catch (cause) {
@@ -500,6 +530,7 @@ export function reportManagedCodexHookInstallation(
         throw new Error("managed Codex requirements exceed the bounded size");
       validateManagedCodexRequirements(
         new TextDecoder("utf-8", { fatal: true }).decode(bytes), installation.managedDir,
+        installation.systemPolicyPath ?? FIRN_SYSTEM_POLICY,
       );
       return { path: installation.requirementsPath, ok: true };
     } catch (error) {
@@ -540,13 +571,14 @@ export function reportManagedCodexHookInstallation(
     }
   };
 
-  const expected = expectedManagedCodexHooks(installation.managedDir);
+  const systemPolicyPath = installation.systemPolicyPath ?? FIRN_SYSTEM_POLICY;
+  const expected = expectedManagedCodexHooks(installation.managedDir, systemPolicyPath);
   const commands = new Set(Object.values(expected)
     .flatMap((entries) => entries.flatMap((entry) => entry.hooks.map((hook) => hook.command))));
   for (const commandLine of commands) {
     let paths: ReturnType<typeof managedCommandPaths>;
     try {
-      paths = managedCommandPaths(commandLine, installation.managedDir);
+      paths = managedCommandPaths(commandLine, installation.managedDir, systemPolicyPath);
     } catch (error) {
       hooks.set(commandLine, {
         hook: commandLine, path: commandLine, supply: "unavailable", detail: describe(error),
@@ -554,8 +586,8 @@ export function reportManagedCodexHookInstallation(
       continue;
     }
     record(runtime, paths.env, true);
-    record(runtime, paths.interpreter, true);
-    record(hooks, paths.script, false);
+    if (paths.interpreter) record(runtime, paths.interpreter, true);
+    record(hooks, paths.executable, paths.script === undefined);
   }
   const bySupply = (entries: Iterable<ManagedCodexHookSupply>) =>
     [...entries].sort((left, right) => left.hook.localeCompare(right.hook));
