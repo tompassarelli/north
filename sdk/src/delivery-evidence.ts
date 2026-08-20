@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
+import { parseFence, rpcFence } from "./store-rpc-codec";
+import { StoreRpcClient } from "./store-rpc-client";
 import {
   beagleStoreBabashkaArguments,
   beagleStoreCoordinatorChildTimeout,
@@ -155,6 +157,14 @@ export interface DeliveryLeaseFence {
   resource: string;
   holder: string;
   epoch: number;
+}
+
+export const DELIVERY_ATTEMPT_LEASE_TTL_MS = 30 * 60 * 1_000;
+
+export interface DeliveryAttemptLeaseClaim {
+  threadLease: DeliveryLeaseFence;
+  accountLease: DeliveryLeaseFence;
+  release(): Promise<void>;
 }
 
 export interface DeliveryAttemptRoute {
@@ -575,6 +585,58 @@ export function attemptIdentityForReservationReceipt(receiptSha256: string): str
     throw new Error("execution attempt reservation receipt is invalid");
   }
   return `@attempt:${receiptSha256}`;
+}
+
+function parsedNativeFence(value: unknown, expectedResource: string): DeliveryLeaseFence {
+  const parsed = parseFence(value as Parameters<typeof parseFence>[0]);
+  if (parsed.resource !== expectedResource || typeof parsed.holder !== "string") {
+    throw new Error("Store returned a mismatched execution attempt lease fence");
+  }
+  return { resource: expectedResource, holder: parsed.holder, epoch: parsed.epoch };
+}
+
+export async function acquireDeliveryAttemptLeases(
+  context: DeliveryRunContext,
+  accountId: string,
+  ttlMs = DELIVERY_ATTEMPT_LEASE_TTL_MS,
+): Promise<DeliveryAttemptLeaseClaim> {
+  if (!ACCOUNT_ID_PATTERN.test(accountId)) throw new Error("delivery attempt account id is invalid");
+  const threadResource = `thread:${context.threadId}:dispatch`;
+  const accountResource = `codex-account:${accountId}:slot:0`;
+  const holder = `execution-attempt:${sha256(`${context.runId}\0${context.reporterAgentId}`)}`;
+  const client = await StoreRpcClient.connect({ maxAttempts: 1, retryDelayMs: 0, jitterMs: 0 });
+  let threadLease: DeliveryLeaseFence | undefined;
+  let accountLease: DeliveryLeaseFence | undefined;
+  const release = async (): Promise<void> => {
+    const releaseClient = await StoreRpcClient.connect({
+      maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
+    });
+    const releases: Promise<unknown>[] = [];
+    if (accountLease) releases.push(releaseClient.leaseRelease(rpcFence(
+      accountLease.resource, accountLease.holder, accountLease.epoch,
+    )));
+    if (threadLease) releases.push(releaseClient.leaseRelease(rpcFence(
+      threadLease.resource, threadLease.holder, threadLease.epoch,
+    )));
+    await Promise.allSettled(releases);
+    releaseClient.close();
+  };
+  try {
+    threadLease = parsedNativeFence(
+      (await client.leaseAcquire(threadResource, holder, ttlMs)).fence,
+      threadResource,
+    );
+    accountLease = parsedNativeFence(
+      (await client.leaseAcquire(accountResource, holder, ttlMs)).fence,
+      accountResource,
+    );
+    client.close();
+    return { threadLease, accountLease, release };
+  } catch (error) {
+    client.close();
+    await release().catch(() => undefined);
+    throw error;
+  }
 }
 
 function deliveryLeaseFence(

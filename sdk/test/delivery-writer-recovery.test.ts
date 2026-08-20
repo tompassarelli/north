@@ -9,7 +9,41 @@ import {
   deliveryReservationFailureCause,
   newDeliveryRunContext,
   reserveDeliveryRunWithRecovery,
+  type DeliveryAttemptRoute,
+  type DeliveryReservation,
+  type DeliveryRunContext,
 } from "../src/delivery-evidence";
+
+function attemptRoute(context: DeliveryRunContext): DeliveryAttemptRoute {
+  return {
+    provider: "openai",
+    accountId: "codex-test",
+    model: "gpt-test",
+    accountAuthorityReceiptSha256: "1".repeat(64),
+    routeObservationReceiptSha256: "2".repeat(64),
+    threadLease: {
+      resource: `thread:${context.threadId}:dispatch`, holder: "test-holder", epoch: 1,
+    },
+    accountLease: {
+      resource: "codex-account:codex-test:slot:0", holder: "test-holder", epoch: 1,
+    },
+  };
+}
+
+function attemptReservation(
+  context: DeliveryRunContext,
+  contractOrigin: DeliveryReservation["contractOrigin"],
+  baselineDoneWhen: string[],
+): DeliveryReservation {
+  return {
+    contractOrigin,
+    baselineDoneWhen,
+    attemptId: `@attempt:${"3".repeat(64)}`,
+    attemptOrdinal: 1,
+    manifestSha256: "3".repeat(64),
+    ...attemptRoute(context),
+  };
+}
 
 test("a typed pre-reservation writer process failure is relaunched once", () => {
   const context = newDeliveryRunContext(
@@ -23,6 +57,7 @@ test("a typed pre-reservation writer process failure is relaunched once", () => 
   const slept: number[] = [];
   const reservation = reserveDeliveryRunWithRecovery(
     context,
+    attemptRoute(context),
     () => {
       attempts++;
       if (attempts === 1) {
@@ -32,15 +67,12 @@ test("a typed pre-reservation writer process failure is relaunched once", () => 
         }, { code: "EPIPE" });
       }
       publishedReservations++;
-      return { contractOrigin: "worker-defined", baselineDoneWhen: [] };
+      return attemptReservation(context, "worker-defined", []);
     },
     { sleep: (ms) => slept.push(ms) },
   );
 
-  expect(reservation).toEqual({
-    contractOrigin: "worker-defined",
-    baselineDoneWhen: [],
-  });
+  expect(reservation).toEqual(attemptReservation(context, "worker-defined", []));
   expect(attempts).toBe(2);
   expect(publishedReservations).toBe(1);
   expect(slept).toEqual([100]);
@@ -75,6 +107,7 @@ test("a coordinator transport death is replayable and relaunched with the same c
     const slept: number[] = [];
     const reservation = reserveDeliveryRunWithRecovery(
       context,
+      attemptRoute(context),
       (attemptContext) => {
         attempts++;
         replayedContexts.push(
@@ -91,15 +124,12 @@ test("a coordinator transport death is replayable and relaunched with the same c
             capabilitySha256: "e".repeat(64),
           });
         }
-        return { contractOrigin: "accepted", baselineDoneWhen: ["bar → ok"] };
+        return attemptReservation(context, "accepted", ["bar → ok"]);
       },
       { sleep: (ms) => slept.push(ms) },
     );
 
-    expect(reservation).toEqual({
-      contractOrigin: "accepted",
-      baselineDoneWhen: ["bar → ok"],
-    });
+    expect(reservation).toEqual(attemptReservation(context, "accepted", ["bar → ok"]));
     expect(attempts).toBe(2);
     expect(new Set(replayedContexts).size).toBe(1);
     expect(slept).toEqual([100]);
@@ -152,6 +182,7 @@ test("a reservation verdict stays terminal even under recovery", () => {
     let attempts = 0;
     expect(() => reserveDeliveryRunWithRecovery(
       context,
+      attemptRoute(context),
       () => { attempts++; throw failure; },
       { sleep: () => { throw new Error("terminal verdict slept"); } },
     )).toThrow(failure.message);
@@ -178,6 +209,7 @@ test("writer timeout and publication deadline are terminal, not replayed", () =>
     let attempts = 0;
     expect(() => reserveDeliveryRunWithRecovery(
       context,
+      attemptRoute(context),
       () => {
         attempts++;
         throw error;
@@ -201,6 +233,7 @@ test("recovery exhaustion rethrows the final writer-process failure and never lo
   try {
     reserveDeliveryRunWithRecovery(
       context,
+      attemptRoute(context),
       () => {
         attempts++;
         throw new DeliveryReservationWriterProcessFailure(
