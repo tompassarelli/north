@@ -17,6 +17,7 @@ north help work — threads: thought → fact → outcome
   north resolve <ref>                           canonical thread id for a ref (id, slug, or substring)
   north evidence record "<bar>" "<result>"      bind done-bar evidence to this exact managed run
                                                 --thread <id> — no reservation in env: record unreserved thread evidence
+  north recover <@attempt:sha256> [--json]      show one attempt's Store-authoritative safe next action (read-only)
   north bars list|prune <thread>                groom a thread's done_when set; prune retires evidenced bars
   north worktrees [repo] [--json]               every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern
   north worktree lander [repo]                  landing reconciliation: harvest lane refs already merged to main

@@ -1,6 +1,6 @@
 north help comms — attention between people and agents
 
-  north inbox [--as <recipient>]        durable messages waiting on you  (alias: notifications)
+  north inbox [--as <recipient>]        durable messages waiting on you
                                         --as <recipient> — inspect another recipient's inbox
   north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
                                         --about <thread> — attach the request to a thread

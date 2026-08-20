@@ -19,6 +19,7 @@ WORK — threads: thought → fact → outcome
   north resolve <ref>                           canonical thread id for a ref (id, slug, or substring)
   north evidence record "<bar>" "<result>"      bind done-bar evidence to this exact managed run
                                                 --thread <id> — no reservation in env: record unreserved thread evidence
+  north recover <@attempt:sha256> [--json]      show one attempt's Store-authoritative safe next action (read-only)
   north bars list|prune <thread>                groom a thread's done_when set; prune retires evidenced bars
   north worktrees [repo] [--json]               every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern
   north worktree lander [repo]                  landing reconciliation: harvest lane refs already merged to main
@@ -54,7 +55,7 @@ AGENTS — delegate work, drive and observe agents
   north listen <agent-id>        arm the real-time interrupt listener (background task; dormant)
 
 COMMS — attention between people and agents
-  north inbox [--as <recipient>]        durable messages waiting on you  (alias: notifications)
+  north inbox [--as <recipient>]        durable messages waiting on you
                                         --as <recipient> — inspect another recipient's inbox
   north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
                                         --about <thread> — attach the request to a thread
