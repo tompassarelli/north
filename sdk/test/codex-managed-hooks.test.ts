@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
+  FIRN_SYSTEM_POLICY,
   type ManagedCodexHookInstallation, reportManagedCodexHookInstallation,
   validateManagedCodexHookInstallation, validateManagedCodexRequirements,
 } from "../src/providers/codex-managed-hooks";
@@ -32,6 +33,7 @@ afterEach(() => {
 function requirements(
   mutate?: (document: any) => void,
   managedDir = "/etc/codex/hooks",
+  systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): string {
   const document: any = {
     allow_managed_hooks_only: true,
@@ -40,7 +42,7 @@ function requirements(
     features: { hooks: true },
     hooks: {
       managed_dir: managedDir,
-      ...expectedManagedCodexHooks(managedDir),
+      ...expectedManagedCodexHooks(managedDir, systemPolicyPath),
     },
   };
   mutate?.(document);
@@ -129,6 +131,7 @@ function setupHookFixture(): HookFixture {
   const managedDir = join(root, "etc", "codex", "hooks");
   const nixStoreRoot = join(root, "nix", "store");
   const nixPackage = join(nixStoreRoot, `${"a".repeat(32)}-managed-hooks-test`);
+  const systemPolicyPath = join(nixPackage, "bin", "firn-system-policy");
   const enforcementRoot = join(root, "north-enforcement");
   const deploymentRoot = join(enforcementRoot, "deployments", deploymentId);
   const generationRoot = join(enforcementRoot, "generations", "1000000000000000000-1-1");
@@ -142,6 +145,7 @@ function setupHookFixture(): HookFixture {
     write(target, "#!/bin/sh\nexit 0\n", 0o555);
     symlinkSync(target, join(managedDir, "runtime", runtime));
   }
+  write(systemPolicyPath, "#!/bin/sh\nexit 0\n", 0o555);
 
   const promotedFiles: Record<string, string> = {};
   for (const [hook, manifestPath] of Object.entries(promotedHooks)) {
@@ -154,11 +158,12 @@ function setupHookFixture(): HookFixture {
     );
   }
 
-  const expected = expectedManagedCodexHooks(managedDir);
+  const expected = expectedManagedCodexHooks(managedDir, systemPolicyPath);
   const scripts = new Set(Object.values(expected)
     .flatMap((entries) => entries.flatMap((entry) => entry.hooks))
     .map(({ command }) => command.split(" ").at(-1)!));
   for (const script of scripts) {
+    if (script === systemPolicyPath) continue;
     const name = script.slice(`${managedDir}/`.length);
     if (name in promotedHooks) continue;
     const target = join(nixPackage, "hooks", name);
@@ -189,7 +194,7 @@ function setupHookFixture(): HookFixture {
   symlinkSync(`generations/${generationRoot.split("/").at(-1)!}`, join(enforcementRoot, "active"));
 
   const requirementsPath = join(nixPackage, "requirements.toml");
-  write(requirementsPath, requirements(undefined, managedDir), 0o444);
+  write(requirementsPath, requirements(undefined, managedDir, systemPolicyPath), 0o444);
   const expectedOwnerUid = process.getuid?.() ?? 0;
   return {
     root,
@@ -205,12 +210,24 @@ function setupHookFixture(): HookFixture {
       nixStoreRoot,
       enforcementRoot,
       expectedOwnerUid,
+      systemPolicyPath,
     },
   };
 }
 
 test("managed Codex requirements admit the exact full lifecycle policy", () => {
   expect(() => validateManagedCodexRequirements(requirements())).not.toThrow();
+});
+
+test("managed Codex authoring entrances invoke the native Firn system policy", () => {
+  const expected = expectedManagedCodexHooks();
+  const preToolUse = expected.PreToolUse;
+  for (const matcher of ["^(Edit|Write|MultiEdit|apply_patch)$", "^Bash$"]) {
+    const commands = preToolUse.find((entry) => entry.matcher === matcher)!.hooks
+      .map((hook) => hook.command);
+    expect(commands.some((command) => command.endsWith(` ${FIRN_SYSTEM_POLICY}`))).toBe(true);
+    expect(commands.some((command) => command.includes("firn-guard.sh"))).toBe(false);
+  }
 });
 
 test("North's managed hook contract admits Firn's source requirements exactly", () => {
