@@ -17,7 +17,10 @@ import {
   type JournalRecord,
 } from "./journal";
 import type { BridgeProviderExecution, BridgeProviderSession } from "./provider";
-import type { BridgeServerMessage } from "./protocol";
+import {
+  parseBridgeLaunchAttemptId,
+  type BridgeServerMessage,
+} from "./protocol";
 
 interface Client {
   socket: Socket;
@@ -26,6 +29,7 @@ interface Client {
 }
 
 interface AcceptanceOptions {
+  attemptIds: readonly [messaged: string, interrupted: string];
   output?: (line: string) => void;
 }
 
@@ -265,11 +269,13 @@ async function portIsDead(port: number): Promise<boolean> {
   return result.promise;
 }
 
-export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Promise<string[]> {
+export async function runBridgeAcceptance(options: AcceptanceOptions): Promise<string[]> {
   const lines: string[] = [];
   const output = options.output ?? ((line: string) => console.log(line));
   const emit = (line: string) => { lines.push(line); output(line); };
   const pass = (clause: string, detail: string) => emit(`PASS ${clause}: ${detail}`);
+  const messagedAttemptId = parseBridgeLaunchAttemptId(options.attemptIds[0]);
+  const interruptedAttemptId = parseBridgeLaunchAttemptId(options.attemptIds[1]);
   const root = mkdtempSync(join(tmpdir(), "north-bridge-accept-"));
   const socketPath = join(root, "northd.sock");
   const journalRoot = join(root, "journal");
@@ -291,9 +297,11 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
     hostOpen = true;
     const messagedLaunch = await client(socketPath, {
       op: "launch", prompt: "alpha initial", cwd: root,
+      attemptId: messagedAttemptId,
     });
     const interruptedLaunch = await client(socketPath, {
       op: "launch", prompt: "beta initial", cwd: root,
+      attemptId: interruptedAttemptId,
     });
     await waitFor(
       () => messagedLaunch.messages.some((message) =>
@@ -423,9 +431,4 @@ export async function runBridgeAcceptance(options: AcceptanceOptions = {}): Prom
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-if (import.meta.main) {
-  try { await runBridgeAcceptance(); }
-  catch { process.exitCode = 1; }
 }

@@ -15,6 +15,7 @@ import { wireArtifactId, wireToolCallId } from "../src/wire";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const attemptId = `@attempt:${"a".repeat(64)}`;
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -70,6 +71,26 @@ async function initialize(client: acp.ClientContext): Promise<acp.InitializeResp
   });
 }
 
+test("ACP refuses session creation without a reserved attempt before provider launch", async () => {
+  let providerOpened = false;
+  const f = await fixture({
+    async open() {
+      providerOpened = true;
+      throw new Error("provider must not open without a reserved attempt");
+    },
+  });
+  const { app } = createBridgeAcpApplication({ socketPath: f.socketPath, attemptId: "" });
+
+  await initializedClient([]).connectWith(app, async (client) => {
+    await initialize(client);
+    await expect(client.request(acp.methods.agent.session.new, {
+      cwd: f.root,
+      mcpServers: [],
+    })).rejects.toThrow("bridge launch requires a canonical reserved attempt id");
+  });
+  expect(providerOpened).toBe(false);
+});
+
 test("ACP initializes, rejects borrowed authority, and isolates concurrent Bridge sessions", async () => {
   const sessions = new Map<string, BridgeWireTestSession>();
   const contexts = new Map<string, BridgeProviderOpenContext>();
@@ -83,7 +104,7 @@ test("ACP initializes, rejects borrowed authority, and isolates concurrent Bridg
   };
   const f = await fixture(provider);
   const updates: acp.SessionNotification[] = [];
-  const { app } = createBridgeAcpApplication({ socketPath: f.socketPath });
+  const { app } = createBridgeAcpApplication({ socketPath: f.socketPath, attemptId });
 
   await initializedClient(updates).connectWith(app, async (client) => {
     const handshake = await initialize(client);
@@ -195,6 +216,7 @@ test("ACP cancellation linearizes while the Bridge provider is still opening and
   const { app } = createBridgeAcpApplication({
     socketPath: f.socketPath,
     controlTimeoutMs: 1_000,
+    attemptId,
   });
 
   await initializedClient(updates).connectWith(app, async (client) => {
@@ -267,7 +289,7 @@ test("ACP load replays the exact deterministic Wire projection before returning"
   };
   const f = await fixture(provider);
   const live: acp.SessionNotification[] = [];
-  const first = createBridgeAcpApplication({ socketPath: f.socketPath });
+  const first = createBridgeAcpApplication({ socketPath: f.socketPath, attemptId });
   let sessionId = "";
 
   await initializedClient(live).connectWith(first.app, async (client) => {
@@ -356,7 +378,7 @@ test("ACP load replays the exact deterministic Wire projection before returning"
   ]);
 
   const replay: acp.SessionNotification[] = [];
-  const second = createBridgeAcpApplication({ socketPath: f.socketPath });
+  const second = createBridgeAcpApplication({ socketPath: f.socketPath, attemptId });
   await initializedClient(replay).connectWith(second.app, async (client) => {
     await initialize(client);
     await expect(client.request(acp.methods.agent.session.load, {

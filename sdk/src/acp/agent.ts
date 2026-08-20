@@ -6,6 +6,7 @@ import { verifiedSocket, type BridgeConnectionOutput } from "../bridge/cli";
 import type { JournalRecord } from "../bridge/journal";
 import {
   parseBridgeLaunchExecutionId,
+  parseBridgeLaunchAttemptId,
   bridgeSocketPath,
   type BridgeRequest,
   type BridgeServerMessage,
@@ -42,6 +43,7 @@ interface ActivePrompt {
 
 interface ManagedSession {
   id: string;
+  attemptId: string;
   cwd: string;
   client: acp.AgentContext;
   launched: boolean;
@@ -248,6 +250,7 @@ class BridgeFeed {
 }
 
 export interface BridgeAcpAgentOptions {
+  attemptId: string;
   socketPath?: string;
   connectBridge?: () => Promise<Socket>;
   controlTimeoutMs?: number;
@@ -257,14 +260,16 @@ export class BridgeAcpAgent {
   #sessions = new Map<string, ManagedSession>();
   #connectBridge: () => Promise<Socket>;
   #controlTimeoutMs: number;
+  #attemptId: string;
   #initialized = false;
   #disposed = false;
 
-  constructor(options: BridgeAcpAgentOptions = {}) {
+  constructor(options: BridgeAcpAgentOptions) {
     const socketPath = options.socketPath ?? bridgeSocketPath();
     this.#connectBridge = options.connectBridge
       ?? (async () => (await verifiedSocket(socketPath, stderrBridgeOutput)).socket);
     this.#controlTimeoutMs = options.controlTimeoutMs ?? DEFAULT_CONTROL_TIMEOUT_MS;
+    this.#attemptId = options.attemptId;
   }
 
   initialize(_params: acp.InitializeRequest): acp.InitializeResponse {
@@ -287,9 +292,18 @@ export class BridgeAcpAgent {
   ): acp.NewSessionResponse {
     this.#assertInitialized();
     this.#validateSessionScope(params);
+    let attemptId: string;
+    try { attemptId = parseBridgeLaunchAttemptId(this.#attemptId); }
+    catch (error) {
+      throw acp.RequestError.invalidParams(
+        undefined,
+        errorMessage(error),
+      );
+    }
     const id = randomUUID();
     this.#sessions.set(id, {
       id,
+      attemptId,
       cwd: params.cwd,
       client,
       launched: false,
@@ -328,6 +342,7 @@ export class BridgeAcpAgent {
     }
     const session: ManagedSession = {
       id: sessionId,
+      attemptId: "",
       cwd: params.cwd,
       client,
       launched: true,
@@ -420,6 +435,7 @@ export class BridgeAcpAgent {
       await this.#openFeed(session, {
         op: "launch",
         executionId: session.id,
+        attemptId: session.attemptId,
         prompt,
         cwd: session.cwd,
         role: "implementer",
@@ -730,7 +746,7 @@ export interface BridgeAcpApplication {
 }
 
 export function createBridgeAcpApplication(
-  options: BridgeAcpAgentOptions = {},
+  options: BridgeAcpAgentOptions,
 ): BridgeAcpApplication {
   const agent = new BridgeAcpAgent(options);
   let connectionClaimed = false;
