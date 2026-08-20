@@ -8,7 +8,7 @@
 # `north tell` then died with
 #   REFUSED — subject resolver unavailable (coordinator unavailable or incompatible)
 # which reads as a dead daemon and is actually a log-identity mismatch. The
-# identical write through `fram` with BEAGLE_STORE_LOG=coordination.log committed fine.
+# identical write through `store` with BEAGLE_STORE_LOG=coordination.log committed fine.
 #
 # The two variables answer different questions — BEAGLE_STORE_LOG is "which corpus",
 # BEAGLE_STORE_TELEMETRY_LOG is "where telemetry goes" — and letting the second veto the

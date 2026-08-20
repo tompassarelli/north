@@ -8,10 +8,10 @@
 
 (def root (-> (io/file (System/getProperty "babashka.file"))
               .getParentFile .getParentFile .getParentFile .getPath))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def runtime-classpath (str root "/out:" fram "/out"))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
 (defn port-free? [port]
@@ -27,8 +27,8 @@
    (java.nio.file.Files/createTempDirectory
     "north-concern-cli-validation"
     (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log (.getCanonicalPath (io/file tmp "facts.framlog")))
-(def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.framlog")))
+(def log (.getCanonicalPath (io/file tmp "facts.storelog")))
+(def telemetry-log (.getCanonicalPath (io/file tmp "telemetry.storelog")))
 (def candidate-repo (.getCanonicalPath (io/file tmp "candidate-repo")))
 (doseq [result
         [(shell/sh "git" "init" "-q" "-b" "feature" candidate-repo)
@@ -45,12 +45,12 @@
    "NORTH_TELEMETRY_PARTITION" "0"
    "NORTH_TELEMETRY_PORT" (str port)})
 (def daemon
-  (p/process {:dir fram :out :string :err :string
+  (p/process {:dir store :out :string :err :string
               :extra-env (assoc isolated-env
                                 "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                                 "BEAGLE_STORE_SERVER_QUIET" "1"
                                 "BEAGLE_STORE_SERVER_XMX" "1g")}
-             (str fram "/bin/beagle-store-server") "serve" (str port)
+             (str store "/bin/beagle-store-server") "serve" (str port)
              log "north-coordination"))
 (defn cleanup []
   (try (p/destroy-tree daemon) (catch Throwable _ nil))

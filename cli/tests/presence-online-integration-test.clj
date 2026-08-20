@@ -11,13 +11,13 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
 (def presence-cli (str root "/cli/presence-cli.clj"))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (def test-log (atom nil))
@@ -46,15 +46,15 @@
       tmp (.toFile
            (java.nio.file.Files/createTempDirectory
             "north-presence-online" (make-array java.nio.file.attribute.FileAttribute 0)))
-      facts (io/file tmp "coordination.framlog")
+      facts (io/file tmp "coordination.storelog")
       log (.getCanonicalPath facts)
       daemon (do
                (proc/process
-                {:dir fram :out :string :err :string
+                {:dir store :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port)
+                (str store "/bin/beagle-store-server") "serve" (str port)
                 log "north-coordination"))]
   (reset! test-log log)
   (try

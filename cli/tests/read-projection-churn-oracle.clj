@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 ;; Deterministic reliability oracle for North read projections under write churn.
 ;;
-;; The harness always creates a temporary FRAMLOG and an isolated current Beagle Store
-;; FRAMRPC server. It refuses port 7977 at every socket boundary. Defaults exercise
+;; The harness always creates a temporary STORELOG and an isolated current Beagle Store
+;; STORE RPC server. It refuses port 7977 at every socket boundary. Defaults exercise
 ;; three corpus sizes, three writer counts, and five trials per combination.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
@@ -78,26 +78,26 @@
    (io/file (.getParent (io/file (or *file*
                                      (System/getProperty "babashka.file"))))
             "../..")))
-(def fram-root
+(def store-root
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_HOME")
       "/home/tom/code/beagle/main/store"))
 (def north-out (str north-root "/out"))
-(def fram-out (str fram-root "/out"))
-(def read-classpath (str north-out java.io.File/pathSeparator fram-out))
+(def store-out (str store-root "/out"))
+(def read-classpath (str north-out java.io.File/pathSeparator store-out))
 (cp/add-classpath read-classpath)
 (load-file (str north-root "/cli/coord.clj"))
 (alter-var-root #'north.coord/telemetry-partition-enabled?
                 (constantly (fn [] false)))
-(load-file (str fram-root "/database.clj"))
+(load-file (str store-root "/database.clj"))
 (require '[database :as database]
          '[store.store :as store]
          '[store.types :as t])
 (load-file (str north-root "/cli/agent-provenance.clj"))
 
-(when-not (.isFile (io/file fram-root "bin/beagle-store-server"))
+(when-not (.isFile (io/file store-root "bin/beagle-store-server"))
   (throw (ex-info "current Beagle store engine lacks bin/beagle-store-server"
-                  {:fram fram-root})))
+                  {:store store-root})))
 (when-not (.isDirectory (io/file north-out))
   (throw (ex-info "North output directory is missing; run ./build.sh"
                   {:out north-out})))
@@ -204,7 +204,7 @@
                             (t/triple subject predicate value)))
                          chunk)})]
           (when-not (:ok result)
-            (throw (ex-info "FRAMLOG corpus seed failed" result))))))
+            (throw (ex-info "STORELOG corpus seed failed" result))))))
     {:target target-facts :fixtures (count fixtures)}))
 
 (def inherited-selector-keys ["NORTH_PORT"])
@@ -221,17 +221,17 @@
 (defn start-server! [port log server-output]
   (require-scratch-port! port)
   (proc/process
-   {:dir fram-root
+   {:dir store-root
     :out server-output
     :err :out
     :env (server-env)}
-   (str fram-root "/bin/beagle-store-server") "serve" (str port) log test-space))
+   (str store-root "/bin/beagle-store-server") "serve" (str port) log test-space))
 
 (defn process-env [port _log]
   (merge
    (server-env)
    {"BEAGLE_STORE_SPACE_ID" test-space
-    "NORTH_FRAMRPC_HOST" "127.0.0.1"
+    "NORTH_STORE_HOST" "127.0.0.1"
     "NORTH_TELEMETRY_PARTITION" "0"
     "NORTH_PORT" (str (require-scratch-port! port))
     "NORTH_HOME" north-root
@@ -544,7 +544,7 @@
          (java.nio.file.Files/createTempDirectory
           (str "north-read-projection-oracle-" corpus "-")
           (make-array java.nio.file.attribute.FileAttribute 0)))
-        log (require-scratch-log! directory (io/file directory "facts.framlog"))
+        log (require-scratch-log! directory (io/file directory "facts.storelog"))
         server-output (io/file directory "beagle-store-server.log")
         port (free-high-port)
         seed (seed-log! log corpus)

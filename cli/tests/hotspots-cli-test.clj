@@ -44,7 +44,7 @@
 ;; --- the slow-read parse ----------------------------------------------------
 ;; The phase split is the diagnosis, so every field must survive parsing.
 (def REAL-LINE
-  "Jul 29 05:31:16 whiterabbit beagle-store-server-native[3221912]: [fram] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
+  "Jul 29 05:31:16 whiterabbit beagle-store-server-native[3221912]: [store] slow read :fenced-query 13717ms = reload 0ms + lock-wait 0ms + execute 13717ms")
 
 (let [[_ route total reload lock execute] (re-find slow-read-re REAL-LINE)]
   (check! "parses the route" (= "fenced-query" route))

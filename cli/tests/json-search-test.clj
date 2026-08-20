@@ -8,13 +8,13 @@
     (or (System/getenv "NORTH_TEST_ROOT")
         (str (.getParent (io/file (System/getProperty "babashka.file")))
              "/../..")))))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
 
-(classpath/add-classpath (str fram "/out"))
+(classpath/add-classpath (str store "/out"))
 (load-file (str root "/cli/json-search-cli.clj"))
 
 (def facts

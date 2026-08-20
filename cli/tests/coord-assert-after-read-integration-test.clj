@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Canonical FRAMRPC gate for north.coord/assert-after-read!.
+;; Canonical STORE RPC gate for north.coord/assert-after-read!.
 (require '[babashka.process :as proc]
          '[clojure.java.io :as io]
          '[clojure.string :as str])
@@ -7,12 +7,12 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file *file*)) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                 "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (load-file (str root "/cli/coord.clj"))
 
 (defn free-port []
@@ -31,21 +31,21 @@
            (java.nio.file.Files/createTempDirectory
             "north-assert-after-read"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file dir "coordination.framlog")
+      log (io/file dir "coordination.storelog")
       explicit-log-probe
       (proc/shell
        {:out :string :err :string :continue true
         :extra-env {"BEAGLE_STORE_LOG" (.getCanonicalPath log)}}
-       "bb" "-cp" (str fram "/out") "-e"
+       "bb" "-cp" (str store "/out") "-e"
        (str "(load-file " (pr-str (str root "/cli/coord.clj")) ")"
             "(print (north.coord/expected-log))"))
       daemon
       (proc/process
-       {:dir fram :out :string :err :string
+       {:dir store :out :string :err :string
         :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                     "BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
-       (str fram "/bin/beagle-store-server") "serve" (str port)
+       (str store "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value]
@@ -73,7 +73,7 @@
                 port "@unrelated" "unrelated_predicate" "moved"))))]
       (check! "an intervening transaction forces callback revalidation"
               (= 2 @validations))
-      (check! "the uncontested retry commits through canonical FRAMRPC"
+      (check! "the uncontested retry commits through canonical STORE RPC"
               (and (:ok result)
                    (= #{"record"}
                       (set (north.coord/many

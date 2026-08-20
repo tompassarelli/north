@@ -5,7 +5,7 @@
 ;; ten) reservers contend for headroom sufficient for only some — exactly the
 ;; winners commit, every loser gets a refusal, and the ledger total NEVER exceeds
 ;; the cap. Proven against the real :assert-at-version CAS wire, not a mock:
-;; a bare read-then-tell would silently lose updates here (fram-cas-verification
+;; a bare read-then-tell would silently lose updates here (store-cas-verification
 ;; §3). Also covers fail-closed schema/price gates, exact-vs-worst-case
 ;; settlement, and override honoring + expiry.
 ;;   bb cli/tests/spend-cli-test.clj
@@ -14,11 +14,11 @@
          '[cheshire.core :as json])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file *file*)) "../..")))
-(def fram (.getCanonicalPath
+(def store (.getCanonicalPath
            (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                         "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "Beagle store engine not found; set BEAGLE_STORE_PATH to Beagle's store directory" {:store store})))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/spend-cli.clj"))
 
@@ -48,13 +48,13 @@
 
 (let [port (free-port)
       dir (.toFile (java.nio.file.Files/createTempDirectory "spend-cli-test" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file dir "facts.framlog")
+      log (io/file dir "facts.storelog")
       daemon (proc/process
-              {:dir fram :out :string :err :string
+              {:dir store :out :string :err :string
                :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                            "BEAGLE_STORE_SERVER_QUIET" "1"
                            "BEAGLE_STORE_SERVER_XMX" "1g"}}
-              (str fram "/bin/beagle-store-server") "serve" (str port)
+              (str store "/bin/beagle-store-server") "serve" (str port)
               (.getCanonicalPath log) "north-coordination")
       checks (atom [])
       check! (fn [label value] (swap! checks conj [label (boolean value)]))]

@@ -4,17 +4,17 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 scratch=$(mktemp -d -t north-canonical-write-fast.XXXXXX)
 trap 'rm -rf "${scratch:?}"' EXIT
-fake_fram=$scratch/fram
+fake_store=$scratch/store
 calls=$scratch/calls
 bb_calls=$scratch/bb-calls
-mkdir -p "$fake_fram"
+mkdir -p "$fake_store"
 
 # The single-quoted arguments are the source of the fake Beagle Store executable.
 # shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
-  'printf "%s\n" "fram $*" >>"$TEST_CALLS"' \
+  'printf "%s\n" "store $*" >>"$TEST_CALLS"' \
   'case "${1:-}" in' \
   '  tell-existing|untell-existing)' \
   '    if [[ "${2:-}" = 019fa4d4-93aa-7447-aae5-0a5bcfca6849 ]]; then' \
@@ -24,8 +24,8 @@ printf '%s\n' \
   '    fi ;;' \
   '  tell|untell) printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}" ;;' \
   'esac' \
-  >"$fake_fram/fram"
-chmod +x "$fake_fram/fram"
+  >"$fake_store/store"
+chmod +x "$fake_store/store"
 
 # The single-quoted arguments are the source of the fake Babashka executable.
 # shellcheck disable=SC2016
@@ -39,7 +39,7 @@ chmod +x "$scratch/bb"
 
 common_env=(
   HOME="$scratch/home"
-  BEAGLE_STORE_BIN="$fake_fram"
+  BEAGLE_STORE_BIN="$fake_store"
   NORTH_BB="$scratch/bb"
   TEST_CALLS="$calls"
   TEST_BB_CALLS="$bb_calls"
@@ -48,7 +48,7 @@ common_env=(
 env "${common_env[@]}" "$root/bin/north" tell \
   019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress "cli-fix probe" \
   >"$scratch/exact.out"
-grep -q '^fram tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+grep -q '^store tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
 [[ ! -e "$bb_calls" ]]
 
@@ -56,7 +56,7 @@ grep -q '^fram tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-f
 env "${common_env[@]}" "$root/bin/north" retract \
   019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress "cli-fix probe" \
   >"$scratch/exact-retract.out"
-grep -q '^fram untell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+grep -q '^store untell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
 [[ ! -e "$bb_calls" ]]
 
@@ -69,12 +69,12 @@ if env "${common_env[@]}" "$root/bin/north" tell \
 fi
 grep -q 'REFUSED — unresolved id-like ref' "$scratch/missing.out"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
-grep -q '^fram tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6800 progress miss$' "$calls"
+grep -q '^store tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6800 progress miss$' "$calls"
 
 : >"$calls"
 env "${common_env[@]}" "$root/bin/north" tell @foundation progress handle \
   >"$scratch/handle.out"
 grep -q -- '-m north.main resolve @foundation' "$bb_calls"
-grep -q '^fram tell 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress handle$' "$calls"
+grep -q '^store tell 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress handle$' "$calls"
 
 echo "north-cli-canonical-write-fast-path: PASS"

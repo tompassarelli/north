@@ -7,12 +7,12 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                 "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (def writer (str root "/cli/agent-fact-internal.clj"))
 (def test-terminal-publication-order
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
@@ -120,14 +120,14 @@
 (let [port (free-port)
       tmp (.toFile (java.nio.file.Files/createTempDirectory
                     "north-identity-publication" (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       daemon (do
                (proc/process
-                {:dir fram :out :string :err :string
+                {:dir store :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port)
+                (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       subject "@agent:identity-publication-probe"
       preset {"kind" "lane" "role" "integrator" "model" "claude-opus-4-8"
@@ -142,7 +142,7 @@
               "display_name" "anthropic:claude-a · opus · high · orchestration:integrator"}
       bespoke {"kind" "lane" "role" "migration-forensics" "model" "gpt-5.6-sol"
                "provider" "openai" "provider_target" "codex-b" "effort" "xhigh"
-               "live_input" "turn-framed" "live_input_state" "frozen"
+               "live_input" "turn-message" "live_input_state" "frozen"
                "live_input_epoch" "00000000-0000-4000-8000-000000000102"
                "composition_kind" "bespoke" "composition_id" "migration-forensics"
                "nearest_template" "analyst" "bespoke_reason" "cross-schema archaeology"
@@ -429,7 +429,7 @@
     (doseq [{:keys [operation payload verify]}
             [{:operation "route"
               :payload {"provider" "openai" "provider_target" "codex-held"
-                        "live_input" "turn-framed" "live_input_state" "frozen"
+                        "live_input" "turn-message" "live_input_state" "frozen"
                         "live_input_epoch" "00000000-0000-4000-8000-000000000104"
                         "model" "gpt-5.6-sol" "effort" "high"
                         "display_handle" "openai-held-sol-high-integrator"

@@ -1,5 +1,5 @@
 ;; orchestration-import-pointer-test.clj — atomic catalog pointer publication
-;; Daemon-free: load the importer as a library and stub its FRAMRPC facade.
+;; Daemon-free: load the importer as a library and stub its STORE RPC facade.
 (require '[clojure.java.io :as io])
 
 (def cli-dir (.getParentFile (io/file (System/getProperty "babashka.file"))))

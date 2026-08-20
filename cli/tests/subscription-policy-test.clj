@@ -7,21 +7,21 @@
          '[clojure.string :as str])
 
 (def root (.getCanonicalPath (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def runtime-classpath (str root "/out:" fram "/out"))
+(def runtime-classpath (str root "/out:" store "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str root "/cli/coord.clj"))
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 
-(when-not (.exists (io/file fram "out"))
-  (check (str "compiled Beagle Store test dependency is required at " fram "/out") false))
+(when-not (.exists (io/file store "out"))
+  (check (str "compiled Beagle Store test dependency is required at " store "/out") false))
 
 ;; Exercise the public report against a throwaway coordinator.
-(when (.exists (io/file fram "out"))
+(when (.exists (io/file store "out"))
   (defn port-free? [port]
     (try (with-open [s (java.net.Socket.)]
            (.connect s (java.net.InetSocketAddress. "127.0.0.1" (int port)) 100)
@@ -31,13 +31,13 @@
                 (throw (ex-info "no free test port" {}))))
   (def tmp (.toFile (java.nio.file.Files/createTempDirectory
                       "north-subscription-policy" (make-array java.nio.file.attribute.FileAttribute 0))))
-  (def log (io/file tmp "facts.framlog"))
+  (def log (io/file tmp "facts.storelog"))
   (def canonical-log (.getCanonicalPath log))
-  (def daemon (proc/process {:dir fram :out :string :err :string
+  (def daemon (proc/process {:dir store :out :string :err :string
                              :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                                          "BEAGLE_STORE_SERVER_QUIET" "1"
                                          "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                            (str fram "/bin/beagle-store-server") "serve" (str port)
+                            (str store "/bin/beagle-store-server") "serve" (str port)
                             canonical-log "north-coordination"))
   (defn await-up []
     (loop [n 0]

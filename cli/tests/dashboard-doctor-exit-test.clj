@@ -151,7 +151,7 @@
   (check "coordination health is green when the hook path registers and reads back"
          (and healthy
               (str/includes? output "coordination health")
-              (str/includes? output "FRAMRPC SpaceId fence north-coordination")
+              (str/includes? output "STORE RPC SpaceId fence north-coordination")
               (str/includes? output "presence write + readback")
               (str/includes? output "presence 3 live lease(s)")
               (str/includes? output "roster projection north:agent-roster:v1"))))
@@ -162,10 +162,10 @@
        {:probe (assoc healthy-coordination-probe
                       :space_fence_ok false
                       :space_id nil)})]
-  (check "missing FRAMRPC SpaceId fails doctor" (false? healthy))
-  (check "missing FRAMRPC SpaceId is diagnosed directly"
+  (check "missing STORE RPC SpaceId fails doctor" (false? healthy))
+  (check "missing STORE RPC SpaceId is diagnosed directly"
          (and (str/includes? output "[ERR]")
-              (str/includes? output "FRAMRPC status did not return a SpaceId"))))
+              (str/includes? output "STORE RPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -177,7 +177,7 @@
                 :error "coordinator returned a malformed resolved response"}})]
   (check "a missing SpaceId is diagnosed before a downstream exception"
          (and (false? healthy)
-              (str/includes? output "FRAMRPC status did not return a SpaceId"))))
+              (str/includes? output "STORE RPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -245,12 +245,12 @@
               (str/includes? doctor-source "(cache-get \"health.edn\" 300000)")
               (not (str/includes? doctor-source "north-health"))))
   (check "doctor attests the deployed North controller unit"
-         (str/includes? (slurp (str root "/bin/north")) "north-fram.service"))
+         (str/includes? (slurp (str root "/bin/north")) "north-store.service"))
   (check "doctor resolves the deployed North controller PID"
-         (str/includes? public-source "\"north-fram.service\""))
+         (str/includes? public-source "\"north-store.service\""))
   (check "dashboard status collects the deployed North controller unit"
          (str/includes? (slurp (str root "/cli/dashboard-collectors.clj"))
-                        "\"north-fram.service\"")))
+                        "\"north-store.service\"")))
 
 (let [failed (remove second @checks)]
   (println (str "dashboard doctor exit: " (- (count @checks) (count failed))

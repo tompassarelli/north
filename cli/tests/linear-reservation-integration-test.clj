@@ -8,11 +8,11 @@
 
 (def root (.getCanonicalPath
            (io/file (.getParent (io/file *file*)) "../..")))
-(def fram (.getCanonicalPath
+(def store (.getCanonicalPath
            (io/file (or (System/getenv "BEAGLE_STORE_PATH")
                         "/home/tom/code/beagle/main/store"))))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (load-file (str root "/cli/coord.clj"))
 
 (defn free-port []
@@ -129,14 +129,14 @@
            (java.nio.file.Files/createTempDirectory
             "north-linear-reservation"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (.getCanonicalPath (io/file dir "coordination.framlog"))
+      log (.getCanonicalPath (io/file dir "coordination.storelog"))
       daemon
       (proc/process
-       {:dir fram :out :string :err :string
+       {:dir store :out :string :err :string
         :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                     "BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
-       (str fram "/bin/beagle-store-server") "serve" (str port)
+       (str store "/bin/beagle-store-server") "serve" (str port)
        log "north-coordination")
       reserve (str root "/sdk/src/integrations/linear/reserve-link.clj")
       schema (str root "/sdk/src/integrations/linear/reserve-schema-fact.clj")

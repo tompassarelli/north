@@ -12,12 +12,12 @@
 (def subject-root
   (.getCanonicalPath
    (io/file (or (System/getenv "NORTH_TEST_SUBJECT_ROOT") test-root))))
-(def fram-root
-  (or (System/getenv "NORTH_TEST_FRAM_ROOT")
+(def store-root
+  (or (System/getenv "NORTH_TEST_STORE_ROOT")
       (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def runtime-classpath (str test-root "/out:" fram-root "/out"))
+(def runtime-classpath (str test-root "/out:" store-root "/out"))
 (cp/add-classpath runtime-classpath)
 (load-file (str test-root "/cli/coord.clj"))
 (load-file (str test-root "/cli/concern-spool.clj"))
@@ -165,7 +165,7 @@
   (let [tmp (temp-directory "north-concern-terminal-offline")
         spool (io/file tmp "spool")
         size-spool (io/file tmp "size-spool")
-        log (io/file tmp "coordination.framlog")
+        log (io/file tmp "coordination.storelog")
         concern "@concern-1785506000000-a001"
         port 17991]
     (try
@@ -239,7 +239,7 @@
   (let [tmp (temp-directory "north-concern-offline-blackhole")
         repo (doto (io/file tmp "repo") .mkdirs)
         spool (io/file tmp "spool")
-        log (io/file tmp "coordination.framlog")
+        log (io/file tmp "coordination.storelog")
         port (free-port)
         server (start-blackhole port)]
     (try
@@ -256,7 +256,7 @@
                     (< (:elapsed-ms result) 2000)
                     (str/includes? (:out result) "durable-local")
                     (str/includes? (:out result) "visibility=pending")))
-        (check "fallback never creates or appends the exact target FRAMLOG"
+        (check "fallback never creates or appends the exact target STORELOG"
                (not (.exists log)))
         (check "fallback publishes exactly one complete operation and no temp"
                (and (= 1 (count files))
@@ -300,7 +300,7 @@
 (let [tmp (temp-directory "north-concern-offline-parallel")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -335,7 +335,7 @@
 (let [tmp (temp-directory "north-concern-offline-full")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -359,7 +359,7 @@
 (let [tmp (temp-directory "north-concern-offline-alias")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -379,7 +379,7 @@
 (let [tmp (temp-directory "north-concern-offline-about-unbound")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       port (free-port)
       server (start-blackhole port)]
   (try
@@ -401,8 +401,8 @@
 (let [tmp (temp-directory "north-concern-offline-live")
       repo (doto (io/file tmp "repo") .mkdirs)
       spool (io/file tmp "spool")
-      log (io/file tmp "coordination.framlog")
-      telemetry-log (io/file tmp "telemetry.framlog")
+      log (io/file tmp "coordination.storelog")
+      telemetry-log (io/file tmp "telemetry.storelog")
       port (free-port)
       env
       {"BEAGLE_STORE_LOG" (.getCanonicalPath log)
@@ -415,8 +415,8 @@
        "BEAGLE_STORE_SERVER_XMX" "1g"}
       daemon
       (p/process
-       {:dir fram-root :out :string :err :string :extra-env env}
-       (str fram-root "/bin/beagle-store-server") "serve" (str port)
+       {:dir store-root :out :string :err :string :extra-env env}
+       (str store-root "/bin/beagle-store-server") "serve" (str port)
        (.getCanonicalPath log) "north-coordination")]
   (try
     (check "strict live coordinator fixture starts" (await-port port daemon))
@@ -467,7 +467,7 @@
           :concern-id
           (str "@concern-" (System/currentTimeMillis) "-"
                (format "%04x" (rand-int 65536)))
-          :target-log (.getCanonicalPath (io/file tmp "coordination.framlog"))
+          :target-log (.getCanonicalPath (io/file tmp "coordination.storelog"))
           :created-at (str (java.time.Instant/now))
           :facts
           [{:predicate "title" :object "crash fixture" :cardinality "single"}

@@ -10,14 +10,14 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram-source
+(def store-source
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def fram
-  (.getCanonicalPath (io/file fram-source)))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(def store
+  (.getCanonicalPath (io/file store-source)))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
 (def lander (str root "/cli/worktree-lander.clj"))
 (load-file (str root "/cli/coord.clj"))
@@ -250,7 +250,7 @@
       clone-dirty-path (managed-clone-path repo "clone-dirty")
       worktrees (doto (io/file tmp "managed worktrees") .mkdirs)
       census-root (doto (io/file tmp "census root") .mkdirs)
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       heartbeat (io/file tmp "worktree-heartbeat")
       agent-logs (doto (io/file tmp "agent logs") .mkdirs)
       git-log (io/file tmp "git-calls.log")
@@ -258,11 +258,11 @@
       post-remove-marker (io/file tmp "post-remove-failure-armed")
       daemon (do
                (proc/process
-                {:dir fram :out :string :err :string
+                {:dir store :out :string :err :string
                  :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                              "BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
-                (str fram "/bin/beagle-store-server") "serve" (str port)
+                (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))]
   (reset! test-log (.getCanonicalPath log))
   (try

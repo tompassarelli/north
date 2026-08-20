@@ -57,7 +57,7 @@
          (= "checkout rev" (:origin dirty)))
   (check "Beagle Store identity comes from its current checkout"
          (= {:revision "tree-head" :origin "tree HEAD"}
-            (identity "fram" {})))
+            (identity "store" {})))
   (check "Beagle package identity remains unchanged"
          (= {:revision "beagle-package" :origin "package rev"}
             (identity "beagle" {"BEAGLE_PACKAGE_REV" "beagle-package"})))

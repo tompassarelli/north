@@ -8,16 +8,16 @@
 
 (def test-file (io/file (System/getProperty "babashka.file")))
 (def root (-> test-file .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def fram-source
+(def store-source
   (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(def fram
-  (.getCanonicalPath (io/file fram-source)))
-(when-not (.isFile (io/file fram "bin/beagle-store-server"))
-  (throw (ex-info "current Beagle store engine is required" {:fram fram})))
+(def store
+  (.getCanonicalPath (io/file store-source)))
+(when-not (.isFile (io/file store "bin/beagle-store-server"))
+  (throw (ex-info "current Beagle store engine is required" {:store store})))
 (load-file (str root "/cli/coord.clj"))
-(load-file (str fram "/database.clj"))
+(load-file (str store "/database.clj"))
 (require '[database :as database]
          '[store.types :as t])
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
@@ -44,7 +44,7 @@
                    (catch Throwable _ false))]
       (cond
         ready? true
-        ;; Cold FRAMLOG ingestion is deliberately outside the timed sweep.
+        ;; Cold STORELOG ingestion is deliberately outside the timed sweep.
         (>= attempt 3600) false
         :else (do (Thread/sleep 50) (recur (inc attempt)))))))
 
@@ -107,7 +107,7 @@
 
 (try
   (let [port (free-port)
-        log (io/file tmp "coordination.framlog")
+        log (io/file tmp "coordination.storelog")
         fixture (write-large-log! log)
         live-facts (:live-facts fixture)
         control-subjects (:control-subjects fixture)
@@ -115,11 +115,11 @@
         agent-logs (doto (io/file tmp "agent-logs") .mkdirs)
         daemon
         (proc/process
-         {:dir fram :out :string :err :string
+         {:dir store :out :string :err :string
           :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                       "BEAGLE_STORE_SERVER_QUIET" "1"
                       "BEAGLE_STORE_SERVER_XMX" "2g"}}
-         (str fram "/bin/beagle-store-server") "serve" (str port)
+         (str store "/bin/beagle-store-server") "serve" (str port)
          (.getCanonicalPath log) "north-coordination")]
     (try
       (when-not (await-up port)
@@ -142,7 +142,7 @@
                "NORTH_MAINTENANCE_TASK_LOCK_PATH" (.getCanonicalPath (io/file tmp "task.lock"))
                ;; Completion, not the timeout terminal, is the regression bar.
                "NORTH_MAINTENANCE_TASK_TIMEOUT_MS" "60000"
-               "NORTH_FRAMRPC_READ_TIMEOUT_MS" "10000"}}
+               "NORTH_STORE_READ_TIMEOUT_MS" "10000"}}
              "bb" maintenance-host "stale-lanes" "--dry-run")
             elapsed-ms (long (/ (- (System/nanoTime) started) 1000000))
             output (str (:out result) (:err result))

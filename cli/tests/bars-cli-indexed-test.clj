@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; bb -cp <fram-out> cli/tests/bars-cli-indexed-test.clj
+;; bb -cp <store-out> cli/tests/bars-cli-indexed-test.clj
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[store.types :as t])

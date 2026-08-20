@@ -8,19 +8,19 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file")))
             "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
 
-(when-not (.isFile (io/file fram "server.clj"))
+(when-not (.isFile (io/file store "server.clj"))
   (throw (ex-info "pinned Beagle Store target checkout is unavailable"
-                  {:fram fram})))
+                  {:store store})))
 
 (load-file (str root "/cli/store-rpc-client.clj"))
 (require '[north.store-rpc-client :as rpc])
-(load-file (str fram "/database.clj"))
+(load-file (str store "/database.clj"))
 (require '[database :as database])
 
 (def checks (atom []))
@@ -60,14 +60,14 @@
            [subject (wire/rpc-query-constant! predicate) value]
            false)])])])))
 
-(defn malformed-oversize-frame []
+(defn malformed-oversize-packet []
   (let [response (wire/rpc-response! "boundary" :rpc/version 0 nil nil
                                      wire/rpc-unit)
-        frame (wire/encode-rpc-frame-v2!
-               (wire/rpc-response-frame 1 response))
+        packet (wire/encode-rpc-packet-v2!
+               (wire/rpc-response-packet 1 response))
         header (byte-array wire/rpc-v2-header-bytes)
         body-length (inc rpc/max-body-bytes)]
-    (System/arraycopy frame 0 header 0 wire/rpc-v2-header-bytes)
+    (System/arraycopy packet 0 header 0 wire/rpc-v2-header-bytes)
     (let [buffer (doto (java.nio.ByteBuffer/wrap header)
                    (.order java.nio.ByteOrder/LITTLE_ENDIAN))]
       (.position buffer 14)
@@ -81,7 +81,7 @@
    (java.nio.file.Files/createTempDirectory
     (.toPath private-root) "store-rpc-client-test-"
     (make-array java.nio.file.attribute.FileAttribute 0))))
-(def log-path (.getCanonicalPath (io/file scratch "stage1.framlog")))
+(def log-path (.getCanonicalPath (io/file scratch "stage1.storelog")))
 (def server-output (io/file scratch "beagle-store-server.log"))
 (def space-id "north-storerpc-client-stage1")
 (def port (free-port))
@@ -93,9 +93,9 @@
   (let [builder
         (doto (ProcessBuilder.
                ^java.util.List
-               [(str fram "/bin/beagle-store-server") "serve" (str port)
+               [(str store "/bin/beagle-store-server") "serve" (str port)
                 log-path space-id])
-          (.directory (io/file fram))
+          (.directory (io/file store))
           (.redirectErrorStream true)
           (.redirectOutput server-output))
         environment (.environment builder)]
@@ -381,18 +381,18 @@
 
   (let [oversize-response
         (thrown-data
-         #(rpc/read-frame!
-           (java.io.ByteArrayInputStream. (malformed-oversize-frame))))
+         #(rpc/read-packet!
+           (java.io.ByteArrayInputStream. (malformed-oversize-packet))))
         oversized-string (apply str (repeat rpc/max-body-bytes "x"))
         oversize-request
         (thrown-data
          #(rpc/assert! @client
                        (t/triple "@boundary" :payload oversized-string)))]
     (check! "declared response above 1 MiB is rejected before body allocation"
-            (and (= :rpc-frame-too-large (:type oversize-response))
+            (and (= :rpc-packet-too-large (:type oversize-response))
                  (= (inc rpc/max-body-bytes) (:body-length oversize-response))))
     (check! "encoded request above 1 MiB is rejected before socket write"
-            (and (= :rpc-frame-too-large (:type oversize-request))
+            (and (= :rpc-packet-too-large (:type oversize-request))
                  (false? (:request-sent? oversize-request)))))
 
   (let [wrong-space
@@ -617,7 +617,7 @@
   (println)
   (if (seq failures)
     (do
-      (println "framrpc client:" (- (count @checks) (count failures)) "/"
+      (println "store-rpc client:" (- (count @checks) (count failures)) "/"
                (count @checks) "PASS")
       (System/exit 1))
-    (println "framrpc client:" (count @checks) "/" (count @checks) "PASS")))
+    (println "store-rpc client:" (count @checks) "/" (count @checks) "PASS")))

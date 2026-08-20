@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Canonical offline concern recovery against one current Beagle Store FRAMRPC server.
+;; Canonical offline concern recovery against one current Beagle Store STORE RPC server.
 (require '[babashka.classpath :as cp]
          '[babashka.process :as proc]
          '[clojure.edn :as edn]
@@ -8,12 +8,12 @@
 (def root
   (-> (io/file (System/getProperty "babashka.file"))
       .getParentFile .getParentFile .getParentFile .getCanonicalPath))
-(def fram
-  (or (System/getenv "NORTH_TEST_FRAM_ROOT")
+(def store
+  (or (System/getenv "NORTH_TEST_STORE_ROOT")
       (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
       (System/getenv "BEAGLE_STORE_PATH")
       "/home/tom/code/beagle/main/store"))
-(cp/add-classpath (str root "/out:" fram "/out"))
+(cp/add-classpath (str root "/out:" store "/out"))
 (load-file (str root "/cli/coord.clj"))
 (load-file (str root "/cli/concern-spool.clj"))
 (load-file (str root "/cli/concern-spool-reconcile.clj"))
@@ -47,16 +47,16 @@
         (>= attempt 800) false
         :else (do (Thread/sleep 25) (recur (inc attempt)))))))
 
-(defn start-fram [port log]
+(defn start-store [port log]
   (proc/process
-   {:dir fram
+   {:dir store
     :out :string
     :err :string
     :extra-env
     {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
      "BEAGLE_STORE_SERVER_QUIET" "1"
      "BEAGLE_STORE_SERVER_XMX" "1g"}}
-   (str fram "/bin/beagle-store-server") "serve" (str port)
+   (str store "/bin/beagle-store-server") "serve" (str port)
    (.getCanonicalPath log) "north-coordination"))
 
 (def operation-sequence (atom 0))
@@ -142,15 +142,15 @@
     (try (.close socket) (catch Throwable _ nil)))
   (future-cancel acceptor))
 
-(let [tmp (temp-directory "north-concern-reconcile-framrpc")
-      log (io/file tmp "coordination.framlog")
+(let [tmp (temp-directory "north-concern-reconcile-store-rpc")
+      log (io/file tmp "coordination.storelog")
       spool (io/file tmp "spool")
       state (io/file tmp "state")
       port (free-port)
-      daemon (start-fram port log)]
+      daemon (start-store port log)]
   (try
     (let [ready? (await-ready port daemon)]
-      (check "current Beagle Store serves the scratch SpaceId over FRAMRPC" ready?)
+      (check "current Beagle Store serves the scratch SpaceId over STORE RPC" ready?)
       (when-not ready?
         (throw (ex-info "scratch Beagle Store server failed"
                         {:result (deref daemon 1000 nil)}))))
@@ -166,7 +166,7 @@
                   (= (expected-rows item) (observed-rows port item))
                   (.isFile (settled-file state item))
                   (not (.exists (operation-file spool item)))))
-      (check "settled replay performs no second FRAMRPC mutation"
+      (check "settled replay performs no second STORE RPC mutation"
              (and (zero? (:processed replay))
                   (= first-version replay-version))))
 
@@ -186,13 +186,13 @@
                   (= before (north.coord/cur-ver port))
                   (= "identical-preexisting" (:reason record)))))
 
-    (let [wrong-log (io/file tmp "wrong.framlog")
+    (let [wrong-log (io/file tmp "wrong.storelog")
           item (operation wrong-log "wrong-log")
           _ (publish! spool item)
           before (north.coord/cur-ver port)
           result (run-pass port log spool state)
           record (edn/read-string (slurp (conflict-file state item)))]
-      (check "a different target FRAMLOG becomes a zero-mutation conflict"
+      (check "a different target STORELOG becomes a zero-mutation conflict"
              (and (= 1 (:conflicts result))
                   (= before (north.coord/cur-ver port))
                   (= "wrong-log" (:reason record))
@@ -218,7 +218,7 @@
       (delete-tree! tmp))))
 
 (let [tmp (temp-directory "north-concern-reconcile-blackhole")
-      log (io/file tmp "coordination.framlog")
+      log (io/file tmp "coordination.storelog")
       spool (io/file tmp "spool")
       state (io/file tmp "state")
       port (free-port)

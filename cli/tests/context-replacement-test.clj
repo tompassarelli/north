@@ -8,13 +8,13 @@
 (def root
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
-(def fram
+(def store
   (.getCanonicalPath
    (io/file (or (System/getenv "BEAGLE_STORE_TEST_CHECKOUT")
                 (System/getenv "BEAGLE_STORE_HOME")
                 "/home/tom/code/beagle/main/store"))))
-(def fram-out (str fram "/out"))
-(cp/add-classpath (str root "/out:" fram-out))
+(def store-out (str store "/out"))
+(cp/add-classpath (str root "/out:" store-out))
 (load-file (str root "/cli/coord.clj"))
 
 (def checks (atom []))
@@ -37,18 +37,18 @@
            (java.nio.file.Files/createTempDirectory
             "north-context-replacement-"
             (make-array java.nio.file.attribute.FileAttribute 0)))
-      log (.getCanonicalPath (io/file tmp "coordination.framlog"))
+      log (.getCanonicalPath (io/file tmp "coordination.storelog"))
       port (free-port)
       space "north-coordination"
       server
       (proc/process
-       {:dir fram :out :string :err :string
+       {:dir store :out :string :err :string
         :extra-env {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                     "BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
-       (str fram "/bin/beagle-store-server") "serve" (str port) log space)]
+       (str store "/bin/beagle-store-server") "serve" (str port) log space)]
   (try
-    (check! "scratch canonical FRAMRPC server starts"
+    (check! "scratch canonical STORE RPC server starts"
             (eventually
              #(let [status (north.coord/status port)]
                 (and (= :ready (:state status))
@@ -60,12 +60,12 @@
             :out :string
             :err :string
             :extra-env
-            {"BEAGLE_STORE_HOME" fram
-             "BEAGLE_STORE_BIN" (str fram "/bin")
-             "BEAGLE_STORE_OUT" fram-out
+            {"BEAGLE_STORE_HOME" store
+             "BEAGLE_STORE_BIN" (str store "/bin")
+             "BEAGLE_STORE_OUT" store-out
              "BEAGLE_STORE_SPACE_ID" space
              "NORTH_PORT" (str port)}}
-           "bb" "-cp" (str root "/out:" fram-out)
+           "bb" "-cp" (str root "/out:" store-out)
            (str root "/cli/dispatch-guard.clj")
            (str port) "aaaaaaaaaaaa")]
       (check! "rotation flag requests provider-neutral replacement"
@@ -80,7 +80,7 @@
     (let [retired
           (proc/shell
            {:continue true :out :string :err :string}
-           "bb" "-cp" (str root "/out:" fram-out)
+           "bb" "-cp" (str root "/out:" store-out)
            (str root "/cli/presence-cli.clj") "59999"
            "compact" "aaaaaaaaaaaa")
           output (str (:out retired) (:err retired))]
