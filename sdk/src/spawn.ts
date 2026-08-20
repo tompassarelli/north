@@ -81,7 +81,7 @@ import {
 import {
   newRunId, recordWireRunTelemetry,
 } from "./telemetry";
-import { publishWireEvents, wireLedgerSummary } from "./run-ledger";
+import { createWireEventStorePublisher, wireLedgerSummary } from "./run-ledger";
 import { causeChain, deathReason, notifyDeath } from "./death";
 import {
   inputChannel,
@@ -665,7 +665,11 @@ async function runSpawn(
     const writer = new WireEventWriter({ runId: wireRunId(runId) });
     stream = opened;
     wireWriter = writer;
-    wireCommitter = new SerializedWireEventCommitter(writer, opened);
+    wireCommitter = new SerializedWireEventCommitter(
+      writer,
+      createWireEventStorePublisher(wireIdentity),
+      opened,
+    );
     const started = writer.append({
       kind: "run.started",
       lifecycle: "running",
@@ -741,6 +745,12 @@ async function runSpawn(
   // coordinator ping (diagnostic); 2N -> abort + outcome=stalled + durable death fact.
   // Every terminal peer wake is deferred until the terminal and run publications settle.
   const coordHandle = opts.coordinator;
+  const wireIdentity = {
+    thread: boundThreadId ?? "(ad-hoc)",
+    agent: agentId,
+    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
+    ...(coordHandle ? { coordinator: coordHandle } : {}),
+  };
   const window = stallMs();
   const executionActivity = createExecutionActivityEmitter();
   let watchdogAbort: WatchdogAbortEvidence | undefined;
@@ -1548,11 +1558,6 @@ async function runSpawn(
     );
   }
 
-  // Thread attribution. The CLI refuses a managed spawn that names neither a
-  // thread nor --ad-hoc, so by the time we get here the choice was deliberate —
-  // but a direct SDK caller can still omit both, and the honest record of that
-  // is "(ad-hoc)" WITH its provenance, never a silent default that looks bound.
-  const boundThread = boundThreadId ?? "(ad-hoc)";
   const wireEvents = finalWriter.events();
   const finalRoute = activeRoute();
   const finalAdmittedRoute = admittedRoute?.provider === routing.provider
@@ -1642,22 +1647,8 @@ async function runSpawn(
     judgmentGrade,
     struggleObservation: finalExecution.struggle,
   };
-  const wireIdentity = {
-    thread: boundThread,
-    agent: agentId,
-    ...(process.env.NORTH_THREAD_ID ? { parentThread: process.env.NORTH_THREAD_ID } : {}),
-    ...(coordHandle ? { coordinator: coordHandle } : {}),
-  };
-  const wireLedgerStatus = await publishWireEvents(
-    wireIdentity,
-    wireEvents,
-    publicationBudget.publicationTimeout(2),
-  ).catch(() => "unavailable" as const);
-  const runLedger = wireLedgerStatus === "recorded"
-    ? wireLedgerSummary(wireEvents) : undefined;
-  const runPublication = runLedger === undefined
-    ? "unavailable" as const
-    : await recordWireRunTelemetry(
+  const runLedger = wireLedgerSummary(wireEvents);
+  const runPublication = await recordWireRunTelemetry(
         wireIdentity,
         finalExecution.run,
         { status: "recorded", summary: runLedger },

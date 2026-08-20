@@ -9,6 +9,7 @@ import {
 } from "./orchestration-staffing";
 import { resolveTier } from "./providers/catalog";
 import { routedQuery, selectProviderForExecution } from "./providers";
+import { createWireEventStorePublisher } from "./run-ledger";
 import { SerializedWireEventCommitter, StreamWriter } from "./stream-writer";
 import { resolveStrugglePolicy } from "./struggle";
 import { newRunId } from "./telemetry";
@@ -74,7 +75,14 @@ export async function runTier1Model(request: Tier1ModelRequest): Promise<Tier1Mo
     });
     const writer = new WireEventWriter({ runId: newRunId(request.attemptAgentId) });
     stream = await StreamWriter.open(request.attemptAgentId);
-    const committer = new SerializedWireEventCommitter(writer, stream);
+    const committer = new SerializedWireEventCommitter(
+      writer,
+      createWireEventStorePublisher({
+        thread: request.streamThread,
+        agent: request.attemptAgentId,
+      }),
+      stream,
+    );
     const fold = makeExecutionFold(resolveStrugglePolicy("worker", {}));
     let observed = 0;
     const observe = async (event: WireEvent): Promise<void> => {

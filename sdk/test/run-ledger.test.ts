@@ -9,6 +9,7 @@ import {
 	AGENT_RUN_LEDGER_CONTRACT,
 	AGENT_RUN_LEDGER_VERSION,
 	WireLedgerError,
+	createWireEventStorePublisher,
 	publishWireEvents,
 	recordWireEventProjections,
 	wireEventFacts,
@@ -189,6 +190,29 @@ describe("event-native wire ledger", () => {
 			.toEqual(["run.started", "run.progress", "run.terminated"]);
 		expect(JSON.stringify(observed)).not.toContain("provider_routed");
 		expect(JSON.stringify(observed)).not.toContain("usage_observed");
+	});
+
+	test("publishes an observed contiguous suffix and refuses unavailable Store acknowledgement", async () => {
+		const events = runEvents();
+		const received: readonly WireEventProjection[][] = [];
+		const publisher = createWireEventStorePublisher(identity, {
+			timeoutMs: 4321,
+			async writer(projections, timeoutMs) {
+				expect(timeoutMs).toBe(4321);
+				received.push(projections);
+				return "recorded";
+			},
+		});
+		await publisher.publish(events.slice(0, 2));
+		await publisher.publish(events.slice(2));
+		expect(received.map((batch) => batch.map(({ facts }) => Object.fromEntries(facts).wire_event_sequence)))
+			.toEqual([["0", "1"], ["2"]]);
+		const unavailable = createWireEventStorePublisher(identity, {
+			writer: async () => "unavailable",
+		});
+		await expect(unavailable.publish(events.slice(0, 1))).rejects.toThrow(
+			"wire event Store publication is unavailable",
+		);
 	});
 
 	test("rejects mixed, partial, or impossible streams before invoking the writer", async () => {

@@ -97,6 +97,16 @@ export type WireLedgerBatchWriter = (
 	timeoutMs: number,
 ) => Promise<WireLedgerPublicationStatus>;
 
+/** Store-first publisher for one newly observed contiguous suffix. */
+export interface WireEventStorePublisher {
+	publish(events: readonly WireEvent[]): Promise<void>;
+}
+
+export interface WireEventStorePublisherOptions {
+	readonly timeoutMs?: number;
+	readonly writer?: WireLedgerBatchWriter;
+}
+
 function ledgerError(
 	code: WireLedgerErrorCode,
 	message: string,
@@ -185,7 +195,7 @@ export function wireEventFacts(
 	});
 }
 
-function validateBatch(events: readonly WireEvent[]): void {
+function validateEventSlice(events: readonly WireEvent[]): void {
 	if (events.length === 0) ledgerError("invalid_batch", "wire ledger batch must not be empty");
 	if (events.length > AGENT_RUN_LEDGER_CONTRACT.bounds.maxBatchEvents) {
 		ledgerError(
@@ -194,10 +204,6 @@ function validateBatch(events: readonly WireEvent[]): void {
 		);
 	}
 	const first = events[0]!;
-	if (first.sequence !== 0 || first.kind !== "run.started"
-		|| events.at(-1)!.kind !== "run.terminated") {
-		ledgerError("invalid_batch", "wire ledger publication requires one complete terminal run");
-	}
 	for (let index = 0; index < events.length; index += 1) {
 		const event = events[index]!;
 		canonicalEvent(event);
@@ -207,6 +213,15 @@ function validateBatch(events: readonly WireEvent[]): void {
 		if (index < events.length - 1 && event.kind === "run.terminated") {
 			ledgerError("invalid_batch", "wire ledger batch cannot continue after run.terminated");
 		}
+	}
+}
+
+function validateBatch(events: readonly WireEvent[]): void {
+	validateEventSlice(events);
+	const first = events[0]!;
+	if (first.sequence !== 0 || first.kind !== "run.started"
+		|| events.at(-1)!.kind !== "run.terminated") {
+		ledgerError("invalid_batch", "wire ledger publication requires one complete terminal run");
 	}
 	try {
 		wireLedgerSummary(events);
@@ -289,6 +304,43 @@ export async function recordWireEventProjections(
 	} catch {
 		return "unavailable";
 	}
+}
+
+/**
+ * Creates the Store acknowledgement barrier used while a provider is still
+ * producing wire events. Callers must give this only the next contiguous
+ * canonical suffix; an unavailable acknowledgement rejects rather than
+ * allowing JSONL to become the publication barrier.
+ */
+export function createWireEventStorePublisher(
+	identity: WireRunLedgerIdentity,
+	options: WireEventStorePublisherOptions = {},
+): WireEventStorePublisher {
+	const context = wireRunLedgerIdentity(identity);
+	const timeoutMs = options.timeoutMs ?? 10_000;
+	const writer = options.writer ?? recordWireEventProjections;
+	let nextSequence = 0;
+	let poisoned: unknown;
+	return Object.freeze({
+		async publish(events: readonly WireEvent[]): Promise<void> {
+			if (poisoned !== undefined) throw poisoned;
+			try {
+				validateEventSlice(events);
+				if (events[0]!.sequence !== nextSequence) {
+					ledgerError("invalid_batch", "wire event Store suffix does not begin at the next sequence");
+				}
+				const projections = Object.freeze(events.map((event) => wireEventFacts(context, event)));
+				projectionPayload(projections);
+				if (await writer(projections, timeoutMs) !== "recorded") {
+					throw new WireLedgerError("invalid_batch", "wire event Store publication is unavailable");
+				}
+				nextSequence += events.length;
+			} catch (error) {
+				poisoned = error;
+				throw error;
+			}
+		},
+	});
 }
 
 export async function publishWireEvents(

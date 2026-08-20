@@ -10,6 +10,7 @@ import {
 	type WireEventWriter,
 	type WireJsonlWriter,
 } from "./wire";
+import type { WireEventStorePublisher } from "./run-ledger";
 
 const AGENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const MAX_AGENT_ID_BYTES = 256;
@@ -200,34 +201,44 @@ export class StreamWriter {
 	}
 }
 
-/** Serializes exact canonical-prefix persistence and makes fsync the publication barrier. */
+/** Serializes Store-acknowledged canonical suffixes before projecting them to JSONL. */
 export class SerializedWireEventCommitter implements WireEventCommitBarrier {
 	readonly #canonical: WireEventWriter;
+	readonly #publisher: WireEventStorePublisher;
 	readonly #stream: StreamWriter;
 	#nextSequence = 0;
 	#tail: Promise<void> = Promise.resolve();
 
-	constructor(canonical: WireEventWriter, stream: StreamWriter) {
+	constructor(
+		canonical: WireEventWriter,
+		publisher: WireEventStorePublisher,
+		stream: StreamWriter,
+	) {
 		this.#canonical = canonical;
+		this.#publisher = publisher;
 		this.#stream = stream;
 	}
 
 	commitThrough(event: WireEvent): Promise<void> {
 		const targetSequence = event.sequence;
-		this.#assertCanonical(event);
 		const commit = this.#tail.then(async () => {
 			this.#assertCanonical(event);
-			while (this.#nextSequence <= targetSequence) {
-				const canonical = this.#canonical.events()[this.#nextSequence];
-				if (!canonical || canonical.sequence !== this.#nextSequence) {
+			const suffix: WireEvent[] = [];
+			for (let sequence = this.#nextSequence; sequence <= targetSequence; sequence += 1) {
+				const canonical = this.#canonical.events()[sequence];
+				if (!canonical || canonical.sequence !== sequence) {
 					throw new Error("wire writer persistence sequence diverged");
 				}
-				await this.#stream.writeWireEvent(canonical);
-				this.#nextSequence += 1;
+				suffix.push(canonical);
 			}
+			if (suffix.length === 0) return;
+			await this.#publisher.publish(Object.freeze(suffix));
+			for (const canonical of suffix) await this.#stream.writeWireEvent(canonical);
+			this.#nextSequence = targetSequence + 1;
 		});
-		// A failed append poisons the queue. Later callers observe the same failure;
-		// no uncertain write is retried behind a fabricated terminal.
+		// A gap, conflicting digest, unavailable Store acknowledgement, or append
+		// failure poisons the queue. Later callers observe the same failure; no
+		// uncertain suffix is retried behind a fabricated terminal.
 		this.#tail = commit;
 		void commit.catch(() => {});
 		return commit;

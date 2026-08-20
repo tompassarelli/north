@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import {
-	StreamWriter, StreamWriterError,
+	SerializedWireEventCommitter, StreamWriter, StreamWriterError,
 } from "../src/stream-writer";
 import {
 	WireEventWriter,
@@ -161,6 +161,60 @@ test("a commit barrier reopens the exact durable prefix after tool admission", a
 	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "tool.terminal" }));
 	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "model-call.completed" }));
 	expect(replay.events).not.toContainEqual(expect.objectContaining({ kind: "run.terminated" }));
+});
+
+test("publishes each new canonical suffix to Store before its JSONL projection and poisons failures", async () => {
+	const directory = await streamDirectory();
+	const agentId = "stream-store-first";
+	const source = new WireEventWriter({
+		runId: wireRunId("run:stream:store-first"),
+		eventId: (sequence) => wireEventId(`event:stream:store-first:${sequence}`),
+		now: () => "2026-08-12T00:00:00.000Z",
+	});
+	const started = source.append({ kind: "run.started", lifecycle: "running" });
+	const progress = source.append({
+		kind: "run.progress",
+		lifecycle: "running",
+		progress: { currentAction: "publish first" },
+	});
+	const terminal = source.append({
+		kind: "run.terminated",
+		lifecycle: "completed",
+		reason: { code: "completed" },
+	});
+	const stream = await StreamWriter.open(agentId);
+	const stablePath = path.join(directory, `agent-${agentId}.stream.jsonl`);
+	const published: number[][] = [];
+	const beforeProjection: string[] = [];
+	const committer = new SerializedWireEventCommitter(source, {
+		async publish(events) {
+			published.push(events.map((event) => event.sequence));
+			beforeProjection.push(await Bun.file(stablePath).text());
+		},
+	}, stream);
+
+	await committer.commitThrough(progress);
+	await committer.commitThrough(terminal);
+	await stream.close();
+	const expected = [started, progress, terminal].map((event) => encodeWireJsonlLine(event)).join("");
+	const firstPrefix = [started, progress].map((event) => encodeWireJsonlLine(event)).join("");
+	expect(published).toEqual([[0, 1], [2]]);
+	expect(beforeProjection).toEqual(["", firstPrefix]);
+	expect(await Bun.file(stablePath).text()).toBe(expected);
+
+	const failedStream = await StreamWriter.open("stream-store-poison");
+	let attempts = 0;
+	const failed = new SerializedWireEventCommitter(source, {
+		async publish() {
+			attempts += 1;
+			throw new Error("Store acknowledgement unavailable");
+		},
+	}, failedStream);
+	await expect(failed.commitThrough(started)).rejects.toThrow("Store acknowledgement unavailable");
+	await expect(failed.commitThrough(progress)).rejects.toThrow("Store acknowledgement unavailable");
+	expect(attempts).toBe(1);
+	expect(await Bun.file(failedStream.filePath).text()).toBe("");
+	await failedStream.close();
 });
 
 test("refuses concurrent and stale locks, incomplete streams, and torn streams", async () => {
