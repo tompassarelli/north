@@ -81,7 +81,7 @@ if [ -z "${LAUNCH_CRITICAL_CODE_ROOT:-}" ]; then
         *) exit 0 ;;
       esac
       case "$payload" in
-        *main*|*pins*|*/code/fram*|*/code/north*|*/code/beagle*|*/code/nixos-config*) ;;
+        *main*|*pins*|*/code/north*|*/code/beagle*|*/code/nixos-config*) ;;
         *) exit 0 ;;
       esac
       ;;
