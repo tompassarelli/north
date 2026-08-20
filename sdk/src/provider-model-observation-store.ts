@@ -4,6 +4,10 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { withFileLease } from "./file-lease";
 import { throwIfProviderRefreshCancelled } from "./provider-cancellation";
+import {
+  admitStoreObservation, loadStoreObservation, storeObservationSubject,
+  type StoreObservationClient, type StoreObservationCodec, type StoreObservationSnapshot,
+} from "./store-observation-adapter";
 import { providerSupportsModel, resolveModelAlias } from "./providers/catalog";
 import type { ProviderId, RoutingTarget } from "./providers/types";
 
@@ -78,6 +82,40 @@ function targetIdentity(
 ): string {
   const id = "targetId" in target ? target.targetId : target.id;
   return [target.provider, id, target.authMode ?? "ambient", target.profile ?? ""].join("\u0000");
+}
+
+const providerModelObservationCodec: StoreObservationCodec<ProviderModelObservation> = {
+  kind: "model",
+  parse(value) {
+    return parseProviderModelObservationStore({ version: 1, observations: [value] }).observations[0]!;
+  },
+  observedAt: (observation) => observation.observedAt,
+};
+
+export function providerModelObservationSubject(
+  observation: Pick<ProviderModelObservation, "provider" | "targetId" | "authMode" | "profile" | "source">,
+): string {
+  return storeObservationSubject("model", [
+    observation.provider, observation.targetId, observation.authMode,
+    observation.profile ?? "ambient", observation.source,
+  ]);
+}
+
+/** Store-backed, fail-closed model evidence loader for routing admission. */
+export async function loadStoreProviderModelObservation(
+  target: RoutingTarget,
+  client?: StoreObservationClient,
+): Promise<StoreObservationSnapshot<ProviderModelObservation> | undefined> {
+  const authMode = target.authMode ?? "ambient";
+  return loadStoreObservation({
+    subject: providerModelObservationSubject({
+      provider: target.provider, targetId: target.id, authMode,
+      ...(authMode === "isolated" ? { profile: target.profile } : {}),
+      source: modelObservationSource(target.provider),
+    }),
+    codec: providerModelObservationCodec,
+    client,
+  });
 }
 
 function validateTargetIdentity(value: ProviderModelObservation): void {
@@ -328,6 +366,11 @@ export async function writeProviderModelObservation(
 ): Promise<ProviderModelObservationStore> {
   throwIfProviderRefreshCancelled(options.signal);
   const normalized = parseObservation(incoming, now);
+  const admitted = await admitStoreObservation({
+    subject: providerModelObservationSubject(normalized), observation: normalized,
+    codec: providerModelObservationCodec,
+  });
+  throwIfProviderRefreshCancelled(options.signal);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   throwIfProviderRefreshCancelled(options.signal);
   return withFileLease(`${path}.lock`, async () => {
@@ -337,10 +380,10 @@ export async function writeProviderModelObservation(
     throwIfProviderRefreshCancelled(options.signal);
     const existing = await readProviderModelObservations(path, now);
     throwIfProviderRefreshCancelled(options.signal);
-    const identity = targetIdentity(normalized);
+    const identity = targetIdentity(admitted.observation);
     const observations = [
       ...(existing?.observations ?? []).filter((observation) => targetIdentity(observation) !== identity),
-      normalized,
+      admitted.observation,
     ].sort((left, right) => targetIdentity(left).localeCompare(targetIdentity(right)));
     const store = parseProviderModelObservationStore({ version: 1, observations }, now);
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
