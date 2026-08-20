@@ -1007,7 +1007,7 @@
                     (proj/condition-i idx te today before? live?) "  "
                     (trunc (title-of idx te) 42))))))
 
-;; board (kanban prior; `plate` kept as a hidden alias — vocabulary pass, thread 019f2032)
+;; thread overview
 ;; DEFAULT = SIGNAL: active drivers (who's on what) + top-15 ready by queue order +
 ;; a counts line. The full per-condition kanban dump moved behind `--all` (chaos
 ;; was the census diagnosis: the flat dump drowned the ~15 threads that matter).
@@ -1332,7 +1332,7 @@
         before? (Fn [String String] Bool) store.rt/str-lt?
         live? (Fn [north.projections/ProjectionIndex String] Bool) (default-live?)]
     (cond
-      [(or (= what "board") (= what "plate"))
+      [(= what "board")
        (println (to-json
                  (mapv (fn [te String] JThread (jthread idx te today before? live?))
                        (board-curated-tes idx today before? live? all?))))]
@@ -1508,9 +1508,9 @@
 (defn cmd-tools [] Nil
   (do
     (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
-    (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
+    (println "  work queue : ready · next · threads · blocked · agenda · leverage · needs-review")
     (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage")
-    (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
+    (println "  read/write : show · capture · tell · retract · validate")
     (println "  agents     : dispatch · spawn")
     (println "  view       : presentation")
     (println "")

@@ -125,7 +125,6 @@
    :summary "arm the real-time interrupt listener (background task; dormant)"}
   ;; --------------------------------------------------------------- comms
   {:verb "inbox" :form "north inbox [--as <recipient>]" :topic :comms
-   :aliases ["notifications"]
    :summary "durable messages waiting on you"
    :details ["--as <recipient> — inspect another recipient's inbox"]
    :card {:section :now :rank 3 :form "north inbox"
