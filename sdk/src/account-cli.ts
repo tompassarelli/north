@@ -32,7 +32,7 @@ import {
 
 const USAGE = `usage: north account <command>
 
-  north account add <safe-id> <anthropic|openai>
+  north account add <safe-id> <anthropic|openai> [--role execution|oversight]
   north account remove <id> [--keep-data]
   north account login <id>
   north account status [id]
@@ -42,6 +42,7 @@ const USAGE = `usage: north account <command>
 
 Options:
   --keep-data  drop the routing target but leave the account's storage root on disk
+  --role  required for Codex accounts; explicit Store execution or oversight admission
   --model M  restrict usability to one cached model-scoped rung
   --json     emit the stable account availability row array
   --refresh  bypass the five-minute authoritative usage cache
@@ -384,9 +385,15 @@ export async function runAccountCli(args: string[]): Promise<number> {
   try {
     switch (command) {
       case "add": {
-        if (rest.length !== 2) throw new Error(USAGE);
-        const account = await addProviderAccount(rest[0], rest[1]);
+        const [id, provider, roleFlag, role] = rest;
+        if (!id || !provider || rest.length !== (provider === "openai" ? 4 : 2)
+            || (provider === "openai" && (roleFlag !== "--role" || (role !== "execution" && role !== "oversight"))))
+          throw new Error(USAGE);
+        const account = provider === "openai"
+          ? await addProviderAccount(id, provider, role)
+          : await addProviderAccount(id, provider);
         console.log(`added isolated ${account.provider} account ${account.id}`);
+        if (provider === "openai") console.log(`Store role ${role}`);
         console.log(`root ${account.root}`);
         return 0;
       }
