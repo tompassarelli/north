@@ -7,21 +7,30 @@ import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "../src/bridge/journal";
 import { parseBridgeLaunchArguments } from "../src/bridge/cli";
 
 const roots: string[] = [];
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-test("bridge launch CLI defaults to implementer and accepts only explicit launch roles", () => {
-  expect(parseBridgeLaunchArguments(["ship", "it"])).toEqual({
-    role: "implementer", promptArguments: ["ship", "it"],
+test("bridge launch CLI requires an attempt, defaults to implementer, and accepts explicit roles", () => {
+  expect(parseBridgeLaunchArguments(["--attempt", ATTEMPT_ID, "ship", "it"])).toEqual({
+    role: "implementer", attemptId: ATTEMPT_ID, promptArguments: ["ship", "it"],
   });
-  expect(parseBridgeLaunchArguments(["--role", "director", "supervise"])).toEqual({
-    role: "director", promptArguments: ["supervise"],
+  expect(parseBridgeLaunchArguments([
+    "--role", "director", "--attempt", ATTEMPT_ID, "supervise",
+  ])).toEqual({
+    role: "director", attemptId: ATTEMPT_ID, promptArguments: ["supervise"],
   });
-  expect(parseBridgeLaunchArguments(["--role", "implementer", "build"])).toEqual({
-    role: "implementer", promptArguments: ["build"],
+  expect(parseBridgeLaunchArguments([
+    "--attempt", ATTEMPT_ID, "--role", "implementer", "build",
+  ])).toEqual({
+    role: "implementer", attemptId: ATTEMPT_ID, promptArguments: ["build"],
   });
-  expect(() => parseBridgeLaunchArguments(["--role", "portfolio", "plan"]))
+  expect(() => parseBridgeLaunchArguments(["ship", "it"]))
+    .toThrow("bridge launch requires --attempt");
+  expect(() => parseBridgeLaunchArguments([
+    "--attempt", ATTEMPT_ID, "--role", "portfolio", "plan",
+  ]))
     .toThrow("bridge launch role must be director or implementer");
 });
 

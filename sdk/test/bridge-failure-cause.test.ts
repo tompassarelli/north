@@ -4,11 +4,13 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import type { BridgeProviderExecution } from "../src/bridge/provider";
 import type { BridgeServerMessage } from "../src/bridge/protocol";
 import { ProviderRetrySafeError } from "../src/providers/types";
 
 const FAILURE_DIAGNOSTIC_DETAIL_BYTES = 4_096;
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -51,12 +53,15 @@ async function launch(open: BridgeProviderExecution["open"]): Promise<{
   const northd = new Northd({
     socketPath, journalRoot: join(root, "journal"), provider: { open },
     sourceIdentity: () => undefined,
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
 
-  const messages = await exchange(socketPath, { op: "launch", prompt: "go", cwd: root });
+  const messages = await exchange(socketPath, {
+    op: "launch", prompt: "go", cwd: root, attemptId: ATTEMPT_ID,
+  });
   const launched = messages.find((message) => message.type === "launched");
   if (!launched || launched.type !== "launched") throw new Error("launch id missing");
   const journalPath = join(root, "journal", launched.executionId, "events.log");

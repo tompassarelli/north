@@ -7,6 +7,7 @@ import {
   type ReasoningLevel, type RoutingTier,
 } from "../routing-metadata";
 import type { JournalRecord, TornTail } from "./journal";
+import { validExecutionAttemptIdentity } from "../delivery-evidence";
 
 // HEAD is the identity: main is never dirty by policy, so committed state is
 // live state. Client and daemon both compute this; equality at connect is the
@@ -98,6 +99,7 @@ export function parseBridgeLaunchRole(value: unknown): BridgeLaunchRole {
 export type BridgeRequest =
   | {
     op: "launch"; prompt: string; cwd: string; role: BridgeLaunchRole;
+    attemptId: string;
     executionId?: string;
     provider?: BridgeLaunchProvider;
     tier?: RoutingTier;
@@ -152,6 +154,7 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     return {
       op: "launch", prompt: request.prompt, cwd: request.cwd,
       role: parseBridgeLaunchRole(request.role),
+      attemptId: parseBridgeLaunchAttemptId(request.attemptId),
       ...(executionId ? { executionId } : {}),
       ...(provider ? { provider } : {}),
       ...(tier ? { tier } : {}),
@@ -178,6 +181,13 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     return { op: "terminateSession", executionId };
   }
   throw new Error("unknown bridge request");
+}
+
+export function parseBridgeLaunchAttemptId(value: unknown): string {
+  if (!validExecutionAttemptIdentity(value)) {
+    throw new Error("bridge launch requires a canonical reserved attempt id");
+  }
+  return value;
 }
 
 export function parseBridgeLaunchExecutionId(value: unknown): string {

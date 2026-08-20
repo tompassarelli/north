@@ -4,6 +4,7 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import { parseBridgeLaunchArguments } from "../src/bridge/cli";
 import { parseBridgeRequest, type BridgeLaunchProvider, type BridgeServerMessage } from "../src/bridge/protocol";
 import {
@@ -19,37 +20,40 @@ import {
 import type { RoutingDecision } from "../src/providers/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
 test("--claude and --openai pin a provider, and bare launches leave it unset", () => {
-  expect(parseBridgeLaunchArguments(["--claude", "go"]))
-    .toEqual({ role: "implementer", provider: "anthropic", promptArguments: ["go"] });
-  expect(parseBridgeLaunchArguments(["--openai", "go"]))
-    .toEqual({ role: "implementer", provider: "openai", promptArguments: ["go"] });
-  expect(parseBridgeLaunchArguments(["go"]))
-    .toEqual({ role: "implementer", promptArguments: ["go"] });
+  expect(parseBridgeLaunchArguments(["--attempt", ATTEMPT_ID, "--claude", "go"]))
+    .toEqual({ role: "implementer", attemptId: ATTEMPT_ID, provider: "anthropic", promptArguments: ["go"] });
+  expect(parseBridgeLaunchArguments(["--openai", "--attempt", ATTEMPT_ID, "go"]))
+    .toEqual({ role: "implementer", attemptId: ATTEMPT_ID, provider: "openai", promptArguments: ["go"] });
+  expect(parseBridgeLaunchArguments(["--attempt", ATTEMPT_ID, "go"]))
+    .toEqual({ role: "implementer", attemptId: ATTEMPT_ID, promptArguments: ["go"] });
 });
 
 test("a provider flag composes with --role in either order", () => {
-  expect(parseBridgeLaunchArguments(["--role", "director", "--claude", "go"]))
-    .toEqual({ role: "director", provider: "anthropic", promptArguments: ["go"] });
-  expect(parseBridgeLaunchArguments(["--claude", "--role", "director", "go"]))
-    .toEqual({ role: "director", provider: "anthropic", promptArguments: ["go"] });
+  expect(parseBridgeLaunchArguments(["--role", "director", "--attempt", ATTEMPT_ID, "--claude", "go"]))
+    .toEqual({ role: "director", attemptId: ATTEMPT_ID, provider: "anthropic", promptArguments: ["go"] });
+  expect(parseBridgeLaunchArguments(["--claude", "--attempt", ATTEMPT_ID, "--role", "director", "go"]))
+    .toEqual({ role: "director", attemptId: ATTEMPT_ID, provider: "anthropic", promptArguments: ["go"] });
 });
 
 test("launch route flags compose before the prompt", () => {
   expect(parseBridgeLaunchArguments([
-    "--provider", "openai", "--tier", "frontier", "--effort", "max", "go",
+    "--attempt", ATTEMPT_ID, "--provider", "openai", "--tier", "frontier", "--effort", "max", "go",
   ])).toEqual({
-    role: "implementer", provider: "openai", tier: "frontier", effort: "max",
+    role: "implementer", attemptId: ATTEMPT_ID,
+    provider: "openai", tier: "frontier", effort: "max",
     promptArguments: ["go"],
   });
   expect(parseBridgeLaunchArguments([
-    "--role", "director", "--model", "gpt-5.6-sol", "review",
+    "--role", "director", "--attempt", ATTEMPT_ID, "--model", "gpt-5.6-sol", "review",
   ])).toEqual({
-    role: "director", model: "gpt-5.6-sol", promptArguments: ["review"],
+    role: "director", attemptId: ATTEMPT_ID,
+    model: "gpt-5.6-sol", promptArguments: ["review"],
   });
 });
 
@@ -61,9 +65,11 @@ test("the wire rejects an unknown provider", () => {
 test("the wire validates and preserves every launch route override", () => {
   expect(parseBridgeRequest({
     op: "launch", prompt: "go", cwd: "/", role: "director",
+    attemptId: ATTEMPT_ID,
     provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
   })).toEqual({
     op: "launch", prompt: "go", cwd: "/", role: "director",
+    attemptId: ATTEMPT_ID,
     provider: "openai", tier: "frontier", model: "gpt-5.6-sol", effort: "max",
   });
   expect(() => parseBridgeRequest({ op: "launch", prompt: "go", cwd: "/", tier: "extreme" }))
@@ -125,6 +131,7 @@ async function launched(
   const northd = new Northd({
     socketPath, journalRoot: join(root, "journal"), provider,
     sourceIdentity: () => undefined, selectProvider,
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
@@ -149,7 +156,7 @@ async function launched(
   });
   const closed = Promise.withResolvers<void>();
   socket.once("close", () => closed.resolve());
-  socket.write(`${JSON.stringify(request)}\n`);
+  socket.write(`${JSON.stringify({ ...request, attemptId: ATTEMPT_ID })}\n`);
   await closed.promise;
   return opened[0];
 }

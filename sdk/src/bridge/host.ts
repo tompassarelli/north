@@ -29,6 +29,16 @@ import {
   ProviderRuntimeError,
 } from "../providers/types";
 import {
+  StoreBridgeCommandReceipts,
+  bridgeCommandArtifactLocator,
+  bridgeCommandPayloadDigest,
+  bridgeCommandResultDigest,
+  type BridgeCommandAdmission,
+  type BridgeCommandDelivery,
+  type BridgeCommandKind,
+  type BridgeCommandReceipts,
+} from "./command-receipts";
+import {
   bridgeJournalRoot,
   bridgeSocketPath,
   bridgeSourceIdentity,
@@ -83,6 +93,8 @@ export interface NorthdOptions {
   providerTeardownTimeoutMs?: number;
   /** Test injection for control-journal persistence failures. */
   controlJournal?: (root: string, executionId: string) => ExecutionJournal;
+  /** Test injection. Production persists command admission and effect receipts in Store. */
+  commandReceipts?: BridgeCommandReceipts;
   /** Invoked once when the daemon is stale and idle; owns process teardown. */
   onRetire?: () => void;
 }
@@ -91,6 +103,7 @@ interface QueuedInput {
   input: string;
   delivery: "queued-next-turn" | "interrupt-and-redirect";
   commandSeq: number;
+  admission: BridgeCommandAdmission;
 }
 
 type TurnDisposition = "completed" | "interrupted";
@@ -105,10 +118,11 @@ interface ExecutionRuntime {
   wireTail: Promise<void>;
   subscribers: Set<Socket>;
   abort: AbortController;
+  attemptId: string;
   pendingInputs: QueuedInput[];
   session?: BridgeProviderSession;
   activeTurn: boolean;
-  pendingInterrupt: boolean;
+  pendingInterrupt?: BridgeCommandAdmission;
   turnDisposition: TurnDisposition;
   terminating: boolean;
   terminal: boolean;
@@ -278,6 +292,7 @@ export class Northd {
   #stalePollMs: number;
   #providerTeardownTimeoutMs: number;
   #controlJournal: (root: string, executionId: string) => ExecutionJournal;
+  #commandReceipts: BridgeCommandReceipts;
   #onRetire: () => void;
   #loadedIdentity?: string;
   #staleTimer?: NodeJS.Timeout;
@@ -295,6 +310,7 @@ export class Northd {
       ?? PROVIDER_TEARDOWN_TIMEOUT_MS;
     this.#controlJournal = options.controlJournal
       ?? ((root, executionId) => new ExecutionJournal(root, executionId));
+    this.#commandReceipts = options.commandReceipts ?? new StoreBridgeCommandReceipts();
     this.#onRetire = options.onRetire ?? (() => { void this.close(); });
     this.#server = createServer((socket) => this.#accept(socket));
   }
@@ -423,6 +439,8 @@ export class Northd {
       catch (error) { closeFailures.push(error); }
     }
     for (const socket of this.#sockets) socket.destroy();
+    try { this.#commandReceipts.close?.(); }
+    catch (error) { closeFailures.push(error); }
     try {
       if (this.#server.listening) await serverClosed(this.#server);
     } catch (error) { closeFailures.push(error); }
@@ -451,6 +469,7 @@ export class Northd {
     const journal = this.#controlJournal(this.journalRoot, executionId);
     let wireJournal: BridgeWireJournal | undefined;
     try {
+      const attemptId = await this.#commandReceipts.attemptForExecution(executionId);
       const controls = journal.scan();
       const accepted = controls.records.find((record) => record.kind === "execution.accepted");
       const role = parseBridgeLaunchRole(
@@ -461,6 +480,7 @@ export class Northd {
       if (wireTerminal(events.at(-1))) {
         const runtime: ExecutionRuntime = {
           executionId,
+          attemptId,
           role,
           journal,
           wireEvents: events,
@@ -469,7 +489,6 @@ export class Northd {
           abort: new AbortController(),
           pendingInputs: [],
           activeTurn: false,
-          pendingInterrupt: false,
           turnDisposition: "completed",
           terminating: false,
           terminal: true,
@@ -491,6 +510,7 @@ export class Northd {
         wireJournal = undefined;
         const runtime: ExecutionRuntime = {
           executionId,
+          attemptId,
           role,
           journal,
           wireEvents: events,
@@ -499,7 +519,6 @@ export class Northd {
           abort: new AbortController(),
           pendingInputs: [],
           activeTurn: false,
-          pendingInterrupt: false,
           turnDisposition: "completed",
           terminating: false,
           terminal: true,
@@ -514,8 +533,13 @@ export class Northd {
       if (writer.runId !== wireRunId(`bridge:${executionId}`)) {
         throw new Error("bridge wire replay belongs to another run");
       }
+      // Store decides command eligibility. Local journals remain payload and UI
+      // projections; in particular, an intent lacking a receipt is observed but
+      // never rebuilt into pendingInputs or sent again after daemon restart.
+      await this.#commandReceipts.reconcile(attemptId);
       const runtime: ExecutionRuntime = {
         executionId,
+        attemptId,
         role,
         journal,
         wireJournal,
@@ -526,7 +550,6 @@ export class Northd {
         abort: new AbortController(),
         pendingInputs: [],
         activeTurn: false,
-        pendingInterrupt: false,
         turnDisposition: "completed",
         terminating: true,
         terminal: false,
@@ -555,6 +578,48 @@ export class Northd {
     const record = runtime.journal.append(kind, data);
     for (const subscriber of runtime.subscribers) send(subscriber, { type: "event", record });
     return record;
+  }
+
+  async #admitCommand(
+    runtime: ExecutionRuntime,
+    kind: BridgeCommandKind,
+    delivery: BridgeCommandDelivery,
+    payload: string,
+    record: JournalRecord,
+  ): Promise<BridgeCommandAdmission> {
+    return this.#commandReceipts.admit({
+      executionId: runtime.executionId,
+      attemptId: runtime.attemptId,
+      kind,
+      payloadDigest: bridgeCommandPayloadDigest(kind, payload),
+      payloadArtifact: bridgeCommandArtifactLocator(runtime.executionId, record.seq),
+      delivery,
+    });
+  }
+
+  async #deliverCommand(
+    command: BridgeCommandAdmission,
+    effect: () => Promise<void>,
+  ): Promise<void> {
+    await this.#commandReceipts.commitIntent(command);
+    try {
+      await effect();
+    } catch (error) {
+      try {
+        await this.#commandReceipts.commitReceipt(
+          command,
+          "failed",
+          bridgeCommandResultDigest(error),
+        );
+      } catch (receiptError) {
+        throw new AggregateError(
+          [error, receiptError],
+          "Bridge command effect and Store receipt persistence failed",
+        );
+      }
+      throw error;
+    }
+    await this.#commandReceipts.commitReceipt(command, "succeeded");
   }
 
   #restoreWriterFromDurablePrefix(runtime: ExecutionRuntime): void {
@@ -794,9 +859,11 @@ export class Northd {
     runtime.activeTurn = true;
     runtime.turnDisposition = "completed";
     try {
-      await runtime.session.submitInput(next.input);
+      await this.#deliverCommand(next.admission, () => runtime.session!.submitInput(next.input));
       this.#appendControl(runtime, "control.input_delivered", {
         commandSeq: next.commandSeq,
+        commandId: next.admission.commandId,
+        commandOrdinal: next.admission.ordinal,
         delivery: next.delivery,
       });
     } catch (error) {
@@ -845,8 +912,11 @@ export class Northd {
         return;
       }
       if (runtime.pendingInterrupt) {
-        runtime.pendingInterrupt = false;
-        try { await session.interruptTurn(); }
+        const pendingInterrupt = runtime.pendingInterrupt;
+        runtime.pendingInterrupt = undefined;
+        try {
+          await this.#deliverCommand(pendingInterrupt, () => session.interruptTurn());
+        }
         catch (error) {
           if (runtime.turnDisposition === "interrupted") {
             runtime.turnDisposition = "completed";
@@ -896,6 +966,7 @@ export class Northd {
       const persisted = await wireJournal.append(started);
       const runtime: ExecutionRuntime = {
         executionId,
+        attemptId: request.attemptId,
         role: request.role,
         journal,
         wireJournal,
@@ -906,7 +977,6 @@ export class Northd {
         abort: new AbortController(),
         pendingInputs: [],
         activeTurn: true,
-        pendingInterrupt: false,
         turnDisposition: "completed",
         terminating: false,
         terminal: false,
@@ -915,10 +985,12 @@ export class Northd {
         teardownFailureRecorded: false,
       };
       try {
+        await this.#commandReceipts.bindExecution(executionId, request.attemptId);
         this.#appendControl(runtime, "execution.accepted", {
           prompt: request.prompt,
           cwd: request.cwd,
           role: request.role,
+          attemptId: request.attemptId,
           wireCursor: runtime.wireEvents.length,
         });
       } catch (error) {
@@ -996,10 +1068,18 @@ export class Northd {
         delivery: "queued-next-turn",
         wireCursor: runtime.wireEvents.length,
       });
+      const admission = await this.#admitCommand(
+        runtime,
+        "submit-input",
+        "queued-next-turn",
+        request.input,
+        command,
+      );
       runtime.pendingInputs.push({
         input: request.input,
         delivery: "queued-next-turn",
         commandSeq: command.seq,
+        admission,
       });
       await this.#dispatchNext(runtime);
       send(socket, {
@@ -1009,16 +1089,25 @@ export class Northd {
         delivery: "queued-next-turn",
       });
     } else if (request.op === "interruptTurn") {
-      this.#appendControl(runtime, "control.interrupt_turn", {
-        delivery: "active-turn",
-        wireCursor: runtime.wireEvents.length,
-      });
       if (!runtime.activeTurn) {
         throw new Error(`bridge execution ${runtime.executionId} has no active turn`);
       }
+      const command = this.#appendControl(runtime, "control.interrupt_turn", {
+        delivery: "active-turn",
+        wireCursor: runtime.wireEvents.length,
+      });
+      const admission = await this.#admitCommand(
+        runtime,
+        "interrupt-turn",
+        "active-turn",
+        "",
+        command,
+      );
       runtime.turnDisposition = "interrupted";
       if (runtime.session) {
-        try { await runtime.session.interruptTurn(); }
+        try {
+          await this.#deliverCommand(admission, () => runtime.session!.interruptTurn());
+        }
         catch (error) {
           if (!runtime.terminal && runtime.turnDisposition === "interrupted") {
             runtime.turnDisposition = "completed";
@@ -1026,7 +1115,7 @@ export class Northd {
           throw new BridgeProviderTurnControlError(error);
         }
       } else {
-        runtime.pendingInterrupt = true;
+        runtime.pendingInterrupt = admission;
       }
       send(socket, {
         type: "controlled",
@@ -1035,28 +1124,51 @@ export class Northd {
         delivery: "active-turn",
       });
     } else if (request.op === "redirectNow") {
+      if (runtime.activeTurn && !runtime.session) {
+        throw new Error(`bridge execution ${runtime.executionId} provider is still starting`);
+      }
       const command = this.#appendControl(runtime, "control.redirect_now", {
         input: request.input,
         delivery: "interrupt-and-redirect",
         wireCursor: runtime.wireEvents.length,
       });
+      const admission = await this.#admitCommand(
+        runtime,
+        "redirect-now",
+        "interrupt-and-redirect",
+        request.input,
+        command,
+      );
       runtime.pendingInputs.unshift({
         input: request.input,
         delivery: "interrupt-and-redirect",
         commandSeq: command.seq,
+        admission,
       });
       if (runtime.activeTurn) {
-        if (!runtime.session) {
-          runtime.pendingInputs.shift();
-          throw new Error(`bridge execution ${runtime.executionId} provider is still starting`);
-        }
         runtime.turnDisposition = "interrupted";
-        try { await runtime.session.interruptTurn(); }
+        let intentCommitted = false;
+        try {
+          await this.#commandReceipts.commitIntent(admission);
+          intentCommitted = true;
+          await runtime.session!.interruptTurn();
+        }
         catch (error) {
           runtime.pendingInputs = runtime.pendingInputs
             .filter((pending) => pending.commandSeq !== command.seq);
           if (!runtime.terminal && runtime.turnDisposition === "interrupted") {
             runtime.turnDisposition = "completed";
+          }
+          if (intentCommitted) {
+            try {
+              await this.#commandReceipts.commitReceipt(
+                admission,
+                "failed",
+                bridgeCommandResultDigest(error),
+              );
+            } catch (receiptError) {
+              throw new BridgeProviderTurnControlError(new AggregateError([error, receiptError]));
+            }
           }
           throw new BridgeProviderTurnControlError(error);
         }
@@ -1070,15 +1182,24 @@ export class Northd {
         delivery: "interrupt-and-redirect",
       });
     } else {
-      this.#appendControl(runtime, "control.terminate_session", {});
+      const command = this.#appendControl(runtime, "control.terminate_session", {});
+      const admission = await this.#admitCommand(
+        runtime,
+        "terminate-session",
+        "session-terminated",
+        "",
+        command,
+      );
       const wasActive = runtime.activeTurn;
-      runtime.terminating = true;
-      runtime.abort.abort();
       let closeFailure: unknown;
       let evidenceFailure: unknown;
       let finishFailure: unknown;
       try {
-        await this.#teardown(runtime);
+        await this.#deliverCommand(admission, async () => {
+          runtime.terminating = true;
+          runtime.abort.abort();
+          await this.#teardown(runtime);
+        });
       }
       catch (error) {
         closeFailure = error;

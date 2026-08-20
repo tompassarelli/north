@@ -5,6 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
 import {
+  bridgeCommandArtifactLocator,
+  bridgeCommandPayloadDigest,
+  MemoryBridgeCommandReceipts,
+} from "../src/bridge/command-receipts";
+import {
+  BridgeWireJournal,
   ExecutionJournal,
   readBridgeWireJournal,
   scanJournalFile,
@@ -19,11 +25,12 @@ import {
 import type { BridgeServerMessage } from "../src/bridge/protocol";
 import {
   decodeWireEvent,
+  WireEventWriter,
+  wireRunId,
   wireModelCallId,
   wireToolCallId,
   type WireEvent,
   type WireEventDraft,
-  type WireEventWriter,
   type WireModelCallId,
 } from "../src/wire";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
@@ -35,6 +42,7 @@ interface Client {
 }
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -94,8 +102,10 @@ async function fixture(
       return session;
     },
   };
+  const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
   const northd = new Northd({
     socketPath, journalRoot, provider, selectProvider: async () => "openai",
+    commandReceipts,
     ...(providerTeardownTimeoutMs === undefined ? {} : { providerTeardownTimeoutMs }),
     ...(controlJournal === undefined ? {} : { controlJournal }),
   });
@@ -103,7 +113,8 @@ async function fixture(
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
   const launched = await client(socketPath, {
-    op: "launch", prompt: "first", cwd: root, ...(role ? { role } : {}),
+    op: "launch", prompt: "first", cwd: root, attemptId: ATTEMPT_ID,
+    ...(role ? { role } : {}),
   });
   await waitFor(() => launched.messages.some((message) => message.type === "launched"), "launch id");
   await waitFor(() => session !== undefined, "provider session");
@@ -112,7 +123,7 @@ async function fixture(
   const executionId = launch.executionId;
   return {
     root, socketPath, journalRoot, session: session!, launched, executionId,
-    opens: () => opens, openContexts,
+    opens: () => opens, openContexts, commandReceipts,
   };
 }
 
@@ -306,6 +317,61 @@ class GatedProviderReplacementSession implements BridgeProviderSession {
   }
 }
 
+test("restart observes an unresolved Store intent without replaying its provider effect", async () => {
+  const root = mkdtempSync(join(tmpdir(), "north-bridge-intent-restart-"));
+  const socketPath = join(root, "northd.sock");
+  const journalRoot = join(root, "journal");
+  const executionId = "restart-intent";
+  const receipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
+  await receipts.bindExecution(executionId, ATTEMPT_ID);
+
+  const journal = new ExecutionJournal(journalRoot, executionId);
+  journal.append("execution.accepted", {
+    prompt: "do not replay", cwd: root, role: "implementer", attemptId: ATTEMPT_ID,
+  });
+  journal.close();
+  const wireJournal = await BridgeWireJournal.open(journalRoot, executionId);
+  const writer = new WireEventWriter({ runId: wireRunId(`bridge:${executionId}`) });
+  await wireJournal.append(writer.append({
+    kind: "run.started", lifecycle: "running", owner: "bridge:implementer",
+  }));
+  await wireJournal.close();
+  const command = await receipts.admit({
+    executionId,
+    attemptId: ATTEMPT_ID,
+    kind: "submit-input",
+    payloadDigest: bridgeCommandPayloadDigest("submit-input", "do not replay"),
+    payloadArtifact: bridgeCommandArtifactLocator(executionId, 1),
+    delivery: "queued-next-turn",
+  });
+  await receipts.commitIntent(command);
+
+  let providerOpens = 0;
+  const northd = new Northd({
+    socketPath,
+    journalRoot,
+    commandReceipts: receipts,
+    provider: {
+      async open() {
+        providerOpens += 1;
+        throw new Error("restart must not construct a provider");
+      },
+    },
+  });
+  await northd.listen();
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  cleanups.push(() => northd.close());
+  const attached = await client(socketPath, { op: "attach", executionId, cursor: 0 });
+  await attached.closed;
+
+  expect(providerOpens).toBe(0);
+  expect(await receipts.reconcile(ATTEMPT_ID)).toEqual({
+    pending: [], unresolvedIntents: [command],
+  });
+  expect((await readBridgeWireJournal(journalRoot, executionId)).events.at(-1))
+    .toMatchObject({ kind: "run.terminated", reason: { code: "provider_process_died" } });
+});
+
 test("a durable wire start gets one failed terminal when control acceptance persistence fails", async () => {
   const root = mkdtempSync(join(tmpdir(), "north-bridge-acceptance-fsync-"));
   const socketPath = join(root, "northd.sock");
@@ -321,6 +387,7 @@ test("a durable wire start gets one failed terminal when control acceptance pers
       },
     },
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
     controlJournal: (journalPath, executionId) =>
       new AcceptanceFsyncFailureJournal(journalPath, executionId),
   });
@@ -328,7 +395,9 @@ test("a durable wire start gets one failed terminal when control acceptance pers
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
 
-  const launch = await client(socketPath, { op: "launch", prompt: "first", cwd: root });
+  const launch = await client(socketPath, {
+    op: "launch", prompt: "first", cwd: root, attemptId: ATTEMPT_ID,
+  });
   await launch.closed;
   expect(launch.messages.at(-1)).toEqual({
     type: "error", message: "simulated control journal fsync failure",
@@ -386,12 +455,15 @@ test("a forged event cannot hide a provider-owned run terminal behind the same I
       },
     },
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
 
-  const launched = await client(socketPath, { op: "launch", prompt: "first", cwd: root });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "first", cwd: root, attemptId: ATTEMPT_ID,
+  });
   await waitFor(() => launched.socket.destroyed, "forged provider run failure terminal");
   await launched.closed;
   const executionId = launched.messages.find((message) => message.type === "launched")?.executionId;
@@ -488,6 +560,7 @@ test("launch role defaults to implementer and an explicit director reaches the p
 
   const invalid = await client(supervisor.socketPath, {
     op: "launch", prompt: "invalid", cwd: supervisor.root, role: "portfolio",
+    attemptId: ATTEMPT_ID,
   });
   await invalid.closed;
   expect(invalid.messages.at(-1)).toEqual({
@@ -585,12 +658,15 @@ test("interrupt and redirect stay gated across provider-session replacement pref
     journalRoot,
     provider,
     selectProvider: async () => "openai",
+    commandReceipts: new MemoryBridgeCommandReceipts([ATTEMPT_ID]),
   });
   await northd.listen();
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   cleanups.push(() => northd.close());
 
-  const launched = await client(socketPath, { op: "launch", prompt: "first", cwd: root });
+  const launched = await client(socketPath, {
+    op: "launch", prompt: "first", cwd: root, attemptId: ATTEMPT_ID,
+  });
   await waitFor(() => session !== undefined, "gated provider session");
   await waitFor(
     () => launched.messages.some((message) =>
@@ -788,13 +864,25 @@ test("a rejected interrupt cannot mislabel a later normal terminal boundary", as
   }
 });
 
-test("each control command is committed to the journal before its provider effect", async () => {
+test("each control command has a Store intent before its provider effect and a receipt after", async () => {
   let journalPath = "";
-  const observed: Array<{ effect: string; kinds: string[] }> = [];
+  let commandReceipts: MemoryBridgeCommandReceipts | undefined;
+  const observed: Array<{
+    effect: string;
+    kinds: string[];
+    intents: number;
+    receipts: number;
+  }> = [];
   const f = await fixture((effect) => {
     const records = scanJournalFile(journalPath).records;
-    observed.push({ effect, kinds: records.map((record) => record.kind) });
+    observed.push({
+      effect,
+      kinds: records.map((record) => record.kind),
+      intents: commandReceipts?.intents.length ?? 0,
+      receipts: commandReceipts?.receipts.length ?? 0,
+    });
   });
+  commandReceipts = f.commandReceipts;
   journalPath = join(f.journalRoot, f.executionId, "events.log");
 
   const interrupt = await client(f.socketPath, { op: "interruptTurn", executionId: f.executionId });
@@ -828,6 +916,16 @@ test("each control command is committed to the journal before its provider effec
     .toBe("control.submit_input");
   expect(observed.find(({ effect }) => effect === "terminate")?.kinds.at(-1))
     .toBe("control.terminate_session");
+  expect(observed.map(({ effect, intents, receipts }) => ({ effect, intents, receipts })))
+    .toEqual([
+      { effect: "interrupt", intents: 1, receipts: 0 },
+      { effect: "submit:next", intents: 2, receipts: 1 },
+      { effect: "terminate", intents: 3, receipts: 2 },
+    ]);
+  expect(f.commandReceipts.receipts).toEqual(f.commandReceipts.commands.map((command) => ({
+    commandId: command.commandId,
+    outcome: "succeeded",
+  })));
 });
 
 test("a provider close failure still commits exactly one host-owned run terminal", async () => {

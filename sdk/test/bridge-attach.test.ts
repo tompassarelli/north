@@ -4,6 +4,7 @@ import { connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
+import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
   readBridgeWireJournal,
 } from "../src/bridge/journal";
@@ -18,6 +19,7 @@ interface Client {
 }
 
 const cleanups: Array<() => Promise<void> | void> = [];
+const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -78,11 +80,14 @@ test("attach maps its one-based cursor to exact zero-based wire replay, then tai
       return session;
     },
   };
-  const northd = new Northd({ ...paths, provider });
+  const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
+  const northd = new Northd({ ...paths, provider, commandReceipts });
   await northd.listen();
   cleanups.push(() => northd.close());
 
-  const launched = await client(paths.socketPath, { op: "launch", prompt: "test", cwd: paths.root });
+  const launched = await client(paths.socketPath, {
+    op: "launch", prompt: "test", cwd: paths.root, attemptId: ATTEMPT_ID,
+  });
   await waitFor(
     () => launched.messages.some((message) =>
       message.type === "wire"
@@ -140,9 +145,12 @@ test("a restarted northd replays terminal wire bytes without provider or Beagle 
       return session;
     },
   };
-  const first = new Northd({ ...paths, provider });
+  const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
+  const first = new Northd({ ...paths, provider, commandReceipts });
   await first.listen();
-  const launched = await client(paths.socketPath, { op: "launch", prompt: "offline", cwd: paths.root });
+  const launched = await client(paths.socketPath, {
+    op: "launch", prompt: "offline", cwd: paths.root, attemptId: ATTEMPT_ID,
+  });
   await waitFor(
     () => launched.messages.some((message) =>
       message.type === "event" && message.record.kind === "session.idle"),
@@ -163,7 +171,7 @@ test("a restarted northd replays terminal wire bytes without provider or Beagle 
   const replayOnly: BridgeProviderExecution = {
     async open() { providerCalls += 1; throw new Error("provider must stay down during replay"); },
   };
-  const restarted = new Northd({ ...paths, provider: replayOnly });
+  const restarted = new Northd({ ...paths, provider: replayOnly, commandReceipts });
   await restarted.listen();
   cleanups.push(() => restarted.close());
   const attached = await client(paths.socketPath, { op: "attach", executionId, cursor: 0 });
@@ -188,6 +196,7 @@ test("restart recovery closes an exact incomplete run once under concurrent and 
     paths.socketPath,
     paths.journalRoot,
     paths.root,
+    ATTEMPT_ID,
   ], {
     stdout: "pipe",
     stderr: "inherit",
@@ -203,6 +212,7 @@ test("restart recovery closes an exact incomplete run once under concurrent and 
     op: "launch",
     prompt: "crash before provider completion",
     cwd: paths.root,
+    attemptId: ATTEMPT_ID,
   });
   await waitFor(
     () => launched.messages.some((message) =>
@@ -230,13 +240,15 @@ test("restart recovery closes an exact incomplete run once under concurrent and 
     .toBe(true);
 
   let providerCalls = 0;
+  const commandReceipts = new MemoryBridgeCommandReceipts([ATTEMPT_ID]);
+  await commandReceipts.bindExecution(executionId, ATTEMPT_ID);
   const unavailableProvider: BridgeProviderExecution = {
     async open() {
       providerCalls += 1;
       throw new Error("provider must not reopen during crash recovery");
     },
   };
-  const first = new Northd({ ...paths, provider: unavailableProvider });
+  const first = new Northd({ ...paths, provider: unavailableProvider, commandReceipts });
   await first.listen();
   cleanups.push(() => first.close());
   const [left, right] = await Promise.all([
@@ -285,7 +297,7 @@ test("restart recovery closes an exact incomplete run once under concurrent and 
   expect(providerCalls).toBe(0);
 
   await first.close();
-  const second = new Northd({ ...paths, provider: unavailableProvider });
+  const second = new Northd({ ...paths, provider: unavailableProvider, commandReceipts });
   await second.listen();
   cleanups.push(() => second.close());
   const repeated = await client(paths.socketPath, { op: "attach", executionId, cursor: 0 });
