@@ -85,13 +85,13 @@
         (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
         (System/arraycopy body 0 packet wire/rpc-v2-header-bytes
                           (int body-length))
-        (wire/store-rpc-decode-packet-v2! packet)))))
+        (wire/decode-rpc-frame-v2! packet)))))
 
 (defn subject-of [id]
   (if (.startsWith ^String id "@") id (str "@" id)))
 
 (defn response-for [packet expected-subject {:keys [version rows malformed?]}]
-  (let [request (t/storerpcpacketv2-request packet)
+  (let [request (t/rpcframev2-request packet)
         operation (t/rpcrequest-op request)
         page (when (t/rpcrequest-page request)
                (wire/rpc-page-response! 0 nil true))
@@ -116,18 +116,18 @@
                                  "fixture accepts only status and scan" nil))
         response (wire/rpc-response!
                   (t/rpcrequest-space request) operation version page error payload)]
-    (wire/store-rpc-response-packet (t/storerpcpacketv2-request-id packet) response)))
+    (wire/rpc-response-frame (t/rpcframev2-request-id packet) response)))
 
 (defn serve-peer! [server expected-subject response requests worker-error]
   (try
     (loop []
       (with-open [socket (.accept server)]
         (let [packet (read-request-packet! (.getInputStream socket))
-              request (t/storerpcpacketv2-request packet)
+              request (t/rpcframev2-request packet)
               output (.getOutputStream socket)]
           (swap! requests conj request)
           (.write output
-                  (wire/store-rpc-encode-packet-v2!
+                  (wire/encode-rpc-frame-v2!
                    (response-for packet expected-subject response)))
           (.flush output)))
       (recur))

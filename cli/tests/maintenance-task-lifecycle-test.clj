@@ -100,7 +100,7 @@
                           {:type :rpc-truncated})))
         (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
         (System/arraycopy body 0 packet wire/rpc-v2-header-bytes (int body-length))
-        (wire/store-rpc-decode-packet-v2! packet)))))
+        (wire/decode-rpc-frame-v2! packet)))))
 
 (def fixture-served-version 0)
 
@@ -128,8 +128,8 @@
   "Build the v2 response packet. SpaceId and op must echo the request or the
    client rejects the answer as a response/request identity mismatch."
   [packet request {:keys [payload error]}]
-  (wire/store-rpc-response-packet
-   (t/storerpcpacketv2-request-id packet)
+  (wire/rpc-response-frame
+   (t/rpcframev2-request-id packet)
    (wire/rpc-response!
     (t/rpcrequest-space request)
     (t/rpcrequest-op request)
@@ -158,10 +158,10 @@
                          ;; The daemon owns one request per socket.
                          (with-open [socket socket]
                            (let [packet (read-request-packet! (.getInputStream socket))
-                                 request (t/storerpcpacketv2-request packet)
+                                 request (t/rpcframev2-request packet)
                                  output (.getOutputStream socket)]
                              (.write output
-                                     (wire/store-rpc-encode-packet-v2!
+                                     (wire/encode-rpc-frame-v2!
                                       (response-packet packet request
                                                       (response-for request))))
                              (.flush output)))
