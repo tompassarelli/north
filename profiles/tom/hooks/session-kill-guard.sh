@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# PreToolUse guard — refuses session-killing signal shapes: broadcast kill
-# (`kill -1`), user-wide process sweeps (`pkill -u` with no pattern,
-# `killall -u`), compositor kills (pkill/killall niri), and login-session
-# teardown (`loginctl terminate-*`/`kill-*`, `systemctl --user exit`,
-# stop/kill/restart of `user@*` or the compositor unit).
+# PreToolUse guard — refuses session-killing signal shapes and unmanaged
+# background-child launch shapes: broadcast kill (`kill -1`), user-wide process
+# sweeps (`pkill -u` with no pattern, `killall -u`), compositor kills
+# (pkill/killall niri), login-session teardown (`loginctl terminate-*`/`kill-*`,
+# `systemctl --user exit`, stop/kill/restart of `user@*` or the compositor
+# unit), and detached agent child processes (`nohup`, `setsid`, `disown`, bare
+# background `&`, or direct Bun/Node temporary scripts).
 # ============================================================================
 # kill(-1, SIG) signals EVERY process the user owns — the compositor, the
 # user manager, the login shell, and every other agent — in one syscall. The
 # scoped alternatives (a specific PID, a unique -f pattern, a named unit the
-# agent itself started) stay allowed, as do quoted mentions in commit
-# messages and heredoc bodies: only a command-position invocation is denied.
+# agent itself started) stay allowed. A background child instead uses
+# `run-bounded <duration> -- <command>`: its 24h maximum owns a transient
+# cgroup plus PID namespace, reaps every descendant, and gives all background
+# jobs a shared 48G hard ceiling. Quoted mentions in commit messages and
+# heredoc bodies stay allowed: only a command-position invocation is denied.
 #
 # Kill-switch: persistent `north config guards off` (state) OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but
@@ -43,14 +48,16 @@ capture_hook_stdin
 type authoring_guards_off >/dev/null 2>&1 && authoring_guards_off && exit 0
 [ "$payload_oversized" -eq 0 ] || exit 0
 
-# Fast-path: only Bash commands naming a signal or session verb are candidates.
+# Fast-path: only Bash commands naming a process-lifecycle verb, temporary
+# interpreter launch, or background operator are candidates.
 case "$payload" in
-  *kill*|*loginctl*|*systemctl*) ;;
+  *kill*|*loginctl*|*systemctl*|*nohup*|*setsid*|*disown*|*run-bounded*|\
+  *bun*|*node*|*/tmp/*|*'&'*) ;;
   *) exit 0 ;;
 esac
 
 read -r -d '' PY <<'PYEOF' || true
-import sys, json, re
+import sys, json, re, shlex
 
 def allow():
     sys.exit(0)
@@ -246,6 +253,73 @@ def systemctl_hit(tokens):
             return "compositor teardown"
     return None
 
+# The same command-position boundary covers process detachment. This is a
+# deliberately small shell pass: it recognizes command lists, not arbitrary
+# runtime-built shell source. Heredoc bodies are blanked; quoted prose remains
+# an argument to its leading command and cannot become an invocation.
+CONTROL = {";", "&&", "||", "|", "|&", "&", "\n", "(", ")"}
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.S)
+REDIRECTION = re.compile(r"^\d*(?:<>|>>|<<|>|<).*$", re.S)
+WRAPPERS = {"command", "exec", "env", "sudo", "doas"}
+
+def command_base(token):
+    return token.rstrip("/").rsplit("/", 1)[-1]
+
+def command_word(segment):
+    index = 0
+    while index < len(segment) and (ASSIGNMENT.fullmatch(segment[index]) or REDIRECTION.fullmatch(segment[index])):
+        index += 1
+    while index < len(segment):
+        word = command_base(segment[index])
+        if word not in WRAPPERS:
+            return word, segment[index + 1:]
+        index += 1
+        while index < len(segment) and (segment[index].startswith("-") or ASSIGNMENT.fullmatch(segment[index])):
+            index += 1
+    return None, []
+
+def temporary_script(args):
+    return any(re.fullmatch(r"/tmp/[^\s]*\.(?:js|mjs|cjs|ts)", arg) for arg in args)
+
+def background_shape(segment, background=False):
+    word, args = command_word(segment)
+    if word in {"nohup", "setsid", "disown"}:
+        return word
+    if word in {"bun", "node"} and temporary_script(args):
+        return "direct %s /tmp script" % word
+    if background and word != "run-bounded":
+        return "unmanaged background job"
+    return None
+
+def unmanaged_background_hit(command):
+    try:
+        lexer = shlex.shlex(strip_heredocs(command), posix=True, punctuation_chars=";&|()\n")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        lexer.whitespace = " \t\r"
+        tokens = list(lexer)
+    except (TypeError, ValueError):
+        return None
+    segment = []
+    for index, token in enumerate(tokens):
+        # shlex splits fd redirects such as 2>&1 and &>file; those ampersands
+        # are redirections, not background operators.
+        redirect_amp = token == "&" and ((segment and segment[-1].endswith(">"))
+            or (index + 1 < len(tokens) and tokens[index + 1].startswith(">")))
+        if token == "&" and not redirect_amp:
+            hit = background_shape(segment, background=True)
+            if hit:
+                return hit
+            segment = []
+        elif token in CONTROL:
+            hit = background_shape(segment)
+            if hit:
+                return hit
+            segment = []
+        else:
+            segment.append(token)
+    return background_shape(segment)
+
 hit = None
 for m in CMD_RE.finditer(cleaned):
     name = m.group(1)
@@ -263,19 +337,29 @@ for m in CMD_RE.finditer(cleaned):
     if hit:
         break
 
-if hit is None:
+background_hit = unmanaged_background_hit(cmd)
+
+if hit is None and background_hit is None:
     allow()
 
-reason = (
-    "BLOCKED: session-killing shape refused (%s) — this signals the whole "
-    "desktop session (compositor, user manager, every agent), not just your "
-    "target. Signal only processes YOU started, by specific PID (`kill <pid>`)"
-    " or a unique pattern (`pkill -f '<unique-pattern>'`); manage your own "
-    "units by exact name. Session/compositor teardown is the operator's call. "
-    "Prose that mentions these phrases is unaffected — only a command-position "
-    "invocation is denied. Rare explicit override: `north config guards off` "
-    "(persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
-) % hit
+if hit is not None:
+    reason = (
+        "BLOCKED: session-killing shape refused (%s) — this signals the whole "
+        "desktop session (compositor, user manager, every agent), not just your "
+        "target. Signal only processes YOU started, by specific PID (`kill <pid>`)"
+        " or a unique pattern (`pkill -f '<unique-pattern>'`); manage your own "
+        "units by exact name. Session/compositor teardown is the operator's call. "
+        "Prose that mentions these phrases is unaffected — only a command-position "
+        "invocation is denied. Rare explicit override: `north config guards off` "
+        "(persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
+    ) % hit
+else:
+    reason = (
+        "BLOCKED: %s would detach an agent child from its owner. Use "
+        "`run-bounded <duration> -- <command>`; the wrapper has a 24h maximum, "
+        "owns a transient cgroup plus PID namespace, reaps every descendant when "
+        "the owner ends, and gives all background jobs a shared 48G hard ceiling."
+    ) % background_hit
 
 print(json.dumps({
     "hookSpecificOutput": {
