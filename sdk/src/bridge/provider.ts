@@ -162,7 +162,7 @@ export class BridgeWireSession implements BridgeProviderSession {
     this.#abort = abort;
     this.#signal = signal;
     this.presentation = presentation;
-    this.#signalAbort = () => { void this.terminateSession().catch(() => {}); };
+    this.#signalAbort = () => { void this.terminateSession(); };
     signal.addEventListener("abort", this.#signalAbort, { once: true });
     if (signal.aborted) this.#signalAbort();
   }
