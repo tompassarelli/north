@@ -65,8 +65,7 @@
    [model BridgeModel
     agents (Vec Agent)
     list-items (Vec WorkItem)
-    board-items (Vec WorkItem)]
-   BridgeModel
+    board-items (Vec WorkItem)] BridgeModel
    (with model
     [:agents agents]
     [:list list-items]
@@ -75,8 +74,7 @@
 (js/export
  (defn upsert-agent
    [model BridgeModel
-    agent Agent]
-   BridgeModel
+    agent Agent] BridgeModel
    (let [agents (js/call (bridgemodel-agents model) .filter
                         (fn [existing Agent] Bool
                           (not (identical? (agent-id existing) (agent-id agent)))))]
@@ -88,8 +86,7 @@
 (js/export
  (defn remove-agent
    [model BridgeModel
-    removed-id String]
-   BridgeModel
+    removed-id String] BridgeModel
    (with model
     [:agents (js/call (bridgemodel-agents model) .filter
                       (fn [existing Agent] Bool
@@ -98,8 +95,7 @@
 (js/export
  (defn focus-view
    [model BridgeModel
-    view-id String]
-   BridgeModel
+    view-id String] BridgeModel
    (let [view (canonical-view view-id)]
     (with model
       [:active-view-id view]
@@ -107,16 +103,14 @@
 
 (defn set-layout
   [model BridgeModel
-   layout String]
-  BridgeModel
+   layout String] BridgeModel
   (with model
     [:layout (if (identical? layout "horizontal") "horizontal" "vertical")]))
 
 (js/export
  (defn select-agent
    [model BridgeModel
-    agent-id String]
-   BridgeModel
+    agent-id String] BridgeModel
    (with model
     [:selected-agent agent-id]
     ;; Selection is already visible in the highlighted roster row and controls
@@ -127,8 +121,7 @@
 (js/export
  (defn select-thread
    [model BridgeModel
-    thread-id String]
-   BridgeModel
+    thread-id String] BridgeModel
    (with model
     [:selected-thread thread-id]
     [:notice (if (identical? thread-id "")
@@ -138,8 +131,7 @@
 (js/export
  (defn set-filter
    [model BridgeModel
-    filter-text String]
-   BridgeModel
+    filter-text String] BridgeModel
    (let [trimmed (js/call filter-text .trim)]
     (with model
       [:filter-text (js/call trimmed .toLowerCase)]
@@ -149,10 +141,9 @@
 
 (defn visible-work
   [model BridgeModel
-   source (Vec WorkItem)]
-  (Vec WorkItem)
-  (let [agent-id (bridgemodel-selected-agent model)
-        needle (bridgemodel-filter-text model)]
+   source (Vec WorkItem)] (Vec WorkItem)
+  (let [agent-id String (bridgemodel-selected-agent model)
+        needle String (bridgemodel-filter-text model)]
     (js/call source .filter
              (fn [item WorkItem] Bool
                (and (or (identical? agent-id "")
