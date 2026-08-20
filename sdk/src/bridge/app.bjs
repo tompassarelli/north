@@ -166,7 +166,7 @@
 
 (def STRIP-INDENT Int 2)
 
-;; Rows a frame owes to everything that is not a scrolling list: the root's
+;; Rows a view owes to everything that is not a scrolling list: the root's
 ;; single top padding row, the composer line, the view bar under it, and the
 ;; agent strip. The session identity rides the view bar's tail now instead of
 ;; owning a line, so the bottom cluster is one row shorter than it was. The
@@ -176,7 +176,7 @@
 ;; The workspace never collapses entirely, however long a list gets.
 (def MIN-WORKSPACE-ROWS Int 4)
 
-;; Pure: how many rows of a list one frame may draw. No list is ever truncated
+;; Pure: how many rows of a list one view may draw. No list is ever truncated
 ;; to a fixed count — the window is only as small as the terminal forces it,
 ;; and every entry outside it stays reachable by scrolling.
 (defn fitted-window
@@ -667,14 +667,14 @@
       (identical? name "esc")))
 
 ;; One view is on screen at a time, full width, and Northbridge opens on Agents.
-(def BOOT-FRAME String "agents")
+(def BOOT-VIEW String "agents")
 
 (js/export
- (defn boot-frame []  String BOOT-FRAME))
+ (defn boot-view []  String BOOT-VIEW))
 
 (js/export
- (defn threads-frame? [frame Any] Bool
-  (identical? (text frame) "threads")))
+ (defn threads-view? [view Any] Bool
+  (identical? (text view) "threads")))
 
 ;; Pure: the escape ladder. One rung per invocation, innermost first, so
 ;; nothing is ever closed that you could not see was open. Escape never quits;
@@ -749,8 +749,8 @@
 
 ;; Pure: the view a swap lands on. Two views, so the swap is the other one.
 (js/export
- (defn tab-swap-frame [frame String] String
-  (if (threads-frame? frame) "agents" "threads")))
+ (defn tab-swap-view [view String] String
+  (if (threads-view? view) "agents" "threads")))
 
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
@@ -780,13 +780,13 @@
 ;; that is on screen.
 (js/export
  (defn palette-options
-   [frame String
+   [view String
     input String]
    (Vec SlashCommand)
    (let [query (js/call (js/call input .trim) .toLowerCase)
         parsed (command input)
         name (parsedcommand-name parsed)
-        commands (if (threads-frame? frame) THREAD-COMMANDS AGENT-COMMANDS)]
+        commands (if (threads-view? view) THREAD-COMMANDS AGENT-COMMANDS)]
     (cond
       (not (js/call query .startsWith "/")) []
       (identical? name "emoji") (emoji-options (parsedcommand-rest parsed))
@@ -2505,12 +2505,12 @@
           ;; because both submit paths run this first: one branch and /list
           ;; means the same thing typed from either view.
           (identical? name "agents")
-          (do (show-frame! runtime ui "agents") true)
+          (do (show-view! runtime ui "agents") true)
 
           (identical? name "threads")
           (do (if (identical? (js/call (js/call rest .trim) .toLowerCase) "popout")
                 (popout! runtime (text (js/get runtime .activeView)))
-                (show-frame! runtime ui "threads"))
+                (show-view! runtime ui "threads"))
               true)
 
           (thread-view-command? name)
@@ -2741,7 +2741,7 @@
     (or (identical? view-id "board") (identical? view-id "kanban")) "board"
     :else "list"))
 
-;; Pure: is this slash command one of the threads frame's view switches? The
+;; Pure: is this slash command one of the threads view's view switches? The
 ;; command *is* the view — there is no verb to remember and no argument to get
 ;; wrong, and `dag`/`kanban` are not commands at all.
 (js/export
@@ -3028,20 +3028,20 @@
 ;; One view is on screen at a time, so showing a view is one boolean per
 ;; container and no arithmetic at all: no ratio, no divider, no minimum.
 (js/export
- (defn apply-frame-visibility!
+ (defn apply-view-visibility!
    [runtime Any
     ui Any]
    Any
-   (let [threads? (threads-frame? (js/get runtime .frame))]
+   (let [threads? (threads-view? (js/get runtime .view))]
     (js/set! (js/get ui .agentsPane) .visible (not threads?))
     (js/set! (js/get ui .workPane) .visible threads?))))
 
 ;; Every view is full width now, so they all measure the same.
-(defn available-frame-width []  Int
+(defn available-view-width []  Int
   (Math/max 24 (- (terminal-columns) 6)))
 
 (defn available-agent-width [_runtime Any] Int
-  (available-frame-width))
+  (available-view-width))
 
 (defn user-block-text
   [runtime Any
@@ -3375,7 +3375,7 @@
 ;; fixed so the values line up as a column of answers rather than a paragraph.
 (def BANNER-LABEL-WIDTH Int 13)
 
-;; Below this the box is more cost than frame: the borders take four columns
+;; Below this the box is more cost than view: the borders take four columns
 ;; and a clipped path or model tells you less than the plain line does. The
 ;; banner degrades to its own lines rather than wrapping, because a wrapped box
 ;; is a broken box.
@@ -3409,7 +3409,7 @@
 
 ;; Pure: session facts -> the banner's content lines, before any box is drawn
 ;; around them. A fact the session has not reported yet says `pending`, which is
-;; the word the rest of the frame already uses for the same gap.
+;; the word the rest of the view already uses for the same gap.
 (js/export
  (defn session-banner-lines
    [identity Any
@@ -3450,7 +3450,7 @@
 
 ;; Pure: content lines -> the lines actually drawn. Wide enough and they get the
 ;; box, clipped to what fits so a long path cannot push a border off the edge
-;; and wrap the frame open. Narrow and they get themselves: a box that does not
+;; and wrap the view open. Narrow and they get themselves: a box that does not
 ;; fit is not a smaller box, it is a broken one.
 (js/export
  (defn banner-box!
@@ -3489,15 +3489,15 @@
 (def BANNER-BOX-SUFFIX String " │")
 
 ;; Pure: is this drawn line the box's top or bottom rule — border and nothing
-;; else? Those two lines carry no content at all, so they are frame end to end.
+;; else? Those two lines carry no content at all, so they are view end to end.
 (js/export
  (defn banner-rule-line? [line String] Bool
   (or (js/call line .startsWith "╭") (js/call line .startsWith "╰"))))
 
 ;; Pure: one drawn line -> [border-prefix content border-suffix]. The box's
-;; sides belong to the FRAME, not to the line they enclose: colouring a whole
+;; sides belong to the VIEW, not to the line they enclose: colouring a whole
 ;; line coloured its borders with it, which is what made the pipes beside the
-;; title bright against an otherwise dim box — a frame in two tones, which reads
+;; title bright against an otherwise dim box — a view in two tones, which reads
 ;; as broken rather than as emphasis.
 (js/export
  (defn banner-line-segments [line String] Any
@@ -3517,8 +3517,8 @@
 
 ;; Pure: the drawn banner -> the runs that paint it, in order, each carrying the
 ;; tone it paints in. Exactly one tone is bright — the title's own text — and
-;; everything else, fields and the entire frame alike, is dim. Newlines ride
-;; along as frame runs so a caller emits the banner by walking this list and
+;; everything else, fields and the entire view alike, is dim. Newlines ride
+;; along as view runs so a caller emits the banner by walking this list and
 ;; nothing else.
 (js/export
  (defn session-banner-runs [lines Any] Any
@@ -3532,12 +3532,12 @@
              prefix (aget segments 0)
              content (aget segments 1)
              suffix (aget segments 2)]
-         (when (> index 0) (js/call runs .push {:text "\n" :tone "frame"}))
-         (when (not (identical? prefix "")) (js/call runs .push {:text prefix :tone "frame"}))
+         (when (> index 0) (js/call runs .push {:text "\n" :tone "snapshot"}))
+         (when (not (identical? prefix "")) (js/call runs .push {:text prefix :tone "snapshot"}))
          (when (not (identical? content ""))
            (js/call runs .push {:text content
                         :tone (if (js/call content .includes "North Bridge") "title" "field")}))
-         (when (not (identical? suffix "")) (js/call runs .push {:text suffix :tone "frame"})))))
+         (when (not (identical? suffix "")) (js/call runs .push {:text suffix :tone "snapshot"})))))
     runs)))
 
 (js/export
@@ -3621,7 +3621,7 @@
                                    (js/get runtime .sessionEffort)
                                    (short-directory (js/get runtime .sessionCwd))
                                    (js/get runtime .sessionPermissions)
-                                   (available-frame-width))) .forEach
+                                   (available-view-width))) .forEach
                   (fn [run Any] Any
                     (push-chunk! chunks
                                  ((if (identical? (js/get run .tone) "title")
@@ -3927,7 +3927,7 @@
         config-filter (text-or (text (js/get runtime .configFilter)) "all")
         filtering? (panel-filtering? runtime)
         ;; An unfocused panel is still on screen and no longer yours: the cursor
-        ;; stops burning and the row it is on stops standing out, so the frame
+        ;; stops burning and the row it is on stops standing out, so the view
         ;; says where the keyboard went without moving anything.
         focused? (panel-focused? runtime)
         query (panel-query runtime)]
@@ -4407,13 +4407,13 @@
 
 (js/export
  (defn render-view-tabs!
-   [frame Any
+   [view Any
     state BridgeSnapshot
     view-id String
     session Any]
    Any
    (let [chunks []
-        threads? (threads-frame? frame)
+        threads? (threads-view? view)
         views (view-list state)]
     (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
     (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
@@ -4475,7 +4475,7 @@
   [_runtime Any
    _state BridgeSnapshot]
   Int
-  (available-frame-width))
+  (available-view-width))
 
 (defn render-list-view!
   [runtime Any
@@ -4637,7 +4637,7 @@
   (js/set! runtime .workIndex index)
   (js/set! runtime .model
         (select-thread (js/get runtime .model) (workitem-id item)))
-  (show-frame! runtime ui "threads")
+  (show-view! runtime ui "threads")
   (js/call (js/get ui .workScroll) .scrollChildIntoView (board-card-id (workitem-id item))))
 
 (defn prefill-outcome!
@@ -4646,7 +4646,7 @@
    thread-id String]
   Any
   (js/set! (js/get ui .composerInput) .value (str "/outcome @" thread-id " "))
-  (show-frame! runtime ui "threads")
+  (show-view! runtime ui "threads")
   (set-board-notice! runtime
                      (str "Finish the outcome, then press Enter; Done is derived from north tell @"
                           thread-id " outcome <result>.")))
@@ -4884,8 +4884,8 @@
         (render-list-view! runtime items selected width)))))
 
 ;; Pure: the grey hint in the composer. It used to name the command set the
-;; focused frame answers to; the view bar sits directly under the composer and
-;; already says which frame is active, so the suffix was explaining twice.
+;; focused view answers to; the view bar sits directly under the composer and
+;; already says which view is active, so the suffix was explaining twice.
 (js/export
  (defn composer-hint
    [pane String
@@ -4896,11 +4896,11 @@
     "/list, /board, /graph, /capture, /filter, /assign")))
 
 (defn minibuffer-placeholder [runtime Any] String
-  (composer-hint (text (js/get runtime .frame)) (main-agent-label runtime)))
+  (composer-hint (text (js/get runtime .view)) (main-agent-label runtime)))
 
 ;; Pure: rows the slash palette may draw at once. `docked` is whatever the
 ;; detail panel is already spending, so an open switchboard shrinks the palette
-;; instead of overflowing the frame.
+;; instead of overflowing the view.
 (defn palette-visible-count
   [total Int
    rows Int
@@ -4929,9 +4929,9 @@
   [runtime Any
    ui Any]
   (Vec SlashCommand)
-  (let [frame (text (js/get runtime .frame))
+  (let [view (text (js/get runtime .view))
         input (js/get ui .composerInput)
-        options (palette-options frame (text (js/get input .value)))
+        options (palette-options view (text (js/get input .value)))
         total (js/get options .length)
         index (Math/max 0 (Math/min (js/get runtime .paletteIndex) (Math/max 0 (- total 1))))
         docked (if (detail-open? runtime) (detail-height! runtime) 0)
@@ -4974,9 +4974,9 @@
         notice? (not (identical? notice ""))]
     (js/set! runtime .agentIndex (Math/max 0 (Math/min (js/get runtime .agentIndex) agent-max)))
     (js/set! runtime .workIndex (Math/max 0 (Math/min (js/get runtime .workIndex) work-max)))
-    (apply-frame-visibility! runtime ui)
+    (apply-view-visibility! runtime ui)
     (js/set! (js/get ui .viewTabsText) .content
-          (render-view-tabs! (js/get runtime .frame) state (workview-id current) runtime))
+          (render-view-tabs! (js/get runtime .view) state (workview-id current) runtime))
     (js/set! (js/get ui .agentsText) .visible (> roster-rows 0))
     (js/set! (js/get ui .agentsText) .height (Math/max 1 roster-rows))
     (js/set! (js/get ui .agentsText) .content roster)
@@ -4992,9 +4992,9 @@
     (js/set! (js/get ui .agentStatusText) .content (render-status runtime state))
     ;; One status line, inside whichever view is showing.
     (js/set! (js/get ui .statusText) .visible
-          (and (threads-frame? (js/get runtime .frame)) notice?))
+          (and (threads-view? (js/get runtime .view)) notice?))
     (js/set! (js/get ui .agentStatusText) .visible
-          (and (not (threads-frame? (js/get runtime .frame))) notice?))
+          (and (not (threads-view? (js/get runtime .view))) notice?))
     (render-prompt! runtime (js/get ui .composerPrompt))
     (let [segments (agent-segments agents)
           strip-max (Math/max 0 (- (js/get segments .length) 1))]
@@ -5555,9 +5555,9 @@
           nil))
       nil)))
 
-;; Capture takes nothing from the frame it was typed in: a title, the `north`
-;; CLI, and a refresh of the threads the agents frame may not even be showing.
-;; Both frames call this, which is why /capture is in both command sets.
+;; Capture takes nothing from the view it was typed in: a title, the `north`
+;; CLI, and a refresh of the threads the agents view may not even be showing.
+;; Both views call this, which is why /capture is in both command sets.
 (defn capture-thread!
   [runtime Any
    title String]
@@ -5714,23 +5714,23 @@
           (fn [error Any] Any
             (publish-line! runtime (str "error: " (error-message error))))))
 
-(defn select-frame!
+(defn select-view!
   [runtime Any
-   frame String]
+   view String]
   Any
-  (js/set! runtime .frame frame)
+  (js/set! runtime .view view)
   (js/set! runtime .paletteIndex 0)
   (js/set! runtime .workspaceNotice "")
   (clear-strip-focus! runtime))
 
 ;; Swapping which view is on screen. The composer is shared by both and keeps
 ;; the cursor throughout — there is no pane to focus, only a view to show.
-(defn show-frame!
+(defn show-view!
   [runtime Any
    ui Any
-   frame String]
+   view String]
   Any
-  (select-frame! runtime frame)
+  (select-view! runtime view)
   (js/call (js/get ui .composerInput) .focus)
   (js/call runtime .render))
 
@@ -5745,7 +5745,7 @@
   (js/set! runtime .model (focus-view (js/get runtime .model) (canonical-work-view view-id)))
   (js/set! runtime .workIndex 0)
   (js/call (js/get runtime .workScroll) .scrollTo 0)
-  (show-frame! runtime ui "threads"))
+  (show-view! runtime ui "threads"))
 
 (defn strip-segments [runtime Any] (Vec AgentSegment)
   (agent-segments (bridgesnapshot-agents (snapshot (js/get runtime .model)))))
@@ -5827,9 +5827,9 @@
   [runtime Any
    ui Any]
   (Vec SlashCommand)
-  (let [frame (text (js/get runtime .frame))
+  (let [view (text (js/get runtime .view))
         input (active-input runtime ui)]
-    (palette-options frame (text (js/get input .value)))))
+    (palette-options view (text (js/get input .value)))))
 
 ;; The composer's editing keys. Nothing else registers a layer any more: with
 ;; one view on screen there are no window chords to arbitrate.
@@ -5871,7 +5871,7 @@
 
 ;; The one way a line leaves the composer, whether the user typed it and hit
 ;; enter or the palette fired a command on their behalf. The composer is
-;; cleared first so the frame never shows a line that is already in flight.
+;; cleared first so the view never shows a line that is already in flight.
 (js/export
  (defn submit-input!
    [runtime Any
@@ -5881,7 +5881,7 @@
    (when (not (identical? input ""))
     (js/set! (js/get ui .composerInput) .value "")
     (js/set! runtime .paletteIndex 0)
-    (if (not (threads-frame? (js/get runtime .frame)))
+    (if (not (threads-view? (js/get runtime .view)))
       (let [state (snapshot (js/get runtime .model))
             selected (selected-agent-id state (js/get runtime .agentIndex))]
         (report-promise! runtime (submit-agent! runtime ui input selected)))
@@ -5947,7 +5947,7 @@
 ;; there, and only clickable, while Threads is showing.
 (js/export
  (defn view-tab-id-at!
-   [frame Any
+   [view Any
    views (Vec WorkView)
     column Int]
    String
@@ -5957,7 +5957,7 @@
     (and (>= column 0) (< column agents-tab-width)) "agents"
     (and (>= column THREADS-TAB-START)
          (< column (+ THREADS-TAB-START threads-tab-width))) "threads"
-    (and (threads-frame? frame) (>= column SUBVIEW-TAB-ORIGIN))
+    (and (threads-view? view) (>= column SUBVIEW-TAB-ORIGIN))
     (subview-tab-id-at! views column)
     :else ""))))
 
@@ -5970,19 +5970,19 @@
   (let [(event-x Number) (js/get event .x)
         (tabs-x Number) (js/get tabs .x)
         (column Int) (Math/floor (- event-x tabs-x))]
-    (view-tab-id-at! (js/get runtime .frame) views column)))
+    (view-tab-id-at! (js/get runtime .view) views column)))
 
 (defn complete-clicked-palette!
   [runtime Any
    ui Any
-   frame String
+   view String
    palette-renderable Any
    event Any]
   Any
   (when (identical? (js/get event .button) 0)
-    (select-frame! runtime frame)
+    (select-view! runtime view)
     (let [input (js/get ui .composerInput)
-          options (palette-options frame (text (js/get input .value)))
+          options (palette-options view (text (js/get input .value)))
           (event-y Number) (js/get event .y)
           (palette-y Number) (js/get palette-renderable .y)
           (row Int) (Math/floor (- event-y palette-y))
@@ -6094,7 +6094,7 @@
               (focus-strip! runtime ui)))))
   (js/set! (js/get ui .composerPalette) .onMouseDown
         (fn [event Any] Any
-          (complete-clicked-palette! runtime ui (text (js/get runtime .frame))
+          (complete-clicked-palette! runtime ui (text (js/get runtime .view))
                                      (js/get ui .composerPalette) event)))
   (js/set! (js/get ui .workText) .onMouseDown
         (fn [event Any] Any
@@ -6108,9 +6108,9 @@
                 (js/call event .preventDefault)
                 (js/call event .stopPropagation)
                 (if (identical? tab "agents")
-                  (show-frame! runtime ui "agents")
+                  (show-view! runtime ui "agents")
                   (if (identical? tab "threads")
-                    (show-frame! runtime ui "threads")
+                    (show-view! runtime ui "threads")
                     (show-thread-view! runtime ui tab)))))))))
 
 ;; Climb one rung, whoever asked. The key and its command spellings share this,
@@ -6126,7 +6126,7 @@
                             (panel-filtering? runtime)
                             (detail-open? runtime)
                             (if (js/get runtime .stripFocused) true false)
-                            (threads-frame? (js/get runtime .frame))
+                            (threads-view? (js/get runtime .view))
                             (if (js/get runtime .working) true false))]
     (cond
       (identical? action "close-palette")
@@ -6147,7 +6147,7 @@
       (do (leave-strip! runtime ui) (js/call runtime .render) true)
 
       (identical? action "show-agents")
-      (do (show-frame! runtime ui "agents") true)
+      (do (show-view! runtime ui "agents") true)
 
       (identical? action "cancel-turn")
       (let [target (text (js/get runtime .supervisorId))]
@@ -6334,7 +6334,7 @@
                  palette (active-palette-options runtime ui)
                  palette-open (> (js/get palette .length) 0)
                  plain-view-arrow
-                 (and (threads-frame? (js/get runtime .frame))
+                 (and (threads-view? (js/get runtime .view))
                       (identical? (js/call (text (js/get (js/get ui .composerInput) .value)) .trim) "")
                       (not (js/get key .ctrl))
                       (not meta)
@@ -6562,7 +6562,7 @@
              (or (identical? name "tab") (identical? name "f2"))
              (do (js/call key .preventDefault)
                  (js/call key .stopPropagation)
-                 (show-frame! runtime ui (tab-swap-frame (text (js/get runtime .frame)))))
+                 (show-view! runtime ui (tab-swap-view (text (js/get runtime .view)))))
 
              (identical? name "f1")
              (do (js/call key .preventDefault)
@@ -6605,7 +6605,7 @@
                    (delta Int) (if (identical? name "k") -1 1)]
                (js/call key .preventDefault)
                (js/call key .stopPropagation)
-               (if (not (threads-frame? (js/get runtime .frame)))
+               (if (not (threads-view? (js/get runtime .view)))
                  (let [agents (bridgesnapshot-agents state)
                        (agent-count Int) (js/get agents .length)
                        (max-index Int) (Math/max 0 (- agent-count 1))
@@ -6663,7 +6663,7 @@
                  :rendererSuspended false
                  :suspendResume nil
                  :suspendError ""
-                 :frame BOOT-FRAME
+                 :view BOOT-VIEW
                  :activeView view
                  :agentIndex 0
                  :workIndex 0

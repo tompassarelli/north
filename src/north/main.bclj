@@ -19,8 +19,8 @@
 (import java.util.Random)   ; non-java.lang classes need an explicit import
 (import java.util.UUID)
 
-;; North publishes mutations only through canonical FRAMRPC. Deliberately
-;; omitting a storage writer keeps this client from opening FRAMLOG bytes.
+;; North publishes mutations only through canonical Store RPC. Deliberately
+;; omitting a storage writer keeps this client from opening Store log bytes.
 (declare-extern store.rt/today-iso (Fn [] String))
 (declare-extern store.rt/now-iso (Fn [] String))
 (declare-extern store.rt/iso-to-seconds (Fn [String] Int))
@@ -377,7 +377,7 @@
    idx
    (vec (sort-by (fn [te String] Int (- 0 (proj/leverage-score idx te))) tes))))
 
-;; Reads are FRAMRPC-authoritative. North never opens FRAMLOG bytes as a
+;; Reads are Store RPC-authoritative. North never opens Store log bytes as a
 ;; client-side fallback; the physical log path is projection identity only.
 (defn- coord-version [port Int] Int
   (try
@@ -389,7 +389,7 @@
   (let [port (coord-port)
         version (coord-version port)]
     (if (< version 0)
-      (throw (ex-info (str "North FRAMRPC read failed on 127.0.0.1:" port
+      (throw (ex-info (str "North Store RPC read failed on 127.0.0.1:" port
                            " (code " version ")")
                       {:type :north/server-unavailable
                        :port port
@@ -400,7 +400,7 @@
   (proj/index-triples (live-facts log)))
 
 ;; A failed exact-subject query and an absent subject both yield no local rows,
-;; so callers retain the whole-corpus FRAMRPC fallback.
+;; so callers retain the whole-corpus Store RPC fallback.
 (defn- live-subject-facts
   [log String
    te String]
@@ -420,8 +420,8 @@
                (live-facts log))
       warm)))
 
-;; --- write through canonical FRAMRPC (serialized under concurrent agents) ---
-(defn framrpc-failure-message
+;; --- write through canonical Store RPC (serialized under concurrent agents) ---
+(defn store-rpc-failure-message
   [code Int
    port Int
    log String
@@ -430,20 +430,20 @@
   (let [summary
         (cond
           [(= code -1)
-           (str "FRAMRPC SERVER UNREACHABLE on 127.0.0.1:" port)]
+           (str "Store RPC SERVER UNREACHABLE on 127.0.0.1:" port)]
           [(= code -2)
-           (str "FRAMRPC SPACE MISMATCH on 127.0.0.1:" port
-                " (this command selected FRAMLOG database " log ")")]
+           (str "Store RPC SPACE MISMATCH on 127.0.0.1:" port
+                " (this command selected Store log database " log ")")]
           [(= code -3)
-           (str "FRAMRPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)]
+           (str "Store RPC PROTOCOL INCOMPATIBLE on 127.0.0.1:" port)]
           [:else
-           (str "FRAMRPC preflight failed on 127.0.0.1:" port
+           (str "Store RPC preflight failed on 127.0.0.1:" port
                 " (code " code ")")])
         remedy
         (cond
           [(= code -1) "Start the configured Beagle Store service"]
           [(= code -2)
-           "Select the intended FRAMLOG database and SpaceId before retrying"]
+           "Select the intended Store log database and SpaceId before retrying"]
           [(= code -3)
            "Use one matched North + Beagle Store release"]
           [:else "Inspect `north doctor` before retrying"])]
@@ -518,7 +518,7 @@
    today String]
   (Vec t/Triple)
   (let [c (add-fact [] te "title" title)
-        ;; Every new thread self-identifies as kind=thread in the same FRAMRPC
+        ;; Every new thread self-identifies as kind=thread in the same Store RPC
         ;; publication, so schema and database views need no subject-prefix guess.
         ;; single-valued (bin/north BEAGLE_STORE_SINGLE_VALUED); mirrors concern-cli, which
         ;; already stamps kind=concern. NO backfill of old subjects (maintenance/migration).
@@ -640,15 +640,15 @@
              path (str threads-dir "/" id "-" slug ".md")
              port (coord-port)
              server-v (coord-version port)]
-         ;; Publish each capture fact through the same FRAMRPC path as `tell`, then
-         ;; render the .md from FRAMLOG state. The file remains a regenerated view.
+         ;; Publish each capture fact through the same Store RPC path as `tell`, then
+         ;; render the .md from Store log state. The file remains a regenerated view.
          ;; UUIDv7 is collision-proof, so capture no longer reserves a file-lock id
          ;; (the old now-id/reserve-id dance guarded same-second timestamp clashes).
          (if (< server-v 0)
            (if (structured-capture?)
              (print-capture-receipt
-              id te title path 0 0 false "framrpc-unavailable")
-             (println (framrpc-failure-message
+              id te title path 0 0 false "store-rpc-unavailable")
+             (println (store-rpc-failure-message
                        server-v port log "capture was not recorded")))
            (let [facts (capture-facts te title owner source author lead proposed created-at today)
                  results (mapv (fn [c t/Triple] String
@@ -673,7 +673,7 @@
                     id te title path (count facts) oks true "captured")
                    (println (str "captured -> " te "  " title "  [owner: " owner "]\n"
                                  "  file:      " path "\n"
-                                 "  committed: " oks " facts via FRAMRPC. Next: north tell " id " <pred> <value>"))))
+                                 "  committed: " oks " facts via Store RPC. Next: north tell " id " <pred> <value>"))))
                (if (structured-capture?)
                  (let [cleaned
                        (cleanup-partial-capture
@@ -683,7 +683,7 @@
                     (if cleaned "partial-cleaned"
                         "partial-cleanup-failed")))
                  (println (str "capture PARTIAL: only " oks "/" (count facts)
-                               " fact(s) committed (FRAMRPC publication failure). Re-run — nothing is stranded in files."))))))))])))
+                               " fact(s) committed (Store RPC publication failure). Re-run — nothing is stranded in files."))))))))])))
 
 ;; Resolve a thread ref (@id OR @handle) to its canonical @id and print it. The
 ;; bin/north wrapper calls this before routing tell/untell to Beagle Store, so a
@@ -777,11 +777,11 @@
 ;; by combining two honest signals, in strict preference order:
 ;;   (a) AGENT presence lease — the strong positive. A session driver renews an
 ;;       @lease:session:<handle> lease (30-min TTL, bumped on every tool call);
-;;       live iff its exp is still in the FRAMRPC server's future. SAME renewable-lease
+;;       live iff its exp is still in the Store RPC server's future. SAME renewable-lease
 ;;       rule concern-cli/coord.clj `online?` uses for STALE concerns — reused, not
 ;;       forked, so "online" can't drift between the two. Leases ride the warm
 ;;       :facts view (in-memory ephemeral transactions the server exposes), so
-;;       they are already in the index — no extra FRAMRPC round-trip here.
+;;       they are already in the index — no extra Store RPC round-trip here.
 ;;   (b) RECENCY fallback — a human driver (e.g. Tom Passarelli) holds no session
 ;;       lease, so lease-absence is not death. Fall back to `updated_at`, the most
 ;;       honest liveness signal carried in the warm triple view: the day the thread
@@ -1427,7 +1427,7 @@
        (println (to-json
                  (mapv (fn [c t/Triple] JAgentFact
                          (->JAgentFact (subs (triple-subject c) (count "@agent:")) (triple-predicate c) (triple-value c)))
-                       ;; The FRAMRPC server's unified warm view can contain
+                       ;; The Store RPC server's unified warm view can contain
                        ;; lease-only/tombstone-shaped rows with no subject. They
                        ;; are not agent facts. One such row must not crash the
                        ;; whole bulk identity projection and erase every valid
@@ -1712,7 +1712,7 @@
     [(= kind "north/mine") "personal notes -> cli/north-mine.clj (@mine:<stem> facts)"]
     [(= kind "predicate") "executable schema -> north predicate define"]
     [(= kind "topic") "topic grouping anchors (topic- prefix)"]
-    [:else "(writer not curated — query canonical FRAMLOG state for this kind's writer)"]))
+    [:else "(writer not curated — query canonical Store log state for this kind's writer)"]))
 
 (defn- print-schema-kind
   [idx proj/ProjectionIndex

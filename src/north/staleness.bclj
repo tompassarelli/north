@@ -31,7 +31,7 @@
    l String
    p String
    r String
-   frame String])
+   record String])
 
 ;; predicates whose (re)assertion materially changes an hours estimate.
 (def scope-preds (Vec String) ["depends_on" "part_of" "body"])
@@ -41,10 +41,10 @@
 ;; validation violation), and `part_of` (a child under a completed/abandoned
 ;; parent is normal hierarchy, not a belief-revision signal).
 (def edge-preds (Vec String) ["relates_to" "clarifies" "amends"])
-;; write-event frames that mean a genuine edit AFTER initial creation. A bulk
+;; write-event records that mean a genuine edit AFTER initial creation. A bulk
 ;; `import` assigns sequential tx in render order, so its tx-ordering is
 ;; serialization, NOT causality, and must never imply a judgment went stale.
-(defn- real-edit-frame? [fr String] Bool
+(defn- real-edit-record? [fr String] Bool
   (or (= fr "coord") (or (= fr "agent") (= fr "cli"))))
 
 ;; --- time-judgments: valid_until strictly before today ----------------------
@@ -89,7 +89,7 @@
    []
    (proj/thread-subjects idx)))
 
-;; --- estimate_hours predating a genuine later scope edit (tx + frame) --------
+;; --- estimate_hours predating a genuine later scope edit (tx + record) --------
 ;; Highest scope-fact tx for subject l that came from a real later edit
 ;; (coord/agent/cli) — bulk-import scope facts are ignored (their tx-order is
 ;; serialization, not a later change), so a freshly-migrated corpus is never
@@ -103,7 +103,7 @@
              v Latest] Int
             (if (and (= (:l v) l)
                      (and (kc/vec-member? scope-preds (:p v))
-                          (and (real-edit-frame? (:frame v)) (> (:tx v) m))))
+                          (and (real-edit-record? (:record v)) (> (:tx v) m))))
               (:tx v) m))
           0 latest))
 
