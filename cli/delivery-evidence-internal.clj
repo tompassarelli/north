@@ -8,6 +8,7 @@
 (ns north.delivery-evidence-internal
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (load-file (str (.getParent (io/file *file*)) "/coord.clj"))
@@ -640,6 +641,234 @@
            "version"
            north.terminal-projection/unreserved-bar-evidence-version)))))))
 
+(def execution-attempt-version "north:execution-attempt:v1")
+(def execution-attempt-launch-version "north:execution-attempt-launch-intent:v1")
+(def execution-attempt-provider-start-version "north:execution-attempt-provider-start:v1")
+(def execution-attempt-unsent-version "north:execution-attempt-unsent:v1")
+
+(defn attempt-digest? [value]
+  (and (string? value) (boolean (re-matches #"^[0-9a-f]{64}$" value))))
+
+(defn canonical-json [value]
+  (json/generate-string
+   (cond
+     (map? value) (into (sorted-map) (map (fn [[key item]] [(str key) item])) value)
+     :else value)))
+
+(defn execution-attempt-subject [manifest]
+  (str "@attempt:" manifest))
+
+(defn attempt-lease! [value resource]
+  (when-not (and (map? value) (= #{"resource" "holder" "epoch"} (set (keys value)))
+                 (= resource (get value "resource"))
+                 (string? (get value "holder")) (not (str/blank? (get value "holder")))
+                 (integer? (get value "epoch")) (<= 1 (get value "epoch") 9007199254740991))
+    (fail! "execution attempt lease is malformed" {:resource resource}))
+  {:resource resource :holder (get value "holder") :epoch (get value "epoch")})
+
+(defn live-attempt-lease! [port lease]
+  (let [status (try (north.coord/check-lease! port lease)
+                    (catch Exception error
+                      (fail! "execution attempt lease could not be checked"
+                             {:resource (:resource lease) :cause (.getMessage error)})))]
+    (when-not (:valid? status)
+      (fail! "execution attempt lease is not live" {:resource (:resource lease)}))
+    lease))
+
+(defn attempt-account! [port account authority]
+  (when-not (and (string? account) (re-matches #"^[a-z0-9][a-z0-9_-]{0,63}$" account)
+                 (attempt-digest? authority))
+    (fail! "execution attempt account authority is malformed" {}))
+  (let [facts (facts-of port (str "@account:" account))]
+    (when-not (and (= "provider_account" (north.terminal-projection/singleton-value facts "kind"))
+                   (= account (north.terminal-projection/singleton-value facts "account_id"))
+                   (= "openai" (north.terminal-projection/singleton-value facts "provider"))
+                   (= "execution" (north.terminal-projection/singleton-value facts "account_role"))
+                   (= "true" (north.terminal-projection/singleton-value facts "execution_eligible")))
+      (fail! "execution attempt account lacks an execution Store role" {:account account}))))
+
+(defn attempt-subjects-for-run [port run]
+  (->> (query-rows! port run
+                    {:find "execution_attempt_subject"
+                     :rules [{:head {:rel "execution_attempt_subject" :args [{:var "a"}]}
+                              :body [{:rel "triple" :args [{:var "a"} "execution_attempt_run" run]}]}]})
+       (map first) distinct sort vec))
+
+(defn singleton! [facts predicate label]
+  (let [value (north.terminal-projection/singleton-value facts predicate)]
+    (when-not (string? value) (fail! (str "execution attempt has no exact " label) {:predicate predicate}))
+    value))
+
+(defn attempt-ack [facts baseline origin]
+  (let [manifest (singleton! facts "execution_attempt_manifest_sha256" "manifest")
+        predecessor (north.terminal-projection/singleton-value facts "execution_attempt_predecessor_sha256")]
+    (when-not (attempt-digest? manifest) (fail! "execution attempt manifest is malformed" {}))
+    (json/generate-string
+     (sorted-map "accountAuthorityReceiptSha256" (singleton! facts "execution_attempt_account_authority_sha256" "account authority receipt")
+                 "accountId" (singleton! facts "execution_attempt_account" "account")
+                 "accountLease" (json/parse-string (singleton! facts "execution_attempt_account_lease" "account lease"))
+                 "attemptId" (execution-attempt-subject manifest)
+                 "attemptOrdinal" (Long/parseLong (singleton! facts "execution_attempt_ordinal" "ordinal"))
+                 "baselineDoneWhen" baseline "contractOrigin" origin
+                 "manifestSha256" manifest "model" (singleton! facts "execution_attempt_model" "model")
+                 "ok" true "predecessorReceiptSha256" (or predecessor nil)
+                 "provider" (singleton! facts "execution_attempt_provider" "provider")
+                 "reporter" (singleton! facts "execution_attempt_reporter" "reporter")
+                 "routeObservationReceiptSha256" (singleton! facts "execution_attempt_route_observation_sha256" "route receipt")
+                 "run" (singleton! facts "execution_attempt_run" "run")
+                 "thread" (singleton! facts "execution_attempt_thread" "thread")
+                 "threadLease" (json/parse-string (singleton! facts "execution_attempt_thread_lease" "thread lease"))))))
+
+(defn reserve! [port request]
+  (exact-request! request #{"run" "thread" "reporter" "capabilitySha256" "provider" "accountId" "model"
+                            "accountAuthorityReceiptSha256" "routeObservationReceiptSha256" "threadLease" "accountLease"})
+  (let [run (run-entity (get request "run"))
+        thread (thread-entity (get request "thread"))
+        reporter (agent-entity (get request "reporter"))
+        capability (get request "capabilitySha256")
+        provider (get request "provider") account (get request "accountId") model (get request "model")
+        authority (get request "accountAuthorityReceiptSha256") route-receipt (get request "routeObservationReceiptSha256")
+        thread-lease (attempt-lease! (get request "threadLease") (str "thread:" (subs thread 8) ":dispatch"))
+        account-lease (attempt-lease! (get request "accountLease") (str "codex-account:" account ":slot:0"))]
+    (when-not (and (attempt-digest? capability) (attempt-digest? route-receipt)
+                   (contains? #{"anthropic" "openai"} provider)
+                   (string? model) (not (str/blank? model)) (north.terminal-projection/valid-unicode-scalars? model))
+      (fail! "execution attempt route is malformed" {}))
+    ;; The dispatcher owns lease acquisition. This writer is the final Store
+    ;; authority: it verifies both exact fences again inside every OCC plan.
+    (let [published (atom nil)
+          outcome
+          (north.coord/retry-conflicts-until!
+           (north.coord/retry-deadline-ns reservation-publication-deadline-ms)
+           (fn []
+             (let [base (north.coord/cur-ver port)
+                   thread-facts (facts-of port thread)
+                   baseline (north.terminal-projection/canonical-done-when thread-facts)
+                   origin (if (seq baseline) "accepted" "worker-defined")
+                   run-facts (facts-of port run)
+                   attempts (attempt-subjects-for-run port run)]
+               (when-not (title-bearing-thread? thread-facts)
+                 (fail! "cannot reserve execution attempt for a non-thread subject" {:thread thread}))
+               (ensure-reservable-contract! thread thread-facts baseline "thread done_when contract" {:run run})
+               (attempt-account! port account authority)
+               (live-attempt-lease! port thread-lease) (live-attempt-lease! port account-lease)
+               (cond
+                 (> (count attempts) 1) (fail! "execution attempt run has conflicting immutable subjects" {:run run})
+                 (= 1 (count attempts))
+                 (let [facts (facts-of port (first attempts))]
+                   (when-not (and (north.terminal-projection/run-reservation-valid? run-facts)
+                                  (= run (singleton! facts "execution_attempt_run" "run"))
+                                  (= thread (singleton! facts "execution_attempt_thread" "thread"))
+                                  (= reporter (singleton! facts "execution_attempt_reporter" "reporter"))
+                                  (= capability (singleton! facts "execution_attempt_run_capability_sha256" "capability"))
+                                  (= provider (singleton! facts "execution_attempt_provider" "provider"))
+                                  (= account (singleton! facts "execution_attempt_account" "account"))
+                                  (= model (singleton! facts "execution_attempt_model" "model"))
+                                  (= authority (singleton! facts "execution_attempt_account_authority_sha256" "authority"))
+                                  (= route-receipt (singleton! facts "execution_attempt_route_observation_sha256" "route receipt"))
+                                  (= (canonical-json thread-lease) (singleton! facts "execution_attempt_thread_lease" "thread lease"))
+                                  (= (canonical-json account-lease) (singleton! facts "execution_attempt_account_lease" "account lease")))
+                     (fail! "execution attempt reservation conflicts with an immutable attempt" {:run run}))
+                   {:done {:facts facts :baseline baseline :origin origin}})
+                 (some #(contains? run-facts %) north.terminal-projection/run-reservation-predicates)
+                 (run-reservation-refusal! run run-facts)
+                 :else
+                 (let [run-projection (sorted-map "run_capability_sha256" capability "run_reservation_agent" reporter
+                                                  "run_reservation_contract_origin" origin "run_reservation_done_when" (json/generate-string baseline)
+                                                  "run_reservation_thread" thread "run_reservation_version" north.terminal-projection/run-reservation-version
+                                                  "run_reserved_at" (str (java.time.Instant/now)))
+                       run-marker (north.terminal-projection/run-reservation-manifest-sha256 run-projection)
+                       body (sorted-map "kind" "execution_attempt" "execution_attempt_version" execution-attempt-version
+                                        "execution_attempt_run" run "execution_attempt_thread" thread "execution_attempt_reporter" reporter
+                                        "execution_attempt_ordinal" "1" "execution_attempt_provider" provider
+                                        "execution_attempt_account" account "execution_attempt_model" model
+                                        "execution_attempt_account_authority_sha256" authority
+                                        "execution_attempt_route_observation_sha256" route-receipt
+                                        "execution_attempt_thread_lease" (canonical-json thread-lease)
+                                        "execution_attempt_account_lease" (canonical-json account-lease)
+                                        "execution_attempt_run_capability_sha256" capability
+                                        "execution_attempt_run_contract_sha256" run-marker
+                                        "execution_attempt_reserved_at" (str (java.time.Instant/now)))
+                       marker (north.terminal-projection/sha256 (canonical-json body))
+                       attempt (execution-attempt-subject marker)
+                       facts (assoc body "execution_attempt_manifest_sha256" marker)]
+                   (reset! published {:facts (reduce (fn [out [p r]] (conj out {:op :assert :subject run :predicate p :value r})) [] run-projection)
+                                      :attempt (reduce (fn [out [p r]] (conj out {:op :assert :subject attempt :predicate p :value r})) [] facts)
+                                      :baseline baseline :origin origin})
+                   (north.coord/transact! port (into (:facts @published) (:attempt @published)) {:expected-version base}))))))]
+      (checked! outcome [:execution-attempt-reserve run])
+      (let [{:keys [facts baseline origin]} (or (:done outcome)
+                                                (let [{:keys [attempt baseline origin]} @published]
+                                                  {:facts (facts-of port (:subject (first attempt))) :baseline baseline :origin origin}))]
+        (println (attempt-ack facts baseline origin))))))
+
+(defn attempt-transition! [port operation request]
+  (let [required (case operation
+                   "launch-intent" #{"attempt" "run" "capability" "manifestSha256"}
+                   "provider-start" #{"attempt" "run" "capability" "manifestSha256" "launchIntentSha256" "providerStartReceiptSha256"}
+                   "proved-unsent" #{"attempt" "run" "capability" "manifestSha256" "launchIntentSha256" "unsentReceiptSha256"}
+                   "attempt-terminal" #{"attempt" "run" "capability" "manifestSha256" "launchIntentSha256" "providerStartManifestSha256" "terminalReceiptSha256"})]
+    (exact-request! request required)
+    (let [attempt (str (get request "attempt")) run (run-entity (get request "run"))
+          manifest (get request "manifestSha256") capability (get request "capability")
+          receipt-key (case operation "provider-start" "providerStartReceiptSha256" "proved-unsent" "unsentReceiptSha256" "attempt-terminal" "terminalReceiptSha256")
+          receipt (when receipt-key (get request receipt-key))]
+      (when-not (and (= attempt (execution-attempt-subject manifest)) (attempt-digest? manifest)
+                     (string? capability) (not (str/blank? capability)) (or (nil? receipt) (attempt-digest? receipt)))
+        (fail! "execution attempt transition is malformed" {}))
+      (let [outcome (north.coord/assert-batch-after-read! port attempt
+                      (fn []
+                        (let [facts (facts-of port attempt)
+                              same? (and (= run (singleton! facts "execution_attempt_run" "run"))
+                                         (= manifest (singleton! facts "execution_attempt_manifest_sha256" "manifest"))
+                                         (= (north.terminal-projection/sha256 capability) (singleton! facts "execution_attempt_run_capability_sha256" "capability")))]
+                          (when-not same? (fail! "execution attempt transition does not own the immutable reservation" {:attempt attempt}))
+                          (when (and (contains? #{"provider-start" "proved-unsent" "attempt-terminal"} operation)
+                                     (not= (get request "launchIntentSha256")
+                                           (north.terminal-projection/singleton-value facts "execution_attempt_launch_intent_sha256")))
+                            (fail! "execution attempt transition lacks its immutable launch intent" {:attempt attempt}))
+                          (when (and (= operation "attempt-terminal")
+                                     (not= (get request "providerStartManifestSha256")
+                                           (north.terminal-projection/singleton-value facts "execution_attempt_provider_start_manifest_sha256")))
+                            (fail! "execution attempt terminal lacks its immutable provider start" {:attempt attempt}))
+                          (when (and (= operation "proved-unsent")
+                                     (or (contains? facts "execution_attempt_provider_start_manifest_sha256")
+                                         (contains? facts "execution_attempt_terminal_manifest_sha256")))
+                            (fail! "execution attempt proved-unsent conflicts with a started or terminal attempt" {:attempt attempt}))
+                          (when (and (= operation "attempt-terminal")
+                                     (contains? facts "execution_attempt_unsent_manifest_sha256"))
+                            (fail! "execution attempt terminal conflicts with proved-unsent" {:attempt attempt}))
+                          (let [existing (case operation
+                                           "launch-intent" (north.terminal-projection/singleton-value facts "execution_attempt_launch_intent_sha256")
+                                           "provider-start" (north.terminal-projection/singleton-value facts "execution_attempt_provider_start_manifest_sha256")
+                                           "proved-unsent" (north.terminal-projection/singleton-value facts "execution_attempt_unsent_manifest_sha256")
+                                           "attempt-terminal" (north.terminal-projection/singleton-value facts "execution_attempt_terminal_manifest_sha256"))]
+                            (if existing {:done {:facts facts}}
+                                (let [now (str (java.time.Instant/now))
+                                      additions (case operation
+                                                  "launch-intent" (let [m (north.terminal-projection/sha256 (canonical-json {"version" execution-attempt-launch-version "attempt" attempt "at" now}))]
+                                                                    [["execution_attempt_launch_intent_version" execution-attempt-launch-version] ["execution_attempt_launch_intent_at" now] ["execution_attempt_launch_intent_sha256" m]])
+                                                  "provider-start" (let [m (north.terminal-projection/sha256 (canonical-json {"version" execution-attempt-provider-start-version "launch" (get request "launchIntentSha256") "receipt" receipt "at" now}))]
+                                                                     [["execution_attempt_provider_start_receipt_sha256" receipt] ["execution_attempt_provider_started_at" now] ["execution_attempt_provider_start_manifest_sha256" m]])
+                                                  "proved-unsent" (let [m (north.terminal-projection/sha256 (canonical-json {"version" execution-attempt-unsent-version "launch" (get request "launchIntentSha256") "receipt" receipt "at" now}))]
+                                                                    [["execution_attempt_unsent_receipt_sha256" receipt] ["execution_attempt_unsent_at" now] ["execution_attempt_unsent_manifest_sha256" m]])
+                                                  "attempt-terminal" (let [m (north.terminal-projection/sha256 (canonical-json {"launch" (get request "launchIntentSha256") "start" (get request "providerStartManifestSha256") "receipt" receipt "at" now}))]
+                                                                       [["execution_attempt_terminal_receipt_sha256" receipt] ["execution_attempt_terminal_at" now] ["execution_attempt_terminal_manifest_sha256" m]]))]
+                                  {:facts (mapv (fn [[p r]] {:p p :r r}) additions)}))))))
+            _ (checked! outcome [:execution-attempt-transition operation attempt])
+            facts (or (get-in outcome [:done :facts]) (facts-of port attempt))]
+        (let [ack (case operation
+                    "launch-intent" {"ok" true "attempt" attempt "launchIntentSha256" (singleton! facts "execution_attempt_launch_intent_sha256" "launch intent") "launchedAt" (singleton! facts "execution_attempt_launch_intent_at" "launch time")}
+                    "provider-start" {"ok" true "attempt" attempt "providerStartReceiptSha256" (singleton! facts "execution_attempt_provider_start_receipt_sha256" "provider start receipt") "providerStartManifestSha256" (singleton! facts "execution_attempt_provider_start_manifest_sha256" "provider start manifest") "providerStartedAt" (singleton! facts "execution_attempt_provider_started_at" "provider start time")}
+                    "proved-unsent" {"ok" true "attempt" attempt "unsentReceiptSha256" (singleton! facts "execution_attempt_unsent_receipt_sha256" "unsent receipt") "unsentManifestSha256" (singleton! facts "execution_attempt_unsent_manifest_sha256" "unsent manifest") "unsentAt" (singleton! facts "execution_attempt_unsent_at" "unsent time")}
+                    "attempt-terminal" {"ok" true "attempt" attempt "terminalReceiptSha256" (singleton! facts "execution_attempt_terminal_receipt_sha256" "terminal receipt") "terminalManifestSha256" (singleton! facts "execution_attempt_terminal_manifest_sha256" "terminal manifest") "terminalAt" (singleton! facts "execution_attempt_terminal_at" "terminal time")})]
+          (when (and receipt (not= receipt (get ack receipt-key)))
+            (fail! "execution attempt transition conflicts with its immutable receipt" {:attempt attempt}))
+          (when (contains? #{"proved-unsent" "attempt-terminal"} operation)
+            (doseq [predicate ["execution_attempt_thread_lease" "execution_attempt_account_lease"]]
+              (try (north.coord/release-lease! port (json/parse-string (singleton! facts predicate "lease"))) (catch Exception _ nil))))
+          (println (canonical-json ack)))))))
+
 (defn -main []
   (let [[port-s operation raw] *command-line-args*
         port (Integer/parseInt
@@ -647,6 +876,10 @@
         request (parse-request (if (some? raw) raw (slurp *in*)))]
     (case operation
       "reserve" (reserve! port request)
+      "launch-intent" (attempt-transition! port "launch-intent" request)
+      "provider-start" (attempt-transition! port "provider-start" request)
+      "proved-unsent" (attempt-transition! port "proved-unsent" request)
+      "attempt-terminal" (attempt-transition! port "attempt-terminal" request)
       "record" (record! port request)
       "record-unreserved" (record-unreserved! port request)
       (fail! "unsupported delivery evidence operation"
