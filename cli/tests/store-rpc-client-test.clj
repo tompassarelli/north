@@ -63,8 +63,8 @@
 (defn malformed-oversize-packet []
   (let [response (wire/rpc-response! "boundary" :rpc/version 0 nil nil
                                      wire/rpc-unit)
-        packet (wire/encode-rpc-packet-v2!
-               (wire/rpc-response-packet 1 response))
+        packet (wire/store-rpc-encode-packet-v2!
+               (wire/store-rpc-response-packet 1 response))
         header (byte-array wire/rpc-v2-header-bytes)
         body-length (inc rpc/max-body-bytes)]
     (System/arraycopy packet 0 header 0 wire/rpc-v2-header-bytes)
