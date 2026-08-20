@@ -66,10 +66,27 @@ test("Store snapshot loader reconstructs restart facts from one served scan", as
   expect(safeNext(loaded.snapshot)).toMatchObject({ kind: "send", replayPosition: 1 });
 });
 
-test("Store snapshot loader rejects conflicting authority facts", async () => {
+test("Store snapshot loader rejects conflicting role and eligibility facts", async () => {
   const rows = fixture();
-  rows.push(triple("@account:runner", "account_role", "oversight"));
+  const eligibility = rows.findIndex((row) => row instanceof StoreTriple
+    && row.t1 === "@account:runner" && row.t2 === "execution_eligible");
+  rows[eligibility] = triple("@account:runner", "execution_eligible", "false");
   await expect(loadStoreSnapshot({ attemptId: attempt, client: {
     async scanAll() { return { rows, servedVersion: 57, pages: 1, attempts: 1 }; },
   } })).rejects.toThrow("Store snapshot reconstruction refused");
+});
+
+test("Store snapshot loader preserves a valid oversight exclusion", async () => {
+  const rows = fixture();
+  const role = rows.findIndex((row) => row instanceof StoreTriple
+    && row.t1 === "@account:runner" && row.t2 === "account_role");
+  const eligibility = rows.findIndex((row) => row instanceof StoreTriple
+    && row.t1 === "@account:runner" && row.t2 === "execution_eligible");
+  rows[role] = triple("@account:runner", "account_role", "oversight");
+  rows[eligibility] = triple("@account:runner", "execution_eligible", "false");
+  const loaded = await loadStoreSnapshot({ attemptId: attempt, client: {
+    async scanAll() { return { rows, servedVersion: 57, pages: 1, attempts: 1 }; },
+  } });
+  expect(loaded.snapshot.account).toEqual({ id: "runner", account_role: "oversight" });
+  expect(safeNext(loaded.snapshot)).toMatchObject({ kind: "no-op", reason: "oversight-account" });
 });
