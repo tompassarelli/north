@@ -35,9 +35,9 @@ import {
 import type { ModelFreeTransportReceipt } from "../src/integrations/linear/mcp-broker";
 import { kw } from "../src/coord-wire";
 import {
-  decodeFrame, encodeResponseFrame, rpcList, rpcRecord, triple,
+  decodePacket, encodeResponsePacket, rpcList, rpcRecord, triple,
   RPC_UNIT, RPC_V2_HEADER_BYTES,
-  type RpcFrame, type RpcPageResponse, type RpcResponse, type Term,
+  type RpcPacket, type RpcPageResponse, type RpcResponse, type Term,
 } from "../src/store-rpc-codec";
 import { gatedTest } from "./support/capabilities";
 
@@ -862,8 +862,8 @@ interface CoordinatorReply {
   servedVersion?: number;
 }
 
-async function framedCoordinator(
-  reply: (frame: RpcFrame, index: number) => CoordinatorReply,
+async function packetCoordinator(
+  reply: (packet: RpcPacket, index: number) => CoordinatorReply,
 ) {
   const requests: Buffer[] = [];
   let connections = 0;
@@ -876,22 +876,22 @@ async function framedCoordinator(
       const request = Buffer.concat(chunks);
       if (replied || request.length < RPC_V2_HEADER_BYTES) return;
       const bodyLength = request.readUInt32LE(14);
-      const frameLength = RPC_V2_HEADER_BYTES + bodyLength;
-      if (request.length < frameLength) return;
+      const packetLength = RPC_V2_HEADER_BYTES + bodyLength;
+      if (request.length < packetLength) return;
       replied = true;
-      const framedRequest = request.subarray(0, frameLength);
-      const frame = decodeFrame(framedRequest);
-      requests.push(framedRequest);
-      const selected = reply(frame, requests.length - 1);
+      const packetRequest = request.subarray(0, packetLength);
+      const packet = decodePacket(packetRequest);
+      requests.push(packetRequest);
+      const selected = reply(packet, requests.length - 1);
       const response: RpcResponse = {
-        space: frame.request!.space,
-        op: frame.request!.op,
+        space: packet.request!.space,
+        op: packet.request!.op,
         servedVersion: selected.servedVersion ?? 11,
         page: selected.page,
         error: null,
         payload: selected.payload,
       };
-      socket.end(Buffer.from(encodeResponseFrame(frame.requestId, response)));
+      socket.end(Buffer.from(encodeResponsePacket(packet.requestId, response)));
     });
     socket.on("error", () => {});
   });
@@ -916,8 +916,8 @@ function queryRows(rows: readonly (readonly string[])[]): Term {
 }
 
 async function fakeCoordinator() {
-  return framedCoordinator((frame) => {
-    const operation = frame.request!.op.name;
+  return packetCoordinator((packet) => {
+    const operation = packet.request!.op.name;
     if (operation === "rpc/query") {
       return {
         payload: queryRows([]),
@@ -942,7 +942,7 @@ async function fakeCoordinator() {
 }
 
 async function fakeCoordinatorReplies(replies: readonly CoordinatorReply[]) {
-  return framedCoordinator((_frame, index) => replies[index]
+  return packetCoordinator((_packet, index) => replies[index]
     ?? { payload: RPC_UNIT, page: null });
 }
 
@@ -2765,7 +2765,7 @@ test("fenced graph writes classify exact JSON success, lease loss, rejection, an
   };
   const response = { value: JSON.stringify({ ok: 11 }) };
   const store = new NorthGraphStore(
-    "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977",
+    "/unused/north", "/unused/store", "/unused/lease-cli.clj", "7977",
     { leaseInvokeOverride: async () => response.value },
   );
   await store.putFenced(lease, "link:x", "sync_manifest", "{}");
@@ -2792,7 +2792,7 @@ test("binding reservation accepts only exact coordinator envelopes", async () =>
   };
   const response = { value: JSON.stringify({ ok: 11 }) };
   const store = new NorthGraphStore(
-    "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977",
+    "/unused/north", "/unused/store", "/unused/lease-cli.clj", "7977",
     {
       reservationCli: "/unused/reserve-link.clj",
       reservationInvokeOverride: async (args) => {
@@ -2838,12 +2838,12 @@ gatedTest("loopback-bind", "fenced graph values use bounded private stdin and ac
       + "x".repeat(LINEAR_GRAPH_VALUE_MAX_BYTES % 3);
     expect(Buffer.byteLength(value, "utf8")).toBe(LINEAR_GRAPH_VALUE_MAX_BYTES);
     const store = new NorthGraphStore(
-      "/unused/north", "/unused/fram", leaseCli, coordinator.port,
+      "/unused/north", "/unused/store", leaseCli, coordinator.port,
     );
     await store.putFenced(lease, "link:x", "sync_manifest", value);
     expect(coordinator.requests).toHaveLength(2);
     const mutationRequests = coordinator.requests.filter((request) =>
-      decodeFrame(request).request!.op.name === "rpc/batch");
+      decodePacket(request).request!.op.name === "rpc/batch");
     expect(mutationRequests).toHaveLength(1);
     expect(mutationRequests[0]!.byteLength).toBeGreaterThan(value.length);
     expect(mutationRequests[0]!.byteLength).toBeLessThanOrEqual(1024 * 1024 + 1);
@@ -2851,7 +2851,7 @@ gatedTest("loopback-bind", "fenced graph values use bounded private stdin and ac
 
     let invoked = false;
     const bounded = new NorthGraphStore(
-      "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977",
+      "/unused/north", "/unused/store", "/unused/lease-cli.clj", "7977",
       {
         leaseInvokeOverride: async () => {
           invoked = true;
@@ -2871,7 +2871,7 @@ gatedTest("loopback-bind", "fenced graph values use bounded private stdin and ac
     let capturedStdin = "";
     const canary = "private-manifest-canary";
     const inspected = new NorthGraphStore(
-      "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977",
+      "/unused/north", "/unused/store", "/unused/lease-cli.clj", "7977",
       {
         leaseInvokeOverride: async (args, stdin) => {
           capturedArgs = args;
@@ -2963,7 +2963,7 @@ gatedTest("loopback-bind", "lease helper enforces its own byte/UTF-8 boundary be
     expect(JSON.parse(split.stdout.toString("utf8"))).toEqual({ ok: 11 });
     expect(coordinator.connections()).toBe(2);
     expect(coordinator.requests.find((request) =>
-      decodeFrame(request).request!.op.name === "rpc/batch")!.includes(value)).toBe(true);
+      decodePacket(request).request!.op.name === "rpc/batch")!.includes(value)).toBe(true);
 
     const beforeOversize = coordinator.connections();
     const oversized = await runProcessWithInput(
@@ -3008,7 +3008,7 @@ process.stdin.on("end", () => {
       renew: async () => {}, fence: async () => {}, release: async () => {},
     };
     const failing = new NorthGraphStore(
-      "/unused/north", "/unused/fram", echoPid, "7977",
+      "/unused/north", "/unused/store", echoPid, "7977",
       { leaseHelperCommand: echoFailure },
     );
     const failure = failing.putFenced(lease, "link:x", "sync_manifest", canary);
@@ -3037,7 +3037,7 @@ process.stdin.on("end", () => {
 `);
     chmodSync(invalidUtf8, 0o700);
     const invalid = new NorthGraphStore(
-      "/unused/north", "/unused/fram", "/unused/lease-cli.clj", "7977",
+      "/unused/north", "/unused/store", "/unused/lease-cli.clj", "7977",
       { leaseHelperCommand: invalidUtf8 },
     );
     await expect(invalid.putFenced(lease, "link:x", "sync_manifest", "safe"))
@@ -3054,7 +3054,7 @@ setInterval(() => {}, 1000);
 `);
     chmodSync(stubborn, 0o700);
     const reaping = new NorthGraphStore(
-      "/unused/north", "/unused/fram", pidPath, "7977",
+      "/unused/north", "/unused/store", pidPath, "7977",
       { leaseHelperCommand: stubborn },
     );
     const startedAt = Date.now();
@@ -4162,12 +4162,12 @@ test("NorthGraphStore never mistakes a no-coordinator message for a commit", asy
   const directory = mkdtempSync(join(tmpdir(), "north-linear-graph-"));
   try {
     const north = join(directory, "north");
-    const fram = join(directory, "fram");
+    const store = join(directory, "store");
     writeFileSync(north, "#!/bin/sh\nprintf '[]\\n'\n");
-    writeFileSync(fram, "#!/bin/sh\nprintf '%s\\n' 'no coordinator on 127.0.0.1:7977'\n");
+    writeFileSync(store, "#!/bin/sh\nprintf '%s\\n' 'no coordinator on 127.0.0.1:7977'\n");
     chmodSync(north, 0o700);
-    chmodSync(fram, 0o700);
-    await expect(new NorthGraphStore(north, fram).put("link:x", "kind", "integration_link"))
+    chmodSync(store, 0o700);
+    await expect(new NorthGraphStore(north, store).put("link:x", "kind", "integration_link"))
       .rejects.toThrow("coordinator rejected");
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
@@ -4210,16 +4210,16 @@ test("NorthGraphStore reads a multi-subject graph snapshot with one CLI process"
   const directory = mkdtempSync(join(tmpdir(), "north-linear-bulk-"));
   try {
     const north = join(directory, "north");
-    const fram = join(directory, "fram");
+    const store = join(directory, "store");
     const calls = join(directory, "calls");
     writeFileSync(north, `#!/bin/sh
 printf '%s\\n' "$*" >> '${calls}'
 printf '%s\\n' '[{"subject":"linked_thread","predicate":"cardinality","value":"single"},{"subject":"linear_link","predicate":"value_kind","value":"ref"}]'
 `);
-    writeFileSync(fram, "#!/bin/sh\nexit 1\n");
+    writeFileSync(store, "#!/bin/sh\nexit 1\n");
     chmodSync(north, 0o700);
-    chmodSync(fram, 0o700);
-    const rows = await new NorthGraphStore(north, fram).showMany(["@linked_thread", "linear_link"]);
+    chmodSync(store, 0o700);
+    const rows = await new NorthGraphStore(north, store).showMany(["@linked_thread", "linear_link"]);
     expect(rows.get("linked_thread")).toEqual([{ predicate: "cardinality", value: "single" }]);
     expect(rows.get("linear_link")).toEqual([{ predicate: "value_kind", value: "ref" }]);
     expect(readFileSync(calls, "utf8").trim()).toBe("json show-many linked_thread,linear_link");

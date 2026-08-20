@@ -37,7 +37,7 @@ import { providerSessionKey } from "../src/providers/provider-join";
 import { causeChain } from "../src/death";
 import { kw } from "../src/coord-wire";
 import {
-  decodeFrame, encodeResponseFrame, rpcRecord, RPC_V2_HEADER_BYTES,
+  decodeMessage, encodeResponseMessage, rpcRecord, RPC_V2_HEADER_BYTES,
 } from "../src/store-rpc-codec";
 import {
   WireEventWriter,
@@ -618,7 +618,7 @@ test("Codex item payloads stay opaque except for identity and final agent text",
   ]))).rejects.toThrow("openai_provider_execution_failed");
 });
 
-test("Codex raw JSONL framing rejects invalid UTF-8, partial frames, and line overflow", async () => {
+test("Codex raw JSONL message sequencing rejects invalid UTF-8, partial messages, and line overflow", async () => {
   await expect(resultFromScriptBody("printf '\\377\\n'"))
     .rejects.toThrow("openai_provider_execution_failed");
   await expect(resultFromScriptBody(
@@ -651,7 +651,7 @@ test("provider stderr is drained privately and cannot spoof supervisor status", 
   expect(result).toMatchObject({ kind: "model-call.completed", status: "succeeded" });
 });
 
-test("an immediate terminal frame is drained before supervisor completion", async () => {
+test("an immediate terminal message is drained before supervisor completion", async () => {
   for (let attempt = 0; attempt < 8; attempt++) {
     const result = await resultFromScript(codexSuccess([
       JSON.stringify({
@@ -667,7 +667,7 @@ test("an immediate terminal frame is drained before supervisor completion", asyn
   }
 });
 
-test("Codex JSONL frame-count and cumulative-byte ceilings are enforced", async () => {
+test("Codex JSONL message-count and cumulative-byte ceilings are enforced", async () => {
   const item = JSON.stringify({
     type: "item.updated",
     item: { id: "item_0", type: "progress" },
@@ -1442,10 +1442,10 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
         buffer.buffer, buffer.byteOffset, buffer.length,
       ).getUint32(14, true);
       if (buffer.length < RPC_V2_HEADER_BYTES + bodyLength) return;
-      const frame = decodeFrame(Uint8Array.from(buffer));
-      socket.end(Buffer.from(encodeResponseFrame(frame.requestId, {
-        space: frame.request!.space,
-        op: frame.request!.op,
+      const message = decodeMessage(Uint8Array.from(buffer));
+      socket.end(Buffer.from(encodeResponseMessage(message.requestId, {
+        space: message.request!.space,
+        op: message.request!.op,
         servedVersion: 23,
         page: null,
         error: null,
@@ -1468,7 +1468,7 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
   process.env.BEAGLE_STORE_SERVER_PORT = process.env.NORTH_PORT;
   process.env.BEAGLE_STORE_SPACE_ID = "north-coordination";
-  process.env.NORTH_FRAMRPC_HOST = "127.0.0.1";
+  process.env.NORTH_STORE_HOST = "127.0.0.1";
   const codexHome = join(home, ".codex");
   mkdirSync(codexHome);
   writeFileSync(join(codexHome, "AGENTS.md"), "TARGET_ADMISSION_CANONICAL\n");

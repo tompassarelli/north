@@ -27,7 +27,7 @@ import {
   upsert_agent as upsertAgent,
 } from "../src/bridge/generated/north/bridge/model.js";
 
-// The banner is sized against the frame, which is read off the terminal. Pin it
+// The banner is sized against the snapshot, which is read off the terminal. Pin it
 // so the box below is arithmetic rather than a property of whoever's tty ran
 // the suite.
 Object.defineProperty(process.stdout, "columns", { value: 120, configurable: true });
@@ -42,7 +42,7 @@ test("transcript placeholder follows session state, not just emptiness", () => {
   expect(transcriptPlaceholder("Main", "starting", 0, false)).toBe("Starting Main…");
 
   // Ready says nothing here any more. "Main is ready." spent the emptiest
-  // screen in the frame repeating what the roster header and the strip were
+  // screen in the snapshot repeating what the roster header and the strip were
   // already saying; the banner is what that screen is for now.
   expect(transcriptPlaceholder("Main", "ready", 0, false)).toBe("");
   expect(transcriptPlaceholder("Main", "running", 0, false)).toBe("");
@@ -100,7 +100,7 @@ test("the banner states the session's facts, and says pending for the ones it la
   expect(bannerPermissions("default")).toBe("default");
   expect(bannerPermissions("")).toBe("pending");
 
-  // Facts the session has not reported yet, in the word the rest of the frame
+  // Facts the session has not reported yet, in the word the rest of the snapshot
   // already uses for the same gap.
   const bare = sessionBannerLines("", "", "", "", "") as string[];
   expect(bare[0]).toBe(">_ North Bridge (unknown)");
@@ -177,7 +177,7 @@ test("the box is drawn to the content, and gives way rather than wrapping", () =
   ]);
 
   // Wide enough to hold the widest line and its borders: the box is a card
-  // sized to what it says, not a rule across the frame.
+  // sized to what it says, not a rule across the snapshot.
   const wide = sessionBanner("1f3c2de7", "claude-fable-5", "xhigh", "~/code",
                              "acceptEdits", 110) as string[];
   expect(wide).toHaveLength(7);
@@ -195,10 +195,10 @@ test("the box is drawn to the content, and gives way rather than wrapping", () =
   expect(narrow).toHaveLength(5);
   expect(narrow.some((l) => l.includes("╭") || l.includes("│"))).toBe(false);
   expect(narrow[0]).toBe(">_ North Bridge (1f3c2de7)");
-  // And nothing it prints can wrap the frame open.
+  // And nothing it prints can wrap the snapshot open.
   for (const line of narrow) expect([...line].length).toBeLessThanOrEqual(54 - 4);
 
-  // A single line longer than the whole frame is cut, not wrapped, box or no.
+  // A single line longer than the whole snapshot is cut, not wrapped, box or no.
   const long = bannerBox([`~/code/${"deep/".repeat(40)}end`], 60) as string[];
   for (const line of long) expect([...line].length).toBeLessThanOrEqual(60);
   expect(long[1]).toContain("…");
@@ -228,7 +228,7 @@ function runtimeWith(status: string) {
 }
 
 test("agents-pane transcript stops saying Starting, and shows the session instead", async () => {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 90, height: 12,
   });
 
@@ -243,14 +243,14 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   // there is nothing to state about a session that has not started.
   transcript.content = renderConversation(runtimeWith("starting"));
   await renderOnce();
-  const booting = captureCharFrame();
+  const booting = captureCharSnapshot();
   expect(booting).toContain("Starting Main");
   expect(booting).not.toContain("North Bridge");
 
   // The exact transition the screenshot never showed: session.idle -> ready.
   transcript.content = renderConversation(runtimeWith("ready"));
   await renderOnce();
-  const ready = captureCharFrame();
+  const ready = captureCharSnapshot();
   expect(ready).not.toContain("Starting Main");
   // The line the banner replaces, gone.
   expect(ready).not.toContain("Main is ready.");
@@ -270,7 +270,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   }];
   transcript.content = renderConversation(withItem);
   await renderOnce();
-  const answered = captureCharFrame();
+  const answered = captureCharSnapshot();
   expect(answered).not.toContain("Starting Main");
   expect(answered).not.toContain("North Bridge");
   expect(answered).not.toContain("╭");
@@ -279,7 +279,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   // A session that is gone says so, and states nothing about itself.
   transcript.content = renderConversation(runtimeWith("offline"));
   await renderOnce();
-  const offline = captureCharFrame();
+  const offline = captureCharSnapshot();
   expect(offline).toContain("Main is offline.");
   expect(offline).not.toContain("North Bridge");
 
@@ -298,9 +298,9 @@ test("boot names the session being started instead of showing a generic working 
 
 // The screenshot bug: the title LINE was coloured bright and every other line
 // dim, so the box characters took the colour of whatever line they sat on and
-// the frame came out in two tones — bright pipes beside the title, dim
+// the snapshot came out in two tones — bright pipes beside the title, dim
 // everywhere else, which reads as a broken box rather than as emphasis.
-test("the box is one tone: the border is frame, and only content is coloured", () => {
+test("the box is one tone: the border is snapshot, and only content is coloured", () => {
   expect(bannerRuleLine("╭─────╮")).toBe(true);
   expect(bannerRuleLine("╰─────╯")).toBe(true);
   expect(bannerRuleLine("│ abc │")).toBe(false);
@@ -309,7 +309,7 @@ test("the box is one tone: the border is frame, and only content is coloured", (
   // the run that carries the line's colour.
   expect(bannerLineSegments("│ abc │")).toEqual(["│ ", "abc", " │"]);
   expect(bannerLineSegments("╭─────╮")).toEqual(["╭─────╮", "", ""]);
-  // The narrow banner draws no box at all: all content, no frame.
+  // The narrow banner draws no box at all: all content, no snapshot.
   expect(bannerLineSegments(">_ North Bridge (1f3c2de7)"))
     .toEqual(["", ">_ North Bridge (1f3c2de7)", ""]);
 
@@ -324,9 +324,9 @@ test("the box is one tone: the border is frame, and only content is coloured", (
   expect(title[0]!.text).toContain(">_ North Bridge (1f3c2de7)");
   expect(title[0]!.text).not.toContain("│");
 
-  // Every box character in the whole banner belongs to a frame run.
+  // Every box character in the whole banner belongs to a snapshot run.
   for (const run of runs)
-    if (/[╭─╮│╰╯]/.test(run.text)) expect(run.tone).toBe("frame");
+    if (/[╭─╮│╰╯]/.test(run.text)) expect(run.tone).toBe("snapshot");
 
   // And the runs still spell the box exactly as it is drawn.
   expect(runs.map((run) => run.text).join(""))
@@ -338,13 +338,13 @@ test("the drawn banner paints its border dim on every line, title included", () 
   const chunks = (renderConversation(runtimeWith("ready")) as {
     chunks: Array<{ text: string; fg?: unknown }>;
   }).chunks;
-  const frame = JSON.stringify(brightBlack("x").fg);
+  const snapshot = JSON.stringify(brightBlack("x").fg);
   const bright = JSON.stringify(brightWhite("x").fg);
 
   const bordered = chunks.filter((chunk) => /[╭─╮│╰╯]/.test(chunk.text));
   expect(bordered.length).toBeGreaterThan(0);
   // The line the bug was visible on: the title's row carries borders too.
-  for (const chunk of bordered) expect(JSON.stringify(chunk.fg)).toBe(frame);
+  for (const chunk of bordered) expect(JSON.stringify(chunk.fg)).toBe(snapshot);
 
   const titled = chunks.filter((chunk) => chunk.text.includes("North Bridge"));
   expect(titled).toHaveLength(1);
@@ -398,7 +398,7 @@ test("agent selection does not leak its execution UUID into the status line", ()
 });
 
 test("the roster row and the banner are never on screen together", async () => {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 90, height: 14,
   });
   const pane = new BoxRenderable(renderer, { id: "agents-pane", flexGrow: 1 });
@@ -417,7 +417,7 @@ test("the roster row and the banner are never on screen together", async () => {
   roster.content = bannerRoster;
   transcript.content = renderConversation(ready);
   await renderOnce();
-  const banner = captureCharFrame();
+  const banner = captureCharSnapshot();
   expect(banner).toContain(">_ North Bridge (1f3c2de7)");
   expect(banner).not.toContain("Northbridge control session");
   expect(banner).not.toContain("Main (ready)");
@@ -435,7 +435,7 @@ test("the roster row and the banner are never on screen together", async () => {
   roster.content = answeredRoster;
   transcript.content = renderConversation(answered);
   await renderOnce();
-  const conversing = captureCharFrame();
+  const conversing = captureCharSnapshot();
   expect(conversing).not.toContain("North Bridge (");
   expect(conversing).toContain("Main (ready)");
   expect(conversing).toContain("Northbridge control session");

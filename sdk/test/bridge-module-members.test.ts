@@ -16,7 +16,7 @@ import {
   render_config_panel_bang as renderConfigPanel,
 } from "../src/bridge/generated/north/bridge/app.js";
 
-// Pin the terminal: the panel reads it for its window math, so the frames below
+// Pin the terminal: the panel reads it for its window math, so the snapshots below
 // are arithmetic rather than a property of whoever's tty ran the suite.
 Object.defineProperty(process.stdout, "rows", { value: 40, configurable: true });
 Object.defineProperty(process.stdout, "columns", { value: 120, configurable: true });
@@ -213,8 +213,8 @@ function configRuntime(entries: Row[], view: string, rosters: Membership[]) {
   };
 }
 
-async function frameOf(view: string, entries = MANIFEST, rosters = ROSTERS) {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+async function snapshotOf(view: string, entries = MANIFEST, rosters = ROSTERS) {
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 110, height: 26,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -223,41 +223,41 @@ async function frameOf(view: string, entries = MANIFEST, rosters = ROSTERS) {
   renderer.root.add(panel);
   body.content = renderConfigPanel(configRuntime(entries, view, rosters));
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
-  return frame;
+  return snapshot;
 }
 
-// One rendered row, without the cursor gutter or the frame's right padding.
-function lineWith(frame: string, needle: string): string {
-  const line = frame.split("\n").find((l) => l.includes(needle));
+// One rendered row, without the cursor gutter or the snapshot's right padding.
+function lineWith(snapshot: string, needle: string): string {
+  const line = snapshot.split("\n").find((l) => l.includes(needle));
   expect(line).toBeDefined();
   return line!.replace(/^[›\s]+/, "").trimEnd();
 }
 
 test("a module row carries the size of its roster, when it has one", async () => {
-  const frame = await frameOf("module",
+  const snapshot = await snapshotOf("module",
                               [...MANIFEST, row("module", "unrostered", "on")]);
-  expect(lineWith(frame, "dev-core")).toBe("dev-core: on  2 members");
+  expect(lineWith(snapshot, "dev-core")).toBe("dev-core: on  2 members");
   // Singular for one, because the row is a sentence about this bundle.
-  expect(lineWith(frame, "everything")).toBe("everything: on  1 member");
+  expect(lineWith(snapshot, "everything")).toBe("everything: on  1 member");
   // A file with nobody in it says so; a module modules.d carries no file for
   // says nothing at all, because "no roster yet" is a different fact.
-  expect(lineWith(frame, "empty-bundle")).toBe("empty-bundle: on  0 members");
-  expect(lineWith(frame, "unrostered")).toBe("unrostered: on");
+  expect(lineWith(snapshot, "empty-bundle")).toBe("empty-bundle: on  0 members");
+  expect(lineWith(snapshot, "unrostered")).toBe("unrostered: on");
 });
 
 test("union on screen: a shared member survives one bundle going off", async () => {
   // tooling off, dev-core still on: repo-safety belongs to both, so its row
   // reads as the plain `on` it would have read before bundles existed. webdev
   // belongs to tooling alone and does not.
-  const frame = await frameOf("globals", withState(MANIFEST, "tooling", "off"));
-  expect(lineWith(frame, "repo-safety")).toBe("repo-safety: on");
-  expect(lineWith(frame, "webdev")).toBe("webdev: off (module: tooling off)");
+  const snapshot = await snapshotOf("globals", withState(MANIFEST, "tooling", "off"));
+  expect(lineWith(snapshot, "repo-safety")).toBe("repo-safety: on");
+  expect(lineWith(snapshot, "webdev")).toBe("webdev: off (module: tooling off)");
 });
 
 test("flipping a module re-renders its members' activity, with no member line changed", async () => {
-  const before = await frameOf("globals");
+  const before = await snapshotOf("globals");
   expect(before).toContain("firn: on");
   expect(before).toContain("repo-safety: on");
   expect(before).toContain("webdev: on");
@@ -271,24 +271,24 @@ test("flipping a module re-renders its members' activity, with no member line ch
   expect(after.filter((r) => r.name !== "dev-core"))
     .toEqual(MANIFEST.filter((r) => r.name !== "dev-core"));
 
-  const frame = await frameOf("globals", after);
+  const snapshot = await snapshotOf("globals", after);
   // The member's activity column moved, and says which bundle did it.
-  expect(lineWith(frame, "firn:")).toBe("firn: off (module: dev-core off)");
+  expect(lineWith(snapshot, "firn:")).toBe("firn: off (module: dev-core off)");
   // And the hook following that member went with it, one link further out.
-  expect(frame).toContain("hook · firn-guard: off (skill: firn off)");
+  expect(snapshot).toContain("hook · firn-guard: off (skill: firn off)");
   // repo-safety is in dev-core too, and tooling still holds it: union, on
   // screen, in the same flip that darkened firn.
-  expect(lineWith(frame, "repo-safety")).toBe("repo-safety: on");
+  expect(lineWith(snapshot, "repo-safety")).toBe("repo-safety: on");
   // Units in no bundle at all are untouched.
-  expect(lineWith(frame, "statusline-script")).toBe("statusline-script: on");
-  expect(frame).toContain("solo-guard: on");
+  expect(lineWith(snapshot, "statusline-script")).toBe("statusline-script: on");
+  expect(snapshot).toContain("solo-guard: on");
 });
 
 test("the chain renders end to end: outer bundle off darkens two links", async () => {
-  const frame = await frameOf("globals", withState(MANIFEST, "everything", "off"));
-  expect(frame).toContain("dev-core: off (module: everything off)");
-  expect(frame).toContain("firn: off (module: dev-core off)");
-  expect(frame).toContain("hook · firn-guard: off (skill: firn off)");
+  const snapshot = await snapshotOf("globals", withState(MANIFEST, "everything", "off"));
+  expect(snapshot).toContain("dev-core: off (module: everything off)");
+  expect(snapshot).toContain("firn: off (module: dev-core off)");
+  expect(snapshot).toContain("hook · firn-guard: off (skill: firn off)");
   // The outer bundle itself is off on its own account and says only that.
-  expect(frame).toContain("everything: off  1 member");
+  expect(snapshot).toContain("everything: off  1 member");
 });

@@ -12,7 +12,7 @@ import {
 } from "../src/providers/types";
 import type { WireEvent, WireModelSelection } from "../src/wire/events";
 import { wireEventId, wireRunId } from "../src/wire/ids";
-import type { WireQuery, WireQueryInput, WireUserInputFrame } from "../src/wire/query";
+import type { WireQuery, WireQueryInput, WireUserInputMessage } from "../src/wire/query";
 import { WireEventWriter } from "../src/wire/writer";
 
 const NOW = "2026-08-10T00:00:00.000Z";
@@ -67,7 +67,7 @@ function provider(
 ): AgentProvider {
   return {
     id,
-    liveInput: id === "anthropic" ? "streaming" : "turn-framed",
+    liveInput: id === "anthropic" ? "streaming" : "turn-messages",
     probe: () => ({ provider: id, available: true, reason: "ready" }),
     query,
   };
@@ -82,7 +82,7 @@ async function eventsOf(query: WireQuery): Promise<WireEvent[]> {
 async function firstText(input: WireQueryInput): Promise<string> {
   if (typeof input === "string") return input;
   const first = await input[Symbol.asyncIterator]().next();
-  if (first.done) throw new Error("wire query input ended before its first frame");
+  if (first.done) throw new Error("wire query input ended before its first message");
   return first.value.text;
 }
 
@@ -91,8 +91,8 @@ test("proof-carrying fallback replays typed input and emits semantic progress", 
   const routing = decision();
   const received: Partial<Record<ProviderId, string>> = {};
   const routes: AgentProviderQuery[] = [];
-  const input: AsyncIterable<WireUserInputFrame> = {
-    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputFrame> {
+  const input: AsyncIterable<WireUserInputMessage> = {
+    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputMessage> {
       yield { kind: "user.input", text: "same semantic turn" };
     },
   };
@@ -353,7 +353,7 @@ test("router preserves semantic controls, observations, and event subscriptions"
 
   const iterated = await eventsOf(query);
   await query.continueTurn!({
-    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputFrame> {
+    async *[Symbol.asyncIterator](): AsyncIterator<WireUserInputMessage> {
       yield { kind: "user.input", text: "continued" };
     },
   });

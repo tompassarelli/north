@@ -50,10 +50,10 @@ for (const mode of modes) {
     if (timeout) clearTimeout(timeout);
 
     expect(exit).toEqual({ code: 0, signal: null });
-    const frames = stdout.trim().split("\n").map((line) => JSON.parse(line));
-    expect(frames).toHaveLength(2);
-    expect(frames[0]).toMatchObject({ type: "started", mode });
-    expect(frames[1]).toMatchObject({
+    const messages = stdout.trim().split("\n").map((line) => JSON.parse(line));
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ type: "started", mode });
+    expect(messages[1]).toMatchObject({
       type: "terminal",
       mode,
       outcome: mode,
@@ -63,13 +63,13 @@ for (const mode of modes) {
       childAliveAfterSettlement: false,
     });
     if (mode === "timeout") {
-      expect(frames[1].readinessError).toBe("NORTH_LIVE_FEED_STARTUP_TIMEOUT");
+      expect(messages[1].readinessError).toBe("NORTH_LIVE_FEED_STARTUP_TIMEOUT");
     }
     if (mode === "escalation") {
-      expect(frames[1].signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(messages[1].signals).toEqual(["SIGTERM", "SIGKILL"]);
     } else {
-      expect(frames[1].signals).toEqual(["SIGTERM"]);
+      expect(messages[1].signals).toEqual(["SIGTERM"]);
     }
-    expect(() => process.kill(frames[0].childPid, 0)).toThrow();
+    expect(() => process.kill(messages[0].childPid, 0)).toThrow();
   });
 }

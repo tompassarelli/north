@@ -3,8 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { FramRpcClient } from "../src/store-rpc-client";
-import { FramTriple } from "../src/store-rpc-codec";
+import { StoreRpcClient } from "../src/store-rpc-client";
+import { StoreTriple } from "../src/store-rpc-codec";
 import {
 	AGENT_RUN_LEDGER_CONTRACT,
 	AGENT_RUN_LEDGER_VERSION,
@@ -243,10 +243,10 @@ function unusedPort(): number {
 	return port;
 }
 
-async function waitForStore(port: number, spaceId: string): Promise<FramRpcClient> {
+async function waitForStore(port: number, spaceId: string): Promise<StoreRpcClient> {
 	for (let attempt = 0; attempt < 400; attempt += 1) {
 		try {
-			return await FramRpcClient.connect({
+			return await StoreRpcClient.connect({
 				port,
 				spaceId,
 				connectTimeoutMs: 100,
@@ -273,7 +273,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 	const environment = {
 		...process.env,
 		NORTH_PORT: String(port),
-		BEAGLE_STORE_LOG: path.join(root, "history.framlog"),
+		BEAGLE_STORE_LOG: path.join(root, "history.storelog"),
 		BEAGLE_STORE_SPACE_ID: spaceId,
 		BEAGLE_STORE_HOME: store.home,
 		BEAGLE_STORE_BIN: store.bin,
@@ -298,7 +298,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		stdout: "ignore",
 		stderr: "ignore",
 	});
-	let client: FramRpcClient | undefined;
+	let client: StoreRpcClient | undefined;
 	try {
 		client = await waitForStore(port, spaceId);
 		const invalidRunId = "run:self-consistent-invalid";
@@ -362,8 +362,8 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		for (const projection of projections) {
 			const rows = await client.scanAll(projection.subject, null, null);
 			const actual = rows.rows.map((row) => {
-				expect(row).toBeInstanceOf(FramTriple);
-				const fact = row as FramTriple;
+				expect(row).toBeInstanceOf(StoreTriple);
+				const fact = row as StoreTriple;
 				return JSON.stringify([fact.t2, fact.t3]);
 			}).sort();
 			const expected = projection.facts.map((fact) => JSON.stringify(fact)).sort();
@@ -524,7 +524,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		expect(await recordWireRunTelemetryProjection(telemetry, 4_000, environment)).toBe("recorded");
 		const runRows = await client.scanAll(telemetry.subject, null, null);
 		const runFacts = new Map(runRows.rows.map((row) => {
-			const fact = row as FramTriple;
+			const fact = row as StoreTriple;
 			return [String(fact.t2), String(fact.t3)] as const;
 		}));
 		expect(runFacts.get("wire_ledger_status")).toBe("complete");
@@ -537,7 +537,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		expect(runFacts.get("shadow_reviewer_status")).toBe("partial");
 		expect(runFacts.get("shadow_reviewer_tokens")).toBe("77");
 		expect(runRows.rows.filter((row) =>
-			row instanceof FramTriple && row.t2 === "mcp_operation_receipt")).toHaveLength(512);
+			row instanceof StoreTriple && row.t2 === "mcp_operation_receipt")).toHaveLength(512);
 
 		const shadowSourceRunId = wireRunId("run:ledger-shadow-source");
 		const shadowWriter = new WireEventWriter({
@@ -623,7 +623,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 		expect(shadowValid.exitCode, shadowValid.stderr).toBe(0);
 		const shadowRows = await client.scanAll(shadowTelemetry.subject, null, null);
 		const shadowFacts = new Map(shadowRows.rows.map((row) => {
-			const fact = row as FramTriple;
+			const fact = row as StoreTriple;
 			return [String(fact.t2), String(fact.t3)] as const;
 		}));
 		expect(shadowFacts.get("role")).toBe("shadow-reviewer");
@@ -695,7 +695,7 @@ test("Clojure accepts exact essential events with ECMAScript numbers and retries
 			["provider_tool_items", "4"],
 			["provider_turn_metric_comparable", "false"],
 		] as const) {
-			expect(providerTurnRows.rows.filter((row) => row instanceof FramTriple
+			expect(providerTurnRows.rows.filter((row) => row instanceof StoreTriple
 				&& row.t2 === predicate && row.t3 === value)).toHaveLength(1);
 		}
 	} finally {

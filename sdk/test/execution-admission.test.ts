@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
 import { kw } from "../src/coord-wire";
 import {
-  decodeFrame, encodeResponseFrame, rpcRecord, RPC_UNIT, RPC_V2_HEADER_BYTES,
+  decodePacket, encodeResponsePacket, rpcRecord, RPC_UNIT, RPC_V2_HEADER_BYTES,
   type RpcResponse,
 } from "../src/store-rpc-codec";
 import { admitExecution, admitPinnedProvider } from "../src/execution-admission";
@@ -30,13 +30,13 @@ function canonicalEnvironment(
     NORTH_PORT: String(port),
     BEAGLE_STORE_SERVER_PORT: String(port),
     BEAGLE_STORE_SPACE_ID: "north-coordination",
-    NORTH_FRAMRPC_HOST: "127.0.0.1",
+    NORTH_STORE_HOST: "127.0.0.1",
     ...overrides,
   };
 }
 
 function statusResponse(
-  request: NonNullable<ReturnType<typeof decodeFrame>["request"]>,
+  request: NonNullable<ReturnType<typeof decodePacket>["request"]>,
   overrides: Partial<RpcResponse> = {},
 ): RpcResponse {
   return {
@@ -53,8 +53,8 @@ function statusResponse(
   };
 }
 
-async function withFramedServer(
-  reply: (frame: ReturnType<typeof decodeFrame>) => Uint8Array | null,
+async function withPacketServer(
+  reply: (packet: ReturnType<typeof decodePacket>) => Uint8Array | null,
   body: (port: number) => Promise<void>,
 ): Promise<void> {
   const server = createServer((socket) => {
@@ -67,7 +67,7 @@ async function withFramedServer(
         buffer.buffer, buffer.byteOffset, buffer.length,
       ).getUint32(14, true);
       if (buffer.length < RPC_V2_HEADER_BYTES + bodyLength) return;
-      const response = reply(decodeFrame(Uint8Array.from(buffer)));
+      const response = reply(decodePacket(Uint8Array.from(buffer)));
       if (response === null) socket.destroy();
       else socket.end(Buffer.from(response));
     });
@@ -110,7 +110,7 @@ test("OpenAI cached web authority is admitted for pinned and automatic routes", 
   expect(() => admitPinnedProvider("openai", webCapabilities)).not.toThrow();
 });
 
-test("every managed lane requires a live canonical FRAMRPC endpoint", async () => {
+test("every managed lane requires a live canonical Store RPC endpoint", async () => {
   const port = await closedPort();
   for (const capabilities of [directorCapabilities, workerCapabilities]) {
     await expect(admitExecution(
@@ -125,9 +125,9 @@ test("every managed lane requires a live canonical FRAMRPC endpoint", async () =
 });
 
 gatedTest("loopback-bind", "admission never falls back to an ambient North port", async () => {
-  await withFramedServer(
-    (frame) => encodeResponseFrame(
-      frame.requestId, statusResponse(frame.request!),
+  await withPacketServer(
+    (packet) => encodeResponsePacket(
+      packet.requestId, statusResponse(packet.request!),
     ),
     async (port) => {
       process.env.NORTH_PORT = String(port);
@@ -142,12 +142,12 @@ gatedTest("loopback-bind", "admission never falls back to an ambient North port"
   );
 });
 
-gatedTest("loopback-bind", "admission probes the exact inherited FRAMRPC space", async () => {
-  const requests: ReturnType<typeof decodeFrame>[] = [];
-  await withFramedServer(
-    (frame) => {
-      requests.push(frame);
-      return encodeResponseFrame(frame.requestId, statusResponse(frame.request!));
+gatedTest("loopback-bind", "admission probes the exact inherited Store RPC space", async () => {
+  const requests: ReturnType<typeof decodePacket>[] = [];
+  await withPacketServer(
+    (packet) => {
+      requests.push(packet);
+      return encodeResponsePacket(packet.requestId, statusResponse(packet.request!));
     },
     async (port) => {
       await expect(admitExecution(
@@ -164,17 +164,17 @@ gatedTest("loopback-bind", "admission probes the exact inherited FRAMRPC space",
 
 gatedTest("loopback-bind", "admission rejects contradictory endpoint identity before opening a socket", async () => {
   let accepts = 0;
-  await withFramedServer(
-    (frame) => {
+  await withPacketServer(
+    (packet) => {
       accepts += 1;
-      return encodeResponseFrame(frame.requestId, statusResponse(frame.request!));
+      return encodeResponsePacket(packet.requestId, statusResponse(packet.request!));
     },
     async (port) => {
       const cases = [
         canonicalEnvironment(port, { NORTH_PORT: "not-a-port" }),
         canonicalEnvironment(port, { BEAGLE_STORE_SERVER_PORT: String(port + 1) }),
         canonicalEnvironment(port, { BEAGLE_STORE_SPACE_ID: " " }),
-        canonicalEnvironment(port, { NORTH_FRAMRPC_HOST: " " }),
+        canonicalEnvironment(port, { NORTH_STORE_HOST: " " }),
       ];
       for (const environment of cases) {
         await expect(admitExecution(
@@ -187,10 +187,10 @@ gatedTest("loopback-bind", "admission rejects contradictory endpoint identity be
   expect(accepts).toBe(0);
 });
 
-gatedTest("loopback-bind", "admission rejects a response from another FRAMRPC space", async () => {
-  await withFramedServer(
-    (frame) => encodeResponseFrame(
-      frame.requestId, statusResponse(frame.request!, { space: "other-space" }),
+gatedTest("loopback-bind", "admission rejects a response from another Store RPC space", async () => {
+  await withPacketServer(
+    (packet) => encodeResponsePacket(
+      packet.requestId, statusResponse(packet.request!, { space: "other-space" }),
     ),
     async (port) => {
       await expect(admitExecution(

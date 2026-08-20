@@ -17,7 +17,7 @@ if (!modes.includes(requestedMode as Mode))
   throw new Error(`unknown live-feed process fixture mode: ${requestedMode}`);
 const mode = requestedMode as Mode;
 const recipient = `live-feed-process-${mode}`;
-const readyFrame = JSON.stringify({
+const readyMessage = JSON.stringify({
   protocol: "north-live-feed-v1",
   type: "ready",
   recipient,
@@ -39,7 +39,7 @@ const subscription = subscribeFeed(recipient, () => true, {
   spawn: ((command: string, _args: string[], options: unknown) => {
     const emitsReady = mode !== "timeout";
     const expression = emitsReady
-      ? `(do (println ${JSON.stringify(readyFrame)}) (flush) (Thread/sleep 600000))`
+      ? `(do (println ${JSON.stringify(readyMessage)}) (flush) (Thread/sleep 600000))`
       : "(Thread/sleep 600000)";
     const child = nodeSpawn(command, ["-e", expression], {
       ...(options as Parameters<typeof nodeSpawn>[2]),

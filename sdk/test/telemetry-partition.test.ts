@@ -20,7 +20,7 @@ afterEach(() => {
   }
 });
 
-test("telemetry subjects route to their FRAMRPC space", () => {
+test("telemetry subjects route to their Store RPC space", () => {
   process.env.NORTH_PORT = "7977";
   process.env.NORTH_TELEMETRY_PARTITION = "1";
   process.env.NORTH_TELEMETRY_PORT = "7978";

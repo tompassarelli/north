@@ -24,7 +24,7 @@ import {
   config_kind_tag as configKindTag,
   tab_action as tabAction,
   tab_fold_step_bang as tabFoldStep,
-  tab_swap_frame as tabSwapFrame,
+  tab_swap_view as tabSwapView,
   help_query_rows as helpQueryRows,
   render_detail_panel_bang as renderDetailPanel,
   set_node_expanded_bang as setNodeExpanded,
@@ -32,7 +32,7 @@ import {
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // The panel reads the terminal for its window math. Pin both dimensions so the
-// frames below are arithmetic rather than a property of whoever's tty ran the
+// snapshots below are arithmetic rather than a property of whoever's tty ran the
 // suite.
 const ROWS = 40;
 const COLUMNS = 120;
@@ -286,8 +286,8 @@ test("the panel is as tall as what the filter left it", () => {
   expect(configPanelLegend(false)).toContain("esc close");
 });
 
-async function frameOf(runtime: unknown, height = 26) {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+async function snapshotOf(runtime: unknown, height = 26) {
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
     width: 110, height,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -296,13 +296,13 @@ async function frameOf(runtime: unknown, height = 26) {
   renderer.root.add(panel);
   body.content = renderDetailPanel(runtime);
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
-  return frame.split("\n").map((l) => l.trimEnd()).filter((l) => l !== "");
+  return snapshot.split("\n").map((l) => l.trimEnd()).filter((l) => l !== "");
 }
 
 test("a filtered switchboard shows the query, the matches, and the headings that survived", async () => {
-  const before = await frameOf(configRuntime(MANIFEST, "all", 0, null, ["global"]));
+  const before = await snapshotOf(configRuntime(MANIFEST, "all", 0, null, ["global"]));
   expect(before[0]).toBe(
     "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
   for (const heading of ["SETS", "SKILLS", "MODULES", "HOOKS", "OTHER"]) {
@@ -311,7 +311,7 @@ test("a filtered switchboard shows the query, the matches, and the headings that
   // Directories are the root level, under nothing.
   expect(before.some((l) => l.trim() === "DIRECTORY")).toBe(false);
 
-  const after = await frameOf(configRuntime(MANIFEST, "all", 0, "guard"));
+  const after = await snapshotOf(configRuntime(MANIFEST, "all", 0, "guard"));
   expect(after).toEqual([
     "context switchboard  /guard  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
     "› ▾ GLOBAL: on",
@@ -330,8 +330,8 @@ test("a filtered switchboard shows the query, the matches, and the headings that
 });
 
 test("a matching memory keeps the directory it hangs off, nested as it was", async () => {
-  const frame = await frameOf(configRuntime(MANIFEST, "all", 0, "report-style"));
-  expect(frame).toEqual([
+  const snapshot = await snapshotOf(configRuntime(MANIFEST, "all", 0, "report-style"));
+  expect(snapshot).toEqual([
     "context switchboard  /report-style  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
     "› ▾ /tmp/switchboard-fixture/code: on",
     "    MEMORIES: on",
@@ -340,7 +340,7 @@ test("a matching memory keeps the directory it hangs off, nested as it was", asy
 
   // The other direction: a matched node answers with its whole subtree,
   // indentation and all, however folded it was.
-  const parent = await frameOf(configRuntime(MANIFEST, "agentsmd", 0, "fixture/code"));
+  const parent = await snapshotOf(configRuntime(MANIFEST, "agentsmd", 0, "fixture/code"));
   expect(parent).toEqual([
     "directory context  /fixture/code  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter",
     "› ▾ /tmp/switchboard-fixture/code: on",
@@ -352,14 +352,14 @@ test("a matching memory keeps the directory it hangs off, nested as it was", asy
 });
 
 test("a query that matches nothing says so, and keeps the field to back out of", async () => {
-  const frame = await frameOf(configRuntime(MANIFEST, "all", 0, "zzz"));
-  expect(frame).toEqual(["context switchboard  /zzz nothing matches"]);
+  const snapshot = await snapshotOf(configRuntime(MANIFEST, "all", 0, "zzz"));
+  expect(snapshot).toEqual(["context switchboard  /zzz nothing matches"]);
   // Not "loading…", which is what an unloaded panel says and this one is not.
-  expect(frame[0]).not.toContain("loading");
+  expect(snapshot[0]).not.toContain("loading");
 });
 
 test("folding renders as folding: a marker, and the rows that came with it", async () => {
-  const shut = await frameOf(configRuntime(MANIFEST, "all"));
+  const shut = await snapshotOf(configRuntime(MANIFEST, "all"));
   expect(shut).toEqual([
     "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
     "› ▸ GLOBAL: on",
@@ -367,7 +367,7 @@ test("folding renders as folding: a marker, and the rows that came with it", asy
     "  ▸ /tmp/switchboard-fixture/north: on",
   ]);
 
-  const open = await frameOf(configRuntime(MANIFEST, "all", 1, null, ["code"]));
+  const open = await snapshotOf(configRuntime(MANIFEST, "all", 1, null, ["code"]));
   expect(open).toEqual([
     "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
     "  ▸ GLOBAL: on",
@@ -385,10 +385,10 @@ test("help is rows too, so the same slash narrows it", async () => {
   expect(helpQueryRows("sound")).toHaveLength(1);
   expect(helpQueryRows("ESC").length).toBeGreaterThanOrEqual(2);
 
-  const open = await frameOf({ detailView: "help" });
+  const open = await snapshotOf({ detailView: "help" });
   expect(open[0]).toBe("Northbridge keys · / filter · esc closes");
 
-  const filtered = await frameOf({
+  const filtered = await snapshotOf({
     detailView: "help", panelFiltering: true, panelQuery: "sound",
   });
   expect(filtered).toEqual([
@@ -396,7 +396,7 @@ test("help is rows too, so the same slash narrows it", async () => {
     "/sound on|off|pack    voice lines",
   ]);
 
-  const empty = await frameOf({
+  const empty = await snapshotOf({
     detailView: "help", panelFiltering: true, panelQuery: "zzz",
   });
   expect(empty).toEqual(["Northbridge keys  /zzz · esc clears filter", " nothing matches"]);
@@ -420,7 +420,7 @@ test("@ writes the selected row into the sentence, kind first", () => {
   expect(configReferenceText("skill", "firn").endsWith(" ")).toBe(true);
 });
 
-// Styles, not characters: the frame text cannot say which rows recede, and
+// Styles, not characters: the snapshot text cannot say which rows recede, and
 // receding is the whole point of the change.
 async function spansOf(runtime: unknown, height = 26) {
   const { renderer, renderOnce, captureSpans } = await createTestRenderer({
@@ -432,9 +432,9 @@ async function spansOf(runtime: unknown, height = 26) {
   renderer.root.add(panel);
   body.content = renderDetailPanel(runtime);
   await renderOnce();
-  const frame = captureSpans();
+  const snapshot = captureSpans();
   renderer.destroy();
-  return frame.lines.map((line) => line.spans.map((span) => ({
+  return snapshot.lines.map((line) => line.spans.map((span) => ({
     text: span.text,
     fg: [span.fg.r, span.fg.g, span.fg.b].map((c) => Math.round(c * 255)).join(","),
     dim: (span.attributes & 2) !== 0,
@@ -503,20 +503,20 @@ test("an unfocused panel stops burning its cursor, and says so without moving", 
   const handed = await spansOf(configRuntime(MANIFEST, "all", 0, null, [], false));
   const quiet = handed[1]!.find((s) => s.text.includes("›"))!;
   expect(quiet.fg).toBe(BRIGHT_BLACK);
-  expect(await frameOf(configRuntime(MANIFEST, "all", 0, null, [], false)))
-    .toEqual(await frameOf(configRuntime(MANIFEST, "all", 0, null, [], true)));
+  expect(await snapshotOf(configRuntime(MANIFEST, "all", 0, null, [], false)))
+    .toEqual(await snapshotOf(configRuntime(MANIFEST, "all", 0, null, [], true)));
 });
 
 test("the cursor still finds its row, and space still has a row to flip", async () => {
   // Cursor on the second surviving row rather than the second row of the view.
   const runtime = configRuntime(MANIFEST, "all", 3, "guard");
-  const frame = await frameOf(runtime);
-  expect(frame).toContain("›     tripwire-guard: disabled");
+  const snapshot = await snapshotOf(runtime);
+  expect(snapshot).toContain("›     tripwire-guard: disabled");
   expect((configPanelRows(runtime) as Row[])[3]!.name).toBe("tripwire-guard");
 
   // An index past the end of the filtered rows still renders a cursor, on the
   // last row there is.
-  const overrun = await frameOf(configRuntime(MANIFEST, "all", 99, "guard"));
+  const overrun = await snapshotOf(configRuntime(MANIFEST, "all", 99, "guard"));
   expect(overrun).toContain("›     tripwire-guard: disabled");
 });
 
@@ -586,9 +586,9 @@ test("GLOBAL is open before you open anything, and shuts when you shut it", asyn
   expect(rows.some((r) => r.kind === "dir" && r.name === "global")).toBe(true);
   expect(rows.length).toBeGreaterThan(3);
 
-  const frame = await frameOf(fresh);
-  expect(frame).toContain("› ▾ GLOBAL: on");
-  expect(frame).not.toContain("▸ GLOBAL");
+  const snapshot = await snapshotOf(fresh);
+  expect(snapshot).toContain("› ▾ GLOBAL: on");
+  expect(snapshot).not.toContain("▸ GLOBAL");
 
   // And it is a default, not a floor: shutting it sticks.
   setNodeExpanded(fresh, "global", false);
@@ -618,7 +618,7 @@ test("a row names its kind only where nothing above it already did", () => {
 test("tab folds the node under the cursor, on screen, both ways", async () => {
   const runtime = configRuntime(MANIFEST, "all", 1, null, []);
   // Cursor on the second directory, everything shut.
-  expect(await frameOf(runtime)).toEqual([
+  expect(await snapshotOf(runtime)).toEqual([
     "context switchboard  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close",
     "  ▸ GLOBAL: on",
     "› ▸ /tmp/switchboard-fixture/code: on",
@@ -626,7 +626,7 @@ test("tab folds the node under the cursor, on screen, both ways", async () => {
   ]);
 
   tabFoldStep(runtime);
-  const opened = await frameOf(runtime);
+  const opened = await snapshotOf(runtime);
   expect(opened).toContain("› ▾ /tmp/switchboard-fixture/code: on");
   expect(opened).toContain("    AGENTS.md: on");
   // The node next door did not move.
@@ -634,7 +634,7 @@ test("tab folds the node under the cursor, on screen, both ways", async () => {
 
   // The same key shuts it again — one verb, both directions.
   tabFoldStep(runtime);
-  expect(await frameOf(runtime)).toContain("› ▸ /tmp/switchboard-fixture/code: on");
+  expect(await snapshotOf(runtime)).toContain("› ▸ /tmp/switchboard-fixture/code: on");
 
   // From a row INSIDE a node, tab climbs to the node rather than doing nothing,
   // and the next press folds what it landed on.
@@ -649,14 +649,14 @@ test("tab folds the node under the cursor, on screen, both ways", async () => {
 });
 
 test("tab in the composer swaps the view, and never folds anything", async () => {
-  expect(tabSwapFrame("agents")).toBe("threads");
-  expect(tabSwapFrame("threads")).toBe("agents");
+  expect(tabSwapView("agents")).toBe("threads");
+  expect(tabSwapView("threads")).toBe("agents");
 
   // The panel's fold state is untouched by the composer's tab: the two verbs
   // live on different surfaces and neither reaches the other.
   const runtime = configRuntime(MANIFEST, "all", 0, null, ["code"]);
-  const before = await frameOf(runtime);
-  tabSwapFrame("agents");
-  expect(await frameOf(runtime)).toEqual(before);
+  const before = await snapshotOf(runtime);
+  tabSwapView("agents");
+  expect(await snapshotOf(runtime)).toEqual(before);
   expect(runtime.expandedDirs).toEqual(["code"]);
 });

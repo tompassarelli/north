@@ -1,11 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { kw, Keyword } from "../src/coord-wire";
 import {
-  FramRpcClient, FramRpcTransportError,
-  type FramRpcTransportInput,
+  StoreRpcClient, StoreRpcTransportError,
+  type StoreRpcTransportInput,
 } from "../src/store-rpc-client";
 import {
-  FramTriple, RPC_SUBJECT_ANY, framInstant, rpcFence, rpcList, rpcListValues,
+  StoreTriple, RPC_SUBJECT_ANY, storeInstant, rpcFence, rpcList, rpcListValues,
   rpcOption, rpcOptionValue, rpcRecord, rpcRecordFields, termEquals, triple,
   type BatchAction, type RpcErrorTerm, type RpcResponse, type Term,
 } from "../src/store-rpc-codec";
@@ -19,7 +19,7 @@ const PRESET: Record<string, string> = {
   goal: "prove native publication",
   provider: "openai",
   provider_target: "codex-a",
-  live_input: "turn-framed",
+  live_input: "turn-messages",
   live_input_state: "armed",
   live_input_epoch: "00000000-0000-4000-8000-000000000303",
   model: "gpt-5.6-sol",
@@ -60,15 +60,15 @@ type BatchOutcome =
   | "malformed-success";
 
 interface HarnessOptions {
-  initialRows?: FramTriple[];
+  initialRows?: StoreTriple[];
   batchOutcomes?: BatchOutcome[];
   acquireSentAmbiguous?: boolean;
 }
 
 interface NativeHarness {
-  client: FramRpcClient;
-  calls: FramRpcTransportInput[];
-  rows: FramTriple[];
+  client: StoreRpcClient;
+  calls: StoreRpcTransportInput[];
+  rows: StoreTriple[];
 }
 
 function rpcError(code: string, retryable: boolean): RpcErrorTerm {
@@ -76,7 +76,7 @@ function rpcError(code: string, retryable: boolean): RpcErrorTerm {
 }
 
 function response(
-  input: FramRpcTransportInput,
+  input: StoreRpcTransportInput,
   servedVersion: number,
   payload: Term | null,
   error: RpcErrorTerm | null = null,
@@ -92,7 +92,7 @@ function response(
   };
 }
 
-function decodedBatch(input: FramRpcTransportInput): { actions: BatchAction[]; fence: Term | null } {
+function decodedBatch(input: StoreRpcTransportInput): { actions: BatchAction[]; fence: Term | null } {
   const [encodedActions, encodedFence] = rpcRecordFields(
     input.request.payload, kw("rpc/batch"), 2,
   );
@@ -100,7 +100,7 @@ function decodedBatch(input: FramRpcTransportInput): { actions: BatchAction[]; f
     const [operation, proposition, policy] = rpcRecordFields(
       encoded, kw("rpc/action"), 3,
     );
-    if (!(operation instanceof Keyword) || !(proposition instanceof FramTriple)
+    if (!(operation instanceof Keyword) || !(proposition instanceof StoreTriple)
         || !(policy instanceof Keyword)) throw new Error("mistyped test batch");
     return {
       op: operation.name === "rpc/assert" ? "assert" as const : "retract" as const,
@@ -126,7 +126,7 @@ function mutationPayload(actions: readonly BatchAction[], malformed = false): Te
 function projectionRows(
   projection: Record<string, string> = PRESET,
   marker = MARKER,
-): FramTriple[] {
+): StoreTriple[] {
   return [
     ...Object.entries(projection).map(([predicate, value]) => triple(ENTITY, predicate, value)),
     triple(ENTITY, "identity_manifest_sha256", marker),
@@ -134,7 +134,7 @@ function projectionRows(
 }
 
 function startHarness(options: HarnessOptions = {}): NativeHarness {
-  const calls: FramRpcTransportInput[] = [];
+  const calls: StoreRpcTransportInput[] = [];
   const rows = [...(options.initialRows ?? [])];
   const batchOutcomes = [...(options.batchOutcomes ?? ["success"])];
   let version = 10;
@@ -152,7 +152,7 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
     version += 1;
   };
 
-  const transport = async (input: FramRpcTransportInput): Promise<RpcResponse> => {
+  const transport = async (input: StoreRpcTransportInput): Promise<RpcResponse> => {
     calls.push(input);
     switch (input.request.op.name) {
       case "rpc/version":
@@ -164,7 +164,7 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
           acquireAmbiguityPending = false;
           activeFence = candidate;
           version = expected + 1;
-          throw new FramRpcTransportError(
+          throw new StoreRpcTransportError(
             "rpc-truncated", "lease acknowledgement lost", true,
             input.request.op.name, 1,
           );
@@ -172,7 +172,7 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
         activeFence = candidate;
         version = expected + 1;
         return response(input, version, rpcRecord(
-          kw("lease/grant"), [candidate, framInstant(1_800_000_000, 0)],
+          kw("lease/grant"), [candidate, storeInstant(1_800_000_000, 0)],
         ));
       }
       case "rpc/lease-check":
@@ -198,7 +198,7 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
           return response(input, version, null, rpcError("durability-ambiguous", true));
         if (outcome === "sent-commit") {
           apply(decoded.actions);
-          throw new FramRpcTransportError(
+          throw new StoreRpcTransportError(
             "rpc-truncated", "batch acknowledgement lost", true,
             input.request.op.name, 1,
           );
@@ -218,7 +218,7 @@ function startHarness(options: HarnessOptions = {}): NativeHarness {
   };
 
   return {
-    client: FramRpcClient.create({
+    client: StoreRpcClient.create({
       port: 1,
       spaceId: "north-coordination",
       maxAttempts: 1,
@@ -239,7 +239,7 @@ async function publish(harness: NativeHarness) {
   );
 }
 
-test("framrpc fresh publish sends one sorted fenced batch with marker last", async () => {
+test("store-rpc fresh publish sends one sorted fenced batch with marker last", async () => {
   const harness = startHarness();
   expect(await publish(harness)).toEqual({ status: "committed", operationId: OPERATION_ID });
 
@@ -261,7 +261,7 @@ test("framrpc fresh publish sends one sorted fenced batch with marker last", asy
   ]);
 });
 
-test("framrpc exact replay includes occurrence frequencies and sends no publication mutation", async () => {
+test("store-rpc exact replay includes occurrence frequencies and sends no publication mutation", async () => {
   const exact = startHarness({ initialRows: projectionRows() });
   expect(await publish(exact)).toEqual({
     status: "committed", operationId: OPERATION_ID, reason: "exact_replay",
@@ -275,7 +275,7 @@ test("framrpc exact replay includes occurrence frequencies and sends no publicat
   expect(duplicate.calls.some((call) => call.request.op.name === "rpc/batch")).toBe(false);
 });
 
-test("framrpc declines killed prefixes, non-exact projections, and foreign occupancy", async () => {
+test("store-rpc declines killed prefixes, non-exact projections, and foreign occupancy", async () => {
   for (const rows of [
     [triple(ENTITY, "kind", "lane")],
     projectionRows({ ...PRESET, role: "worker" }, identityMarker({ ...PRESET, role: "worker" })),
@@ -288,7 +288,7 @@ test("framrpc declines killed prefixes, non-exact projections, and foreign occup
   }
 });
 
-test("framrpc conflict is zero-applied and replans under the same fence", async () => {
+test("store-rpc conflict is zero-applied and replans under the same fence", async () => {
   const harness = startHarness({ batchOutcomes: ["conflict", "success"] });
   expect(await publish(harness)).toEqual({ status: "committed", operationId: OPERATION_ID });
   const batches = harness.calls.filter((call) => call.request.op.name === "rpc/batch");
@@ -297,14 +297,14 @@ test("framrpc conflict is zero-applied and replans under the same fence", async 
   expect(termEquals(decodedBatch(batches[0]!).fence, decodedBatch(batches[1]!).fence)).toBe(true);
 });
 
-test("framrpc fence mismatch performs final classification and never retries stale", async () => {
+test("store-rpc fence mismatch performs final classification and never retries stale", async () => {
   const harness = startHarness({ batchOutcomes: ["fence-mismatch"] });
   expect(await publish(harness)).toBeNull();
   expect(harness.calls.filter((call) => call.request.op.name === "rpc/batch")).toHaveLength(1);
   expect(harness.calls.filter((call) => call.request.op.name === "rpc/scan")).toHaveLength(2);
 });
 
-test("framrpc sent ambiguity retries identical bytes and exact readback decides", async () => {
+test("store-rpc sent ambiguity retries identical bytes and exact readback decides", async () => {
   const harness = startHarness({ batchOutcomes: ["sent-commit", "conflict"] });
   expect(await publish(harness)).toEqual({ status: "committed", operationId: OPERATION_ID });
   const batches = harness.calls.filter((call) => call.request.op.name === "rpc/batch");
@@ -313,7 +313,7 @@ test("framrpc sent ambiguity retries identical bytes and exact readback decides"
   expect(termEquals(batches[1]!.request.payload, batches[0]!.request.payload)).toBe(true);
 });
 
-test("framrpc sent lease ambiguity uses the reconstructable candidate fence", async () => {
+test("store-rpc sent lease ambiguity uses the reconstructable candidate fence", async () => {
   const harness = startHarness({ acquireSentAmbiguous: true });
   expect(await publish(harness)).toEqual({ status: "committed", operationId: OPERATION_ID });
   const check = harness.calls.find((call) => call.request.op.name === "rpc/lease-check")!;
@@ -321,7 +321,7 @@ test("framrpc sent lease ambiguity uses the reconstructable candidate fence", as
   expect(harness.calls.filter((call) => call.request.op.name === "rpc/lease-acquire")).toHaveLength(1);
 });
 
-test("framrpc acknowledged mismatch and malformed action results are indeterminate", async () => {
+test("store-rpc acknowledged mismatch and malformed action results are indeterminate", async () => {
   const missing = startHarness({ batchOutcomes: ["success-without-apply"] });
   expect(await publish(missing)).toEqual({
     status: "indeterminate", operationId: OPERATION_ID,
@@ -335,7 +335,7 @@ test("framrpc acknowledged mismatch and malformed action results are indetermina
   });
 });
 
-test("framrpc durability ambiguity is restart-required and performs no readback or release", async () => {
+test("store-rpc durability ambiguity is restart-required and performs no readback or release", async () => {
   const harness = startHarness({ batchOutcomes: ["durability-ambiguous"] });
   expect(await publish(harness)).toEqual({
     status: "indeterminate", operationId: OPERATION_ID,

@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
-;; Regenerate framrpc-golden-frames.json from Beagle Store's own encoder — the frames MUST
+;; Regenerate store-rpc-golden-packets.json from Beagle Store's own encoder — the packets MUST
 ;; come from the server's wire authority, never from the SDK codec:
-;;   bb -cp "$BEAGLE_STORE_OUT" sdk/test/fixtures/framrpc-golden-frames.gen.clj \
-;;     > sdk/test/fixtures/framrpc-golden-frames.json
+;;   bb -cp "$BEAGLE_STORE_OUT" sdk/test/fixtures/store-rpc-golden-packets.gen.clj \
+;;     > sdk/test/fixtures/store-rpc-golden-packets.json
 (require '[store.rpc :as w]
          '[store.types :as t]
          '[cheshire.core :as json])
@@ -14,8 +14,8 @@
 (defn b64 [^bytes bytes]
   (.encodeToString (java.util.Base64/getEncoder) bytes))
 
-(defn req [id request] (b64 (w/encode-rpc-frame-v2! (w/rpc-request-frame id request))))
-(defn resp [id response] (b64 (w/encode-rpc-frame-v2! (w/rpc-response-frame id response))))
+(defn req [id request] (b64 (w/encode-rpc-packet-v2! (w/rpc-request-packet id request))))
+(defn resp [id response] (b64 (w/encode-rpc-packet-v2! (w/rpc-response-packet id response))))
 
 (def fence (w/rpc-fence! resource holder 42))
 (def transaction (t/transaction-coordinate space 46))
@@ -29,7 +29,7 @@
    42 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" 1
    (w/rpc-query-row! [7 (t/triple "@agent:x" "role" "worker")])))
 
-(def frames
+(def packets
   {"version-request"
    (req 1 (w/rpc-request! space :rpc/version nil nil nil w/rpc-unit))
 
@@ -170,4 +170,4 @@
                (t/triple false :rpc/unit "naïve 😀")
                (t/triple (t/instant 0 0) (t/instant -1 999999999) 0)])))})
 
-(println (json/generate-string (into (sorted-map) frames) {:pretty true}))
+(println (json/generate-string (into (sorted-map) packets) {:pretty true}))

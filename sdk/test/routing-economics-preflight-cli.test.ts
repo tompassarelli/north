@@ -79,7 +79,7 @@ test("three simultaneous admissions of the same pinned route all admit", async (
 
 test("a preflight rejection prints its underlying reason, never a bare adjective", async () => {
   // Explicit pin with NO pin-evidence — a real, named refusal from the economics
-  // layer, several frames below this CLI's catch.
+  // layer, several layers below this CLI's catch.
   const rejected = await preflight({
     routingMetadata: executorRequest(), provider: "openai", target: "codex-personal",
   });

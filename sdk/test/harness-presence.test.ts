@@ -65,10 +65,10 @@ fi
 
     const registrations = await capturedLines(log, 2);
     expect(registrations).toHaveLength(2);
-    const framPrefix = `-cp ${beagleStoreSelection().out} `;
+    const storePrefix = `-cp ${beagleStoreSelection().out} `;
     for (const expected of [
-      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${self} ${process.cwd()} ${self}`,
-      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,
+      `${storePrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${self} ${process.cwd()} ${self}`,
+      `${storePrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64123 register ${repoSelf} ${repoCwd} ${repoSelf}`,
     ]) expect(registrations).toContain(expected);
     expect(repoOptions.cwd).toBe(repoCwd);
     expect(repoOptions.systemPrompt).toContain(`in "orchestration"`);
@@ -81,7 +81,7 @@ fi
     const renew = (options.hooks as any).PostToolUse[0].hooks[0];
     expect(await renew()).toEqual({ continue: true });
     expect(await capturedLines(log, 3)).toContain(
-      `${framPrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self} `
+      `${storePrefix}${join(import.meta.dir, "../../cli/presence-cli.clj")} 64124 renew ${self} `
       + `{"resource":"session:${self}","holder":"${self}","epoch":7}`,
     );
     expect(readFileSync(fencePath, "utf8")).toBe(

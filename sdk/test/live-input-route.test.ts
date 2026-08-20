@@ -48,11 +48,11 @@ const initialRoute: ManagedRouteAxes = {
   effort: "xhigh",
 };
 
-const turnFramedRoute: ManagedRouteAxes = {
+const turnMessagesRoute: ManagedRouteAxes = {
   ...initialRoute,
   provider: "openai",
   providerTarget: "codex-personal",
-  liveInput: "turn-framed",
+  liveInput: "turn-messages",
   model: "gpt-5.6-sol",
 };
 
@@ -61,7 +61,7 @@ const inputAdmission = {
   cancel: () => {},
 };
 
-test("turn-framed terminal replay delivers one late follow-up and keeps ownership until dequeue", async () => {
+test("turn-messages terminal replay delivers one late follow-up and keeps ownership until dequeue", async () => {
   const replayStarted = deferred();
   const replayCaughtUp = deferred();
   const channel = inputChannel("initial");
@@ -71,9 +71,9 @@ test("turn-framed terminal replay delivers one late follow-up and keeps ownershi
   let feeds = 0;
   const writes: string[] = [];
   const route = new ManagedLiveInputRoute(
-    "lane-turn-framed-follow-up",
+    "lane-turn-messages-follow-up",
     { kind: "lane" },
-    turnFramedRoute,
+    turnMessagesRoute,
     (message) => channel.push(message),
     (_agentId, onMessage, runtime) => {
       feeds++;
@@ -94,9 +94,9 @@ test("turn-framed terminal replay delivers one late follow-up and keeps ownershi
   );
 
   expect(route.initialProjection().liveInputState).toBe("pending");
-  await route.activate(turnFramedRoute);
+  await route.activate(turnMessagesRoute);
   expect(feeds).toBe(0);
-  await route.activate(turnFramedRoute, true);
+  await route.activate(turnMessagesRoute, true);
   expect(feeds).toBe(1);
   expect(writes).toEqual(["armed"]);
 
@@ -131,7 +131,7 @@ test("turn-framed terminal replay delivers one late follow-up and keeps ownershi
   expect(writes).toEqual(["armed", "frozen"]);
 });
 
-test("turn-framed terminal replay leaves a claimed follow-up unconsumed on abort", async () => {
+test("turn-messages terminal replay leaves a claimed follow-up unconsumed on abort", async () => {
   const replayStarted = deferred();
   const replayCaughtUp = deferred();
   const channel = inputChannel("initial");
@@ -139,9 +139,9 @@ test("turn-framed terminal replay leaves a claimed follow-up unconsumed on abort
   await stream.next();
   let deliver: ((message: string) => InputAdmission) | undefined;
   const route = new ManagedLiveInputRoute(
-    "lane-turn-framed-abort",
+    "lane-turn-messages-abort",
     { kind: "lane" },
-    turnFramedRoute,
+    turnMessagesRoute,
     (message) => channel.push(message),
     (_agentId, onMessage) => {
       deliver = onMessage;
@@ -158,7 +158,7 @@ test("turn-framed terminal replay leaves a claimed follow-up unconsumed on abort
     },
     () => {},
   );
-  await route.activate(turnFramedRoute, true);
+  await route.activate(turnMessagesRoute, true);
 
   const abort = new AbortController();
   const terminal = route.prepareTerminalFollowUp(abort.signal);
@@ -171,14 +171,14 @@ test("turn-framed terminal replay leaves a claimed follow-up unconsumed on abort
   expect(channel.liveMessagesReceived()).toBe(0);
 });
 
-test("the token tripwire runs before a turn-framed feed may claim follow-up mail", async () => {
+test("the token tripwire runs before a turn-messages feed may claim follow-up mail", async () => {
   let replays = 0;
   const neverCaughtUp = deferred();
   const neverReplayed = deferred();
   const route = new ManagedLiveInputRoute(
-    "lane-turn-framed-token-gate",
+    "lane-turn-messages-token-gate",
     { kind: "lane" },
-    turnFramedRoute,
+    turnMessagesRoute,
     () => inputAdmission,
     () => subscription(
       Promise.resolve(),
@@ -192,7 +192,7 @@ test("the token tripwire runs before a turn-framed feed may claim follow-up mail
     ),
     () => {},
   );
-  await route.activate(turnFramedRoute, true);
+  await route.activate(turnMessagesRoute, true);
 
   const error = await prepareManagedTerminalFollowUp(route, {
     signal: new AbortController().signal,
@@ -212,9 +212,9 @@ test("a hard deadline crossing terminal replay preserves provider queue ownershi
   await stream.next();
   let deliver: ((message: string) => InputAdmission) | undefined;
   const route = new ManagedLiveInputRoute(
-    "lane-turn-framed-deadline-gate",
+    "lane-turn-messages-deadline-gate",
     { kind: "lane" },
-    turnFramedRoute,
+    turnMessagesRoute,
     (message) => channel.push(message),
     (_agentId, onMessage) => {
       deliver = onMessage;
@@ -231,7 +231,7 @@ test("a hard deadline crossing terminal replay preserves provider queue ownershi
     },
     () => {},
   );
-  await route.activate(turnFramedRoute, true);
+  await route.activate(turnMessagesRoute, true);
 
   let gateChecks = 0;
   const terminal = prepareManagedTerminalFollowUp(route, {

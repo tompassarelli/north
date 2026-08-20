@@ -554,8 +554,8 @@ test("/restart is in both command sets and restores the session in place", async
   );
   chmodSync(north, 0o755);
   environment("NORTH_BIN", north);
-  for (const frame of ["agents", "threads"]) {
-    expect(bridgeApp.palette_options(frame, "/restart").map((option) => option.name))
+  for (const snapshot of ["agents", "threads"]) {
+    expect(bridgeApp.palette_options(snapshot, "/restart").map((option) => option.name))
       .toEqual(["/restart"]);
   }
 
@@ -605,8 +605,8 @@ test("/restart is in both command sets and restores the session in place", async
 });
 
 test("/mcp is discoverable from both bridge views", () => {
-  for (const frame of ["agents", "threads"]) {
-    expect(bridgeApp.palette_options(frame, "/mcp").map((option) => option.name))
+  for (const snapshot of ["agents", "threads"]) {
+    expect(bridgeApp.palette_options(snapshot, "/mcp").map((option) => option.name))
       .toEqual(["/mcp"]);
   }
 });

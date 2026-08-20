@@ -57,14 +57,14 @@ function firstLine(stream: NodeJS.ReadableStream, label: string): Promise<string
       if (newline >= 0) finish(undefined, buffer.slice(0, newline));
     };
     const onError = (error: Error) => finish(error);
-    const onEnd = () => finish(new Error(`${label} ended before a frame`));
+    const onEnd = () => finish(new Error(`${label} ended before a message`));
     stream.on("data", onData);
     stream.once("error", onError);
     stream.once("end", onEnd);
   });
 }
 
-function supervisorFrame(line: string, digest?: string): Buffer {
+function supervisorMessage(line: string, digest?: string): Buffer {
   const payload = Buffer.from(line, "utf8");
   const checksum = digest ?? createHash("sha256").update(payload).digest("hex");
   return Buffer.concat([
@@ -73,10 +73,10 @@ function supervisorFrame(line: string, digest?: string): Buffer {
   ]);
 }
 
-function writeAtomicSupervisorFrame(path: string, line: string): void {
+function writeAtomicSupervisorMessage(path: string, line: string): void {
   const fd = openSync(path, "wx", 0o600);
   try {
-    writeFileSync(fd, supervisorFrame(line));
+    writeFileSync(fd, supervisorMessage(line));
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -117,7 +117,7 @@ const surface = {
   provider: "openai",
   capabilities: ["read", "search", "write", "shell"],
   nativeMultiAgent: "disabled",
-  liveInput: "turn-framed",
+  liveInput: "turn-messages",
   authoringHooks: "managed-only",
   northEnabledTools: tools,
   sandbox: "workspace-write",
@@ -779,7 +779,7 @@ function setup(mode = "ok") {
     // The closing sequence of a turn, split out so a mode can interpose its own
     // traffic (slow-but-active) before the terminal.
     const finishRuntime = () => {
-      // A respawned session echoes the frame it was handed, so a test can prove
+      // A respawned session echoes the message it was handed, so a test can prove
       // the recovered context reached the NEW provider process — not merely
       // that a second process existed.
       const answer = item("answer-1", "agentMessage", {
@@ -1253,7 +1253,7 @@ test("notification processing waits for the event durability callback before adv
   expect(run.mcpActivity().totalCalls).toBe(1);
 });
 
-test("only validated turn, item, command, and MCP execution frames emit liveness", async () => {
+test("only validated turn, item, command, and MCP execution messages emit liveness", async () => {
   const { options } = setup();
   const activity: string[] = [];
   const run = new ManagedCodexAppServerRun({
@@ -1502,14 +1502,14 @@ test("hostile safety-buffering payloads fail closed", async () => {
   }
 });
 
-test("a later North frame drives a same-thread continuation turn under re-proven authority", async () => {
+test("a later North message drives a same-thread continuation turn under re-proven authority", async () => {
   const { options, requests } = setup();
   const reduction = "reconcile the settled child lanes into the parent thread";
   const later: Array<string | undefined> = [reduction];
   const run = new ManagedCodexAppServerRun(options);
   const settlements: Array<{ text: string; usage: unknown }> = [];
-  // First frame is the launch prompt; `nextInput` supplies exactly one later
-  // frame, then settles the session.
+  // First message is the launch prompt; `nextInput` supplies exactly one later
+  // message, then settles the session.
   for await (const turnResult of run.session(async () => later.shift())) {
     settlements.push(turnResult);
   }
@@ -1528,7 +1528,7 @@ test("a later North frame drives a same-thread continuation turn under re-proven
       coverage: "exact",
     },
   });
-  // One terminal result per consumed frame.
+  // One terminal result per consumed message.
   expect(settlements).toEqual([
     expected("019f7abc-0000-7000-8000-000000000002"),
     expected("019f7abc-0000-7000-8000-000000000003"),
@@ -1548,7 +1548,7 @@ test("a later North frame drives a same-thread continuation turn under re-proven
     "019f7abc-0000-7000-8000-000000000001",
     "019f7abc-0000-7000-8000-000000000001",
   ]);
-  // The continuation turn consumed the LATER North frame, not a replay of the
+  // The continuation turn consumed the LATER North message, not a replay of the
   // launch prompt.
   expect(turnStarts[0].params.input).toEqual([{ type: "text", text: "perform managed work" }]);
   expect(turnStarts[1].params.input).toEqual([{ type: "text", text: reduction }]);
@@ -1624,7 +1624,7 @@ test("a continuation turn that widens config authority fails closed", async () =
   const run = new ManagedCodexAppServerRun(options);
   let caught: unknown;
   try {
-    for await (const _ of run.session(async () => "a later frame")) { /* unreachable */ }
+    for await (const _ of run.session(async () => "a later message")) { /* unreachable */ }
   } catch (error) { caught = error; }
   expect(caught).toBeInstanceOf(Error);
   expect((caught as Error).message).toBe("openai_provider_execution_failed");
@@ -1714,11 +1714,11 @@ test("the production duplex supervisor carries RPC and bounds host-EOF cleanup",
     expect(await firstLine(status, "Codex supervisor start receipt"))
       .toBe(codexSupervisorStatusLine("STARTED"));
     const firstTemporary = join(controlRoot, ".000000000001.test.tmp");
-    writeAtomicSupervisorFrame(
+    writeAtomicSupervisorMessage(
       firstTemporary, `${JSON.stringify({ id: 1, method: "probe", params: {} })}\n`,
     );
     const secondTemporary = join(controlRoot, ".000000000002.test.tmp");
-    writeAtomicSupervisorFrame(
+    writeAtomicSupervisorMessage(
       secondTemporary, `${JSON.stringify({ id: 2, method: "probe", params: {} })}\n`,
     );
     renameSync(secondTemporary, join(controlRoot, "000000000002.req"));
@@ -1773,7 +1773,7 @@ process.stdout.write(Buffer.concat(chunks));
     expect(await firstLine(status, "Codex one-shot start receipt"))
       .toBe(codexSupervisorStatusLine("STARTED"));
     const temporary = join(controlRoot, ".000000000001.test.tmp");
-    writeAtomicSupervisorFrame(temporary, prompt);
+    writeAtomicSupervisorMessage(temporary, prompt);
     renameSync(temporary, join(controlRoot, "000000000001.req"));
     const closed = await Promise.race([
       new Promise<boolean>((resolveClose) => child.once("close", () => resolveClose(true))),
@@ -1789,7 +1789,7 @@ process.stdout.write(Buffer.concat(chunks));
   }
 }, 5_000);
 
-test("the duplex supervisor rejects symlinked, oversized, corrupt, and over-permissive frames", async () => {
+test("the duplex supervisor rejects symlinked, oversized, corrupt, and over-permissive messages", async () => {
   const supervisor = join(import.meta.dir, "../src/providers/codex-supervisor.ts");
   const fixture = join(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
   for (const mode of ["symlink", "oversized", "corrupt", "permissions"] as const) {
@@ -1818,7 +1818,7 @@ test("the duplex supervisor rejects symlinked, oversized, corrupt, and over-perm
       } else if (mode === "oversized") {
         writeFileSync(request, Buffer.alloc(1024 * 1024 + 1), { mode: 0o600 });
       } else if (mode === "corrupt") {
-        writeFileSync(request, supervisorFrame("hostile\n", "0".repeat(64)), { mode: 0o600 });
+        writeFileSync(request, supervisorMessage("hostile\n", "0".repeat(64)), { mode: 0o600 });
       } else {
         writeFileSync(request, "hostile\n", { mode: 0o644 });
       }
@@ -1880,7 +1880,7 @@ setInterval(() => {}, 1000);
     providerPid = Number(readFileSync(providerPidPath, "utf8"));
     descendantPid = Number(readFileSync(descendantPidPath, "utf8"));
     const temporary = join(controlRoot, ".000000000001.test.tmp");
-    writeAtomicSupervisorFrame(temporary, "x".repeat(1024 * 1024));
+    writeAtomicSupervisorMessage(temporary, "x".repeat(1024 * 1024));
     renameSync(temporary, join(controlRoot, "000000000001.req"));
     await Bun.sleep(50);
 
@@ -2580,7 +2580,7 @@ test("config drift observed AFTER a completed turn delivers the turn and refuses
 
   const continued = setup("settlement-config-drift");
   const session = new ManagedCodexAppServerRun(continued.options)
-    .session(async () => "second frame");
+    .session(async () => "second message");
   await expect(session.next()).resolves.toMatchObject({
     value: { text: "managed answer" },
   });
@@ -2683,7 +2683,7 @@ test("the production supervisor forwards a redacted stderr tail and its exit rec
   });
   try {
     const temporary = join(controlRoot, ".000000000001.test.tmp");
-    writeAtomicSupervisorFrame(
+    writeAtomicSupervisorMessage(
       temporary, `${JSON.stringify({ id: 1, method: "probe", params: {} })}\n`,
     );
     renameSync(temporary, join(controlRoot, "000000000001.req"));

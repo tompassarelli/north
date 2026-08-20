@@ -56,7 +56,7 @@ function observedStream(source: AsyncIterable<unknown>): AnthropicObservedStream
 			operationAggregates: [],
 		}),
 		async *[Symbol.asyncIterator]() {
-			for await (const frame of source) yield { frame };
+			for await (const event of source) yield { event };
 		},
 	};
 }

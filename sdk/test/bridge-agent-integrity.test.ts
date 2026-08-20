@@ -32,8 +32,8 @@ function agent(id: string, name: string, status = "working", task = "") {
   return Agent(id, name, status, task, "", "", "", "", "", "", "", "", "");
 }
 
-async function frameOf(content: unknown, width: number, height: number) {
-  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width, height });
+async function snapshotOf(content: unknown, width: number, height: number) {
+  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({ width, height });
   const root = new BoxRenderable(renderer, { width: "100%", height: "100%" });
   const text = new TextRenderable(renderer, {
     width: "100%", height: "100%", wrapMode: "none", truncate: true,
@@ -42,9 +42,9 @@ async function frameOf(content: unknown, width: number, height: number) {
   renderer.root.add(root);
   text.content = content;
   await renderOnce();
-  const frame = captureCharFrame();
+  const snapshot = captureCharSnapshot();
   renderer.destroy();
-  return frame;
+  return snapshot;
 }
 
 test("agent reorder preserves the highlighted identity and composer target", async () => {
@@ -63,7 +63,7 @@ test("agent reorder preserves the highlighted identity and composer target", asy
 
   const state = snapshot(runtime.model);
   const target = selectedAgentId(state, runtime.agentIndex);
-  const frame = await frameOf(
+  const snapshot = await snapshotOf(
     `${rosterText(state, runtime.agentIndex, "", false)}\ncomposer target: ${target}`,
     72,
     6,
@@ -71,9 +71,9 @@ test("agent reorder preserves the highlighted identity and composer target", asy
   expect(runtime.agentIndex).toBe(2);
   expect(state.selected_agent).toBe("beta");
   expect(target).toBe("beta");
-  expect(frame).toContain("› Beta");
-  expect(frame).toContain("composer target: beta");
-  expect(frame).not.toContain("› Alpha");
+  expect(snapshot).toContain("› Beta");
+  expect(snapshot).toContain("composer target: beta");
+  expect(snapshot).not.toContain("› Alpha");
 });
 
 test("refresh preserves the selected submit target and falls back when it disappears", async () => {
@@ -108,7 +108,7 @@ esac
       collapsedListConditions: new Set<string>(),
       conversation: [] as unknown[],
       disposed: false,
-      frame: "agents",
+      snapshot: "agents",
       itemSequence: 0,
       lastSubmitted: "",
       model,
@@ -168,9 +168,9 @@ test("agent rows remove terminal controls and clamp by terminal cells", async ()
   expect(Bun.stringWidth(row)).toBeLessThanOrEqual(24);
   expect(agentCellText("AB界界CD", 7)).toBe("AB界界…");
 
-  const frame = await frameOf(row, 24, 2);
-  expect(frame).toContain("› Alice Root");
-  expect(frame).not.toContain("owned");
+  const snapshot = await snapshotOf(row, 24, 2);
+  expect(snapshot).toContain("› Alice Root");
+  expect(snapshot).not.toContain("owned");
 });
 
 test("agent detail displays the route metadata already present in the roster", async () => {
@@ -200,12 +200,12 @@ test("agent detail displays the route metadata already present in the roster", a
 
   const route = agentRouteText(rows[0], 172);
   expect(route).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
-  const frame = await frameOf(renderDetailPanel(runtime), 180, 7);
-  expect(frame).toContain("Route agent (working) — Inspect the route");
-  expect(frame).toContain("provider openai:codex personal");
-  expect(frame).toContain("model sol");
-  expect(frame).toContain("effort xhigh");
-  expect(frame).toContain("orchestration:designer");
-  expect(frame).toContain("state working");
-  expect(frame).toContain("goal Preserve exact route");
+  const snapshot = await snapshotOf(renderDetailPanel(runtime), 180, 7);
+  expect(snapshot).toContain("Route agent (working) — Inspect the route");
+  expect(snapshot).toContain("provider openai:codex personal");
+  expect(snapshot).toContain("model sol");
+  expect(snapshot).toContain("effort xhigh");
+  expect(snapshot).toContain("orchestration:designer");
+  expect(snapshot).toContain("state working");
+  expect(snapshot).toContain("goal Preserve exact route");
 });
