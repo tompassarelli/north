@@ -3,11 +3,8 @@ import { readFileSync } from "node:fs";
 import {
   assessThreadDelivery,
   canonicalEvidenceText,
-  DELIVERY_ATTESTATION_AUTHORITY,
-  DELIVERY_ATTESTATION_VERSION,
   MAX_DELIVERY_BARS,
   MAX_DELIVERY_AGENT_ID_UTF8_BYTES,
-  MAX_DELIVERY_ATTESTATION_UTF8_BYTES,
   MAX_DELIVERY_BAR_UTF8_BYTES,
   MAX_DELIVERY_ENVELOPE_UTF8_BYTES,
   MAX_DELIVERY_OBSERVED_UTF8_BYTES,
@@ -17,7 +14,6 @@ import {
   MAX_RUN_BAR_EVIDENCE_RECORD_UTF8_BYTES,
   MAX_RUN_RESERVATION_BASELINE_UTF8_BYTES,
   deliveryProofValid,
-  parseDeliveryAttestation,
   parseDeliveryEvidence,
   parseRunBarEvidence,
   RUN_BAR_EVIDENCE_VERSION,
@@ -48,7 +44,6 @@ const conformance = JSON.parse(readFileSync(
     maxThreadIdUtf8Bytes: number;
     maxRunIdUtf8Bytes: number;
     maxAgentIdUtf8Bytes: number;
-    maxAttestationUtf8Bytes: number;
   };
   textCases: Array<{ name: string; raw: string; canonical: string | null }>;
   validThreadEntities: string[];
@@ -90,7 +85,6 @@ test("evidence limits are fixture-bound and count UTF-8 bytes, not code points",
     maxThreadIdUtf8Bytes: MAX_DELIVERY_THREAD_ID_UTF8_BYTES,
     maxRunIdUtf8Bytes: MAX_DELIVERY_RUN_ID_UTF8_BYTES,
     maxAgentIdUtf8Bytes: MAX_DELIVERY_AGENT_ID_UTF8_BYTES,
-    maxAttestationUtf8Bytes: MAX_DELIVERY_ATTESTATION_UTF8_BYTES,
   }).toEqual(conformance.limits);
   expect(validateRunBarEvidence({
     ...evidence("run-a", "worker"),
@@ -275,28 +269,6 @@ test("32 exact records round-trip while the 33rd invalidates the whole set", () 
   });
 });
 
-test("attestation parser bounds raw bytes and every authority identifier", () => {
-  const raw = JSON.stringify({
-    actor: "@agent:verifier",
-    attestedAt: at,
-    authority: DELIVERY_ATTESTATION_AUTHORITY,
-    evidenceSha256: "a".repeat(64),
-    role: "verifier",
-    run: "@run-worker",
-    target: "@agent:worker",
-    thread: "@thread-1",
-    version: DELIVERY_ATTESTATION_VERSION,
-  });
-  expect(parseDeliveryAttestation(raw)).toBeDefined();
-  const exact = raw + " ".repeat(MAX_DELIVERY_ATTESTATION_UTF8_BYTES
-    - Buffer.byteLength(raw, "utf8"));
-  expect(Buffer.byteLength(exact, "utf8")).toBe(MAX_DELIVERY_ATTESTATION_UTF8_BYTES);
-  expect(parseDeliveryAttestation(exact)).toBeDefined();
-  expect(parseDeliveryAttestation(`${exact} `)).toBeUndefined();
-  expect(parseDeliveryAttestation(raw.replace("@thread-1", "@thread 1")))
-    .toBeUndefined();
-});
-
 test("v2 snapshot contains only mechanically bound proof fields", () => {
   const baseline = [
     { predicate: "done_when", value: "tests pass" },
@@ -341,18 +313,4 @@ test("v2 snapshot contains only mechanically bound proof fields", () => {
     deliveryEvidence: forged,
     deliveryEvidenceSha256: sha256(forged),
   })).toBe(false);
-});
-
-test("shared-UID attestation never upgrades reported evidence to verified", () => {
-  const bars = [{ predicate: "done_when", value: "tests pass" }];
-  const assessment = assessThreadDelivery(
-    "thread-1", "worker", bars, bars, "run-worker",
-    [evidence("run-worker", "worker")],
-  );
-  if (assessment.deliveryOutcome !== "reported") throw new Error("expected reported");
-  expect(deliveryProofValid(
-    "verified",
-    "independent_managed_verifier_attested",
-    assessment.proof,
-  )).toBe(false);
 });

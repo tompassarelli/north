@@ -24,11 +24,9 @@
 (def terminal-publication-order
   ;; Readers treat process_outcome without the marker as a partial publication.
   ["process_outcome" "delivery_evidence" "delivery_evidence_sha256"
-   "delivery_attestation" "delivery_attestation_sha256"
    "delivery_outcome" "delivery_reason"])
 (def terminal-retraction-order
   ["process_outcome" "delivery_outcome" "delivery_reason"
-   "delivery_attestation_sha256" "delivery_attestation"
    "delivery_evidence_sha256" "delivery_evidence"])
 (def route-authority-predicates
   #{"provider" "provider_target" "live_input" "live_input_state"
@@ -411,7 +409,7 @@
       (fail! "terminal carries unsupported predicates" {:predicates unknown}))
     (when missing
       (fail! "terminal is missing base process/delivery predicates" {:predicates missing})))
-  (when-not (contains? #{"unverified" "blocked" "reported" "verified"}
+  (when-not (contains? #{"unverified" "blocked" "reported"}
                        (get facts "delivery_outcome"))
     (fail! "invalid delivery_outcome" {:delivery-outcome (get facts "delivery_outcome")}))
   (when-not (north.terminal-projection/delivery-projection-valid? facts)
@@ -421,12 +419,7 @@
     (let [evidence (json/parse-string evidence-raw)]
       (when-not (= subject (get evidence "reporter"))
         (fail! "delivery reporter must be the managed terminal subject"
-               {:subject subject :reporter (get evidence "reporter")}))))
-  (when-let [attestation-raw (get facts "delivery_attestation")]
-    (let [attestation (json/parse-string attestation-raw)]
-      (when-not (= subject (get attestation "target"))
-        (fail! "delivery attestation target must be the managed terminal subject"
-               {:subject subject :target (get attestation "target")})))))
+               {:subject subject :reporter (get evidence "reporter")})))))
 
 (defn validate-reported-run-with!
   "A syntactically valid snapshot is not proof by itself. Before exposing a
@@ -842,35 +835,6 @@
             (and (<= (count actual) 1)
                  (or (empty? actual) (= #{wanted} actual)))))
         terminal-predicates)))
-
-(defn committed-managed-actor!
-  [port raw-actor]
-  (let [actor (entity raw-actor)
-        before (facts-of port actor)]
-    (singleton-projection! before (conj publish-predicates marker-predicate))
-    (let [identity (into (sorted-map)
-                         (keep (fn [predicate]
-                                 (when-let [value (first (get before predicate))]
-                                   [predicate value])))
-                         publish-predicates)
-          marker (first (get before marker-predicate))]
-      (validate-publish! identity)
-      (when-not (= marker
-                   (sha256 (canonical (into (sorted-map)
-                                             (select-keys identity identity-predicates)))))
-        (fail! "attesting actor has no committed managed identity" {:actor actor}))
-      (when-not (#{"verifier" "judge"} (get identity "role"))
-        (fail! "delivery attestation requires a verifier or judge lane"
-               {:actor actor :role (get identity "role")}))
-      {:actor actor :role (get identity "role")})))
-
-(defn attest!
-  "Fail closed until verifier identity is backed by an isolation boundary rather
-  than caller-controlled same-UID environment provenance."
-  [port subject request]
-  (fail! "independent delivery attestation unavailable under shared-UID lanes"
-         {:subject subject :request-keys (set (keys request))
-          :highest-supported-delivery-state "reported"}))
 
 (defn update-route! [port subject facts]
   (let [unknown (seq (remove route-predicates (keys facts)))
@@ -1617,13 +1581,6 @@
             (try (native-rpc! 'lease-release! client fence)
                  (catch Throwable _ nil))))))))
 
-(defn native-attest!
-  [client subject request presence-fence]
-  (when-not (native-presence-valid? client presence-fence)
-    (fail! "attesting actor presence fence is stale"
-           {:subject subject}))
-  (attest! nil subject request))
-
 (defn native-main! [args]
   (let [[port-s operation raw-subject raw supplied-holder supplied-operation-id
         desired-raw expected-raw terminal-thread-raw presence-fence-raw] args
@@ -1640,14 +1597,10 @@
         desired (if managed-recovery? (optional-payload desired-raw) delta)
         expected (optional-payload expected-raw)
         terminal-thread (terminal-thread terminal-thread-raw)
-        presence-subject
-        (if (= "attest" operation)
-          (entity (get delta "actor"))
-          subject)
         presence-fence
-        (when (contains? #{"goal" "terminal" "attest"} operation)
-          (presence-fence! presence-fence-raw presence-subject))]
-    (when-not (contains? #{"publish" "route" "goal" "terminal" "attest"}
+        (when (contains? #{"goal" "terminal"} operation)
+          (presence-fence! presence-fence-raw subject))]
+    (when-not (contains? #{"publish" "route" "goal" "terminal"}
                          operation)
       (fail! "unsupported managed agent fact operation"
              {:operation operation}))
@@ -1671,10 +1624,7 @@
              "terminal"
              (native-terminal!
               client subject operation-id delta expected terminal-thread holder
-              presence-fence)
-
-             "attest"
-             (native-attest! client subject delta presence-fence))}))
+              presence-fence))}))
         (finally (try (native-rpc! 'close! client) (catch Throwable _ nil)))))))
 
 (when (= *file* (System/getProperty "babashka.file"))

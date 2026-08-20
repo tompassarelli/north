@@ -3,8 +3,6 @@ import type { Fact } from "./north-client";
 
 export const DELIVERY_EVIDENCE_VERSION = "north:done-bars:v2";
 export const RUN_BAR_EVIDENCE_VERSION = "north:run-bar-evidence:v1";
-export const DELIVERY_ATTESTATION_VERSION = "north:delivery-attestation:v1";
-export const DELIVERY_ATTESTATION_AUTHORITY = "managed-independent-verifier";
 export const MAX_DELIVERY_BARS = 32;
 export const MAX_DELIVERY_BAR_UTF8_BYTES = 512;
 export const MAX_DELIVERY_OBSERVED_UTF8_BYTES = 2048;
@@ -15,7 +13,6 @@ export const MAX_DELIVERY_WRITER_REQUEST_UTF8_BYTES = 16 * 1024;
 export const MAX_DELIVERY_THREAD_ID_UTF8_BYTES = 512;
 export const MAX_DELIVERY_RUN_ID_UTF8_BYTES = 512;
 export const MAX_DELIVERY_AGENT_ID_UTF8_BYTES = 256;
-export const MAX_DELIVERY_ATTESTATION_UTF8_BYTES = 16 * 1024;
 /**
  * Unreserved thread-scoped evidence never enters a reservation manifest, so the
  * 512-byte per-bar bound (sized so 32 bars fit one manifest) does not apply. It
@@ -67,23 +64,9 @@ export interface DeliveryEvidenceSnapshot {
   matches: DeliveryEvidenceMatch[];
 }
 
-export interface DeliveryAttestation {
-  version: typeof DELIVERY_ATTESTATION_VERSION;
-  target: string;
-  run: string;
-  thread: string;
-  evidenceSha256: string;
-  actor: string;
-  role: "verifier" | "judge";
-  authority: typeof DELIVERY_ATTESTATION_AUTHORITY;
-  attestedAt: string;
-}
-
 export interface DeliveryProof {
   deliveryEvidence: string;
   deliveryEvidenceSha256: string;
-  deliveryAttestation?: string;
-  deliveryAttestationSha256?: string;
 }
 
 export type DeliveryAssessment =
@@ -445,30 +428,6 @@ export function parseDeliveryEvidence(raw: string): DeliveryEvidenceSnapshot | u
   }
 }
 
-export function parseDeliveryAttestation(raw: string): DeliveryAttestation | undefined {
-  try {
-    if (!validUnicodeScalars(raw)
-      || utf8ByteCount(raw) > MAX_DELIVERY_ATTESTATION_UTF8_BYTES) return undefined;
-    const parsed = JSON.parse(raw) as Partial<DeliveryAttestation>;
-    if (!exactKeys(parsed, [
-      "actor", "attestedAt", "authority", "evidenceSha256", "role",
-      "run", "target", "thread", "version",
-    ])) return undefined;
-    if (parsed.version !== DELIVERY_ATTESTATION_VERSION
-      || parsed.authority !== DELIVERY_ATTESTATION_AUTHORITY
-      || !validAgentEntity(parsed.target)
-      || !validRunEntity(parsed.run)
-      || !validThreadEntity(parsed.thread)
-      || typeof parsed.evidenceSha256 !== "string" || !/^[0-9a-f]{64}$/.test(parsed.evidenceSha256)
-      || !validAgentEntity(parsed.actor)
-      || (parsed.role !== "verifier" && parsed.role !== "judge")
-      || !validInstant(parsed.attestedAt)) return undefined;
-    return parsed as DeliveryAttestation;
-  } catch {
-    return undefined;
-  }
-}
-
 export function deliveryProofValid(
   outcome: string,
   reason: string,
@@ -479,13 +438,7 @@ export function deliveryProofValid(
     || sha256(proof.deliveryEvidence) !== proof.deliveryEvidenceSha256
     || !parseDeliveryEvidence(proof.deliveryEvidence)) return false;
   if (outcome === "reported") {
-    return reason === "complete_run_scoped_done_bar_evidence_self_reported"
-      && proof.deliveryAttestation === undefined
-      && proof.deliveryAttestationSha256 === undefined;
+    return reason === "complete_run_scoped_done_bar_evidence_self_reported";
   }
-  // North currently runs all managed lanes under one OS uid. AGENT_ID is
-  // therefore provenance, not an unforgeable second-lane capability. Historical
-  // attestation envelopes remain parseable for display, but no current proof can
-  // mechanically claim or promote "verified" across that boundary.
   return false;
 }

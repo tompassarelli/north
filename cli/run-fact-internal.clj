@@ -48,7 +48,6 @@
     "struggle_error_streak_threshold" "struggle_loop_repeat_threshold"
     "struggle_loop_window" "struggle_no_progress_turn_threshold"
     "delivery_evidence" "delivery_evidence_sha256"
-    "delivery_attestation" "delivery_attestation_sha256"
     "retry_of_run" "retry_attempt" "execution_source" "execution_transport"
     "provider_session_persistence" "provider_join_key_version"
     "provider_join_coverage" "provider_session_key" "provider_turn_key"

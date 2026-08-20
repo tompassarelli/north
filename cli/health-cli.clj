@@ -5,9 +5,9 @@
 ;; predicate reads. It surfaces the four durable failure families the
 ;; coordination-v2 work already lands on :7977, so failures show even when the
 ;; spawning session is long gone:
-;;   1. lane outcomes      run-<agent>-<ts>  kind=run  outcome=ran|died|resource_envelope_exceeded|error
+;;   1. lane outcomes      @run:<id>  kind=run  process_outcome=ran|died|resource_envelope_exceeded|error
 ;;   2. reported deaths     @swarm            agent_death "<id> | <reason> | <ts>"  (death.notifyDeath)
-;;   3. silent hard-kills   @agent:<id>       outcome=died-unreported               (lane lifecycle janitor)
+;;   3. silent hard-kills   @agent:<id>       process_outcome=died-unreported       (lane lifecycle janitor)
 ;;   4. stale/orphaned concerns  (the same renewable-lease liveness DECAY as `concern ls`)
 ;; plus ping-loss (a lane carried a `coordinator` fact but landed no COMPLETE/DEATH
 ;; ping) and a zombie-fork scan (F4: an agent-handle git author absent from the roster).
@@ -39,9 +39,8 @@
 ;; The returned rows are live engine state; sets preserve genuine conflicts so
 ;; lifecycle projection still fails closed.
 (def health-predicates
-  ["kind" "agent" "at" "outcome" "process_outcome" "delivery_outcome"
+  ["kind" "agent" "at" "process_outcome" "delivery_outcome"
    "delivery_reason" "delivery_evidence" "delivery_evidence_sha256"
-   "delivery_attestation" "delivery_attestation_sha256"
    "terminal_manifest_sha256" "coordinator" "from" "subject"
    "agent_death" "reached"])
 

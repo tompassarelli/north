@@ -512,45 +512,6 @@
               (marked-terminal {"kind" "lane" "goal" "attempt delivery"}))
              "finished(process:ran, delivery:unverified)")))
 
-(check "legacy same-UID verified projection is lifecycle-inconsistent, never finished or active"
-       (let [evidence (json/generate-string
-                       {"version" "north:done-bars:v1"
-                        "run" "@run-worker"
-                        "thread" "@thread"
-                        "reporter" "@agent:worker"
-                        "capturedAt" "2026-07-18T10:00:00Z"
-                        "baselineEvidenceSha256"
-                        (north.terminal-projection/sha256 "[]")
-                        "doneWhen" ["tests pass"]
-                        "matches" [{"bar" "tests pass"
-                                    "evidence" ["tests pass → exit 0"]}]})
-             evidence-hash (north.terminal-projection/sha256 evidence)
-             attestation (json/generate-string
-                          {"version" "north:delivery-attestation:v1"
-                           "target" "@agent:worker"
-                           "run" "@run-worker"
-                           "thread" "@thread"
-                           "evidenceSha256" evidence-hash
-                           "actor" "@agent:verifier"
-                           "role" "verifier"
-                           "authority" "managed-independent-verifier"
-                           "attestedAt" "2026-07-18T10:01:00Z"})
-             terminal {"process_outcome" "ran"
-                       "delivery_outcome" "verified"
-                       "delivery_reason" "independent_managed_verifier_attested"
-                       "delivery_evidence" evidence
-                       "delivery_evidence_sha256" evidence-hash
-                       "delivery_attestation" attestation
-                       "delivery_attestation_sha256"
-                       (north.terminal-projection/sha256 attestation)}
-             facts (merge {"kind" "lane" "goal" "verified delivery"}
-                          terminal
-                          {"terminal_manifest_sha256"
-                           (north.terminal-projection/terminal-manifest-sha256 terminal)})]
-         (let [line (agent-primary-line {:online true} facts)]
-           (and (not (str/includes? line "delivery:verified"))
-                (str/includes? line "inconsistent(lifecycle:invalid-lane-terminal)")))))
-
 (check "folded terminal conflicts stay visible and cannot manufacture a finished lane"
        (let [committed (fold-observed
                         (marked-terminal {"kind" "lane" "goal" "conflict probe"}))

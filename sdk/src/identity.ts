@@ -612,10 +612,6 @@ export function writeAgentTerminal(
         ? { delivery_evidence: terminal.deliveryProof.deliveryEvidence } : {}),
       ...(terminal.deliveryProof?.deliveryEvidenceSha256
         ? { delivery_evidence_sha256: terminal.deliveryProof.deliveryEvidenceSha256 } : {}),
-      ...(terminal.deliveryProof?.deliveryAttestation
-        ? { delivery_attestation: terminal.deliveryProof.deliveryAttestation } : {}),
-      ...(terminal.deliveryProof?.deliveryAttestationSha256
-        ? { delivery_attestation_sha256: terminal.deliveryProof.deliveryAttestationSha256 } : {}),
     }), {
       holder: session.holder,
       operationId: randomUUID(),

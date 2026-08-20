@@ -23,8 +23,10 @@
   (assoc terminal "terminal_manifest_sha256"
          #{(north.terminal-projection/terminal-manifest-sha256 terminal)}))
 (def committed-run
-  (merge {"kind" #{"run"} "agent" #{"sdk-health"} "at" #{"2026-07-17T00:00:00Z"}}
-         modern-terminal))
+  {"kind" #{"run"} "agent" #{"sdk-health"} "process_outcome" #{"ran"}
+   "delivery_outcome" #{"unverified"}
+   "delivery_reason" #{"provider_terminal_success_without_external_verification"}
+   "at" #{"2026-07-17T00:00:00Z"}})
 (def concern-now 2000000)
 (def concern-facts
   {"@concern-stale"
@@ -63,13 +65,10 @@
            (-> modern-terminal
                (assoc "kind" #{"lane"})
                (assoc "process_outcome" #{"ran" "died"}))))]
-   ["outcome-only historical lane is invisible"
-    (nil? (lane-outcome-from-facts
-           "@agent:legacy" {"kind" #{"lane"} "outcome" #{"died-unreported"}}))]
    ["predicate batches preserve genuine live conflicts"
-    (= {"@agent:conflict" {"outcome" #{"ran" "died"}}}
+    (= {"@agent:conflict" {"process_outcome" #{"ran" "died"}}}
        (add-predicate-rows
-        {} "outcome"
+        {} "process_outcome"
         [["@agent:conflict" "ran"] ["@agent:conflict" "died"]
          ["@agent:conflict" "ran"]]))]
    ["concern summary preserves stale, orphaned, retired, landed, and live semantics"
@@ -87,10 +86,10 @@
                         (fn [port query]
                           (swap! calls conj [port query])
                           [["@run:a" "kind" "run"]
-                           ["@run:a" "outcome" "ran"]])]
+                           ["@run:a" "process_outcome" "ran"]])]
             (live-health-facts 7977))]
       (and (= [[7977 health-query]] @calls)
-           (= {"@run:a" {"kind" #{"run"} "outcome" #{"ran"}}}
+           (= {"@run:a" {"kind" #{"run"} "process_outcome" #{"ran"}}}
               facts)))]])
 
 (doseq [[label passed?] checks]

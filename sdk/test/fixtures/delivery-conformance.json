@@ -24,8 +24,7 @@
     "maxWriterRequestUtf8Bytes": 16384,
     "maxThreadIdUtf8Bytes": 512,
     "maxRunIdUtf8Bytes": 512,
-    "maxAgentIdUtf8Bytes": 256,
-    "maxAttestationUtf8Bytes": 16384
+    "maxAgentIdUtf8Bytes": 256
   },
   "textCases": [
     {

@@ -66,11 +66,11 @@ test("reported terminal is accepted only with digest-bound evidence", () => {
   expect(laneResolvedByFacts(committed(forgedBody), [])).toBe(false);
 });
 
-test("status text cannot manufacture verified without an attestation", () => {
+test("an unsupported delivery state cannot become a terminal", () => {
   const body: TerminalFact[] = [
     { predicate: "process_outcome", value: "ran" },
-    { predicate: "delivery_outcome", value: "verified" },
-    { predicate: "delivery_reason", value: "independent_managed_verifier_attested" },
+    { predicate: "delivery_outcome", value: "complete" },
+    { predicate: "delivery_reason", value: "unsupported" },
   ];
   expect(terminalProcessOutcome(committed(body))).toBeUndefined();
   expect(terminalDeliveryOutcome(committed(body))).toBeUndefined();

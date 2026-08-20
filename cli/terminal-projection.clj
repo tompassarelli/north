@@ -11,8 +11,7 @@
 (def terminal-predicates
   ["process_outcome" "delivery_outcome" "delivery_reason"])
 (def delivery-proof-predicates
-  ["delivery_evidence" "delivery_evidence_sha256"
-   "delivery_attestation" "delivery_attestation_sha256"])
+  ["delivery_evidence" "delivery_evidence_sha256"])
 (def terminal-projection-predicates
   (into terminal-predicates delivery-proof-predicates))
 (def run-resolution-predicates
@@ -29,7 +28,6 @@
 (def max-delivery-thread-id-utf8-bytes 512)
 (def max-delivery-run-id-utf8-bytes 512)
 (def max-delivery-agent-id-utf8-bytes 256)
-(def max-delivery-attestation-utf8-bytes (* 16 1024))
 ;; The unreserved fallback stores ONE human-review fact per observation and
 ;; never enters a reservation baseline, so the 512-byte per-bar bound (which
 ;; exists to keep 32 bars inside one reservation manifest) does not apply. It
@@ -53,8 +51,6 @@
    "run_reservation_thread" "run_reservation_version" "run_reserved_at"])
 (def run-reservation-predicates
   (conj run-reservation-body-predicates "run_reservation_manifest_sha256"))
-(def delivery-attestation-version "north:delivery-attestation:v1")
-(def delivery-attestation-authority "managed-independent-verifier")
 
 (defn- values-of [facts predicate]
   (let [value (get facts predicate ::absent)]
@@ -304,9 +300,8 @@
           expected (= marker expected)))))
 
 (defn terminal-manifest-sha256
-  "Digest the exact base terminal plus any delivery-proof projection using the
-  writer's canonical encoding. Old four-field unverified/blocked terminals keep
-  their original digest; proof fields are committed when present."
+  "Digest the exact base terminal plus any delivery-evidence projection using
+  the writer's canonical encoding."
   [facts]
   (let [required (into {}
                        (keep (fn [predicate]
@@ -466,50 +461,17 @@
                           evidence))))
                 bars matches)))))))
 
-(defn- valid-attestation-envelope?
-  [raw digest evidence-raw evidence-digest]
-  (boolean
-   (and (string? raw)
-        (valid-unicode-scalars? raw)
-        (<= (utf8-byte-count raw) max-delivery-attestation-utf8-bytes)
-        (let [attestation (parse-json-map raw)
-              evidence (parse-json-map evidence-raw)]
-          (and attestation evidence
-          (= #{"version" "target" "run" "thread" "evidenceSha256"
-               "actor" "role" "authority" "attestedAt"}
-             (set (keys attestation)))
-          (= digest (sha256 raw))
-          (= delivery-attestation-version (get attestation "version"))
-          (= delivery-attestation-authority (get attestation "authority"))
-          (= (get evidence "run") (get attestation "run"))
-          (= (get evidence "thread") (get attestation "thread"))
-          (= evidence-digest (get attestation "evidenceSha256"))
-          (= (get evidence "reporter") (get attestation "target"))
-          (valid-agent-entity? (get attestation "target"))
-          (valid-agent-entity? (get attestation "actor"))
-          (valid-run-entity? (get attestation "run"))
-          (valid-thread-entity? (get attestation "thread"))
-          (not= (get attestation "actor") (get evidence "reporter"))
-          (not= (get attestation "actor") (get attestation "target"))
-          (#{"verifier" "judge"} (get attestation "role"))
-          (instant? (get attestation "attestedAt")))))))
-
 (defn delivery-proof
   [facts]
   (let [evidence (singleton-value facts "delivery_evidence")
-        evidence-digest (singleton-value facts "delivery_evidence_sha256")
-        attestation (singleton-value facts "delivery_attestation")
-        attestation-digest (singleton-value facts "delivery_attestation_sha256")]
-    (when (or evidence evidence-digest attestation attestation-digest)
+        evidence-digest (singleton-value facts "delivery_evidence_sha256")]
+    (when (or evidence evidence-digest)
       {:evidence evidence
-       :evidence-digest evidence-digest
-       :attestation attestation
-       :attestation-digest attestation-digest})))
+       :evidence-digest evidence-digest})))
 
 (defn delivery-projection-valid?
   "Reported requires a complete run-scoped self-reported done-bar snapshot.
-  Verified is a reserved legacy value and is rejected until North has an
-  isolated verifier boundary. Unverified/blocked forbid proof residue."
+  Unverified and blocked forbid evidence residue."
   [facts]
   (let [outcome (singleton-value facts "delivery_outcome")
         reason (singleton-value facts "delivery_reason")
@@ -517,7 +479,7 @@
         proof (delivery-proof facts)
         proof-fact-count (count (filter #(fact-present? facts %)
                                        delivery-proof-predicates))
-        {:keys [evidence evidence-digest attestation attestation-digest]} proof
+        {:keys [evidence evidence-digest]} proof
         evidence-valid? (and evidence evidence-digest
                              (valid-evidence-envelope? evidence evidence-digest))]
     (boolean
@@ -528,12 +490,7 @@
        "unverified" (and (zero? proof-fact-count) (some? reason))
        "reported" (and (= "complete_run_scoped_done_bar_evidence_self_reported" reason)
                        (= 2 proof-fact-count)
-                       evidence-valid?
-                       (nil? attestation) (nil? attestation-digest))
-       ;; Shared-UID AGENT_ID is provenance, not an unforgeable independent
-       ;; verifier capability. Historical envelopes remain parseable for display,
-       ;; but no modern writer/reader grants the verified state.
-       "verified" false
+                       evidence-valid?)
        false)))))
 
 (defn terminal-manifest-valid?
