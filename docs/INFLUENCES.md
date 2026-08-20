@@ -61,6 +61,13 @@ records no copied source.
   only for one uniquely attributable unfinished attempt and preserves ambiguous
   ledgers as typed unknown results
   ([`src/north/prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl)).
+- Target-neutral typed cores for scoped memory facts and bounded recall,
+  immutable session lineage and compaction-tail projection, ordered replay and
+  terminal provenance, and scheduled-run lease reclamation
+  ([`memory_core.bgl`](../src/north/memory_core.bgl),
+  [`session_core.bgl`](../src/north/session_core.bgl),
+  [`replay_core.bgl`](../src/north/replay_core.bgl),
+  [`scheduled_run_core.bgl`](../src/north/scheduled_run_core.bgl)).
 
 These are not reimplemented because another harness has a similar surface.
 Upstream evidence may sharpen their invariants or reveal a missing seam.
@@ -70,10 +77,10 @@ Upstream evidence may sharpen their invariants or reveal a missing seam.
 | Concern | North owner | Required implementation shape | Boundary rule |
 | --- | --- | --- | --- |
 | Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/), including [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl) | Target-neutral typed Beagle core | No provider model IDs, host process APIs, or durable side stores |
-| Durable memory and learned facts | Beagle Native modules over the canonical Store RPC selected by [`sdk/src/beagle-store.ts`](../sdk/src/beagle-store.ts) | Store-backed typed facts and derivations | Files and prompts may be projections, never the system of record |
-| Agent and session identity | [`sdk/src/identity.ts`](../sdk/src/identity.ts) and Store-backed North vocabulary | Beagle Native identity allocation and evolution | Provider conversation IDs remain adapter evidence, not North identity |
-| Scheduling and admission | [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj) and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy in Beagle; resident scheduling in Beagle Native | JavaScript may launch admitted work but may not decide provider-neutral policy |
-| Replay, run evidence, and provenance | [`sdk/src/execution-fold.ts`](../sdk/src/execution-fold.ts), [`sdk/src/run-ledger.ts`](../sdk/src/run-ledger.ts), and [`sdk/src/run-provenance.ts`](../sdk/src/run-provenance.ts) | Canonical typed event fold and Store-backed receipts in Beagle Native | Provider payload decoding stays in the provider adapter |
+| Durable memory and learned facts | [`src/north/memory_core.bgl`](../src/north/memory_core.bgl) over the canonical Store RPC selected by [`sdk/src/beagle-store.ts`](../sdk/src/beagle-store.ts) | Store-backed typed facts, supersession, validity, trust, and bounded recall | Files and prompts may be projections, never the system of record |
+| Agent and session identity | [`src/north/session_core.bgl`](../src/north/session_core.bgl), [`sdk/src/identity.ts`](../sdk/src/identity.ts), and Store-backed North vocabulary | Beagle Native identity allocation, lineage, and evolution | Provider conversation IDs remain adapter evidence, not North identity |
+| Scheduling and admission | [`src/north/scheduled_run_core.bgl`](../src/north/scheduled_run_core.bgl), [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj), and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy and scheduled-run state in Beagle; resident scheduling in Beagle Native | JavaScript may launch admitted work but may not decide provider-neutral policy |
+| Replay, run evidence, and provenance | [`src/north/replay_core.bgl`](../src/north/replay_core.bgl), [`sdk/src/execution-fold.ts`](../sdk/src/execution-fold.ts), [`sdk/src/run-ledger.ts`](../sdk/src/run-ledger.ts), and [`sdk/src/run-provenance.ts`](../sdk/src/run-provenance.ts) | Canonical typed event fold, divergence, terminal summary, and Store-backed receipts in Beagle Native | Provider payload decoding stays in the provider adapter |
 | Provider CLI and streaming protocol | [`sdk/src/providers/`](../sdk/src/providers/) | Thin Beagle/JavaScript adapter | Fallback is allowed only before observable side effects |
 | PTY and terminal UI | [`sdk/src/bridge/`](../sdk/src/bridge/) | Thin Beagle/JavaScript host adapter | Terminal state is a projection of canonical execution state |
 | Browser sharing surface | [`sdk/src/run-share-viewer.ts`](../sdk/src/run-share-viewer.ts) | Thin Beagle/JavaScript browser adapter | The viewer receives bounded projections, never Store authority |
