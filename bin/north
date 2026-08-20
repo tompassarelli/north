@@ -444,7 +444,7 @@ case "${1:-}" in
     # Agent verbs — agents are a north concern (spawn/presence/facts live here).
     # Implementation: cli/agents-cli.clj (ported from the convoy cockpit 2026-07-09).
     exec "$BB" "$NORTH/cli/agents-cli.clj" "$@" ;;
-  inbox|notifications)
+  inbox)
     _north_inbox_actor="${AGENT_ID:-${NORTH_AGENT_ID:-${NORTH_AUTHOR:-}}}"
     shift
     if [ "${1:-}" = "--as" ]; then

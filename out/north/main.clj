@@ -698,7 +698,7 @@
    before? store.rt/str-lt?
    live? (default-live?)]
   (cond
-  (or (= what "board") (= what "plate")) (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
+  (= what "board") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (board-curated-tes idx today before? live? all?))))
   (= what "ready") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (ready-curated-tes idx today before? live? all?))))
   (= what "blocked") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (filterv (fn [^String te] (= (proj/condition-i idx te today before? live?) "blocked")) (proj/work-thread-ids-i idx)))))
   (= what "done") (println (to-json (mapv (fn [^String te] (jthread idx te today before? live?)) (recent-terminal-tes idx))))
@@ -779,9 +779,9 @@
 (defn cmd-tools []
   (do
   (println "NORTH — curated tool surface (the MCP verbs; bin/north-mcp is authoritative):")
-  (println "  work queue : ready · next · board · blocked · agenda · leverage · needs-review")
+  (println "  work queue : ready · next · threads · blocked · agenda · leverage · needs-review")
   (println "  vocabulary : schema (census by kind) · predicate (metadata + connected examples) · teaching-coverage")
-  (println "  read/write : show · capture · tell · retract · validate   (untell = legacy alias of retract)")
+  (println "  read/write : show · capture · tell · retract · validate")
   (println "  agents     : dispatch · spawn")
   (println "  view       : presentation")
   (println "")

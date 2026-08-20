@@ -14,6 +14,7 @@ mkdir -p "$fake_store"
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
+  'if [ "${1:-}" = store ]; then shift; fi' \
   'printf "%s\n" "store $*" >>"$TEST_CALLS"' \
   'case "${1:-}" in' \
   '  tell-existing|untell-existing)' \
@@ -39,7 +40,10 @@ chmod +x "$scratch/bb"
 
 common_env=(
   HOME="$scratch/home"
+  BEAGLE_STORE_HOME="$fake_store"
   BEAGLE_STORE_BIN="$fake_store"
+  BEAGLE_STORE_OUT="$fake_store/out"
+  BEAGLE_STORE_CLI="$fake_store/store"
   NORTH_BB="$scratch/bb"
   TEST_CALLS="$calls"
   TEST_BB_CALLS="$bb_calls"
