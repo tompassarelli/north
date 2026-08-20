@@ -1277,8 +1277,8 @@
          " · " (cockpit-attempt-state idx attempt)
          " · thread " (if (some? thread) (short-id thread) "—")
          " · account " (if (some? account) (short-id account) "—")
-         " · thread lease " (if (some? thread-lease) (trunc thread-lease 72) "—")
-         " · account lease " (if (some? account-lease) (trunc account-lease 72) "—")
+         " · thread lease " (if (some? thread-lease) thread-lease "—")
+         " · account lease " (if (some? account-lease) account-lease "—")
          " · replay " (if (>= replay 0) (str replay) "none")
          " · safe-next " safe-next)))
 

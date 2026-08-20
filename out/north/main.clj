@@ -583,6 +583,85 @@
    deps (proj/incomplete-deps idx te)]
   (str "  " (short-id te) "  " condition " · " (trunc (title-of idx te) 38) " · owner " (if (some? owner) owner "personal") " · blocked by " (count deps) (if (some? estimate) (str " · est " estimate "h") ""))))
 
+(defn- cockpit-exact-value [idx ^String subject ^String predicate]
+  (let [values (proj/string-values-at idx subject predicate)]
+  (if (= (count values) 1) (first values) nil)))
+
+(defn- ^Boolean cockpit-account? [idx ^String account]
+  (and (str/starts-with? account "@account:") (= (cockpit-exact-value idx account "kind") "provider_account") (some? (cockpit-exact-value idx account "account_id")) (some? (cockpit-exact-value idx account "provider")) (some? (cockpit-exact-value idx account "provider_profile")) (or (= (cockpit-exact-value idx account "account_role") "execution") (= (cockpit-exact-value idx account "account_role") "oversight")) (or (= (cockpit-exact-value idx account "execution_eligible") "true") (= (cockpit-exact-value idx account "execution_eligible") "false"))))
+
+(defn- ^Boolean cockpit-attempt? [idx ^String attempt]
+  (and (str/starts-with? attempt "@attempt:") (= (cockpit-exact-value idx attempt "kind") "execution_attempt") (some? (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256")) (some? (cockpit-exact-value idx attempt "execution_attempt_run")) (some? (cockpit-exact-value idx attempt "execution_attempt_thread")) (some? (cockpit-exact-value idx attempt "execution_attempt_account"))))
+
+(defn- ^String cockpit-attempt-state [idx ^String attempt]
+  (cond
+  (some? (cockpit-exact-value idx attempt "execution_attempt_terminal_manifest_sha256")) "terminal"
+  (some? (cockpit-exact-value idx attempt "execution_attempt_unsent_manifest_sha256")) "proved-unsent"
+  (some? (cockpit-exact-value idx attempt "execution_attempt_provider_start_manifest_sha256")) "provider-started"
+  (some? (cockpit-exact-value idx attempt "execution_attempt_launch_intent_sha256")) "launch-intent"
+  :else "reserved"))
+
+(defn- ^Boolean cockpit-command? [idx ^String command ^String manifest]
+  (and (str/starts-with? command "@bridge-command:") (= (cockpit-exact-value idx command "bridge.command/attempt-id") manifest) (some? (cockpit-exact-value idx command "bridge.command/kind"))))
+
+(defn- ^Boolean cockpit-cancel-command? [idx ^String command]
+  (let [kind (cockpit-exact-value idx command "bridge.command/kind")]
+  (or (= kind "interrupt-turn") (= kind "redirect-now") (= kind "terminate-session"))))
+
+(defn- cockpit-command-ordinal [idx ^String command]
+  (let [ordinal (cockpit-exact-value idx command "bridge.command/ordinal")]
+  (store.rt/parse-int (if (some? ordinal) ordinal "0"))))
+
+(defn- cockpit-command-next [idx commands ^Boolean cancel]
+  (let [pending (filterv (fn [^String command] (and (if cancel (cockpit-cancel-command? idx command) (not (cockpit-cancel-command? idx command))) (nil? (cockpit-exact-value idx command "bridge.command/delivery-receipt")))) commands)]
+  (if (empty? pending) nil (let [command (first (sort-by (fn [^String candidate] (cockpit-command-ordinal idx candidate)) pending))
+   kind (let [value (cockpit-exact-value idx command "bridge.command/kind")]
+  (if (some? value) value "unknown"))]
+  (if (some? (cockpit-exact-value idx command "bridge.command/delivery-intent")) (str "reconcile-command/" kind) (if cancel (str "cancel/" kind) (str "send/" kind)))))))
+
+(defn- ^String cockpit-safe-next [idx ^String account attempt]
+  (let [role (cockpit-exact-value idx account "account_role")
+   eligible (cockpit-exact-value idx account "execution_eligible")]
+  (cond
+  (= role "oversight") "no-op/oversight-account"
+  (not (= eligible "true")) "no-op/account-ineligible"
+  (nil? attempt) "reserve/no-attempt"
+  :else (let [terminal? (some? (cockpit-exact-value idx attempt "execution_attempt_terminal_manifest_sha256"))
+   unsent? (some? (cockpit-exact-value idx attempt "execution_attempt_unsent_manifest_sha256"))
+   launch? (some? (cockpit-exact-value idx attempt "execution_attempt_launch_intent_sha256"))
+   started? (some? (cockpit-exact-value idx attempt "execution_attempt_provider_start_manifest_sha256"))
+   manifest (let [value (cockpit-exact-value idx attempt "execution_attempt_manifest_sha256")]
+  (if (some? value) value ""))
+   commands (filterv (fn [^String subject] (cockpit-command? idx subject manifest)) (proj/all-subjects idx))
+   cancel-next (cockpit-command-next idx commands true)
+   command-next (cockpit-command-next idx commands false)]
+  (cond
+  terminal? "no-op/settled"
+  unsent? "no-op/proved-unsent"
+  (not launch?) "launch/reserved"
+  (not started?) "reconcile-launch/awaiting-provider-start"
+  (some? cancel-next) cancel-next
+  (some? command-next) command-next
+  :else "no-op/nothing-pending")))))
+
+(defn- ^Boolean cockpit-replay-event-at? [idx ^String run sequence]
+  (not (empty? (filterv (fn [^String event] (and (= (cockpit-exact-value idx event "wire_run_id") run) (= (cockpit-exact-value idx event "wire_event_sequence") (str sequence)) (some? (cockpit-exact-value idx event "wire_event_json")) (some? (cockpit-exact-value idx event "wire_event_sha256")))) (proj/all-subjects idx)))))
+
+(defn- cockpit-greatest-replay-position [idx ^String run]
+  (loop [sequence 0
+   remaining (count (proj/all-subjects idx))]
+  (if (or (= remaining 0) (not (cockpit-replay-event-at? idx run sequence))) (- sequence 1) (recur (+ sequence 1) (- remaining 1)))))
+
+(defn- ^String cockpit-attempt-line [idx ^String attempt]
+  (let [run (cockpit-exact-value idx attempt "execution_attempt_run")
+   thread (cockpit-exact-value idx attempt "execution_attempt_thread")
+   account (cockpit-exact-value idx attempt "execution_attempt_account")
+   thread-lease (cockpit-exact-value idx attempt "execution_attempt_thread_lease")
+   account-lease (cockpit-exact-value idx attempt "execution_attempt_account_lease")
+   replay (if (some? run) (cockpit-greatest-replay-position idx run) -1)
+   safe-next (if (and (some? account) (cockpit-account? idx account)) (cockpit-safe-next idx account attempt) "invalid/missing-account-authority")]
+  (str "  " (short-id attempt) " · " (cockpit-attempt-state idx attempt) " · thread " (if (some? thread) (short-id thread) "—") " · account " (if (some? account) (short-id account) "—") " · thread lease " (if (some? thread-lease) thread-lease "—") " · account lease " (if (some? account-lease) account-lease "—") " · replay " (if (>= replay 0) (str replay) "none") " · safe-next " safe-next)))
+
 (defn cmd-cockpit [^String log]
   (let [idx (live-idx log)
    today (store.rt/today-iso)
@@ -591,7 +670,8 @@
    threads (filterv (fn [^String te] (= (kind-of idx te) "thread")) (proj/work-thread-ids-i idx))
    open (filterv (fn [^String te] (not (proj/terminal-i? idx te))) threads)
    sessions (filterv (fn [^String te] (or (= (kind-of idx te) "session") (some? (proj/string-value-at idx te "current_thread")) (some? (proj/string-value-at idx te "session_identity")))) (proj/all-subjects idx))
-   accounts (filterv (fn [^String te] (or (= (kind-of idx te) "account") (some? (proj/string-value-at idx te "headroom")) (some? (proj/string-value-at idx te "used_percent")))) (proj/all-subjects idx))
+   accounts (filterv (fn [^String te] (cockpit-account? idx te)) (proj/all-subjects idx))
+   attempts (filterv (fn [^String te] (cockpit-attempt? idx te)) (proj/all-subjects idx))
    landings (vec (take 8 (reverse (sort-by (fn [^String te] (let [at (proj/string-value-at idx te "updated_at")]
   (if (some? at) at ""))) (filterv (fn [^String te] (and (some? (proj/string-value-at idx te "candidate_rev")) (some (fn [^String reached] (= reached "landed")) (proj/string-values-at idx te "reached")))) (proj/all-subjects idx))))))]
   (println (str "NORTH LIVE — " (count open) " open threads · Store facts at read time"))
@@ -604,10 +684,17 @@
    parent (proj/string-value-at idx te "parent_thread")]
   (println (str "  " (short-id te) " · thread " (if (some? thread) (short-id thread) "—") " · parent " (if (some? parent) (short-id parent) "—"))))))
   (println "ACCOUNTS")
-  (if (empty? accounts) (println "  no account headroom fact projection") (doseq [te (take 12 accounts)]
-  (let [headroom (proj/string-value-at idx te "headroom")
-   usage (proj/string-value-at idx te "used_percent")]
-  (println (str "  " (short-id te) " · headroom " (if (some? headroom) headroom "—") " · used " (if (some? usage) usage "—"))))))
+  (if (empty? accounts) (println "  no complete provider-account authority facts") (doseq [te (take 12 accounts)]
+  (let [role (cockpit-exact-value idx te "account_role")
+   eligible (cockpit-exact-value idx te "execution_eligible")
+   headroom (proj/string-value-at idx te "headroom")
+   usage (proj/string-value-at idx te "used_percent")
+   account-attempts (filterv (fn [^String attempt] (= (cockpit-exact-value idx attempt "execution_attempt_account") te)) attempts)]
+  (println (str "  " (short-id te) " · role " (if (some? role) role "—") " · execution-eligible " (if (some? eligible) eligible "—") " · headroom " (if (some? headroom) headroom "—") " · used " (if (some? usage) usage "—") " · safe-next " (cockpit-safe-next idx te (if (empty? account-attempts) nil (first account-attempts))))))))
+  (println "ATTEMPTS")
+  (if (empty? attempts) (println "  no complete execution-attempt facts") (doseq [attempt (take 12 (sort-by (fn [^String subject] (let [at (cockpit-exact-value idx subject "execution_attempt_reserved_at")]
+  (if (some? at) at ""))) attempts))]
+  (println (cockpit-attempt-line idx attempt))))
   (println "LATEST PUBLIC LANDINGS")
   (if (empty? landings) (println "  no landed candidate revision facts") (doseq [te landings]
   (let [rev (proj/string-value-at idx te "candidate_rev")]
