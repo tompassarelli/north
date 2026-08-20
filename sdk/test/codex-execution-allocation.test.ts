@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { allocateCodexExecutionAccount } from "../src/providers/codex-execution-allocation";
-import type { CodexAccountAuthority } from "../src/accounts";
+import { readCodexAccountAuthority, type CodexAccountAuthority } from "../src/accounts";
+import { StoreTriple } from "../src/store-rpc-codec";
 import type { RoutingTarget } from "../src/providers/types";
 import type { StoreObservationSnapshot } from "../src/store-observation-adapter";
 import type { ProviderUsageObservation } from "../src/providers/types";
@@ -26,7 +27,11 @@ function usage(account: string, pct: number): StoreObservationSnapshot<ProviderU
   };
 }
 
-function authority(target: RoutingTarget, role: "execution" | "oversight", executionEligible = true): CodexAccountAuthority {
+function authority(
+  target: RoutingTarget,
+  role: "execution" | "oversight",
+  executionEligible = role === "execution",
+): CodexAccountAuthority {
   const subject = `@account:${target.id}`;
   return {
     role,
@@ -62,15 +67,31 @@ test("allocates supported Luna, Terra, and Sol work only from Store-admitted exe
     loadUsage: async (target: RoutingTarget) => rows.get(target.id),
     readAuthority: async (target: RoutingTarget) => authority(
       target,
-      target.id === "codex-gmail" ? "oversight" : "execution",
+      target.id === "codex-pm" ? "oversight" : "execution",
     ),
   };
 
   await expect(allocateCodexExecutionAccount(targets, runtime, "economy", "low", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-luna", effort: "low",
-      receipt: { accountAuthority: { subject: "@account:codex-pm" } } });
+    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-luna", effort: "low",
+      receipt: { accountAuthority: { subject: "@account:codex-gmail" } } });
   await expect(allocateCodexExecutionAccount(targets, runtime, "standard", "medium", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-terra", effort: "medium" });
+    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-terra", effort: "medium" });
   await expect(allocateCodexExecutionAccount(targets, runtime, "senior", "high", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-pm" }, model: "gpt-5.6-sol", effort: "high" });
+    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-sol", effort: "high" });
+});
+
+test("rejects Store role and eligibility conflicts", async () => {
+  const target = targets.find(({ id }) => id === "codex-pm")!;
+  const facts = [
+    ["kind", "provider_account"], ["account_id", target.id], ["provider", "openai"],
+    ["provider_profile", target.profile!], ["account_role", "oversight"], ["execution_eligible", "true"],
+  ] as const;
+  const client = {
+    scanAll: async () => ({
+      rows: facts.map(([predicate, value]) => new StoreTriple(`@account:${target.id}`, predicate, value)),
+      servedVersion: 7, pages: 1, attempts: 1,
+    }),
+    close: () => {},
+  };
+  await expect(readCodexAccountAuthority(target, { client })).resolves.toBeUndefined();
 });

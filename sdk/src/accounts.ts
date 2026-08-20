@@ -148,7 +148,8 @@ export async function readCodexAccountAuthority(
     const role = singleton("account_role");
     const eligibility = singleton("execution_eligible");
     if (kind !== "provider_account" || id !== target.id || provider !== "openai" || profile !== target.profile
-        || (role !== "execution" && role !== "oversight") || (eligibility !== "true" && eligibility !== "false")) return undefined;
+        || (role !== "execution" && role !== "oversight")
+        || eligibility !== (role === "execution" ? "true" : "false")) return undefined;
     const facts: StoreAccountAuthorityFact[] = CODEX_ACCOUNT_AUTHORITY_PREDICATES.map((predicate) => ({
       predicate, value: singleton(predicate)!,
     }));
@@ -197,7 +198,7 @@ export async function publishCodexAccountAuthority(
       { predicate: "provider", value: "openai" },
       { predicate: "provider_profile", value: target.profile },
       { predicate: "account_role", value: role },
-      { predicate: "execution_eligible", value: "true" },
+      { predicate: "execution_eligible", value: role === "execution" ? "true" : "false" },
     ];
     await client.batch(facts.map(({ predicate, value }) => ({
       op: "assert" as const,
