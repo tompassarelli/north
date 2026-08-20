@@ -178,7 +178,6 @@
         :out :string
         :err :string
         :env (pagination-process-env
-              {"BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev"
                "BEAGLE_STORE_SERVER_QUIET" "1"
                "BEAGLE_STORE_SERVER_XMX" "2g"})}
        (str store "/bin/beagle-store-server") "serve" (str port)

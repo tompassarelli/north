@@ -314,7 +314,6 @@
                       "BEAGLE_STORE_GRAPH_EDIT" "BEAGLE_STORE_FLIP" "BEAGLE_STORE_MCP_PROFILE"
                       "BEAGLE_STORE_SERVER_TLS"]]
           (.remove environment name))
-        (.put environment "BEAGLE_STORE_SERVER_RUNTIME" "jvm-dev")
         (.put environment "BEAGLE_STORE_SERVER_QUIET" "1")
         (.put environment "BEAGLE_STORE_SERVER_XMX" "1g")
         (.put environment "BEAGLE_STORE_SNAPSHOT_BOOT" "0")

@@ -68,15 +68,39 @@ jobs:
           ref: ${{ steps.sources.outputs.beagle_ref }}
           path: beagle
 
+      - name: Resolve Beagle native compiler source
+        id: compiler
+        run: echo "beagle_compiler_ref=$(cat beagle/store/beagle-pin.txt)" >> "$GITHUB_OUTPUT"
+      - name: Checkout Beagle native compiler source (pinned)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ steps.sources.outputs.beagle_repository }}
+          ref: ${{ steps.compiler.outputs.beagle_compiler_ref }}
+          path: beagle-compiler
+
       - name: Bind tests to Beagle store
         run: |
           {
             echo "BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store"
             echo "BEAGLE_STORE_BIN=$GITHUB_WORKSPACE/beagle/store/bin"
             echo "BEAGLE_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out"
+            echo "BEAGLE_STORE_BEAGLE=$GITHUB_WORKSPACE/beagle-compiler/bin/beagle"
             echo "NORTH_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out"
             echo "BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/store/out"
           } >> "$GITHUB_ENV"
+
+      - name: Warm Beagle Store native artifact
+        working-directory: beagle/store
+        run: |
+          set -euo pipefail
+          sources=()
+          while IFS= read -r source || [[ -n "$source" ]]; do
+            [[ -n "$source" ]] || continue
+            sources+=("$PWD/$source")
+          done < native/core_closure_sources.txt
+          artifact="$(BEAGLE_STORE_BEAGLE="$GITHUB_WORKSPACE/beagle-compiler/bin/beagle" \
+            bin/beagle-store-native-build --host server "${sources[@]}")"
+          echo "BEAGLE_STORE_NATIVE_ARTIFACT_DIR=$artifact" >> "$GITHUB_ENV"
 
       - name: Install babashka
         run: |
@@ -89,24 +113,6 @@ jobs:
           sudo tar -xzf "$asset" -C /usr/local/bin bb
           test "$(bb --version)" = "babashka v1.12.218"
           rm -f "$asset"
-
-      # Beagle store integration tests launch bin/beagle-store-server through the
-      # checkout-only JVM development route.
-      - name: Install Clojure CLI for Beagle Store server integration tests
-        run: |
-          set -euo pipefail
-          curl -fL --retry 5 -o clojure-install.sh \
-            https://github.com/clojure/brew-install/releases/download/1.12.5.1654/linux-install.sh
-          echo "28f81b0833c0a072f4370ae0eb1e4c5a4f9f4a34035cd7607ea9f253a8b06da1  clojure-install.sh" \
-            | sha256sum -c -
-          sudo bash clojure-install.sh
-          clojure -Sdescribe | grep -F '"1.12.5.1654"'
-          rm -f clojure-install.sh
-
-      # Pre-download the current Beagle Store server's JVM development dependencies.
-      - name: Warm Beagle Store JVM deps
-        working-directory: beagle/store
-        run: clojure -P
 
       # package-purity-check-test mirrors the in-sandbox guard, which scans with rg.
       - name: Install ripgrep

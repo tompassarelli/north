@@ -67,7 +67,8 @@ for file in "${files[@]}"; do
 done
 
 warm_isolated_store_server() {
-  local store_home store_server
+  local store_home store_server artifact
+  local -a closure_sources=()
   store_home="${BEAGLE_STORE_TEST_CHECKOUT:-${BEAGLE_STORE_HOME:-}}"
   if [[ -z "$store_home" ]]; then
     echo "isolated Beagle Store server warm-up requires BEAGLE_STORE_TEST_CHECKOUT or BEAGLE_STORE_HOME" >&2
@@ -78,13 +79,21 @@ warm_isolated_store_server() {
     echo "isolated Beagle Store server warm-up requires $store_server" >&2
     exit 1
   fi
-  if ! (
-    cd "$store_home"
-    BEAGLE_STORE_SERVER_RUNTIME=jvm-dev clojure -P -M server.clj
-  ); then
-    echo "isolated Beagle Store server dependency preparation failed" >&2
+  if [[ ! -x "$store_home/bin/beagle-store-native-build" ||
+    ! -r "$store_home/native/core_closure_sources.txt" ]]; then
+    echo "isolated Beagle Store server warm-up requires the native artifact builder" >&2
     exit 1
   fi
+  while IFS= read -r source || [[ -n "$source" ]]; do
+    [[ -n "$source" ]] || continue
+    closure_sources+=("$store_home/$source")
+  done <"$store_home/native/core_closure_sources.txt"
+  artifact="$("$store_home/bin/beagle-store-native-build" --host server \
+    "${closure_sources[@]}")" || {
+    echo "isolated Beagle Store native artifact warm-up failed" >&2
+    exit 1
+  }
+  export BEAGLE_STORE_NATIVE_ARTIFACT_DIR="$artifact"
 }
 
 scratch="$(mktemp -d -t north-sdk-tests.XXXXXX)"

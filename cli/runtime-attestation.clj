@@ -460,8 +460,7 @@
     "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" native-closure-sha256
     "NORTH_PORT" (str port)}
    :forbidden
-   #{"BEAGLE_STORE_JAVA" "BEAGLE_STORE_SERVER_CLASSPATH_FILE" "BEAGLE_STORE_GRAAL_ARTIFACT"
-     "BEAGLE_STORE_LISTEN_FD"}})
+   #{"BEAGLE_STORE_LISTEN_FD"}})
 
 (defn- environment-disagreements [expectation environment]
   (let [{:keys [required constrained forbidden]} expectation]
