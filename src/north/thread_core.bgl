@@ -1,0 +1,235 @@
+#lang beagle
+
+(ns north.thread-core)
+
+;; ThreadWorld is the authority-shaped semantic core. Adapters may project it
+;; into Markdown, but projections never feed this immutable admission log.
+(defrecord Thread
+  [thread-id String
+   title String
+   owner-id String])
+
+(defrecord ThreadEdge
+  [from-thread-id String
+   to-thread-id String])
+
+(defunion EpistemicProvenance
+  (Declared [actor-id String])
+  (Derived
+    [rule-id String
+     parent-fact-ids (Vec String)])
+  (Observed
+    [observer-id String
+     observation-id String])
+  (EffectRecord
+    [effect-id String
+     executor-id String]))
+
+(defrecord ThreadFact
+  [fact-id String
+   thread-id String
+   kind Keyword
+   value String
+   provenance EpistemicProvenance])
+
+(defrecord ThreadEffect
+  [effect-id String
+   thread-id String
+   kind Keyword
+   detail String
+   provenance EpistemicProvenance])
+
+(defrecord ThreadWorld
+  [threads (Vec Thread)
+   part-of (Vec ThreadEdge)
+   depends-on (Vec ThreadEdge)
+   facts (Vec ThreadFact)
+   effects (Vec ThreadEffect)])
+
+(defunion WorldAdmission
+  (WorldAdmitted [world ThreadWorld])
+  (WorldRejected [reason Keyword]))
+
+(defunion ThreadStatus
+  ThreadOpen
+  ThreadBlocked
+  ThreadResolved)
+
+(def empty-world ThreadWorld
+  (->ThreadWorld [] [] [] [] []))
+
+(defn nonempty? [value String] Bool
+  (> (count value) 0))
+
+(defn nonempty-ids? [ids (Vec String)] Bool
+  (loop [position Int 0]
+    (if (>= position (count ids))
+      true
+      (if (nonempty? (nth ids position))
+        (recur (+ position 1))
+        false))))
+
+(defn thread-known? [world ThreadWorld thread-id String] Bool
+  (loop [position Int 0]
+    (if (>= position (count (threadworld-threads world)))
+      false
+      (let [thread Thread (nth (threadworld-threads world) position)]
+        (if (= thread-id (thread-thread-id thread))
+          true
+          (recur (+ position 1)))))))
+
+(defn thread-valid? [thread Thread] Bool
+  (and (nonempty? (thread-thread-id thread))
+       (and (nonempty? (thread-title thread))
+            (nonempty? (thread-owner-id thread)))))
+
+(defn edge-known? [edges (Vec ThreadEdge) candidate ThreadEdge] Bool
+  (loop [position Int 0]
+    (if (>= position (count edges))
+      false
+      (let [edge ThreadEdge (nth edges position)]
+        (if (= edge candidate)
+          true
+          (recur (+ position 1)))))))
+
+(defn fact-id-known? [facts (Vec ThreadFact) fact-id String] Bool
+  (loop [position Int 0]
+    (if (>= position (count facts))
+      false
+      (if (= fact-id (threadfact-fact-id (nth facts position)))
+        true
+        (recur (+ position 1))))))
+
+(defn effect-id-known? [effects (Vec ThreadEffect) effect-id String] Bool
+  (loop [position Int 0]
+    (if (>= position (count effects))
+      false
+      (if (= effect-id (threadeffect-effect-id (nth effects position)))
+        true
+        (recur (+ position 1))))))
+
+(defn provenance-valid? [provenance EpistemicProvenance] Bool
+  (match provenance
+    [(Declared actor-id) (nonempty? actor-id)]
+    [(Derived rule-id parent-fact-ids)
+     (and (nonempty? rule-id)
+          (and (not (empty? parent-fact-ids))
+               (nonempty-ids? parent-fact-ids)))]
+    [(Observed observer-id observation-id)
+     (and (nonempty? observer-id) (nonempty? observation-id))]
+    [(EffectRecord effect-id executor-id)
+     (and (nonempty? effect-id) (nonempty? executor-id))]))
+
+(defn effect-records? [effect ThreadEffect] Bool
+  (match (threadeffect-provenance effect)
+    [(Declared actor-id) false]
+    [(Derived rule-id parent-fact-ids) false]
+    [(Observed observer-id observation-id) false]
+    [(EffectRecord record-id executor-id)
+     (= record-id (threadeffect-effect-id effect))]))
+
+(defn fact-valid? [world ThreadWorld fact ThreadFact] Bool
+  (and (nonempty? (threadfact-fact-id fact))
+       (and (thread-known? world (threadfact-thread-id fact))
+            (and (nonempty? (threadfact-value fact))
+                 (provenance-valid? (threadfact-provenance fact))))))
+
+(defn effect-valid? [world ThreadWorld effect ThreadEffect] Bool
+  (and (nonempty? (threadeffect-effect-id effect))
+       (and (thread-known? world (threadeffect-thread-id effect))
+            (and (nonempty? (threadeffect-detail effect))
+                 (and (provenance-valid? (threadeffect-provenance effect))
+                      (effect-records? effect))))))
+
+(defn edge-admissible? [world ThreadWorld edge ThreadEdge edges (Vec ThreadEdge)] Bool
+  (and (thread-known? world (threadedge-from-thread-id edge))
+       (and (thread-known? world (threadedge-to-thread-id edge))
+            (and (not= (threadedge-from-thread-id edge)
+                       (threadedge-to-thread-id edge))
+                 (not (edge-known? edges edge))))))
+
+(defn admit-thread [world ThreadWorld thread Thread] WorldAdmission
+  (if (and (thread-valid? thread)
+           (not (thread-known? world (thread-thread-id thread))))
+    (->WorldAdmitted
+     (->ThreadWorld
+      (conj (threadworld-threads world) thread)
+      (threadworld-part-of world)
+      (threadworld-depends-on world)
+      (threadworld-facts world)
+      (threadworld-effects world)))
+    (->WorldRejected :thread/invalid-or-known)))
+
+(defn admit-part-of [world ThreadWorld edge ThreadEdge] WorldAdmission
+  (if (edge-admissible? world edge (threadworld-part-of world))
+    (->WorldAdmitted
+     (->ThreadWorld
+      (threadworld-threads world)
+      (conj (threadworld-part-of world) edge)
+      (threadworld-depends-on world)
+      (threadworld-facts world)
+      (threadworld-effects world)))
+    (->WorldRejected :thread/invalid-part-of)))
+
+(defn admit-depends-on [world ThreadWorld edge ThreadEdge] WorldAdmission
+  (if (edge-admissible? world edge (threadworld-depends-on world))
+    (->WorldAdmitted
+     (->ThreadWorld
+      (threadworld-threads world)
+      (threadworld-part-of world)
+      (conj (threadworld-depends-on world) edge)
+      (threadworld-facts world)
+      (threadworld-effects world)))
+    (->WorldRejected :thread/invalid-depends-on)))
+
+(defn admit-fact [world ThreadWorld fact ThreadFact] WorldAdmission
+  (if (and (fact-valid? world fact)
+           (not (fact-id-known? (threadworld-facts world) (threadfact-fact-id fact))))
+    (->WorldAdmitted
+     (->ThreadWorld
+      (threadworld-threads world)
+      (threadworld-part-of world)
+      (threadworld-depends-on world)
+      (conj (threadworld-facts world) fact)
+      (threadworld-effects world)))
+    (->WorldRejected :thread/invalid-or-known-fact)))
+
+(defn admit-effect [world ThreadWorld effect ThreadEffect] WorldAdmission
+  (if (and (effect-valid? world effect)
+           (not (effect-id-known? (threadworld-effects world)
+                                  (threadeffect-effect-id effect))))
+    (->WorldAdmitted
+     (->ThreadWorld
+      (threadworld-threads world)
+      (threadworld-part-of world)
+      (threadworld-depends-on world)
+      (threadworld-facts world)
+      (conj (threadworld-effects world) effect)))
+    (->WorldRejected :thread/invalid-or-known-effect)))
+
+(defn thread-owner [world ThreadWorld thread-id String] String?
+  (loop [position Int 0]
+    (if (>= position (count (threadworld-threads world)))
+      nil
+      (let [thread Thread (nth (threadworld-threads world) position)]
+        (if (= thread-id (thread-thread-id thread))
+          (thread-owner-id thread)
+          (recur (+ position 1)))))))
+
+(defn status-after [status ThreadStatus fact ThreadFact] ThreadStatus
+  (cond
+    [(= :thread/blocked (threadfact-kind fact)) (->ThreadBlocked)]
+    [(= :thread/resolved (threadfact-kind fact)) (->ThreadResolved)]
+    [:else status]))
+
+(defn status-for [world ThreadWorld thread-id String] ThreadStatus?
+  (if (not (thread-known? world thread-id))
+    nil
+    (loop [position Int 0
+           status ThreadStatus (->ThreadOpen)]
+      (if (>= position (count (threadworld-facts world)))
+        status
+        (let [fact ThreadFact (nth (threadworld-facts world) position)]
+          (if (= thread-id (threadfact-thread-id fact))
+            (recur (+ position 1) (status-after status fact))
+            (recur (+ position 1) status)))))))
