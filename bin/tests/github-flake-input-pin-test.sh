@@ -20,23 +20,23 @@ write_lock() {
 }
 
 rev=0123456789abcdef0123456789abcdef01234567
-write_lock fram github example fram "$rev" 'sha256-YWJjZA=='
-[[ "$("$PIN" "$TMP/flake.lock" fram repository)" == example/fram ]]
-[[ "$("$PIN" "$TMP/flake.lock" fram revision)" == "$rev" ]]
-[[ "$("$PIN" "$TMP/flake.lock" fram url)" == https://github.com/example/store.git ]]
-"$PIN" "$TMP/flake.lock" fram json |
+write_lock store-source github example store "$rev" 'sha256-YWJjZA=='
+[[ "$("$PIN" "$TMP/flake.lock" store-source repository)" == example/store ]]
+[[ "$("$PIN" "$TMP/flake.lock" store-source revision)" == "$rev" ]]
+[[ "$("$PIN" "$TMP/flake.lock" store-source url)" == https://github.com/example/store.git ]]
+"$PIN" "$TMP/flake.lock" store-source json |
   jq -e --arg rev "$rev" \
-    '.input == "fram" and .repository == "example/fram" and .rev == $rev and .narHash == "sha256-YWJjZA=="' \
+    '.input == "store-source" and .repository == "example/store" and .rev == $rev and .narHash == "sha256-YWJjZA=="' \
     >/dev/null
 
 for invalid in type owner revision hash; do
   case "$invalid" in
-    type) write_lock fram git example fram "$rev" 'sha256-YWJjZA==' ;;
-    owner) write_lock fram github 'example;touch-pwned' fram "$rev" 'sha256-YWJjZA==' ;;
-    revision) write_lock fram github example fram main 'sha256-YWJjZA==' ;;
-    hash) write_lock fram github example fram "$rev" 'not-a-hash' ;;
+    type) write_lock store-source git example store "$rev" 'sha256-YWJjZA==' ;;
+    owner) write_lock store-source github 'example;touch-pwned' store "$rev" 'sha256-YWJjZA==' ;;
+    revision) write_lock store-source github example store main 'sha256-YWJjZA==' ;;
+    hash) write_lock store-source github example store "$rev" 'not-a-hash' ;;
   esac
-  if "$PIN" "$TMP/flake.lock" fram json >"$TMP/invalid.out" 2>&1; then
+  if "$PIN" "$TMP/flake.lock" store-source json >"$TMP/invalid.out" 2>&1; then
     echo "github-flake-input-pin test: accepted invalid $invalid" >&2
     exit 1
   fi
@@ -48,17 +48,17 @@ for invalid_root in missing follows-array missing-node unsafe-input; do
       printf '{"nodes":{"root":{"inputs":{}}}}\n' >"$TMP/flake.lock"
       ;;
     follows-array)
-      printf '{"nodes":{"root":{"inputs":{"fram":["parent","fram"]}}}}\n' >"$TMP/flake.lock"
+      printf '{"nodes":{"root":{"inputs":{"store-source":["parent","store-source"]}}}}\n' >"$TMP/flake.lock"
       ;;
     missing-node)
-      printf '{"nodes":{"root":{"inputs":{"fram":"absent"}}}}\n' >"$TMP/flake.lock"
+      printf '{"nodes":{"root":{"inputs":{"store-source":"absent"}}}}\n' >"$TMP/flake.lock"
       ;;
     unsafe-input)
-      write_lock fram github example fram "$rev" 'sha256-YWJjZA=='
+      write_lock store-source github example store "$rev" 'sha256-YWJjZA=='
       ;;
   esac
-  input=fram
-  [[ "$invalid_root" == unsafe-input ]] && input='fram] | .evil'
+  input=store-source
+  [[ "$invalid_root" == unsafe-input ]] && input='store-source] | .evil'
   if "$PIN" "$TMP/flake.lock" "$input" repository >"$TMP/invalid-root.out" 2>"$TMP/invalid-root.err"; then
     echo "github-flake-input-pin test: accepted invalid root/input shape '$invalid_root'" >&2
     exit 1
