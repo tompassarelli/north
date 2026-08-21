@@ -247,6 +247,8 @@ export interface SpawnOptions {
 
 interface SpawnRuntime {
   queryFn?: (args: RoutedQueryArguments) => WireQuery;
+  /** Source-tree fixture seam: exercise execution selection before a fake query. */
+  executionSelection?: boolean;
   deliveryRuntime?: {
     reserve: (context: DeliveryRunContext, route: DeliveryAttemptRoute) => DeliveryReservation;
     load: (runId: string) => DeliveryRunState;
@@ -495,9 +497,10 @@ async function runSpawn(
   const routingContext = {
     tier: requestedTier, reasoning: requestedReasoning, model: opts.model,
     stableKey: agentId, capabilities, signal: termination.signal,
+    pinEvidence: opts.routingEconomics.pinEvidence,
   };
   let routing;
-  if (injected.queryFn) {
+  if (injected.queryFn && !injected.executionSelection) {
     routing = selectProvider(routingRequest, undefined, routingContext);
   } else {
     try {
