@@ -2,7 +2,11 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-beagle="${BEAGLE_HOME:-$HOME/code/beagle/main}"
+if [[ -z "${BEAGLE_HOME:-}" || "$BEAGLE_HOME" != /* ]]; then
+  printf 'BEAGLE_HOME must be set to an absolute Beagle checkout path\n' >&2
+  exit 1
+fi
+beagle="$BEAGLE_HOME"
 generated="$root/src/bridge/generated"
 runtime_source="$beagle/beagle-lib/lib/beagle"
 source_stage="$(mktemp -d "${TMPDIR:-/tmp}/north-bridge-source.XXXXXX")"
