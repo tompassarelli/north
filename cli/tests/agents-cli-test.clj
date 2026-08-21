@@ -44,6 +44,28 @@
     (check "real spawn preflight validates against the identical canonical public catalog before provider admission"
            (= "file" (get-in @captured [:env "NORTH_STAFFING_SOURCE"])))))
 
+(let [captured (atom nil)]
+  (with-redefs [preflight-routing-economics! (fn [& _] {:version 1})
+                require-pinned-provider-capabilities! (fn [& _] nil)
+                resolve-struggle-policy! (fn [_] {:canonical "test-policy"
+                                                  :version "test-policy"
+                                                  :topology "worker"
+                                                  :errorStreak 1
+                                                  :loopRepeat 1
+                                                  :loopWindow 1
+                                                  :noProgressTurns 1})
+                north.spawn-process/create-agent-id (fn [_] "lane-child-catalog")
+                north.spawn-process/launch-detached! (fn [_ env _]
+                                                       (reset! captured env)
+                                                       ::child)
+                north.spawn-process/await-startup (fn [& _] {:status :completed
+                                                             :handle "fixture"
+                                                             :outcome "blocked_preflight"})]
+    (with-out-str
+      (cmd-spawn ["curator" "child catalog propagation probe" "--ad-hoc"]))
+    (check "real detached child receives the public catalog source selected by its parent"
+           (= "file" (get @captured "NORTH_STAFFING_SOURCE")))))
+
 (let [routing-resolved? (atom false)
       missing-context "/tmp/north-delegate-cli-missing-context.md"
       message (try

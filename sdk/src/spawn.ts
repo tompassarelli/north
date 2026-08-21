@@ -2057,19 +2057,13 @@ export async function spawnParallel(
   return Promise.all(tasks.map((t) => spawn(t)));
 }
 
-if (import.meta.main) {
-  installSpawnTerminalHandlers();
-  // Caller authority was enforced by the invoking adapter before it composed
-  // this process's env with the child identity — see bootstrapAuthorityGranted.
-  bootstrapAuthorityGranted = true;
-  const prompt = process.argv.slice(2).join(" ");
-  if (!prompt) {
-    console.error("usage: bun run src/spawn.ts <prompt>");
-    process.exit(1);
-  }
-  // Each CLI/MCP launch owns one lane process. Default here because spawnParallel
-  // may mix reasoning tiers inside one process.
-  applyCodexTurnDeadlineFromReasoning();
+/**
+ * Build the exact request used by the detached `sdk/src/spawn.ts` child.
+ *
+ * Kept as a named boundary so the parent-to-child environment contract can be
+ * exercised through the same bootstrap path that reaches identity publication.
+ */
+export function managedChildSpawnOptions(prompt: string): SpawnOptions {
   const rawDelegateThread = process.env.NORTH_DELEGATE_THREAD_ID;
   delete process.env.NORTH_DELEGATE_THREAD_ID;
   let delegateThread: string | undefined;
@@ -2077,12 +2071,10 @@ if (import.meta.main) {
     try {
       delegateThread = normalizeNorthEntityId(rawDelegateThread);
     } catch {
-      console.error("managed delegate bootstrap received an invalid exact North thread id");
-      process.exit(1);
+      throw new Error("managed delegate bootstrap received an invalid exact North thread id");
     }
   }
-
-  spawn({
+  return {
     prompt,
     agentId: process.env.AGENT_ID,
     model: process.env.AGENT_MODEL,
@@ -2099,7 +2091,24 @@ if (import.meta.main) {
       process.env.NORTH_RUN_TOKEN_TARGET === undefined
         ? undefined : Number(process.env.NORTH_RUN_TOKEN_TARGET),
     ),
-  })
+  };
+}
+
+if (import.meta.main) {
+  installSpawnTerminalHandlers();
+  // Caller authority was enforced by the invoking adapter before it composed
+  // this process's env with the child identity — see bootstrapAuthorityGranted.
+  bootstrapAuthorityGranted = true;
+  const prompt = process.argv.slice(2).join(" ");
+  if (!prompt) {
+    console.error("usage: bun run src/spawn.ts <prompt>");
+    process.exit(1);
+  }
+  // Each CLI/MCP launch owns one lane process. Default here because spawnParallel
+  // may mix reasoning tiers inside one process.
+  applyCodexTurnDeadlineFromReasoning();
+
+  spawn(managedChildSpawnOptions(prompt))
     .then((result) => console.log(result))
     .catch((err) => {
       appendSpawnTerminalLine("rejected", err);
