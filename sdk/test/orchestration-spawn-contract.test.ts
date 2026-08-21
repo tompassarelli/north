@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { validateRoutingMetadata } from "../src/routing-metadata";
 import { applyOrchestrationStaffing, loadOrchestrationStaffing } from "../src/orchestration-staffing";
+import { bindSpawnTestRuntime } from "../src/internal/test-runtime";
+import { wireTurnQuery } from "./support/wire-query";
+import type { RoutedQueryArguments } from "../src/providers";
 
 const north = resolve(import.meta.dir, "../..");
 const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
@@ -56,6 +61,96 @@ test("spawn bootstrap derives the Codex turn deadline without replacing caller a
   };
   applyCodexTurnDeadlineFromReasoning(explicit);
   expect(explicit.NORTH_CODEX_TURN_DEADLINE_MS).toBe("1234567");
+});
+
+test("file-backed managed child bootstrap publishes identity before its hermetic provider boundary", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-child-catalog-startup-"));
+  const log = join(directory, "north.log");
+  const fakeNorth = join(directory, "north");
+  const fakeBb = join(directory, "bb");
+  const agentId = `lane-child-catalog-${process.pid}-${Date.now()}`;
+  const keys = [
+    "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_STAFFING_SOURCE",
+    "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "NORTH_PORT",
+    "AGENT_ID", "AGENT_ROLE", "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS",
+    "AGENT_TOPOLOGY", "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE",
+    "AGENT_COMPOSITION", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_COORDINATOR",
+    "AGENT_WORKTREE", "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
+    "BEAGLE_STORE_HOME", "BEAGLE_STORE_BIN", "BEAGLE_STORE_OUT",
+  ] as const;
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const route = applyOrchestrationStaffing({ role: "curator" });
+  try {
+    writeFileSync(fakeNorth, `#!/usr/bin/env bash
+if [ "$1 $2" = "json show" ]; then printf '%s\\n' '[]'; exit 0; fi
+printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+`);
+    chmodSync(fakeNorth, 0o700);
+    writeFileSync(fakeBb, "#!/usr/bin/env bash\nexit 0\n");
+    chmodSync(fakeBb, 0o700);
+    process.env.PATH = `${directory}:${saved.PATH ?? process.env.PATH ?? ""}`;
+    process.env.NORTH_BIN = fakeNorth;
+    process.env.NORTH_PEER_BB = fakeBb;
+    process.env.NORTH_IDENTITY_TEST_REDIRECT = "1";
+    process.env.NORTH_STAFFING_SOURCE = "file";
+    process.env.NORTH_STREAM_DIR = directory;
+    process.env.NORTH_AGENT_LOGS_DIR = directory;
+    process.env.NORTH_PORT = "59999";
+    process.env.BEAGLE_STORE_HOME = directory;
+    process.env.BEAGLE_STORE_BIN = directory;
+    process.env.BEAGLE_STORE_OUT = directory;
+    process.env.AGENT_ID = agentId;
+    process.env.AGENT_ROLE = route.role;
+    process.env.AGENT_TASK_GRADE = route.taskGrade;
+    process.env.AGENT_DOMAIN_REQUIREMENTS = JSON.stringify(route.domainRequirements);
+    process.env.AGENT_TOPOLOGY = route.topology;
+    process.env.AGENT_TIER = route.tier;
+    process.env.AGENT_REASONING = route.reasoning;
+    process.env.AGENT_POSTURE = route.posture;
+    process.env.AGENT_COMPOSITION = JSON.stringify(route.composition);
+    delete process.env.AGENT_PROVIDER;
+    delete process.env.AGENT_TARGET;
+    process.env.AGENT_COORDINATOR = "test-coordinator";
+    process.env.AGENT_WORKTREE = "0";
+    delete process.env.NORTH_ROUTING_POLICY;
+    delete process.env.NORTH_ENVELOPE_ACCOUNTING;
+
+    const { managedChildSpawnOptions, spawn } = await import("../src/spawn");
+    const request = managedChildSpawnOptions("publish child startup identity");
+    expect(request.routingMetadata).toMatchObject({ role: "curator", posture: "prune" });
+    expect(process.env.NORTH_DELEGATE_THREAD_ID).toBeUndefined();
+    // The executable entrypoint marks its caller authority as already checked
+    // before it calls spawn(). This in-process fixture takes the same request
+    // through the real execution path, so remove the inherited worker marker.
+    delete process.env.AGENT_TOPOLOGY;
+    let providerBoundaryCalls = 0;
+    bindSpawnTestRuntime(request, {
+      admitDispatchAuthority: () => {},
+      publishLearningAssignment: async () => "recorded" as const,
+      queryFn: (args: RoutedQueryArguments) => {
+        providerBoundaryCalls++;
+        return wireTurnQuery(args, { provider: "openai", output: "hermetic child result" });
+      },
+      worktreeAllocationWriter: { register: () => {}, event: () => {} },
+      feedSubscriber: () => Object.assign(() => {}, {
+        ready: Promise.resolve(), caughtUp: Promise.resolve(), replay: async () => {},
+        drain: async () => {}, isArmed: () => true,
+      }),
+    });
+
+    await spawn(request);
+    const commands = readFileSync(log, "utf8");
+    expect(commands).toContain(`tell agent:${agentId} kind lane`);
+    expect(commands).toContain(`tell agent:${agentId} composition_id curator`);
+    expect(commands).toContain(`tell agent:${agentId} display_name`);
+    expect(providerBoundaryCalls).toBe(1);
+  } finally {
+    for (const key of keys) {
+      const value = saved[key];
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("SDK presets inherit catalog axes while declared compatible overrides win independently", () => {

@@ -1572,6 +1572,12 @@
                                prompt)
             aid (north.spawn-process/create-agent-id "lane")
             env (cond-> {"AGENT_ID" aid
+                         ;; The detached SDK child performs a second strict
+                         ;; catalog admission before it can publish identity.
+                         ;; Keep it on the same public catalog authority as
+                         ;; this parent preflight; the graph default remains
+                         ;; untouched for every other caller.
+                         "NORTH_STAFFING_SOURCE" "file"
                          "NORTH_STRUGGLE_POLICY_EXPECTED" (:canonical struggle-policy)}
                   selected-role (assoc "AGENT_IDENTITY_ROLE" selected-role)
                   selected-grade (assoc "AGENT_TASK_GRADE" selected-grade)
