@@ -67,7 +67,8 @@ function requirements(
     `managed_dir = ${JSON.stringify(document.hooks.managed_dir)}`,
   ];
   const canonicalEvents = [
-    "SessionStart", "SubagentStart", "PreToolUse", "PostToolUse", "Stop",
+    "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop",
+    "PreToolUse", "PostToolUse", "Stop",
   ];
   const events = [
     ...canonicalEvents,
@@ -225,7 +226,7 @@ test("managed Codex authoring entrances invoke the native Firn system policy", (
   for (const matcher of ["^(Edit|Write|MultiEdit|apply_patch)$", "^Bash$"]) {
     const commands = preToolUse.find((entry) => entry.matcher === matcher)!.hooks
       .map((hook) => hook.command);
-    expect(commands.some((command) => command.endsWith(` ${FIRN_SYSTEM_POLICY}`))).toBe(true);
+    expect(commands).toContain(FIRN_SYSTEM_POLICY);
     expect(commands.some((command) => command.includes("firn-guard.sh"))).toBe(false);
   }
 });
@@ -262,6 +263,8 @@ test("managed Codex requirements reject every authority-bearing drift", () => {
       });
     },
     (document) => { document.hooks.Stop[0].hooks[0].command = "/bin/true"; },
+    (document) => { document.hooks.SessionEnd[0].hooks[0].command = "/bin/true"; },
+    (document) => { document.hooks.SubagentStop[0].hooks[0].timeout = 10; },
     (document) => {
       document.hooks.UserPromptSubmit = [{
         hooks: [{
