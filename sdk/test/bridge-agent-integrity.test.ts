@@ -5,24 +5,24 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  agent_cell_text_bang as agentCellText,
-  agent_route_text_bang as agentRouteText,
-  agent_row_text_bang as agentRowText,
-  normalize_agents as normalizeAgents,
-  reconcile_agent_selection_bang as reconcileAgentSelection,
-  refresh_bang as refresh,
-  render_detail_panel_bang as renderDetailPanel,
-  roster_text_bang as rosterText,
-  selected_agent_id as selectedAgentId,
-  submit_input_bang as submitInput,
+  "agent-cell-text!" as agentCellText,
+  "agent-route-text!" as agentRouteText,
+  "agent-row-text!" as agentRowText,
+  "normalize-agents" as normalizeAgents,
+  "reconcile-agent-selection!" as reconcileAgentSelection,
+  "refresh!" as refresh,
+  "render-detail-panel!" as renderDetailPanel,
+  "roster-text!" as rosterText,
+  "selected-agent-id" as selectedAgentId,
+  "submit-input!" as submitInput,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
-  Agent,
-  make_model as makeModel,
-  replace_projection as replaceProjection,
-  select_agent as selectAgent,
-  snapshot,
-  upsert_agent as upsertAgent,
+  "->Agent" as Agent,
+  "make-model" as makeModel,
+  "replace-projection" as replaceProjection,
+  "select-agent" as selectAgent,
+  "snapshot" as modelSnapshot,
+  "upsert-agent" as upsertAgent,
 } from "../src/bridge/generated/north/bridge/model.js";
 
 Object.defineProperty(process.stdout, "columns", { value: 180, configurable: true });
@@ -54,14 +54,14 @@ test("agent reorder preserves the highlighted identity and composer target", asy
   let model = makeModel("list");
   for (const row of [alpha, beta, gamma]) model = upsertAgent(model, row);
 
-  const priorId = selectedAgentId(snapshot(model), 1);
+  const priorId = selectedAgentId(modelSnapshot(model), 1);
   const runtime = {
     agentIndex: 1,
     model: selectAgent(replaceProjection(model, [gamma, alpha, beta], [], []), "alpha"),
   };
   expect(reconcileAgentSelection(runtime, priorId)).toBe("beta");
 
-  const state = snapshot(runtime.model);
+  const state = modelSnapshot(runtime.model);
   const target = selectedAgentId(state, runtime.agentIndex);
   const snapshot = await snapshotOf(
     `${rosterText(state, runtime.agentIndex, "", false)}\ncomposer target: ${target}`,
@@ -132,7 +132,7 @@ esac
     ] }));
     await refresh(runtime);
     expect(runtime.agentIndex).toBe(2);
-    expect(snapshot(runtime.model).selected_agent).toBe("beta");
+    expect(modelSnapshot(runtime.model).selected_agent).toBe("beta");
     await submitInput(runtime, ui, "first message");
 
     await Bun.write(roster, JSON.stringify({ agents: [
@@ -141,7 +141,7 @@ esac
     ] }));
     await refresh(runtime);
     expect(runtime.agentIndex).toBe(1);
-    expect(snapshot(runtime.model).selected_agent).toBe("alpha");
+    expect(modelSnapshot(runtime.model).selected_agent).toBe("alpha");
     await submitInput(runtime, ui, "second message");
 
     expect(readFileSync(messages, "utf8")).toBe(

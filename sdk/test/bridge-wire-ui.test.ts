@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { renderWireEvent } from "../src/bridge/cli";
-import { parse_bridge_stream_bang as parseBridgeStream } from "../src/bridge/generated/north/bridge/app.js";
 import {
-  make_model as makeModel,
-  snapshot,
+  "parse-bridge-stream!" as parseBridgeStream,
+} from "../src/bridge/generated/north/bridge/app.js";
+import {
+  "make-model" as makeModel,
+  "snapshot" as snapshot,
 } from "../src/bridge/generated/north/bridge/model.js";
 import {
   WireEventWriter,

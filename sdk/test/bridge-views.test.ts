@@ -2,25 +2,26 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
-  apply_view_visibility_bang as applyViewVisibility,
-  boot_view as bootView,
-  composer_hint as composerHint,
-  escape_rung as escapeRung,
-  handle_local_command_bang as handleLocalCommand,
-  palette_options as paletteOptions,
-  palette_enter_action as paletteEnterAction,
-  quit_command_p as quitCommand,
-  render_detail_panel_bang as renderDetailPanel,
-  render_view_tabs_bang as renderViewTabs,
-  restore_submitted_text_bang as restoreSubmittedText,
-  tab_swap_view as tabSwapView,
-  thread_view_command_p as threadViewCommand,
-  view_list as viewList,
-  view_tab_id_at_bang as viewTabIdAt,
+  "apply-view-visibility!" as applyViewVisibility,
+  "boot-view" as bootView,
+  "composer-hint" as composerHint,
+  "escape-rung" as escapeRung,
+  "handle-local-command!" as handleLocalCommand,
+  "palette-options" as paletteOptions,
+  "palette-enter-action" as paletteEnterAction,
+  "quit-command?" as quitCommand,
+  "render-detail-panel!" as renderDetailPanel,
+  "render-view-tabs!" as renderViewTabs,
+  "restore-submitted-text!" as restoreSubmittedText,
+  "tab-swap-view" as tabSwapView,
+  "thread-view-command?" as threadViewCommand,
+  "view-list" as viewList,
+  "view-tab-id-at!" as viewTabIdAt,
 } from "../src/bridge/generated/north/bridge/app.js";
 import {
-  bridgesnapshot_active_view_id as activeViewId,
-  make_model as makeModel, snapshot,
+  "bridgesnapshot-active-view-id" as activeViewId,
+  "make-model" as makeModel,
+  "snapshot" as snapshot,
 } from "../src/bridge/generated/north/bridge/model.js";
 
 Object.defineProperty(process.stdout, "rows", { value: 40, configurable: true });

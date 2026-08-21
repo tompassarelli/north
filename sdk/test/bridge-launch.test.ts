@@ -7,8 +7,16 @@ import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readHello, runBridgeRestart, verifiedSocket } from "../src/bridge/cli";
-import * as bridgeApp from "../src/bridge/generated/north/bridge/app.js";
-import * as bridgeModel from "../src/bridge/generated/north/bridge/model.js";
+import {
+  "handle-local-command!" as handleLocalCommand,
+  "palette-options" as paletteOptions,
+} from "../src/bridge/generated/north/bridge/app.js";
+import {
+  "->Agent" as Agent,
+  "make-model" as makeModel,
+  "snapshot" as snapshot,
+  "upsert-agent" as upsertAgent,
+} from "../src/bridge/generated/north/bridge/model.js";
 import { Northd } from "../src/bridge/host";
 import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
@@ -559,7 +567,7 @@ test("/restart is in both command sets and restores the session in place", async
   chmodSync(north, 0o755);
   environment("NORTH_BIN", north);
   for (const snapshot of ["agents", "threads"]) {
-    expect(bridgeApp.palette_options(snapshot, "/restart").map((option) => option.name))
+    expect(paletteOptions(snapshot, "/restart").map((option) => option.name))
       .toEqual(["/restart"]);
   }
 
@@ -578,9 +586,9 @@ test("/restart is in both command sets and restores the session in place", async
     agentIndex: 3,
     supervisorId: dead,
     bridgeExecutions: new Set([dead]),
-    model: bridgeModel.upsert_agent(
-      bridgeModel.make_model("list"),
-      bridgeModel.Agent(
+    model: upsertAgent(
+      makeModel("list"),
+      Agent(
         dead, "Main", "ready", "Northbridge control session",
         "", "", "", "", "", "", "", "", "",
       ),
@@ -588,7 +596,7 @@ test("/restart is in both command sets and restores the session in place", async
     render() {},
     renderConversation() {},
   };
-  expect(bridgeApp.handle_local_command_bang(runtime, {}, "/restart")).toBe(true);
+  expect(handleLocalCommand(runtime, {}, "/restart")).toBe(true);
   await waitFor(
     () => existsSync(marker) && readFileSync(marker, "utf8").includes("--role"),
     "the restart verb and the session it restores",
@@ -602,7 +610,7 @@ test("/restart is in both command sets and restores the session in place", async
 
   // One Main, not a corpse beside its successor: the session that died with the
   // daemon leaves the roster, the routing set, and the supervisor binding.
-  expect(bridgeModel.snapshot(runtime.model).agents.map((agent) => agent.id)).toEqual([]);
+  expect(snapshot(runtime.model).agents.map((agent) => agent.id)).toEqual([]);
   expect(runtime.bridgeExecutions.has(dead)).toBe(false);
   expect(runtime.supervisorId).toBe("");
   expect(runtime.agentIndex).toBe(0);
@@ -610,7 +618,7 @@ test("/restart is in both command sets and restores the session in place", async
 
 test("/mcp is discoverable from both bridge views", () => {
   for (const snapshot of ["agents", "threads"]) {
-    expect(bridgeApp.palette_options(snapshot, "/mcp").map((option) => option.name))
+    expect(paletteOptions(snapshot, "/mcp").map((option) => option.name))
       .toEqual(["/mcp"]);
   }
 });

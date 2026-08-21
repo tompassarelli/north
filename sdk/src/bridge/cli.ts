@@ -2,7 +2,9 @@ import { spawn } from "node:child_process";
 import { Socket } from "node:net";
 import { resolve } from "node:path";
 import { acquireFileLease } from "../file-lease";
-import { run_northbridge_app_bang } from "./generated/north/bridge/app.js";
+import {
+  "run-northbridge-app!" as runNorthbridgeApp,
+} from "./generated/north/bridge/app.js";
 import { runBridgeAcceptance } from "./accept";
 import type { WireEvent } from "../wire/events";
 import {
@@ -147,7 +149,7 @@ async function runApp(args: string[]): Promise<number> {
   // The checkout the app is running from, which is the same identity the
   // staleness handshake is fought over. The banner prints its short form, so
   // "which North Bridge am I looking at" is answerable from the screen.
-  await run_northbridge_app_bang({ viewId, sourceIdentity: bridgeSourceIdentity() });
+  await runNorthbridgeApp({ viewId, sourceIdentity: bridgeSourceIdentity() });
   return 0;
 }
 

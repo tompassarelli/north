@@ -19,7 +19,7 @@ export interface BridgeModelSnapshot {
   selected_agent: string;
 }
 
-export function Agent(
+declare function Agent(
   id: string,
   name: string,
   status: string,
@@ -34,13 +34,24 @@ export function Agent(
   goal: string,
   state: string,
 ): unknown;
-export function make_model(viewId: string): unknown;
-export function replace_projection(
+declare function makeModel(viewId: string): unknown;
+declare function replaceProjection(
   model: unknown,
   agents: unknown[],
   listItems: unknown[],
   boardItems: unknown[],
 ): unknown;
-export function select_agent(model: unknown, agentId: string): unknown;
-export function upsert_agent(model: unknown, agent: unknown): unknown;
-export function snapshot(model: unknown): BridgeModelSnapshot;
+declare function selectAgent(model: unknown, agentId: string): unknown;
+declare function upsertAgent(model: unknown, agent: unknown): unknown;
+declare function snapshot(model: unknown): BridgeModelSnapshot;
+declare const bridgeSnapshotActiveViewId: (...args: any[]) => any;
+
+export {
+  Agent as "->Agent",
+  bridgeSnapshotActiveViewId as "bridgesnapshot-active-view-id",
+  makeModel as "make-model",
+  replaceProjection as "replace-projection",
+  selectAgent as "select-agent",
+  snapshot as "snapshot",
+  upsertAgent as "upsert-agent",
+};
