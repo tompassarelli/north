@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import {
   chmodSync,
   lstatSync,
@@ -27,6 +27,10 @@ const temporaryHomes: string[] = [];
 // Account CLI cases launch one or more nested Bun/provider fixtures. Their
 // process budget must tolerate the same loaded-host latency as SDK reads.
 const ACCOUNT_PROCESS_TEST_TIMEOUT_MS = 45_000;
+
+mock.module("@anthropic-ai/claude-agent-sdk", () => ({
+  startup: async () => { throw new Error("Anthropic SDK is outside this Codex process fixture"); },
+}));
 
 afterEach(() => {
   for (const home of temporaryHomes.splice(0)) rmSync(home, { recursive: true, force: true });
@@ -121,7 +125,7 @@ process.exit(loggedIn ? 0 : 1);
   const runWithEnv = (extraEnv: NodeJS.ProcessEnv, ...args: string[]) =>
     spawnSync("bun", ["run", cli, ...args], { env: { ...env, ...extraEnv }, encoding: "utf8" });
   const run = (...args: string[]) => runWithEnv({}, ...args);
-  return { home, policy, run, runWithEnv };
+  return { home, policy, env, run, runWithEnv };
 }
 
 test("add preserves routing fields, isolates roots, and links only allowlisted config", () => {
@@ -632,6 +636,48 @@ test("account usage degrades to a calm one-liner when every Codex account's coll
   expect(visible).toContain("Codex / OpenAI\n  codex usage: collectors offline");
   expect(visible).not.toContain("codex-proton");
   expect(visible).not.toContain("codex-apple");
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
+test("account usage process labels live-only evidence when Store persistence is unavailable", async () => {
+  const { home, policy, env } = fixture();
+  const account = {
+    id: "codex-proton", provider: "openai", profile: "codex-proton", authMode: "isolated",
+    root: join(home, ".local/state/north/accounts/openai/codex-proton"),
+  } as const;
+  bootstrapAccountConfig(account, { home });
+  writeFileSync(join(account.root, "logged-in"), "yes");
+  const routing = JSON.parse(readFileSync(policy, "utf8"));
+  routing.targets.push({ id: account.id, provider: account.provider, profile: account.profile, authMode: account.authMode });
+  routing.targetOrder.push(account.id);
+  writeFileSync(policy, `${JSON.stringify(routing, null, 2)}\n`);
+
+  const unavailableStore = join(home, ".local/state/north/provider-usage-observations.json");
+  const override = {
+    ...env,
+    NORTH_PROVIDER_OBSERVATIONS: unavailableStore,
+    NORTH_STORE_HOST: "127.0.0.1",
+    NORTH_PORT: "1",
+  };
+  const prior = new Map(Object.keys(override).map((key) => [key, process.env[key]]));
+  const output: string[] = [];
+  const log = console.log;
+  try {
+    Object.assign(process.env, override);
+    console.log = (...values: unknown[]) => { output.push(values.map(String).join(" ")); };
+    const { runAccountCli } = await import("../src/account-cli");
+    expect(await runAccountCli(["usage", "codex-proton"])).toBe(1);
+  } finally {
+    console.log = log;
+    for (const [key, value] of prior) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+  const usage = output.join("\n");
+  expect(usage).toContain("Codex / OpenAI\n  codex-proton");
+  expect(usage).toContain("headroom: plenty (observed, live only)");
+  expect(usage).toContain("usage evidence:");
+  expect(usage).toContain("(persistence unconfirmed; not used for routing)");
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
 test("account usage keeps piped and NO_COLOR output byte-identical to the legacy renderer", () => {
