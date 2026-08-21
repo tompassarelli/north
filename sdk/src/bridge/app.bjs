@@ -6097,10 +6097,11 @@
       (bare-key? name key "j")
       (bare-key? name key "k")))
 
-(defn install-keys!
-  [runtime Any
-   ui Any] Any
-  (.on (.-keyInput (.-renderer runtime)) "keypress"
+(js/export
+ (defn install-keys!
+   [runtime Any
+    ui Any] Any
+   (.on (.-keyInput (.-renderer runtime)) "keypress"
        (fn [key Any] Any
          (when (and (not (.-defaultPrevented key))
                     (not (.-propagationStopped key)))
@@ -6136,6 +6137,20 @@
              (do (.preventDefault key)
                  (.stopPropagation key)
                  (focus-panel! runtime ui)
+                 (.render runtime))
+
+             ;; Ctrl-K leaves an expanded Agents panel in the same direction
+             ;; as escape: collapse the panel and return the keyboard to the
+             ;; composer. The strip owns Ctrl-K only after the strip itself
+             ;; has focus; an open Agents panel owns it here.
+             (and (detail-showing? runtime "agents")
+                  (panel-focused? runtime)
+                  (not palette-open)
+                  (ctrl-up-key? name key))
+             (do (.preventDefault key)
+                 (.stopPropagation key)
+                 (close-detail! runtime)
+                 (focus-composer! runtime ui)
                  (.render runtime))
 
              (and (detail-showing? runtime "config")
@@ -6423,7 +6438,7 @@
                (when (and (.-working runtime) (not (identical? target "")))
                  (report-promise! runtime (cancel-turn! runtime ui target))))
 
-             :else nil))))))
+             :else nil)))))))
 
 ;; One view at a time: the workspace holds two full-width containers and shows
 ;; exactly one. The single-row InputRenderable gets one line and no vertical
