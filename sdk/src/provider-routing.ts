@@ -16,6 +16,7 @@ import type {
   ProviderAvailability,
   ProviderId,
   ProviderPreference,
+  RoutingRequest,
   RoutingPreference,
   ResourcePolicy,
   RoutingDecision,
@@ -81,6 +82,7 @@ import {
   ProviderRefreshCancelledError,
   throwIfProviderRefreshCancelled,
 } from "./provider-cancellation";
+import type { RoutingPinEvidence } from "./routing-economics";
 
 const PROVIDERS: ProviderId[] = ["anthropic", "openai"];
 
@@ -1274,12 +1276,49 @@ export interface ExecutionRoutingDecision extends RoutingDecision {
     : never;
 }
 
+/**
+ * The managed spawn admission has already verified the age, shape, and exact
+ * selector match of this evidence. A complete explicit-human decision is not
+ * an allocation request: it names one provider, account, and model, so it must
+ * not consult Store-backed account authority, usage, or model observations in
+ * order to choose something the human already chose.
+ */
+function explicitHumanPinnedRoute(
+  request: RoutingRequest,
+  pinEvidence: RoutingPinEvidence | undefined,
+  policy: ResourcePolicy,
+  context: {
+    tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
+    capabilities?: readonly OrchestrationCapability[];
+  },
+): ExecutionRoutingDecision | undefined {
+  if (request.provider === undefined || request.provider === "auto"
+      || request.target === undefined || context.model === undefined
+      || pinEvidence?.reasonCode !== "explicit-human-request") return undefined;
+  const pins = new Map(pinEvidence.pins.map((pin) => [pin.kind, pin.value]));
+  if (pins.size !== 3
+      || pins.get("provider") !== request.provider
+      || pins.get("account") !== request.target
+      || pins.get("model") !== context.model) return undefined;
+  const target = orderedTargets(policy).find(({ id }) => id === request.target);
+  if (!target || target.provider !== request.provider) return undefined;
+  return selectProviderFromAvailability(
+    request,
+    [{ targetId: target.id, provider: target.provider, installed: true,
+      authenticated: true, available: true, reason: "ready" }],
+    policy, context.tier, context.stableKey, context.reasoning, context.model,
+    context.capabilities, { enforceModelObservations: false },
+  );
+}
+
 export async function selectProviderForExecution(
   requested?: RoutingPreference,
   policy: ResourcePolicy = resourcePolicyFromEnv(),
   context: {
     tier?: SemanticTier; reasoning?: Effort; model?: string; stableKey?: string;
     capabilities?: readonly OrchestrationCapability[];
+    /** Admitted managed routing evidence, never ambient provider state. */
+    pinEvidence?: RoutingPinEvidence;
     signal?: AbortSignal;
   } = {},
   dependencies: {
@@ -1296,6 +1335,8 @@ export async function selectProviderForExecution(
     ?? (process.env.AGENT_PROVIDER as ProviderPreference | undefined)
     ?? "auto";
   const request = typeof preference === "string" ? { provider: preference } : preference;
+  const explicit = explicitHumanPinnedRoute(request, context.pinEvidence, policy, context);
+  if (explicit) return explicit;
   const requestedProvider = request.provider ?? "auto";
   const probeTargets = orderedTargets(policy).filter((target) =>
     request.target !== undefined ? target.id === request.target

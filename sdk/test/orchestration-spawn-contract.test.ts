@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { validateRoutingMetadata } from "../src/routing-metadata";
@@ -71,15 +73,15 @@ test("file-backed managed child bootstrap publishes identity before its hermetic
   const agentId = `lane-child-catalog-${process.pid}-${Date.now()}`;
   const keys = [
     "PATH", "NORTH_BIN", "NORTH_PEER_BB", "NORTH_IDENTITY_TEST_REDIRECT", "NORTH_STAFFING_SOURCE",
-    "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "NORTH_PORT",
+    "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "NORTH_PORT", "NORTH_STORE_HOST",
     "AGENT_ID", "AGENT_ROLE", "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS",
     "AGENT_TOPOLOGY", "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE",
     "AGENT_COMPOSITION", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_COORDINATOR",
-    "AGENT_WORKTREE", "NORTH_ROUTING_POLICY", "NORTH_ENVELOPE_ACCOUNTING",
+    "AGENT_WORKTREE", "NORTH_ROUTING_POLICY", "NORTH_ROUTING_PIN_EVIDENCE", "NORTH_ENVELOPE_ACCOUNTING",
     "BEAGLE_STORE_HOME", "BEAGLE_STORE_BIN", "BEAGLE_STORE_OUT",
   ] as const;
   const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
-  const route = applyOrchestrationStaffing({ role: "curator" });
+  const route = applyOrchestrationStaffing({ role: "guardian" });
   try {
     writeFileSync(fakeNorth, `#!/usr/bin/env bash
 if [ "$1 $2" = "json show" ]; then printf '%s\\n' '[]'; exit 0; fi
@@ -88,6 +90,12 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
     chmodSync(fakeNorth, 0o700);
     writeFileSync(fakeBb, "#!/usr/bin/env bash\nexit 0\n");
     chmodSync(fakeBb, 0o700);
+    const routingPolicy = join(directory, "routing-policy.json");
+    writeFileSync(routingPolicy, JSON.stringify({
+      version: 1, mode: "preferential", providerOrder: ["openai"],
+      targets: [{ id: "codex-explicit-fixture", provider: "openai", authMode: "isolated", profile: "fixture" }],
+      targetOrder: ["codex-explicit-fixture"],
+    }));
     process.env.PATH = `${directory}:${saved.PATH ?? process.env.PATH ?? ""}`;
     process.env.NORTH_BIN = fakeNorth;
     process.env.NORTH_PEER_BB = fakeBb;
@@ -108,16 +116,29 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
     process.env.AGENT_REASONING = route.reasoning;
     process.env.AGENT_POSTURE = route.posture;
     process.env.AGENT_COMPOSITION = JSON.stringify(route.composition);
-    delete process.env.AGENT_PROVIDER;
-    delete process.env.AGENT_TARGET;
+    process.env.AGENT_PROVIDER = "openai";
+    process.env.AGENT_TARGET = "codex-explicit-fixture";
+    process.env.AGENT_MODEL = "gpt-5.6-sol";
     process.env.AGENT_COORDINATOR = "test-coordinator";
     process.env.AGENT_WORKTREE = "0";
-    delete process.env.NORTH_ROUTING_POLICY;
+    process.env.NORTH_ROUTING_POLICY = routingPolicy;
+    const issuedAt = new Date();
+    process.env.NORTH_ROUTING_PIN_EVIDENCE = JSON.stringify({
+      policyVersion: "north-routing-pin-v1", issuedAt: issuedAt.toISOString(),
+      expiresAt: new Date(issuedAt.getTime() + 60 * 60 * 1000).toISOString(),
+      reasonCode: "explicit-human-request", detail: "hermetic exact child route",
+      pins: [
+        { kind: "provider", value: "openai" },
+        { kind: "account", value: "codex-explicit-fixture" },
+        { kind: "model", value: "gpt-5.6-sol" },
+      ],
+    });
     delete process.env.NORTH_ENVELOPE_ACCOUNTING;
 
     const { managedChildSpawnOptions, spawn } = await import("../src/spawn");
     const request = managedChildSpawnOptions("publish child startup identity");
-    expect(request.routingMetadata).toMatchObject({ role: "curator", posture: "prune" });
+    expect(request).toMatchObject({ provider: "openai", target: "codex-explicit-fixture",
+      model: "gpt-5.6-sol", routingMetadata: { role: "guardian", posture: "preserve" } });
     expect(process.env.NORTH_DELEGATE_THREAD_ID).toBeUndefined();
     // The executable entrypoint marks its caller authority as already checked
     // before it calls spawn(). This in-process fixture takes the same request
@@ -131,6 +152,7 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
         providerBoundaryCalls++;
         return wireTurnQuery(args, { provider: "openai", output: "hermetic child result" });
       },
+      executionSelection: true,
       worktreeAllocationWriter: { register: () => {}, event: () => {} },
       feedSubscriber: () => Object.assign(() => {}, {
         ready: Promise.resolve(), caughtUp: Promise.resolve(), replay: async () => {},
@@ -141,9 +163,59 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
     await spawn(request);
     const commands = readFileSync(log, "utf8");
     expect(commands).toContain(`tell agent:${agentId} kind lane`);
-    expect(commands).toContain(`tell agent:${agentId} composition_id curator`);
+    expect(commands).toContain(`tell agent:${agentId} composition_id guardian`);
     expect(commands).toContain(`tell agent:${agentId} display_name`);
     expect(providerBoundaryCalls).toBe(1);
+
+    const truncatedStore = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve, reject) => {
+      truncatedStore.once("error", reject);
+      truncatedStore.listen(0, "127.0.0.1", resolve);
+    });
+    const storePort = (truncatedStore.address() as AddressInfo).port;
+    process.env.NORTH_PORT = String(storePort);
+    process.env.NORTH_STORE_HOST = "127.0.0.1";
+    try {
+      process.env.AGENT_PROVIDER = "openai";
+      delete process.env.AGENT_TARGET;
+      delete process.env.AGENT_MODEL;
+      process.env.AGENT_TOPOLOGY = route.topology;
+      process.env.NORTH_ROUTING_PIN_EVIDENCE = JSON.stringify({
+        policyVersion: "north-routing-pin-v1", issuedAt: issuedAt.toISOString(),
+        expiresAt: new Date(issuedAt.getTime() + 60 * 60 * 1000).toISOString(),
+        reasonCode: "explicit-human-request", detail: "partial provider pin",
+        pins: [{ kind: "provider", value: "openai" }],
+      });
+      const partial = managedChildSpawnOptions("partial pin must refuse before provider");
+      delete process.env.AGENT_TOPOLOGY;
+      bindSpawnTestRuntime(partial, {
+        admitDispatchAuthority: () => {}, publishLearningAssignment: async () => "recorded" as const,
+        queryFn: (args: RoutedQueryArguments) => {
+          providerBoundaryCalls++;
+          return wireTurnQuery(args, { provider: "openai", output: "must not run" });
+        },
+        executionSelection: true,
+      });
+      await expect(spawn(partial)).rejects.toMatchObject({ code: "rpc-truncated" });
+
+      delete process.env.AGENT_PROVIDER;
+      delete process.env.NORTH_ROUTING_PIN_EVIDENCE;
+      process.env.AGENT_TOPOLOGY = route.topology;
+      const automatic = managedChildSpawnOptions("automatic route must refuse before provider");
+      delete process.env.AGENT_TOPOLOGY;
+      bindSpawnTestRuntime(automatic, {
+        admitDispatchAuthority: () => {}, publishLearningAssignment: async () => "recorded" as const,
+        queryFn: (args: RoutedQueryArguments) => {
+          providerBoundaryCalls++;
+          return wireTurnQuery(args, { provider: "openai", output: "must not run" });
+        },
+        executionSelection: true,
+      });
+      await expect(spawn(automatic)).rejects.toMatchObject({ code: "rpc-truncated" });
+      expect(providerBoundaryCalls).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => truncatedStore.close(() => resolve()));
+    }
   } finally {
     for (const key of keys) {
       const value = saved[key];

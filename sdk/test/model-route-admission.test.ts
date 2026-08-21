@@ -624,6 +624,64 @@ test("execution selector owns exactly one OpenAI account refresh", async () => {
   expect(refreshedAccounts).toEqual([openai]);
 });
 
+test("complete explicit-human provider, account, and model pins bypass Store selection", async () => {
+  let storeReads = 0;
+  let refreshes = 0;
+  const decision = await selectProviderForExecution(
+    { provider: "openai", target: openai.id },
+    policy([openai]),
+    {
+      tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol",
+      stableKey: "complete-human-pin",
+      pinEvidence: {
+        policyVersion: "north-routing-pin-v1",
+        issuedAt: "2026-07-20T09:00:00.000Z", expiresAt: "2026-07-20T11:00:00.000Z",
+        reasonCode: "explicit-human-request", detail: "operator-selected exact route",
+        pins: [
+          { kind: "provider", value: "openai" },
+          { kind: "account", value: openai.id },
+          { kind: "model", value: "gpt-5.6-sol" },
+        ],
+      },
+    },
+    {
+      readCodexAccountAuthority: async () => { storeReads++; throw new Error("Store must not be read"); },
+      loadCodexUsage: () => { storeReads++; throw new Error("Store must not be read"); },
+      loadProviderModelObservation: async () => { storeReads++; throw new Error("Store must not be read"); },
+      refreshAccountUsages: async () => { refreshes++; throw new Error("usage must not be refreshed"); },
+    },
+  );
+  expect(decision).toMatchObject({ provider: "openai", target: openai.id });
+  expect({ storeReads, refreshes }).toEqual({ storeReads: 0, refreshes: 0 });
+});
+
+test("partial explicit pins keep Store-backed execution selection fail-closed", async () => {
+  let authorityReads = 0;
+  await expect(selectProviderForExecution(
+    { provider: "openai", target: openai.id },
+    policy([openai]),
+    {
+      tier: "frontier", reasoning: "xhigh", model: "gpt-5.6-sol",
+      pinEvidence: {
+        policyVersion: "north-routing-pin-v1",
+        issuedAt: "2026-07-20T09:00:00.000Z", expiresAt: "2026-07-20T11:00:00.000Z",
+        reasonCode: "explicit-human-request", detail: "missing exact model pin",
+        pins: [
+          { kind: "provider", value: "openai" },
+          { kind: "account", value: openai.id },
+        ],
+      },
+    },
+    {
+      readCodexAccountAuthority: async () => {
+        authorityReads++;
+        throw new Error("truncated Store authority");
+      },
+    },
+  )).rejects.toThrow("truncated Store authority");
+  expect(authorityReads).toBe(1);
+});
+
 test("execution selector collects exact-model evidence only for the selected OpenAI target", async () => {
   let refreshOptions: Parameters<typeof refreshAccountUsages>[0] | undefined;
   const decision = await selectProviderForExecution(
