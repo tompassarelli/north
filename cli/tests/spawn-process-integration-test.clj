@@ -69,6 +69,19 @@
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))
 
+  (let [turn-messages
+        (committed
+         (assoc ready-base
+                "live_input" "turn-messages"
+                "live_input_state" "frozen"))]
+    (check "canonical SDK turn-messages identity crosses the startup gate"
+           (and (north.spawn-process/identity-ready? turn-messages)
+                (not (north.spawn-process/identity-ready?
+                      (committed
+                       (assoc ready-base
+                              "live_input" "invalid"
+                              "live_input_state" "frozen")))))))
+
   (check "all managed lanes share the default startup acknowledgement budget"
          (= 180000
             (north.spawn-process/default-startup-timeout-for-capabilities

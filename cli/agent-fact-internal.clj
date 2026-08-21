@@ -190,7 +190,7 @@
     (when missing (fail! "incomplete managed identity projection" {:predicates missing}))
     (when-not (= "lane" (get facts "kind"))
       (fail! "managed SDK identity kind must be lane" {:kind (get facts "kind")}))
-    (when-not (contains? #{"streaming" "turn-messaged" "unsupported"} (get facts "live_input"))
+    (when-not (contains? #{"streaming" "turn-messages" "unsupported"} (get facts "live_input"))
       (fail! "managed SDK identity has invalid live_input"
              {:live-input (get facts "live_input")}))
     (when-not (contains? #{"pending" "armed" "frozen"} (get facts "live_input_state"))

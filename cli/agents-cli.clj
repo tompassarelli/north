@@ -552,7 +552,7 @@
   (let [observation (axis-observation facts "live_input")]
     (cond
       (:conflict observation) "conflict"
-      (#{"streaming" "turn-messaged" "unsupported"} (:value observation)) (:value observation)
+      (#{"streaming" "turn-messages" "unsupported"} (:value observation)) (:value observation)
       :else "unrecorded")))
 
 (defn- live-input-state-label [facts]
