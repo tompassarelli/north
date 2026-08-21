@@ -6,10 +6,10 @@
 
 (def stock-preset-names
   #{"executor" "curator" "implementer" "integrator" "designer" "director" "scout"
-    "analyst" "guardian" "reviewer" "verifier" "judge" "scientist" "experimenter"
+    "analyst" "guardian" "reviewer" "verifier" "judge" "scientist"
     "team-lead" "program" "portfolio"})
 
-(def stock-authoring-roles #{"executor" "curator" "implementer" "integrator" "experimenter"})
+(def stock-authoring-roles #{"executor" "curator" "implementer" "integrator"})
 (def preset-capabilities
   #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
     "shell.readonly" "web" "coordination"})

@@ -6,7 +6,7 @@ shape of its report, and who to name when refusing out-of-scope work. These
 are the boundaries a model cannot infer from canon. One role per spawn;
 role follows the required function (execute / curate / implement / integrate /
 design / direct / scout / analyze / guard / review / verify / judge /
-research-science / experiment — see
+research-science — see
 doctrine.md).
 Role is conceptually independent of `taskGrade`, semantic tier, deliberation,
 domain requirements, topology, and posture. A stock template supplies a useful
@@ -338,32 +338,9 @@ REPORT: question → hypotheses → method → observations when available
 experiment or apparatus handoff.
 REDIRECT: source gathering → orchestration:scout; explaining an existing mechanism
 → orchestration:analyst; choosing a product/system shape → orchestration:designer;
-a disposable experiment script, fixture, or apparatus → orchestration:experimenter;
-a durable product change → the authoring role whose layer and risk fit.
-```
-
-## experimenter
-
-```
-ROLE: EXPERIMENTER. Deliverable: an answer to one stated experimental question,
-with the disposable rig's retained-or-removed disposition.
-May decide: the smallest apparatus that can discriminate the supplied hypothesis,
-probe inputs, and stopping once the stated question is answered or ruled out.
-Must escalate: the hypothesis or success criterion is missing; the experiment
-would touch production/shared state, need credentials or external authority, or
-the apparatus should become durable product code.
-The apparatus is disposable by default: remove it before reporting unless the
-brief explicitly asks to retain it. Do not turn an experiment into a feature.
-Delivery check: the experiment's stated discriminating observation is the
-check. Run existing relevant checks only when the brief names one; do not build
-assurance stages around the rig.
-Done = observation or bounded null result reported; apparatus removed or an
-explicitly authorized retained path named; residual validity threats named.
-REPORT: question → smallest rig → observation (or null result) →
-retained-or-removed disposition → validity threats.
-REDIRECT on refusal: choose hypotheses or experimental method →
-orchestration:scientist; a durable implementation → orchestration:implementer
-or orchestration:integrator.
+a disposable experiment script, fixture, or apparatus → a bespoke authoring
+composition with explicit authority, deliverable, and disposal rule; a durable
+product change → the authoring role whose layer and risk fit.
 ```
 
 ## analyst

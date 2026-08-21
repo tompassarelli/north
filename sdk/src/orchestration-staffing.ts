@@ -41,10 +41,10 @@ interface StaffingCatalog {
 
 export const ORCHESTRATION_STOCK_ROLE_IDS = [
   "executor", "curator", "implementer", "integrator", "designer", "director", "scout",
-  "analyst", "guardian", "reviewer", "verifier", "judge", "scientist", "experimenter",
+  "analyst", "guardian", "reviewer", "verifier", "judge", "scientist",
   "team-lead", "program", "portfolio",
 ] as const;
-const STOCK_AUTHORING_ROLES = new Set(["executor", "curator", "implementer", "integrator", "experimenter"]);
+const STOCK_AUTHORING_ROLES = new Set(["executor", "curator", "implementer", "integrator"]);
 
 export const DEFAULT_ORCHESTRATION_STAFFING_PATH = resolve(
   process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"), "staffing/catalog.json",

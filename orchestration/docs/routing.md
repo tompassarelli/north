@@ -31,7 +31,7 @@ is an error, not a silently-ignored no-op — the composer rejects unknown optio
 
 | Planner input | What it captures | Derives |
 |---|---|---|
-| task shape | execute / curate / implement / integrate / design / direct / scout / analyze / guard / review / verify / judge / research-science / experiment | role + stock-template defaults |
+| task shape | execute / curate / implement / integrate / design / direct / scout / analyze / guard / review / verify / judge / research-science | role + stock-template defaults |
 | decision ownership | none, bounded, cross-boundary, system-shaping, open-solution-class | tier floor |
 | seam scope | none, established, consequential, system-wide | tier floor |
 | error exposure | contained-reversible, material-recoverable, high-or-hard-to-reverse | tier floor |
@@ -150,7 +150,6 @@ functions on worker topology, not topologies: `topology` is only `worker` or
 | verify (explicit user request only) | verifier | senior | worker | evaluate |
 | judge | judge | frontier | worker | evaluate |
 | research-science | scientist | frontier | worker | explore |
-| experiment | experimenter | frontier | worker | explore |
 
 These are stock templates, not coupled identities. `taskGrade`, domain
 requirements, topology, semantic tier, deliberation, and posture are
@@ -176,10 +175,9 @@ binding.
 Curator retires only an explicitly enumerated finished set and never decides
 what is stale. `preserve` is read-only guarding of a live, shared, or immutable
 boundary; `prune` is the separately named authoring posture for retirement of
-proven-finished work. Experimenter authors a disposable rig for a supplied
-question and reports its removed-or-retained disposition; scientist chooses the
-unknown question and non-mutating method, while durable implementation remains
-with implementer or integrator.
+proven-finished work. A disposable apparatus has an explicit bespoke authoring
+composition until repeated observed use earns a stock template; scientist
+chooses the unknown question and non-mutating method.
 
 Orchestrator topology grants coordination and reconciliation authority, not
 worker implementation authority. A worker owns its nearest existing relevant

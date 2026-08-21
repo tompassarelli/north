@@ -32,7 +32,7 @@ Install it and your sessions gain:
 1. **A routing doctrine** (injected at session start): classify each
    delegated task by *shape* — execute / curate / implement / integrate /
    design / direct / scout / analyze / guard / review / verify / judge /
-   research-science / experiment — and
+   research-science — and
    route it
    on one continuous semantic ramp. Function, task grade, domain requirements,
    topology, model capability, deliberation, and posture stay independent,
@@ -66,8 +66,7 @@ Install it and your sessions gain:
    | `reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
    | `verifier` | senior / high | explicit-user-requested adversarial verification of one claim |
    | `judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
-   | `scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
-   | `experimenter` | frontier / high | one stated question answered with a disposable script, fixture, or apparatus; retained only by explicit request |
+   | `scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus uses a bespoke authoring composition |
 
    The agent type is the plain template name. `orchestration:<role>` was the
    type only while the templates shipped inside the Claude Code plugin; it

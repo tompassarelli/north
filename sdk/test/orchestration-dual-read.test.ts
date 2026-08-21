@@ -37,7 +37,7 @@ test("explicit file source loads the packaged stock catalog", () => {
   const catalog = loadOrchestrationStaffing();
   expect(catalog.sourceVersion).toBe(2);
   expect(catalog.presets.map((p) => p.name).sort()).toEqual([
-    "analyst", "curator", "designer", "director", "executor", "experimenter", "guardian", "implementer", "integrator",
+    "analyst", "curator", "designer", "director", "executor", "guardian", "implementer", "integrator",
     "judge", "portfolio", "program", "reviewer", "scientist", "scout",
     "team-lead", "verifier",
   ]);

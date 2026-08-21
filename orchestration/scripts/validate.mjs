@@ -65,7 +65,7 @@ const providerDefinitionKeys = [
 const stockTemplateNames = [
   "executor", "curator", "implementer", "integrator", "designer", "director",
   "team-lead", "program", "portfolio",
-  "scout", "analyst", "guardian", "reviewer", "verifier", "judge", "scientist", "experimenter",
+  "scout", "analyst", "guardian", "reviewer", "verifier", "judge", "scientist",
 ];
 if (staffing.version !== 2 || staffingSchema.properties?.version?.const !== 2 ||
     JSON.stringify(Object.keys(staffing).sort()) !== JSON.stringify([...staffingKeys].sort()) ||
@@ -889,13 +889,6 @@ if (!curator || curator.taskGrade !== "junior" || curator.tier !== "economy" ||
       "filesystem.read", "filesystem.search", "filesystem.write", "shell",
     ]))
   throw new Error("curator must remain the junior/economy/low authoring worker/prune stock template");
-const experimenter = staffing.presets.find(({ name }) => name === "experimenter");
-if (!experimenter || experimenter.taskGrade !== "staff" || experimenter.tier !== "frontier" ||
-    experimenter.deliberation !== "high" || experimenter.topology !== "worker" || experimenter.posture !== "explore" ||
-    JSON.stringify(experimenter.capabilities) !== JSON.stringify([
-      "filesystem.read", "filesystem.search", "filesystem.write", "shell",
-    ]))
-  throw new Error("experimenter must remain the staff/frontier/high authoring worker/explore stock template");
 // The scope / influence ladder: one orchestrator function at rising
 // coordination breadth. director is the retained un-laddered generic composite
 // orchestrator at the team-lead altitude. Effort rises with breadth but never
@@ -928,7 +921,7 @@ for (const name of nonAuthoringPresets) {
       !preset.capabilities.includes("shell.readonly"))
     throw new Error(`${name} must remain a mechanically non-authoring preset`);
 }
-for (const name of ["executor", "curator", "implementer", "integrator", "experimenter"])
+for (const name of ["executor", "curator", "implementer", "integrator"])
   if (!staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("filesystem.write") ||
       !staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("shell") ||
       staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("shell.readonly"))
