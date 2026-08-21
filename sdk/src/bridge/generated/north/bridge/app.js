@@ -3526,6 +3526,10 @@ function install_keys_bang(runtime, ui) {
 return key.stopPropagation(); })() : null) : (((_truthy) => _truthy !== false && _truthy != null)((detail_open_p(runtime) && ((!panel_focused_p(runtime)) && ((!palette_open) && ctrl_down_key_p(name, key)))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "agents") && (panel_focused_p(runtime) && ((!palette_open) && ctrl_up_key_p(name, key)))))) ? (() => { key.preventDefault();
+key.stopPropagation();
+close_detail_bang(runtime);
+focus_composer_bang(runtime, ui);
 return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || (submit_key_p(name) || ((name === "tab") || fold_key_p(runtime, name, key))))))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : down_p))(up_p))) {
@@ -3777,6 +3781,7 @@ export { filter_key_action as "filter-key-action" };
 export { fold_key_action as "fold-key-action" };
 export { handle_local_command_bang as "handle-local-command!" };
 export { help_query_rows as "help-query-rows" };
+export { install_keys_bang as "install-keys!" };
 export { launch_route_flags as "launch-route-flags" };
 export { load_config_memberships_bang as "load-config-memberships!" };
 export { normalize_agents as "normalize-agents" };

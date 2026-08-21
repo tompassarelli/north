@@ -3,10 +3,12 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
   "apply-view-visibility!" as applyViewVisibility,
+  "active-focus" as activeFocus,
   "boot-view" as bootView,
   "composer-hint" as composerHint,
   "escape-rung" as escapeRung,
   "handle-local-command!" as handleLocalCommand,
+  "install-keys!" as installKeys,
   "palette-options" as paletteOptions,
   "palette-enter-action" as paletteEnterAction,
   "quit-command?" as quitCommand,
@@ -71,6 +73,63 @@ test("/threads and /agents swap which view is on screen", () => {
 
   expect(handleLocalCommand(runtime, ui, "/agents")).toBe(true);
   expect(runtime.view).toBe("agents");
+});
+
+test("Ctrl-J enters expanded Agents and Ctrl-K returns to the composer", () => {
+  let keypress: ((key: Record<string, unknown>) => unknown) | undefined;
+  const runtime = {
+    view: "agents",
+    model: makeModel("list"),
+    detailView: "agents",
+    detailSegment: "all",
+    detailIndex: 0,
+    stripFocused: false,
+    panelFocused: false,
+    paletteIndex: 0,
+    render() {},
+  } as Record<string, unknown>;
+  const composerInput = {
+    value: "",
+    focused: 1,
+    blurred: 0,
+    focus() { this.focused += 1; },
+    blur() { this.blurred += 1; },
+  };
+  const ui = { composerInput };
+  runtime.renderer = {
+    keyInput: {
+      on(_event: string, handler: (key: Record<string, unknown>) => unknown) {
+        keypress = handler;
+      },
+    },
+  };
+
+  installKeys(runtime, ui);
+  expect(keypress).toBeDefined();
+  const press = (name: string, ctrl = false) => {
+    const key = {
+      name, ctrl, meta: false, option: false, sequence: "",
+      defaultPrevented: false, propagationStopped: false,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.propagationStopped = true; },
+    };
+    keypress!(key);
+    return key;
+  };
+
+  const down = press("j", true);
+  expect(down.defaultPrevented).toBe(true);
+  expect(runtime.detailView).toBe("agents");
+  expect(runtime.panelFocused).toBe(true);
+  expect(activeFocus(false, true, true, false, false)).toBe("panel");
+
+  const up = press("k", true);
+  expect(up.defaultPrevented).toBe(true);
+  expect(runtime.detailView).toBe("");
+  expect(runtime.panelFocused).toBe(false);
+  expect(composerInput.focused).toBe(2);
+  expect(composerInput.blurred).toBe(1);
+  expect(activeFocus(false, false, false, false, false)).toBe("composer");
 });
 
 test("naming a thread view shows the Threads view holding it", () => {

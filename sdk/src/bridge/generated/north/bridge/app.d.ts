@@ -101,6 +101,7 @@ declare const filterCharacter: (...args: any[]) => any;
 declare const filterKeyAction: (...args: any[]) => any;
 declare const foldKeyAction: (...args: any[]) => any;
 declare const helpQueryRows: (...args: any[]) => any;
+declare const installKeys: (...args: any[]) => any;
 declare const loadConfigMemberships: (...args: any[]) => any;
 declare const normalizeAgents: (...args: any[]) => any;
 declare const paletteEnterAction: (...args: any[]) => any;
@@ -184,6 +185,7 @@ export {
   foldKeyAction as "fold-key-action",
   handleLocalCommand as "handle-local-command!",
   helpQueryRows as "help-query-rows",
+  installKeys as "install-keys!",
   launchRouteFlags as "launch-route-flags",
   loadConfigMemberships as "load-config-memberships!",
   normalizeAgents as "normalize-agents",
