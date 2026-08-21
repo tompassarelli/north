@@ -41,8 +41,8 @@ const USAGE = `usage: north account <command>
   north account status [id]
   north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity
   north account availability [--model M] [--json]  cached account headroom verdicts
-  north account dispatch --assignment ID -- exec [...]  account-aware Codex fleet dispatch
-  north account dispatch --dry-run [--json]              refresh and show the next account only
+  north account dispatch --assignment ID --estimated-tokens N -- exec [...]  reserve + launch
+  north account dispatch --dry-run --estimated-tokens N [--json]              inspect only
   north account list [--verbose]   grouped accounts + live login state
 
 Options:
@@ -56,6 +56,7 @@ Options:
 
 function fleetDispatchOptions(args: string[]): { options: FleetDispatchOptions; json: boolean } {
   let assignmentId: string | undefined;
+  let estimatedTokens: number | undefined;
   let dryRun = false;
   let json = false;
   let separator = -1;
@@ -78,11 +79,20 @@ function fleetDispatchOptions(args: string[]): { options: FleetDispatchOptions; 
       assignmentId = args[++index]!;
       continue;
     }
+    if (entry === "--estimated-tokens") {
+      if (estimatedTokens !== undefined || index + 1 >= args.length)
+        throw new Error(USAGE);
+      const value = Number(args[++index]);
+      if (!Number.isSafeInteger(value) || value <= 0) throw new Error(USAGE);
+      estimatedTokens = value;
+      continue;
+    }
     throw new Error(USAGE);
   }
   const codexArgs = separator < 0 ? [] : args.slice(separator + 1);
-  if (!dryRun && (!assignmentId || !codexArgs.length)) throw new Error(USAGE);
-  return { options: { assignmentId, codexArgs, dryRun }, json };
+  if (estimatedTokens === undefined || (!dryRun && (!assignmentId || !codexArgs.length)))
+    throw new Error(USAGE);
+  return { options: { assignmentId, estimatedTokens, codexArgs, dryRun }, json };
 }
 
 function printFleetDispatch(result: FleetDispatchResult, json: boolean): void {
@@ -92,7 +102,8 @@ function printFleetDispatch(result: FleetDispatchResult, json: boolean): void {
   }
   console.log(`selected account: ${result.selected.accountId}`);
   console.log("evidence: live commander/operator census; not Store routing authority");
-  console.log(`score: ${result.selected.score} (${result.selected.remainingHeadroom}% headroom, ${result.selected.liveAssignments} live assignments)`);
+  console.log(`projected usage: ${result.selected.projectedUsedPercent.toFixed(2)}% before reservation; ${result.selected.postReservationProjectedUsedPercent.toFixed(2)}% after`);
+  console.log(`calibration: ${result.selected.calibration.tokensPerPercent} tokens/% (${result.selected.calibration.source}, ${result.selected.calibration.uncertainty} uncertainty)`);
   if (result.assignment)
     console.log(`assignment: ${result.assignment.assignmentId} -> ${result.assignment.accountId}`);
   if (result.exitCode !== undefined) console.log(`exit: ${result.exitCode}`);

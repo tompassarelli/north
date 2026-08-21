@@ -11,6 +11,7 @@ export interface OpenAISessionActivity {
   hours: number;
   sessions: number;
   live: number;
+  totalTokens: number;
   outputTokens: number;
   lastActivityAt?: Date;
 }
@@ -53,7 +54,21 @@ function totalTokenUsage(line: string): Record<string, unknown> | undefined {
   }
 }
 
-async function lastOutputTokens(path: string): Promise<number> {
+interface SessionTokenUsage { totalTokens: number; outputTokens: number }
+
+function sessionTokenUsage(usage: Record<string, unknown> | undefined): SessionTokenUsage | undefined {
+  const inputTokens = usage?.input_tokens;
+  const outputTokens = usage?.output_tokens;
+  if (typeof inputTokens !== "number" || !Number.isFinite(inputTokens)
+      || typeof outputTokens !== "number" || !Number.isFinite(outputTokens)) return undefined;
+  const explicitTotal = usage?.total_tokens;
+  const totalTokens = typeof explicitTotal === "number" && Number.isFinite(explicitTotal)
+    ? explicitTotal
+    : inputTokens + outputTokens;
+  return { totalTokens, outputTokens };
+}
+
+async function lastTokenUsage(path: string): Promise<SessionTokenUsage> {
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
     file = await open(path, "r");
@@ -72,19 +87,18 @@ async function lastOutputTokens(path: string): Promise<number> {
       while (lineEnd > 0) {
         const newline = contents.lastIndexOf(0x0a, lineEnd - 1);
         if (newline < 0) break;
-        const usage = totalTokenUsage(contents.subarray(newline + 1, lineEnd).toString("utf8"));
-        const outputTokens = usage?.output_tokens;
-        if (typeof outputTokens === "number" && Number.isFinite(outputTokens)) return outputTokens;
+        const usage = sessionTokenUsage(
+          totalTokenUsage(contents.subarray(newline + 1, lineEnd).toString("utf8")),
+        );
+        if (usage) return usage;
         lineEnd = newline;
       }
       suffix = Buffer.from(contents.subarray(0, lineEnd));
     }
-    const outputTokens = totalTokenUsage(suffix.toString("utf8"))?.output_tokens;
-    return typeof outputTokens === "number" && Number.isFinite(outputTokens)
-      ? outputTokens
-      : 0;
+    return sessionTokenUsage(totalTokenUsage(suffix.toString("utf8")))
+      ?? { totalTokens: 0, outputTokens: 0 };
   } catch {
-    return 0;
+    return { totalTokens: 0, outputTokens: 0 };
   } finally {
     await file?.close().catch(() => {});
   }
@@ -107,8 +121,13 @@ export async function readOpenAISessionActivity(
     }
   }
 
+  let totalTokens = 0;
   let outputTokens = 0;
-  for (const file of recent) outputTokens += await lastOutputTokens(file.path);
+  for (const file of recent) {
+    const usage = await lastTokenUsage(file.path);
+    totalTokens += usage.totalTokens;
+    outputTokens += usage.outputTokens;
+  }
   const lastActivityMs = recent.reduce(
     (latest, file) => Math.max(latest, file.mtimeMs),
     Number.NEGATIVE_INFINITY,
@@ -117,6 +136,7 @@ export async function readOpenAISessionActivity(
     hours,
     sessions: recent.length,
     live: recent.filter(({ mtimeMs }) => now.getTime() - mtimeMs < LIVE_SESSION_MTIME_MS).length,
+    totalTokens,
     outputTokens,
     ...(Number.isFinite(lastActivityMs) ? { lastActivityAt: new Date(lastActivityMs) } : {}),
   };
