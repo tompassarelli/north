@@ -80,6 +80,7 @@
    :details ["--role <worker> — atomic: exactly one selected worker"
              "--composite — 2+ independent pieces: hydrates an orchestrator"
              "--thread <id> — bind an existing thread"
+             "--handoff <artifact> — adopt one validated session-hard-cap artifact"
              "in chat, /delegate does this with session context riding along"]
    :card {:section :agents :form "north delegate \"<task>\""
           :text "hand work to a new lane"}}

@@ -1717,7 +1717,10 @@
 ;; never charges a director+worker pair for an atomic handoff. All ordinary spawn
 ;; axes and bespoke-composition flags pass through to cmd-spawn unchanged.
 (def delegate-usage
-  "north delegate \"<task>\" (--role <worker-role> | --composite) [--thread <id>] [--context <file>] [spawn options]")
+  (str "north delegate \"<task>\" (--role <worker-role> | --composite) "
+       "[--thread <id>] [--context <file>] [spawn options]\n"
+       "       north delegate --handoff <session-hard-cap.json> "
+       "(--role <worker-role> | --composite) [spawn options]"))
 
 (defn- delegate-die [message]
   (println (red message))
@@ -1726,6 +1729,17 @@
 
 (def delegate-thread-id-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 (def delegate-thread-title-max-utf8-bytes 160)
+(def delegate-handoff-max-bytes (* 64 1024))
+(def delegate-handoff-hard-cap-ms (* 60 60 1000))
+(def delegate-handoff-next-action
+  "Resume only this deliverable; inspect the named thread, worktree, branch, and session transcript before editing.")
+(def delegate-handoff-required-keys
+  #{:version :reason :writtenAt :hardCapMs :agentId :threadId :goal :repo
+    :nextAction :completionClaimed})
+(def delegate-handoff-optional-keys #{:worktree :branch})
+(def delegate-handoff-private-permissions
+  #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
+    java.nio.file.attribute.PosixFilePermission/OWNER_WRITE})
 (def capture-receipt-keys
   #{:id :thread :title :path :expected :committed :complete :reason})
 
@@ -1742,6 +1756,115 @@
 (defn- normalize-delegate-thread [raw]
   (or (canonical-delegate-thread raw)
       (delegate-die "--thread must be a bare or single-@ ASCII North thread id")))
+
+(defn- delegate-handoff-text? [value]
+  (and (string? value)
+       (not (str/blank? value))
+       (not (str/includes? value "\u0000"))))
+
+(defn- delegate-handoff-absolute-path? [value]
+  (and (delegate-handoff-text? value)
+       (= value (str/trim value))
+       (try
+         (.isAbsolute
+          (java.nio.file.Paths/get value (make-array String 0)))
+         (catch Exception _ false))))
+
+(defn- delegate-handoff-written-at? [value]
+  (and (string? value)
+       (boolean
+        (re-matches #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$" value))
+       (try
+         (java.time.Instant/parse value)
+         true
+         (catch java.time.format.DateTimeParseException _ false))))
+
+(defn- decode-delegate-handoff-utf8! [bytes path]
+  (try
+    (let [decoder
+          (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+            (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+            (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))]
+      (str (.decode decoder (java.nio.ByteBuffer/wrap bytes))))
+    (catch java.nio.charset.CharacterCodingException _
+      (delegate-die (str "session hard-cap artifact is not valid UTF-8: " path)))))
+
+(defn- read-delegate-handoff! [raw-path]
+  (let [file (io/file raw-path)
+        path (.toPath file)
+        display-path (.getPath file)
+        no-follow (into-array java.nio.file.LinkOption
+                              [java.nio.file.LinkOption/NOFOLLOW_LINKS])]
+    (when-not (java.nio.file.Files/exists path no-follow)
+      (delegate-die (str "session hard-cap artifact not found: " display-path)))
+    (let [attributes
+          (try
+            (java.nio.file.Files/readAttributes
+             path java.nio.file.attribute.BasicFileAttributes no-follow)
+            (catch java.io.IOException _
+              (delegate-die (str "cannot inspect session hard-cap artifact: "
+                                 display-path))))]
+      (when (or (java.nio.file.Files/isSymbolicLink path)
+                (not (.isRegularFile attributes)))
+        (delegate-die (str "session hard-cap artifact must be a regular non-symlink file: "
+                           display-path)))
+      (when-not (<= 1 (.size attributes) delegate-handoff-max-bytes)
+        (delegate-die (str "session hard-cap artifact must be between 1 and "
+                           delegate-handoff-max-bytes " bytes"))))
+    (let [permissions
+          (try
+            (set (java.nio.file.Files/getPosixFilePermissions path no-follow))
+            (catch UnsupportedOperationException _
+              (delegate-die
+               "session hard-cap adoption requires a POSIX private-file boundary")))]
+      (when-not (= delegate-handoff-private-permissions permissions)
+        (delegate-die (str "session hard-cap artifact must have mode 0600: "
+                           display-path))))
+    (let [bytes
+          (try
+            (java.nio.file.Files/readAllBytes path)
+            (catch java.io.IOException _
+              (delegate-die (str "cannot read session hard-cap artifact: "
+                                 display-path))))]
+      ;; Recheck the actual read length in case a same-user writer replaced the
+      ;; file between the metadata and content reads.
+      (when-not (<= 1 (alength bytes) delegate-handoff-max-bytes)
+        (delegate-die (str "session hard-cap artifact must be between 1 and "
+                           delegate-handoff-max-bytes " bytes")))
+      (let [raw (decode-delegate-handoff-utf8! bytes display-path)
+            document
+            (try
+              (json/parse-string raw true)
+              (catch Exception _
+                (delegate-die (str "session hard-cap artifact is not valid JSON: "
+                                   display-path))))
+            keys-present (when (map? document) (set (keys document)))
+            allowed-keys (set/union delegate-handoff-required-keys
+                                    delegate-handoff-optional-keys)
+            canonical-thread (when (map? document)
+                               (canonical-delegate-thread (:threadId document)))]
+        (when-not (and (map? document)
+                       (set/subset? delegate-handoff-required-keys keys-present)
+                       (set/subset? keys-present allowed-keys)
+                       (= 1 (:version document))
+                       (= "session_hard_cap" (:reason document))
+                       (delegate-handoff-written-at? (:writtenAt document))
+                       (= delegate-handoff-hard-cap-ms (:hardCapMs document))
+                       (valid-control-id? (:agentId document))
+                       (= (:threadId document) canonical-thread)
+                       (delegate-handoff-text? (:goal document))
+                       (delegate-handoff-absolute-path? (:repo document))
+                       (or (not (contains? document :worktree))
+                           (delegate-handoff-absolute-path? (:worktree document)))
+                       (or (not (contains? document :branch))
+                           (delegate-handoff-text? (:branch document)))
+                       (= delegate-handoff-next-action (:nextAction document))
+                       (false? (:completionClaimed document)))
+          (delegate-die
+           "session hard-cap artifact does not match North's incomplete v1 handoff contract"))
+        {:task (:goal document)
+         :thread canonical-thread
+         :context (str/trim raw)}))))
 
 (defn- structured-facts? [facts]
   (and (sequential? facts)
@@ -1936,10 +2059,21 @@
       (capture-recursive-child-thread! task thread))))
 
 (defn resolve-delegate-thread!
-  [{:keys [task explicit-thread]} dry?]
+  [{:keys [task explicit-thread handoff?]} dry?]
   (cond
     explicit-thread
-    (assoc (read-delegate-thread! explicit-thread) :source :explicit)
+    (let [thread (read-delegate-thread! explicit-thread)
+          terminal-predicates
+          (->> (:facts thread)
+               (map :predicate)
+               (filter #{"outcome" "abandoned"})
+               set)]
+      (when (and handoff? (seq terminal-predicates))
+        (delegate-die
+         (str "session hard-cap artifact thread @" (:id thread)
+              " is already terminal ("
+              (str/join ", " (sort terminal-predicates)) ")")))
+      (assoc thread :source :explicit))
 
     :else
     (let [{:keys [kind thread residue?]} (managed-thread-binding)]
@@ -1970,10 +2104,20 @@
     (println (json/generate-string {:thread id :parent parent}))))
 
 (defn- parse-delegate-args [args]
-  (let [task (first args)]
-    (when (or (nil? task) (str/starts-with? task "--"))
-      (delegate-die "delegate requires one quoted task before its classification"))
-    (loop [xs (rest args) parsed {:task task :forward []}]
+  (let [handoff? (= "--handoff" (first args))
+        handoff (when handoff? (second args))
+        _ (when (and handoff?
+                     (or (nil? handoff) (str/starts-with? handoff "--")))
+            (delegate-die "--handoff requires a session hard-cap artifact"))
+        task (when-not handoff? (first args))
+        _ (when (and (not handoff?)
+                     (or (nil? task) (str/starts-with? task "--")))
+            (delegate-die
+             "delegate requires one quoted task or --handoff before its classification"))
+        remaining (if handoff? (nnext args) (rest args))]
+    (loop [xs remaining
+           parsed (cond-> {:task task :forward []}
+                    handoff? (assoc :handoff handoff))]
       (if-let [x (first xs)]
         (case x
           "--role"
@@ -1994,15 +2138,22 @@
           (let [path (second xs)]
             (when (or (nil? path) (str/starts-with? path "--"))
               (delegate-die "--context requires a brief file"))
+            (when (:handoff parsed)
+              (delegate-die "--handoff supplies its exact context; omit --context"))
             (recur (nnext xs) (assoc parsed :context path)))
 
           "--thread"
           (let [thread (second xs)]
             (when (or (nil? thread) (str/starts-with? thread "--"))
               (delegate-die "--thread requires a North thread id"))
+            (when (:handoff parsed)
+              (delegate-die "--handoff supplies its exact thread; omit --thread"))
             (when (:thread parsed)
               (delegate-die "delegate accepts exactly one --thread"))
             (recur (nnext xs) (assoc parsed :thread thread)))
+
+          "--handoff"
+          (delegate-die "--handoff must replace the task and may appear exactly once")
 
           (recur (rest xs) (update parsed :forward conj x)))
         parsed))))
@@ -2045,15 +2196,20 @@
 
 (defn cmd-delegate [args]
   (north.topology-authority/require-coordination! "delegate")
-  (let [{:keys [task mode role context thread forward]} (parse-delegate-args args)
+  (let [{:keys [task mode role context thread handoff forward]}
+        (parse-delegate-args args)
         _ (when-not mode
             (delegate-die "delegate needs an explicit intake decision: --role for atomic work or --composite"))
+        adopted (when handoff (read-delegate-handoff! handoff))
+        task (or (:task adopted) task)
+        thread (or (:thread adopted) thread)
         ctx-file context
-        ctx (when ctx-file
-              (let [f (io/file ctx-file)]
-                (when-not (.exists f)
-                  (delegate-die (str "context file not found: " ctx-file)))
-                (str/trim (slurp f))))
+        ctx (or (:context adopted)
+                (when ctx-file
+                  (let [f (io/file ctx-file)]
+                    (when-not (.exists f)
+                      (delegate-die (str "context file not found: " ctx-file)))
+                    (str/trim (slurp f)))))
         parsed-spawn (parse-spawn-args
                       (into [(if (= mode :composite) "director" role) task] forward))
         effective-topology (resolved-spawn-topology parsed-spawn)
@@ -2064,7 +2220,8 @@
         inherited-notify (and (not (some #{"--notify"} forward))
                               (System/getenv "NORTH_NOTIFY"))]
     (binding [*delegate-request* {:task task :mode mode :context ctx
-                                  :explicit-thread thread}]
+                                  :explicit-thread thread
+                                  :handoff? (boolean adopted)}]
       (cmd-spawn (cond-> (into [spawn-role task] forward)
                    inherited-notify (into ["--notify" inherited-notify]))))))
 

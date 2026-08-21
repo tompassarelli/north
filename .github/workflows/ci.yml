@@ -199,6 +199,7 @@ jobs:
           timeout --foreground 180s bb cli/tests/spawn-doctor-test.clj  # every dispatch-invariant row class, fixture-driven
           timeout --foreground 180s bb cli/tests/delegate-intake-e2e-test.clj
           timeout --foreground 120s bb cli/tests/agents-cli-test.clj
+          timeout --foreground 120s bb cli/tests/delegate-handoff-adoption-test.clj
           timeout --foreground 120s bb cli/tests/map-contract-test.clj
           timeout --foreground 120s bb cli/tests/pred-cli-test.clj
           timeout --foreground 120s bb cli/tests/config-drift-audit-test.clj
