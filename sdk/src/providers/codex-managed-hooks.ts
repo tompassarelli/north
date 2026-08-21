@@ -107,15 +107,9 @@ const command = (
 const nativeCommand = (
   path: string,
   timeout = 10,
-  managedDir = CODEX_MANAGED_HOOKS_DIR,
 ): ManagedCommandHook => ({
   type: "command",
-  command: [
-    resolve(managedDir, "runtime/env"),
-    "-u", "BASH_ENV",
-    "-u", "ENV",
-    path,
-  ].join(" "),
+  command: path,
   timeout,
 });
 
@@ -137,7 +131,8 @@ export function expectedManagedCodexHooks(
   managedDir = CODEX_MANAGED_HOOKS_DIR,
   systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): Record<
-  "SessionStart" | "SubagentStart" | "PreToolUse" | "PostToolUse" | "Stop",
+  | "SessionStart" | "SessionEnd" | "SubagentStart" | "SubagentStop"
+  | "PreToolUse" | "PostToolUse" | "Stop",
   ManagedMatcher[]
 > {
   return {
@@ -150,6 +145,12 @@ export function expectedManagedCodexHooks(
     SubagentStart: [{
       hooks: [command("north-on-spawn-codex", 15, managedDir)],
     }],
+    SessionEnd: [{
+      hooks: [command("north-on-terminal-codex", 3, managedDir)],
+    }],
+    SubagentStop: [{
+      hooks: [command("north-on-terminal-codex", 3, managedDir)],
+    }],
     PreToolUse: [
       {
         matcher: "^(Agent|Task|Workflow)$",
@@ -158,8 +159,8 @@ export function expectedManagedCodexHooks(
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
         hooks: [
-          nativeCommand(systemPolicyPath, 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
+          nativeCommand(systemPolicyPath, 10),
         ],
       },
       {
@@ -167,7 +168,7 @@ export function expectedManagedCodexHooks(
         hooks: [
           command("agent-spawn-guard.sh", 10, managedDir),
           command("tripwire-guard.sh", 10, managedDir),
-          nativeCommand(systemPolicyPath, 10, managedDir),
+          nativeCommand(systemPolicyPath, 10),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
