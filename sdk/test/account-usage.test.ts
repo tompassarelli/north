@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -298,6 +298,86 @@ test("an unavailable observation substrate degrades to unknown without probing o
     reason: "usage_observation_store_unavailable",
     observation: { state: "unknown" },
   });
+});
+
+test("operator display retains valid live usage when durable persistence is unconfirmed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "north-account-usage-live-only-"));
+  temporary.push(directory);
+  const now = new Date();
+  const reset = new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString();
+  let probes = 0;
+  const readCodex = async () => {
+    probes++;
+    return {
+      targetId: "codex-proton",
+      provider: "openai" as const,
+      source: "codex-app-server:account-rate-limits" as const,
+      observedAt: now.toISOString(),
+      windows: [{ limitId: "codex:primary", usedPercent: 25, resetsAt: reset }],
+    };
+  };
+  const writeUsageObservations = async () => {
+    throw new Error("Store admission unavailable");
+  };
+
+  const [routing] = await refreshAccountUsages({
+    accounts: [accounts(directory)[2]],
+    storePath: join(directory, "routing.json"),
+    now,
+    force: true,
+    readCodex,
+    writeUsageObservations,
+  });
+  expect(routing).toMatchObject({
+    status: "unavailable",
+    reason: "usage_observation_store_unavailable",
+    observation: { state: "unknown" },
+  });
+
+  const displayPath = join(directory, "display.json");
+  const [display] = await refreshAccountUsages({
+    accounts: [accounts(directory)[2]],
+    storePath: displayPath,
+    now,
+    force: true,
+    readCodex,
+    writeUsageObservations,
+    allowLiveUsageWithoutPersistence: true,
+  });
+  expect(probes).toBe(2);
+  expect(display).toMatchObject({
+    status: "observed",
+    cached: false,
+    persistence: "unconfirmed",
+    lastSuccessfulObservedAt: now.toISOString(),
+    observation: {
+      targetId: "codex-proton",
+      windows: [{ limitId: "codex:primary", usedPercent: 25, resetsAt: reset }],
+    },
+  });
+  expect(existsSync(displayPath)).toBe(false);
+
+  const [malformed] = await refreshAccountUsages({
+    accounts: [accounts(directory)[2]],
+    storePath: join(directory, "malformed.json"),
+    now,
+    force: true,
+    readCodex: async () => ({
+      targetId: "codex-proton",
+      provider: "openai",
+      source: "codex-app-server:account-rate-limits",
+      observedAt: "not-a-timestamp",
+      windows: [{ limitId: "codex:primary", usedPercent: 25, resetsAt: reset }],
+    }),
+    writeUsageObservations,
+    allowLiveUsageWithoutPersistence: true,
+  });
+  expect(malformed).toMatchObject({
+    status: "unavailable",
+    reason: "usage_observation_store_unavailable",
+    observation: { state: "unknown" },
+  });
+  expect(malformed.persistence).toBeUndefined();
 });
 
 test("route-scoped refresh probes only the exact target or requested provider", async () => {

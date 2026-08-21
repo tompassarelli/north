@@ -779,7 +779,7 @@
   (let [result (run [POLICY-BUN "run" CODEX-CENSUS-CLI] :timeout 4000)
         parsed (try (json/parse-string (str/trim (:out result)) false)
                     (catch Exception _ nil))]
-    (if (and (:ok result) (vector? parsed)
+    (if (and (:ok result) (sequential? parsed)
              (every? #(and (string? %) (not (str/blank? %))) parsed))
       (vec (sort (distinct parsed))) [])))
 

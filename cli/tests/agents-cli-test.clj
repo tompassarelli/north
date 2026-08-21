@@ -576,6 +576,14 @@
          (and (= "anthropic" (:provider route))
               (not= "fable" (:model route)))))
 
+(let [configured
+      (with-redefs [run (fn [_ & _]
+                          {:ok true :exit 0
+                           :out "[\"codex-proton\",\"codex-apple\",\"codex-proton\"]"})]
+        (configured-codex-accounts))]
+  (check "Codex census accepts Cheshire's sequential JSON array projection"
+         (= ["codex-apple" "codex-proton"] configured)))
+
 (let [calls (atom [])
       facts (with-redefs [north.coord/show-rows
                           (fn [port subject]
