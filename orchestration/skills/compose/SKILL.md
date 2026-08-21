@@ -20,7 +20,7 @@ pass it through the selected adapter's documented spawn surface.
 1. **Classify the independent axes** before selecting blocks:
    - Role/function — responsibility and deliverable: executor, curator,
      implementer, integrator, designer, director, scout, analyst, guardian,
-     reviewer, verifier, judge, scientist, or experimenter.
+     reviewer, verifier, judge, or scientist.
    - `taskGrade` — novice, junior, mid, senior, staff, principal, or
      distinguished.
    - Domain requirements — expertise, context, and external-access
@@ -50,8 +50,7 @@ pass it through the selected adapter's documented spawn surface.
 3. **Pick the prompt blocks** (all under this skill's plugin root):
    - Role — `docs/roles.md`: executor · curator · implementer · integrator ·
      designer · director · scout · analyst · guardian · reviewer · verifier · judge ·
-     scientist · experimenter. Sets authority, deliverable, report format,
-     redirects.
+     scientist. Sets authority, deliverable, report format, redirects.
    - Task grade — `docs/task-grades.md`: novice through distinguished. Sets
      the work-contract prior without impersonating a model tier.
    - Topology — `docs/topologies.md`: worker · orchestrator. Sets spawn and

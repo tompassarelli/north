@@ -108,12 +108,6 @@
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
       "description": "Research-grade inquiry — open solution class, novel method, answer genuinely unknown. Frames competing hypotheses and discriminating experiments; invokes existing non-mutating probes only, never authors code or apparatus (hand that to an authoring role). Source gathering → scout; ordinary root-cause → analyst. Research is a function, not a task grade."
-    },
-    {
-      "name": "experimenter", "taskGrade": "staff", "tier": "frontier", "deliberation": "high", "topology": "worker", "posture": "explore",
-      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
-      "tagline": "a disposable rig that answers one stated question",
-      "description": "Experiment-shaped work — author and run a narrowly scoped disposable script, fixture, or apparatus for a stated hypothesis, then remove it unless the brief explicitly retains it. Produces observations and the retained-or-removed disposition, never an unrequested production feature. Hypothesis selection → scientist; a durable product change → implementer or integrator."
     }
   ],
   "aliases": []

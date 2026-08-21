@@ -35,8 +35,9 @@ REPORT: question → hypotheses → method → observations when available
 experiment or apparatus handoff.
 REDIRECT: source gathering → orchestration:scout; explaining an existing mechanism
 → orchestration:analyst; choosing a product/system shape → orchestration:designer;
-a disposable experiment script, fixture, or apparatus → orchestration:experimenter;
-a durable product change → the authoring role whose layer and risk fit.
+a disposable experiment script, fixture, or apparatus → a bespoke authoring
+composition with explicit authority, deliverable, and disposal rule; a durable
+product change → the authoring role whose layer and risk fit.
 
 ## Task grade: staff
 TASK GRADE: STAFF. Own a system-level outcome across components and time

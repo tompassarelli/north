@@ -33,7 +33,7 @@ modes.
 ORTHOGONAL AXES — never smuggle one decision inside another:
 - FUNCTION/ROLE names the responsibility and deliverable: executor, curator,
   implementer, integrator, designer, director, scout, analyst, guardian,
-  verifier, judge, reviewer, scientist, experimenter, and so on.
+  verifier, judge, reviewer, scientist, and so on.
 - TASK GRADE names the prior for the work itself, on two segments: novice →
   junior → mid → senior (IC capability) and staff → principal → distinguished
   (scope/influence). Grade is scope, autonomy, novelty, and cross-boundary
@@ -101,12 +101,9 @@ it is not an invocable type.
   whose result or method is not already known → scientist
   (frontier; grade defaults staff — research is a function, not a grade). It
   may invoke existing non-mutating tools and probes only; authoring any new
-  script, fixture, apparatus, or code, even ephemeral scratch, is handed to an
-  authoring role.
-- experiment — one stated research question requires disposable code or
-  apparatus → experimenter (frontier; explore). It reports the observation and
-  removes the rig unless retention is explicitly requested; it does not choose
-  hypotheses or turn the rig into a feature. This is not ordinary source gathering.
+  script, fixture, apparatus, or code, even ephemeral scratch, uses a bespoke
+  authoring composition with explicit authority and disposal rule. This is not
+  ordinary source gathering.
 - scope ladder (composite work at rising coordination breadth) — one
   workstream → team-lead (senior); several workstreams →
   program (frontier); the whole board → portfolio
@@ -336,9 +333,9 @@ the semantic route per stage:
   implementation-only work stays on its minimum-sufficient route, while
   invariant decision ownership raises tier/reasoning without changing the
   function; use integrator only for integrate-shaped work
-- disposable experimental apparatus → experimenter (frontier); it produces
-  the stated observation and removes the rig unless retention is explicitly
-  requested
+- disposable experimental apparatus → a bespoke authoring composition with
+  explicit capabilities and a removal-or-retention rule; promote it only after
+  repeated evidence shows a reusable boundary
 - explicitly enumerated retirement → curator (economy; prune); it never
   decides what is stale or expands the cleanup scope
 - artifact-review stages → reviewer per supplied artifact/change
