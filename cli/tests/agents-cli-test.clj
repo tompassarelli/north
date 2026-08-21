@@ -38,11 +38,11 @@
                       (reset! captured (apply hash-map options))
                       {:ok true :out "{\"version\":1}"})]
     (preflight-routing-economics! {:role "executor"} nil nil nil nil nil true)
-    (check "spawn dry-run preflight validates against the canonical file source before graph import"
+    (check "spawn dry-run preflight validates against the canonical public catalog"
            (= "file" (get-in @captured [:env "NORTH_STAFFING_SOURCE"])))
     (preflight-routing-economics! {:role "executor"} nil nil nil nil nil false)
-    (check "real spawn preflight retains its graph-selected environment"
-           (nil? (:env @captured)))))
+    (check "real spawn preflight validates against the identical canonical public catalog before provider admission"
+           (= "file" (get-in @captured [:env "NORTH_STAFFING_SOURCE"])))))
 
 (let [routing-resolved? (atom false)
       missing-context "/tmp/north-delegate-cli-missing-context.md"

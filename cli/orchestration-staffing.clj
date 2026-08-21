@@ -55,15 +55,16 @@
          "' resolves through no provider catalog")))
 
 (defn posture-capability-problem [posture capabilities]
-  (cond
-    (and (= "preserve" posture)
-         (or (contains? capabilities "filesystem.write") (contains? capabilities "shell")))
-    "preserve posture requires a non-authoring capability boundary"
+  (let [capabilities (set capabilities)]
+    (cond
+      (and (= "preserve" posture)
+           (or (contains? capabilities "filesystem.write") (contains? capabilities "shell")))
+      "preserve posture requires a non-authoring capability boundary"
 
-    (and (= "prune" posture)
-         (or (not (contains? capabilities "filesystem.write"))
-             (not (contains? capabilities "shell"))))
-    "prune posture requires filesystem.write and shell capabilities"))
+      (and (= "prune" posture)
+           (or (not (contains? capabilities "filesystem.write"))
+               (not (contains? capabilities "shell"))))
+      "prune posture requires filesystem.write and shell capabilities")))
 
 (defn- exact-keys! [value allowed required label path]
   (when-not (map? value)
