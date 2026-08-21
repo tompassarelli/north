@@ -16,6 +16,11 @@ import { admitRoutingRequest } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
 import { StoreRpcClient } from "./store-rpc-client";
+import {
+  admitDeliveryLivenessFact, deliveryDispatchClassFromEnvironment, deliveryLivenessPath,
+  deliveryLivenessRequiredFromEnvironment, DeliveryLivenessAuthorityError,
+  type DeliveryDispatchClass,
+} from "./delivery-liveness";
 
 const REPO = resolve(import.meta.dir, "../..");
 const ENGINE = `${REPO}/bin/north`;
@@ -89,6 +94,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "NORTH_RESERVED_FRONTIER_PROVIDER",
   "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_HARNESS_STATE",
+  "NORTH_DELIVERY_LIVENESS_REQUIRED",
   "NORTH_AUTHOR",
   "NORTH_DRIVER",
   "NORTH_LEAD",
@@ -209,6 +215,15 @@ export class ManagedDispatchAuthorityError extends ExecutionAdmissionError {
   }
 }
 
+export class DeliveryLivenessDispatchError extends ExecutionAdmissionError {
+  readonly code = "blocked_delivery_liveness";
+  readonly processOutcome = "blocked_delivery_liveness";
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "DeliveryLivenessDispatchError";
+  }
+}
+
 /**
  * Honor the live operator dispatch mode before any managed provider work.
  *
@@ -218,6 +233,7 @@ export class ManagedDispatchAuthorityError extends ExecutionAdmissionError {
  */
 export function admitManagedDispatchAuthority(
   environment: NodeJS.ProcessEnv = process.env,
+  dispatchClass = deliveryDispatchClassFromEnvironment(environment),
 ): void {
   const result = spawnSync(
     ENGINE,
@@ -240,15 +256,27 @@ export function admitManagedDispatchAuthority(
   }
   if (stderr) console.warn(stderr);
   const action = result.stdout.trim();
-  if (action === "allow") return;
   if (action === "deny") {
     throw new ManagedDispatchAuthorityError(
       "managed_dispatch_denied_by_native",
     );
   }
-  throw new ManagedDispatchAuthorityError(
-    `managed_dispatch_authority_invalid_action: ${JSON.stringify(action)}`,
-  );
+  if (action !== "allow") {
+    throw new ManagedDispatchAuthorityError(
+      `managed_dispatch_authority_invalid_action: ${JSON.stringify(action)}`,
+    );
+  }
+  // A repair is an explicitly classified recovery action; ordinary feature
+  // dispatch consumes the sole deterministic Firn floor fact and fails closed.
+  if (dispatchClass === "repair") return;
+  if (!deliveryLivenessRequiredFromEnvironment(environment)) return;
+  try {
+    admitDeliveryLivenessFact({ path: deliveryLivenessPath(environment) });
+  } catch (error) {
+    const message = error instanceof DeliveryLivenessAuthorityError
+      ? error.reason : "delivery_liveness_authority_unavailable";
+    throw new DeliveryLivenessDispatchError(message, { cause: error });
+  }
 }
 
 /**
