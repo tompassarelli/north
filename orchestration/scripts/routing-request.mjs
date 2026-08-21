@@ -1,4 +1,6 @@
-import { loadStaffingCatalog, validateTopologyCapabilities } from "./staffing-catalog.mjs";
+import {
+  loadStaffingCatalog, validatePostureCapabilities, validateTopologyCapabilities,
+} from "./staffing-catalog.mjs";
 import { resolvableDeliberations } from "./provider-catalog.mjs";
 import { canonicalRoleId } from "./role-id.mjs";
 
@@ -108,6 +110,7 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
     else if (composition.overrideReason !== undefined)
       throw new Error("unchanged stock template must omit composition.overrideReason");
     validateTopologyCapabilities(request.topology, preset.capabilities, `routing stock template ${role}`);
+    validatePostureCapabilities(request.posture, preset.capabilities, `routing stock template ${role}`);
   } else if (composition.kind === "bespoke") {
     const allowed = ["kind", "id", "nearestTemplate", "bespokeReason", "promotionCandidate", "contract"];
     const unknown = Object.keys(composition).filter((key) => !allowed.includes(key));
@@ -128,6 +131,7 @@ export function validateRoutingRequest(value, catalog = loadStaffingCatalog()) {
       throw new Error("composition.promotionCandidate must be boolean");
     validateContract(composition.contract, catalog);
     validateTopologyCapabilities(request.topology, composition.contract.capabilities, `routing bespoke ${role}`);
+    validatePostureCapabilities(request.posture, composition.contract.capabilities, `routing bespoke ${role}`);
   } else {
     throw new Error("composition.kind must be template or bespoke");
   }

@@ -13,7 +13,7 @@ Routing options:
   --topology <kind>         worker|orchestrator (bespoke compositions only)
   --tier <tier>             economy|standard|senior|frontier
   --deliberation <level>    low|medium|high|xhigh|max (alias: --reasoning; emitted as reasoning)
-  --posture <posture>       explore|deliver|preserve|evaluate
+  --posture <posture>       explore|deliver|preserve|prune|evaluate
   --nearest <template>      optional stock-template reference/defaults for a bespoke composition
   --rationale <reason>      required when <role> is not a stock template or alias
   --contract <JSON|@file>   bespoke authority/deliverable/done contract

@@ -22,6 +22,14 @@ export function validateTopologyCapabilities(topology, capabilities, label = "ca
   }
 }
 
+export function validatePostureCapabilities(posture, capabilities, label = "capabilities") {
+  const has = (capability) => capabilities.includes(capability);
+  if (posture === "preserve" && (has("filesystem.write") || has("shell")))
+    throw new Error(`${label}: preserve posture requires a non-authoring capability boundary`);
+  if (posture === "prune" && (!has("filesystem.write") || !has("shell")))
+    throw new Error(`${label}: prune posture requires filesystem.write and shell capabilities`);
+}
+
 function keysOnly(value, allowed, label) {
   const unknown = Object.keys(value ?? {}).filter((key) => !allowed.includes(key));
   if (unknown.length) throw new Error(`staffing catalog: ${label} has unknown field(s): ${unknown.join(", ")}`);
@@ -60,6 +68,7 @@ export function validateStaffingCatalog(catalog) {
         new Set(preset.capabilities).size !== preset.capabilities.length)
       throw new Error(`${preset.name}: capabilities must contain unique canonical capability labels`);
     validateTopologyCapabilities(preset.topology, preset.capabilities, `${preset.name}.capabilities`);
+    validatePostureCapabilities(preset.posture, preset.capabilities, `${preset.name}.capabilities`);
     for (const field of ["tagline", "description"])
       if (typeof preset[field] !== "string" || !preset[field].trim()) throw new Error(`${preset.name}: missing ${field}`);
   }

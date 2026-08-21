@@ -1422,7 +1422,9 @@
         (when (and (sequential? selected-capabilities) (every? string? selected-capabilities))
           (mapv canonical-contract-text selected-capabilities))
         capability-problem (when normalized-selected-capabilities
-                             (topology-capability-problem selected-topology normalized-selected-capabilities))
+                             (or (topology-capability-problem selected-topology normalized-selected-capabilities)
+                                 (north.orchestration-staffing/posture-capability-problem
+                                  selected-posture normalized-selected-capabilities)))
         composition-kind (when (map? selected-composition) (:kind selected-composition))
         allowed-composition-fields (case composition-kind
                                      "template" #{:kind :id :overrides :overrideReason}

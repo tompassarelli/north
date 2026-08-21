@@ -31,9 +31,9 @@ modes.
 
 <!-- orchestration:full-only -->
 ORTHOGONAL AXES — never smuggle one decision inside another:
-- FUNCTION/ROLE names the responsibility and deliverable: executor,
-  implementer, integrator, designer, director, scout, analyst, verifier, judge,
-  reviewer, scientist, and so on.
+- FUNCTION/ROLE names the responsibility and deliverable: executor, curator,
+  implementer, integrator, designer, director, scout, analyst, guardian,
+  verifier, judge, reviewer, scientist, experimenter, and so on.
 - TASK GRADE names the prior for the work itself, on two segments: novice →
   junior → mid → senior (IC capability) and staff → principal → distinguished
   (scope/influence). Grade is scope, autonomy, novelty, and cross-boundary
@@ -50,7 +50,8 @@ ORTHOGONAL AXES — never smuggle one decision inside another:
 - DELIBERATION names the reasoning budget independently of capability: low,
   medium, high, xhigh, or max where the selected provider supports it.
 - POSTURE names what yields when values collide: explore, deliver, preserve,
-  or evaluate. It never expands role, topology, or capabilities.
+  prune, or evaluate. It never expands role, topology, or capabilities;
+  preserve additionally constrains authority to read-only guarding.
 Templates fill common combinations of these axes. They are defaults, not types
 and not limits; every changed overrideable template axis is listed in
 `overrides[]` with one `overrideReason`. Topology is fixed for a stock template,
@@ -68,6 +69,8 @@ it is not an invocable type.
   never execute the worker pieces → director (frontier; orchestrator)
 - execute — bounded, mechanical: apply a patch, rename, obvious tests
   → executor (economy)
+- curate — retire an explicitly enumerated finished artifact set without
+  deciding what is stale → curator (economy; prune)
 - implement — one feature/fix inside known patterns, well-trodden code
   → implementer (standard)
 - integrate — cross-file change, ambiguous debugging, refactor with behavior
@@ -81,6 +84,8 @@ it is not an invocable type.
   (senior). Fan out when independently traceable mechanisms benefit from
   separate evidence trails and later synthesis; keep tightly coupled traces
   together regardless of subsystem count.
+- guard — inspect a named live, shared, or immutable boundary and report what
+  must not change → guardian (senior; preserve; read-only)
 - review — evaluate one supplied artifact or change across multiple criteria;
   return evidence-backed prioritized findings plus accept, changes-required,
   or cannot-assess → reviewer (senior)
@@ -97,7 +102,11 @@ it is not an invocable type.
   (frontier; grade defaults staff — research is a function, not a grade). It
   may invoke existing non-mutating tools and probes only; authoring any new
   script, fixture, apparatus, or code, even ephemeral scratch, is handed to an
-  authoring role. This is not ordinary source gathering.
+  authoring role.
+- experiment — one stated research question requires disposable code or
+  apparatus → experimenter (frontier; explore). It reports the observation and
+  removes the rig unless retention is explicitly requested; it does not choose
+  hypotheses or turn the rig into a feature. This is not ordinary source gathering.
 - scope ladder (composite work at rising coordination breadth) — one
   workstream → team-lead (senior); several workstreams →
   program (frontier); the whole board → portfolio
@@ -327,6 +336,11 @@ the semantic route per stage:
   implementation-only work stays on its minimum-sufficient route, while
   invariant decision ownership raises tier/reasoning without changing the
   function; use integrator only for integrate-shaped work
+- disposable experimental apparatus → experimenter (frontier); it produces
+  the stated observation and removes the rig unless retention is explicitly
+  requested
+- explicitly enumerated retirement → curator (economy; prune); it never
+  decides what is stale or expands the cleanup scope
 - artifact-review stages → reviewer per supplied artifact/change
 - verification explicitly requested by the user → verifier for
   the named claim; justify task-grade/tier/reasoning overrides up or down while

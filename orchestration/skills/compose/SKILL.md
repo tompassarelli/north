@@ -18,9 +18,9 @@ pass it through the selected adapter's documented spawn surface.
 ## Procedure
 
 1. **Classify the independent axes** before selecting blocks:
-   - Role/function — responsibility and deliverable: executor, implementer,
-     integrator, designer, director, scout, analyst, reviewer, verifier, judge,
-     or scientist.
+   - Role/function — responsibility and deliverable: executor, curator,
+     implementer, integrator, designer, director, scout, analyst, guardian,
+     reviewer, verifier, judge, scientist, or experimenter.
    - `taskGrade` — novice, junior, mid, senior, staff, principal, or
      distinguished.
    - Domain requirements — expertise, context, and external-access
@@ -34,7 +34,7 @@ pass it through the selected adapter's documented spawn surface.
    - Semantic tier — economy, standard, senior, or frontier capability floor.
    - Deliberation — low, medium, high, xhigh, or max reasoning budget where
      supported by the selected provider tier.
-   - Posture — explore, deliver, preserve, or evaluate collision ordering. It
+   - Posture — explore, deliver, preserve, prune, or evaluate collision ordering. It
      never expands role, topology, or capabilities.
    Done: each axis is stated explicitly; no role name doubles as a grade,
    model, or manager permission.
@@ -48,14 +48,15 @@ pass it through the selected adapter's documented spawn surface.
    Done: every required side effect has both authority and an available
    execution surface; unmet access is a preflight result, not a model task.
 3. **Pick the prompt blocks** (all under this skill's plugin root):
-   - Role — `docs/roles.md`: executor · implementer · integrator ·
-     designer · director · scout · analyst · reviewer · verifier · judge ·
-     scientist. Sets authority, deliverable, report format, redirects.
+   - Role — `docs/roles.md`: executor · curator · implementer · integrator ·
+     designer · director · scout · analyst · guardian · reviewer · verifier · judge ·
+     scientist · experimenter. Sets authority, deliverable, report format,
+     redirects.
    - Task grade — `docs/task-grades.md`: novice through distinguished. Sets
      the work-contract prior without impersonating a model tier.
    - Topology — `docs/topologies.md`: worker · orchestrator. Sets spawn and
      reduction authority without contaminating posture.
-   - Posture — `docs/postures.md`: explore · deliver · preserve · evaluate. Sets the
+   - Posture — `docs/postures.md`: explore · deliver · preserve · prune · evaluate. Sets the
      collision priority order (what yields when values conflict).
    - Comms — `docs/comms.md` (universal block): output norms every report
      follows regardless of role.

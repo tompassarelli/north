@@ -10,7 +10,7 @@ import {
 } from "./routing-metadata";
 import {
   ORCHESTRATION_CAPABILITIES, ORCHESTRATION_PRESET_CAPABILITIES, requireOrchestrationCapabilities,
-  validateTopologyCapabilities,
+  validatePostureCapabilities, validateTopologyCapabilities,
   type OrchestrationCapability,
 } from "./orchestration-capabilities";
 import { requireOrchestrationRoleId } from "./orchestration-role-id";
@@ -40,11 +40,11 @@ interface StaffingCatalog {
 }
 
 export const ORCHESTRATION_STOCK_ROLE_IDS = [
-  "executor", "implementer", "integrator", "designer", "director", "scout",
-  "analyst", "reviewer", "verifier", "judge", "scientist",
+  "executor", "curator", "implementer", "integrator", "designer", "director", "scout",
+  "analyst", "guardian", "reviewer", "verifier", "judge", "scientist", "experimenter",
   "team-lead", "program", "portfolio",
 ] as const;
-const STOCK_AUTHORING_ROLES = new Set(["executor", "implementer", "integrator"]);
+const STOCK_AUTHORING_ROLES = new Set(["executor", "curator", "implementer", "integrator", "experimenter"]);
 
 export const DEFAULT_ORCHESTRATION_STAFFING_PATH = resolve(
   process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"), "staffing/catalog.json",
@@ -160,6 +160,7 @@ export function loadOrchestrationStaffing(
     if (preset.topology !== "worker" && preset.topology !== "orchestrator")
       throw new Error(`invalid Orchestration topology for ${preset.name}`);
     validateTopologyCapabilities(preset.topology, preset.capabilities, `${preset.name}.capabilities`);
+    validatePostureCapabilities(preset.posture, preset.capabilities, `${preset.name}.capabilities`);
   }
   const exactNames = [...ORCHESTRATION_STOCK_ROLE_IDS].sort();
   const actualNames = [...presetNames].sort();
@@ -263,6 +264,9 @@ export function applyOrchestrationStaffing(
     validateTopologyCapabilities(
       request.topology, composition.contract.capabilities, `${role}.capabilities`,
     );
+    validatePostureCapabilities(
+      request.posture, composition.contract.capabilities, `${role}.capabilities`,
+    );
     requireProviderNeutralRoute(request.tier, request.reasoning);
     return parseCompleteRoutingRequest(request, "Orchestration request composer");
   }
@@ -331,6 +335,7 @@ export function applyOrchestrationStaffing(
     posture: metadata.posture ?? base.posture as RoutingMetadata["posture"],
     composition: composition ?? { kind: "template", id: role, overrides: [] },
   } as RoutingRequest;
+  validatePostureCapabilities(request.posture, preset.capabilities, `${role}.capabilities`);
   requireProviderNeutralRoute(request.tier, request.reasoning);
   return parseCompleteRoutingRequest(request, "Orchestration request composer");
 }

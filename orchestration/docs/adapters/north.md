@@ -69,6 +69,7 @@ Routing defaults
   orchestration role  task grade     tier      reasoning  topology      posture   capabilities
   ------------------  -------------  --------  ---------  ------------  --------  -----------------------------------------------------------------
   executor            novice         economy   low        worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
+  curator             junior         economy   low        worker        prune     filesystem.read,filesystem.search,filesystem.write,shell
   implementer         mid            standard  medium     worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
   integrator          senior         senior    high       worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
   designer            staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly
@@ -78,10 +79,12 @@ Routing defaults
   portfolio           distinguished  frontier  xhigh      orchestrator  deliver   filesystem.read,filesystem.search,shell.readonly,web,coordination
   scout               junior         economy   low        worker        explore   filesystem.read,filesystem.search,shell.readonly,web
   analyst             senior         senior    high       worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  guardian            senior         senior    high       worker        preserve  filesystem.read,filesystem.search,shell.readonly
   reviewer            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
   verifier            senior         senior    high       worker        evaluate  filesystem.read,filesystem.search,shell.readonly
   judge               staff          frontier  xhigh      worker        evaluate  filesystem.read,filesystem.search,shell.readonly
   scientist           staff          frontier  xhigh      worker        explore   filesystem.read,filesystem.search,shell.readonly,web
+  experimenter        staff          frontier  high       worker        explore   filesystem.read,filesystem.search,filesystem.write,shell
 
 ORCHESTRATION (role-jurisdiction law, see doctrine.md): a WORKER owns one
 terminal piece and MUST NOT delegate. An ORCHESTRATOR coordinates rather than
