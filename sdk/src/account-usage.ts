@@ -60,6 +60,7 @@ import {
   loadResourcePolicy,
   loadProviderUsageObservations,
   OBSERVATION_CLOCK_SKEW_MS,
+  parseProviderUsageObservations,
 } from "./resource-policy";
 import { observeFailoverUsageSample } from "./failover";
 
@@ -85,6 +86,8 @@ export interface AccountUsageReport {
   observation: ProviderUsageObservation;
   unavailableComponents: UnavailableUsageComponent[];
   reason?: AccountUsageUnavailableReason;
+  /** A valid live sample whose durable write was not confirmed; display only. */
+  persistence?: "unconfirmed";
   /** Current supportedModels attempt, kept in memory for execution admission. */
   modelAvailabilityAttempt?: AccountModelAvailabilityAttempt;
 }
@@ -122,6 +125,10 @@ export interface RefreshAccountUsageOptions {
   readAnthropic?: ReadAnthropic;
   readCodex?: ReadCodex;
   readCodexControl?: ReadCodexControl;
+  /** Human diagnostics may retain a valid live sample after its durable write fails. */
+  allowLiveUsageWithoutPersistence?: boolean;
+  /** Fixture seam for the durable usage write. */
+  writeUsageObservations?: typeof writeProviderUsageObservations;
   /** Fixture seam for the post-sample, cached-evidence failover warning hook. */
   failoverObserver?: (runtime: { env: NodeJS.ProcessEnv }) => unknown;
 }
@@ -185,6 +192,7 @@ function observedReport(
   cached: boolean,
   unavailableComponents: UnavailableUsageComponent[] = observation.unavailableComponents ?? [],
   modelAvailabilityAttempt?: AccountModelAvailabilityAttempt,
+  persistence?: AccountUsageReport["persistence"],
 ): AccountUsageReport {
   return {
     accountId: account.id,
@@ -196,6 +204,7 @@ function observedReport(
     cached,
     observation,
     unavailableComponents,
+    ...(persistence ? { persistence } : {}),
     ...(modelAvailabilityAttempt ? { modelAvailabilityAttempt } : {}),
   };
 }
@@ -234,11 +243,15 @@ function unavailableReport(
 function validateObservationForAccount(
   account: AccountUsageTarget,
   observation: ProviderUsageObservation,
-): void {
-  if (observation.targetId !== account.id
-      || observation.provider !== account.provider
-      || observation.source !== sourceFor(account.provider))
+): ProviderUsageObservation {
+  const validated = parseProviderUsageObservations(
+    { version: 1, observations: [observation] }, "provider usage response",
+  ).observations[0]!;
+  if (validated.targetId !== account.id
+      || validated.provider !== account.provider
+      || validated.source !== sourceFor(account.provider))
     throw new Error("provider usage observation identity mismatch");
+  return validated;
 }
 
 function cachedReport(
@@ -457,8 +470,22 @@ async function refreshOne(
           }
         }
         throwIfProviderRefreshCancelled(options.signal);
-        validateObservationForAccount(account, observation);
-        await writeProviderUsageObservations(observation, storePath, { signal: options.signal });
+        observation = validateObservationForAccount(account, observation);
+        try {
+          await (options.writeUsageObservations ?? writeProviderUsageObservations)(
+            observation, storePath, { signal: options.signal },
+          );
+        } catch (error) {
+          if (error instanceof ProviderRefreshCancelledError || options.signal?.aborted)
+            throw new ProviderRefreshCancelledError();
+          if (options.allowLiveUsageWithoutPersistence) {
+            return observedReport(
+              account, observation, false, unavailableComponents,
+              modelAvailabilityAttempt, "unconfirmed",
+            );
+          }
+          throw error;
+        }
         return observedReport(
           account, observation, false, unavailableComponents, modelAvailabilityAttempt,
         );
@@ -498,7 +525,7 @@ async function refreshOne(
               collectionFailure: { observedAt: now.toISOString(), reason },
             };
         try {
-          await writeProviderUsageObservations(
+          await (options.writeUsageObservations ?? writeProviderUsageObservations)(
             failedObservation, storePath, { signal: options.signal },
           );
         } catch (writeError) {

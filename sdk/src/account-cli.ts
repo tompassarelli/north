@@ -210,10 +210,10 @@ function printPlainUsageReports(
       const report = reports.find(({ accountId }) => accountId === account.id)!;
       console.log(`  ${account.id}`);
       const headroom = automatedPressure(report.observation, now) ?? "unknown";
-      console.log(`    headroom: ${headroom} (${usageReportStatus(report, now)}${report.cached ? ", cached" : ""})`);
+      console.log(`    headroom: ${headroom} (${usageReportStatus(report, now)}${report.cached ? ", cached" : ""}${report.persistence ? ", live only" : ""})`);
       console.log(`    source:   ${report.source}`);
       if (report.lastSuccessfulObservedAt)
-        console.log(`    usage evidence:  ${report.lastSuccessfulObservedAt}${report.cached ? " (cached)" : ""}`);
+        console.log(`    usage evidence:  ${report.lastSuccessfulObservedAt}${report.cached ? " (cached)" : ""}${report.persistence ? " (persistence unconfirmed; not used for routing)" : ""}`);
       if (report.collectionAttemptedAt)
         console.log(`    collection tried: ${report.collectionAttemptedAt}`);
       if (report.observation.windows?.length) {
@@ -279,7 +279,7 @@ function printStyledUsageReports(
       const headroom = automatedPressure(report.observation, now) ?? "unknown";
       console.log(`${style.accent(account.id)}  ${headroomLabel(style, headroom)}`);
       console.log(style.pairs([
-        ["status", `${usageReportStatus(report, now)}${report.cached ? " · cached" : ""}`],
+        ["status", `${usageReportStatus(report, now)}${report.cached ? " · cached" : ""}${report.persistence ? " · live only" : ""}`],
       ], "  "));
       if (report.observation.windows?.length) {
         console.log(style.dim("  windows"));
@@ -304,7 +304,7 @@ function printStyledUsageReports(
       }
       const provenance: Array<readonly [string, string]> = [["source", report.source]];
       if (report.lastSuccessfulObservedAt)
-        provenance.push(["evidence", `${report.lastSuccessfulObservedAt}${report.cached ? " · cached" : ""}`]);
+        provenance.push(["evidence", `${report.lastSuccessfulObservedAt}${report.cached ? " · cached" : ""}${report.persistence ? " · persistence unconfirmed · not used for routing" : ""}`]);
       if (report.collectionAttemptedAt) provenance.push(["collection tried", report.collectionAttemptedAt]);
       console.log(style.dim(style.pairs(provenance, "  ")));
     }
@@ -448,9 +448,12 @@ export async function runAccountCli(args: string[]): Promise<number> {
           console.log("no isolated accounts configured");
           return 0;
         }
-        const reports = await refreshAccountUsages({ accounts, force: refresh });
+        const reports = await refreshAccountUsages({
+          accounts, force: refresh, allowLiveUsageWithoutPersistence: true,
+        });
         await printUsageReports(accounts, reports, hours);
-        return reports.every(({ status }) => status === "observed") ? 0 : 1;
+        return reports.every(({ status, persistence }) =>
+          status === "observed" && persistence === undefined) ? 0 : 1;
       }
       case "availability": {
         const { json, model } = availabilityOptions(rest);
