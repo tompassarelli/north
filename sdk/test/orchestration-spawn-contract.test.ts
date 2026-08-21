@@ -92,12 +92,12 @@ test("SDK presets inherit catalog axes while declared compatible overrides win i
     .toThrow("role researcher is retired");
 });
 
-test("North CLI reads staffing/catalog.json and carries independent overrides", () => {
+test("North CLI reads staffing/catalog.json and carries authority-compatible independent overrides", () => {
   // --ad-hoc, deliberately: this probe resolves staffing and never becomes a
   // run, so there is no effort to attribute. The gate still fires on --dry-run
   // by design — a preview that accepted what the real spawn refuses would lie
   // about admissibility precisely where the preview is meant to be trusted.
-  const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "scout", "settle completed work",
+  const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "executor", "settle completed work",
     "--dry-run", "--ad-hoc", "--taskGrade", "principal", "--domain", "computer-science",
     "--tier", "frontier", "--reasoning", "xhigh", "--posture", "prune",
     "--override-reason", "principal bounded retirement"], {
@@ -108,7 +108,7 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
   expect(result.stdout).toContain("AGENT_DOMAIN_REQUIREMENTS=[\"computer-science\"]");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
-  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal bounded retirement\"}");
+  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"executor\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal bounded retirement\"}");
 });
 
 test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
@@ -168,5 +168,11 @@ test("North MCP advertises the complete composition contract", () => {
     "tier", "reasoning", "posture", "composition",
   ]);
   expect(spawn.inputSchema.properties.reasoning.enum).toContain("xhigh");
+  expect(spawn.inputSchema.properties.posture.enum).toEqual(
+    ["explore", "deliver", "preserve", "prune", "evaluate"],
+  );
+  expect(dispatch.inputSchema.properties.posture.enum).toEqual(
+    ["explore", "deliver", "preserve", "prune", "evaluate"],
+  );
   expect(spawn.inputSchema.properties.composition.oneOf).toHaveLength(2);
 });

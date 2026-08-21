@@ -1110,11 +1110,10 @@
                   model (assoc :model model))
         result (run [POLICY-BUN "run" ROUTING-ECONOMICS-PREFLIGHT-CLI]
                     :timeout routing-economics-preflight-timeout-ms
-                    ;; A dry run never publishes or consumes its receipt. Keep
-                    ;; its admission checks runnable before a coordinator has
-                    ;; imported the graph catalog; real spawns stay graph-pinned.
-                    :env (when dry?
-                           (assoc (into {} (System/getenv)) "NORTH_STAFFING_SOURCE" "file"))
+                    ;; Pre-provider admission always validates the packaged
+                    ;; public catalog. A dry preview must admit or refuse the
+                    ;; exact same request as its real counterpart.
+                    :env (assoc (into {} (System/getenv)) "NORTH_STAFFING_SOURCE" "file")
                     :in (json/generate-string payload))]
     (when-not (:ok result)
       (println (red (preflight-failure-message
