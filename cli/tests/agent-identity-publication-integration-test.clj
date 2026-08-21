@@ -140,7 +140,7 @@
               "display_name" "anthropic:claude-a · opus · high · orchestration:integrator"}
       bespoke {"kind" "lane" "role" "migration-forensics" "model" "gpt-5.6-sol"
                "provider" "openai" "provider_target" "codex-b" "effort" "xhigh"
-               "live_input" "turn-message" "live_input_state" "frozen"
+               "live_input" "turn-messages" "live_input_state" "frozen"
                "live_input_epoch" "00000000-0000-4000-8000-000000000102"
                "composition_kind" "bespoke" "composition_id" "migration-forensics"
                "nearest_template" "analyst" "bespoke_reason" "cross-schema archaeology"
@@ -427,7 +427,7 @@
     (doseq [{:keys [operation payload verify]}
             [{:operation "route"
               :payload {"provider" "openai" "provider_target" "codex-held"
-                        "live_input" "turn-message" "live_input_state" "frozen"
+                        "live_input" "turn-messages" "live_input_state" "frozen"
                         "live_input_epoch" "00000000-0000-4000-8000-000000000104"
                         "model" "gpt-5.6-sol" "effort" "high"
                         "display_handle" "openai-held-sol-high-integrator"

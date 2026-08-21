@@ -13,7 +13,7 @@
 (def preset
   {"kind" "lane" "role" "integrator" "model" "gpt-5.6-sol"
    "provider" "openai" "provider_target" "codex-a" "effort" "high"
-   "live_input" "turn-message" "live_input_state" "frozen"
+   "live_input" "turn-messages" "live_input_state" "frozen"
    "live_input_epoch" "00000000-0000-4000-8000-000000000101"
    "composition_kind" "template" "composition_id" "integrator"
    "composition_overrides" "[]" "repo" "north"

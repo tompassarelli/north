@@ -244,7 +244,7 @@
 
     (publish! port "openai-unsupported" "openai" "unsupported")
     (register! port "openai-unsupported")
-    (publish! port "openai-turn-message" "openai" "turn-message")
+    (publish! port "openai-turn-message" "openai" "turn-messages")
     (register! port "openai-turn-message")
     (publish! port "anthropic-streaming" "anthropic" "streaming")
     (register! port "anthropic-streaming")

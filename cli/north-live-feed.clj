@@ -417,7 +417,7 @@
         (or (not (map? facts))
             (not (and (string? observed)
                       (re-matches #"^[0-9a-f]{64}$" observed)))
-            (not (contains? #{"streaming" "turn-messaged" "unsupported"} live-input))
+            (not (contains? #{"streaming" "turn-messages" "unsupported"} live-input))
             (not (contains? #{"pending" "armed" "frozen"}
                             live-input-state))
             (not (safe-route-epoch? live-input-epoch)))
@@ -440,7 +440,7 @@
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
-        (or (not (contains? #{"streaming" "turn-messaged"} live-input))
+        (or (not (contains? #{"streaming" "turn-messages"} live-input))
             (not= "armed" live-input-state))
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
