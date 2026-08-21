@@ -5,15 +5,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  config_entry_active_p as configEntryActive,
-  config_gate_modules as configGateModules,
-  config_membership_of_json as configMembershipOfJson,
-  config_module_members as configModuleMembers,
-  config_state_text as configStateText,
-  config_unit_active_p as configUnitActive,
-  config_view_rows as configViewRows,
-  load_config_memberships_bang as loadConfigMemberships,
-  render_config_panel_bang as renderConfigPanel,
+  "config-entry-active?" as configEntryActive,
+  "config-gate-modules" as configGateModules,
+  "config-membership-of-json" as configMembershipOfJson,
+  "config-module-members" as configModuleMembers,
+  "config-state-text" as configStateText,
+  "config-unit-active?" as configUnitActive,
+  "config-view-rows" as configViewRows,
+  "load-config-memberships!" as loadConfigMemberships,
+  "render-config-panel!" as renderConfigPanel,
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // Pin the terminal: the panel reads it for its window math, so the snapshots below

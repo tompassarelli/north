@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import {
-  handle_local_command_bang as handleLocalCommand,
-  parse_bridge_stream_bang as parseBridgeStream,
-  project_conversation as projectConversation,
+  "handle-local-command!" as handleLocalCommand,
+  "parse-bridge-stream!" as parseBridgeStream,
+  "project-conversation" as projectConversation,
 } from "../src/bridge/generated/north/bridge/app.js";
 import { renderWireEvent } from "../src/bridge/cli";
 import {

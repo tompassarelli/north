@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { BoxRenderable, TextRenderable } from "@opentui/core";
 import {
-  config_unit_active_p as configUnitActive,
-  config_entry_active_p as configEntryActive,
-  config_state_text as configStateText,
-  config_toggle_verb as configToggleVerb,
-  config_view_rows as configViewRows,
-  render_config_panel_bang as renderConfigPanel,
+  "config-unit-active?" as configUnitActive,
+  "config-entry-active?" as configEntryActive,
+  "config-state-text" as configStateText,
+  "config-toggle-verb" as configToggleVerb,
+  "config-view-rows" as configViewRows,
+  "render-config-panel!" as renderConfigPanel,
 } from "../src/bridge/generated/north/bridge/app.js";
 
 // Pin the terminal: the panel reads it for its window math, so the snapshots below

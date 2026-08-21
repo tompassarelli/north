@@ -1,12 +1,56 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { Agent, WorkItem, agent_effort, agent_goal, agent_id, agent_model, agent_model_display, agent_name, agent_orchestration_provenance, agent_provider, agent_provider_label, agent_provider_target, agent_state, agent_status, agent_task, bridgesnapshot_active_view_id, bridgesnapshot_agents, bridgesnapshot_board, bridgesnapshot_list, bridgesnapshot_notice, bridgesnapshot_selected_agent, bridgesnapshot_selected_thread, focus_view, make_model, remove_agent, replace_projection, select_agent, select_thread, set_filter, snapshot, upsert_agent, workitem_body, workitem_condition, workitem_dependencies, workitem_driver, workitem_id, workitem_title } from './model.js';
+import { "->Agent" as Agent, "->WorkItem" as WorkItem, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-thread" as bridgesnapshot_selected_thread, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-thread" as select_thread, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "workitem-body" as workitem_body, "workitem-condition" as workitem_condition, "workitem-dependencies" as workitem_dependencies, "workitem-driver" as workitem_driver, "workitem-id" as workitem_id, "workitem-title" as workitem_title } from './model.js';
+import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
+import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
+
+function ResponseValue(text) {
+  return $$bc$record_value("north.bridge.app/ResponseValue", {_tag: "ResponseValue", text});
+}
+
+function responsevalue_text(r) { return r.text; }
+
+function StreamRead(done, value) {
+  return $$bc$record_value("north.bridge.app/StreamRead", {_tag: "StreamRead", done, value});
+}
+
+function streamread_done(r) { return r.done; }
+
+function streamread_value(r) { return r.value; }
+
+function StreamReader(read) {
+  return $$bc$record_value("north.bridge.app/StreamReader", {_tag: "StreamReader", read});
+}
+
+function streamreader_read(r) { return r.read; }
+
+function ReadableStream(getReader) {
+  return $$bc$record_value("north.bridge.app/ReadableStream", {_tag: "ReadableStream", getReader});
+}
+
+function readablestream_getReader(r) { return r.getReader; }
+
+function CommandChild(stdout, stderr, exited) {
+  return $$bc$record_value("north.bridge.app/CommandChild", {_tag: "CommandChild", stdout, stderr, exited});
+}
+
+function commandchild_stdout(r) { return r.stdout; }
+
+function commandchild_stderr(r) { return r.stderr; }
+
+function commandchild_exited(r) { return r.exited; }
+
+function PromiseConstructor(all) {
+  return $$bc$record_value("north.bridge.app/PromiseConstructor", {_tag: "PromiseConstructor", all});
+}
+
+function promiseconstructor_all(r) { return r.all; }
 
 const IntlSegmenter = Intl.Segmenter;
 
 function SlashCommand(name, description, arguments$, completion, emoji) {
-  return Object.freeze({_tag: "SlashCommand", name, description, arguments: arguments$, completion, emoji});
+  return $$bc$record_value("north.bridge.app/SlashCommand", {_tag: "SlashCommand", name, description, arguments: arguments$, completion, emoji});
 }
 
 function slashcommand_name(r) { return r.name; }
@@ -20,7 +64,7 @@ function slashcommand_completion(r) { return r.completion; }
 function slashcommand_emoji(r) { return r.emoji; }
 
 function ParsedCommand(name, rest) {
-  return Object.freeze({_tag: "ParsedCommand", name, rest});
+  return $$bc$record_value("north.bridge.app/ParsedCommand", {_tag: "ParsedCommand", name, rest});
 }
 
 function parsedcommand_name(r) { return r.name; }
@@ -28,7 +72,7 @@ function parsedcommand_name(r) { return r.name; }
 function parsedcommand_rest(r) { return r.rest; }
 
 function ConversationItem(id, kind, title, body, status, data, execution_id, at, cursor, sequence) {
-  return Object.freeze({_tag: "ConversationItem", id, kind, title, body, status, data, execution_id, at, cursor, sequence});
+  return $$bc$record_value("north.bridge.app/ConversationItem", {_tag: "ConversationItem", id, kind, title, body, status, data, execution_id, at, cursor, sequence});
 }
 
 function conversationitem_id(r) { return r.id; }
@@ -52,7 +96,7 @@ function conversationitem_cursor(r) { return r.cursor; }
 function conversationitem_sequence(r) { return r.sequence; }
 
 function WorkView(id, title, items) {
-  return Object.freeze({_tag: "WorkView", id, title, items});
+  return $$bc$record_value("north.bridge.app/WorkView", {_tag: "WorkView", id, title, items});
 }
 
 function workview_id(r) { return r.id; }
@@ -62,7 +106,7 @@ function workview_title(r) { return r.title; }
 function workview_items(r) { return r.items; }
 
 function ListSection(id, title) {
-  return Object.freeze({_tag: "ListSection", id, title});
+  return $$bc$record_value("north.bridge.app/ListSection", {_tag: "ListSection", id, title});
 }
 
 function listsection_id(r) { return r.id; }
@@ -70,7 +114,7 @@ function listsection_id(r) { return r.id; }
 function listsection_title(r) { return r.title; }
 
 function ListRow(kind, condition, index, count) {
-  return Object.freeze({_tag: "ListRow", kind, condition, index, count});
+  return $$bc$record_value("north.bridge.app/ListRow", {_tag: "ListRow", kind, condition, index, count});
 }
 
 function listrow_kind(r) { return r.kind; }
@@ -82,7 +126,7 @@ function listrow_index(r) { return r.index; }
 function listrow_count(r) { return r.count; }
 
 function WorkSelection(view, index) {
-  return Object.freeze({_tag: "WorkSelection", view, index});
+  return $$bc$record_value("north.bridge.app/WorkSelection", {_tag: "WorkSelection", view, index});
 }
 
 function workselection_view(r) { return r.view; }
@@ -90,7 +134,7 @@ function workselection_view(r) { return r.view; }
 function workselection_index(r) { return r.index; }
 
 function BoardLane(id, title) {
-  return Object.freeze({_tag: "BoardLane", id, title});
+  return $$bc$record_value("north.bridge.app/BoardLane", {_tag: "BoardLane", id, title});
 }
 
 function boardlane_id(r) { return r.id; }
@@ -98,7 +142,7 @@ function boardlane_id(r) { return r.id; }
 function boardlane_title(r) { return r.title; }
 
 function SoundPack(ready, done, interrupted, failed) {
-  return Object.freeze({_tag: "SoundPack", ready, done, interrupted, failed});
+  return $$bc$record_value("north.bridge.app/SoundPack", {_tag: "SoundPack", ready, done, interrupted, failed});
 }
 
 function soundpack_ready(r) { return r.ready; }
@@ -110,7 +154,7 @@ function soundpack_interrupted(r) { return r.interrupted; }
 function soundpack_failed(r) { return r.failed; }
 
 function SoundPlayer(kind, path) {
-  return Object.freeze({_tag: "SoundPlayer", kind, path});
+  return $$bc$record_value("north.bridge.app/SoundPlayer", {_tag: "SoundPlayer", kind, path});
 }
 
 function soundplayer_kind(r) { return r.kind; }
@@ -118,7 +162,7 @@ function soundplayer_kind(r) { return r.kind; }
 function soundplayer_path(r) { return r.path; }
 
 function ParsedRecord(sequence, kind, data) {
-  return Object.freeze({_tag: "ParsedRecord", sequence, kind, data});
+  return $$bc$record_value("north.bridge.app/ParsedRecord", {_tag: "ParsedRecord", sequence, kind, data});
 }
 
 function parsedrecord_sequence(r) { return r.sequence; }
@@ -128,7 +172,7 @@ function parsedrecord_kind(r) { return r.kind; }
 function parsedrecord_data(r) { return r.data; }
 
 function CommandParts(executable, arguments$) {
-  return Object.freeze({_tag: "CommandParts", executable, arguments: arguments$});
+  return $$bc$record_value("north.bridge.app/CommandParts", {_tag: "CommandParts", executable, arguments: arguments$});
 }
 
 function commandparts_executable(r) { return r.executable; }
@@ -136,7 +180,7 @@ function commandparts_executable(r) { return r.executable; }
 function commandparts_arguments(r) { return r.arguments; }
 
 function DiffRow(kind, old, new$, text) {
-  return Object.freeze({_tag: "DiffRow", kind, old, new: new$, text});
+  return $$bc$record_value("north.bridge.app/DiffRow", {_tag: "DiffRow", kind, old, new: new$, text});
 }
 
 function diffrow_kind(r) { return r.kind; }
@@ -148,7 +192,7 @@ function diffrow_new(r) { return r.new; }
 function diffrow_text(r) { return r.text; }
 
 function DiffState(old_line, new_line, additions, deletions, rows) {
-  return Object.freeze({_tag: "DiffState", old_line, new_line, additions, deletions, rows});
+  return $$bc$record_value("north.bridge.app/DiffState", {_tag: "DiffState", old_line, new_line, additions, deletions, rows});
 }
 
 function diffstate_old_line(r) { return r.old_line; }
@@ -162,7 +206,7 @@ function diffstate_deletions(r) { return r.deletions; }
 function diffstate_rows(r) { return r.rows; }
 
 function FileChangeDetails(path, kind, additions, deletions, rows) {
-  return Object.freeze({_tag: "FileChangeDetails", path, kind, additions, deletions, rows});
+  return $$bc$record_value("north.bridge.app/FileChangeDetails", {_tag: "FileChangeDetails", path, kind, additions, deletions, rows});
 }
 
 function filechangedetails_path(r) { return r.path; }
@@ -176,7 +220,7 @@ function filechangedetails_deletions(r) { return r.deletions; }
 function filechangedetails_rows(r) { return r.rows; }
 
 function FileChangeSummary(additions, deletions, files) {
-  return Object.freeze({_tag: "FileChangeSummary", additions, deletions, files});
+  return $$bc$record_value("north.bridge.app/FileChangeSummary", {_tag: "FileChangeSummary", additions, deletions, files});
 }
 
 function filechangesummary_additions(r) { return r.additions; }
@@ -186,7 +230,7 @@ function filechangesummary_deletions(r) { return r.deletions; }
 function filechangesummary_files(r) { return r.files; }
 
 function StripBucket(id, glyph) {
-  return Object.freeze({_tag: "StripBucket", id, glyph});
+  return $$bc$record_value("north.bridge.app/StripBucket", {_tag: "StripBucket", id, glyph});
 }
 
 function stripbucket_id(r) { return r.id; }
@@ -194,7 +238,7 @@ function stripbucket_id(r) { return r.id; }
 function stripbucket_glyph(r) { return r.glyph; }
 
 function AgentSegment(id, label, count) {
-  return Object.freeze({_tag: "AgentSegment", id, label, count});
+  return $$bc$record_value("north.bridge.app/AgentSegment", {_tag: "AgentSegment", id, label, count});
 }
 
 function agentsegment_id(r) { return r.id; }
@@ -271,32 +315,37 @@ function error_message(error) {
 function safe_json(value) {
   return (() => { try {
     return JSON.stringify(value, null, 2);
-  } catch (__) {
-    return String(value);
+  } catch (_catch_0) {
+    switch ($$bd$catch_dispatch(_catch_0, [Error])) {
+      case 0: {
+        const __ = _catch_0;
+        return String(value);
+      }
+    }
   } })();
 }
 
 function stale_daemon_summary(live) {
-  return ((live > 0) ? ("".concat("control daemon is stale (", live, " live session", ((live === 1) ? "" : "s"), ") — /restart to replace it now, or it retires when they drain")) : "control daemon is stale — /restart to replace it now");
+  return ((live > 0) ? $$bc$str("control daemon is stale (", live, " live session", ((live === 1) ? "" : "s"), ") — /restart to replace it now, or it retires when they drain") : "control daemon is stale — /restart to replace it now");
 }
 
 function failure_summary(data) {
   const message = text_or(data.message, text_or(data.detail, text_or(data.classification, text(data.code))));
   const causes = data.causes;
   const cause = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (causes.length > 0) : _logical))(causes)) ? text(causes[0]) : "");
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : cause.includes("ECONNREFUSED 127.0.0.1:7977")))(message.includes("north_coordinator_preflight")))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number(((_logical) => (_logical !== false && _logical != null ? _logical : 0))(data.live))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : ("".concat(message, " — ", cause)));
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : cause.includes("ECONNREFUSED 127.0.0.1:7977")))(message.includes("north_coordinator_preflight")))) ? "coordinator offline — supervision unavailable; /config and /help still work" : ((message === "bridge_daemon_source_stale")) ? stale_daemon_summary(Number(((_logical) => (_logical !== false && _logical != null ? _logical : 0))(data.live))) : ((message === "")) ? safe_json(data) : ((cause === "")) ? message : $$bc$str(message, " — ", cause));
 }
 
 function clean_text(value) {
   return stripAnsiSequences(text(value));
 }
 
-export function agent_field_text(value) {
+function agent_field_text(value) {
   return Array.from(clean_text(value)).map((character) => { const code = character.charCodeAt(0);
 return ((((_truthy) => _truthy !== false && _truthy != null)(((code === 9) || ((code === 10) || (code === 13))))) ? " " : (((_truthy) => _truthy !== false && _truthy != null)(((code < 32) || ((code >= 127) && (code <= 159))))) ? "" : character); }).join("");
 }
 
-export function agent_cell_text_bang(value, width) {
+function agent_cell_text_bang(value, width) {
   const source = agent_field_text(value);
   const limit = Math.max(1, width);
   if ((Bun.stringWidth(source) <= limit)) {
@@ -305,8 +354,8 @@ export function agent_cell_text_bang(value, width) {
     const ellipsis_width = Bun.stringWidth("…");
     const room = Math.max(0, (limit - ellipsis_width));
     const kept = [];
-    const state = {width: 0, done: false};
-    Array.from(new IntlSegmenter("en", {granularity: "grapheme"}).segment(source)).forEach((part) => { const segment = text(part.segment);
+    const state = {[$$bc$property_key($$bc$keyword("width"))]: 0, [$$bc$property_key($$bc$keyword("done"))]: false};
+    Array.from(new IntlSegmenter("en", {[$$bc$property_key($$bc$keyword("granularity"))]: "grapheme"}).segment(source)).forEach((part) => { const segment = text(part.segment);
 const segment_width = Bun.stringWidth(segment);
 const state_width = state.width;
 if ((!((_truthy) => _truthy !== false && _truthy != null)(state.done))) {
@@ -317,20 +366,20 @@ if ((!((_truthy) => _truthy !== false && _truthy != null)(state.done))) {
     return (state.done = true);
   }
 } });
-    return ("".concat(kept.join(""), "…"));
+    return $$bc$str(kept.join(""), "…");
   }
 }
 
 function clipped(value, limit) {
   const clean = clean_text(value);
   const clean_length = clean.length;
-  return ((clean_length > limit) ? ("".concat("…", clean.slice((clean_length - limit)))) : clean);
+  return ((clean_length > limit) ? $$bc$str("…", clean.slice((clean_length - limit))) : clean);
 }
 
 function next_item_id_bang(runtime, prefix) {
   const sequence = runtime.itemSequence;
   (runtime.itemSequence = (sequence + 1));
-  return ("".concat(prefix, ":", runtime.itemSequence));
+  return $$bc$str(prefix, ":", runtime.itemSequence);
 }
 
 function owned_conversation_item(id, kind, title, body, status, data, execution_id, at, cursor, sequence) {
@@ -350,12 +399,12 @@ function compare_conversation_items(left, right) {
 }
 
 function compare_execution_items(left, right) {
-  const cursor_order = _(conversationitem_cursor(left), conversationitem_cursor(right));
-  const sequence_order = _(conversationitem_sequence(left), conversationitem_sequence(right));
+  const cursor_order = (conversationitem_cursor(left) - conversationitem_cursor(right));
+  const sequence_order = (conversationitem_sequence(left) - conversationitem_sequence(right));
   return (((!(cursor_order === 0))) ? cursor_order : ((!(sequence_order === 0))) ? sequence_order : compare_text(conversationitem_id(left), conversationitem_id(right)));
 }
 
-export function project_conversation(items, execution_id, aggregate) {
+function project_conversation(items, execution_id, aggregate) {
   const visible = (aggregate ? items.slice() : items.filter((item) => (conversationitem_execution_id(item) === execution_id)));
   return visible.sort((aggregate ? compare_conversation_items : compare_execution_items));
 }
@@ -399,7 +448,7 @@ function conversation_item_by_id(runtime, id) {
 function upsert_conversation_bang(runtime, item) {
   const index = conversation_index(runtime, conversationitem_id(item));
   if ((index >= 0)) {
-    (runtime.conversation[index] = item);
+    runtime.conversation.splice(index, 1, item);
   } else {
     runtime.conversation.push(item);
   }
@@ -469,7 +518,7 @@ function command(input) {
   return ((split_at < 0) ? ParsedCommand(normalized.toLowerCase(), "") : ParsedCommand(normalized.slice(0, split_at).toLowerCase(), normalized.slice((split_at + 1)).trim()));
 }
 
-export function quit_command_p(name) {
+function quit_command_p(name) {
   return ((name === "q") || (name === "exit"));
 }
 
@@ -479,41 +528,41 @@ function escape_command_p(name) {
 
 const BOOT_VIEW = "agents";
 
-export function boot_view() {
+function boot_view() {
   return BOOT_VIEW;
 }
 
-export function threads_view_p(view) {
+function threads_view_p(view) {
   return (text(view) === "threads");
 }
 
-export function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p) {
+function escape_rung(palette_open_p, filtering_p, detail_open_p, strip_focused_p, threads_p, working_p) {
   return ((palette_open_p) ? "close-palette" : (filtering_p) ? "clear-filter" : (detail_open_p) ? "close-detail" : (strip_focused_p) ? "focus-composer" : (threads_p) ? "show-agents" : (working_p) ? "cancel-turn" : "");
 }
 
-export function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
+function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p, strip_focused_p) {
   return ((palette_open_p) ? "palette" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && (panel_focused_p && filtering_p)))) ? "filter" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && panel_focused_p))) ? "panel" : (strip_focused_p) ? "strip" : "composer");
 }
 
-export function tab_action(focus, dir_row_p, expanded_p) {
+function tab_action(focus, dir_row_p, expanded_p) {
   return (((focus === "palette")) ? "complete" : (((_truthy) => _truthy !== false && _truthy != null)(((focus === "panel") || (focus === "filter")))) ? (dir_row_p ? (expanded_p ? "collapse" : "expand") : "climb") : "swap-view");
 }
 
-export function tab_swap_view(view) {
+function tab_swap_view(view) {
   return (threads_view_p(view) ? "agents" : "threads");
 }
 
 function emoji_options(query) {
   const needle = query.trim().toLowerCase();
-  return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
+  return EMOJI_COMMANDS.filter((candidate) => ((needle === "") || $$bc$str(slashcommand_name(candidate), " ", slashcommand_description(candidate)).toLowerCase().includes(needle)));
 }
 
 function glyph_options(query) {
   const needle = query.trim().toLowerCase();
-  return GLYPH_COMMANDS.filter((candidate) => ((needle === "") || ("".concat(slashcommand_name(candidate), " ", slashcommand_description(candidate))).toLowerCase().includes(needle)));
+  return GLYPH_COMMANDS.filter((candidate) => ((needle === "") || $$bc$str(slashcommand_name(candidate), " ", slashcommand_description(candidate)).toLowerCase().includes(needle)));
 }
 
-export function palette_options(view, input) {
+function palette_options(view, input) {
   const query = input.trim().toLowerCase();
   const parsed = command(input);
   const name = parsedcommand_name(parsed);
@@ -526,12 +575,12 @@ function submit_key_p(name) {
 }
 
 async function run_command(argv) {
-  const child = Bun.spawn({cmd: argv, stdout: "pipe", stderr: "pipe"});
+  const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdout"))]: "pipe", [$$bc$property_key($$bc$keyword("stderr"))]: "pipe"});
   const results = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   const stdout = text(results[0]);
   const stderr = text(results[1]);
   const exit_code = results[2];
-  return ((exit_code === 0) ? stdout : (() => { throw new Error(("".concat(argv.join(" "), " failed (", exit_code, "): ", text_or(stderr.trim(), stdout.trim())))); })());
+  return ((exit_code === 0) ? stdout : (() => { throw new Error($$bc$str(argv.join(" "), " failed (", exit_code, "): ", text_or(stderr.trim(), stdout.trim()))); })());
 }
 
 async function run_json(argv) {
@@ -545,8 +594,13 @@ async function discover_session_branch_bang(runtime) {
   const output = await run_command(["git", "-C", directory, "branch", "--show-current"]);
   const branch = text(output).trim();
   return (runtime.sessionBranch = ((branch === "") ? "detached HEAD" : branch));
-  } catch (__) {
-    return (runtime.sessionBranch = "not a Git worktree");
+  } catch (_catch_1) {
+    switch ($$bd$catch_dispatch(_catch_1, [Error])) {
+      case 0: {
+        const __ = _catch_1;
+        return (runtime.sessionBranch = "not a Git worktree");
+      }
+    }
   } })();
   return runtime.render();
 }
@@ -555,17 +609,17 @@ async function read_stream(stream, on_chunk) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   return (async () => {  while (true) {
-    const result = await reader.read(); if ((!((_truthy) => _truthy !== false && _truthy != null)(result.done))) { on_chunk(decoder.decode(result.value, {stream: true}));  continue; } else { return null; }
+    const result = await reader.read(); if ((!((_truthy) => _truthy !== false && _truthy != null)(result.done))) { on_chunk(decoder.decode(result.value, {[$$bc$property_key($$bc$keyword("stream"))]: true}));  continue; } else { return null; }
   } })();
 }
 
 async function stream_command(argv, on_stdout, on_stderr) {
-  const child = Bun.spawn({cmd: argv, stdout: "pipe", stderr: "pipe"});
+  const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdout"))]: "pipe", [$$bc$property_key($$bc$keyword("stderr"))]: "pipe"});
   const results = await Promise.all([read_stream(child.stdout, on_stdout), read_stream(child.stderr, on_stderr), child.exited]);
   return results[2];
 }
 
-export function normalize_agents(payload) {
+function normalize_agents(payload) {
   const rows = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(payload.agents) : _logical))(payload)) ? payload.agents : []);
   return rows.map((row) => { const id = bare(text_or(row.control_id, text_or(row.uuid, text(row.id))));
 const name = text_or(row.display_handle, text_or(row.display_name, id));
@@ -666,7 +720,7 @@ function publish_line_bang(runtime, line) {
 }
 
 function grapheme_count(value) {
-  return Array.from(new IntlSegmenter("en", {granularity: "grapheme"}).segment(value)).length;
+  return Array.from(new IntlSegmenter("en", {[$$bc$property_key($$bc$keyword("granularity"))]: "grapheme"}).segment(value)).length;
 }
 
 function current_prompt_glyph(runtime) {
@@ -678,7 +732,7 @@ function render_prompt_bang(runtime, prompt) {
   const glyph = current_prompt_glyph(runtime);
   const glyph_width = Bun.stringWidth(glyph);
   (prompt.width = (glyph_width + 1));
-  return (prompt.content = new StyledText([brightCyan(("".concat(glyph, " ")))]));
+  return (prompt.content = new StyledText([brightCyan($$bc$str(glyph, " "))]));
 }
 
 function set_prompt_glyph_bang(runtime, glyph) {
@@ -686,7 +740,7 @@ function set_prompt_glyph_bang(runtime, glyph) {
     (() => { throw new Error("glyph requires exactly one grapheme, or use /glyph reset"); })();
   }
   (runtime.promptGlyph = glyph);
-  publish_line_bang(runtime, ("".concat("prompt glyph set to ", glyph)));
+  publish_line_bang(runtime, $$bc$str("prompt glyph set to ", glyph));
   return runtime.render();
 }
 
@@ -702,7 +756,7 @@ function sound_pack_from_env(value) {
 function sound_directory_from_env(value) {
   const directory = value.trim();
   const north_home = text(process.env.NORTH_HOME).trim();
-  return (((!(directory === ""))) ? directory : ((!(north_home === ""))) ? ("".concat(north_home, "/../warcraft-sounds")) : "warcraft-sounds");
+  return (((!(directory === ""))) ? directory : ((!(north_home === ""))) ? $$bc$str(north_home, "/../warcraft-sounds") : "warcraft-sounds");
 }
 
 function discover_sound_player() {
@@ -715,12 +769,12 @@ function discover_sound_player() {
 function sound_warning_bang(runtime, message) {
   if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(runtime.disposed)) && (!((_truthy) => _truthy !== false && _truthy != null)(runtime.soundWarningShown))))) {
     (runtime.soundWarningShown = true);
-    return publish_line_bang(runtime, ("".concat("sound warning: ", message)));
+    return publish_line_bang(runtime, $$bc$str("sound warning: ", message));
   }
 }
 
 function sound_path(directory, filename) {
-  return ("".concat(directory, (((_truthy) => _truthy !== false && _truthy != null)(directory.endsWith("/")) ? "" : "/"), filename));
+  return $$bc$str(directory, (((_truthy) => _truthy !== false && _truthy != null)(directory.endsWith("/")) ? "" : "/"), filename);
 }
 
 function sound_argv(player, path) {
@@ -734,17 +788,22 @@ function spawn_sound_bang(runtime, path) {
   if ((player == null)) {
     return sound_warning_bang(runtime, "install mpv, ffplay, or pw-play to play local assets");
   } else {
-    const child = Bun.spawn({cmd: sound_argv(player, path), stdin: "ignore", stdout: "ignore", stderr: "ignore"});
+    const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: sound_argv(player, path), [$$bc$property_key($$bc$keyword("stdin"))]: "ignore", [$$bc$property_key($$bc$keyword("stdout"))]: "ignore", [$$bc$property_key($$bc$keyword("stderr"))]: "ignore"});
     runtime.soundChildren.add(child);
     child.unref();
     return child.exited.then((exit_code) => { runtime.soundChildren.delete(child);
 if ((!(exit_code === 0))) {
-  return sound_warning_bang(runtime, ("".concat("player exited ", exit_code, " for ", path)));
+  return sound_warning_bang(runtime, $$bc$str("player exited ", exit_code, " for ", path));
 } }).catch((error) => { runtime.soundChildren.delete(child);
 return sound_warning_bang(runtime, error_message(error)); });
   }
-  } catch (error) {
-    return sound_warning_bang(runtime, error_message(error));
+  } catch (_catch_2) {
+    switch ($$bd$catch_dispatch(_catch_2, [Error])) {
+      case 0: {
+        const error = _catch_2;
+        return sound_warning_bang(runtime, error_message(error));
+      }
+    }
   } })();
 }
 
@@ -754,11 +813,16 @@ function play_sound_path_bang(runtime, path) {
   return spawn_sound_bang(runtime, path);
 } else {
   if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(exists)) && runtime.soundEnabled))) {
-    return sound_warning_bang(runtime, ("".concat("missing local asset ", path)));
+    return sound_warning_bang(runtime, $$bc$str("missing local asset ", path));
   }
 } }).catch((error) => sound_warning_bang(runtime, error_message(error)));
-  } catch (error) {
-    return sound_warning_bang(runtime, error_message(error));
+  } catch (_catch_3) {
+    switch ($$bd$catch_dispatch(_catch_3, [Error])) {
+      case 0: {
+        const error = _catch_3;
+        return sound_warning_bang(runtime, error_message(error));
+      }
+    }
   } })();
 }
 
@@ -769,10 +833,10 @@ function select_sound_path_bang(runtime, event) {
   if ((count === 0)) {
     return "";
   } else {
-    const base_index = mod(runtime.soundSequence, count);
+    const base_index = (runtime.soundSequence % count);
     const base_file = text(files[base_index]);
     const base_path = sound_path(text(runtime.soundDirectory), base_file);
-    const index = (((_truthy) => _truthy !== false && _truthy != null)(((count > 1) && (base_path === text(runtime.lastSoundPath)))) ? mod((base_index + 1), count) : base_index);
+    const index = (((_truthy) => _truthy !== false && _truthy != null)(((count > 1) && (base_path === text(runtime.lastSoundPath)))) ? ((base_index + 1) % count) : base_index);
     const path = sound_path(text(runtime.soundDirectory), text(files[index]));
     const sound_sequence = runtime.soundSequence;
     (runtime.soundSequence = (sound_sequence + 1));
@@ -795,11 +859,11 @@ function play_sound_event_bang(runtime, stream_state, event) {
 
 function sound_status(runtime) {
   const player = runtime.soundPlayer;
-  return ("".concat("sound ", (((_truthy) => _truthy !== false && _truthy != null)(runtime.soundEnabled) ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (((_truthy) => _truthy !== false && _truthy != null)(player) ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory)));
+  return $$bc$str("sound ", (((_truthy) => _truthy !== false && _truthy != null)(runtime.soundEnabled) ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (((_truthy) => _truthy !== false && _truthy != null)(player) ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory));
 }
 
 function ConfigEntry(kind, name, state, detail) {
-  return Object.freeze({_tag: "ConfigEntry", kind, name, state, detail});
+  return $$bc$record_value("north.bridge.app/ConfigEntry", {_tag: "ConfigEntry", kind, name, state, detail});
 }
 
 function configentry_kind(r) { return r.kind; }
@@ -815,7 +879,7 @@ function config_hook_enabled_p(state) {
 }
 
 function ModuleMembership(module, members) {
-  return Object.freeze({_tag: "ModuleMembership", module, members});
+  return $$bc$record_value("north.bridge.app/ModuleMembership", {_tag: "ModuleMembership", module, members});
 }
 
 function modulemembership_module(r) { return r.module; }
@@ -826,7 +890,7 @@ function config_owner_modules(memberships, name) {
   return memberships.filter((membership) => modulemembership_members(membership).includes(name)).map((membership) => modulemembership_module(membership));
 }
 
-export function config_module_members(memberships, name) {
+function config_module_members(memberships, name) {
   const found = memberships.find((membership) => (modulemembership_module(membership) === name));
   return (((_truthy) => _truthy !== false && _truthy != null)(found) ? modulemembership_members(found) : null);
 }
@@ -849,24 +913,24 @@ function config_mem_name(name) {
   return ((cut < 0) ? name : name.slice((cut + 1)));
 }
 
-export function config_kind_word(kind) {
+function config_kind_word(kind) {
   return (((kind === "ins")) ? "file" : ((kind === "memroot")) ? "memories" : ((kind === "mem")) ? "memory" : kind);
 }
 
-export function config_provenance_name(kind, name) {
-  return ((kind === "") ? name : ("".concat(config_kind_word(kind), ": ", name)));
+function config_provenance_name(kind, name) {
+  return ((kind === "") ? name : $$bc$str(config_kind_word(kind), ": ", name));
 }
 
-export function config_row_label(kind, name) {
+function config_row_label(kind, name) {
   return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "MEMORIES" : ((kind === "mem")) ? config_mem_name(name) : name);
 }
 
-export function config_cli_name(kind, name) {
-  return (((kind === "ins")) ? ("".concat(name, "/AGENTS.md")) : ((kind === "memroot")) ? ("".concat(name, "/memories")) : name);
+function config_cli_name(kind, name) {
+  return (((kind === "ins")) ? $$bc$str(name, "/AGENTS.md") : ((kind === "memroot")) ? $$bc$str(name, "/memories") : name);
 }
 
-export function config_reference_text(kind, name) {
-  return ("".concat("@", config_kind_word(kind), ":", config_cli_name(kind, name), " "));
+function config_reference_text(kind, name) {
+  return $$bc$str("@", config_kind_word(kind), ":", config_cli_name(kind, name), " ");
 }
 
 function config_find_entry(manifest, name) {
@@ -889,7 +953,7 @@ function config_subtree_gate(manifest, kind, name) {
 function config_active_along_p(entry, manifest, memberships, trail) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  const key = ("".concat(kind, " ", name));
+  const key = $$bc$str(kind, " ", name);
   if (((_truthy) => _truthy !== false && _truthy != null)(trail.includes(key))) {
     return false;
   } else {
@@ -908,16 +972,16 @@ return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_active
   }
 }
 
-export function config_entry_active_p(entry, manifest, memberships) {
+function config_entry_active_p(entry, manifest, memberships) {
   return config_active_along_p(entry, manifest, memberships, []);
 }
 
-export function config_unit_active_p(manifest, memberships, name) {
+function config_unit_active_p(manifest, memberships, name) {
   const entry = config_find_entry(manifest, name);
   return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? config_entry_active_p(entry, manifest, memberships) : false);
 }
 
-export function config_gate_modules(entry, manifest, memberships) {
+function config_gate_modules(entry, manifest, memberships) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const gate = config_subtree_gate(manifest, kind, name);
@@ -928,21 +992,21 @@ return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_entry_
   return scope.concat((((_truthy) => _truthy !== false && _truthy != null)(open_p) ? [] : owners.map((owner) => config_provenance_name("module", owner))));
 }
 
-export function config_state_text(entry, manifest, memberships, active_p, nested_p) {
+function config_state_text(entry, manifest, memberships, active_p, nested_p) {
   const state = configentry_state(entry);
   const hook_p = (configentry_kind(entry) === "hook");
   const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
   const gates = config_gate_modules(entry, manifest, memberships);
-  const gate_note = ((gates.length === 0) ? "" : ("".concat(" (", gates.join(", "), " off)")));
+  const gate_note = ((gates.length === 0) ? "" : $$bc$str(" (", gates.join(", "), " off)"));
   const companion = (hook_p ? text(configentry_detail(entry)) : "");
   const followed = config_find_companion(manifest, companion);
-  const provenance = (((_truthy) => _truthy !== false && _truthy != null)((nested_p || (companion === ""))) ? "" : ("".concat(" · ", config_provenance_name((((_truthy) => _truthy !== false && _truthy != null)(followed) ? configentry_kind(followed) : ""), companion))));
-  const claimant_off_p = and(followed, (!config_entry_active_p(followed, manifest, memberships)));
-  const reason = (((!(gate_note === ""))) ? gate_note : (((_truthy) => _truthy !== false && _truthy != null)(claimant_off_p)) ? ("".concat(" (", config_provenance_name(configentry_kind(followed), companion), " off)")) : "");
-  return ((((_truthy) => _truthy !== false && _truthy != null)(and(hook_p, (!own_p)))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? ("".concat("on", provenance)) : ("".concat("off", reason)));
+  const provenance = (((_truthy) => _truthy !== false && _truthy != null)((nested_p || (companion === ""))) ? "" : $$bc$str(" · ", config_provenance_name((((_truthy) => _truthy !== false && _truthy != null)(followed) ? configentry_kind(followed) : ""), companion)));
+  const claimant_off_p = ((_logical) => (_logical !== false && _logical != null ? (!config_entry_active_p(followed, manifest, memberships)) : _logical))(followed);
+  const reason = (((!(gate_note === ""))) ? gate_note : (((_truthy) => _truthy !== false && _truthy != null)(claimant_off_p)) ? $$bc$str(" (", config_provenance_name(configentry_kind(followed), companion), " off)") : "");
+  return ((((_truthy) => _truthy !== false && _truthy != null)((hook_p && (!own_p)))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? $$bc$str("on", provenance) : $$bc$str("off", reason));
 }
 
-export function config_toggle_verb(state) {
+function config_toggle_verb(state) {
   return (((_truthy) => _truthy !== false && _truthy != null)(((state === "on") || (state === "enabled"))) ? "off" : "on");
 }
 
@@ -952,11 +1016,11 @@ function config_global_row_p(kind, name) {
   return ((kind === "dir") && (name === GLOBAL_DIR_NAME));
 }
 
-export function config_row_scope(kind, name) {
+function config_row_scope(kind, name) {
   return (((kind === "dir")) ? name : (config_subtree_kind_p(kind)) ? config_row_slug(kind, name) : GLOBAL_DIR_NAME);
 }
 
-export function config_view_includes_p(view, kind, name) {
+function config_view_includes_p(view, kind, name) {
   return (((view === "all")) ? true : ((kind === "dir")) ? ((view === "globals") ? (name === GLOBAL_DIR_NAME) : true) : ((view === "globals")) ? ((config_row_scope(kind, name) === GLOBAL_DIR_NAME) && (!(kind === "plugin"))) : ((view === "agentsmd")) ? config_subtree_kind_p(kind) : (kind === view));
 }
 
@@ -964,7 +1028,7 @@ function config_view_prunes_p(view) {
   return (!((_truthy) => _truthy !== false && _truthy != null)(((view === "all") || ((view === "globals") || (view === "agentsmd")))));
 }
 
-export function config_view_folds_p(view) {
+function config_view_folds_p(view) {
   return (view === "all");
 }
 
@@ -972,11 +1036,11 @@ function config_hook_companion(entry) {
   return ((configentry_kind(entry) === "hook") ? text(configentry_detail(entry)) : "");
 }
 
-export function config_skill_hooks(rows, name) {
+function config_skill_hooks(rows, name) {
   return rows.filter((entry) => ((configentry_kind(entry) === "hook") && (config_hook_companion(entry) === name)));
 }
 
-export function config_row_role(entry, rows) {
+function config_row_role(entry, rows) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   return (((kind === "module")) ? "moduleset" : ((kind === "skill")) ? ((config_skill_hooks(rows, name).length > 0) ? "module" : "skill") : ((kind === "hook")) ? (() => { const companion = config_hook_companion(entry); return (((_truthy) => _truthy !== false && _truthy != null)(((!(companion === "")) && rows.some((row) => ((configentry_kind(row) === "skill") && (configentry_name(row) === companion))))) ? "boundhook" : "hook"); })() : kind);
@@ -1008,30 +1072,30 @@ return sorted.forEach((child) => { if ((!(config_row_role(child, entries) === "b
   return tree.concat(kids.filter((child) => (!((_truthy) => _truthy !== false && _truthy != null)(tree.includes(child)))));
 }
 
-export function config_view_rows(entries, view) {
+function config_view_rows(entries, view) {
   const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
   const held = kept.filter((entry) => (((_truthy) => _truthy !== false && _truthy != null)(((!config_view_prunes_p(view)) || (!(configentry_kind(entry) === "dir")))) ? true : kept.some((child) => ((!(configentry_kind(child) === "dir")) && (config_row_scope(configentry_kind(child), configentry_name(child)) === configentry_name(entry))))));
   return config_tree_rows(held);
 }
 
-export function config_node_expanded_p(expanded, slug) {
+function config_node_expanded_p(expanded, slug) {
   return (((_truthy) => _truthy !== false && _truthy != null)(expanded) ? expanded.includes(slug) : false);
 }
 
-export function config_fold_rows(entries, expanded) {
+function config_fold_rows(entries, expanded) {
   const nodes = entries.filter((entry) => (configentry_kind(entry) === "dir")).map((entry) => configentry_name(entry));
   return entries.filter((entry) => { const kind = configentry_kind(entry);
 const scope = config_row_scope(kind, configentry_name(entry));
 return ((kind === "dir") || ((!((_truthy) => _truthy !== false && _truthy != null)(nodes.includes(scope))) || config_node_expanded_p(expanded, scope))); });
 }
 
-export function config_row_search_text(entry) {
+function config_row_search_text(entry) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  return ("".concat(config_row_label(kind, name), " ", name, " ", text(configentry_detail(entry)))).toLowerCase();
+  return $$bc$str(config_row_label(kind, name), " ", name, " ", text(configentry_detail(entry))).toLowerCase();
 }
 
-export function config_row_matches_p(entry, query) {
+function config_row_matches_p(entry, query) {
   const needle = query.trim().toLowerCase();
   return ((needle === "") || config_row_search_text(entry).includes(needle));
 }
@@ -1040,7 +1104,7 @@ function config_matched_slugs(entries, query, kind) {
   return entries.filter((entry) => ((configentry_kind(entry) === kind) && config_row_matches_p(entry, query))).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
 }
 
-export function config_query_rows(entries, query) {
+function config_query_rows(entries, query) {
   if ((query.trim() === "")) {
     return entries;
   } else {
@@ -1056,25 +1120,30 @@ return (config_row_matches_p(entry, query) || ((_logical) => (_logical !== false
   }
 }
 
-export function config_row_context_only_p(entry, query) {
+function config_row_context_only_p(entry, query) {
   return ((!(query.trim() === "")) && (!config_row_matches_p(entry, query)));
 }
 
 function config_manifest_path() {
-  return ("".concat(text(process.env.HOME), "/.config/agents/manifest.conf"));
+  return $$bc$str(text(process.env.HOME), "/.config/agents/manifest.conf");
 }
 
 function config_modules_dir(runtime) {
-  return text_or(text(runtime.configModulesDir), ("".concat(text(process.env.HOME), "/code/nixos-config/main/dotfiles/agents/modules.d")));
+  return text_or(text(runtime.configModulesDir), $$bc$str(text(process.env.HOME), "/code/nixos-config/main/dotfiles/agents/modules.d"));
 }
 
-export function config_membership_of_json(module, content) {
+function config_membership_of_json(module, content) {
   return (() => { try {
-    const parsed = JSON/parse(content);
+    const parsed = JSON.parse(content);
   const members = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(parsed.members) : _logical))(parsed)) ? parsed.members : []);
   return ModuleMembership(module, members.map((member) => text(member)));
-  } catch (__) {
-    return ModuleMembership(module, []);
+  } catch (_catch_4) {
+    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
+      case 0: {
+        const __ = _catch_4;
+        return ModuleMembership(module, []);
+      }
+    }
   } })();
 }
 
@@ -1082,22 +1151,32 @@ async function list_module_files_bang(directory) {
   return (async () => { try {
     const listing = await run_command(["ls", directory]);
   return listing.trim().split("\n").filter((name) => name.endsWith(".json"));
-  } catch (__) {
-    return [];
+  } catch (_catch_5) {
+    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
+      case 0: {
+        const __ = _catch_5;
+        return [];
+      }
+    }
   } })();
 }
 
 async function read_module_file_bang(path) {
   return (async () => { try {
     return await run_command(["cat", path]);
-  } catch (__) {
-    return "";
+  } catch (_catch_6) {
+    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
+      case 0: {
+        const __ = _catch_6;
+        return "";
+      }
+    }
   } })();
 }
 
-export async function load_config_memberships_bang(directory) {
+async function load_config_memberships_bang(directory) {
   const files = await list_module_files_bang(directory);
-  const contents = await Promise.all(files.map((file) => read_module_file_bang(("".concat(directory, "/", file)))));
+  const contents = await Promise.all(files.map((file) => read_module_file_bang($$bc$str(directory, "/", file))));
   return files.map((file, index) => { const file_length = file.length;
 return config_membership_of_json(file.slice(0, (file_length - 5)), text(contents[index])); });
 }
@@ -1105,8 +1184,13 @@ return config_membership_of_json(file.slice(0, (file_length - 5)), text(contents
 async function ensure_config_manifest_bang() {
   return (async () => { try {
     return await run_command(["test", "-f", config_manifest_path()]);
-  } catch (__) {
-    return await run_command([AGENTS_BIN, "status"]);
+  } catch (_catch_7) {
+    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
+      case 0: {
+        const __ = _catch_7;
+        return await run_command([AGENTS_BIN, "status"]);
+      }
+    }
   } })();
 }
 
@@ -1125,7 +1209,7 @@ function panel_expanded(runtime) {
   return (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : PANEL_DEFAULT_EXPANDED);
 }
 
-export function config_panel_rows(runtime) {
+function config_panel_rows(runtime) {
   const stored = runtime.configEntries;
   const entries = (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : []);
   const query = panel_query(runtime);
@@ -1133,37 +1217,37 @@ export function config_panel_rows(runtime) {
   return ((!(query.trim() === "")) ? config_query_rows(entries, query) : (config_view_folds_p(view) ? config_fold_rows(entries, panel_expanded(runtime)) : entries));
 }
 
-export function config_row_node(entry) {
+function config_row_node(entry) {
   return config_row_scope(configentry_kind(entry), configentry_name(entry));
 }
 
-export function clamp_panel_cursor_bang(runtime) {
+function clamp_panel_cursor_bang(runtime) {
   const total = config_panel_rows(runtime).length;
   const raw = runtime.configIndex;
   const current = (((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0);
   return (runtime.configIndex = ((total > 0) ? Math.max(0, Math.min(current, (total - 1))) : 0));
 }
 
-export function set_panel_query_bang(runtime, query) {
+function set_panel_query_bang(runtime, query) {
   (runtime.panelFiltering = true);
   (runtime.panelQuery = query);
   return clamp_panel_cursor_bang(runtime);
 }
 
-export function clear_panel_filter_bang(runtime) {
+function clear_panel_filter_bang(runtime) {
   (runtime.panelFiltering = false);
   (runtime.panelQuery = "");
   return clamp_panel_cursor_bang(runtime);
 }
 
-export function set_node_expanded_bang(runtime, slug, open_p) {
+function set_node_expanded_bang(runtime, slug, open_p) {
   const current = panel_expanded(runtime);
   const without = current.filter((held) => (!(held === slug)));
   (runtime.expandedDirs = (open_p ? without.concat([slug]) : without));
   return clamp_panel_cursor_bang(runtime);
 }
 
-export function fold_key_action(dir_row_p, expanded_p, open_key_p) {
+function fold_key_action(dir_row_p, expanded_p, open_key_p) {
   return ((((_truthy) => _truthy !== false && _truthy != null)((open_key_p && dir_row_p))) ? (expanded_p ? "" : "expand") : (open_key_p) ? "" : (dir_row_p) ? (expanded_p ? "collapse" : "") : "climb");
 }
 
@@ -1220,7 +1304,7 @@ async function edit_config_entry_bang(runtime) {
   if ((entries.length > 0)) {
     const entry_count = entries.length;
     const raw = runtime.configIndex;
-    const index = Math/max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
+    const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
     const raw_path = await run_command([AGENTS_BIN, "path", config_cli_name(configentry_kind(entry), configentry_name(entry))]);
     const path = raw_path.trim();
@@ -1233,9 +1317,9 @@ async function edit_config_entry_bang(runtime) {
     if ((argv == null)) {
       (() => { throw new Error("no supported terminal found for edit"); })();
     }
-    const child = Bun.spawn({cmd: argv, stdin: "ignore", stdout: "ignore", stderr: "ignore"});
+    const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdin"))]: "ignore", [$$bc$property_key($$bc$keyword("stdout"))]: "ignore", [$$bc$property_key($$bc$keyword("stderr"))]: "ignore"});
     child.unref();
-    return publish_line_bang(runtime, ("".concat("editing ", path)));
+    return publish_line_bang(runtime, $$bc$str("editing ", path));
   }
 }
 
@@ -1244,7 +1328,7 @@ async function toggle_config_entry_bang(runtime) {
   if ((entries.length > 0)) {
     const entry_count = entries.length;
     const raw = runtime.configIndex;
-    const index = Math/max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
+    const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
     const verb = config_toggle_verb(configentry_state(entry));
     await run_command([AGENTS_BIN, verb, config_cli_name(configentry_kind(entry), configentry_name(entry))]);
@@ -1284,12 +1368,17 @@ async function restart_daemon_bang(runtime) {
   forget_control_session_bang(runtime);
   publish_line_bang(runtime, "control daemon replaced; session restored");
   return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
-  } catch (error) {
-    return append_error_bang(runtime, error_message(error));
+  } catch (_catch_8) {
+    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+      case 0: {
+        const error = _catch_8;
+        return append_error_bang(runtime, error_message(error));
+      }
+    }
   } })();
 }
 
-export function handle_local_command_bang(runtime, ui, input) {
+function handle_local_command_bang(runtime, ui, input) {
   const trimmed = input.trim();
   if ((!((_truthy) => _truthy !== false && _truthy != null)(trimmed.startsWith("/")))) {
     return false;
@@ -1303,7 +1392,7 @@ export function handle_local_command_bang(runtime, ui, input) {
   set_prompt_glyph_bang(runtime, rest);
 }
 return true; })() : ((name === "emoji")) ? (() => { const options = emoji_options(rest); if ((options.length === 0)) {
-  (() => { throw new Error(("".concat("no emoji matches ", rest))); })();
+  (() => { throw new Error($$bc$str("no emoji matches ", rest)); })();
 }
 const input_renderable = ui.composerInput;
 (input_renderable.value = slashcommand_completion(options[0]));
@@ -1322,7 +1411,7 @@ return true; })() : ((name === "config")) ? (() => { open_config_panel_bang(runt
 return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runtime, ui, "hook");
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
 return true; })() : ((name === "mcp")) ? (() => { const parts = rest.trim().split(/\\s+/).filter((part) => (!(part === "")));
-run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, ("".concat("error: ", error_message(error)))));
+run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
 return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, ui, "plugin");
 return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, ui, "module");
 return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, ui, "globals");
@@ -1348,7 +1437,7 @@ function render_after_suspend_bang(runtime) {
   }
 }
 
-export function cleanup_suspend_bang(runtime, process_api) {
+function cleanup_suspend_bang(runtime, process_api) {
   const handler = runtime.suspendResume;
   const suspended_p = (((_truthy) => _truthy !== false && _truthy != null)(runtime.rendererSuspended) ? true : false);
   const active_p = ((_logical) => (_logical !== false && _logical != null ? _logical : suspended_p))(handler);
@@ -1360,19 +1449,24 @@ export function cleanup_suspend_bang(runtime, process_api) {
   if (suspended_p) {
     (() => { try {
     return runtime.renderer.resume();
-  } catch (error) {
-    return (runtime.suspendError = error_message(error));
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+      case 0: {
+        const error = _catch_9;
+        return (runtime.suspendError = error_message(error));
+      }
+    }
   } })();
   }
   render_after_suspend_bang(runtime);
   return (((_truthy) => _truthy !== false && _truthy != null)(active_p) ? true : false);
 }
 
-export function suspend_runtime_bang(runtime, platform, process_api) {
+function suspend_runtime_bang(runtime, platform, process_api) {
   if (((_truthy) => _truthy !== false && _truthy != null)(((platform === "win32") || runtime.suspendResume))) {
     return false;
   } else {
-    const state = {handler: null};
+    const state = {[$$bc$property_key($$bc$keyword("handler"))]: null};
     const resume = () => { const handler = state.handler;
 if ((runtime.suspendResume === handler)) {
   return cleanup_suspend_bang(runtime, process_api);
@@ -1386,10 +1480,15 @@ if ((runtime.suspendResume === handler)) {
   runtime.renderer.suspend();
   process_api.kill(0, "SIGSTOP");
   return true;
-  } catch (error) {
-    (runtime.suspendError = error_message(error));
-    cleanup_suspend_bang(runtime, process_api);
-    return false;
+  } catch (_catch_10) {
+    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+      case 0: {
+        const error = _catch_10;
+        (runtime.suspendError = error_message(error));
+        cleanup_suspend_bang(runtime, process_api);
+        return false;
+      }
+    }
   } })();
   }
 }
@@ -1404,8 +1503,13 @@ function quiesce_bang(runtime) {
     (runtime.spinnerTimer = null);
     runtime.soundChildren.forEach((child) => (() => { try {
     return child.kill();
-  } catch (__) {
-    return null;
+  } catch (_catch_11) {
+    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
+      case 0: {
+        const __ = _catch_11;
+        return null;
+      }
+    }
   } })());
     return runtime.soundChildren.clear();
   }
@@ -1434,18 +1538,18 @@ key.stopPropagation();
 return destroy_bang(runtime); })() : null); });
 }
 
-export function selected_agent_id(state, selected) {
+function selected_agent_id(state, selected) {
   const agents = bridgesnapshot_agents(state);
   const total = agents.length;
   return ((total > 0) ? agent_id(agents[Math.max(0, Math.min(selected, (total - 1)))]) : "");
 }
 
-export function reconcile_agent_selection_bang(runtime, prior_id) {
+function reconcile_agent_selection_bang(runtime, prior_id) {
   const state = snapshot(runtime.model);
   const agents = bridgesnapshot_agents(state);
   const total = agents.length;
   const found = agents.findIndex((agent) => (agent_id(agent) === prior_id));
-  const fallback = Math/max(0, Math.min(runtime.agentIndex, Math.max(0, (total - 1))));
+  const fallback = Math.max(0, Math.min(runtime.agentIndex, Math.max(0, (total - 1))));
   const index = ((found >= 0) ? found : fallback);
   const selected = ((total > 0) ? agent_id(agents[index]) : "");
   (runtime.agentIndex = index);
@@ -1455,11 +1559,11 @@ export function reconcile_agent_selection_bang(runtime, prior_id) {
   return selected;
 }
 
-export async function refresh_bang(runtime) {
+async function refresh_bang(runtime) {
   const payloads = await Promise.all([run_json([north_bin(), "agents", "--json"]).catch((__) => null), run_json([north_bin(), "json", "board", "--all"]).catch((__) => null), run_json([north_bin(), "json", "done"]).catch((__) => null)]);
   const agent_payload = payloads[0];
-  const board = aget(payloads, 1);
-  const done = aget(payloads, 2);
+  const board = payloads[1];
+  const done = payloads[2];
   const state = snapshot(runtime.model);
   const current_agents = bridgesnapshot_agents(state);
   const remote_agents = (((_truthy) => _truthy !== false && _truthy != null)(agent_payload) ? normalize_agents(agent_payload) : []);
@@ -1470,7 +1574,7 @@ return (((_truthy) => _truthy !== false && _truthy != null)(remote) ? agent_with
   const open_rows = (Array.isArray(board) ? board : []);
   const done_rows = (Array.isArray(done) ? done : []);
   const ids = board_ids(open_rows).concat(board_ids(done_rows));
-  const facts = ((ids.length > 0) ? await run_json([north_bin(), "json", "show-many", ids.join(",")]).catch((__) => []) : []);
+  const facts = ((ids.length > 0) ? (async () => { const request = run_json([north_bin(), "json", "show-many", ids.join(",")]).catch((__) => []); return await request; })() : []);
   const work = (Array.isArray(board) ? normalize_work(open_rows, facts) : bridgesnapshot_list(state));
   const prior_terminal = bridgesnapshot_board(state).filter((item) => terminal_condition_p(workitem_condition(item)));
   const terminal_work = (Array.isArray(done) ? normalize_work(done_rows, facts) : prior_terminal);
@@ -1488,7 +1592,7 @@ return (((_truthy) => _truthy !== false && _truthy != null)(remote) ? agent_with
   if ((next_index >= 0)) {
     (runtime.workIndex = next_index);
     if ((workview_id(next_view) === "list")) {
-      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(aget(next_items, next_index))));
+      runtime.collapsedListConditions.delete(list_section_id(workitem_condition(next_items[next_index])));
     }
   }
   return runtime.render();
@@ -1498,11 +1602,11 @@ function canonical_work_view(view_id) {
   return ((((_truthy) => _truthy !== false && _truthy != null)(((view_id === "graph") || (view_id === "dag")))) ? "graph" : (((_truthy) => _truthy !== false && _truthy != null)(((view_id === "board") || (view_id === "kanban")))) ? "board" : "list");
 }
 
-export function thread_view_command_p(name) {
+function thread_view_command_p(name) {
   return ((name === "list") || ((name === "board") || (name === "graph")));
 }
 
-export function view_list(state) {
+function view_list(state) {
   return [WorkView("list", "List", bridgesnapshot_list(state)), WorkView("board", "Board", bridgesnapshot_board(state)), WorkView("graph", "Graph", bridgesnapshot_list(state))];
 }
 
@@ -1513,18 +1617,18 @@ function selected_view(state, view_id) {
   return ((_logical) => (_logical !== false && _logical != null ? _logical : views[0]))(selected);
 }
 
-export function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
+function roster_row_suppressed_p(agent_id, supervisor_id, banner_p) {
   return (banner_p && ((!(supervisor_id === "")) && (agent_id === supervisor_id)));
 }
 
-export function roster_text_bang(state, selected, supervisor_id, banner_p) {
+function roster_text_bang(state, selected, supervisor_id, banner_p) {
   const agents = bridgesnapshot_agents(state);
   const width = Math.max(1, (terminal_columns() - 6));
-  const rows = agents.map((agent, index) => ({id: agent_id(agent), text: agent_row_text_bang(agent, (index === selected), width)})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
+  const rows = agents.map((agent, index) => ({[$$bc$property_key($$bc$keyword("id"))]: agent_id(agent), [$$bc$property_key($$bc$keyword("text"))]: agent_row_text_bang(agent, (index === selected), width)})).filter((row) => (!roster_row_suppressed_p(row.id, supervisor_id, banner_p)));
   return (((agents.length === 0)) ? "No agents attached" : ((rows.length === 0)) ? "" : rows.map((row) => row.text).join("\n"));
 }
 
-export function roster_visible_rows(content) {
+function roster_visible_rows(content) {
   const value = text(content).trim();
   return ((value === "") ? 0 : Math.min(4, value.split("\n").length));
 }
@@ -1537,34 +1641,34 @@ function agent_display_name(agent) {
 function agent_summary(agent) {
   const status = agent_field_text(agent_status(agent));
   const task = agent_field_text(agent_task(agent));
-  return ("".concat(agent_display_name(agent), ((status === "") ? "" : ("".concat(" (", status, ")"))), ((task === "") ? "" : ("".concat(" — ", task)))));
+  return $$bc$str(agent_display_name(agent), ((status === "") ? "" : $$bc$str(" (", status, ")")), ((task === "") ? "" : $$bc$str(" — ", task)));
 }
 
-export function agent_row_text_bang(agent, selected_p, width) {
+function agent_row_text_bang(agent, selected_p, width) {
   const prefix = (selected_p ? "› " : "  ");
   const prefix_width = Bun.stringWidth(prefix);
-  return ("".concat(prefix, agent_cell_text_bang(agent_summary(agent), Math.max(1, (width - prefix_width)))));
+  return $$bc$str(prefix, agent_cell_text_bang(agent_summary(agent), Math.max(1, (width - prefix_width))));
 }
 
 function route_provider(agent) {
   const label = agent_field_text(agent_provider_label(agent));
   const provider = agent_field_text(agent_provider(agent));
   const target = agent_field_text(agent_provider_target(agent));
-  return (((!(label === ""))) ? label : (((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(target === ""))))) ? ("".concat(provider, ":", target)) : text_or(provider, target));
+  return (((!(label === ""))) ? label : (((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(target === ""))))) ? $$bc$str(provider, ":", target) : text_or(provider, target));
 }
 
 function route_model(agent) {
   return text_or(agent_field_text(agent_model_display(agent)), agent_field_text(agent_model(agent)));
 }
 
-export function agent_route_text_bang(agent, width) {
+function agent_route_text_bang(agent, width) {
   const provider = route_provider(agent);
   const model = route_model(agent);
   const effort = agent_field_text(agent_effort(agent));
   const provenance = agent_field_text(agent_orchestration_provenance(agent));
   const state = agent_field_text(agent_state(agent));
   const goal = agent_field_text(agent_goal(agent));
-  const parts = [((provider === "") ? "" : ("".concat("provider ", provider))), ((model === "") ? "" : ("".concat("model ", model))), ((effort === "") ? "" : ("".concat("effort ", effort))), ((provenance === "") ? "" : provenance), ((state === "") ? "" : ("".concat("state ", state))), ((goal === "") ? "" : ("".concat("goal ", goal)))].filter((part) => (!(part === "")));
+  const parts = [((provider === "") ? "" : $$bc$str("provider ", provider)), ((model === "") ? "" : $$bc$str("model ", model)), ((effort === "") ? "" : $$bc$str("effort ", effort)), ((provenance === "") ? "" : provenance), ((state === "") ? "" : $$bc$str("state ", state)), ((goal === "") ? "" : $$bc$str("goal ", goal))].filter((part) => (!(part === "")));
   return agent_cell_text_bang(parts.join(" · "), width);
 }
 
@@ -1582,7 +1686,7 @@ function segment_agents(agents, segment_id) {
 }
 
 function agent_total_label(total) {
-  return ("".concat(total, ((total === 1) ? " agent" : " agents")));
+  return $$bc$str(total, ((total === 1) ? " agent" : " agents"));
 }
 
 function agent_segments(agents) {
@@ -1592,14 +1696,14 @@ function agent_segments(agents) {
 const members = agents_in_bucket(agents, id);
 const count = members.length;
 if ((count > 0)) {
-  return segments.push(AgentSegment(id, ("".concat(stripbucket_glyph(bucket), count, " ", id)), count));
+  return segments.push(AgentSegment(id, $$bc$str(stripbucket_glyph(bucket), count, " ", id), count));
 } });
   return segments;
 }
 
 function segment_columns(segments) {
   const starts = [];
-  segments.forEach((__segment, index) => starts.push(((index === 0) ? STRIP_INDENT : (() => { const previous_start = aget(starts, (index - 1)); const previous_width = agentsegment_label(aget(segments, (index - 1))).length; const separator_width = STRIP_SEPARATOR.length; return (previous_start + previous_width + separator_width); })())));
+  segments.forEach((__segment, index) => starts.push(((index === 0) ? STRIP_INDENT : (() => { const previous_start = starts[(index - 1)]; const previous_width = agentsegment_label(segments[(index - 1)]).length; const separator_width = STRIP_SEPARATOR.length; return (previous_start + previous_width + separator_width); })())));
   return starts;
 }
 
@@ -1623,7 +1727,7 @@ if ((index < (commands.length - 1))) {
 } });
   if ((more > 0)) {
     push_chunk_bang(chunks, white("\n"));
-    push_chunk_bang(chunks, brightBlack(("".concat("  … ", more, " more"))));
+    push_chunk_bang(chunks, brightBlack($$bc$str("  … ", more, " more")));
   }
   return new StyledText(chunks);
 }
@@ -1640,7 +1744,7 @@ function terminal_rows() {
   return Math.max(1, ((typeof rows === "number") ? rows : 40));
 }
 
-export function apply_view_visibility_bang(runtime, ui) {
+function apply_view_visibility_bang(runtime, ui) {
   const threads_p = threads_view_p(runtime.view);
   (ui.agentsPane.visible = (!threads_p));
   return (ui.workPane.visible = threads_p);
@@ -1658,22 +1762,22 @@ function user_block_text(runtime, body) {
   const width = available_agent_width(runtime);
   const lines = body.split("\n");
   return lines.map((line, index) => { const prefix = ((index === 0) ? "❯ " : "  ");
-return ("".concat(prefix, line)).padEnd(width, " "); }).join("\n");
+return $$bc$str(prefix, line).padEnd(width, " "); }).join("\n");
 }
 
 function short_directory(directory) {
   const path = text(directory);
   const home = text(process.env.HOME);
-  return (((_truthy) => _truthy !== false && _truthy != null)(((!(home === "")) && path.startsWith(home))) ? ("".concat("~", path.slice(home.length))) : path);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((!(home === "")) && path.startsWith(home))) ? $$bc$str("~", path.slice(home.length)) : path);
 }
 
 function session_context_text(runtime) {
-  return ("".concat(text_or(runtime.sessionModel, "model pending"), " ", text_or(runtime.sessionEffort, "effort pending"), " · ", text_or(short_directory(runtime.sessionCwd), "directory pending"), " · ", text_or(runtime.sessionBranch, "branch pending")));
+  return $$bc$str(text_or(runtime.sessionModel, "model pending"), " ", text_or(runtime.sessionEffort, "effort pending"), " · ", text_or(short_directory(runtime.sessionCwd), "directory pending"), " · ", text_or(runtime.sessionBranch, "branch pending"));
 }
 
 function transcript_context_text(runtime) {
   const selected = runtime_selected_agent_id(runtime);
-  return ((aggregate_transcript_p(runtime)) ? "all Bridge executions" : ((selected === text(runtime.supervisorId))) ? session_context_text(runtime) : ((!(selected === ""))) ? ("".concat("Bridge execution ", selected.slice(0, 8))) : "Bridge execution pending");
+  return ((aggregate_transcript_p(runtime)) ? "all Bridge executions" : ((selected === text(runtime.supervisorId))) ? session_context_text(runtime) : ((!(selected === ""))) ? $$bc$str("Bridge execution ", selected.slice(0, 8)) : "Bridge execution pending");
 }
 
 function command_parts(title) {
@@ -1691,9 +1795,9 @@ function push_command_output_bang(chunks, output) {
     const visible = lines.slice(0, ((overflow > 0) ? (limit - 1) : limit));
     visible.forEach((line, index) => { const visible_count = visible.length;
 const last_p = ((overflow === 0) && (index === (visible_count - 1)));
-return push_chunk_bang(chunks, dim(("".concat("\n  ", (((_truthy) => _truthy !== false && _truthy != null)(last_p) ? "└ " : "│ "), line)))); });
+return push_chunk_bang(chunks, dim($$bc$str("\n  ", (((_truthy) => _truthy !== false && _truthy != null)(last_p) ? "└ " : "│ "), line))); });
     if ((overflow > 0)) {
-      return push_chunk_bang(chunks, dim(("".concat("\n  └ … +", (overflow + 1), " lines"))));
+      return push_chunk_bang(chunks, dim($$bc$str("\n  └ … +", (overflow + 1), " lines")));
     }
   }
 }
@@ -1705,7 +1809,7 @@ function push_command_card_bang(chunks, title, body, status) {
   push_chunk_bang(chunks, brightWhite((running_p ? "Running " : "Ran ")));
   push_chunk_bang(chunks, brightCyan(commandparts_executable(parts)));
   if ((!(commandparts_arguments(parts) === ""))) {
-    push_chunk_bang(chunks, dim(("".concat(" ", commandparts_arguments(parts)))));
+    push_chunk_bang(chunks, dim($$bc$str(" ", commandparts_arguments(parts))));
   }
   push_command_output_bang(chunks, body);
   return push_chunk_bang(chunks, white("\n\n"));
@@ -1721,12 +1825,12 @@ function diff_start_line(token) {
 }
 
 function append_diff_row(state, row) {
-  return Object.freeze({...state, rows: diffstate_rows(state).concat(row)});
+  return $$bc$record_value("north.bridge.app/DiffState", {...state, rows: diffstate_rows(state).concat(row)});
 }
 
 function diff_rows(diff) {
   const source = clean_text(diff);
-  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => ((((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("@@ "))) ? (() => { const parts = line.split(" "); return append_diff_row(Object.freeze({...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : line.startsWith("+++ ")))(line.startsWith("--- "))))(line.startsWith("index "))))(line.startsWith("diff --git ")))) ? state : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("+"))) ? append_diff_row(Object.freeze({...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", ("".concat(diffstate_new_line(state))), line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("-"))) ? append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", ("".concat(diffstate_old_line(state))), "", line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("\\ No newline"))) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row(Object.freeze({...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", ("".concat(diffstate_old_line(state))), ("".concat(diffstate_new_line(state))), line))), DiffState(0, 0, 0, 0, [])));
+  return ((source === "") ? DiffState(0, 0, 0, 0, []) : source.split("\n").reduce((state, line) => ((((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("@@ "))) ? (() => { const parts = line.split(" "); return append_diff_row($$bc$record_value("north.bridge.app/DiffState", {...state, old_line: diff_start_line(parts[1]), new_line: diff_start_line(parts[2])}), DiffRow("hunk", "", "", line)); })() : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : line.startsWith("+++ ")))(line.startsWith("--- "))))(line.startsWith("index "))))(line.startsWith("diff --git ")))) ? state : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("+"))) ? append_diff_row($$bc$record_value("north.bridge.app/DiffState", {...state, new_line: (diffstate_new_line(state) + 1), additions: (diffstate_additions(state) + 1)}), DiffRow("add", "", $$bc$str(diffstate_new_line(state)), line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("-"))) ? append_diff_row($$bc$record_value("north.bridge.app/DiffState", {...state, old_line: (diffstate_old_line(state) + 1), deletions: (diffstate_deletions(state) + 1)}), DiffRow("delete", $$bc$str(diffstate_old_line(state)), "", line)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("\\ No newline"))) ? append_diff_row(state, DiffRow("meta", "", "", line)) : append_diff_row($$bc$record_value("north.bridge.app/DiffState", {...state, old_line: (diffstate_old_line(state) + 1), new_line: (diffstate_new_line(state) + 1)}), DiffRow("context", $$bc$str(diffstate_old_line(state)), $$bc$str(diffstate_new_line(state)), line))), DiffState(0, 0, 0, 0, [])));
 }
 
 function file_change_details(change) {
@@ -1736,7 +1840,7 @@ function file_change_details(change) {
 
 function file_change_summary(changes) {
   return changes.reduce((summary, change) => { const details = file_change_details(change);
-return Object.freeze({...summary, additions: (filechangesummary_additions(summary) + filechangedetails_additions(details)), deletions: (filechangesummary_deletions(summary) + filechangedetails_deletions(details)), files: filechangesummary_files(summary).concat(details)}); }, FileChangeSummary(0, 0, []));
+return $$bc$record_value("north.bridge.app/FileChangeSummary", {...summary, additions: (filechangesummary_additions(summary) + filechangedetails_additions(details)), deletions: (filechangesummary_deletions(summary) + filechangedetails_deletions(details)), files: filechangesummary_files(summary).concat(details)}); }, FileChangeSummary(0, 0, []));
 }
 
 function diff_line_number(value) {
@@ -1750,12 +1854,12 @@ function push_diff_rows_bang(chunks, rows, width) {
   const row_count = rows.length;
   const overflow = Math.max(0, (row_count - limit));
   visible.forEach((row) => { const kind = diffrow_kind(row);
-const numbers = ("".concat(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ "));
-const line = compact_text(("".concat(numbers, diffrow_text(row))), width);
+const numbers = $$bc$str(diff_line_number(diffrow_old(row)), " ", diff_line_number(diffrow_new(row)), " │ ");
+const line = compact_text($$bc$str(numbers, diffrow_text(row)), width);
 push_chunk_bang(chunks, white("\n"));
 return push_chunk_bang(chunks, (((kind === "add")) ? (bg("#173326"))(brightGreen(line.padEnd(width, " "))) : ((kind === "delete")) ? (bg("#382127"))(brightRed(line.padEnd(width, " "))) : ((kind === "hunk")) ? brightCyan(line) : dim(line))); });
   if ((overflow > 0)) {
-    return push_chunk_bang(chunks, dim(("".concat("\n          └ … +", overflow, " diff lines"))));
+    return push_chunk_bang(chunks, dim($$bc$str("\n          └ … +", overflow, " diff lines")));
   }
 }
 
@@ -1766,9 +1870,9 @@ function push_file_change_card_bang(chunks, item, status, runtime) {
   const files = filechangesummary_files(summary);
   const width = Math.max(24, (available_agent_width(runtime) - 2));
   push_chunk_bang(chunks, ((status === "failed") ? brightRed("• ") : brightGreen("• ")));
-  push_chunk_bang(chunks, brightWhite(("".concat(((status === "running") ? "Editing " : "Edited "), files.length, ((files.length === 1) ? " file" : " files"), " (+", filechangesummary_additions(summary), " -", filechangesummary_deletions(summary), ")"))));
+  push_chunk_bang(chunks, brightWhite($$bc$str(((status === "running") ? "Editing " : "Edited "), files.length, ((files.length === 1) ? " file" : " files"), " (+", filechangesummary_additions(summary), " -", filechangesummary_deletions(summary), ")")));
   files.forEach((file, index) => { const last_p = (index === (files.length - 1));
-push_chunk_bang(chunks, brightBlack(("".concat("\n  ", (last_p ? "└ " : "├ "), filechangedetails_path(file), " (+", filechangedetails_additions(file), " -", filechangedetails_deletions(file), ")"))));
+push_chunk_bang(chunks, brightBlack($$bc$str("\n  ", (last_p ? "└ " : "├ "), filechangedetails_path(file), " (+", filechangedetails_additions(file), " -", filechangedetails_deletions(file), ")")));
 if ((filechangedetails_rows(file).length > 0)) {
   return push_diff_rows_bang(chunks, filechangedetails_rows(file), width);
 } });
@@ -1789,12 +1893,12 @@ function supervisor_status(runtime) {
   return ((matches.length === 0) ? "" : agent_status(matches[0]));
 }
 
-export function transcript_placeholder(label, status, item_count, working_p) {
+function transcript_placeholder(label, status, item_count, working_p) {
   const value = status.trim().toLowerCase();
-  return (((item_count > 0)) ? "" : (working_p) ? "" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "") || (value === "starting")))) ? ("".concat("Starting ", label, "…")) : (((_truthy) => _truthy !== false && _truthy != null)(((value === "offline") || ((value === "failed") || (value === "error"))))) ? ("".concat(label, " is offline.")) : "");
+  return (((item_count > 0)) ? "" : (working_p) ? "" : (((_truthy) => _truthy !== false && _truthy != null)(((value === "") || (value === "starting")))) ? $$bc$str("Starting ", label, "…") : (((_truthy) => _truthy !== false && _truthy != null)(((value === "offline") || ((value === "failed") || (value === "error"))))) ? $$bc$str(label, " is offline.") : "");
 }
 
-export function transcript_banner_p(status, item_count, working_p) {
+function transcript_banner_p(status, item_count, working_p) {
   const value = status.trim().toLowerCase();
   return ((item_count === 0) && ((!working_p) && ((!(value === "")) && ((!(value === "starting")) && ((!(value === "offline")) && ((!(value === "failed")) && (!(value === "error"))))))));
 }
@@ -1809,53 +1913,53 @@ const BANNER_MIN_COLUMNS = 55;
 
 const BANNER_MODEL_HINT = "/model changes the next launch";
 
-export function banner_revision(identity) {
+function banner_revision(identity) {
   const value = text(identity).trim();
   return ((value === "") ? "unknown" : value.slice(0, 8));
 }
 
-export function banner_permissions(mode) {
+function banner_permissions(mode) {
   const value = text(mode).trim();
   return (((value === "")) ? "pending" : ((value === "bypassPermissions")) ? "YOLO mode" : value);
 }
 
 function banner_field(label, value) {
-  return ("".concat(("".concat(label, ":")).padEnd(BANNER_LABEL_WIDTH, " "), value));
+  return $$bc$str($$bc$str(label, ":").padEnd(BANNER_LABEL_WIDTH, " "), value);
 }
 
-export function session_banner_lines(identity, model, effort, directory, permissions) {
+function session_banner_lines(identity, model, effort, directory, permissions) {
   const named = text_or(text(model), "pending");
   const graded = text(effort);
-  const model_text = ((graded === "") ? named : ("".concat(named, " ", graded)));
-  return [("".concat(">_ North Bridge (", banner_revision(identity), ")")), "", banner_field("model", ("".concat(model_text, "   ", BANNER_MODEL_HINT))), banner_field("directory", text_or(text(directory), "pending")), banner_field("permissions", banner_permissions(permissions))];
+  const model_text = ((graded === "") ? named : $$bc$str(named, " ", graded));
+  return [$$bc$str(">_ North Bridge (", banner_revision(identity), ")"), "", banner_field("model", $$bc$str(model_text, "   ", BANNER_MODEL_HINT)), banner_field("directory", text_or(text(directory), "pending")), banner_field("permissions", banner_permissions(permissions))];
 }
 
 function banner_clip(line, width) {
   const limit = Math.max(1, width);
-  return ((grapheme_count(line) > limit) ? ("".concat(line.slice(0, Math.max(0, (limit - 1))), "…")) : line);
+  return ((grapheme_count(line) > limit) ? $$bc$str(line.slice(0, Math.max(0, (limit - 1))), "…") : line);
 }
 
 function widest_line_bang(lines) {
-  const widest = {n: 0};
+  const widest = {[$$bc$property_key($$bc$keyword("n"))]: 0};
   lines.forEach((line) => { if ((grapheme_count(line) > widest.n)) {
   return (widest.n = grapheme_count(line));
 } });
   return widest.n;
 }
 
-export function banner_box_bang(lines, width) {
-  const inner = Math/max(1, (width - 4));
+function banner_box_bang(lines, width) {
+  const inner = Math.max(1, (width - 4));
   const clipped = lines.map((line) => banner_clip(line, inner));
   if ((width < BANNER_MIN_COLUMNS)) {
     return clipped;
   } else {
-    const span = Math/min(inner, widest_line_bang(clipped));
+    const span = Math.min(inner, widest_line_bang(clipped));
     const rule = "─".repeat((span + 2));
-    return [("".concat("╭", rule, "╮"))].concat(clipped.map((line) => ("".concat("│ ", line.padEnd(span, " "), " │"))), [("".concat("╰", rule, "╯"))]);
+    return [$$bc$str("╭", rule, "╮")].concat(clipped.map((line) => $$bc$str("│ ", line.padEnd(span, " "), " │")), [$$bc$str("╰", rule, "╯")]);
   }
 }
 
-export function session_banner_bang(identity, model, effort, directory, permissions, width) {
+function session_banner_bang(identity, model, effort, directory, permissions, width) {
   return banner_box_bang(session_banner_lines(identity, model, effort, directory, permissions), width);
 }
 
@@ -1863,37 +1967,37 @@ const BANNER_BOX_PREFIX = "│ ";
 
 const BANNER_BOX_SUFFIX = " │";
 
-export function banner_rule_line_p(line) {
+function banner_rule_line_p(line) {
   return ((_logical) => (_logical !== false && _logical != null ? _logical : line.startsWith("╰")))(line.startsWith("╭"));
 }
 
-export function banner_line_segments(line) {
+function banner_line_segments(line) {
   const line_length = line.length;
   return ((banner_rule_line_p(line)) ? [line, "", ""] : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? ((_logical) => (_logical !== false && _logical != null ? (line_length >= 4) : _logical))(line.endsWith(BANNER_BOX_SUFFIX)) : _logical))(line.startsWith(BANNER_BOX_PREFIX)))) ? [BANNER_BOX_PREFIX, line.slice(2, (line_length - 2)), BANNER_BOX_SUFFIX] : ["", line, ""]);
 }
 
-export function session_banner_runs(lines) {
+function session_banner_runs(lines) {
   const runs = [];
   lines.forEach((line, index) => { const segments = banner_line_segments(line);
 const prefix = segments[0];
-const content = aget(segments, 1);
-const suffix = aget(segments, 2);
+const content = segments[1];
+const suffix = segments[2];
 if ((index > 0)) {
-  runs.push({text: "\n", tone: "snapshot"});
+  runs.push({[$$bc$property_key($$bc$keyword("text"))]: "\n", [$$bc$property_key($$bc$keyword("tone"))]: "snapshot"});
 }
 if ((!(prefix === ""))) {
-  runs.push({text: prefix, tone: "snapshot"});
+  runs.push({[$$bc$property_key($$bc$keyword("text"))]: prefix, [$$bc$property_key($$bc$keyword("tone"))]: "snapshot"});
 }
 if ((!(content === ""))) {
-  runs.push({text: content, tone: (((_truthy) => _truthy !== false && _truthy != null)(content.includes("North Bridge")) ? "title" : "field")});
+  runs.push({[$$bc$property_key($$bc$keyword("text"))]: content, [$$bc$property_key($$bc$keyword("tone"))]: (((_truthy) => _truthy !== false && _truthy != null)(content.includes("North Bridge")) ? "title" : "field")});
 }
 if ((!(suffix === ""))) {
-  return runs.push({text: suffix, tone: "snapshot"});
+  return runs.push({[$$bc$property_key($$bc$keyword("text"))]: suffix, [$$bc$property_key($$bc$keyword("tone"))]: "snapshot"});
 } });
   return runs;
 }
 
-export function render_conversation_bang(runtime) {
+function render_conversation_bang(runtime) {
   const chunks = [];
   const items = projected_conversation(runtime);
   items.forEach((item) => { const kind = conversationitem_kind(item);
@@ -1908,24 +2012,24 @@ push_chunk_bang(chunks, red(" — tell the model what to do differently."));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "change")) ? push_file_change_card_bang(chunks, item, status, runtime) : ((kind === "tool")) ? (() => { push_chunk_bang(chunks, ((status === "failed") ? brightRed("• ") : brightGreen("• ")));
 push_chunk_bang(chunks, brightWhite(title));
 if ((!(body === ""))) {
-  push_chunk_bang(chunks, dim(("".concat("\n  └ ", body.replaceAll("\n", "\n    ")))));
+  push_chunk_bang(chunks, dim($$bc$str("\n  └ ", body.replaceAll("\n", "\n    "))));
 }
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "thought")) ? (() => { push_chunk_bang(chunks, brightBlack("• Explored "));
 push_chunk_bang(chunks, dim(body));
 return push_chunk_bang(chunks, white("\n\n")); })() : ((kind === "error")) ? (() => { push_chunk_bang(chunks, brightRed("• Error\n  "));
 push_chunk_bang(chunks, red(body.replaceAll("\n", "\n  ")));
-return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack(("".concat("• ", body))));
+return push_chunk_bang(chunks, white("\n\n")); })() : (() => { push_chunk_bang(chunks, brightBlack($$bc$str("• ", body)));
 return push_chunk_bang(chunks, white("\n\n")); })()); });
   if (transcript_working_p(runtime)) {
     const working_since = runtime.workingSince;
     const elapsed = Math.floor(((Date.now() - working_since) / 1000));
     push_working_wave_bang(chunks, runtime);
-    push_chunk_bang(chunks, brightBlack(("".concat(" (", elapsed, "s · esc or ctrl-c to cancel)\n  "))));
+    push_chunk_bang(chunks, brightBlack($$bc$str(" (", elapsed, "s · esc or ctrl-c to cancel)\n  ")));
     push_chunk_bang(chunks, brightBlack(transcript_context_text(runtime)));
   }
   const status = supervisor_status(runtime);
   const working_p = transcript_working_p(runtime);
-  const supervisor_view_p = and((!aggregate_transcript_p(runtime)), (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
+  const supervisor_view_p = ((!aggregate_transcript_p(runtime)) && (runtime_selected_agent_id(runtime) === text(runtime.supervisorId)));
   const placeholder = (((_truthy) => _truthy !== false && _truthy != null)(supervisor_view_p) ? transcript_placeholder(main_agent_label(runtime), status, items.length, working_p) : "");
   if ((!(placeholder === ""))) {
     push_chunk_bang(chunks, brightBlack(placeholder));
@@ -1941,22 +2045,22 @@ function visible_notice(notice) {
   return (((value === "view dag")) ? "view graph" : ((value === "view kanban")) ? "view board" : value);
 }
 
-export function config_section_title(role) {
+function config_section_title(role) {
   return (((role === "moduleset")) ? "SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
 }
 
-export function config_header_roles(role) {
+function config_header_roles(role) {
   return (((role === "moduleset")) ? ["moduleset"] : ((role === "module")) ? ["skill", "module"] : ((role === "boundhook")) ? ["skill", "module"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : ((role === "plugin")) ? ["plugin"] : ((role === "other")) ? ["other"] : []);
 }
 
-export function config_header_keys(entry, rows) {
+function config_header_keys(entry, rows) {
   const role = config_row_role(entry, rows);
   const scope = config_row_scope(configentry_kind(entry), configentry_name(entry));
-  return config_header_roles(role).map((heading) => ("".concat(scope, " ", heading)));
+  return config_header_roles(role).map((heading) => $$bc$str(scope, " ", heading));
 }
 
-export function config_header_shared_bang(prior, current) {
-  const count = {n: 0};
+function config_header_shared_bang(prior, current) {
+  const count = {[$$bc$property_key($$bc$keyword("n"))]: 0};
   current.forEach((heading, index) => { if (((_truthy) => _truthy !== false && _truthy != null)(((count.n === index) && ((index < prior.length) && (prior[index] === heading))))) {
   return (count.n = (index + 1));
 } });
@@ -1967,15 +2071,15 @@ function config_panel_title(config_filter) {
   return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "directory context" : "context switchboard");
 }
 
-export function config_empty_note(loaded_p, filtering_p) {
+function config_empty_note(loaded_p, filtering_p) {
   return (((!loaded_p)) ? " loading…" : (filtering_p) ? " nothing matches" : " nothing to configure here");
 }
 
-export function config_query_field(filtering_p, query) {
-  return (filtering_p ? ("".concat("  /", query)) : "");
+function config_query_field(filtering_p, query) {
+  return (filtering_p ? $$bc$str("  /", query) : "");
 }
 
-export function config_panel_legend(filtering_p) {
+function config_panel_legend(filtering_p) {
   return (filtering_p ? "  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter" : "  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
 }
 
@@ -1984,7 +2088,7 @@ function dimmest(value) {
 }
 
 function config_member_count_text(count) {
-  return ("".concat(count, ((count === 1) ? " member" : " members")));
+  return $$bc$str(count, ((count === 1) ? " member" : " members"));
 }
 
 function config_fold_glyph(dir_row_p, expanded_p) {
@@ -2000,17 +2104,17 @@ function config_dir_label(entry) {
   }
 }
 
-export function config_kind_tag(kind, role) {
+function config_kind_tag(kind, role) {
   const headings = config_header_roles(role);
   const depth = headings.length;
   const innermost = ((depth > 0) ? headings[(depth - 1)] : "");
-  return (((_truthy) => _truthy !== false && _truthy != null)(((innermost === "") || (innermost === role))) ? "" : ("".concat(kind, " · ")));
+  return (((_truthy) => _truthy !== false && _truthy != null)(((innermost === "") || (innermost === role))) ? "" : $$bc$str(kind, " · "));
 }
 
-export function config_row_parts(entry, memberships, expanded_p, role, state_text, width) {
+function config_row_parts(entry, memberships, expanded_p, role, state_text, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  const dir_p = identical_p(kind, "dir");
+  const dir_p = (kind === "dir");
   const members = config_module_members(memberships, name);
   const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
   const indent = config_row_indent(role);
@@ -2023,12 +2127,12 @@ export function config_row_parts(entry, memberships, expanded_p, role, state_tex
   const state_width = state_text.length;
   const detail_width = detail.length;
   const room = Math.max(8, (width - indent_width - glyph_width - tag_width - state_width - detail_width - 4));
-  return {indent: indent, glyph: glyph, tag: tag, name: compact_text(label, room), state: state_text, detail: detail};
+  return {[$$bc$property_key($$bc$keyword("indent"))]: indent, [$$bc$property_key($$bc$keyword("glyph"))]: glyph, [$$bc$property_key($$bc$keyword("tag"))]: tag, [$$bc$property_key($$bc$keyword("name"))]: compact_text(label, room), [$$bc$property_key($$bc$keyword("state"))]: state_text, [$$bc$property_key($$bc$keyword("detail"))]: detail};
 }
 
 const CONFIG_INDENT_WIDTH = 2;
 
-export function config_row_depth(role) {
+function config_row_depth(role) {
   return (((role === "dir")) ? 0 : ((role === "ins")) ? 1 : ((role === "memroot")) ? 1 : ((role === "module")) ? 3 : ((role === "boundhook")) ? 4 : 2);
 }
 
@@ -2040,7 +2144,7 @@ function config_header_indent(index) {
   return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
 }
 
-export function render_config_panel_bang(runtime) {
+function render_config_panel_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
@@ -2061,37 +2165,37 @@ export function render_config_panel_bang(runtime) {
     const window = config_visible_count(total, config_filter);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    const width = Math/max(12, (terminal_columns() - 12));
-    const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(("".concat(config_panel_legend(filtering_p), "\n")))];
-    entries.slice(start, stop).forEach((entry, offset) => { const i = +(start, offset);
+    const width = Math.max(12, (terminal_columns() - 12));
+    const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))];
+    entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry, manifest, memberships);
-const pinned_p = and((kind === "hook"), (!config_hook_enabled_p(configentry_state(entry))));
+const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
 const context_p = config_row_context_only_p(entry, query);
 const role = config_row_role(entry, basis);
-const open_p = and((kind === "dir"), ((!(query.trim() === "")) || ((!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry)))));
-const nested_p = identical_p(role, "boundhook");
+const open_p = ((kind === "dir") && ((!(query.trim() === "")) || ((!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry)))));
+const nested_p = (role === "boundhook");
 const state_text = config_state_text(entry, manifest, memberships, active_p, nested_p);
 const row = config_row_parts(entry, memberships, open_p, role, state_text, width);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
 const shared = config_header_shared_bang(prior, headings);
-const tail = (((_truthy) => _truthy !== false && _truthy != null)(identical_p(+(i, 1), stop)) ? "" : "\n");
+const tail = (((i + 1) === stop) ? "" : "\n");
 config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
-  return parts.push(brightYellow(("".concat(config_header_indent(at), config_section_title(heading), "\n"))));
+  return parts.push(brightYellow($$bc$str(config_header_indent(at), config_section_title(heading), "\n")));
 } });
-parts.push((((_truthy) => _truthy !== false && _truthy != null)(and(cursor_p, focused_p)) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
+parts.push((((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p)) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
 const name_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p))) ? brightWhite : (context_p) ? dimmest : brightBlack);
 const state_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (active_p) ? brightGreen : brightBlack);
-parts.push(name_tone(("".concat(row.indent, row.glyph))));
-if ((!((_truthy) => _truthy !== false && _truthy != null)(identical_p(row.tag, "")))) {
+parts.push(name_tone($$bc$str(row.indent, row.glyph)));
+if ((!(row.tag === ""))) {
   parts.push(dimmest(row.tag));
 }
 parts.push(name_tone(row.name));
 parts.push(name_tone(": "));
 parts.push(state_tone(row.state));
-return parts.push(name_tone(("".concat((((_truthy) => _truthy !== false && _truthy != null)(identical_p(row.detail, "")) ? "" : ("".concat("  ", row.detail))), tail)))); });
+return parts.push(name_tone($$bc$str(((row.detail === "") ? "" : $$bc$str("  ", row.detail)), tail))); });
     return new StyledText(parts);
   }
 }
@@ -2137,11 +2241,11 @@ function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
 }
 
-export function config_section_rows(view) {
+function config_section_rows(view) {
   return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 5 : ((view === "agentsmd")) ? 0 : 1);
 }
 
-export function config_visible_count(total, view) {
+function config_visible_count(total, view) {
   return detail_visible_count(total, config_section_rows(view));
 }
 
@@ -2156,17 +2260,17 @@ function selected_detail_agent(runtime) {
 }
 
 function config_header_lines_bang(entries, basis, start, stop) {
-  const count = {n: 0};
-  entries.slice(start, stop).forEach((entry, offset) => { const i = +(start, offset);
+  const count = {[$$bc$property_key($$bc$keyword("n"))]: 0};
+  entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
 const count_n = count.n;
 const heading_count = headings.length;
-return (count.n = +(count_n, (heading_count - config_header_shared_bang(prior, headings)))); });
+return (count.n = (count_n + (heading_count - config_header_shared_bang(prior, headings)))); });
   return count.n;
 }
 
-export function config_detail_lines_bang(runtime) {
+function config_detail_lines_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
@@ -2187,12 +2291,12 @@ function detail_body_lines_bang(runtime) {
   return ((detail_showing_p(runtime, "config")) ? config_detail_lines_bang(runtime) : (detail_showing_p(runtime, "agents")) ? (() => { const total = detail_agents(runtime).length; const agent = selected_detail_agent(runtime); const metadata = (((_truthy) => _truthy !== false && _truthy != null)(agent) ? agent_route_text_bang(agent, Math.max(12, (terminal_columns() - 8))) : ""); const extra = ((metadata === "") ? 0 : 1); return (1 + Math.max(1, Math.min(total, detail_visible_count(total, extra))) + extra); })() : (detail_showing_p(runtime, "help")) ? (1 + help_visible_rows(panel_query(runtime))) : 0);
 }
 
-export function detail_height_bang(runtime) {
+function detail_height_bang(runtime) {
   return (2 + detail_body_lines_bang(runtime));
 }
 
 function agent_detail_title(segment_id) {
-  return ((segment_id === "all") ? "agents" : ("".concat("agents · ", segment_id)));
+  return ((segment_id === "all") ? "agents" : $$bc$str("agents · ", segment_id));
 }
 
 function agent_detail_row_bang(agent, width) {
@@ -2215,20 +2319,20 @@ function render_agent_detail_bang(runtime) {
     const window = detail_visible_count(total, extra);
     const start = window_start(index, total, window);
     const stop = Math.min(total, (start + window));
-    agents.slice(start, stop).forEach((agent, offset) => { const i = +(start, offset);
+    agents.slice(start, stop).forEach((agent, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
-const tail = (((_truthy) => _truthy !== false && _truthy != null)(((+(i, 1) === stop) && (metadata === ""))) ? "" : "\n");
+const tail = (((_truthy) => _truthy !== false && _truthy != null)((((i + 1) === stop) && (metadata === ""))) ? "" : "\n");
 parts.push((cursor_p ? brightCyan("› ") : brightBlack("  ")));
-return parts.push(((cursor_p ? brightWhite : brightBlack))(("".concat(agent_detail_row_bang(agent, width), tail)))); });
+return parts.push(((cursor_p ? brightWhite : brightBlack))($$bc$str(agent_detail_row_bang(agent, width), tail))); });
     if ((!(metadata === ""))) {
-      parts.push(brightBlack(("".concat("  ", metadata))));
+      parts.push(brightBlack($$bc$str("  ", metadata)));
     }
     return new StyledText(parts);
   }
 }
 
 function HelpRow(keys, meaning) {
-  return Object.freeze({_tag: "HelpRow", keys, meaning});
+  return $$bc$record_value("north.bridge.app/HelpRow", {_tag: "HelpRow", keys, meaning});
 }
 
 function helprow_keys(r) { return r.keys; }
@@ -2239,9 +2343,9 @@ const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads; folds in the switchboard
 
 const HELP_KEY_WIDTH = 22;
 
-export function help_query_rows(query) {
+function help_query_rows(query) {
   const needle = query.trim().toLowerCase();
-  return ((needle === "") ? HELP_ROWS : HELP_ROWS.filter((row) => ("".concat(helprow_keys(row), " ", helprow_meaning(row))).toLowerCase().includes(needle)));
+  return ((needle === "") ? HELP_ROWS : HELP_ROWS.filter((row) => $$bc$str(helprow_keys(row), " ", helprow_meaning(row)).toLowerCase().includes(needle)));
 }
 
 function help_visible_rows(query) {
@@ -2268,7 +2372,7 @@ if ((index < (row_count - 1))) {
   return new StyledText(chunks);
 }
 
-export function render_detail_panel_bang(runtime) {
+function render_detail_panel_bang(runtime) {
   return ((detail_showing_p(runtime, "config")) ? render_config_panel_bang(runtime) : (detail_showing_p(runtime, "agents")) ? render_agent_detail_bang(runtime) : (detail_showing_p(runtime, "help")) ? render_help_panel_bang(runtime) : new StyledText([brightBlack("")]));
 }
 
@@ -2316,14 +2420,14 @@ const SUBVIEW_TAB_ORIGIN = (() => { const threads_label_width = THREADS_TAB_LABE
 const SUBVIEW_TAB_GAP = 2;
 
 function push_session_identity_bang(chunks, session) {
-  push_chunk_bang(chunks, brightYellow(("".concat(text_or(session.sessionModel, "model pending"), " ", text_or(session.sessionEffort, "effort pending")))));
+  push_chunk_bang(chunks, brightYellow($$bc$str(text_or(session.sessionModel, "model pending"), " ", text_or(session.sessionEffort, "effort pending"))));
   push_chunk_bang(chunks, brightBlack(" · "));
   push_chunk_bang(chunks, brightGreen(text_or(short_directory(session.sessionCwd), "directory pending")));
   push_chunk_bang(chunks, brightBlack(" · "));
   return push_chunk_bang(chunks, dim(text_or(session.sessionBranch, "branch pending")));
 }
 
-export function render_view_tabs_bang(view, state, view_id, session) {
+function render_view_tabs_bang(view, state, view_id, session) {
   const chunks = [];
   const threads_p = threads_view_p(view);
   const views = view_list(state);
@@ -2332,9 +2436,9 @@ export function render_view_tabs_bang(view, state, view_id, session) {
   push_chunk_bang(chunks, ((threads_p ? brightGreen : brightBlack))(THREADS_TAB_LABEL));
   push_chunk_bang(chunks, brightBlack(SUBVIEW_TAB_SEPARATOR));
   if (threads_p) {
-    views.forEach((view, index) => { const selected_p = identical_p(workview_id(view), view_id);
+    views.forEach((view, index) => { const selected_p = (workview_id(view) === view_id);
 const title = workview_title(view);
-push_chunk_bang(chunks, ((selected_p ? brightGreen : brightBlack))(("".concat((selected_p ? "[" : " "), title, (selected_p ? "]" : " ")))));
+push_chunk_bang(chunks, ((selected_p ? brightGreen : brightBlack))($$bc$str((selected_p ? "[" : " "), title, (selected_p ? "]" : " "))));
 if ((index < (views.length - 1))) {
   return push_chunk_bang(chunks, white("  "));
 } });
@@ -2351,7 +2455,7 @@ if ((index < (views.length - 1))) {
 function compact_text(value, width) {
   const source = text(value);
   const limit = Math.max(1, width);
-  return ((source.length > limit) ? ("".concat(source.slice(0, Math.max(0, (limit - 1))), "…")) : source);
+  return ((source.length > limit) ? $$bc$str(source.slice(0, Math.max(0, (limit - 1))), "…") : source);
 }
 
 function cell_text(value, width) {
@@ -2378,19 +2482,19 @@ function render_list_view_bang(runtime, items, selected, width) {
 const condition = listrow_condition(row);
 if ((kind === "header")) {
   const collapsed_p = collapsed.has(condition);
-  const header = ("".concat(" ", (((_truthy) => _truthy !== false && _truthy != null)(collapsed_p) ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row)));
+  const header = $$bc$str(" ", (((_truthy) => _truthy !== false && _truthy != null)(collapsed_p) ? "▸" : "▾"), "  ", list_section_title(condition), "  ", listrow_count(row));
   push_chunk_bang(chunks, (bg("#292c32"))(brightWhite(header.padEnd(width, " "))));
 } else {
   const index = listrow_index(row);
   const item = items[index];
-  const title_width = Math/max(10, (width - 25));
+  const title_width = Math.max(10, (width - 25));
   const title = compact_text(workitem_title(item), title_width);
   const selected_p = (index === selected);
   push_chunk_bang(chunks, brightBlack("  "));
   push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
   push_condition_bang(chunks, workitem_condition(item), cell_text(workitem_condition(item).toUpperCase(), 9));
   push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(title));
-  push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item)))));
+  push_chunk_bang(chunks, dim($$bc$str("  @", short_thread_id(item))));
 }
 if ((visual_index < (rows.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
@@ -2414,14 +2518,14 @@ const selected_p = (index === selected);
 push_chunk_bang(chunks, (selected_p ? brightCyan("› ") : brightBlack("  ")));
 push_condition_bang(chunks, condition, "● ");
 push_chunk_bang(chunks, ((selected_p ? brightWhite : white))(compact_text(workitem_title(item), Math.max(12, (width - 16)))));
-push_chunk_bang(chunks, dim(("".concat("  @", short_thread_id(item), "\n"))));
+push_chunk_bang(chunks, dim($$bc$str("  @", short_thread_id(item), "\n")));
 if ((dependencies.length === 0)) {
   push_chunk_bang(chunks, brightBlack("    ╰─ root\n"));
 } else {
   dependencies.forEach((dependency) => { const target = work_item_by_id(items, dependency);
 push_chunk_bang(chunks, brightBlack("    ╰─ requires ← "));
-push_chunk_bang(chunks, ((((_truthy) => _truthy !== false && _truthy != null)(target) ? brightCyan : brightBlack))(("".concat("@", dependency.slice(0, 8)))));
-return push_chunk_bang(chunks, (((_truthy) => _truthy !== false && _truthy != null)(target) ? dim(("".concat("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n"))) : brightBlack("  outside current board\n"))); });
+push_chunk_bang(chunks, ((((_truthy) => _truthy !== false && _truthy != null)(target) ? brightCyan : brightBlack))($$bc$str("@", dependency.slice(0, 8))));
+return push_chunk_bang(chunks, (((_truthy) => _truthy !== false && _truthy != null)(target) ? dim($$bc$str("  ", compact_text(workitem_title(target), Math.max(8, (width - 28))), "\n")) : brightBlack("  outside current board\n"))); });
 }
 if ((index < (items.length - 1))) {
   return push_chunk_bang(chunks, white("\n"));
@@ -2439,11 +2543,11 @@ function compact_body(value, width) {
 }
 
 function board_card_id(thread_id) {
-  return ("".concat("board-card-", thread_id));
+  return $$bc$str("board-card-", thread_id);
 }
 
 function board_signature(items, selected, width) {
-  return ("".concat(width, "|", selected, "|", items.map((item) => ("".concat(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item)))).join("\u0002")));
+  return $$bc$str(width, "|", selected, "|", items.map((item) => $$bc$str(workitem_id(item), "\x01", workitem_title(item), "\x01", workitem_body(item), "\x01", workitem_condition(item))).join("\u0002"));
 }
 
 function board_card_node(source) {
@@ -2465,9 +2569,9 @@ function select_board_card_bang(runtime, ui, item, index) {
 }
 
 function prefill_outcome_bang(runtime, ui, thread_id) {
-  (ui.composerInput.value = ("".concat("/outcome @", thread_id, " ")));
+  (ui.composerInput.value = $$bc$str("/outcome @", thread_id, " "));
   show_view_bang(runtime, ui, "threads");
-  return set_board_notice_bang(runtime, ("".concat("Finish the outcome, then press Enter; Done is derived from north tell @", thread_id, " outcome <result>.")));
+  return set_board_notice_bang(runtime, $$bc$str("Finish the outcome, then press Enter; Done is derived from north tell @", thread_id, " outcome <result>."));
 }
 
 async function move_ready_thread_bang(runtime, thread_id, position, anchor_id) {
@@ -2498,7 +2602,7 @@ function handle_board_drop_bang(runtime, ui, target_lane, target_card, event) {
 
 function card_content(item, width) {
   const body = compact_body(workitem_body(item), Math.max(8, (width - 4)));
-  const fallback = ("".concat("@", short_thread_id(item)));
+  const fallback = $$bc$str("@", short_thread_id(item));
   return new StyledText([brightWhite(compact_text(workitem_title(item), Math.max(8, (width - 4)))), white("\n"), dim(((body === "") ? fallback : body))]);
 }
 
@@ -2507,9 +2611,9 @@ function make_board_card_bang(runtime, ui, item, index, lane_index, width) {
   const thread_id = workitem_id(item);
   const condition = workitem_condition(item);
   const selected_p = (index === runtime.workIndex);
-  const next_up_p = and((condition === "ready"), (lane_index === 0));
-  const card = new BoxRenderable(renderer, {id: board_card_id(thread_id), width: width, height: 4, flexShrink: 0, paddingX: 1, border: true, borderColor: (selected_p ? "#22d3ee" : "#64748b"), title: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "Next Up" : null), titleColor: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "#4ade80" : "#94a3b8")});
-  const content = new TextRenderable(renderer, {width: "100%", height: 2, selectable: false, wrapMode: "none", truncate: true, content: card_content(item, width)});
+  const next_up_p = ((condition === "ready") && (lane_index === 0));
+  const card = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("id"))]: board_card_id(thread_id), [$$bc$property_key($$bc$keyword("width"))]: width, [$$bc$property_key($$bc$keyword("height"))]: 4, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("paddingX"))]: 1, [$$bc$property_key($$bc$keyword("border"))]: true, [$$bc$property_key($$bc$keyword("borderColor"))]: (selected_p ? "#22d3ee" : "#64748b"), [$$bc$property_key($$bc$keyword("title"))]: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "Next Up" : null), [$$bc$property_key($$bc$keyword("titleColor"))]: (((_truthy) => _truthy !== false && _truthy != null)(next_up_p) ? "#4ade80" : "#94a3b8")});
+  const content = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 2, [$$bc$property_key($$bc$keyword("selectable"))]: false, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true, [$$bc$property_key($$bc$keyword("content"))]: card_content(item, width)});
   (card.northThreadId = thread_id);
   (card.northCondition = condition);
   (card.onMouseDown = (event) => { if ((event.button === 0)) {
@@ -2533,9 +2637,9 @@ function make_board_lane_bang(runtime, ui, lane, items, card_width) {
   const lane_id = boardlane_id(lane);
   const title = boardlane_title(lane);
   const lane_items = board_lane_items(items, lane_id);
-  const lane_box = new BoxRenderable(renderer, {width: "100%", flexDirection: "column", flexShrink: 0, border: ["bottom"], borderColor: "#334155", paddingBottom: 1});
-  const header = new TextRenderable(renderer, {width: "100%", height: 1, flexShrink: 0, selectable: false, wrapMode: "none", content: new StyledText([brightGreen(title), brightBlack(("".concat("  ", lane_items.length)))])});
-  const cards = new BoxRenderable(renderer, {width: "100%", minHeight: 4, flexDirection: "row", flexWrap: "wrap", flexShrink: 0, gap: 1, rowGap: 1});
+  const lane_box = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("border"))]: ["bottom"], [$$bc$property_key($$bc$keyword("borderColor"))]: "#334155", [$$bc$property_key($$bc$keyword("paddingBottom"))]: 1});
+  const header = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("selectable"))]: false, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("content"))]: new StyledText([brightGreen(title), brightBlack($$bc$str("  ", lane_items.length))])});
+  const cards = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("minHeight"))]: 4, [$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("flexWrap"))]: "wrap", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("gap"))]: 1, [$$bc$property_key($$bc$keyword("rowGap"))]: 1});
   (cards.northLaneId = lane_id);
   (cards.onMouseOver = (__event) => (lane_box.borderColor = "#4ade80"));
   (cards.onMouseOut = (__event) => (lane_box.borderColor = "#334155"));
@@ -2566,11 +2670,11 @@ function sync_board_bang(runtime, ui, items, selected, width) {
 function work_content_bang(runtime, state, view, selected) {
   const items = workview_items(view);
   const width = available_work_width(runtime, state);
-  return ((items.length === 0) ? new StyledText([brightBlack(("".concat("No ", workview_title(view), " items")))]) : (((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width)));
+  return ((items.length === 0) ? new StyledText([brightBlack($$bc$str("No ", workview_title(view), " items"))]) : (((workview_id(view) === "graph")) ? render_dag_view_bang(items, selected, width) : render_list_view_bang(runtime, items, selected, width)));
 }
 
-export function composer_hint(pane, label) {
-  return ((pane === "agents") ? ("".concat("Message ", label, "…")) : "/list, /board, /graph, /capture, /filter, /assign");
+function composer_hint(pane, label) {
+  return ((pane === "agents") ? $$bc$str("Message ", label, "…") : "/list, /board, /graph, /capture, /filter, /assign");
 }
 
 function minibuffer_placeholder(runtime) {
@@ -2594,7 +2698,7 @@ function render_minibuffer_bang(runtime, ui) {
   const input = ui.composerInput;
   const options = palette_options(view, text(input.value));
   const total = options.length;
-  const index = Math/max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
+  const index = Math.max(0, Math.min(runtime.paletteIndex, Math.max(0, (total - 1))));
   const docked = (detail_open_p(runtime) ? detail_height_bang(runtime) : 0);
   const window = palette_visible_count(total, terminal_rows(), docked);
   const rows = palette_option_rows(total, window);
@@ -2617,20 +2721,20 @@ function render_ui_bang(runtime, ui) {
     const requested = bridgesnapshot_active_view_id(state);
     const current = selected_view(state, requested);
     const items = workview_items(current);
-    const agent_max = Math/max(0, (agents.length - 1));
-    const work_max = Math/max(0, (items.length - 1));
-    const board_p = identical_p(workview_id(current), "board");
+    const agent_max = Math.max(0, (agents.length - 1));
+    const work_max = Math.max(0, (items.length - 1));
+    const board_p = (workview_id(current) === "board");
     const banner_p = banner_visible_p(runtime);
     const roster = roster_text_bang(state, runtime.agentIndex, text(runtime.supervisorId), banner_p);
     const roster_rows = roster_visible_rows(roster);
     const notice = status_notice(runtime, state);
-    const notice_p = (!((_truthy) => _truthy !== false && _truthy != null)(identical_p(notice, "")));
-    (runtime.agentIndex = Math/max(0, Math.min(runtime.agentIndex, agent_max)));
-    (runtime.workIndex = Math/max(0, Math.min(runtime.workIndex, work_max)));
+    const notice_p = (!(notice === ""));
+    (runtime.agentIndex = Math.max(0, Math.min(runtime.agentIndex, agent_max)));
+    (runtime.workIndex = Math.max(0, Math.min(runtime.workIndex, work_max)));
     apply_view_visibility_bang(runtime, ui);
     (ui.viewTabsText.content = render_view_tabs_bang(runtime.view, state, workview_id(current), runtime));
     (ui.agentsText.visible = (roster_rows > 0));
-    (ui.agentsText.height = Math/max(1, roster_rows));
+    (ui.agentsText.height = Math.max(1, roster_rows));
     (ui.agentsText.content = roster);
     (ui.transcriptText.content = render_conversation_bang(runtime));
     (ui.workText.visible = (!board_p));
@@ -2646,8 +2750,8 @@ function render_ui_bang(runtime, ui) {
     (ui.agentStatusText.visible = ((!threads_view_p(runtime.view)) && notice_p));
     render_prompt_bang(runtime, ui.composerPrompt);
     const segments = agent_segments(agents);
-    const strip_max = Math/max(0, (segments.length - 1));
-    (runtime.stripIndex = Math/max(0, Math.min(runtime.stripIndex, strip_max)));
+    const strip_max = Math.max(0, (segments.length - 1));
+    (runtime.stripIndex = Math.max(0, Math.min(runtime.stripIndex, strip_max)));
     (ui.agentStripText.content = render_agent_strip(state, runtime.stripFocused, runtime.stripIndex));
     const open_p = detail_open_p(runtime);
     (ui.detailPanel.visible = open_p);
@@ -2666,7 +2770,7 @@ function bridge_agent_bang(runtime, execution_id, role, status) {
   const agents = bridgesnapshot_agents(state);
   const prior_id = selected_agent_id(state, runtime.agentIndex);
   const existing = agents.find((agent) => (agent_id(agent) === execution_id));
-  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label(runtime) : ("".concat("Codex ", execution_id.slice(0, 8)))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
+  const updated = Agent(execution_id, ((role === "supervisor") ? main_agent_label(runtime) : $$bc$str("Codex ", execution_id.slice(0, 8))), status, ((role === "supervisor") ? "Northbridge control session" : "Bridge execution"), "", "", "", "", "", "", "", "", "");
   runtime.bridgeExecutions.add(execution_id);
   if ((role === "supervisor")) {
     (runtime.supervisorId = execution_id);
@@ -2687,14 +2791,19 @@ function record_line(line) {
     const payload = ((space < 0) ? "" : rest.slice((space + 1)).trim());
     return (() => { try {
     return ParsedRecord(Number(line.slice(1, close)), kind, ((payload === "") ? {} : JSON.parse(payload)));
-  } catch (__) {
-    return null;
+  } catch (_catch_12) {
+    switch ($$bd$catch_dispatch(_catch_12, [Error])) {
+      case 0: {
+        const __ = _catch_12;
+        return null;
+      }
+    }
   } })();
   }
 }
 
 function event_item_id(execution_id, item_id) {
-  return ("".concat(execution_id, ":", text(item_id)));
+  return $$bc$str(execution_id, ":", text(item_id));
 }
 
 function safe_sequence(value) {
@@ -2707,18 +2816,18 @@ function wire_conversation_item(existing, id, kind, title, body, status, item_da
 }
 
 function control_conversation_item(execution_id, record, kind, title, body, status) {
-  const data = or(parsedrecord_data(record), {});
+  const data = ((_logical) => (_logical !== false && _logical != null ? _logical : {}))(parsedrecord_data(record));
   const record_sequence = parsedrecord_sequence(record);
   const cursor_candidate = Number(data.wireCursor);
   const cursor = (Number.isSafeInteger(cursor_candidate) ? cursor_candidate : 9007199254740991);
-  return owned_conversation_item(event_item_id(execution_id, ("".concat("control:", record_sequence))), kind, title, body, status, null, execution_id, text(data.bridgeRecordAt), cursor, (record_sequence + 1));
+  return owned_conversation_item(event_item_id(execution_id, $$bc$str("control:", record_sequence)), kind, title, body, status, null, execution_id, text(data.bridgeRecordAt), cursor, (record_sequence + 1));
 }
 
 function append_item_delta_bang(runtime, stream_state, event, id, kind, title, delta, status) {
   const existing = conversation_item_by_id(runtime, id);
   const prior = (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_body(existing) : "");
   const actual_title = (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_title(existing) : title);
-  return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, kind, actual_title, clipped(("".concat(prior, delta)), 6000), status, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_data(existing) : null), text(stream_state.executionId), event));
+  return upsert_conversation_bang(runtime, wire_conversation_item(existing, id, kind, actual_title, clipped($$bc$str(prior, delta), 6000), status, (((_truthy) => _truthy !== false && _truthy != null)(existing) ? conversationitem_data(existing) : null), text(stream_state.executionId), event));
 }
 
 function wire_content_text(value) {
@@ -2729,7 +2838,7 @@ function adopt_wire_model_bang(runtime, model, effort) {
   if (((_truthy) => _truthy !== false && _truthy != null)(model)) {
     const provider = text(model.provider);
     const tier = text(model.tier);
-    const label = ((((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(tier === ""))))) ? ("".concat(provider, "/", tier)) : ((!(provider === ""))) ? provider : "");
+    const label = ((((_truthy) => _truthy !== false && _truthy != null)(((!(provider === "")) && (!(tier === ""))))) ? $$bc$str(provider, "/", tier) : ((!(provider === ""))) ? provider : "");
     if (((_truthy) => _truthy !== false && _truthy != null)(((!(label === "")) && (text(runtime.sessionModel).trim() === "")))) {
       (runtime.sessionModel = label);
     }
@@ -2786,10 +2895,10 @@ if ((!(permissions === ""))) {
 } })() : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "control.submit_input") || (kind === "control.redirect_now")))) ? (() => { const input = text(data.input).trim(); if ((!(input === ""))) {
   return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "user", "", input, "done"));
 } })() : ((kind === "control.interrupt_turn")) ? upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "interrupted", "", "Conversation interrupted — tell the model what to do differently.", "interrupted")) : ((kind === "model-call.started")) ? (() => { const booting = stream_state.booting; adopt_wire_model_bang(runtime, data.model, data.effort);
-set_execution_working_bang(runtime, execution_id, true, (((_truthy) => _truthy !== false && _truthy != null)(booting) ? ("".concat("Starting ", main_agent_label(runtime), "…")) : "Agent is working"));
+set_execution_working_bang(runtime, execution_id, true, (((_truthy) => _truthy !== false && _truthy != null)(booting) ? $$bc$str("Starting ", main_agent_label(runtime), "…") : "Agent is working"));
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), (((_truthy) => _truthy !== false && _truthy != null)(booting) ? "starting" : "working"));
-} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "tool.admitted") || ((kind === "tool.progress") || (kind === "tool.terminal"))))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = or(data.progress, {}); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
+} })() : ((kind === "message.recorded")) ? handle_wire_message_bang(runtime, stream_state, data) : (((_truthy) => _truthy !== false && _truthy != null)(((kind === "tool.admitted") || ((kind === "tool.progress") || (kind === "tool.terminal"))))) ? handle_wire_tool_bang(runtime, stream_state, data, kind) : ((kind === "run.progress")) ? (() => { const progress = ((_logical) => (_logical !== false && _logical != null ? _logical : {}))(data.progress); const action = text(progress.currentAction); const lifecycle = text(data.lifecycle); adopt_wire_model_bang(runtime, progress.model, progress.effort);
 if (((_truthy) => _truthy !== false && _truthy != null)(progress.branch)) {
   (runtime.sessionBranch = text(progress.branch.name));
 }
@@ -2815,18 +2924,18 @@ if ((!(execution_id === ""))) {
 } })() : ((kind === "run.terminated")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
 if (((_truthy) => _truthy !== false && _truthy != null)(((text(data.lifecycle) === "failed") || (text(data.lifecycle) === "blocked")))) {
   play_sound_event_bang(runtime, stream_state, "failed");
-  const id = event_item_id(execution_id, ("".concat("terminal:", data.sequence)));
+  const id = event_item_id(execution_id, $$bc$str("terminal:", data.sequence));
   const existing = conversation_item_by_id(runtime, id);
   upsert_conversation_bang(runtime, wire_conversation_item(existing, id, "error", "Error", failure_summary(data.reason), "failed", null, execution_id, data));
 }
 if ((!(execution_id === ""))) {
   return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "offline");
 } })() : ((kind === "execution.failure")) ? (() => { set_execution_working_bang(runtime, execution_id, false, "");
-return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "error", "Error", ("".concat(kind, ": ", failure_summary(data))), "failed")); })() : null);
+return upsert_conversation_bang(runtime, control_conversation_item(execution_id, record, "error", "Error", $$bc$str(kind, ": ", failure_summary(data)), "failed")); })() : null);
 }
 
-export function parse_bridge_stream_bang(runtime, stream_state, chunk) {
-  const lines = ("".concat(stream_state.buffer, chunk)).split("\n");
+function parse_bridge_stream_bang(runtime, stream_state, chunk) {
+  const lines = $$bc$str(stream_state.buffer, chunk).split("\n");
   const remainder = lines.pop();
   (stream_state.buffer = remainder);
   return lines.forEach((raw_line) => { const line = raw_line.trim();
@@ -2837,7 +2946,7 @@ return bridge_agent_bang(runtime, execution_id, text(stream_state.role), "starti
 } })() : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("northd: "))) ? publish_line_bang(runtime, line.slice(8)) : (((_truthy) => _truthy !== false && _truthy != null)(line.startsWith("north bridge:"))) ? append_error_bang(runtime, line) : null); });
 }
 
-export function launch_route_flags(provider, tier, model, effort) {
+function launch_route_flags(provider, tier, model, effort) {
   const provider_value = text(provider).trim();
   const tier_value = text(tier).trim();
   const model_value = text(model).trim();
@@ -2846,14 +2955,14 @@ export function launch_route_flags(provider, tier, model, effort) {
 }
 
 function launch_route_summary(runtime) {
-  return ("".concat("next launch: provider ", text_or(runtime.launchProvider, "auto"), ", model ", text_or(text_or(runtime.launchModel, text(runtime.launchTier)), "auto"), ", effort ", text_or(runtime.launchEffort, "auto")));
+  return $$bc$str("next launch: provider ", text_or(runtime.launchProvider, "auto"), ", model ", text_or(text_or(runtime.launchModel, text(runtime.launchTier)), "auto"), ", effort ", text_or(runtime.launchEffort, "auto"));
 }
 
-export function set_launch_route_bang(runtime, name, value) {
+function set_launch_route_bang(runtime, name, value) {
   const trimmed = value.trim();
   const choice = trimmed.toLowerCase();
   if ((choice === "")) {
-    (() => { throw new Error(("".concat(name, " requires a value or auto"))); })();
+    (() => { throw new Error($$bc$str(name, " requires a value or auto")); })();
   }
   if ((name === "provider")) {
     if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || ((choice === "anthropic") || (choice === "openai")))))) {
@@ -2882,7 +2991,7 @@ export function set_launch_route_bang(runtime, name, value) {
   return publish_line_bang(runtime, launch_route_summary(runtime));
 }
 
-export function take_launch_route_flags_bang(runtime) {
+function take_launch_route_flags_bang(runtime) {
   const flags = launch_route_flags(runtime.launchProvider, runtime.launchTier, runtime.launchModel, runtime.launchEffort);
   (runtime.launchProvider = "");
   (runtime.launchTier = "");
@@ -2900,12 +3009,12 @@ async function launch_agent_bang(runtime, prompt, role) {
   if ((prompt.trim() === "")) {
     (() => { throw new Error("launch requires a prompt"); })();
   }
-  set_working_bang(runtime, true, ("".concat("Starting ", main_agent_label(runtime), "…")));
-  const stream_state = {buffer: "", stderr: "", executionId: "", role: role, booting: (role === "supervisor"), soundLive: false};
-  const exit_code = await stream_command([north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")].concat(take_launch_route_flags_bang(runtime), [prompt]), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped(("".concat(stream_state.stderr, chunk)), 6000)));
+  set_working_bang(runtime, true, $$bc$str("Starting ", main_agent_label(runtime), "…"));
+  const stream_state = {[$$bc$property_key($$bc$keyword("buffer"))]: "", [$$bc$property_key($$bc$keyword("stderr"))]: "", [$$bc$property_key($$bc$keyword("executionId"))]: "", [$$bc$property_key($$bc$keyword("role"))]: role, [$$bc$property_key($$bc$keyword("booting"))]: (role === "supervisor"), [$$bc$property_key($$bc$keyword("soundLive"))]: false};
+  const exit_code = await stream_command([north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")].concat(take_launch_route_flags_bang(runtime), [prompt]), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped($$bc$str(stream_state.stderr, chunk), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
-    return append_error_bang(runtime, ("".concat("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : ("".concat("\n", text(stream_state.stderr).trim()))))));
+    return append_error_bang(runtime, $$bc$str("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : $$bc$str("\n", text(stream_state.stderr).trim()))));
   }
 }
 
@@ -2919,9 +3028,9 @@ function popout_bang(runtime, view_id) {
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }
-  const child = Bun.spawn({cmd: argv, stdin: "ignore", stdout: "ignore", stderr: "ignore"});
+  const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdin"))]: "ignore", [$$bc$property_key($$bc$keyword("stdout"))]: "ignore", [$$bc$property_key($$bc$keyword("stderr"))]: "ignore"});
   child.unref();
-  return publish_line_bang(runtime, ("".concat("opened ", view_id, " in a separate terminal")));
+  return publish_line_bang(runtime, $$bc$str("opened ", view_id, " in a separate terminal"));
 }
 
 function selected_work(runtime, selection) {
@@ -2947,7 +3056,7 @@ async function capture_thread_bang(runtime, title) {
   return await refresh_bang(runtime);
 }
 
-export function restore_submitted_text_bang(runtime, ui) {
+function restore_submitted_text_bang(runtime, ui) {
   const pending = text(runtime.lastSubmitted);
   const input = ui.composerInput;
   if (((_truthy) => _truthy !== false && _truthy != null)(((!(pending === "")) && input))) {
@@ -3021,7 +3130,7 @@ if ((next_driver === "")) {
 publish_line_bang(runtime, "driver reassignment is a retract-then-tell operation");
 await run_command([north_bin(), "retract", thread_id, "driver", prior]);
 await run_command([north_bin(), "tell", thread_id, "driver", next_driver]);
-publish_line_bang(runtime, ("".concat("assigned @", thread_id, " to ", next_driver)));
+publish_line_bang(runtime, $$bc$str("assigned @", thread_id, " to ", next_driver));
 return await refresh_bang(runtime); })() : ((name === "outcome")) ? (async () => { const split_at = rest.indexOf(" "); const thread_id = ((split_at < 0) ? "" : bare(rest.slice(0, split_at))); const result = ((split_at < 0) ? "" : rest.slice((split_at + 1)).trim()); if ((thread_id === "")) {
   (() => { throw new Error("outcome requires: /outcome <thread-id> <result>"); })();
 }
@@ -3029,12 +3138,12 @@ if ((result === "")) {
   (() => { throw new Error("outcome requires a result"); })();
 }
 await run_command([north_bin(), "tell", thread_id, "outcome", result]);
-(runtime.workspaceNotice = ("".concat("Recorded outcome for @", thread_id, ".")));
+(runtime.workspaceNotice = $$bc$str("Recorded outcome for @", thread_id, "."));
 return await refresh_bang(runtime); })() : (() => { throw new Error("unknown thread command; use /help"); })())));
 }
 
 function report_promise_bang(runtime, promise) {
-  return promise.catch((error) => publish_line_bang(runtime, ("".concat("error: ", error_message(error)))));
+  return promise.catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
 }
 
 function select_view_bang(runtime, view) {
@@ -3140,7 +3249,7 @@ function install_composer_keymap_bang(runtime) {
 
 function palette_completion_text(candidate) {
   const completion = slashcommand_completion(candidate);
-  return ((completion === "") ? ("".concat(slashcommand_name(candidate), (slashcommand_arguments(candidate) ? " " : ""))) : completion);
+  return ((completion === "") ? $$bc$str(slashcommand_name(candidate), (slashcommand_arguments(candidate) ? " " : "")) : completion);
 }
 
 function palette_candidate(runtime, commands) {
@@ -3158,7 +3267,7 @@ function complete_palette_bang(runtime, ui, commands) {
   }
 }
 
-export function submit_input_bang(runtime, ui, input) {
+function submit_input_bang(runtime, ui, input) {
   if ((!(input === ""))) {
     (ui.composerInput.value = "");
     (runtime.paletteIndex = 0);
@@ -3172,7 +3281,7 @@ export function submit_input_bang(runtime, ui, input) {
   }
 }
 
-export function palette_enter_action(matches, takes_arguments_p, insert_only_p, completed_p) {
+function palette_enter_action(matches, takes_arguments_p, insert_only_p, completed_p) {
   return (((matches < 1)) ? "" : (completed_p) ? "fire" : (((_truthy) => _truthy !== false && _truthy != null)((insert_only_p || takes_arguments_p))) ? "complete" : "fire");
 }
 
@@ -3183,7 +3292,7 @@ return render_minibuffer_bang(runtime, ui); });
 }
 
 function subview_tab_id_at_bang(views, column) {
-  const cursor = {x: SUBVIEW_TAB_ORIGIN, id: ""};
+  const cursor = {[$$bc$property_key($$bc$keyword("x"))]: SUBVIEW_TAB_ORIGIN, [$$bc$property_key($$bc$keyword("id"))]: ""};
   views.forEach((view) => { const start = cursor.x;
 const title_width = workview_title(view).length;
 const width = (title_width + 2);
@@ -3194,7 +3303,7 @@ return (cursor.x = (start + width + SUBVIEW_TAB_GAP)); });
   return text(cursor.id);
 }
 
-export function view_tab_id_at_bang(view, views, column) {
+function view_tab_id_at_bang(view, views, column) {
   const agents_tab_width = AGENTS_TAB_LABEL.length;
   const threads_tab_width = THREADS_TAB_LABEL.length;
   return ((((_truthy) => _truthy !== false && _truthy != null)(((column >= 0) && (column < agents_tab_width)))) ? "agents" : (((_truthy) => _truthy !== false && _truthy != null)(((column >= THREADS_TAB_START) && (column < (THREADS_TAB_START + threads_tab_width))))) ? "threads" : (((_truthy) => _truthy !== false && _truthy != null)((threads_view_p(view) && (column >= SUBVIEW_TAB_ORIGIN)))) ? subview_tab_id_at_bang(views, column) : "");
@@ -3214,7 +3323,7 @@ function complete_clicked_palette_bang(runtime, ui, view, palette_renderable, ev
     const options = palette_options(view, text(input.value));
     const event_y = event.y;
     const palette_y = palette_renderable.y;
-    const row = Math/floor((event_y - palette_y));
+    const row = Math.floor((event_y - palette_y));
     const scrolled = runtime.paletteStart;
     const start = (((_truthy) => _truthy !== false && _truthy != null)(scrolled) ? scrolled : 0);
     const drawn = runtime.paletteRows;
@@ -3246,8 +3355,8 @@ function select_visible_list_fallback_bang(runtime, items) {
   const indices = visible_list_indices(runtime, items);
   const current = runtime.workIndex;
   if (((_truthy) => _truthy !== false && _truthy != null)(((indices.length > 0) && (!((_truthy) => _truthy !== false && _truthy != null)(indices.includes(current)))))) {
-    const index = aget(indices, 0);
-    const item = aget(items, index);
+    const index = indices[0];
+    const item = items[index];
     (runtime.workIndex = index);
     return (runtime.model = select_thread(runtime.model, workitem_id(item)));
   }
@@ -3262,7 +3371,7 @@ function handle_list_click_bang(runtime, ui, event) {
       const rows = list_rows(runtime, items);
       const event_y = event.y;
       const list_y = ui.workText.screenY;
-      const row_index = Math/floor((event_y - list_y));
+      const row_index = Math.floor((event_y - list_y));
       const row_count = rows.length;
       if (((_truthy) => _truthy !== false && _truthy != null)(((row_index >= 0) && (row_index < row_count)))) {
         const row = rows[row_index];
@@ -3344,11 +3453,11 @@ function panel_filterable_p(runtime) {
   return (detail_showing_p(runtime, "config") || detail_showing_p(runtime, "help"));
 }
 
-export function filter_character(name, sequence, ctrl_p, meta_p) {
+function filter_character(name, sequence, ctrl_p, meta_p) {
   return (((_truthy) => _truthy !== false && _truthy != null)((ctrl_p || (meta_p || ((name === "space") || ((!(sequence.length === 1)) || (sequence.charCodeAt(0) < 32)))))) ? "" : sequence);
 }
 
-export function filter_key_action(filtering_p, query, name, character) {
+function filter_key_action(filtering_p, query, name, character) {
   return ((((_truthy) => _truthy !== false && _truthy != null)(((!filtering_p) && (character === "/")))) ? "open" : ((!filtering_p)) ? "" : ((name === "backspace")) ? ((query === "") ? "close" : "erase") : ((!(character === ""))) ? "type" : "");
 }
 
@@ -3376,19 +3485,19 @@ function fold_step_bang(runtime, open_key_p) {
   if ((total > 0)) {
     const index = clamped_index(runtime.configIndex, total);
     const entry = rows[index];
-    const dir_p = identical_p(configentry_kind(entry), "dir");
+    const dir_p = (configentry_kind(entry) === "dir");
     const node = config_row_node(entry);
     return apply_fold_action_bang(runtime, rows, node, fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p));
   }
 }
 
-export function tab_fold_step_bang(runtime) {
+function tab_fold_step_bang(runtime) {
   const rows = config_panel_rows(runtime);
   const total = rows.length;
   if ((total > 0)) {
     const index = clamped_index(runtime.configIndex, total);
     const entry = rows[index];
-    const dir_p = identical_p(configentry_kind(entry), "dir");
+    const dir_p = (configentry_kind(entry) === "dir");
     const node = config_row_node(entry);
     return apply_fold_action_bang(runtime, rows, node, tab_action("panel", dir_p, config_node_expanded_p(panel_expanded(runtime), node)));
   }
@@ -3417,9 +3526,9 @@ function install_keys_bang(runtime, ui) {
 return key.stopPropagation(); })() : null) : (((_truthy) => _truthy !== false && _truthy != null)((detail_open_p(runtime) && ((!panel_focused_p(runtime)) && ((!palette_open) && ctrl_down_key_p(name, key)))))) ? (() => { key.preventDefault();
 key.stopPropagation();
 focus_panel_bang(runtime, ui);
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || (submit_key_p(name) || ((name === "tab") || fold_key_p(runtime, name, key))))))))))))) ? (() => { const up_p = or((name === "up"), ctrl_up_key_p(name, key)); const down_p = or((name === "down"), ctrl_down_key_p(name, key)); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || (submit_key_p(name) || ((name === "tab") || fold_key_p(runtime, name, key))))))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
-if (((_truthy) => _truthy !== false && _truthy != null)(or(up_p, down_p))) {
+if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : down_p))(up_p))) {
   const total = config_panel_rows(runtime).length;
   if ((total > 0)) {
     const raw = runtime.configIndex;
@@ -3430,7 +3539,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(or(up_p, down_p))) {
 } else if ((name === "tab")) {
   tab_fold_step_bang(runtime);
 } else if (fold_key_p(runtime, name, key)) {
-  fold_step_bang(runtime, or((name === "right"), bare_key_p(name, key, "l")));
+  fold_step_bang(runtime, ((name === "right") || bare_key_p(name, key, "l")));
 } else if ((name === "space")) {
   report_promise_bang(runtime, toggle_config_entry_bang(runtime));
 } else {
@@ -3439,9 +3548,9 @@ if (((_truthy) => _truthy !== false && _truthy != null)(or(up_p, down_p))) {
 return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!panel_filtering_p(runtime)) && ((!palette_open) && (filter_character(name, text(key.sequence), (((_truthy) => _truthy !== false && _truthy != null)(key.ctrl) ? true : false), (((_truthy) => _truthy !== false && _truthy != null)(meta) ? true : false)) === "@"))))))) ? (() => { const rows = config_panel_rows(runtime); const total = rows.length; key.preventDefault();
 key.stopPropagation();
 if ((total > 0)) {
-  const entry = aget(rows, clamped_index(runtime.configIndex, total));
+  const entry = rows[clamped_index(runtime.configIndex, total)];
   const input = active_input(runtime, ui);
-  (input.value = ("".concat(text(input.value), config_reference_text(configentry_kind(entry), configentry_name(entry)))));
+  (input.value = $$bc$str(text(input.value), config_reference_text(configentry_kind(entry), configentry_name(entry))));
   focus_composer_bang(runtime, ui);
   render_minibuffer_bang(runtime, ui);
 }
@@ -3450,7 +3559,7 @@ key.stopPropagation();
 if ((action === "open")) {
   set_panel_query_bang(runtime, "");
 } else if ((action === "type")) {
-  set_panel_query_bang(runtime, ("".concat(query, character)));
+  set_panel_query_bang(runtime, $$bc$str(query, character));
 } else if ((action === "erase")) {
   const query_length = query.length;
   set_panel_query_bang(runtime, query.slice(0, (query_length - 1)));
@@ -3498,7 +3607,7 @@ return focus_strip_bang(runtime, ui); })() : (((_truthy) => _truthy !== false &&
 key.stopPropagation();
 return show_view_bang(runtime, ui, tab_swap_view(text(runtime.view))); })() : ((name === "f1")) ? (() => { key.preventDefault();
 key.stopPropagation();
-return toggle_help_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f3") || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? ((name === "h") || (name === "l")) : _logical))(meta)))(plain_view_arrow)))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((_truthy) => _truthy !== false && _truthy != null)(((name === "left") || ((_logical) => (_logical !== false && _logical != null ? (name === "h") : _logical))(meta))) ? -1 : 1); const view_count = views.length; const next_index = mod((index + delta + view_count), view_count); const next_id = text(views[next_index].id); key.preventDefault();
+return toggle_help_bang(runtime, ui); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f3") || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? ((name === "h") || (name === "l")) : _logical))(meta)))(plain_view_arrow)))) ? (() => { const state = snapshot(runtime.model); const views = view_list(state); const current = selected_view(state, runtime.activeView); const index = views.findIndex((view) => (workview_id(view) === workview_id(current))); const delta = (((_truthy) => _truthy !== false && _truthy != null)(((name === "left") || ((_logical) => (_logical !== false && _logical != null ? (name === "h") : _logical))(meta))) ? -1 : 1); const view_count = views.length; const next_index = ((index + delta + view_count) % view_count); const next_id = text(views[next_index].id); key.preventDefault();
 key.stopPropagation();
 return show_thread_view_bang(runtime, ui, next_id); })() : (((_truthy) => _truthy !== false && _truthy != null)(((name === "f5") || ((_logical) => (_logical !== false && _logical != null ? (name === "r") : _logical))(key.ctrl)))) ? (() => { key.preventDefault();
 key.stopPropagation();
@@ -3509,9 +3618,9 @@ key.stopPropagation();
 if ((!threads_view_p(runtime.view))) {
   const agents = bridgesnapshot_agents(state);
   const agent_count = agents.length;
-  const max_index = Math/max(0, (agent_count - 1));
+  const max_index = Math.max(0, (agent_count - 1));
   const agent_index = runtime.agentIndex;
-  const next_index = Math/max(0, Math.min(max_index, (agent_index + delta)));
+  const next_index = Math.max(0, Math.min(max_index, (agent_index + delta)));
   const selected_agent_id = ((agent_count > 0) ? agent_id(agents[next_index]) : "");
   (runtime.agentIndex = next_index);
   (runtime.model = select_agent(runtime.model, selected_agent_id));
@@ -3537,29 +3646,30 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical
 
 async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
-  const renderer = await createCliRenderer({exitOnCtrlC: false, clearOnShutdown: true});
-  const runtime = {model: make_model(view), renderer: renderer, disposed: false, rendererSuspended: false, suspendResume: null, suspendError: "", view: BOOT_VIEW, activeView: view, agentIndex: 0, workIndex: 0, collapsedListConditions: new Set(["blocked", "dormant", "draft", "terminal", "other"]), workScroll: null, boardSignature: "", dragThreadId: "", bridgeExecutions: new Set(), supervisorId: "", conversation: [], transcriptView: "selected", itemSequence: 0, lastAssistantText: "", lastSubmitted: "", working: false, workingExecutions: new Set(), workingLabel: "", workingSince: 0, spinnerIndex: 0, spinnerTimer: null, stripFocused: false, stripIndex: 0, detailView: "", detailSegment: "all", detailIndex: 0, paletteIndex: 0, paletteStart: 0, paletteRows: 0, promptGlyph: DEFAULT_PROMPT_GLYPH, soundEnabled: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), soundPack: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), soundDirectory: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), soundPlayer: discover_sound_player(), soundChildren: new Set(), soundWarningShown: false, soundSequence: 0, lastSoundPath: "", lastSoundAt: 0, workspaceNotice: "", keymap: null, sessionModel: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), sessionEffort: text(process.env.AGENT_REASONING), launchProvider: text(process.env.NORTH_BRIDGE_PROVIDER), launchTier: text(process.env.NORTH_BRIDGE_TIER), launchModel: text(process.env.NORTH_BRIDGE_MODEL), launchEffort: text(process.env.NORTH_BRIDGE_EFFORT), sessionCwd: text(process.cwd()), sessionBranch: "", sessionPermissions: "", sourceIdentity: source_identity, renderConversation: () => null, render: () => null};
-  const root = new BoxRenderable(renderer, {flexDirection: "column", width: "100%", height: "100%", gap: 0, paddingTop: 1, paddingBottom: 0, paddingLeft: 1, paddingRight: 1, onSizeChange: () => runtime.render()});
-  const workspace = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", flexGrow: 1, gap: 0});
-  const view_tabs_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
-  const agents_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "100%"});
-  const work_pane = new BoxRenderable(renderer, {flexDirection: "column", width: "100%"});
-  const agents_text = new TextRenderable(renderer, {height: 4, flexShrink: 0, wrapMode: "word"});
-  const transcript_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, stickyScroll: true, stickyStart: "bottom", viewportCulling: true, verticalScrollbarOptions: {visible: false}});
-  const transcript_text_view = new TextRenderable(renderer, {width: "100%", flexShrink: 0, wrapMode: "word"});
-  const work_scroll = new ScrollBoxRenderable(renderer, {flexGrow: 1, scrollY: true, viewportCulling: true, verticalScrollbarOptions: {visible: false}});
-  const work_text_view = new TextRenderable(renderer, {width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
-  const board_root = new BoxRenderable(renderer, {visible: false, width: "100%", flexDirection: "column", flexShrink: 0, gap: 1});
-  const status_text = new TextRenderable(renderer, {flexShrink: 0, wrapMode: "word"});
-  const agent_status_text = new TextRenderable(renderer, {visible: false, flexShrink: 0, wrapMode: "word"});
-  const composer_palette = new TextRenderable(renderer, {visible: false, height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true, bg: "#25272d"});
-  const composer = new BoxRenderable(renderer, {flexDirection: "row", width: "100%", height: 1, paddingLeft: 1, paddingRight: 1, flexShrink: 0, backgroundColor: "#25272d"});
-  const agent_strip_text = new TextRenderable(renderer, {height: 1, width: "100%", flexShrink: 0, wrapMode: "none", truncate: true});
-  const detail_panel = new BoxRenderable(renderer, {visible: false, width: "100%", height: 5, flexDirection: "column", flexShrink: 0, border: true, borderColor: "#64748b", paddingLeft: 1, paddingRight: 1});
-  const detail_text = new TextRenderable(renderer, {width: "100%", flexGrow: 1, wrapMode: "none"});
-  const composer_prompt = new TextRenderable(renderer, {width: 2, height: 1, flexShrink: 0, wrapMode: "none", content: new StyledText([brightCyan("❯ ")])});
-  const composer_input = new InputRenderable(renderer, {flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 0, backgroundColor: "#25272d", focusedBackgroundColor: "#25272d", textColor: "#e5e7eb", focusedTextColor: "#f8fafc", placeholderColor: "#6b7280", placeholder: composer_hint("agents", main_agent_label(runtime))});
-  const ui = {root: root, agentsPane: agents_pane, workPane: work_pane, viewTabsText: view_tabs_text, agentsText: agents_text, transcriptText: transcript_text_view, workScroll: work_scroll, workText: work_text_view, boardRoot: board_root, statusText: status_text, agentStatusText: agent_status_text, composerPalette: composer_palette, composer: composer, composerPrompt: composer_prompt, composerInput: composer_input, agentStripText: agent_strip_text, detailPanel: detail_panel, detailText: detail_text};
+  const renderer_promise = createCliRenderer({[$$bc$property_key($$bc$keyword("exitOnCtrlC"))]: false, [$$bc$property_key($$bc$keyword("clearOnShutdown"))]: true});
+  const renderer = await renderer_promise;
+  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: BOOT_VIEW, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
+  const root = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: "100%", [$$bc$property_key($$bc$keyword("gap"))]: 0, [$$bc$property_key($$bc$keyword("paddingTop"))]: 1, [$$bc$property_key($$bc$keyword("paddingBottom"))]: 0, [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1, [$$bc$property_key($$bc$keyword("onSizeChange"))]: () => runtime.render()});
+  const workspace = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("gap"))]: 0});
+  const view_tabs_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
+  const agents_pane = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%"});
+  const work_pane = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%"});
+  const agents_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 4, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
+  const transcript_scroll = new ScrollBoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("scrollY"))]: true, [$$bc$property_key($$bc$keyword("stickyScroll"))]: true, [$$bc$property_key($$bc$keyword("stickyStart"))]: "bottom", [$$bc$property_key($$bc$keyword("viewportCulling"))]: true, [$$bc$property_key($$bc$keyword("verticalScrollbarOptions"))]: {[$$bc$property_key($$bc$keyword("visible"))]: false}});
+  const transcript_text_view = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
+  const work_scroll = new ScrollBoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("scrollY"))]: true, [$$bc$property_key($$bc$keyword("viewportCulling"))]: true, [$$bc$property_key($$bc$keyword("verticalScrollbarOptions"))]: {[$$bc$property_key($$bc$keyword("visible"))]: false}});
+  const work_text_view = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
+  const board_root = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("visible"))]: false, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("gap"))]: 1});
+  const status_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
+  const agent_status_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("visible"))]: false, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "word"});
+  const composer_palette = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("visible"))]: false, [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true, [$$bc$property_key($$bc$keyword("bg"))]: "#25272d"});
+  const composer = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("backgroundColor"))]: "#25272d"});
+  const agent_strip_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
+  const detail_panel = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("visible"))]: false, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: 5, [$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("border"))]: true, [$$bc$property_key($$bc$keyword("borderColor"))]: "#64748b", [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1});
+  const detail_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none"});
+  const composer_prompt = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("width"))]: 2, [$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("content"))]: new StyledText([brightCyan("❯ ")])});
+  const composer_input = new InputRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("flexShrink"))]: 1, [$$bc$property_key($$bc$keyword("flexBasis"))]: 0, [$$bc$property_key($$bc$keyword("minWidth"))]: 0, [$$bc$property_key($$bc$keyword("backgroundColor"))]: "#25272d", [$$bc$property_key($$bc$keyword("focusedBackgroundColor"))]: "#25272d", [$$bc$property_key($$bc$keyword("textColor"))]: "#e5e7eb", [$$bc$property_key($$bc$keyword("focusedTextColor"))]: "#f8fafc", [$$bc$property_key($$bc$keyword("placeholderColor"))]: "#6b7280", [$$bc$property_key($$bc$keyword("placeholder"))]: composer_hint("agents", main_agent_label(runtime))});
+  const ui = {[$$bc$property_key($$bc$keyword("root"))]: root, [$$bc$property_key($$bc$keyword("agentsPane"))]: agents_pane, [$$bc$property_key($$bc$keyword("workPane"))]: work_pane, [$$bc$property_key($$bc$keyword("viewTabsText"))]: view_tabs_text, [$$bc$property_key($$bc$keyword("agentsText"))]: agents_text, [$$bc$property_key($$bc$keyword("transcriptText"))]: transcript_text_view, [$$bc$property_key($$bc$keyword("workScroll"))]: work_scroll, [$$bc$property_key($$bc$keyword("workText"))]: work_text_view, [$$bc$property_key($$bc$keyword("boardRoot"))]: board_root, [$$bc$property_key($$bc$keyword("statusText"))]: status_text, [$$bc$property_key($$bc$keyword("agentStatusText"))]: agent_status_text, [$$bc$property_key($$bc$keyword("composerPalette"))]: composer_palette, [$$bc$property_key($$bc$keyword("composer"))]: composer, [$$bc$property_key($$bc$keyword("composerPrompt"))]: composer_prompt, [$$bc$property_key($$bc$keyword("composerInput"))]: composer_input, [$$bc$property_key($$bc$keyword("agentStripText"))]: agent_strip_text, [$$bc$property_key($$bc$keyword("detailPanel"))]: detail_panel, [$$bc$property_key($$bc$keyword("detailText"))]: detail_text};
   agents_pane.add(agents_text);
   transcript_scroll.add(transcript_text_view);
   agents_pane.add(transcript_scroll);
@@ -3601,6 +3711,107 @@ async function open_app_bang(view_id, source_identity) {
   return runtime;
 }
 
-export function run_northbridge_app_bang(options) {
+function run_northbridge_app_bang(options) {
   return open_app_bang(text_or(options.viewId, "list"), text(options.sourceIdentity));
 }
+
+export { active_focus as "active-focus" };
+export { agent_cell_text_bang as "agent-cell-text!" };
+export { agent_field_text as "agent-field-text" };
+export { agent_route_text_bang as "agent-route-text!" };
+export { agent_row_text_bang as "agent-row-text!" };
+export { apply_view_visibility_bang as "apply-view-visibility!" };
+export { banner_box_bang as "banner-box!" };
+export { banner_line_segments as "banner-line-segments" };
+export { banner_permissions as "banner-permissions" };
+export { banner_revision as "banner-revision" };
+export { banner_rule_line_p as "banner-rule-line?" };
+export { boot_view as "boot-view" };
+export { clamp_panel_cursor_bang as "clamp-panel-cursor!" };
+export { cleanup_suspend_bang as "cleanup-suspend!" };
+export { clear_panel_filter_bang as "clear-panel-filter!" };
+export { composer_hint as "composer-hint" };
+export { config_cli_name as "config-cli-name" };
+export { config_detail_lines_bang as "config-detail-lines!" };
+export { config_empty_note as "config-empty-note" };
+export { config_entry_active_p as "config-entry-active?" };
+export { config_fold_rows as "config-fold-rows" };
+export { config_gate_modules as "config-gate-modules" };
+export { config_header_keys as "config-header-keys" };
+export { config_header_roles as "config-header-roles" };
+export { config_header_shared_bang as "config-header-shared!" };
+export { config_kind_tag as "config-kind-tag" };
+export { config_kind_word as "config-kind-word" };
+export { config_membership_of_json as "config-membership-of-json" };
+export { config_module_members as "config-module-members" };
+export { config_node_expanded_p as "config-node-expanded?" };
+export { config_panel_legend as "config-panel-legend" };
+export { config_panel_rows as "config-panel-rows" };
+export { config_provenance_name as "config-provenance-name" };
+export { config_query_field as "config-query-field" };
+export { config_query_rows as "config-query-rows" };
+export { config_reference_text as "config-reference-text" };
+export { config_row_context_only_p as "config-row-context-only?" };
+export { config_row_depth as "config-row-depth" };
+export { config_row_label as "config-row-label" };
+export { config_row_matches_p as "config-row-matches?" };
+export { config_row_node as "config-row-node" };
+export { config_row_parts as "config-row-parts" };
+export { config_row_role as "config-row-role" };
+export { config_row_scope as "config-row-scope" };
+export { config_row_search_text as "config-row-search-text" };
+export { config_section_rows as "config-section-rows" };
+export { config_section_title as "config-section-title" };
+export { config_skill_hooks as "config-skill-hooks" };
+export { config_state_text as "config-state-text" };
+export { config_toggle_verb as "config-toggle-verb" };
+export { config_unit_active_p as "config-unit-active?" };
+export { config_view_folds_p as "config-view-folds?" };
+export { config_view_includes_p as "config-view-includes?" };
+export { config_view_rows as "config-view-rows" };
+export { config_visible_count as "config-visible-count" };
+export { detail_height_bang as "detail-height!" };
+export { escape_rung as "escape-rung" };
+export { filter_character as "filter-character" };
+export { filter_key_action as "filter-key-action" };
+export { fold_key_action as "fold-key-action" };
+export { handle_local_command_bang as "handle-local-command!" };
+export { help_query_rows as "help-query-rows" };
+export { launch_route_flags as "launch-route-flags" };
+export { load_config_memberships_bang as "load-config-memberships!" };
+export { normalize_agents as "normalize-agents" };
+export { palette_enter_action as "palette-enter-action" };
+export { palette_options as "palette-options" };
+export { parse_bridge_stream_bang as "parse-bridge-stream!" };
+export { project_conversation as "project-conversation" };
+export { quit_command_p as "quit-command?" };
+export { reconcile_agent_selection_bang as "reconcile-agent-selection!" };
+export { refresh_bang as "refresh!" };
+export { render_config_panel_bang as "render-config-panel!" };
+export { render_conversation_bang as "render-conversation!" };
+export { render_detail_panel_bang as "render-detail-panel!" };
+export { render_view_tabs_bang as "render-view-tabs!" };
+export { restore_submitted_text_bang as "restore-submitted-text!" };
+export { roster_row_suppressed_p as "roster-row-suppressed?" };
+export { roster_text_bang as "roster-text!" };
+export { roster_visible_rows as "roster-visible-rows" };
+export { run_northbridge_app_bang as "run-northbridge-app!" };
+export { selected_agent_id as "selected-agent-id" };
+export { session_banner_bang as "session-banner!" };
+export { session_banner_lines as "session-banner-lines" };
+export { session_banner_runs as "session-banner-runs" };
+export { set_launch_route_bang as "set-launch-route!" };
+export { set_node_expanded_bang as "set-node-expanded!" };
+export { set_panel_query_bang as "set-panel-query!" };
+export { submit_input_bang as "submit-input!" };
+export { suspend_runtime_bang as "suspend-runtime!" };
+export { tab_action as "tab-action" };
+export { tab_fold_step_bang as "tab-fold-step!" };
+export { tab_swap_view as "tab-swap-view" };
+export { take_launch_route_flags_bang as "take-launch-route-flags!" };
+export { thread_view_command_p as "thread-view-command?" };
+export { threads_view_p as "threads-view?" };
+export { transcript_banner_p as "transcript-banner?" };
+export { transcript_placeholder as "transcript-placeholder" };
+export { view_list as "view-list" };
+export { view_tab_id_at_bang as "view-tab-id-at!" };

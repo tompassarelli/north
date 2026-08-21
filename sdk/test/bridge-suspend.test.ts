@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
-  cleanup_suspend_bang as cleanupSuspend,
-  suspend_runtime_bang as suspendRuntime,
+  "cleanup-suspend!" as cleanupSuspend,
+  "suspend-runtime!" as suspendRuntime,
 } from "../src/bridge/generated/north/bridge/app.js";
 
 type Listener = () => void;
