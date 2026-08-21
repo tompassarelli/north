@@ -35,7 +35,7 @@ test("sums only the last total_token_usage entry in each rollout", async () => {
   rollout("two", 600, [usage(7)]);
 
   expect(await readOpenAISessionActivity({ accountRoot: root, now })).toMatchObject({
-    hours: 24, sessions: 2, live: 0, outputTokens: 32,
+    hours: 24, sessions: 2, live: 0, totalTokens: 34, outputTokens: 32,
   });
 });
 
@@ -48,7 +48,7 @@ test("finds the newest valid usage before large trailing records", async () => {
   ], false);
 
   expect(await readOpenAISessionActivity({ accountRoot: root, now })).toMatchObject({
-    sessions: 1, outputTokens: 25,
+    sessions: 1, totalTokens: 26, outputTokens: 25,
   });
 });
 
@@ -60,6 +60,7 @@ test("filters rollout fixtures by the requested hour window", async () => {
     hours: 1,
     sessions: 1,
     live: 0,
+    totalTokens: 12,
     outputTokens: 11,
     lastActivityAt: new Date(now.getTime() - 30 * 60 * 1_000),
   });
@@ -70,6 +71,6 @@ test("counts live sessions from rollout mtime within 120 seconds", async () => {
   rollout("not-live", 120, [usage(6)]);
 
   expect(await readOpenAISessionActivity({ accountRoot: root, now })).toMatchObject({
-    sessions: 2, live: 1, outputTokens: 11,
+    sessions: 2, live: 1, totalTokens: 13, outputTokens: 11,
   });
 });
