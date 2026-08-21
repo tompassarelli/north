@@ -312,6 +312,13 @@ const SESSION = {
   sessionBranch: "not a Git worktree",
 };
 
+test("the view-list switch hint names both directions", () => {
+  const tabs = renderViewTabs("threads", state("list"), "list", SESSION);
+  const text = tabs.chunks.map((chunk: { text: string }) => chunk.text).join("");
+  expect(text).toContain("←/→ switch");
+  expect(text).not.toContain("← switch →");
+});
+
 // The real root order, in miniature: content on top, then the bottom cluster —
 // composer, view bar, agent strip. The rows come back so the order is an
 // assertion and not a reading of the source.
@@ -421,6 +428,8 @@ test("showing Threads extends the bar with that view's own tabs", async () => {
   expect(threads.snapshot).toContain("[Board]");
   expect(threads.snapshot).toContain("List");
   expect(threads.snapshot).toContain("Graph");
+  expect(threads.snapshot).toContain("←/→ switch");
+  expect(threads.snapshot).not.toContain("← switch →");
   expect(threads.snapshot).not.toContain("│");
   // The tail belongs to the active view: sub-tabs here, no session identity.
   expect(threads.snapshot).not.toContain("claude-fable-5");

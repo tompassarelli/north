@@ -4295,7 +4295,7 @@
                            (str (if selected? "[" " ") title (if selected? "]" " "))))
              (when (< index (- (.-length views) 1))
                (push-chunk! chunks (white "  "))))))
-        (push-chunk! chunks (brightBlack "  ← switch →")))
+        (push-chunk! chunks (brightBlack "  ←/→ switch")))
       (push-session-identity! chunks session))
     (when (and (not threads?) (aggregate-transcript? session))
       (push-chunk! chunks (brightYellow " · all transcripts")))
