@@ -29,6 +29,9 @@ import {
   percentageGauge,
   type CliStyle,
 } from "./cli-style";
+import {
+  executeFleetDispatch, type FleetDispatchOptions, type FleetDispatchResult,
+} from "./fleet-dispatch";
 
 const USAGE = `usage: north account <command>
 
@@ -38,6 +41,8 @@ const USAGE = `usage: north account <command>
   north account status [id]
   north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity
   north account availability [--model M] [--json]  cached account headroom verdicts
+  north account dispatch --assignment ID -- exec [...]  account-aware Codex fleet dispatch
+  north account dispatch --dry-run [--json]              refresh and show the next account only
   north account list [--verbose]   grouped accounts + live login state
 
 Options:
@@ -48,6 +53,52 @@ Options:
   --refresh  bypass the five-minute authoritative usage cache
   --hours N  session activity lookback in hours (default: 24)
   --verbose  include provider, profile, and storage root diagnostics`;
+
+function fleetDispatchOptions(args: string[]): { options: FleetDispatchOptions; json: boolean } {
+  let assignmentId: string | undefined;
+  let dryRun = false;
+  let json = false;
+  let separator = -1;
+  for (let index = 0; index < args.length; index += 1) {
+    const entry = args[index]!;
+    if (entry === "--") { separator = index; break; }
+    if (entry === "--dry-run") {
+      if (dryRun) throw new Error(USAGE);
+      dryRun = true;
+      continue;
+    }
+    if (entry === "--json") {
+      if (json) throw new Error(USAGE);
+      json = true;
+      continue;
+    }
+    if (entry === "--assignment") {
+      if (assignmentId !== undefined || index + 1 >= args.length || args[index + 1]!.startsWith("--"))
+        throw new Error(USAGE);
+      assignmentId = args[++index]!;
+      continue;
+    }
+    throw new Error(USAGE);
+  }
+  const codexArgs = separator < 0 ? [] : args.slice(separator + 1);
+  if (!dryRun && (!assignmentId || !codexArgs.length)) throw new Error(USAGE);
+  return { options: { assignmentId, codexArgs, dryRun }, json };
+}
+
+function printFleetDispatch(result: FleetDispatchResult, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`selected account: ${result.selected.accountId}`);
+  console.log("evidence: live commander/operator census; not Store routing authority");
+  console.log(`score: ${result.selected.score} (${result.selected.remainingHeadroom}% headroom, ${result.selected.liveAssignments} live assignments)`);
+  if (result.assignment)
+    console.log(`assignment: ${result.assignment.assignmentId} -> ${result.assignment.accountId}`);
+  if (result.exitCode !== undefined) console.log(`exit: ${result.exitCode}`);
+  for (const excluded of result.excluded)
+    console.log(`excluded: ${excluded.accountId} (${excluded.reason})`);
+}
 
 const ACCOUNT_GROUPS = [
   { provider: "anthropic", label: "Claude / Anthropic" },
@@ -390,7 +441,7 @@ export async function runAccountCli(args: string[]): Promise<number> {
             || (provider === "openai" && (roleFlag !== "--role" || (role !== "execution" && role !== "oversight"))))
           throw new Error(USAGE);
         const account = provider === "openai"
-          ? await addProviderAccount(id, provider, role)
+          ? await addProviderAccount(id, provider, role as "execution" | "oversight")
           : await addProviderAccount(id, provider);
         console.log(`added isolated ${account.provider} account ${account.id}`);
         if (provider === "openai") console.log(`Store role ${role}`);
@@ -465,6 +516,12 @@ export async function runAccountCli(args: string[]): Promise<number> {
         if (json) console.log(JSON.stringify(rows, null, 2));
         else printAvailabilityRows(rows);
         return rows.some((row) => accountAvailabilityRowIsUsable(row, model)) ? 0 : 1;
+      }
+      case "dispatch": {
+        const { options, json } = fleetDispatchOptions(rest);
+        const result = await executeFleetDispatch(options);
+        printFleetDispatch(result, json);
+        return result.exitCode ?? 0;
       }
       case "list": {
         const verbose = rest.length === 1 && rest[0] === "--verbose";
