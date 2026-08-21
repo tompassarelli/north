@@ -2442,7 +2442,7 @@ push_chunk_bang(chunks, ((selected_p ? brightGreen : brightBlack))($$bc$str((sel
 if ((index < (views.length - 1))) {
   return push_chunk_bang(chunks, white("  "));
 } });
-    push_chunk_bang(chunks, brightBlack("  ← switch →"));
+    push_chunk_bang(chunks, brightBlack("  ←/→ switch"));
   } else {
     push_session_identity_bang(chunks, session);
   }
