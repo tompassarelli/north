@@ -31,8 +31,8 @@
        :agentId "lane-capped-session"
        :threadId "019f9537-a5d3-7000-8000-000000000001"
        :goal "finish the exact capped deliverable"
-       :repo "/home/tom/code/north"
-       :worktree "/home/tom/code/north/worktrees/capped-session"
+       :repo root
+       :worktree (str root "/worktrees/capped-session")
        :branch "capped-session"
        :nextAction delegate-handoff-next-action
        :completionClaimed false)
