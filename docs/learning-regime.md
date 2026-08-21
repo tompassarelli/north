@@ -87,8 +87,9 @@ offline comparison cohort only when all of the following are exact:
 Unknown evidence is never converted to zero. `north learning compare
 <experiment-id> [--json]` retains excluded attempts and names every exclusion
 reason. It deduplicates explicit retry chains, then groups eligible observations
-by exact task-signature digest, changed axis, and arm. Its observed summaries
-are descriptive only; the command does not produce a causal verdict.
+by exact task-signature digest, changed axis and arm, control-baseline digest,
+and eligible-options digest. Its observed summaries are descriptive only; the
+command does not produce a causal verdict.
 
 ## Content-addressed construction evidence
 

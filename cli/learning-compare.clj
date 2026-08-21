@@ -243,14 +243,16 @@
   (let [task (one facts "learning_task_signature_sha256")
         axis (one facts "learning_axis")
         arm (one facts "learning_arm_id")
+        baseline (one facts "learning_baseline_sha256")
         options (one facts "learning_options_sha256")]
     (when (and (exact-digest? task)
+               (exact-digest? baseline)
                (exact-digest? options)
                (= "exact" (one facts "learning_task_signature_coverage"))
                (#{"control" "model-tier" "effort" "prompt" "authoring" "history"}
                 axis)
                (exact-identifier? arm))
-      [task axis arm options])))
+      [task axis arm baseline options])))
 
 (defn- observation [run facts]
   (let [retry-of (one facts "retry_of_run")
@@ -395,11 +397,11 @@
   (into (sorted-map)
         (frequencies (mapcat :exclusion-reasons observations))))
 
-(defn- cohort-sort-key [[task axis arm options]]
+(defn- cohort-sort-key [[task axis arm baseline options]]
   [task (if (= axis "control") 0 1) axis
-   (if (= arm "control") 0 1) arm options])
+   (if (= arm "control") 0 1) arm baseline options])
 
-(defn- cohort-document [[task axis arm options] observations]
+(defn- cohort-document [[task axis arm baseline options] observations]
   (let [observations (vec (sort-by (juxt :chain-id :run) observations))
         included (filterv :included observations)
         outcomes (frequencies (map #(or (:outcome %) "unknown") included))]
@@ -407,6 +409,7 @@
      "taskSignature" task
      "axis" axis
      "armId" arm
+     "baselineSha256" baseline
      "optionsSha256" options
      "population" (array-map
                     "attempts" (count observations)
@@ -528,6 +531,7 @@
               [(str "\nTASK " (get cohort "taskSignature"))
                (str "  AXIS " (get cohort "axis") " · ARM "
                     (get cohort "armId"))
+               (str "  BASELINE " (get cohort "baselineSha256"))
                (str "  OPTIONS " (get cohort "optionsSha256"))
                (str "    population: " (get cohort-population "included")
                     " included / " (get cohort-population "attempts")

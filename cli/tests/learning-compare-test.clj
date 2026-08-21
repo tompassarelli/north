@@ -22,7 +22,7 @@
 
 (defn assignment-facts
   [{:keys [axis arm-id assignment-id episode-id evidence-mode
-           propensity explore-propensity options-sha256]
+           propensity explore-propensity baseline-sha256 options-sha256]
     :or {axis "control"
          arm-id "control"
          assignment-id (sha "assignment-control")
@@ -30,6 +30,7 @@
          evidence-mode "evaluation"
          propensity "0.800000000000"
          explore-propensity "0.200000000000"
+         baseline-sha256 (sha "baseline")
          options-sha256 (sha "options")}}]
   {"learning_assignment_version" "north-learning-assignment:v1"
    "learning_policy_version" "north-learning-policy:v1"
@@ -49,7 +50,7 @@
    "learning_narrowing_reason" (if (= axis "control")
                                   "control:eligible"
                                   (str "explore:" axis ":" arm-id))
-   "learning_baseline_sha256" (sha "baseline")
+   "learning_baseline_sha256" baseline-sha256
    "learning_options_sha256" options-sha256
    "learning_assignment_sha256" assignment-id})
 
@@ -231,16 +232,20 @@
          (and (= "descriptive_only" (get document "interpretation"))
               (= "Observed cohorts only; no causal estimate is produced."
                  (get document "notice"))))
-  (check "cohorts are exact task/axis/arm/options and control sorts first"
-         (and (= [(sha "exact-task") "control" "control" (sha "options")]
+  (check "cohorts are exact task/axis/arm/baseline/options and control sorts first"
+         (and (= [(sha "exact-task") "control" "control"
+                  (sha "baseline") (sha "options")]
                  [(get control "taskSignature")
                   (get control "axis")
                   (get control "armId")
+                  (get control "baselineSha256")
                   (get control "optionsSha256")])
-              (= [(sha "exact-task") "prompt" "variant-a" (sha "options")]
+              (= [(sha "exact-task") "prompt" "variant-a"
+                  (sha "baseline") (sha "options")]
                  [(get prompt "taskSignature")
                   (get prompt "axis")
                   (get prompt "armId")
+                  (get prompt "baselineSha256")
                   (get prompt "optionsSha256")])))
   (check "valid maximum-safe counts aggregate without integer overflow"
          (= {"mean" 9.007199254740991E15
@@ -282,8 +287,34 @@
                 (str/includes? rendered "tokens: unknown (known 1, unknown 1)")
                 (str/includes? rendered
                                "reviewer tokens: unknown (known 1, unknown 1)")
+                (str/includes? rendered (str "BASELINE " (sha "baseline")))
                 (str/includes? rendered (str "OPTIONS " (sha "options")))
                 (str/includes? rendered "axis-p=unknown · arm-p=unknown")))))
+
+(let [baseline-a (sha "baseline-a")
+      baseline-b (sha "baseline-b")
+      run-a "@run:baseline-a"
+      run-b "@run:baseline-b"
+      rows (vec
+            (concat
+             (rows-for run-a
+                       (complete-run run-a
+                                     {:assignment-id (sha "baseline-a-assignment")
+                                      :episode-id "episode-baseline-a"
+                                      :baseline-sha256 baseline-a}))
+             (rows-for run-b
+                       (complete-run run-b
+                                     {:assignment-id (sha "baseline-b-assignment")
+                                      :episode-id "episode-baseline-b"
+                                      :baseline-sha256 baseline-b}))))
+      document (north.learning-compare/comparison-document
+                "exp-fixture" 42 rows)
+      cohorts (get document "cohorts")]
+  (check "different control baselines cannot merge into one evidence cohort"
+         (and (= 2 (count cohorts))
+              (= #{baseline-a baseline-b}
+                 (set (map #(get % "baselineSha256") cohorts)))
+              (every? #(= 1 (get-in % ["population" "included"])) cohorts))))
 
 (let [reviewer-off-options (sha "reviewer-off-options")
       reviewer-on-options (sha "reviewer-on-options")
