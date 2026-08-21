@@ -1,0 +1,171 @@
+#lang beagle
+
+(ns north.recovery-context-core
+  (:require [north.replay-core :as replay]
+            [north.session-core :as session]))
+
+;; This is a pure projection over already-admitted Store evidence. It carries no
+;; provider handle and grants no authority to repeat an input, tool, or effect.
+(defrecord CompletedContextEntry
+  [event-id String
+   sequence Int
+   kind Keyword
+   body String])
+
+(defrecord UnsettledEffect
+  [effect-id String
+   disposition Keyword])
+
+(defrecord RecoveryContextProjection
+  [source-run-id String
+   terminal-provenance replay/TerminalProvenance
+   compaction-summary String
+   completed-tail (Vec CompletedContextEntry)
+   unsettled-effects (Vec UnsettledEffect)])
+
+(defrecord SuccessorContextRequest
+  [source-run-id String
+   successor-run-id String])
+
+(defrecord SuccessorRecoveryContext
+  [successor-run-id String
+   projection RecoveryContextProjection])
+
+(defunion RecoveryProjection
+  (RecoveryProjected [projection RecoveryContextProjection])
+  (RecoveryUnavailable
+    [code Keyword
+     detail String]))
+
+(defunion SuccessorContextAdmission
+  (SuccessorContextAdmitted [context SuccessorRecoveryContext])
+  (SuccessorContextRejected
+    [code Keyword
+     detail String]))
+
+(def empty-completed-tail (Vec CompletedContextEntry) [])
+(def empty-unsettled-effects (Vec UnsettledEffect) [])
+
+(defn- nonempty? [value String] Bool (> (count value) 0))
+
+(defn- subject-has-kind?
+  [events (Vec replay/ReplayEvent)
+   subject String
+   kind Keyword] Bool
+  (loop [position Int 0]
+    (if (>= position (count events))
+      false
+      (let [event replay/ReplayEvent (nth events position)]
+        (if (and (= (replay/replayevent-subject event) subject)
+                 (= (replay/replayevent-kind event) kind))
+          true
+          (recur (+ position 1)))))))
+
+(defn- completed-entry [event session/SessionEvent] CompletedContextEntry
+  (->CompletedContextEntry
+   (session/sessionevent-event-id event)
+   (session/sessionevent-sequence event)
+   (session/sessionevent-kind event)
+   (session/sessionevent-body event)))
+
+(defn- completed-context-tail
+  [tail (Vec session/SessionEvent)
+   replay-events (Vec replay/ReplayEvent)] (Vec CompletedContextEntry)
+  (loop [position Int 0
+         completed (Vec CompletedContextEntry) empty-completed-tail]
+    (if (>= position (count tail))
+      completed
+      (let [event session/SessionEvent (nth tail position)]
+        (if (subject-has-kind?
+             replay-events
+             (session/sessionevent-event-id event)
+             :context/completed)
+          (recur (+ position 1) (conj completed (completed-entry event)))
+          (recur (+ position 1) completed))))))
+
+(defn- effect-recorded?
+  [effects (Vec UnsettledEffect)
+   effect-id String] Bool
+  (loop [position Int 0]
+    (if (>= position (count effects))
+      false
+      (if (= (unsettledeffect-effect-id (nth effects position)) effect-id)
+        true
+        (recur (+ position 1))))))
+
+(defn- unsettled-effects
+  [events (Vec replay/ReplayEvent)] (Vec UnsettledEffect)
+  (loop [position Int 0
+         unsettled (Vec UnsettledEffect) empty-unsettled-effects]
+    (if (>= position (count events))
+      unsettled
+      (let [event replay/ReplayEvent (nth events position)
+            subject String (replay/replayevent-subject event)]
+        (if (and (= (replay/replayevent-kind event) :effect/admitted)
+                 (and (not (subject-has-kind? events subject :effect/settled))
+                      (not (effect-recorded? unsettled subject))))
+          (recur
+           (+ position 1)
+           (conj unsettled (->UnsettledEffect subject :unknown)))
+          (recur (+ position 1) unsettled))))))
+
+(defn project-recovery-context
+  [ledger session/SessionLedger
+   session-id String
+   journal replay/ReplayJournal] RecoveryProjection
+  (cond
+    [(not (nonempty? session-id))
+     (->RecoveryUnavailable
+      :recovery/missing-session
+      "recovery context requires an internal source session")]
+    [(not (replay/journal-valid? journal))
+     (->RecoveryUnavailable
+      :recovery/invalid-replay
+      "recovery context requires contiguous Store replay evidence")]
+    [:else
+     (match (replay/terminal-summary journal)
+       [(replay/TerminalNotReady code detail)
+        (->RecoveryUnavailable
+         :recovery/source-not-terminal
+         "recovery context requires terminal source-run provenance")]
+       [(replay/TerminalSummarized provenance)
+        (let [context session/ContextProjection (session/context-projection ledger session-id)
+              summary String? (session/contextprojection-summary context)
+              replay-events (Vec replay/ReplayEvent) (replay/replayjournal-events journal)]
+          (if (some? summary)
+            (->RecoveryProjected
+             (->RecoveryContextProjection
+              (replay/replayjournal-run-id journal)
+              provenance
+              summary
+              (completed-context-tail
+               (session/contextprojection-tail context)
+               replay-events)
+              (unsettled-effects replay-events)))
+            (->RecoveryUnavailable
+             :recovery/missing-compaction
+             "recovery context requires an accepted compaction summary")))])]))
+
+(defn admit-successor-context
+  [projection RecoveryContextProjection
+   request SuccessorContextRequest] SuccessorContextAdmission
+  (cond
+    [(not= (recoverycontextprojection-source-run-id projection)
+           (successorcontextrequest-source-run-id request))
+     (->SuccessorContextRejected
+      :recovery/source-run-mismatch
+      "successor admission must name the exact projected source run")]
+    [(not (nonempty? (successorcontextrequest-successor-run-id request)))
+     (->SuccessorContextRejected
+      :recovery/missing-successor
+      "successor admission requires a new run identity")]
+    [(= (successorcontextrequest-source-run-id request)
+        (successorcontextrequest-successor-run-id request))
+     (->SuccessorContextRejected
+      :recovery/not-a-successor
+      "a source run cannot admit itself as its successor")]
+    [:else
+     (->SuccessorContextAdmitted
+      (->SuccessorRecoveryContext
+       (successorcontextrequest-successor-run-id request)
+       projection))]))
