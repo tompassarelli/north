@@ -17,7 +17,8 @@ import { orchestrationCapabilities } from "./orchestration-staffing";
 import { spendGuardVerdict, reserveSpend } from "./spend-guard";
 import { StoreRpcClient } from "./store-rpc-client";
 import {
-  admitDeliveryLivenessFact, deliveryDispatchClassFromEnvironment, deliveryLivenessPath,
+  admitDeliveryLivenessFact, deliveryDispatchClassFromEnvironment,
+  deliveryLivenessInputRevision, deliveryLivenessPath,
   deliveryLivenessRequiredFromEnvironment, DeliveryLivenessAuthorityError,
   type DeliveryDispatchClass,
 } from "./delivery-liveness";
@@ -95,6 +96,7 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "NORTH_ENVELOPE_ACCOUNTING",
   "NORTH_HARNESS_STATE",
   "NORTH_DELIVERY_LIVENESS_REQUIRED",
+  "NORTH_DELIVERY_DISPATCH_CLASS",
   "NORTH_AUTHOR",
   "NORTH_DRIVER",
   "NORTH_LEAD",
@@ -234,6 +236,7 @@ export class DeliveryLivenessDispatchError extends ExecutionAdmissionError {
 export function admitManagedDispatchAuthority(
   environment: NodeJS.ProcessEnv = process.env,
   dispatchClass = deliveryDispatchClassFromEnvironment(environment),
+  activationPath?: string,
 ): void {
   const result = spawnSync(
     ENGINE,
@@ -268,10 +271,13 @@ export function admitManagedDispatchAuthority(
   }
   // A repair is an explicitly classified recovery action; ordinary feature
   // dispatch consumes the sole deterministic Firn floor fact and fails closed.
-  if (dispatchClass === "repair") return;
-  if (!deliveryLivenessRequiredFromEnvironment(environment)) return;
   try {
-    admitDeliveryLivenessFact({ path: deliveryLivenessPath(environment) });
+    if (dispatchClass === "repair") return;
+    if (!deliveryLivenessRequiredFromEnvironment(environment, activationPath)) return;
+    admitDeliveryLivenessFact({
+      path: deliveryLivenessPath(environment),
+      expectedNixosConfigRevision: deliveryLivenessInputRevision(environment),
+    });
   } catch (error) {
     const message = error instanceof DeliveryLivenessAuthorityError
       ? error.reason : "delivery_liveness_authority_unavailable";
