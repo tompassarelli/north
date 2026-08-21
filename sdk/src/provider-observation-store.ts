@@ -91,7 +91,7 @@ async function readExisting(path: string): Promise<ProviderUsageObservationStore
 export async function writeProviderUsageObservations(
   incoming: ProviderUsageObservation | ProviderUsageObservation[],
   path = process.env.NORTH_PROVIDER_OBSERVATIONS ?? DEFAULT_PROVIDER_OBSERVATIONS_PATH,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; client?: StoreObservationClient } = {},
 ): Promise<ProviderUsageObservationStore> {
   throwIfProviderRefreshCancelled(options.signal);
   const validatedIncoming = parseProviderUsageObservations({ version: 1, observations: [incoming].flat() }, "<incoming observations>");
@@ -101,7 +101,8 @@ export async function writeProviderUsageObservations(
     if (Date.parse(observation.observedAt) > now.getTime() + OBSERVATION_CLOCK_SKEW_MS) continue;
     throwIfProviderRefreshCancelled(options.signal);
     admitted.push((await admitStoreObservation({
-      subject: providerUsageObservationSubject(observation), observation, codec: providerUsageObservationCodec,
+      subject: providerUsageObservationSubject(observation), observation,
+      codec: providerUsageObservationCodec, client: options.client,
     })).observation);
   }
   const directory = dirname(path);
