@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
-  FIRN_SYSTEM_POLICY,
+  CODEX_MANAGED_HOOKS_DIR, FIRN_SYSTEM_POLICY,
   type ManagedCodexHookInstallation, reportManagedCodexHookInstallation,
   validateManagedCodexHookInstallation, validateManagedCodexRequirements,
 } from "../src/providers/codex-managed-hooks";
@@ -223,10 +223,15 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
 test("managed Codex authoring entrances invoke the native Firn system policy", () => {
   const expected = expectedManagedCodexHooks();
   const preToolUse = expected.PreToolUse;
+  const systemPolicyCommand = [
+    resolve(CODEX_MANAGED_HOOKS_DIR, "runtime/env"),
+    "-u", "BASH_ENV", "-u", "ENV", FIRN_SYSTEM_POLICY,
+  ].join(" ");
   for (const matcher of ["^(Edit|Write|MultiEdit|apply_patch)$", "^Bash$"]) {
     const commands = preToolUse.find((entry) => entry.matcher === matcher)!.hooks
       .map((hook) => hook.command);
-    expect(commands).toContain(FIRN_SYSTEM_POLICY);
+    expect(commands).toContain(systemPolicyCommand);
+    expect(commands).not.toContain(FIRN_SYSTEM_POLICY);
     expect(commands.some((command) => command.includes("firn-guard.sh"))).toBe(false);
   }
 });
