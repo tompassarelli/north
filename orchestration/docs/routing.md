@@ -31,7 +31,7 @@ is an error, not a silently-ignored no-op — the composer rejects unknown optio
 
 | Planner input | What it captures | Derives |
 |---|---|---|
-| task shape | execute / implement / integrate / design / direct / scout / analyze / review / verify / judge / research-science | role + stock-template defaults |
+| task shape | execute / curate / implement / integrate / design / direct / scout / analyze / guard / review / verify / judge / research-science / experiment | role + stock-template defaults |
 | decision ownership | none, bounded, cross-boundary, system-shaping, open-solution-class | tier floor |
 | seam scope | none, established, consequential, system-wide | tier floor |
 | error exposure | contained-reversible, material-recoverable, high-or-hard-to-reverse | tier floor |
@@ -85,7 +85,7 @@ type RoutingRequest = {
   topology: "worker" | "orchestrator";                       // coordination authority; reviewer/verifier/judge are worker ROLES
   tier: "economy" | "standard" | "senior" | "frontier";      // model capability floor
   reasoning: "low" | "medium" | "high" | "xhigh" | "max";    // deliberation
-  posture: "explore" | "deliver" | "preserve" | "evaluate";
+  posture: "explore" | "deliver" | "preserve" | "prune" | "evaluate";
   composition:
     | { kind: "template"; id: string; overrides: OverrideField[]; overrideReason?: string }
     | {
@@ -138,16 +138,19 @@ functions on worker topology, not topologies: `topology` is only `worker` or
 | Shape | Default role | Tier | Topology | Posture |
 |---|---|---|---|---|
 | execute | executor | economy | worker | deliver |
+| curate | curator | economy | worker | prune |
 | implement | implementer | standard | worker | deliver |
 | integrate | integrator | senior | worker | deliver |
 | design | designer | frontier | worker | explore |
 | direct | director | frontier | orchestrator | deliver |
 | scout | scout | economy | worker | explore |
 | analyze | analyst | senior | worker | explore |
+| guard | guardian | senior | worker | preserve |
 | review | reviewer | senior | worker | evaluate |
 | verify (explicit user request only) | verifier | senior | worker | evaluate |
 | judge | judge | frontier | worker | evaluate |
 | research-science | scientist | frontier | worker | explore |
+| experiment | experimenter | frontier | worker | explore |
 
 These are stock templates, not coupled identities. `taskGrade`, domain
 requirements, topology, semantic tier, deliberation, and posture are
@@ -169,6 +172,14 @@ the user's current request explicitly asks for assurance; uncertainty never
 self-authorizes it. Verifier's senior/high default may be
 justifiably overridden up or down, but the task's quality floor remains
 binding.
+
+Curator retires only an explicitly enumerated finished set and never decides
+what is stale. `preserve` is read-only guarding of a live, shared, or immutable
+boundary; `prune` is the separately named authoring posture for retirement of
+proven-finished work. Experimenter authors a disposable rig for a supplied
+question and reports its removed-or-retained disposition; scientist chooses the
+unknown question and non-mutating method, while durable implementation remains
+with implementer or integrator.
 
 Orchestrator topology grants coordination and reconciliation authority, not
 worker implementation authority. A worker owns its nearest existing relevant

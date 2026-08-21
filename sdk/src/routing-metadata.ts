@@ -1,5 +1,5 @@
 import {
-  validateTopologyCapabilities, type OrchestrationCapability,
+  validatePostureCapabilities, validateTopologyCapabilities, type OrchestrationCapability,
 } from "./orchestration-capabilities";
 import { requireOrchestrationRoleId } from "./orchestration-role-id";
 import { canonicalBespokeContract } from "./bespoke-contract";
@@ -17,7 +17,7 @@ export const SEMANTIC_TIERS = ["economy", "standard", "senior", "frontier"] as c
 export type RoutingTier = typeof SEMANTIC_TIERS[number];
 export const REASONING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ReasoningLevel = typeof REASONING_LEVELS[number];
-export const POSTURES = ["explore", "evaluate", "deliver", "preserve"] as const;
+export const POSTURES = ["explore", "evaluate", "deliver", "preserve", "prune"] as const;
 export type RoutingPosture = typeof POSTURES[number];
 
 export const ROUTING_OVERRIDE_FIELDS = [
@@ -178,6 +178,9 @@ export function validateRoutingMetadata(value: RoutingDraft): RoutingDraft {
         throw new Error(`bespoke composition requires all routing axes; missing: ${missing.join(", ")}`);
       validateTopologyCapabilities(
         topology!, contract.capabilities, "composition.contract.capabilities",
+      );
+      validatePostureCapabilities(
+        posture!, contract.capabilities, "composition.contract.capabilities",
       );
       normalizedComposition = {
         kind, id: compositionId, ...(nearestTemplate ? { nearestTemplate } : {}), bespokeReason,

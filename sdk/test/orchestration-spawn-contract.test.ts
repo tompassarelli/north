@@ -23,12 +23,12 @@ const contract = JSON.stringify({
 
 test("Orchestration composition survives North validation", () => {
   const request = composed("integrator", "--taskGrade", "staff", "--domain", "Nix,Beagle",
-    "--tier", "frontier", "--deliberation", "xhigh", "--posture", "preserve",
+    "--tier", "frontier", "--deliberation", "xhigh", "--posture", "prune",
     "--override-reason", "cross-provider foundational contract");
   const metadata = validateRoutingMetadata(request);
   expect(metadata).toEqual({
     role: "integrator", taskGrade: "staff", domainRequirements: ["Nix", "Beagle"],
-    topology: "worker", tier: "frontier", reasoning: "xhigh", posture: "preserve",
+    topology: "worker", tier: "frontier", reasoning: "xhigh", posture: "prune",
     composition: { kind: "template", id: "integrator",
       overrides: ["taskGrade", "domainRequirements", "tier", "reasoning", "posture"],
       overrideReason: "cross-provider foundational contract" },
@@ -75,6 +75,17 @@ test("SDK presets inherit catalog axes while declared compatible overrides win i
     tier: "frontier", reasoning: "xhigh", posture: "deliver",
     composition: { kind: "template", id: "director", overrides: [] },
   });
+  expect(applyOrchestrationStaffing({ role: "guardian" }, catalog)).toMatchObject({
+    role: "guardian", topology: "worker", posture: "preserve",
+  });
+  expect(applyOrchestrationStaffing({ role: "curator" }, catalog)).toMatchObject({
+    role: "curator", topology: "worker", posture: "prune",
+  });
+  expect(() => applyOrchestrationStaffing({
+    role: "integrator", posture: "preserve",
+    composition: { kind: "template", id: "integrator", overrides: ["posture"],
+      overrideReason: "invalid preservation probe" },
+  }, catalog)).toThrow("preserve posture requires a non-authoring capability boundary");
   // The retirement is the invariant; the successor list is naming churn. The
   // CLI-facing wording stays pinned in agents-cli-routing.test.ts.
   expect(() => applyOrchestrationStaffing({ role: "researcher" }, catalog))
@@ -86,10 +97,10 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
   // run, so there is no effort to attribute. The gate still fires on --dry-run
   // by design — a preview that accepted what the real spawn refuses would lie
   // about admissibility precisely where the preview is meant to be trusted.
-  const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "scout", "contract probe",
+  const result = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "scout", "settle completed work",
     "--dry-run", "--ad-hoc", "--taskGrade", "principal", "--domain", "computer-science",
-    "--tier", "frontier", "--reasoning", "xhigh", "--posture", "preserve",
-    "--override-reason", "principal research direction"], {
+    "--tier", "frontier", "--reasoning", "xhigh", "--posture", "prune",
+    "--override-reason", "principal bounded retirement"], {
     encoding: "utf8",
     env: { ...process.env, NO_COLOR: "1", ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
   });
@@ -97,7 +108,7 @@ test("North CLI reads staffing/catalog.json and carries independent overrides", 
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
   expect(result.stdout).toContain("AGENT_DOMAIN_REQUIREMENTS=[\"computer-science\"]");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
-  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal research direction\"}");
+  expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"scout\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal bounded retirement\"}");
 });
 
 test("North rejects unlogged bespoke roles and composition identity mismatches", () => {

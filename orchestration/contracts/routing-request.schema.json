@@ -18,7 +18,7 @@
     },
     "tier": { "enum": ["economy", "standard", "senior", "frontier"] },
     "reasoning": { "enum": ["low", "medium", "high", "xhigh", "max"] },
-    "posture": { "enum": ["explore", "deliver", "preserve", "evaluate"] },
+    "posture": { "enum": ["explore", "deliver", "preserve", "prune", "evaluate"] },
     "composition": {
       "oneOf": [
         { "$ref": "#/$defs/templateComposition" },

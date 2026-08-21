@@ -6,7 +6,7 @@
     "semanticTiers": ["economy", "standard", "senior", "frontier"],
     "deliberations": ["low", "medium", "high", "xhigh", "max"],
     "topologies": ["worker", "orchestrator"],
-    "postures": ["explore", "deliver", "preserve", "evaluate"],
+    "postures": ["explore", "deliver", "preserve", "prune", "evaluate"],
     "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell", "shell.readonly", "web", "coordination"]
   },
   "defaults": {
@@ -18,6 +18,12 @@
       "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
       "tagline": "the specified change, applied exactly",
       "description": "Execute-shaped tasks — bounded, mechanical, fully specified: apply a patch, rename a symbol, add obvious tests, fix lint. Give the worker a tight work order. Any judgment call → implementer; behavior crossing a seam → integrator."
+    },
+    {
+      "name": "curator", "taskGrade": "junior", "tier": "economy", "deliberation": "low", "topology": "worker", "posture": "prune",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "an explicitly enumerated set of finished artifacts retired without collateral change",
+      "description": "Retirement-shaped tasks — remove or settle an explicitly enumerated, proven-finished set of artifacts and their direct references. Does not decide what is stale: missing proof or an uncertain owner, consumer, or deletion scope stops for escalation. Opportunistic cleanup, refactoring, and unrelated modernization are out of scope."
     },
     {
       "name": "implementer", "taskGrade": "mid", "tier": "standard", "deliberation": "medium", "topology": "worker", "posture": "deliver",
@@ -74,6 +80,12 @@
       "description": "Analysis work — how a system actually works, why it behaves as it does, root-cause, or grounding a design against real behavior. Read-only, depth over breadth; honest-zero findings are valid. Falls back to explicitly static-only analysis, naming unobserved behavior, when no read-only execution surface exists. Produces UNDERSTANDING — not a disposition (→ reviewer), a decision (→ designer), or a change (→ integrator); mere location/gathering → scout. Fan out when independently traceable mechanisms warrant separate evidence trails; keep tightly coupled traces together regardless of subsystem count."
     },
     {
+      "name": "guardian", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "preserve",
+      "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
+      "tagline": "a bounded read-only account of what must not change",
+      "description": "Preservation-shaped work — inspect a named live, shared, or immutable boundary and report the observed invariants, ownership, and uncertainty without altering it. Does not review a supplied change (→ reviewer), explain an arbitrary mechanism (→ analyst), or retire finished artifacts (→ curator)."
+    },
+    {
       "name": "reviewer", "taskGrade": "senior", "tier": "senior", "deliberation": "high", "topology": "worker", "posture": "evaluate",
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly"],
       "tagline": "one supplied artifact reviewed across multiple criteria, with prioritized findings and a disposition",
@@ -96,6 +108,12 @@
       "capabilities": ["filesystem.read", "filesystem.search", "shell.readonly", "web"],
       "tagline": "hypotheses, discriminating experiments, and evidence-bounded analysis",
       "description": "Research-grade inquiry — open solution class, novel method, answer genuinely unknown. Frames competing hypotheses and discriminating experiments; invokes existing non-mutating probes only, never authors code or apparatus (hand that to an authoring role). Source gathering → scout; ordinary root-cause → analyst. Research is a function, not a task grade."
+    },
+    {
+      "name": "experimenter", "taskGrade": "staff", "tier": "frontier", "deliberation": "high", "topology": "worker", "posture": "explore",
+      "capabilities": ["filesystem.read", "filesystem.search", "filesystem.write", "shell"],
+      "tagline": "a disposable rig that answers one stated question",
+      "description": "Experiment-shaped work — author and run a narrowly scoped disposable script, fixture, or apparatus for a stated hypothesis, then remove it unless the brief explicitly retains it. Produces observations and the retained-or-removed disposition, never an unrequested production feature. Hypothesis selection → scientist; a durable product change → implementer or integrator."
     }
   ],
   "aliases": []

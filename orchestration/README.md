@@ -30,8 +30,9 @@ members' remembered switches.
 Install it and your sessions gain:
 
 1. **A routing doctrine** (injected at session start): classify each
-   delegated task by *shape* — execute / implement / integrate / design /
-   direct / scout / analyze / review / verify / judge / research-science — and
+   delegated task by *shape* — execute / curate / implement / integrate /
+   design / direct / scout / analyze / guard / review / verify / judge /
+   research-science / experiment — and
    route it
    on one continuous semantic ramp. Function, task grade, domain requirements,
    topology, model capability, deliberation, and posture stay independent,
@@ -54,16 +55,19 @@ Install it and your sessions gain:
    | Agent | Semantic route | Shape it plays |
    |---|---|---|
    | `executor` | economy / low | bounded mechanical changes |
+   | `curator` | economy / low | explicitly enumerated retirement of proven-finished artifacts, with prune posture |
    | `implementer` | standard / medium | one feature/fix inside known patterns |
    | `integrator` | senior / high | cross-seam work, ambiguous debugging, behavior-at-stake refactors |
    | `designer` | frontier / xhigh | choosing shapes: APIs, data models, decomposition (decision-only, read-only tools) |
    | `director` | frontier / xhigh | decompose, independently staff, consume evidence, and reconcile multi-agent work |
    | `scout` | economy / low | locate, map, gather sources (breadth, fan-out) |
    | `analyst` | senior / high | deep-dive: how/why it works, root-cause, design-grounding (read-only) |
+   | `guardian` | senior / high | read-only guard of a named live, shared, or immutable boundary |
    | `reviewer` | senior / high | one supplied artifact/change reviewed across multiple criteria, with findings and disposition |
    | `verifier` | senior / high | explicit-user-requested adversarial verification of one claim |
    | `judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
    | `scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus is handed off |
+   | `experimenter` | frontier / high | one stated question answered with a disposable script, fixture, or apparatus; retained only by explicit request |
 
    The agent type is the plain template name. `orchestration:<role>` was the
    type only while the templates shipped inside the Claude Code plugin; it

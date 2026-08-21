@@ -36,15 +36,32 @@ unrequested features, gold-plating edge cases the spec doesn't reach.
 ## preserve
 
 ```
-POSTURE: PRESERVE — legacy, shared infra, live dependencies, production config.
-Collision order: behavior compatibility > minimal blast radius > everything
-else, including your taste.
-Licensed: bug-compatible behavior, character-minimal diffs, stopping to ask
-before any deletion, git-blame archaeology as first-class work.
-Forbidden: refactors, cleanup, dependency bumps, "while I'm here" of any
-kind, removing the weird thing before knowing why it's there.
-Exit requires a diff review proving everything outside the one change
-untouched.
+POSTURE: PRESERVE — guard a legacy, shared, live, or immutable boundary.
+Collision order: behavior compatibility > known ownership/invariants >
+minimal blast radius > everything else, including your taste.
+Licensed within a non-authoring capability contract: read-only observation,
+git-blame archaeology, and an explicit cannot-determine result.
+Forbidden: mutation, deletion, refactors, cleanup, dependency bumps, and
+"while I'm here" of any kind. Preserve never confers write authority; a
+writer-capable preserve route is invalid.
+The report names the observed invariant or ownership constraint, its evidence,
+and what remained unobserved.
+```
+
+## prune
+
+```
+POSTURE: PRUNE — retire only artifacts independently proven finished or
+settled, within an explicitly bounded set.
+Collision order: proof of finished state > minimal scoped removal >
+reference integrity > speed > polish.
+Licensed within an authoring capability contract: remove listed finished
+artifacts and settle their direct references.
+Forbidden: inferring staleness, deleting an item with an unknown owner or
+consumer, opportunistic cleanup, refactors, and expansion beyond the listed
+set. Missing proof means retain the item and report the gap.
+The report records each removed and retained item, the supplied proof, and the
+nearest relevant check when one exists.
 ```
 
 ## evaluate

@@ -63,9 +63,9 @@ const providerDefinitionKeys = [
   "provenance", "source", "date", "modelDelta", "modelCompatibility", "modelRoutes", "contextWindow", "tier", "reasoning",
 ];
 const stockTemplateNames = [
-  "executor", "implementer", "integrator", "designer", "director",
+  "executor", "curator", "implementer", "integrator", "designer", "director",
   "team-lead", "program", "portfolio",
-  "scout", "analyst", "reviewer", "verifier", "judge", "scientist",
+  "scout", "analyst", "guardian", "reviewer", "verifier", "judge", "scientist", "experimenter",
 ];
 if (staffing.version !== 2 || staffingSchema.properties?.version?.const !== 2 ||
     JSON.stringify(Object.keys(staffing).sort()) !== JSON.stringify([...staffingKeys].sort()) ||
@@ -276,6 +276,11 @@ for (const invalid of [
     ? { ...preset, capabilities: preset.capabilities.map((capability) => capability === "shell.readonly" ? "shell" : capability) } : preset) },
   { ...staffing, presets: [{ ...staffing.presets[0], capabilities: [...staffing.presets[0].capabilities, "coordination"] }, ...staffing.presets.slice(1)] },
   { ...staffing, presets: [{ ...staffing.presets[0], capabilities: [...staffing.presets[0].capabilities, "shell.readonly"] }, ...staffing.presets.slice(1)] },
+  { ...staffing, presets: [{ ...staffing.presets[0], posture: "preserve" }, ...staffing.presets.slice(1)] },
+  { ...staffing, presets: staffing.presets.map((preset) => preset.name === "guardian"
+    ? { ...preset, capabilities: [...preset.capabilities, "filesystem.write", "shell"] } : preset) },
+  { ...staffing, presets: staffing.presets.map((preset) => preset.name === "curator"
+    ? { ...preset, capabilities: preset.capabilities.filter((capability) => capability !== "shell") } : preset) },
 ]) {
   try { validateStaffingCatalog(invalid); throw new Error("invalid staffing catalog was accepted"); }
   catch (error) { if (error.message === "invalid staffing catalog was accepted") throw error; }
@@ -870,6 +875,27 @@ if (!reviewer || reviewer.taskGrade !== "senior" || reviewer.tier !== "senior" |
       "filesystem.read", "filesystem.search", "shell.readonly",
     ]))
   throw new Error("reviewer must remain the senior/senior/high read-only worker/evaluate stock template");
+const guardian = staffing.presets.find(({ name }) => name === "guardian");
+if (!guardian || guardian.taskGrade !== "senior" || guardian.tier !== "senior" ||
+    guardian.deliberation !== "high" || guardian.topology !== "worker" || guardian.posture !== "preserve" ||
+    JSON.stringify(guardian.capabilities) !== JSON.stringify([
+      "filesystem.read", "filesystem.search", "shell.readonly",
+    ]))
+  throw new Error("guardian must remain the senior/senior/high read-only worker/preserve stock template");
+const curator = staffing.presets.find(({ name }) => name === "curator");
+if (!curator || curator.taskGrade !== "junior" || curator.tier !== "economy" ||
+    curator.deliberation !== "low" || curator.topology !== "worker" || curator.posture !== "prune" ||
+    JSON.stringify(curator.capabilities) !== JSON.stringify([
+      "filesystem.read", "filesystem.search", "filesystem.write", "shell",
+    ]))
+  throw new Error("curator must remain the junior/economy/low authoring worker/prune stock template");
+const experimenter = staffing.presets.find(({ name }) => name === "experimenter");
+if (!experimenter || experimenter.taskGrade !== "staff" || experimenter.tier !== "frontier" ||
+    experimenter.deliberation !== "high" || experimenter.topology !== "worker" || experimenter.posture !== "explore" ||
+    JSON.stringify(experimenter.capabilities) !== JSON.stringify([
+      "filesystem.read", "filesystem.search", "filesystem.write", "shell",
+    ]))
+  throw new Error("experimenter must remain the staff/frontier/high authoring worker/explore stock template");
 // The scope / influence ladder: one orchestrator function at rising
 // coordination breadth. director is the retained un-laddered generic composite
 // orchestrator at the team-lead altitude. Effort rises with breadth but never
@@ -893,7 +919,7 @@ for (const [name, taskGrade, tier, deliberation] of [
 }
 const nonAuthoringPresets = [
   "designer", "director", "team-lead", "program", "portfolio",
-  "scout", "analyst", "reviewer", "verifier", "judge",
+  "scout", "analyst", "guardian", "reviewer", "verifier", "judge",
   "scientist",
 ];
 for (const name of nonAuthoringPresets) {
@@ -902,7 +928,7 @@ for (const name of nonAuthoringPresets) {
       !preset.capabilities.includes("shell.readonly"))
     throw new Error(`${name} must remain a mechanically non-authoring preset`);
 }
-for (const name of ["executor", "implementer", "integrator"])
+for (const name of ["executor", "curator", "implementer", "integrator", "experimenter"])
   if (!staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("filesystem.write") ||
       !staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("shell") ||
       staffing.presets.find((preset) => preset.name === name)?.capabilities.includes("shell.readonly"))
@@ -1077,7 +1103,7 @@ for (const alias of staffing.aliases) {
 // Independent single-axis overrides change ONLY their axis (no orthogonal collapse).
 for (const [role, flag, value, field] of [
   ["integrator", "--taskGrade", "principal", "taskGrade"],
-  ["integrator", "--posture", "preserve", "posture"],
+  ["integrator", "--posture", "prune", "posture"],
   ["integrator", "--domain", "Nix", "domainRequirements"],
   ["implementer", "--tier", "senior", "tier"],
 ]) {
@@ -1092,6 +1118,12 @@ for (const [role, flag, value, field] of [
     if (axis === field || JSON.stringify(payload[axis]) === JSON.stringify(base[axis])) continue;
     throw new Error(`override ${flag} collapsed orthogonal axis ${axis}`);
   }
+}
+
+{
+  const preserved = compose(["integrator", "--posture", "preserve", "--override-reason", "authority probe"]);
+  if (preserved.status === 0 || !preserved.stderr.includes("preserve posture requires a non-authoring capability boundary"))
+    throw new Error(`authoring preserve override was accepted: ${preserved.stderr}`);
 }
 
 // The versioned assessment is a sidecar: it can select tier/reasoning, but it
@@ -1381,6 +1413,9 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
   if (!/Posture never expands[\s\S]{0,120}capability contract/i.test(postures) ||
       !/Licensed within the capability contract: throwaway spikes and probes/i.test(postures))
     throw new Error("explore posture must not grant authoring authority to read-only stock templates");
+  if (!/POSTURE: PRESERVE[\s\S]{0,700}read-only/i.test(postures) ||
+      !/POSTURE: PRUNE[\s\S]{0,700}proven finished/i.test(postures))
+    throw new Error("preserve and prune posture boundaries drifted");
   const analystDescription = staffing.presets.find(({ name }) => name === "analyst")?.description ?? "";
   if (!/falls back to explicitly static-only analysis[\s\S]{0,100}unobserved behavior/i.test(analystDescription) ||
       !/ANALYST[\s\S]{0,1000}no enforceable read-only execution surface[\s\S]{0,180}static-only/i.test(roles))

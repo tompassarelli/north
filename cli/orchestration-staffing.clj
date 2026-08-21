@@ -5,11 +5,11 @@
             [clojure.string :as str]))
 
 (def stock-preset-names
-  #{"executor" "implementer" "integrator" "designer" "director" "scout"
-    "analyst" "reviewer" "verifier" "judge" "scientist"
+  #{"executor" "curator" "implementer" "integrator" "designer" "director" "scout"
+    "analyst" "guardian" "reviewer" "verifier" "judge" "scientist" "experimenter"
     "team-lead" "program" "portfolio"})
 
-(def stock-authoring-roles #{"executor" "implementer" "integrator"})
+(def stock-authoring-roles #{"executor" "curator" "implementer" "integrator" "experimenter"})
 (def preset-capabilities
   #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
     "shell.readonly" "web" "coordination"})
@@ -18,7 +18,7 @@
    "semanticTiers" #{"economy" "standard" "senior" "frontier"}
    "deliberations" #{"low" "medium" "high" "xhigh" "max"}
    "topologies" #{"worker" "orchestrator"}
-   "postures" #{"explore" "evaluate" "deliver" "preserve"}
+   "postures" #{"explore" "evaluate" "deliver" "preserve" "prune"}
    "capabilities" #{"filesystem.read" "filesystem.search" "filesystem.write" "shell"
                     "shell.readonly" "web" "coordination"}})
 
@@ -53,6 +53,17 @@
                         ["anthropic" "openai"])))
     (str "unsupported route: tier '" tier "' with deliberation '" reasoning
          "' resolves through no provider catalog")))
+
+(defn posture-capability-problem [posture capabilities]
+  (cond
+    (and (= "preserve" posture)
+         (or (contains? capabilities "filesystem.write") (contains? capabilities "shell")))
+    "preserve posture requires a non-authoring capability boundary"
+
+    (and (= "prune" posture)
+         (or (not (contains? capabilities "filesystem.write"))
+             (not (contains? capabilities "shell"))))
+    "prune posture requires filesystem.write and shell capabilities"))
 
 (defn- exact-keys! [value allowed required label path]
   (when-not (map? value)
@@ -172,7 +183,9 @@
                             {:path path :preset name})))
           (when (and (capabilities "shell") (capabilities "shell.readonly"))
             (throw (ex-info (str name ": shell and shell.readonly are mutually exclusive")
-                            {:path path :preset name})))))
+                            {:path path :preset name})))
+          (when-let [problem (posture-capability-problem (get preset "posture") capabilities)]
+            (throw (ex-info (str name ": " problem) {:path path :preset name})))))
       (doseq [alias (get catalog "aliases")]
         (when-not (and (string? (get alias "name"))
                        (contains? known (get alias "target")))

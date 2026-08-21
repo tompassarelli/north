@@ -34,7 +34,7 @@
    {"name" "topology"  "required" true  "doc" "worker | orchestrator; fixed by a stock template — change it only via a bespoke composition"}
    {"name" "tier"      "required" true  "doc" "semantic model-capability floor; = derived minimum on the preset fast path"}
    {"name" "reasoning" "required" true  "doc" "deliberation budget; = derived minimum on the preset fast path"}
-   {"name" "posture"   "required" true  "doc" "explore | evaluate | deliver | preserve — what yields when values collide"}
+   {"name" "posture"   "required" true  "doc" "explore | evaluate | deliver | preserve | prune — what yields when values collide"}
    {"name" "domainRequirements" "required" true "doc" "provider-neutral capability requirements (array; [] when none)"}
    {"name" "composition" "required" true "doc" "{kind:template|bespoke, id, ...}; template overrides must record exactly the changed axes"}
    {"name" "signals"   "required" false "doc" "optional 7-signal routing assessment; required only to select ABOVE the derived minimum"}])

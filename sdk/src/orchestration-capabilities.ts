@@ -60,6 +60,19 @@ export function validateTopologyCapabilities(
   requireClosure("shell.readonly", ["filesystem.read", "filesystem.search"]);
 }
 
+/** Posture may constrain an existing capability boundary, but never expand it. */
+export function validatePostureCapabilities(
+  posture: string,
+  capabilities: readonly OrchestrationCapability[],
+  label = "capabilities",
+): void {
+  const has = (capability: OrchestrationCapability) => capabilities.includes(capability);
+  if (posture === "preserve" && (has("filesystem.write") || has("shell")))
+    throw new Error(`${label}: preserve posture requires a non-authoring capability boundary`);
+  if (posture === "prune" && (!has("filesystem.write") || !has("shell")))
+    throw new Error(`${label}: prune posture requires filesystem.write and shell capabilities`);
+}
+
 /** Exact pre-acceptance reason when an adapter cannot realize the authority. */
 export function providerCapabilityRejectionCode(
   provider: ProviderId,
