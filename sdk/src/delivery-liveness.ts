@@ -1,12 +1,17 @@
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
+import { trustedGitExecutable } from "./trusted-runtime";
 
 export const DEFAULT_DELIVERY_LIVENESS_PATH = resolve(
   homedir(), ".local/state/firn/delivery-liveness.json",
 );
 export const MAX_DELIVERY_LIVENESS_FRESHNESS_SECONDS = 3_600;
+export const DEFAULT_DELIVERY_LIVENESS_ACTIVATION_PATH =
+  "/etc/north/delivery-liveness-required";
 
 export type DeliveryDispatchClass = "feature" | "repair";
 
@@ -32,6 +37,37 @@ export function deliveryLivenessPath(
 ): string {
   const home = environment.HOME?.trim();
   return resolve(home || homedir(), ".local/state/firn/delivery-liveness.json");
+}
+
+export function deliveryLivenessInputRevision(
+  environment: NodeJS.ProcessEnv = process.env,
+): string {
+  const home = environment.HOME?.trim() || homedir();
+  let git: string;
+  try {
+    git = trustedGitExecutable([
+      environment.NORTH_GIT_BIN?.trim(),
+      "/run/current-system/sw/bin/git",
+      `${home}/.nix-profile/bin/git`,
+    ]);
+  } catch {
+    authorityError("delivery_liveness_authority_input_unavailable");
+  }
+  const result = spawnSync(
+    git,
+    ["-C", resolve(home, "code/nixos-config/main"), "rev-parse", "--verify", "HEAD^{commit}"],
+    {
+      env: environment,
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 4_096,
+      stdio: ["ignore", "pipe", "ignore"],
+    },
+  );
+  const revision = result.stdout?.trim();
+  if (result.error || result.status !== 0 || !/^[0-9a-f]{40}$/.test(revision))
+    authorityError("delivery_liveness_authority_input_unavailable");
+  return revision;
 }
 
 function authorityError(reason: string): never {
@@ -60,19 +96,38 @@ function nonEmptyString(value: unknown, label: string): string {
 function storePathOrNull(value: unknown, label: string): string | null {
   if (value === null) return null;
   const path = nonEmptyString(value, label);
-  if (!path.startsWith("/") || path.includes("\0"))
+  if (!path.startsWith("/nix/store/") || path.includes("\0"))
     authorityError(`delivery_liveness_authority_malformed:${label}`);
   return path;
 }
 
 function observedAt(value: unknown): { raw: string; milliseconds: number } {
   const raw = nonEmptyString(value, "observed_at");
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(raw))
+  const match = raw.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/,
+  );
+  if (!match)
     authorityError("delivery_liveness_authority_malformed:observed_at");
   const milliseconds = Date.parse(raw);
-  if (!Number.isFinite(milliseconds))
+  const canonical = `${match[1]}.${(match[2] ?? "").padEnd(3, "0")}Z`;
+  if (!Number.isFinite(milliseconds)
+      || new Date(milliseconds).toISOString() !== canonical)
     authorityError("delivery_liveness_authority_malformed:observed_at");
   return { raw, milliseconds };
+}
+
+function expectedContentDigest(path: string): string {
+  let source: string;
+  try { source = readFileSync(`${path}.sha256`, "utf8"); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+      authorityError("delivery_liveness_authority_missing:sha256");
+    authorityError("delivery_liveness_authority_unreadable:sha256");
+  }
+  const match = source.match(/^([0-9a-f]{64})  ([^/\n]+)\n$/);
+  if (!match || match[2] !== basename(path))
+    authorityError("delivery_liveness_authority_malformed:sha256");
+  return match[1];
 }
 
 /** Parse the sole deterministic Firn floor fact consumed by managed dispatch. */
@@ -116,9 +171,10 @@ export function parseDeliveryLivenessFact(value: unknown): DeliveryLivenessFact 
 }
 
 export function admitDeliveryLivenessFact(
-  options: { path?: string; now?: Date } = {},
+  options: { path?: string; now?: Date; expectedNixosConfigRevision?: string } = {},
 ): DeliveryLivenessFact {
   const path = options.path ?? DEFAULT_DELIVERY_LIVENESS_PATH;
+  const expectedDigest = expectedContentDigest(path);
   let source: string;
   try { source = readFileSync(path, "utf8"); }
   catch (error) {
@@ -126,12 +182,18 @@ export function admitDeliveryLivenessFact(
       authorityError("delivery_liveness_authority_missing");
     authorityError("delivery_liveness_authority_unreadable");
   }
+  const actualDigest = createHash("sha256").update(source).digest("hex");
+  if (actualDigest !== expectedDigest)
+    authorityError("delivery_liveness_authority_content_mismatch");
   let fact: DeliveryLivenessFact;
   try { fact = parseDeliveryLivenessFact(parseStrictJson(source, "Firn delivery liveness fact")); }
   catch (error) {
     if (error instanceof DeliveryLivenessAuthorityError) throw error;
     authorityError("delivery_liveness_authority_malformed:json");
   }
+  if (options.expectedNixosConfigRevision !== undefined
+      && fact.inputs.nixosConfig !== options.expectedNixosConfigRevision)
+    authorityError("delivery_liveness_authority_input_changed");
   const now = (options.now ?? new Date()).getTime();
   const at = Date.parse(fact.observedAt);
   if (!Number.isFinite(now) || at > now || now - at > fact.freshnessSeconds * 1_000)
@@ -152,9 +214,26 @@ export function deliveryDispatchClassFromEnvironment(
 /** Source may land before Firn's guarded system switch enables this floor. */
 export function deliveryLivenessRequiredFromEnvironment(
   environment: NodeJS.ProcessEnv = process.env,
+  activationPath = DEFAULT_DELIVERY_LIVENESS_ACTIVATION_PATH,
 ): boolean {
   const value = environment.NORTH_DELIVERY_LIVENESS_REQUIRED;
-  if (value === undefined || value === "0") return false;
-  if (value === "1") return true;
-  authorityError("delivery_liveness_activation_invalid");
+  if (value !== undefined && value !== "0" && value !== "1")
+    authorityError("delivery_liveness_activation_invalid");
+  const override = environment.NORTH_DELIVERY_LIVENESS_ACTIVATION_PATH;
+  if (override !== undefined
+      && (!isAbsolute(override) || resolve(override) !== override || override.includes("\0")))
+    authorityError("delivery_liveness_activation_invalid");
+  const paths = [activationPath, ...(override && override !== activationPath ? [override] : [])];
+  for (const path of paths) {
+    try {
+      const source = readFileSync(path, "utf8");
+      if (source !== "1\n") authorityError("delivery_liveness_activation_invalid");
+      return true;
+    } catch (error) {
+      if (error instanceof DeliveryLivenessAuthorityError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        authorityError("delivery_liveness_activation_unreadable");
+    }
+  }
+  return false;
 }
