@@ -107,9 +107,15 @@ const command = (
 const nativeCommand = (
   path: string,
   timeout = 10,
+  managedDir = CODEX_MANAGED_HOOKS_DIR,
 ): ManagedCommandHook => ({
   type: "command",
-  command: path,
+  command: [
+    resolve(managedDir, "runtime/env"),
+    "-u", "BASH_ENV",
+    "-u", "ENV",
+    path,
+  ].join(" "),
   timeout,
 });
 
@@ -160,7 +166,7 @@ export function expectedManagedCodexHooks(
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
         hooks: [
           command("launch-critical-worktree-guard.sh", 10, managedDir),
-          nativeCommand(systemPolicyPath, 10),
+          nativeCommand(systemPolicyPath, 10, managedDir),
         ],
       },
       {
@@ -168,7 +174,7 @@ export function expectedManagedCodexHooks(
         hooks: [
           command("agent-spawn-guard.sh", 10, managedDir),
           command("tripwire-guard.sh", 10, managedDir),
-          nativeCommand(systemPolicyPath, 10),
+          nativeCommand(systemPolicyPath, 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
