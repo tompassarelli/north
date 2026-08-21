@@ -14,6 +14,13 @@
   [origin OriginIdentity
    occurrence Int])
 
+(defrecord TerminalEvidence
+  [run-id String
+   observed-revision Int
+   lease-owner String
+   dedupe DedupeIdentity
+   terminal-receipt String])
+
 (defrecord ScheduledRun
   [id String
    origin OriginIdentity
@@ -29,7 +36,8 @@
    observed-revision Int
    stale-owner String
    replacement-owner String
-   replacement-lease-expires-at-ms Int])
+   replacement-lease-expires-at-ms Int
+   terminal-evidence TerminalEvidence?])
 
 (defrecord ReclamationDecision
   [run-id String
@@ -37,6 +45,7 @@
    expected-revision Int
    expected-lease-owner String?
    replacement ScheduledRun?
+   terminal-evidence TerminalEvidence?
    reason Keyword])
 
 (defn rejected-reclamation
@@ -48,41 +57,82 @@
    (scheduledrun-revision run)
    (scheduledrun-lease-owner run)
    nil
+   nil
    reason))
 
-;; The Store transaction compares this revision and lease owner before writing replacement.
+(defn exact-terminal-evidence?
+  [run ScheduledRun
+   evidence TerminalEvidence] Bool
+  (and (= (scheduledrun-id run) (terminalevidence-run-id evidence))
+       (and (= (scheduledrun-revision run)
+               (terminalevidence-observed-revision evidence))
+            (and (= (scheduledrun-lease-owner run)
+                    (terminalevidence-lease-owner evidence))
+                 (and (= (scheduledrun-dedupe run)
+                         (terminalevidence-dedupe evidence))
+                      (> (count (terminalevidence-terminal-receipt evidence))
+                         0))))))
+
+(defn accepted-replacement
+  [run ScheduledRun
+   request ReclaimRequest
+   reason Keyword] ReclamationDecision
+  (->ReclamationDecision
+   (scheduledrun-id run)
+   true
+   (scheduledrun-revision run)
+   (scheduledrun-lease-owner run)
+   (->ScheduledRun
+    (scheduledrun-id run)
+    (scheduledrun-origin run)
+    (scheduledrun-predecessor-output run)
+    (inc (scheduledrun-revision run))
+    (reclaimrequest-replacement-owner request)
+    (reclaimrequest-replacement-lease-expires-at-ms request)
+    (scheduledrun-event-receipt run)
+    (scheduledrun-dedupe run))
+   nil
+   reason))
+
+(defn accepted-terminal-release
+  [run ScheduledRun
+   evidence TerminalEvidence] ReclamationDecision
+  (->ReclamationDecision
+   (scheduledrun-id run)
+   true
+   (scheduledrun-revision run)
+   (scheduledrun-lease-owner run)
+   nil
+   evidence
+   :terminal-claim-released))
+
+  ;; The Store transaction compares this revision and lease owner before releasing
+  ;; a terminal claim or writing a replacement.
 (defn stale-owner-reclamation
   [run ScheduledRun
    request ReclaimRequest
    now-ms Int] ReclamationDecision
-  (cond
-    (not (= (scheduledrun-id run) (reclaimrequest-run-id request)))
-    (rejected-reclamation run :run-mismatch)
+  (let [terminal-evidence TerminalEvidence? (reclaimrequest-terminal-evidence request)]
+    (cond
+      (not (= (scheduledrun-id run) (reclaimrequest-run-id request)))
+      (rejected-reclamation run :run-mismatch)
 
-    (not (= (scheduledrun-revision run)
-            (reclaimrequest-observed-revision request)))
-    (rejected-reclamation run :revision-mismatch)
+      (not (= (scheduledrun-revision run)
+              (reclaimrequest-observed-revision request)))
+      (rejected-reclamation run :revision-mismatch)
 
-    (not (= (scheduledrun-lease-owner run)
-            (reclaimrequest-stale-owner request)))
-    (rejected-reclamation run :owner-mismatch)
+      (not (= (scheduledrun-lease-owner run)
+              (reclaimrequest-stale-owner request)))
+      (rejected-reclamation run :owner-mismatch)
 
-    (> (scheduledrun-lease-expires-at-ms run) now-ms)
-    (rejected-reclamation run :lease-current)
+      (and (some? terminal-evidence)
+           (exact-terminal-evidence? run terminal-evidence))
+      (accepted-terminal-release run terminal-evidence)
 
-    :else
-    (->ReclamationDecision
-     (scheduledrun-id run)
-     true
-     (scheduledrun-revision run)
-     (scheduledrun-lease-owner run)
-     (->ScheduledRun
-      (scheduledrun-id run)
-      (scheduledrun-origin run)
-      (scheduledrun-predecessor-output run)
-      (inc (scheduledrun-revision run))
-      (reclaimrequest-replacement-owner request)
-      (reclaimrequest-replacement-lease-expires-at-ms request)
-      (scheduledrun-event-receipt run)
-      (scheduledrun-dedupe run))
-     :stale-owner-reclaimed)))
+      (> (scheduledrun-lease-expires-at-ms run) now-ms)
+      (if (some? terminal-evidence)
+        (rejected-reclamation run :terminal-evidence-mismatch)
+        (rejected-reclamation run :lease-current))
+
+      :else
+      (accepted-replacement run request :stale-owner-reclaimed))))
