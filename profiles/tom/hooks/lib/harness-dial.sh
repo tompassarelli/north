@@ -3,7 +3,7 @@
 
 north_hook_enabled() {
   local hook_id="$1"
-  local activation="${NORTH_AGENT_ACTIVATION:-$HOME/.local/state/north/agents/current/activation.json}"
+  local activation="${NORTH_AGENT_ACTIVATION:-${NORTH_AGENT_STATE_ROOT:-$HOME/.local/state/north/agents}/current/activation.json}"
   [[ -r "$activation" ]] || return 0
   python3 - "$hook_id" "$activation" <<'PY'
 import json
