@@ -31,7 +31,7 @@ prints the suggested invocation to stderr. Pin `-m` and
 | Stock-template capabilities | Sandbox | Notes |
 |---|---|---|
 | `filesystem.write` + `shell` | `-s workspace-write -C <workdir>` | writes confined to the lane's workdir — which MUST be a self-contained local clone (see below); `--add-dir` for named extra surfaces only |
-| read-only set (`shell.readonly`, no write) | `-s read-only` | codex's read-only sandbox is an OS-enforced write denial, so `shell.readonly` roles KEEP live shell probes on this adapter (unlike the Claude plugin adapter, which must withhold Bash) |
+| read-only set (`shell.readonly`, no write) | `-s read-only` | codex's read-only sandbox is an OS-enforced write denial, so `shell.readonly` roles KEEP live shell probes on this adapter (unlike the Anthropic agent-file adapter, which must withhold shell) |
 | `coordination` (orchestrator topology) | not dispatchable | this adapter has no per-child admission/settlement surface; orchestrator seats run on the session or North side and fan WORKER lanes out here |
 
 Always pass `-s` explicitly — the user-level codex config is permissive

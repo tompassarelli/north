@@ -26,23 +26,23 @@ const staffing = loadStaffingCatalog();
 export const SEMANTIC_TIERS = staffing.vocabulary.semanticTiers;
 export const PRESETS = staffing.presets;
 const COMPAT_ALIASES = staffing.aliases;
-const CLAUDE_TOOLS = {
+const ANTHROPIC_TOOLS = {
   "filesystem.read": ["Read"],
   "filesystem.search": ["Grep", "Glob"],
   "filesystem.write": ["Edit", "Write"],
   shell: ["Bash"],
-  // Claude plugin-agent frontmatter cannot carry a hard sandbox policy.
+  // Anthropic agent-file frontmatter cannot carry a hard sandbox policy.
   // A read-only shell therefore fails closed on this adapter: North may map
   // it to sandboxed Bash, but the generated native plugin withholds Bash.
   "shell.readonly": [],
   web: ["WebSearch", "WebFetch"],
   coordination: ["Agent"],
 };
-if (JSON.stringify([...staffing.vocabulary.capabilities].sort()) !== JSON.stringify(Object.keys(CLAUDE_TOOLS).sort()))
-  throw new Error("Claude tool adapter must map every canonical staffing capability exactly once");
+if (JSON.stringify([...staffing.vocabulary.capabilities].sort()) !== JSON.stringify(Object.keys(ANTHROPIC_TOOLS).sort()))
+  throw new Error("Anthropic tool adapter must map every canonical staffing capability exactly once");
 
-function claudeTools(capabilities) {
-  return [...new Set(capabilities.flatMap((capability) => CLAUDE_TOOLS[capability] ?? []))].join(", ");
+function anthropicTools(capabilities) {
+  return [...new Set(capabilities.flatMap((capability) => ANTHROPIC_TOOLS[capability] ?? []))].join(", ");
 }
 
 // JSON string literals are valid YAML scalars. Serializing every free string
@@ -50,7 +50,7 @@ function claudeTools(capabilities) {
 // changing the frontmatter's YAML structure.
 const yamlString = (value) => JSON.stringify(String(value));
 
-// Generated Claude Code agents are an adapter artifact. Resolve their concrete
+// Generated Anthropic agents are an adapter artifact. Resolve their concrete
 // pins from the Anthropic catalog while keeping stock templates provider-neutral.
 for (const preset of PRESETS) {
   const resolved = anthropic.tiers[preset.tier];
@@ -80,7 +80,7 @@ function render(r) {
     `description: ${yamlString(`${r.description} Task grade: ${r.taskGrade}.`)}`,
     `model: ${yamlString(r.model)}`,
     `effort: ${yamlString(r.effort)}`,
-    `tools: ${yamlString(claudeTools(r.capabilities))}`,
+    `tools: ${yamlString(anthropicTools(r.capabilities))}`,
     "---",
   ].join("\n");
   const parts = [
@@ -121,9 +121,8 @@ function renderAlias(alias) {
 }
 
 // The north spawn-adapter's SPAWN SURFACES doctrine block — generated from the
-// SAME PRESETS so the dials never drift from the agents. scripts/inject-doctrine.sh
-// swaps this in for the native block when ORCHESTRATION_SPAWN_ADAPTER=north (or
-// dispatch=managed). Every role passes through North's open role string; the
+// SAME PRESETS so the dials never drift from the agents. Every role passes
+// through North's open role string; the
 // matching Orchestration block is loaded when present and bespoke contracts ride in
 // the prompt.
 function renderNorthAdapter() {
@@ -186,8 +185,8 @@ enforcement fails closed at preflight. For managed OpenAI lanes North launches
 Codex with \`--sandbox read-only\` and marks North MCP required.
 OpenAI orchestration is currently ineligible and fails pre-turn; with
 \`provider=auto\`, North may select an eligible Anthropic target instead.
-Claude plugin-agent frontmatter cannot encode a hard sandbox, so the generated
-plugin adapter withholds Bash for \`shell.readonly\` stock templates rather
+Anthropic agent-file frontmatter cannot encode a hard sandbox, so the generated
+adapter withholds Bash for \`shell.readonly\` stock templates rather
 than claiming a boundary it cannot provide.
 North presents composition provenance as \`orchestration:<template>\`,
 \`orchestration:<template>+override\`, or \`orchestration:bespoke:<id>\`. A native session that

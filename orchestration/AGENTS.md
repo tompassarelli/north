@@ -17,14 +17,8 @@ capability. Neither implies the other.
 - `staffing/SKILL.md` owns the role-profile module, including its hook and
   generated agent-template declarations. Keep it a narrow pointer to the
   canonical doctrine and source catalogs rather than copying policy into it.
-- The `.claude-plugin/` distribution is deprecated in favor of the switchboard
-  set, staffing skill, and `~/.claude/agents` symlinks; it is kept for
-  history, not extended. Preserve
-  the Claude Code adapter shape either way, and do not make Claude-specific
-  frontmatter or hook behavior the portable contract.
-- Agent type names are the plain template names. Claude Code rejects `:` in an
-  agent file's `name` (reserved for plugin namespacing), so `orchestration:<role>`
-  is provenance only, never an invocable type.
+- Agent type names are the plain template names. A namespaced
+  `orchestration:<role>` form is provenance only, never an invocable type.
 - Run `node scripts/validate.mjs` before finishing changes.
 
 Use semantic tiers (`economy`, `standard`, `senior`, `frontier`) in new shared

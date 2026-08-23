@@ -19,8 +19,6 @@
 (def profile (str tmp-dir "/profile/skills"))
 (def farm (str scratch-home "/.local/state/north/skills"))
 (def generations (str farm ".d"))
-(def claude-mcp (str tmp-dir "/claude.json"))
-(def claude-settings (str tmp-dir "/settings.json"))
 (def codex-config (str tmp-dir "/config.toml"))
 (def checks (atom []))
 
@@ -71,8 +69,7 @@
    {:out :string :err :string :continue true
     :extra-env {"HOME" scratch-home "NORTH_HOME" root
                 "NORTH_HARNESS_STATE" state "NORTH_SKILLS_PROFILE" profile
-                "NORTH_SKILLS_FARM" farm "NORTH_CLAUDE_MCP_CONFIG" claude-mcp
-                "NORTH_CLAUDE_SETTINGS" claude-settings "NORTH_CODEX_CONFIG" codex-config}}
+                "NORTH_SKILLS_FARM" farm "NORTH_CODEX_CONFIG" codex-config}}
    "bb" cli "status"))
 
 (defn stored [key]
@@ -175,25 +172,23 @@
 
 (defn aggregate-case []
   (let [agents (str scratch-home "/.agents/skills")
-        claude (str scratch-home "/.claude/skills")
-        account (str scratch-home "/.local/state/north/accounts/anthropic/fixture/skills")
+        codex (str scratch-home "/.codex/skills")
+        account (str scratch-home "/.local/state/north/accounts/openai/fixture/skills")
         all-ids (set (map first skill-specs))
         synced (run-cli "sync")]
     (link! agents farm)
-    (link! claude agents)
-    (link! account claude)
+    (link! codex agents)
+    (link! account codex)
     (check "aggregate default sync succeeds" (zero? (:exit synced)))
-    (check "agents, Claude, and account projections all see the complete farm"
-           (every? #(= all-ids (farm-entries %)) [agents claude account]))
+    (check "agents, Codex, and account projections all see the complete farm"
+           (every? #(= all-ids (farm-entries %)) [agents codex account]))
     (let [disabled (run-cli "off" "firn")
           expected (disj all-ids "firn")]
       (check "aggregate firn disable succeeds" (zero? (:exit disabled)))
-      (check "agents, Claude, and account projections all follow the new farm atomically"
-             (every? #(= expected (farm-entries %)) [agents claude account])))))
+      (check "agents, Codex, and account projections all follow the new farm atomically"
+             (every? #(= expected (farm-entries %)) [agents codex account])))))
 
 (defn readout-case []
-  (spit claude-mcp "{\"mcpServers\":{\"north\":{}}}")
-  (spit claude-settings "{\"enabledPlugins\":{\"orchestration@orchestration\":true}}")
   (spit codex-config "[mcp_servers.beagle-store]\n[plugins.example]\n")
   (let [before (run-cli "list")
         synced (run-cli "sync")
@@ -208,9 +203,7 @@
                 (str/includes? (:out after) "published farm: READY")))
     (check "status prints provider MCP and plugin inverse commands"
            (every? #(str/includes? (:out status) %)
-                   ["claude mcp remove north" "codex mcp remove beagle-store"
-                    "claude plugin uninstall orchestration@orchestration"
-                    "codex plugin uninstall example"
+                   ["codex mcp remove beagle-store" "codex plugin uninstall example"
                     "published: READY · target:" "generation: gen-"]))))
 
 (def requested (or (first *command-line-args*) "projection"))

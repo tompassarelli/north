@@ -1,6 +1,5 @@
 {:kind :user-manual
  :sources [{:path "docs/architecture.md" :revision "content"}
-           {:path "docs/harness-architecture.md" :revision "content"}
            {:path "docs/provider-architecture.md" :revision "content"}
            {:path "docs/INFLUENCES.md" :revision "content"}
            {:path "docs/building-and-testing.md" :revision "content"}
@@ -13,7 +12,6 @@
            {:path "src/north/scheduled_run_core.bgl" :revision "content"}]
  :refresh-policy :on-change
  :source-digests {"docs/architecture.md" "9c9114cbc797ea1cc0340aca184510e6ea591e43681573006299e5c4573eb0d5"
-                  "docs/harness-architecture.md" "7c5dc0e2671c5dfef8b82ec2483ad78649171d6c6ba537cc825b931a3af14b5c"
                   "docs/provider-architecture.md" "68e5553c8a4a5fd4a44772b55632093f7de0696a742113b18298b7aadc8bc3be"
                   "docs/INFLUENCES.md" "d214791878097f5dbd77ef70ce2469efc23d04941030333bdff9fbfec44eeec1"
                   "docs/building-and-testing.md" "248d2b40db14702f412bccdf5ddffab476acc74ba4bb490871f6a79586a37117"

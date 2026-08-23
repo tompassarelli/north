@@ -5,7 +5,7 @@ doubling as the pipeline-debug spec.*
 
 > **Status (2026-07-30).** Moved here from the personal agent profile — this is
 > a north repo reference doc, not steering. Grounded in source read 2026-07-09;
-> since then the execution model went two-speed (2026-07-30, see `north:CLAUDE.md`),
+> since then the execution model went two-speed (2026-07-30, see `north:AGENTS.md`),
 > coordination-v2 lane V1 landed (see the §3 status note), and `north trace`
 > shipped (`north:cli/trace-cli.clj`) implementing the §2/§4 playbook. The
 > invariant-spine checklist (§2) and failure modes F1–F7 (§3–4) remain the
@@ -83,7 +83,7 @@ tells you which facts to expect:
   presence *and* writes `@agent:<id>` identity facts. This symmetry is new:
   through 2026-07 `dispatch.ts` did not import `writeAgentFacts`, and §3's
   identity/legibility framing was written against that older asymmetry.
-- **Session lineage** — a Claude Code session. The `bin/north-on-spawn`
+- **Session lineage** — an interactive provider session. The `bin/north-on-spawn`
   SessionStart/SubagentSessionStart hook registers presence and writes three
   identity facts (`kind=session`, `repo`, `display_name`), then injects the
   concern protocol via `additionalContext`.
@@ -124,7 +124,7 @@ flowchart TD
 
 ### Pattern A — interactive session work
 
-**Trigger:** a human opens a Claude Code session in a repo.
+**Trigger:** a human opens a managed interactive session in a repo.
 **Lineage:** session (`bin/north-on-spawn`).
 
 ```mermaid
@@ -621,6 +621,6 @@ below are its rule set.
 | listener | `north:cli/north-listen.clj` | dormant-until-pinged pub/sub; role-addressing |
 | cockpit | `north:cli/dashboard-cli.clj` (`north dashboard`/`doctor`; bare `north` card in `bin/north`) | dashboard/doctor/profile; parse-don't-fork orchestration; ownership rule (folded from convoy 2026-07-10) |
 | staffing | `north:orchestration/doctrine.md` + `docs/adapters/north.md` | shapes→squad, laws, canonical dial table |
-| delegate intake | `nixos-config:dotfiles/claude/commands/delegate.md` | `/delegate` intelligent atomic/composite classifier (context is orthogonal) |
+| delegate intake | `nixos-config:dotfiles/codex/prompts/delegate.md` | `/delegate` intelligent atomic/composite classifier (context is orthogonal) |
 | coordination-v2 | thread `019f4418-bed5-7625-b2ad-41abb6518269` | census, failure receipts, the specced reaping fix plan |
 ```

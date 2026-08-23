@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # north-stream-sync — zero-AI, mechanical log-shipping of provider transcripts
-# into north's stream layer (streams/raw/, see streams/CLAUDE.md).
+# into north's stream layer (streams/raw/, see streams/AGENTS.md).
 #
 # Provider harnesses append transcript JSONL in real time. This script mirrors
 # one explicit provider authority by byte cursor: each source owns one stable

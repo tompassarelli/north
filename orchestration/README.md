@@ -9,9 +9,9 @@ Template workers or purpose-built compositions? How should each worker be
 prompted, and what should each report back? **Let the orchestration figure it out.**
 
 Orchestration's portable core (routing laws, template library, payload method) is
-adapter-agnostic; concrete delivery happens through adapters, of which three
-ship today: a Claude Code plugin adapter, a [North multi-provider execution
-adapter](docs/adapters/north.md), and a [codex-cli adapter](docs/adapters/codex-cli.md)
+adapter-agnostic; concrete delivery happens through adapters, of which two
+ship today: a [North multi-provider execution adapter](docs/adapters/north.md)
+and a [codex-cli adapter](docs/adapters/codex-cli.md)
 for direct OpenAI lane dispatch. Orchestration chooses the semantic route; the
 adapter resolves it to the provider, model, and reasoning/effort — whether
 it's a single worker or a multi-stage workflow.
@@ -68,9 +68,8 @@ Install it and your sessions gain:
    | `judge` | frontier / xhigh | rubric-backed ranking of multiple supplied alternatives |
    | `scientist` | frontier / xhigh | hypothesis/experiment design plus existing non-mutating evidence probes; new apparatus uses a bespoke authoring composition |
 
-   The agent type is the plain template name. `orchestration:<role>` was the
-   type only while the templates shipped inside the Claude Code plugin; it
-   survives as composition provenance in telemetry, not as an invocable type.
+   The agent type is the plain template name. `orchestration:<role>` is
+   composition provenance in telemetry, not an invocable type.
 
    Exact versioned model pins are generated from the dated provider catalogs;
    see [`docs/provider-matrix.md`](docs/provider-matrix.md). Every exact catalog
@@ -122,40 +121,6 @@ Full rationale: [`docs/method.md`](docs/method.md).
 
 ## Install
 
-### Claude Code — staffing skill plus agent files
-
-Link the two surfaces into your Claude configuration, from a checkout of this
-repository:
-
-```
-ln -s "$PWD/staffing"       ~/.claude/skills/staffing
-ln -s "$PWD/agents"/*.md    ~/.claude/agents/
-```
-
-The `staffing` skill registers the role-profile boundary and declares the
-template library. A host that supports sets should inject `doctrine.md`
-as the outer Orchestration set's instructions; a host without sets must
-load that doctrine through its own context mechanism before routing. The linked
-agent files register the template library, so spawn a template worker directly via the Agent tool
-(`subagent_type: "implementer"` — the plain template name; Claude Code rejects a
-`:` in an agent file's `name`, and it is reserved for plugin namespacing).
-
-Symlinks, not copies: a copy is a frozen cache that silently goes stale, which
-is exactly the failure that retired the plugin distribution below.
-
-#### Deprecated: the Claude Code plugin distribution
-
-`.claude-plugin/` and `scripts/inject-doctrine.sh` are retained for history and
-for anyone still running the marketplace install
-(`/plugin marketplace add tompassarelli/orchestration`). It is no longer the
-supported path: the plugin installs an unversioned *copy* of the doctrine and
-agents into the plugin cache, and it injected the doctrine digest into every
-session whether or not the session ever delegated. The switchboard set
-replaces that SessionStart injection with the one canonical file, and the agent
-symlinks replace the copied templates. Under the plugin the templates were
-namespaced `orchestration:<role>`; installed as agent files they are the plain
-role names.
-
 ### North multi-provider harness
 
 North consumes Orchestration's `staffing/catalog.json` and `providers/*.json` directly,
@@ -165,7 +130,7 @@ subscription account and concrete provider runtime. The generated
 and fail-closed capability mapping. Exact-model pins additionally require both
 Orchestration's static exact-route acceptance and North's independent proof of an
 available authenticated target; install and bootstrap North itself rather
-than applying the Claude plugin commands above.
+than installing provider-local template copies.
 
 ## Architecture note
 
@@ -173,17 +138,16 @@ than applying the Claude plugin commands above.
 `docs/` (roles, task grades, topologies, postures, comms, deltas) by
 `scripts/build-agents.mjs`.
 The axes stay sharp at the source layer; the script does the flattening the
-plugin format requires. Edit blocks, rebuild (`node
+agent-file adapter requires. Edit blocks, rebuild (`node
 scripts/build-agents.mjs`), never hand-edit agent files (`--check` verifies
 freshness).
-Template capabilities are provider-neutral catalog labels; the generator
-maps them to Claude tools, while other harnesses map the same labels through
-their own adapters.
+Template capabilities are provider-neutral catalog labels; the generated
+Anthropic adapter maps them to provider tools, while other harnesses map the
+same labels through their own adapters.
 
 Provider resolution lives in `providers/*.json`; `docs/routing.md` defines the
-portable request and fallback contract. The concrete Claude pins in generated
-agents are
-compiled compatibility output, not the shared vocabulary.
+portable request and fallback contract. Concrete provider pins in generated
+agents are adapter output, not the shared vocabulary.
 
 Terminology and selection are deliberately simple: a **template** is a
 reusable, named starting composition; a **bespoke** (custom) composition is an
@@ -257,8 +221,8 @@ remain compatible.
 - Template capabilities are enforceable authority. Non-authoring templates
   request
   `shell.readonly`; an adapter must provide a hard write-denying sandbox or
-  withhold shell access. Generated Claude plugin agents take the latter path
-  because plugin frontmatter cannot encode a hard sandbox.
+  withhold shell access. The generated Anthropic agent-file adapter takes the
+  latter path because its frontmatter cannot encode a hard sandbox.
 
 ## Related work
 

@@ -135,8 +135,8 @@ coordination, hierarchy, and task identity remain runtime concerns: orchestratio
 stays portable precisely by not encoding them as provider-specific doctrine.
 Capability labels describe enforceable authority, not decorative tool hints.
 `shell.readonly` requires a hard working-tree write denial; an adapter that
-cannot provide one withholds shell access. Claude plugin-agent frontmatter has
-no hard sandbox control, so generated non-authoring plugin agents omit Bash;
+cannot provide one withholds shell access. Anthropic agent-file frontmatter has
+no hard sandbox control, so generated non-authoring agents omit Bash;
 North adapters can expose shell probes only under their provider's read-only
 sandbox. A tools allowlist without Edit/Write is not itself a write boundary.
 Topology and capabilities are validated together: orchestrators require

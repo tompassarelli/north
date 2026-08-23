@@ -301,7 +301,7 @@ already exists, the nearest relevant check. The worker runs that check once,
 reports what it observed and any residual uncertainty, and stops. Missing
 checks do not authorize new apparatus.
 
-<!-- orchestration:spawn-surfaces adapter=native (default; inject-doctrine.sh swaps this block per ORCHESTRATION_SPAWN_ADAPTER / dispatch=) -->
+<!-- orchestration:spawn-surfaces adapter=native -->
 ADAPTER EXAMPLE (native spawn surface; invocation syntax in this fenced block
 is not portable doctrine) — a squad member is an eight-field Orchestration request: role,
 taskGrade, domainRequirements, topology, tier, reasoning, posture, and

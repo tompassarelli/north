@@ -12,7 +12,7 @@ is canonical; `threads/` is a projection.
 - Coordination, posture, telemetry, concerns, and supervision belong to North.
 - Provider SDK/CLI code belongs only under `sdk/src/providers/`.
 - Orchestration owns semantic task routing; provider adapters resolve semantic tiers to models.
-- MCP is the shared data/tool boundary for interactive Claude Code and Codex sessions.
+- MCP is the shared data/tool boundary for interactive provider sessions.
 - Never add a provider model ID to provider-neutral orchestration code.
 - Keep consumer behavior out of repository `AGENTS.md` files. Put optional
   runtime guidance in the module or skill that owns the behavior.
@@ -43,6 +43,3 @@ is canonical; `threads/` is a projection.
   artifacts describe only the current source.
 - A content-addressed pin may name an active dependency. Once actual consumers
   move, delete the replaced pin and every path that existed only to support it.
-
-Provider-specific behavior remains documented in `CLAUDE.md`; this file is the
-canonical cross-provider contract.

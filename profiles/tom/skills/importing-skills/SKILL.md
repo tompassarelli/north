@@ -2,8 +2,7 @@
 name: importing-skills
 description: >-
   Use when a user points at an external GitHub repository or checkout containing
-  agent skills and wants them installed for North Bridge, Claude Code, and Codex
-  together.
+  agent skills and wants them installed for North Bridge and Codex together.
 ---
 
 # Importing skills
@@ -41,9 +40,9 @@ Inventory directories containing `SKILL.md`. For each selected skill:
    letters, digits, and hyphens. Keep `name` and a trigger-only `description` as
    the portable frontmatter. Add North's optional `category`, `hooks`, or
    `agents` only when the imported skill deliberately uses those facilities.
-4. Replace Claude-only or Codex-only commands and paths with available shared
-   tools or explicit conditional branches. Preserve only resources referenced
-   by the adapted skill.
+4. Replace provider-specific commands and paths with available shared tools or
+   explicit Codex branches. Preserve only resources referenced by the adapted
+   skill.
 5. Carry the upstream license and attribution in
    `north:THIRD_PARTY_NOTICES.md`; include `NOTICE` content when required. For
    an unspecified license, carry the upstream identity and the local MIT
@@ -65,7 +64,7 @@ Use `repo-safety`. Create separate sibling worktrees for North and Firn.
 The resulting discovery paths are:
 
 ```text
-North profile -> North skills farm -> ~/.agents/skills -> ~/.claude/skills
+North profile -> North skills farm -> ~/.agents/skills
 North profile -> Firn skill registry -----------------> ~/.codex/skills
 ```
 
@@ -84,8 +83,8 @@ agents apply
 ```
 
 Confirm every slug resolves in `north config skills` and exists through
-`~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills`. Finally remove
-both landed worktrees and their local branches.
+`~/.agents/skills` and `~/.codex/skills`. Finally remove both landed worktrees
+and their local branches.
 
 ## Stop conditions
 

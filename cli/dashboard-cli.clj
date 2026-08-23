@@ -845,17 +845,13 @@
                         " commits behind repo main"))))))
   ;; guard hooks present
   (println (bold "  guard hooks"))
-  (let [hookdir (str HOME "/.agents/hooks")
-        settings (str HOME "/.claude/settings.json")
-        stxt (when (.exists (io/file settings)) (slurp settings))]
+  (let [hookdir (str HOME "/.agents/hooks")]
     (doseq [h ["agent-spawn-guard.sh" "tripwire-guard.sh"]]
       (let [present (or (.exists (io/file hookdir h))
-                        (some #(.exists (io/file hookdir %)) [(str h ".sh") h]))
-            wired (and stxt (str/includes? stxt (str/replace h #"\.sh$" "")))]
+                        (some #(.exists (io/file hookdir %)) [(str h ".sh") h]))]
         (println (str "    " (if present (grn "[ok]  ") (ylw "[warn]"))
                       " " (format "%-22s" h)
-                      (if present "file present" "not found")
-                      (when wired (dim "  · wired in settings.json")))))))
+                      (if present "file present" "not found"))))))
   (not @doctor-failed?))
 
 ;; ---- dispatch ---------------------------------------------------------------
