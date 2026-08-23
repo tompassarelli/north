@@ -201,6 +201,26 @@
     (check "catalog category agrees with source frontmatter when declared"
            (= "nixos" (get-in by-id ["firn" "category"]))))
 
+  (let [catalog (north.agent-catalog/load-catalog)
+        catalog-ids (set (map #(get % "id") (:units catalog)))
+        permissions
+        (with-redefs [north.agent-catalog/current-activation
+                      (constantly
+                       {"permissions" {"webdev" "off"
+                                       "retired-unit" "on"}})]
+          (north.agent-catalog/current-permissions catalog))]
+    (check "catalog upgrade retains an existing permission override"
+           (= "off" (get permissions "webdev")))
+    (check "catalog upgrade defaults a newly introduced UnitId off"
+           (= "off" (get permissions "importing-skills")))
+    (check "catalog upgrade prunes removed UnitIds without blocking compilation"
+           (and (= catalog-ids (set (keys permissions)))
+                (not (contains? permissions "retired-unit"))
+                (= catalog-ids
+                   (set (keys (get (north.agent-catalog/compile-activation
+                                    catalog permissions)
+                                   "permissions")))))))
+
   (check "UnitIds are globally unique across sets, skills, and hooks"
          (throws-containing?
           "duplicate catalog unit ids"
@@ -420,6 +440,9 @@
         status (run "agents" "status" "--json")
         disabled (run "agents" "off" "build-vs-reuse")
         inspected (run "agents" "inspect" "build-vs-reuse" "--json")
+        before-unknown (run "agents" "status" "--json")
+        unknown (run "agents" "off" "unknown-unit")
+        after-unknown (run "agents" "status" "--json")
         set-disabled (run "agents" "off" "coordination")
         set-inspected (run "agents" "inspect" "coordination" "--json")
         hook-disabled (run "agents" "off" "tripwire-guard")
@@ -433,6 +456,11 @@
              (and (zero? (:exit disabled)) (zero? (:exit inspected))
                   (= "off" (get unit "permission"))
                   (false? (get unit "active")))))
+    (check "an unknown UnitId mutation is rejected without publishing"
+           (and (not (zero? (:exit unknown)))
+                (str/includes? (:err unknown) "unknown unit: unknown-unit")
+                (= (get (json/parse-string (:out before-unknown)) "generationId")
+                   (get (json/parse-string (:out after-unknown)) "generationId"))))
     (check "direct UnitId ABI accepts sets and hooks"
            (and (zero? (:exit set-disabled)) (zero? (:exit hook-disabled))
                 (= "off" (get (json/parse-string (:out set-inspected)) "permission"))
