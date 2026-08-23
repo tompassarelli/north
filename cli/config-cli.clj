@@ -996,11 +996,11 @@
      north config hooks
      north config hooks explain <hook-id>
    Mutate one hook or a batch through the same UnitId authority:
-     north config hooks on|off <hook-id> [--until ISO]
-     north config hooks category on|off <category> [--until ISO]
-     north config hooks all on|off [--until ISO]
-   `north config guards` is the authoring-hook batch client. The optional
-   --until value stores a timed-off permission in the same generation.
+     north config hooks on|off <hook-id>
+     north config hooks category on|off <category>
+     north config hooks all on|off
+   `north config guards` is the authoring-hook batch client. Hook activation
+   permission is durable until its next explicit change.
 
  6 SKILLS — resolved shared skill discovery.
    North reads `north:agent-catalog/catalog.json`; it never scans projects.
@@ -1102,7 +1102,7 @@
     (die "usage: north config coord [north|linear|both]")))
 
 (def hooks-usage
-  "usage: north config hooks [list|explain <hook-id>|on|off <hook-id> [--until ISO]|category on|off <category> [--until ISO]|all on|off [--until ISO]]")
+  "usage: north config hooks [list|explain <hook-id>|on|off <hook-id>|category on|off <category>|all on|off]")
 
 (defn- agent-hooks []
   (filterv #(= "hook" (get % "kind")) (get (agent-activation) "units")))
@@ -1112,12 +1112,8 @@
       (die (str "unknown hook: " id))))
 
 (defn- parse-hook-permission! [state args]
-  (when-not (#{"on" "off"} state) (die hooks-usage))
-  (cond
-    (empty? args) state
-    (and (= state "off") (= 2 (count args)) (= "--until" (first args)))
-    (str "off:until=" (canonical-iso! (second args)))
-    :else (die hooks-usage)))
+  (when (or (not (#{"on" "off"} state)) (seq args)) (die hooks-usage))
+  state)
 
 (defn- print-hooks []
   (doseq [hook (agent-hooks)]

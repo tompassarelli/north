@@ -28,13 +28,16 @@
     (check "hook view comes from the catalog"
            (and (zero? (:exit listed))
                 (str/includes? (:out listed) "firn-system-policy"))))
-  (let [disabled (run "hooks" "off" "tripwire-guard" "--until" "2099-01-01T00:00:00Z")
+  (let [disabled (run "hooks" "off" "tripwire-guard")
         inspected (run "agents" "inspect" "tripwire-guard" "--json")
         unit (json/parse-string (:out inspected))]
     (check "hook mutation writes the one UnitId permission"
            (and (zero? (:exit disabled)) (zero? (:exit inspected))
-                (= "off:until=2099-01-01T00:00:00Z" (get unit "permission"))
+                (= "off" (get unit "permission"))
                 (false? (get unit "active")))))
+  (check "hook TTL syntax is absent"
+         (not (zero? (:exit (run "hooks" "off" "tripwire-guard"
+                                 "--until" "2099-01-01T00:00:00Z")))))
   (let [guards (run "guards" "off")
         status (json/parse-string (:out (run "agents" "status" "--json")))
         authoring (filter #(and (= "hook" (get % "kind"))
