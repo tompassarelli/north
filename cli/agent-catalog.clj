@@ -117,6 +117,16 @@
 (defn- valid-target? [target]
   (or (distribution-targets target) (project-target? target)))
 
+(defn- unit-targets [unit]
+  (mapcat #(get % "targets" []) (get unit "distributions" [])))
+
+(defn- broadly-distributed? [unit]
+  (boolean (some distribution-targets (unit-targets unit))))
+
+(defn- project-only? [unit]
+  (let [targets (unit-targets unit)]
+    (boolean (and (seq targets) (every? project-target? targets)))))
+
 (defn- posix-mode [path]
   (try
     (->> (java.nio.file.Files/getPosixFilePermissions
@@ -351,7 +361,12 @@
             (fail (str "non-set unit " id " declares members") {:members members}))
           (doseq [member members]
             (when-not (contains? by-id member)
-              (fail (str "set " id " names unknown member " member) {:id id :member member})))
+              (fail (str "set " id " names unknown member " member) {:id id :member member}))
+            (when (and (broadly-distributed? unit)
+                       (project-only? (get by-id member)))
+              (fail (str "broadly distributed set " id
+                         " contains project-only member " member)
+                    {:id id :member member})))
           (when-not (and (vector? supports) (= (count supports) (count (distinct supports))))
             (fail (str "unit " id " has duplicate or invalid supports") {:supports supports}))
           (when (and (not= kind "hook") (seq supports))
@@ -359,6 +374,12 @@
           (doseq [supported supports]
             (when-not (#{"skill" "set"} (get-in by-id [supported "kind"]))
               (fail (str "hook " id " supports unknown or invalid unit " supported)
+                    {:id id :supports supported}))
+            (when (and (#{"skill" "set"} (get-in by-id [supported "kind"]))
+                       (project-only? unit)
+                       (broadly-distributed? (get by-id supported)))
+              (fail (str "broadly distributed unit " supported
+                         " cannot depend on project-only hook " id)
                     {:id id :supports supported})))))
       (exact-set-cycles! units by-id)
       (let [enriched
@@ -369,12 +390,20 @@
                                 (skill-frontmatter owner-file))
                      id (get unit "id")
                      declared-name (get metadata "name")
+                     declared-category (not-empty (get metadata "category"))
                      title (or (not-empty (get unit "title")) (human-title id))
                      trigger (or (not-empty (get unit "triggerDescription"))
                                  (not-empty (get metadata "description")))]
                  (when (and metadata (not= id declared-name))
                    (fail (str "skill " id " source declares name " (pr-str declared-name))
                          {:id id :declaredName declared-name}))
+                 (when (and declared-category
+                            (not= (get unit "category") declared-category))
+                   (fail (str "skill " id " source declares category "
+                              (pr-str declared-category))
+                         {:id id
+                          :catalogCategory (get unit "category")
+                          :declaredCategory declared-category}))
                  (when (str/blank? trigger)
                    (fail (str "unit " id " has no triggerDescription") {:id id}))
                  (-> unit
