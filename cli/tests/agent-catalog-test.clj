@@ -433,11 +433,11 @@
                (= (into {} (map (fn [unit]
                                   [(get unit "id")
                                    (get-in unit ["ownerProvenance" "contentDigest"])]))
-                         (get activation "units"))
+                        (get activation "units"))
                   (into {} (map (fn [unit]
                                   [(get unit "id")
                                    (get-in unit ["ownerProvenance" "contentDigest"])]))
-                         (get after "units"))))
+                        (get after "units"))))
         (check "generation has one materialized shared skill farm"
                (and (= planned-shared shared)
                     (not (.exists (io/file current "skills/codex")))
@@ -484,13 +484,13 @@
                                  (get support "owner") "activation helper test"))
                          (slurp helper))
                       (every? #(.isFile (io/file current "provider-hooks"
-                                                  (str % "-codex")))
+                                                 (str % "-codex")))
                               lifecycle-hook-ids))))
         (check "materialized generation never links back into owner trees"
                (not-any? #(java.nio.file.Files/isSymbolicLink %)
                          (with-open [walk (java.nio.file.Files/walk
-                                          (.toPath (.getCanonicalFile current))
-                                          (make-array java.nio.file.FileVisitOption 0))]
+                                           (.toPath (.getCanonicalFile current))
+                                           (make-array java.nio.file.FileVisitOption 0))]
                            (vec (iterator-seq (.iterator walk))))))
         (let [hooks-root (io/file current "provider-hooks")
               runtime-root (io/file hooks-root "runtime")
