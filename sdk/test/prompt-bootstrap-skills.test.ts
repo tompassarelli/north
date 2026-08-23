@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   activeSkillCatalog, canonicalGlobalAgents, harnessCompositionEvidence, harnessOptions,
 } from "../src/harness";
+import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 
 const temporary: string[] = [];
 const saved = Object.fromEntries([
@@ -147,6 +148,24 @@ test("project skill packages compose additively for exact main, worktree, and ex
     expect(options.systemPrompt).toContain(join(projectSkills, "code-as-facts", "SKILL.md"));
     expect(options.systemPrompt).not.toContain("PROJECT_BODY_CANARY");
   }
+
+  const routed = harnessOptions({
+    self: "project-domain-route",
+    cwd: main,
+    presenceRegistrar: false,
+    routingMetadata: applyOrchestrationStaffing({
+      role: "implementer",
+      domainRequirements: ["code-as-facts"],
+      composition: {
+        kind: "template",
+        id: "implementer",
+        overrides: ["domainRequirements"],
+        overrideReason: "exercise exact project-private domain discovery",
+      },
+    }),
+  }) as any;
+  expect(routed.systemPrompt).toContain("### code-as-facts");
+  expect(routed.systemPrompt).toContain(join(projectSkills, "code-as-facts", "SKILL.md"));
 
   expect(activeSkillCatalog(process.env, unrelated).candidates.map(({ name }) => name))
     .toEqual(["repo-safety"]);
