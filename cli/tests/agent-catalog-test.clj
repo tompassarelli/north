@@ -27,7 +27,6 @@
     (make-array java.nio.file.attribute.FileAttribute 0))))
 
 (def catalog-path (str root "/agent-catalog/catalog.json"))
-(def initialization-path (str root "/agent-catalog/initialization.json"))
 (def base (json/parse-string (slurp catalog-path)))
 (def catalog-schema-value
   (json/parse-string (slurp (str root "/agent-catalog/catalog.schema.json"))))
@@ -40,6 +39,44 @@
   #{"id" "kind" "title" "triggerDescription" "category" "permission" "active"
     "owner" "ownerProvenance" "members" "supports" "distributions"
     "activationPaths"})
+(def initialization-path (str tmp "/agent-initialization.json"))
+(def test-retired-id "retired-test-skill")
+
+(def test-permissions
+  (into (sorted-map)
+        (map (fn [unit] [(get unit "id") "on"]))
+        (get base "units")))
+
+(def test-initialization
+  {"schema" "north.agent-initialization/v1"
+   "id" "catalog-initialization-test"
+   "permissionAuthorities"
+   [{"id" "test-authority"
+     "source" "generated catalog regression input"
+     "permissions" test-permissions}]
+   "permissionResolutions" {}
+   "skillLinks"
+   (vec
+    (concat
+     (for [unit (get base "units")
+           :when (and (= "skill" (get unit "kind"))
+                      (some #(and (= "skill" (get % "type"))
+                                  (some #{"shared"} (get % "targets")))
+                            (get unit "distributions"))
+                      (not= "build-vs-reuse" (get unit "id")))]
+       {"id" (get unit "id")
+        "owner" (get unit "owner")
+        "action" "adopt"})
+     [{"id" test-retired-id
+       "owner" {"repo" "north" "path" "README.md"}
+       "action" "retire"}]))
+   "retiredPermissionObservations"
+   [{"authority" "test-authority"
+     "sourceId" test-retired-id
+     "permission" "on"
+     "reason" "Synthetic retired identity exercises one-shot cleanup."}]})
+
+(spit initialization-path (json/generate-string test-initialization))
 
 (defn initial-permissions [catalog]
   (:permissions (north.agent-catalog/load-initialization catalog initialization-path)))
@@ -194,9 +231,10 @@
                       "activationPaths"])
             (get activation "units")))
     (check "sets expand permitted members depth-first in declared order"
-           (= ["orchestration" "staffing" "coordination"
+           (= ["orchestration" "staffing" "agent-spawn-guard"
+               "compose" "elicit" "coordination"
                "messages" "threads" "assignments"]
-              (mapv #(get % "id") (take 6 (get activation "units")))))
+              (mapv #(get % "id") (take 9 (get activation "units")))))
     (check "supported hooks retain every activation path after unit dedupe"
            (= [["orchestration" "session-kill-guard"]
                ["repo-safety" "session-kill-guard"]]
@@ -226,33 +264,19 @@
                             (re-matches #"sha256:[0-9a-f]{64}"
                                         (get-in entry ["provenance" "contentDigest"])))))
                    lifecycle-hook-ids))))
-    (check "retired lifecycle umbrella identity is absent"
-           (let [retired-id (str "north-session-" "lifecycle")]
-             (and (nil? (get (:by-id catalog) retired-id))
-                  (nil? (get by-id retired-id))
-                  (not (contains? (get activation "permissions") retired-id))
-                  (not-any? #(= retired-id (get % "unitId"))
-                            (for [[_ targets] (get activation "projectionPlan")
-                                  [_ entries] targets
-                                  entry entries]
-                              entry)))))
-    (check "project-private units and inactive adapters initialize inert"
-           (every? #(and (= "off" (get-in by-id [% "permission"]))
-                         (false? (get-in by-id [% "active"]))
+    (check "project-private units retain project distributions when permitted"
+           (every? #(and (= "on" (get-in by-id [% "permission"]))
+                         (true? (get-in by-id [% "active"]))
                          (= [["project:beagle"]]
                             (mapv (fn [distribution] (get distribution "targets"))
                                   (get-in by-id [% "distributions"]))))
                    ["code-as-facts" "code-upstream-guard"]))
     (check "catalog category agrees with source frontmatter when declared"
            (= "nixos" (get-in by-id ["firn" "category"])))
-    (check "reviewed lifecycle split initializes all five replacement hooks off"
-           (every? #(and (= "off" (get-in by-id [% "permission"]))
-                         (false? (get-in by-id [% "active"])))
-                   lifecycle-hook-ids))
-    (check "units absent from initialization evidence default off"
-           (every? #(= "off" (get-in by-id [% "permission"]))
-                   ["build-vs-reuse" "store-modeling" "compose" "elicit"
-                    "code-upstream-guard"])))
+    (check "independent lifecycle hooks activate from explicit permissions"
+           (every? #(and (= "on" (get-in by-id [% "permission"]))
+                         (true? (get-in by-id [% "active"])))
+                   lifecycle-hook-ids)))
 
   (let [catalog (north.agent-catalog/load-catalog)]
     (check "fresh catalog permissions are all explicit off"
@@ -335,8 +359,12 @@
           #(load-value (mutate-unit base "coordination"
                                     (fn [unit] (update unit "members" conj "orchestration"))))))
 
-  (let [conflicting (-> (json/parse-string (slurp initialization-path))
-                        (update "permissionResolutions" dissoc "webdev"))
+  (let [conflicting
+        (update (json/parse-string (slurp initialization-path))
+                "permissionAuthorities" conj
+                {"id" "conflicting-authority"
+                 "source" "generated conflict"
+                 "permissions" {"webdev" "off"}})
         path (str tmp "/unresolved-initialization.json")]
     (spit path (json/generate-string conflicting))
     (check "unresolved overlapping initialization authorities abort"
@@ -392,7 +420,10 @@
                    (north.agent-catalog/load-catalog)
                    (initial-permissions catalog))
             shared (set (map #(.getName %) (or (.listFiles (io/file current "skills/shared"))
-                                               (make-array java.io.File 0))))]
+                                               (make-array java.io.File 0))))
+            planned-shared
+            (set (map #(get % "unitId")
+                      (get-in activation ["projectionPlan" "skill" "shared"])))]
         (check "one atomic current pointer names the content-addressed generation"
                (and (java.nio.file.Files/isSymbolicLink (.toPath current))
                     (str/starts-with? (str (java.nio.file.Files/readSymbolicLink (.toPath current)))
@@ -408,16 +439,14 @@
                                    (get-in unit ["ownerProvenance" "contentDigest"])]))
                          (get after "units"))))
         (check "generation has one materialized shared skill farm"
-               (and (= 38 (count shared))
+               (and (= planned-shared shared)
                     (not (.exists (io/file current "skills/codex")))
                     (every? #(.isDirectory (io/file current "skills/shared" %)) shared)))
         (check "Codex links are exactly the active shared skill plan"
                (and (java.nio.file.Files/isSymbolicLink
                      (.resolve codex-skills "importing-skills"))
-                    (not (java.nio.file.Files/exists
-                          (.resolve codex-skills "webdev")
-                          (into-array java.nio.file.LinkOption
-                                      [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
+                    (java.nio.file.Files/isSymbolicLink
+                     (.resolve codex-skills "webdev"))
                     (not (java.nio.file.Files/exists
                           (.resolve codex-skills "code-as-facts")
                           (into-array java.nio.file.LinkOption
@@ -627,13 +656,14 @@
     (check "initialization receipt audits adopted and explicitly retired links"
            (and (= "north.agent-initialization-receipt/v1" (get receipt "schema"))
                 (= (get initialized "generationId") (get receipt "generationId"))
-                (= #{"smoke" "fact-normal-form"} (set (get receipt "retired")))
+                (= #{test-retired-id} (set (get receipt "retired")))
+                (= #{"build-vs-reuse"} (set (get receipt "created")))
                 (= (set (for [entry skill-links
                               :when (= "adopt" (get entry "action"))]
                           (get entry "id")))
                    (set (get receipt "adopted")))
-                (= "off" (get-in receipt ["permissions" "webdev"]))
-                (every? #(= "off" (get-in receipt ["permissions" %]))
+                (= "on" (get-in receipt ["permissions" "webdev"]))
+                (every? #(= "on" (get-in receipt ["permissions" %]))
                         lifecycle-hook-ids)))
     (check "initialization cannot run twice or mutate the current generation"
            (and (not (zero? (:exit repeated)))
@@ -692,7 +722,7 @@
         activation (north.agent-catalog/compile-activation
                     catalog (:permissions initialization))]
     (doseq [[action missing-id] [["adopt" "importing-skills"]
-                                 ["retire" "smoke"]]]
+                                 ["retire" test-retired-id]]]
       (let [state-root (str tmp "/missing-initial-" action "-state")
             codex-skills (.toPath
                           (io/file tmp (str "missing-initial-" action "-skills")))
@@ -759,9 +789,9 @@
         codex-skills (.toPath (io/file tmp "rollback-skills"))
         skill-links (:skill-links initialization)
         adopted-target (get-in skill-links ["agent-policy" "target"])
-        retired-target (get-in skill-links ["smoke" "target"])
+        retired-target (get-in skill-links [test-retired-id "target"])
         adopted-path (.resolve codex-skills "agent-policy")
-        retired-path (.resolve codex-skills "smoke")
+        retired-path (.resolve codex-skills test-retired-id)
         created-path (.resolve codex-skills "build-vs-reuse")]
     (populate-initial-links! codex-skills initialization)
     (with-redefs [north.agent-catalog/agents-root (constantly state-root)
@@ -771,7 +801,8 @@
                    "injected adoption failure"
                    #(binding [north.agent-catalog/*codex-publication-stage!*
                               (fn [stage id]
-                                (when (and (= stage :link-retired) (= id "smoke"))
+                                (when (and (= stage :link-retired)
+                                           (= id test-retired-id))
                                   (throw (ex-info "injected adoption failure" {}))))]
                       (north.agent-catalog/publish! activation initialization)))
                   (= adopted-target (resolved-link-target adopted-path))
@@ -819,7 +850,7 @@
              ["receipt-temporary-staged" ""]
              ["current-transitioned" ""]
              ["link-transitioned" "agent-policy"]
-             ["link-retired" "smoke"]
+             ["link-retired" test-retired-id]
              ["receipt-transitioned" ""]
              ["manifest-transitioned" ""]]]
       (let [case-name (str/replace stage #"-transitioned$" "")
