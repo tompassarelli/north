@@ -955,6 +955,46 @@ export interface ActiveSkillCatalog {
   readonly appendix: string;
 }
 
+function activeSkillRoots(
+  env: NodeJS.ProcessEnv,
+  cwd?: string,
+): { readonly root: string; readonly roots: readonly string[] } {
+  const configuredRoot = domainSkillsDir(env);
+  let root: string;
+  try {
+    root = realpathSync(configuredRoot);
+    if (!statSync(root).isDirectory())
+      throw new Error(`active skill catalog is not a directory: ${root}`);
+  } catch (cause: any) {
+    if (cause?.code === "ENOENT") return Object.freeze({
+      root: configuredRoot, roots: Object.freeze([]),
+    });
+    throw new Error(`active skill catalog is unreadable: ${configuredRoot}`, { cause });
+  }
+
+  const roots = [root];
+  if (cwd && !env.NORTH_AGENT_SKILLS?.trim()
+      && basename(root) === "shared" && basename(dirname(root)) === "skills") {
+    const target = projectSkillTarget(cwd, env);
+    if (target) {
+      const generation = dirname(dirname(root));
+      const candidate = resolve(generation, "projects", target.id, "skill");
+      try {
+        const canonical = realpathSync(candidate);
+        const fromGeneration = relative(generation, canonical);
+        if (fromGeneration === ".." || fromGeneration.startsWith(`..${sep}`)
+            || fromGeneration.startsWith(sep) || !statSync(canonical).isDirectory())
+          throw new Error(`project skill package escapes its generation: ${candidate}`);
+        roots.push(canonical);
+      } catch (cause: any) {
+        if (cause?.code !== "ENOENT")
+          throw new Error(`project skill package is unreadable: ${candidate}`, { cause });
+      }
+    }
+  }
+  return Object.freeze({ root, roots: Object.freeze(roots) });
+}
+
 function skillTriggerMetadata(path: string, folder: string): ActiveSkillCandidate {
   let bytes: Buffer;
   try {
@@ -990,39 +1030,10 @@ export function activeSkillCatalog(
   env: NodeJS.ProcessEnv = process.env,
   cwd?: string,
 ): ActiveSkillCatalog {
-  const configuredRoot = domainSkillsDir(env);
-  let root: string;
-  try {
-    root = realpathSync(configuredRoot);
-    if (!statSync(root).isDirectory())
-      throw new Error(`active skill catalog is not a directory: ${root}`);
-  } catch (cause: any) {
-    if (cause?.code === "ENOENT") return Object.freeze({
-      root: configuredRoot, roots: Object.freeze([]), candidates: Object.freeze([]), appendix: "",
-    });
-    throw new Error(`active skill catalog is unreadable: ${configuredRoot}`, { cause });
-  }
-
-  const roots = [root];
-  if (cwd && !env.NORTH_AGENT_SKILLS?.trim()
-      && basename(root) === "shared" && basename(dirname(root)) === "skills") {
-    const target = projectSkillTarget(cwd, env);
-    if (target) {
-      const generation = dirname(dirname(root));
-      const candidate = resolve(generation, "projects", target.id, "skill");
-      try {
-        const canonical = realpathSync(candidate);
-        const fromGeneration = relative(generation, canonical);
-        if (fromGeneration === ".." || fromGeneration.startsWith(`..${sep}`)
-            || fromGeneration.startsWith(sep) || !statSync(canonical).isDirectory())
-          throw new Error(`project skill package escapes its generation: ${candidate}`);
-        roots.push(canonical);
-      } catch (cause: any) {
-        if (cause?.code !== "ENOENT")
-          throw new Error(`project skill package is unreadable: ${candidate}`, { cause });
-      }
-    }
-  }
+  const { root, roots } = activeSkillRoots(env, cwd);
+  if (!roots.length) return Object.freeze({
+    root, roots, candidates: Object.freeze([]), appendix: "",
+  });
 
   const byName = new Map<string, ActiveSkillCandidate>();
   for (const skillRoot of roots) {
@@ -1067,11 +1078,13 @@ function domainContextCandidates(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
   const slug = requirementSlug(requirement);
+  const skillCandidates = activeSkillRoots(env, cwd).roots
+    .map((root) => resolve(root, slug, "SKILL.md"));
   const candidates = [
     resolve(cwd, "AGENTS.md"),
     resolve(cwd, "docs", `${slug}.md`),
     resolve(cwd, "docs", "domains", `${slug}.md`),
-    resolve(domainSkillsDir(env), slug, "SKILL.md"),
+    ...skillCandidates,
     resolve(orchestrationHome(env), "docs", "domains", `${slug}.md`),
   ];
   return [...new Set(candidates.filter(existsSync))];
