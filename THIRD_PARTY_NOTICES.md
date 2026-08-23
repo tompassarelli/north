@@ -47,13 +47,17 @@ the imported material as MIT-licensed under its local default.
 ## Planning Skill Bundle
 
 North adapts the `planning` and `prior-art` skill documentation from the
-user-provided local bundle at `~/planning-skill-bundle`.
+user-provided local bundle at `~/planning-skill-bundle`. It adapts that
+bundle's `ponytail` skill as `build-vs-reuse` so product differentiation and
+ownership decisions remain separate from the profile's ordinary
+minimum-incidental-code policy.
 
 The source is a non-Git directory with no upstream URL, revision metadata,
 license, or notice artifact. North preserves its local identity through the
 original file hashes:
 
 - `planning/SKILL.md`: `166e6d194790822b17b4c9e9f8020f71d88f66dedcaf907aefefa316fe8df74e`
+- `ponytail/SKILL.md` (adapted as `build-vs-reuse`): `cae618ad2a1fe49aceb80b1825b6f3a162c0598fe8b9c7ca31ad5c8e3a56a252`
 - `prior-art/SKILL.md`: `a19a331eaf1e8c71e52c2d4ed99b09bc19aa127f3a103681139d8908344cd277`
 
 North treats the imported material as MIT-licensed under its local default.

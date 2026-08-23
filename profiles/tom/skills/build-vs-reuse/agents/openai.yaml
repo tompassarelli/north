@@ -1,0 +1,4 @@
+interface:
+  display_name: "Build vs. Reuse"
+  short_description: "Choose product ownership versus reuse"
+  default_prompt: "Use $build-vs-reuse to decide what this product should own versus reuse."
