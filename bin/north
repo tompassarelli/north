@@ -485,7 +485,7 @@ case "${1:-}" in
     # floor, and the ready/leverage pull queue. Read-only. cli/wip-cli.clj.
     exec "$BB" -cp "$NORTH/out:$BEAGLE_STORE_OUT" "$NORTH/cli/wip-cli.clj" "${@:2}" ;;
   stream-sync)
-    # Zero-AI cursor-based transcript log-shipping (streams/CLAUDE.md) — a
+    # Zero-AI cursor-based transcript log-shipping (streams/AGENTS.md) — a
     # plain bash script, not a north.main verb, so it execs directly.
     exec "$NORTH/bin/north-stream-sync-all" "${@:2}" ;;
   stream-distill)

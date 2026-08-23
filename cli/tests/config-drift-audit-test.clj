@@ -1,5 +1,5 @@
 #!/usr/bin/env bb
-;; Read-only contract for provider/plugin skill provenance and MCP drift.
+;; Read-only contract for shared/Codex skill provenance and MCP inventory.
 (require '[babashka.fs :as fs]
          '[babashka.process :as p]
          '[cheshire.core :as json]
@@ -10,16 +10,15 @@
   (.getCanonicalPath
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (def cli (str root "/cli/config-cli.clj"))
-(def tmp-dir (fs/create-temp-dir {:prefix "north-config-drift-audit-test-"}))
+(def tmp-dir (fs/create-temp-dir {:prefix "north-config-audit-test-"}))
 (def scratch-home (str tmp-dir "/home"))
 (def farm (str tmp-dir "/farm"))
-(def claude-settings (str tmp-dir "/claude-settings.json"))
-(def claude-ledger (str tmp-dir "/installed-plugins.json"))
-(def claude-mcp (str tmp-dir "/claude.json"))
 (def codex-home (str tmp-dir "/codex"))
 (def codex-system (str tmp-dir "/codex-system-skills"))
 (def codex-config (str tmp-dir "/config.toml"))
 (def codex-inventory (str tmp-dir "/codex-plugins.json"))
+(def plugin-root (str tmp-dir "/plugins/enabled"))
+(def disabled-root (str tmp-dir "/plugins/disabled"))
 (def checks (atom []))
 
 (defn check [label value]
@@ -33,126 +32,42 @@
 (defn write-skill! [root name]
   (write-skill-as! root name name))
 
-(defn write-root-skill! [root name]
-  (let [path (str root "/SKILL.md")]
-    (io/make-parents path)
-    (spit path (str "---\nname: " name "\ndescription: fixture\n---\n"))))
-
-(defn write-plugin!
-  ([root provider] (write-plugin! root provider {}))
-  ([root provider fields]
-   (let [manifest (str root "/."
-                       (if (= provider "claude") "claude" "codex")
-                       "-plugin/plugin.json")]
-     (io/make-parents manifest)
-     (spit manifest
-           (json/generate-string
-            (merge {:name (.getName (io/file root))} fields))))))
-
-(def enabled-root (str tmp-dir "/plugins/enabled"))
-(def disabled-root (str tmp-dir "/plugins/disabled"))
-(def malformed-root (str tmp-dir "/plugins/malformed"))
-(def escape-root (str tmp-dir "/plugins/escape"))
-(def custom-root (str tmp-dir "/plugins/custom"))
-(def root-skill-root (str tmp-dir "/plugins/root-skill"))
-(def codex-plugin-root (str tmp-dir "/plugins/codex"))
-(def escaped-target (str tmp-dir "/outside/escaped"))
+(defn write-plugin! [root]
+  (let [manifest (str root "/.codex-plugin/plugin.json")]
+    (io/make-parents manifest)
+    (spit manifest (json/generate-string {:name (.getName (io/file root))}))))
 
 (defn install-fixture! []
   (.mkdirs (io/file scratch-home))
-  (doseq [name ["collision" "frontmatter-collision" "shared-only"]]
+  (doseq [name ["collision" "shared-only"]]
     (write-skill! farm name))
   (write-skill! codex-system "system-only")
 
-  (write-plugin! enabled-root "claude")
-  (write-skill! (str enabled-root "/skills") "collision")
-  (write-skill! (str enabled-root "/skills") "plugin-only")
-  (write-skill-as! (str enabled-root "/skills") "folder-name" "frontmatter-name")
-  (write-skill-as! (str enabled-root "/skills") "different-folder" "frontmatter-collision")
-
-  (write-plugin! custom-root "claude" {:skills "./components/skill-root"})
-  (write-root-skill! (str custom-root "/components/skill-root") "custom-path-skill")
-  (write-skill! (str custom-root "/skills") "custom-default-skill")
-
-  (write-plugin! root-skill-root "claude" {:skills ["./"]})
-  (write-root-skill! root-skill-root "plugin-root-skill")
-
-  (write-plugin! disabled-root "claude")
-  (write-skill! (str disabled-root "/skills") "collision")
+  (write-plugin! plugin-root)
+  (write-skill! (str plugin-root "/skills") "collision")
+  (write-skill! (str plugin-root "/skills") "plugin-only")
+  (write-skill-as! (str plugin-root "/skills") "folder-name" "frontmatter-name")
+  (write-plugin! disabled-root)
   (write-skill! (str disabled-root "/skills") "disabled-only")
 
-  (let [manifest (str malformed-root "/.claude-plugin/plugin.json")]
-    (io/make-parents manifest)
-    (spit manifest "{\"name\":")
-    (write-skill! (str malformed-root "/skills") "malformed-skill"))
-
-  (write-plugin! escape-root "claude")
-  (write-skill! (str escape-root "/skills") "inside")
-  (write-skill! (str tmp-dir "/outside") "escaped")
-  (java.nio.file.Files/createSymbolicLink
-   (.toPath (io/file escape-root "skills/escaped"))
-   (.toPath (io/file escaped-target))
-   (make-array java.nio.file.attribute.FileAttribute 0))
-
-  (write-plugin! codex-plugin-root "codex")
-  (write-skill! (str codex-plugin-root "/skills") "codex-plugin-only")
-
-  (spit claude-settings
-        (json/generate-string
-         {:enabledPlugins {"enabled@market" true
-                           "custom@market" true
-                           "root-skill@market" true
-                           "disabled@market" false
-                           "malformed@market" true
-                           "escape@market" true}}))
-  (spit claude-ledger
-        (json/generate-string
-         {:plugins
-          {"enabled@market" [{:installPath enabled-root :scope "user"}]
-           "custom@market" [{:installPath custom-root :scope "user"}]
-           "root-skill@market" [{:installPath root-skill-root :scope "user"}]
-           "disabled@market" [{:installPath disabled-root :scope "user"}]
-           "malformed@market" [{:installPath malformed-root :scope "user"}]
-           "escape@market" [{:installPath escape-root :scope "user"}]}}))
   (spit codex-inventory
         (json/generate-string
          {:installed
-          [{:pluginId "codex-plugin@market" :name "Codex fixture"
+          [{:pluginId "enabled@market" :name "Enabled"
             :marketplaceName "market" :version "1" :installed true :enabled true
-            :source {:source "local" :path codex-plugin-root}}
-           {:pluginId "disabled-codex@market" :name "Disabled"
+            :source {:source "local" :path plugin-root}}
+           {:pluginId "disabled@market" :name "Disabled"
             :marketplaceName "market" :version "1" :installed true :enabled false
             :source {:source "local" :path disabled-root}}]
           :available []}))
 
-  (spit claude-mcp
-        (json/generate-string
-         {:mcpServers
-          {"aligned-stdio" {:type "stdio" :command "/bin/server"
-                            :args ["--mode" "same"] :cwd "/work"
-                            :env {:TOKEN "ENV_SECRET_CANARY"}}
-           "drift-stdio" {:command "/bin/server" :args ["left"]}
-           "forwarded-stdio" {:command "/bin/forwarded"}
-           "aligned-http" {:type "http" :url "https://same.example/mcp"
-                           :headers {:Authorization "HEADER_SECRET_CANARY"}}
-           "drift-http" {:type "http" :url "https://left.example/mcp"
-                         :headers {:Authorization "LEFT_HEADER_CANARY"}}
-           "claude-alias" {:command "/bin/alias" :args ["same"]}
-           "claude-only" {:command "/bin/claude-only"}}}))
   (spit codex-config
         (str
-         "[mcp_servers.\"aligned-stdio\"]\n"
-         "command = \"/bin/server\"\nargs = [\"--mode\", \"same\"]\ncwd = \"/work\"\n"
-         "[mcp_servers.\"aligned-stdio\".env]\nTOKEN = \"ENV_SECRET_CANARY\"\n\n"
-         "[mcp_servers.\"drift-stdio\"]\ncommand = \"/bin/server\"\nargs = [\"right\"]\n\n"
-         "[mcp_servers.\"forwarded-stdio\"]\ncommand = \"/bin/forwarded\"\n"
-         "env_vars = [\"FORWARDED_MCP_TOKEN\"]\n\n"
-         "[mcp_servers.\"aligned-http\"]\nurl = \"https://same.example/mcp\"\n"
-         "http_headers = { Authorization = \"HEADER_SECRET_CANARY\" }\n\n"
-         "[mcp_servers.\"drift-http\"]\nurl = \"https://right.example/mcp\"\n"
-         "http_headers = { Authorization = \"RIGHT_HEADER_CANARY\" }\n\n"
-         "[mcp_servers.\"codex-alias\"]\ncommand = \"/bin/alias\"\nargs = [\"same\"]\n\n"
-         "[mcp_servers.\"codex-only\"]\ncommand = \"/bin/codex-only\"\n")))
+         "[mcp_servers.stdio]\ncommand = \"/bin/server\"\nargs = [\"same\"]\n"
+         "env_vars = [\"FORWARDED_MCP_TOKEN\"]\n"
+         "[mcp_servers.stdio.env]\nTOKEN = \"ENV_SECRET_CANARY\"\n\n"
+         "[mcp_servers.http]\nurl = \"https://same.example/mcp\"\n"
+         "http_headers = { Authorization = \"HEADER_SECRET_CANARY\" }\n")))
 
 (defn run-cli [& args]
   (apply p/shell
@@ -162,9 +77,6 @@
           :extra-env {"HOME" scratch-home
                       "NORTH_HOME" root
                       "NORTH_SKILLS_FARM" farm
-                      "NORTH_CLAUDE_SETTINGS" claude-settings
-                      "NORTH_CLAUDE_PLUGIN_LEDGER" claude-ledger
-                      "NORTH_CLAUDE_MCP_CONFIG" claude-mcp
                       "CODEX_HOME" codex-home
                       "NORTH_CODEX_SYSTEM_SKILLS" codex-system
                       "NORTH_CODEX_CONFIG" codex-config
@@ -172,121 +84,64 @@
                       "FORWARDED_MCP_TOKEN" "FORWARDED_SECRET_VALUE_CANARY"}}
          (into ["bb" cli] args)))
 
-(defn comparison [report name]
-  (some #(when (= name (:name %)) %) (get-in report [:mcp :comparisons])))
+(defn server [report name]
+  (some #(when (= name (:name %)) %) (get-in report [:mcp :servers])))
 
 (defn complete-case []
   (let [result (run-cli "audit" "--json")
         report (when (zero? (:exit result)) (json/parse-string (:out result) true))
         skills (get-in report [:skills :entries])
-        collision (some #(when (= "collision" (:name %)) %) skills)]
+        collision (filter #(= "collision" (:name %)) skills)
+        stdio (server report "stdio")
+        http (server report "http")]
     (check "audit JSON succeeds" (zero? (:exit result)))
-    (check "enabled plugin collides with the shared farm and precedence stays uncertain"
-           (and (:collision collision)
-                (= "uncertain" (:precedence collision))
-                (= 2 (count (filter #(= "collision" (:name %)) skills)))))
-    (check "disabled plugin skills are not effective inventory"
+    (check "shared and Codex plugin skills expose collision uncertainty"
+           (and (= 2 (count collision))
+                (every? :collision collision)
+                (every? #(= "uncertain" (:precedence %)) collision)))
+    (check "Codex system and plugin skills retain provenance"
+           (and (some #(and (= "system-only" (:name %))
+                            (= "builtin" (:plugin %))) skills)
+                (some #(and (= "plugin-only" (:name %))
+                            (= "enabled@market" (:plugin %))) skills)))
+    (check "disabled plugin skills are absent"
            (not-any? #(= "disabled-only" (:name %)) skills))
-    (check "distinct provider and plugin skills retain provenance and canonical paths"
-           (every?
-            identity
-            [(some #(and (= "system-only" (:name %))
-                         (= "codex" (:provider %)) (= "builtin" (:plugin %))
-                         (.isAbsolute (io/file (:path %)))) skills)
-             (some #(and (= "plugin-only" (:name %))
-                         (= "enabled@market" (:plugin %)) (= "user" (:scope %))
-                         (not (:collision %))) skills)
-             (some #(and (= "codex-plugin-only" (:name %))
-                         (= "codex-plugin@market" (:plugin %))) skills)]))
-    (check "skill inventory uses frontmatter invocation names instead of folder names"
-           (let [renamed-collision (filter #(= "frontmatter-collision" (:name %)) skills)]
-             (and (some #(and (= "frontmatter-name" (:name %))
-                              (str/ends-with? (:path %) "/folder-name")) skills)
-                  (not-any? #(contains? #{"folder-name" "different-folder"} (:name %)) skills)
-                  (= 2 (count renamed-collision))
-                  (every? :collision renamed-collision))))
-    (check "Claude manifest paths add custom roots and their root SKILL.md files"
-           (every? #(some (fn [row] (= % (:name row))) skills)
-                   ["custom-default-skill" "custom-path-skill" "plugin-root-skill"]))
-    (check "escaping symlink is excluded with a containment diagnostic"
-           (and (not-any? #(= "escaped" (:name %)) skills)
-                (some #(= "containment" (:kind %))
-                      (get-in report [:skills :diagnostics]))))
-    (check "malformed plugin manifest preserves useful partial inventory"
-           (and (= "partial" (get-in report [:skills :state]))
-                (some #(and (= "malformed" (:kind %))
-                            (str/includes? (:source %) "malformed"))
-                      (get-in report [:skills :diagnostics]))
-                (some #(= "plugin-only" (:name %)) skills)))
-
-    (check "aligned stdio and HTTP declarations are recognized"
-           (every? #(= "aligned" (:state (comparison report %)))
-                   ["aligned-stdio" "aligned-http"]))
-    (check "same-name stdio and HTTP drift names their structural fields"
-           (and (= "same-name-drift" (:state (comparison report "drift-stdio")))
-                (some #{"arguments"} (:differences (comparison report "drift-stdio")))
-                (= "same-name-drift" (:state (comparison report "drift-http")))
-                (some #{"endpoint"} (:differences (comparison report "drift-http")))))
-    (check "Codex forwarded environment names participate in MCP identity"
-           (and (= "same-name-drift" (:state (comparison report "forwarded-stdio")))
-                (= ["forwardedEnvironmentVariables"]
-                   (:differences (comparison report "forwarded-stdio")))
+    (check "frontmatter names define invocation identity"
+           (and (some #(= "frontmatter-name" (:name %)) skills)
+                (not-any? #(= "folder-name" (:name %)) skills)))
+    (check "Codex MCP declarations retain structural identity"
+           (and (= "complete" (get-in report [:mcp :state]))
+                (= #{"stdio" "http"} (set (map :name (get-in report [:mcp :servers]))))
                 (= ["FORWARDED_MCP_TOKEN"]
-                   (get-in (some #(when (and (= "codex" (:provider %))
-                                             (= "forwarded-stdio" (:name %))) %)
-                                 (get-in report [:mcp :servers]))
-                           [:normalized :forwardedEnvironmentVariables]))))
-    (check "equivalent differently named declarations are reported as aliases"
-           (some #(and (= "claude-alias" (get-in % [:claude :name]))
-                       (= "codex-alias" (get-in % [:codex :name])))
-                 (get-in report [:mcp :aliases])))
-    (check "one-provider declarations remain explicit"
-           (and (= "claude-only" (:state (comparison report "claude-only")))
-                (= "codex-only" (:state (comparison report "codex-only")))))
-    (check "environment and header values never appear in machine output"
+                   (get-in stdio [:normalized :forwardedEnvironmentVariables]))
+                (= ["Authorization"] (get-in http [:normalized :headers :keys]))
+                (str/starts-with? (get-in http [:normalized :headers :digest]) "sha256:")))
+    (check "protected values never appear in machine output"
            (not-any? #(str/includes? (:out result) %)
                      ["ENV_SECRET_CANARY" "HEADER_SECRET_CANARY"
-                      "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"
                       "FORWARDED_SECRET_VALUE_CANARY"]))
-    (check "protected values retain structural keys and digests"
-           (let [server (some #(when (and (= "claude" (:provider %))
-                                          (= "aligned-http" (:name %))) %)
-                              (get-in report [:mcp :servers]))]
-             (and (= ["Authorization"] (get-in server [:normalized :headers :keys]))
-                  (str/starts-with? (get-in server [:normalized :headers :digest]) "sha256:"))))
 
     (let [mcp-only (run-cli "mcp" "list" "--json")
-          skills-list (run-cli "skills" "list")
           human (run-cli "audit")]
-      (check "mcp list exposes the same machine-readable audit"
+      (check "mcp list exposes the same Codex-only machine audit"
              (and (zero? (:exit mcp-only))
                   (nil? (:skills (json/parse-string (:out mcp-only) true)))
                   (= "complete" (get-in (json/parse-string (:out mcp-only) true)
                                          [:mcp :state]))))
-      (check "skills list appends effective external collision provenance"
-             (and (zero? (:exit skills-list))
-                  (str/includes? (:out skills-list) "EFFECTIVE SKILL PROVENANCE")
-                  (re-find #"(?m)^  collision  .*COLLISION.*precedence=uncertain"
-                           (:out skills-list))))
-      (check "human audit also withholds protected values"
+      (check "human audit names the Codex MCP inventory"
              (and (zero? (:exit human))
-                  (not-any? #(str/includes? (:out human) %)
-                            ["ENV_SECRET_CANARY" "HEADER_SECRET_CANARY"
-                             "LEFT_HEADER_CANARY" "RIGHT_HEADER_CANARY"
-                             "FORWARDED_SECRET_VALUE_CANARY"]))))))
+                  (str/includes? (:out human) "CODEX MCP DECLARATIONS")
+                  (not (str/includes? (:out human) "HEADER_SECRET_CANARY")))))))
 
 (defn partial-case []
-  (spit claude-mcp "{\"mcpServers\":")
+  (spit codex-config "[mcp_servers.broken\n")
   (let [result (run-cli "audit" "--json")
         report (when (zero? (:exit result)) (json/parse-string (:out result) true))]
-    (check "malformed provider state does not suppress the readable provider"
+    (check "malformed Codex config produces a partial audit"
            (and (zero? (:exit result))
                 (= "partial" (get-in report [:mcp :state]))
-                (some #(= "codex-only" (:name %)) (get-in report [:mcp :servers]))
-                (= "uncertain" (:certainty (comparison report "codex-only")))))
-    (check "partial state names the malformed source without echoing its contents"
-           (some #(and (= "claude" (:provider %)) (= "malformed" (:kind %)))
-                 (get-in report [:mcp :diagnostics])))))
+                (some #(and (= "codex" (:provider %)) (= "malformed" (:kind %)))
+                      (get-in report [:mcp :diagnostics]))))))
 
 (try
   (install-fixture!)
@@ -299,5 +154,5 @@
       passed (count (filter second results))]
   (doseq [[label ok] results]
     (println (format "  [%s] %s" (if ok "PASS" "FAIL") label)))
-  (println (format "\nconfig drift audit: %d / %d PASS" passed (count results)))
+  (println (format "\nconfig audit: %d / %d PASS" passed (count results)))
   (System/exit (if (= passed (count results)) 0 1)))

@@ -41,8 +41,8 @@ enforcement fails closed at preflight. For managed OpenAI lanes North launches
 Codex with `--sandbox read-only` and marks North MCP required.
 OpenAI orchestration is currently ineligible and fails pre-turn; with
 `provider=auto`, North may select an eligible Anthropic target instead.
-Claude plugin-agent frontmatter cannot encode a hard sandbox, so the generated
-plugin adapter withholds Bash for `shell.readonly` stock templates rather
+Anthropic agent-file frontmatter cannot encode a hard sandbox, so the generated
+adapter withholds Bash for `shell.readonly` stock templates rather
 than claiming a boundary it cannot provide.
 North presents composition provenance as `orchestration:<template>`,
 `orchestration:<template>+override`, or `orchestration:bespoke:<id>`. A native session that

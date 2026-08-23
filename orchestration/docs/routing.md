@@ -379,8 +379,7 @@ eight semantic fields plus North-owned execution-envelope controls such as
 detecting a legacy surface resolve the chosen tier through the provider catalog
 before calling it, and must not send unknown fields hoping they are ignored.
 
-Claude Code agent frontmatter still contains Anthropic `model` and `effort`
-pins. Those are compiled adapter artifacts. The semantic `tier` is the source
-decision and provider catalogs perform resolution. Existing Claude plugin
-behavior therefore remains unchanged while North and other harnesses use the
-portable fields.
+Anthropic agent-file frontmatter contains concrete `model` and `effort` pins.
+Those are compiled adapter artifacts. The semantic `tier` is the source
+decision and provider catalogs perform resolution; North and other harnesses
+use the portable fields.

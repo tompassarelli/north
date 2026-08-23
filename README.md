@@ -47,7 +47,7 @@ the current projection. None of them independently decides that work is ready,
 that an account may execute it, or that an uncertain effect is safe to repeat.
 
 See the [architecture](docs/architecture.md) and
-[harness boundary](docs/harness-architecture.md) for the detailed ownership
+[provider boundary](docs/provider-architecture.md) for the detailed ownership
 rules.
 
 ## Routing work to models and accounts

@@ -61,10 +61,7 @@
     :else "off"))
 
 (defn authoring-env
-  "The authoring kill-switch env vars as a resolve-dial env decision.
-   AGENT_ is canonical; CLAUDE_ remains a compatibility alias. Reading only
-   the alias — as this report did until 2026-07-30 — makes the report claim
-   guards are live in a session where they are not."
+  "The canonical authoring kill-switch env var as a resolve-dial decision."
   []
   (env-decision (not-empty (or (System/getenv "AGENT_NO_AUTHORING_HOOKS") ""))))
 

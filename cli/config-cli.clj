@@ -34,10 +34,6 @@
                          (str home "/.config/north/routing-policy.json")))
 (def LEARNING-POLICY (or (System/getenv "NORTH_LEARNING_POLICY")
                          (str home "/.config/north/learning-policy.json")))
-(def CONTEXT-SOURCE  (or (System/getenv "NORTH_CONTEXT_SOURCE")
-                         (str home "/.agents/AGENTS.md")))
-(def CONTEXT-OUTPUT  (or (System/getenv "NORTH_CONTEXT_OUTPUT")
-                         (str home "/.claude/CLAUDE.md")))
 (def SKILLS-PROFILE  (or (System/getenv "NORTH_SKILLS_PROFILE")
                          (str (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)
                               "/agent-profile/skills")))
@@ -50,9 +46,6 @@
                                   (some-> *file* io/file .getCanonicalFile
                                           .getParentFile .getParentFile str))
                               "/bin/north-comms")))
-(def CONTEXT-BUCKETS #{"core" "write" "shell" "orch" "client" "nixos" "beagle"})
-(def CONTEXT-TAG
-  #"^<!-- north-section: ([a-z0-9][a-z0-9-]*) · bucket: (core|write|shell|orch|client|nixos|beagle) -->$")
 
 (def learning-axes ["model-tier" "effort" "prompt" "authoring" "history"])
 (def learning-axis-set (set learning-axes))
@@ -97,14 +90,6 @@
        "reachable (corpus health is checked by `north doctor`)"
        (catch Exception _ "DOWN")))
 
-(defn linear-mcp []
-  (let [c (slurp' (str home "/.claude.json"))]
-    (if (and c (str/includes? c "linear")) "configured" "absent")))
-
-(def CLAUDE-MCP-CONFIG (or (System/getenv "NORTH_CLAUDE_MCP_CONFIG")
-                           (str home "/.claude.json")))
-(def CLAUDE-SETTINGS (or (System/getenv "NORTH_CLAUDE_SETTINGS")
-                         (str home "/.claude/settings.json")))
 (def CODEX-CONFIG (or (System/getenv "NORTH_CODEX_CONFIG")
                       (str (or (System/getenv "CODEX_HOME") (str home "/.codex"))
                            "/config.toml")))
@@ -114,7 +99,7 @@
        "/cli/config-drift-audit.py"))
 
 (def mcp-usage
-  "usage: north config mcp [list [--json]|add <name> <url>|add <name> -- <command> [args...]|remove <name>]\nMCP declarations are applied to both Claude (user scope) and Codex.")
+  "usage: north config mcp [list [--json]|add <name> <url>|add <name> -- <command> [args...]|remove <name>]\nMCP declarations are applied to Codex.")
 
 (declare print-provider-readouts)
 
@@ -147,30 +132,18 @@
               (if (= target "--")
                 (do
                   (when-not (seq extra) (die mcp-usage))
-                  (apply run-provider! "claude" "mcp" "add" "--scope" "user"
-                         name "--" extra)
                   (apply run-provider! "codex" "mcp" "add" name "--" extra)
-                  (println (str name " → shared Claude/Codex stdio MCP")))
+                  (println (str name " → Codex stdio MCP")))
                 (do
                   (when (or (seq extra) (not (re-matches #"https?://.+" target)))
                     (die mcp-usage))
-                  (run-provider! "claude" "mcp" "add" "--scope" "user"
-                                 "--transport" "http" name target)
                   (run-provider! "codex" "mcp" "add" name "--url" target)
-                  (println (str name " → shared Claude/Codex MCP (" target ")")))))
+                  (println (str name " → Codex MCP (" target ")")))))
       "remove" (do
                  (when (or (str/blank? name) target (seq extra)) (die mcp-usage))
-                 (run-provider! "claude" "mcp" "remove" "--scope" "user" name)
                  (run-provider! "codex" "mcp" "remove" name)
-                 (println (str name " removed from Claude and Codex MCP")))
+                 (println (str name " removed from Codex MCP")))
       (die mcp-usage))))
-
-(defn- json-at [path]
-  (when-let [text (slurp' path)]
-    (try (json/parse-string text false) (catch Exception _ nil))))
-
-(defn- map-names [value]
-  (sort (if (map? value) (map str (keys value)) [])))
 
 (defn- toml-section-names [path section]
   (if-let [text (slurp' path)]
@@ -179,10 +152,14 @@
          sort)
     []))
 
+(defn linear-mcp []
+  (if (some #(str/includes? % "linear")
+            (toml-section-names CODEX-CONFIG "mcp_servers"))
+    "configured"
+    "absent"))
+
 (defn- print-provider-readouts []
-  (let [claude-mcp (map-names (get (json-at CLAUDE-MCP-CONFIG) "mcpServers"))
-        codex-mcp (toml-section-names CODEX-CONFIG "mcp_servers")
-        claude-plugins (map-names (get (json-at CLAUDE-SETTINGS) "enabledPlugins"))
+  (let [codex-mcp (toml-section-names CODEX-CONFIG "mcp_servers")
         codex-plugins (toml-section-names CODEX-CONFIG "plugins")
         render (fn [provider kind names command path]
                  (println (str "    " provider " " kind ": " path))
@@ -190,11 +167,9 @@
                    (doseq [name names]
                      (println (str "      " name " → " (format command name))))
                    (println "      (none declared)")))]
-    (println "\n10 PROVIDER MCP  provider-owned declarations")
-    (render "Claude" "MCP" claude-mcp "claude mcp remove %s" CLAUDE-MCP-CONFIG)
+    (println "\n9 CODEX MCP  provider-owned declarations")
     (render "Codex" "MCP" codex-mcp "codex mcp remove %s" CODEX-CONFIG)
-    (println "\n11 PROVIDER PLUGINS  provider-owned installations")
-    (render "Claude" "plugin" claude-plugins "claude plugin uninstall %s" CLAUDE-SETTINGS)
+    (println "\n10 CODEX PLUGINS  provider-owned installations")
     (render "Codex" "plugin" codex-plugins "codex plugin uninstall %s" CODEX-CONFIG)))
 
 (defn hook-registry []
@@ -657,179 +632,6 @@
                           (save! (assoc policy :evidenceMode value))
                           (die learning-usage)))
       (die learning-usage))))
-
-;; --- native context assembly ---------------------------------------------
-;; The tagged source remains the authority. Older or malformed sources retain
-;; the SDK's historical heading-table behavior, with unknown headings kept in
-;; core so a vocabulary mistake cannot silently drop policy.
-(defn- context-fallback-metadata [heading]
-  (let [h (str/lower-case heading)
-        slug (-> h
-                 (str/replace #"^##\s+" "")
-                 (str/replace #"[^a-z0-9]+" "-")
-                 (str/replace #"(^-+|-+$)" ""))]
-    (cond
-      (str/includes? h "done-claims") ["done-claims" "core"]
-      (str/includes? h "standing guards") ["standing-guards" "core"]
-      (str/includes? h "pre-edit gate") ["pre-edit-gate" "orch"]
-      (str/includes? h "model +") ["model-routing" "orch"]
-      (str/includes? h "push freely") ["push" "write"]
-      (str/includes? h "external code") ["external-code" "write"]
-      (str/includes? h "internal notes") ["internal-notes" "write"]
-      (or (str/includes? h "nixos-config")
-          (str/includes? h "global agent config")) ["global-agent-config" "nixos"]
-      (or (str/includes? h "racket")
-          (str/includes? h "beagle")) ["beagle" "beagle"]
-      (str/includes? h "new code") ["new-code" "write"]
-      (str/includes? h "blocked") ["blocked" "core"]
-      (str/includes? h "paths") ["paths" "core"]
-      (str/includes? h "north") ["north" "core"]
-      :else [(if (str/blank? slug) "legacy-section" slug) "core"])))
-
-(defn- context-section [text]
-  (let [[_ heading second-line] (re-find #"(?s)\A(## [^\r\n]+)\r?\n([^\r\n]*)" text)
-        heading (or heading (first (str/split-lines text)) "")
-        tag (re-matches CONTEXT-TAG (or second-line ""))
-        [fallback-id fallback-bucket] (context-fallback-metadata heading)]
-    {:heading heading
-     :text text
-     :id (or (second tag) fallback-id)
-     :bucket (or (nth tag 2 nil) fallback-bucket)
-     :tagged? (boolean tag)}))
-
-(defn- context-document []
-  (let [raw (slurp' CONTEXT-SOURCE)]
-    (when (nil? raw)
-      (die (str "cannot read context source: " CONTEXT-SOURCE)))
-    (let [matcher (re-matcher #"(?m)^## [^\r\n]*" raw)
-          starts (loop [found []]
-                   (if (.find matcher)
-                     (recur (conj found (.start matcher)))
-                     found))
-          boundaries (map vector starts (concat (rest starts) [(count raw)]))]
-      {:raw raw
-       :preamble (if-let [start (first starts)] (subs raw 0 start) raw)
-       :sections (mapv (fn [[start end]]
-                         (context-section (subs raw start end)))
-                       boundaries)})))
-
-(defn- context-mode []
-  (if (= "gated" (get' "context" "full")) "gated" "full"))
-
-(defn- context-verdict [mode {:keys [id bucket]} now]
-  (if (= mode "full")
-    ["on" "full"]
-    (let [[verdict decided-by]
-          (north.harness-dial/resolve-dial
-           nil
-           (get' (str "context.bucket." bucket) nil)
-           (get' (str "context.section." id) nil)
-           nil
-           now)]
-      [verdict (if (= decided-by "category") "bucket" decided-by)])))
-
-(defn- context-resolutions [mode sections]
-  (let [now (north.harness-dial/now-iso)]
-    (mapv (fn [section]
-            [section (context-verdict mode section now)])
-          sections)))
-
-(defn- context-render [document mode resolutions]
-  (if (= mode "full")
-    (:raw document)
-    (str (:preamble document)
-         (apply str
-                (keep (fn [[section [verdict _]]]
-                        (when (= "on" verdict)
-                          (:text section)))
-                      resolutions)))))
-
-(defn- context-write! [text]
-  (io/make-parents CONTEXT-OUTPUT)
-  (let [dest (.toAbsolutePath (.normalize (.toPath (io/file CONTEXT-OUTPUT))))
-        dir (.getParent dest)
-        tmp (java.nio.file.Files/createTempFile
-             dir ".north-context." ".tmp"
-             (make-array java.nio.file.attribute.FileAttribute 0))]
-    (try
-      (java.nio.file.Files/write
-       tmp
-       (.getBytes text java.nio.charset.StandardCharsets/UTF_8)
-       (into-array java.nio.file.OpenOption
-                   [java.nio.file.StandardOpenOption/WRITE
-                    java.nio.file.StandardOpenOption/TRUNCATE_EXISTING]))
-      (java.nio.file.Files/move
-       tmp dest
-       (into-array java.nio.file.CopyOption
-                   [java.nio.file.StandardCopyOption/ATOMIC_MOVE
-                    java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
-      (finally (java.nio.file.Files/deleteIfExists tmp)))))
-
-(def context-usage
-  "usage: north config context [show|on|off <section-id>|bucket on|off <bucket>|apply]")
-
-(defn- require-context-section! [sections id]
-  (when-not (some #(= id (:id %)) sections)
-    (die (str "unknown context section: " id)))
-  id)
-
-(defn- print-context []
-  (let [mode (context-mode)
-        {:keys [sections]} (context-document)
-        resolutions (context-resolutions mode sections)]
-    (println (str "context = " mode))
-    (println (str "  source " CONTEXT-SOURCE))
-    (println (str "  output " CONTEXT-OUTPUT))
-    (doseq [[{:keys [id bucket tagged?]} [verdict decided-by]] resolutions]
-      (println
-       (format "  %-24s %-7s %-3s %-8s %s"
-               id bucket verdict decided-by
-               (if tagged? "tagged" "fallback"))))))
-
-(defn cmd-context [args]
-  (let [[verb & xs] args]
-    (case (or verb "show")
-      "show"
-      (do
-        (when (seq xs) (die context-usage))
-        (print-context))
-
-      ("on" "off")
-      (let [[id & extra] xs
-            sections (:sections (context-document))]
-        (when (or (nil? id) (seq extra)) (die context-usage))
-        (require-context-section! sections id)
-        ;; Keep the byte-identical full mode in force until the specific dial is
-        ;; durable; the second atomic state write activates the gated view.
-        (put' (str "context.section." id) verb)
-        (put' "context" "gated")
-        (println (str "context section " id " → " verb " (context → gated)")))
-
-      "bucket"
-      (let [[state bucket & extra] xs]
-        (when (or (not (#{"on" "off"} state))
-                  (not (CONTEXT-BUCKETS bucket))
-                  (seq extra))
-          (die context-usage))
-        (put' (str "context.bucket." bucket) state)
-        (put' "context" "gated")
-        (println (str "context bucket " bucket " → " state " (context → gated)")))
-
-      "apply"
-      (do
-        (when (seq xs) (die context-usage))
-        (let [mode (context-mode)
-              document (context-document)
-              resolutions (context-resolutions mode (:sections document))
-              text (context-render document mode resolutions)
-              included (count (filter #(= "on" (first (second %)))
-                                      resolutions))]
-          (context-write! text)
-          (println (str "context applied → " CONTEXT-OUTPUT
-                        " (" mode ", " included "/" (count (:sections document))
-                        " sections)"))))
-
-      (die context-usage))))
 
 ;; --- shared skill projection ----------------------------------------------
 ;; The source inventory stays declarative and complete. Runtime dials select a
@@ -1487,12 +1289,7 @@
     precedence: item > category > all > default(on); coordination is excluded from all
     configure → north config hooks · north config hooks explain <hook-id>
 
- 6  CONTEXT    native provider constitution assembly
-    mode: " (context-mode) " · source: " CONTEXT-SOURCE "
-    precedence in gated mode: section > bucket > default(on)
-    configure → north config context · north config context apply
-
- 7  SKILLS     shared provider-neutral discovery projection
+ 6  SKILLS     shared provider-neutral discovery projection
     " (:summary skills-readout) " · source: " SKILLS-PROFILE "
     warnings: " (if (seq (:warnings skills-readout))
                     (str/join " · " (:warnings skills-readout)) "none") "
@@ -1501,19 +1298,19 @@
     precedence: item > category > all > default(on)
     configure → north config skills
 
- 8  COMMS      peer mail protocol
+ 7  COMMS      peer mail protocol
     base: " (:base comms-native) " · native: " (:selected comms-native) " · managed: " (:selected comms-managed) " · enforcement: " (:enforcement comms-native) "
     default db preserves the fact-backed path; file is pure Bash/coreutils; both dedupes by @msg id
     configure → north config comms
 
- 9  LEARNING   ordinary-operation exploration regime
+ 8  LEARNING   ordinary-operation exploration regime
     mode: " (:mode learning) " · evidence: " (:evidenceMode learning) " · intensity: " (:intensity learning) "
     axes: " (if (seq (:axes learning)) (str/join " · " (:axes learning)) "none") "
     frozen uses the current best-known route/prompt/interface and still records receipts
     configure → north config learning
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
- dials: [live] north config flip, effective now · [launch] env at claude launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
+ dials: [live] north config flip, effective now · [launch] env at provider launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
  state: ~/.local/state/north/harness.conf · descriptions + advice: north config help"))
     (print-provider-readouts)))
 
@@ -1536,7 +1333,7 @@
    Advice: north.
 
  3 GUARDS — the PreToolUse/SessionStart authoring guards.
-   Individually wired in ~/code/nixos-config/main/dotfiles/claude/settings.json.
+   Registered under ~/.agents/hooks and projected to active provider adapters.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
    [live] state flip (primary — effective immediately across ALL sessions,
@@ -1545,15 +1342,15 @@
      north config guards on    → removes that line (or writes guards=on)
 
    [launch] env override — single session, launch ONLY; mid-session flip
-   impossible; per-command env prefix does nothing (claude reads it at
-   start, then frozen for the session):
+   impossible; per-command env prefix does nothing after the provider harness
+   captures it at session start:
      AGENT_NO_AUTHORING_HOOKS=1 provider    authoring guards OFF this session; dispatch unchanged
      AGENT_NO_AUTHORING_HOOKS=0 provider    force-live (state ignored)
    Any non-empty value other than 0/false kills guards; 0 or false forces
    them live. This never changes native-vs-North agent topology; `north config
    dispatch` owns that independent axis. Env beats state. Semantics live in the shared lib sourced by
    every guard hook AND by this verb:
-     ~/.claude/hooks/lib/authoring-killswitch.sh
+     ~/.agents/hooks/lib/authoring-killswitch.sh
 
  4 ROUTING — durable provider selection and subscription-entitlement policy.
    Show everything with `north config routing`. Balanced allocation is the
@@ -1583,19 +1380,7 @@
    explicit deadline. `north config guards` remains the compatibility surface
    for the authoring category.
 
- 6 CONTEXT — assemble the native provider constitution from North's source.
-   The default `full` mode copies the source byte-for-byte. A section or bucket
-   change activates `gated` mode; resolution is section > bucket > default(on):
-     north config context
-     north config context on|off <section-id>
-     north config context bucket on|off <core|write|shell|orch|client|nixos|beagle>
-     north config context apply
-   `show` reports each section's effective value, provenance, and whether its
-   metadata came from a tag or the compatibility heading table. `apply`
-   atomically replaces ~/.claude/CLAUDE.md, including when it is currently a
-   symlink; the provider-neutral ~/.agents/AGENTS.md source is never mutated.
-
- 7 SKILLS — resolved shared skill discovery.
+ 6 SKILLS — resolved shared skill discovery.
    North inventories the complete source at agent-profile/skills in the current
    checkout. NORTH_SKILLS_PROFILE can select an isolated source for tests and
    tools. Optional `category:` frontmatter groups skills; a missing category
@@ -1613,7 +1398,7 @@
    The readout also proves the published farm symlink, its resolved immutable
    generation, and whether that generation is ready for provider discovery.
 
- 8 COMMS — select the peer-mail transport independently for native and managed
+ 7 COMMS — select the peer-mail transport independently for native and managed
    execution. The default is db + forced, exactly the pre-dial behavior:
      north config comms
      north config comms off|db|file|both [--native|--managed] [--forced|--biased]
@@ -1627,18 +1412,17 @@
    finite broadcast snapshots, and renewable .live presence. It deliberately
    has no durable audit trail; thread facts are unchanged.
 
- 10 PROVIDER MCP / 11 PROVIDER PLUGINS — status prints each declaration it
-   can read and its exact provider inverse command. These are provider-owned;
+ 9 CODEX MCP / 10 CODEX PLUGINS — status prints each declaration it can read
+   and its exact inverse command. These are provider-owned;
    run `north config` again after changing them.
 
- 12 CONFIG DRIFT — read-only effective capability audit.
-   `north config audit [--json]` inventories enabled shared/provider/plugin
-   skill roots with canonical provenance and collision uncertainty, then
-   compares parsed Claude/Codex MCP declarations for alignment, same-name
-   drift, and equivalent aliases. Environment and header values are never
-   printed; only their key sets and deterministic digests are exposed.
+ 11 CONFIG AUDIT — read-only effective capability audit.
+   `north config audit [--json]` inventories enabled shared/Codex plugin skill
+   roots with canonical provenance and collision uncertainty, plus parsed
+   Codex MCP declarations. Environment and header values are never printed;
+   only their key sets and deterministic digests are exposed.
 
- 9 LEARNING — bounded experimentation during ordinary managed work.
+ 8 LEARNING — bounded experimentation during ordinary managed work.
    frozen    use the current best-known control policy consistently; continue
              telemetry and content-addressed prompt/environment receipts.
    learning  deterministically explore at most one eligible axis per episode,
@@ -1839,7 +1623,6 @@
         "coord"    (cmd-coord rest)
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
-        "context"  (cmd-context rest)
         "skills"   (cmd-skills rest)
         "mcp"      (cmd-mcp rest)
         "audit"    (cmd-audit rest)
@@ -1847,7 +1630,7 @@
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|guards|hooks|context|skills|mcp|audit|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|mcp|audit|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

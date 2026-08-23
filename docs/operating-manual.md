@@ -1081,7 +1081,7 @@ a human/client work session.
 - `~/code/north/main/streams/raw/` — lossless transmission events (conversations,
   dictated thoughts, captured sessions).
 - `~/code/north/main/streams/distillations/` — tiered AI compressions of raw
-  streams. See `streams/CLAUDE.md`.
+  streams. See `streams/AGENTS.md`.
 - The deployment's configured coordination and telemetry origins — the
   canonical fact state; `threads/` is a coordination projection.
 - `~/code/north/main` — the generic engine (public source of truth); `bin/north`

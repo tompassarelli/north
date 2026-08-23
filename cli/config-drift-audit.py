@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only effective skill and cross-provider MCP configuration audit."""
+"""Read-only effective shared/Codex skill and MCP configuration audit."""
 
 from __future__ import annotations
 
@@ -18,18 +18,6 @@ from typing import Any
 HOME = Path(os.environ.get("HOME", "")).expanduser()
 SKILLS_FARM = Path(
     os.environ.get("NORTH_SKILLS_FARM", HOME / ".local/state/north/skills")
-)
-CLAUDE_SETTINGS = Path(
-    os.environ.get("NORTH_CLAUDE_SETTINGS", HOME / ".claude/settings.json")
-)
-CLAUDE_PLUGIN_LEDGER = Path(
-    os.environ.get(
-        "NORTH_CLAUDE_PLUGIN_LEDGER",
-        HOME / ".claude/plugins/installed_plugins.json",
-    )
-)
-CLAUDE_MCP_CONFIG = Path(
-    os.environ.get("NORTH_CLAUDE_MCP_CONFIG", HOME / ".claude.json")
 )
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", HOME / ".codex"))
 CODEX_CONFIG = Path(
@@ -105,11 +93,7 @@ def canonical_directory(
 
 
 def manifest_at(root: Path, provider: str, diagnostics: list[dict[str, str]]) -> dict[str, Any] | None:
-    names = (
-        (".claude-plugin/plugin.json", "plugin.json")
-        if provider == "claude"
-        else (".codex-plugin/plugin.json", "plugin.json")
-    )
+    names = (".codex-plugin/plugin.json", "plugin.json")
     manifest_path = next((root / name for name in names if (root / name).is_file()), root / names[0])
     try:
         manifest_path.resolve(strict=True).relative_to(root.resolve(strict=True))
@@ -191,7 +175,7 @@ def skill_directories(
 
 
 def frontmatter_skill_name(skill_file: Path, fallback: str) -> str:
-    """Return the invocation name Claude/Codex derive from SKILL.md."""
+    """Return the invocation name Codex derives from SKILL.md."""
     try:
         lines = skill_file.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
@@ -223,118 +207,6 @@ def frontmatter_skill_name(skill_file: Path, fallback: str) -> str:
             return fallback
         return raw
     return fallback
-
-
-def claude_manifest_skill_roots(root: Path, manifest: dict[str, Any]) -> list[Path]:
-    """Resolve Claude's additive custom skill directories without escaping the plugin."""
-    candidates = [root / "skills"]
-    declared = manifest.get("skills")
-    values = [declared] if isinstance(declared, str) else declared if isinstance(declared, list) else []
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            candidates.append(root / value.strip())
-    roots: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        if not (candidate.exists() or candidate.is_symlink()):
-            continue
-        try:
-            identity = candidate.resolve(strict=True)
-        except (OSError, RuntimeError):
-            identity = candidate.absolute()
-        if identity in seen:
-            continue
-        seen.add(identity)
-        roots.append(candidate)
-    return roots
-
-
-def claude_install_in_scope(install: Any) -> bool:
-    if not isinstance(install, dict):
-        return False
-    scope = install.get("scope")
-    if scope == "user":
-        return True
-    if scope not in {"project", "local"}:
-        return False
-    project_path = install.get("projectPath")
-    if not isinstance(project_path, str) or not Path(project_path).is_absolute():
-        return False
-    try:
-        Path.cwd().resolve(strict=True).relative_to(Path(project_path).resolve(strict=True))
-        return True
-    except (OSError, RuntimeError, ValueError):
-        return False
-
-
-def claude_plugin_skills(diagnostics: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
-    settings_state, settings = read_json(CLAUDE_SETTINGS, "claude", diagnostics)
-    ledger_state, ledger = read_json(CLAUDE_PLUGIN_LEDGER, "claude", diagnostics)
-    sources = [
-        source_record("claude-settings", CLAUDE_SETTINGS, settings_state),
-        source_record("claude-plugin-ledger", CLAUDE_PLUGIN_LEDGER, ledger_state),
-    ]
-    if settings_state != "ok" or ledger_state != "ok":
-        return [], sources
-    enabled = settings.get("enabledPlugins") if isinstance(settings, dict) else None
-    plugins = ledger.get("plugins") if isinstance(ledger, dict) else None
-    if not isinstance(enabled, dict):
-        diagnostics.append(
-            {"provider": "claude", "source": str(CLAUDE_SETTINGS), "kind": "malformed", "message": "enabledPlugins must be a JSON object"}
-        )
-        return [], sources
-    if not isinstance(plugins, dict):
-        diagnostics.append(
-            {"provider": "claude", "source": str(CLAUDE_PLUGIN_LEDGER), "kind": "malformed", "message": "plugins must be a JSON object"}
-        )
-        return [], sources
-    rows: list[dict[str, Any]] = []
-    for plugin in sorted(name for name, value in enabled.items() if value is True):
-        installs = plugins.get(plugin)
-        if not isinstance(installs, list) or not installs:
-            diagnostics.append(
-                {"provider": "claude", "source": str(CLAUDE_PLUGIN_LEDGER), "kind": "unresolved", "message": f"enabled plugin has no installed ledger entry: {plugin}"}
-            )
-            continue
-        install = next(
-            (
-                candidate
-                for candidate in reversed(installs)
-                if claude_install_in_scope(candidate)
-            ),
-            None,
-        )
-        if install is None:
-            continue
-        install_path = install.get("installPath")
-        if (
-            not isinstance(install_path, str)
-            or not install_path
-            or not Path(install_path).is_absolute()
-        ):
-            diagnostics.append(
-                {"provider": "claude", "source": str(CLAUDE_PLUGIN_LEDGER), "kind": "unresolved", "message": f"enabled plugin has no install path: {plugin}"}
-            )
-            continue
-        root = canonical_directory(Path(install_path), "claude", plugin, diagnostics)
-        if root is None:
-            continue
-        manifest = manifest_at(root, "claude", diagnostics)
-        if manifest is None:
-            continue
-        for skills in claude_manifest_skill_roots(root, manifest):
-            rows.extend(
-                skill_directories(
-                    skills,
-                    "claude",
-                    plugin,
-                    str(install.get("scope") or "unknown"),
-                    diagnostics,
-                    contain_in=root,
-                    include_self=True,
-                )
-            )
-    return rows, sources
 
 
 def codex_plugin_inventory(diagnostics: list[dict[str, str]]) -> tuple[str, Any, str]:
@@ -457,11 +329,8 @@ def skill_audit() -> dict[str, Any]:
             )
         )
 
-    claude_rows, claude_sources = claude_plugin_skills(diagnostics)
     codex_rows, codex_sources = codex_plugin_skills(diagnostics)
-    entries.extend(claude_rows)
     entries.extend(codex_rows)
-    sources.extend(claude_sources)
     sources.extend(codex_sources)
 
     entries = list(
@@ -528,8 +397,8 @@ def normalized_mcp(provider: str, name: str, value: Any, source: Path) -> dict[s
     declared_type = str(value.get("type", "")).lower()
     http = bool(value.get("url")) or declared_type in {"http", "sse", "streamable-http"}
     if http:
-        headers = value.get("headers", {}) if provider == "claude" else value.get("http_headers", {})
-        env_headers = value.get("envHeaders", {}) if provider == "claude" else value.get("env_http_headers", {})
+        headers = value.get("http_headers", {})
+        env_headers = value.get("env_http_headers", {})
         identity = {
             "enabled": enabled,
             "transport": "sse" if declared_type == "sse" else "http",
@@ -542,7 +411,7 @@ def normalized_mcp(provider: str, name: str, value: Any, source: Path) -> dict[s
         arguments = value.get("args", [])
         if not isinstance(arguments, list):
             raise ValueError("args must be an array")
-        forwarded_environment = value.get("env_vars", []) if provider == "codex" else []
+        forwarded_environment = value.get("env_vars", [])
         if not isinstance(forwarded_environment, list) or not all(
             isinstance(item, str) for item in forwarded_environment
         ):
@@ -575,8 +444,7 @@ def mcp_source(
     source = source_record(provider, path, state)
     if state != "ok":
         return [], source
-    key = "mcpServers" if provider == "claude" else "mcp_servers"
-    servers = document.get(key, {}) if isinstance(document, dict) else None
+    servers = document.get("mcp_servers", {}) if isinstance(document, dict) else None
     if not isinstance(servers, dict):
         diagnostics.append(
             {"provider": provider, "source": str(path), "kind": "malformed", "message": "MCP server table is missing or not an object"}
@@ -596,82 +464,11 @@ def mcp_source(
 
 def mcp_audit() -> dict[str, Any]:
     diagnostics: list[dict[str, str]] = []
-    claude, claude_source = mcp_source("claude", CLAUDE_MCP_CONFIG, read_json, diagnostics)
     codex, codex_source = mcp_source("codex", CODEX_CONFIG, read_toml, diagnostics)
-    rows = claude + codex
-    by_provider = {
-        "claude": {row["name"]: row for row in claude},
-        "codex": {row["name"]: row for row in codex},
-    }
-    aliases = []
-    for left in claude:
-        for right in codex:
-            if left["name"] != right["name"] and left["identityDigest"] == right["identityDigest"]:
-                aliases.append(
-                    {
-                        "state": "equivalent-alias",
-                        "claude": {"name": left["name"], "source": left["source"]},
-                        "codex": {"name": right["name"], "source": right["source"]},
-                        "identityDigest": left["identityDigest"],
-                    }
-                )
-    comparisons = []
-    fields = (
-        "enabled",
-        "transport",
-        "command",
-        "arguments",
-        "workingDirectory",
-        "endpoint",
-        "environment",
-        "forwardedEnvironmentVariables",
-        "headers",
-        "environmentHeaders",
-        "bearerTokenEnvironmentVariable",
-    )
-    for name in sorted(set(by_provider["claude"]) | set(by_provider["codex"])):
-        left = by_provider["claude"].get(name)
-        right = by_provider["codex"].get(name)
-        if left and right:
-            differences = [
-                field
-                for field in fields
-                if left["normalized"].get(field) != right["normalized"].get(field)
-            ]
-            comparisons.append(
-                {
-                    "name": name,
-                    "state": "aligned" if not differences else "same-name-drift",
-                    "differences": differences,
-                    "claudeSource": left["source"],
-                    "codexSource": right["source"],
-                }
-            )
-            continue
-        present = left or right
-        provider = present["provider"]
-        opposite = "codex" if provider == "claude" else "claude"
-        equivalent = sorted(
-            row["name"]
-            for row in by_provider[opposite].values()
-            if row["identityDigest"] == present["identityDigest"]
-        )
-        comparisons.append(
-            {
-                "name": name,
-                "state": "equivalent-alias" if equivalent else f"{provider}-only",
-                "provider": provider,
-                "source": present["source"],
-                "equivalentNames": equivalent,
-                "certainty": "uncertain" if diagnostics else "complete",
-            }
-        )
     return {
         "state": "partial" if diagnostics else "complete",
-        "sources": [claude_source, codex_source],
-        "servers": sorted(rows, key=lambda row: (row["name"], row["provider"])),
-        "comparisons": comparisons,
-        "aliases": aliases,
+        "sources": [codex_source],
+        "servers": sorted(codex, key=lambda row: row["name"]),
         "diagnostics": diagnostics,
     }
 
@@ -699,24 +496,9 @@ def render_skills(report: dict[str, Any]) -> None:
 
 
 def render_mcp(report: dict[str, Any]) -> None:
-    print("CROSS-PROVIDER MCP")
-    if not report["comparisons"]:
+    print("CODEX MCP DECLARATIONS")
+    if not report["servers"]:
         print("  (no readable declarations)")
-    for row in report["comparisons"]:
-        if row["state"] == "same-name-drift":
-            print(f'  {row["name"]}  SAME-NAME DRIFT  fields={",".join(row["differences"])}')
-        elif row["state"] == "aligned":
-            print(f'  {row["name"]}  aligned')
-        elif row["state"] == "equivalent-alias":
-            print(
-                f'  {row["name"]}  equivalent alias  '
-                f'{row["provider"]}→{",".join(row["equivalentNames"])}'
-            )
-        else:
-            print(
-                f'  {row["name"]}  {row["state"]}  certainty={row["certainty"]}  '
-                f'{short_path(row["source"])}'
-            )
     for server in report["servers"]:
         identity = server["normalized"]
         protected = []
