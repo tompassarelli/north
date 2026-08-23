@@ -107,15 +107,9 @@ const command = (
 const nativeCommand = (
   path: string,
   timeout = 10,
-  managedDir = CODEX_MANAGED_HOOKS_DIR,
 ): ManagedCommandHook => ({
   type: "command",
-  command: [
-    resolve(managedDir, "runtime/env"),
-    "-u", "BASH_ENV",
-    "-u", "ENV",
-    path,
-  ].join(" "),
+  command: path,
   timeout,
 });
 
@@ -129,9 +123,11 @@ const nativeCommand = (
  * pinned native lifecycle scripts with provider=openai. Reusing the native
  * scripts directly here would mint a duplicate session-* identity for one lane.
  *
- * launch-critical-worktree-guard.sh is wired on BOTH authoring matchers on
+ * launch-critical-worktree-guard.sh is wired on both mutation entrances on
  * purpose: apply_patch carries tool_input.file_path, Bash carries
  * tool_input.command, and enforcement on one entrance is not enforcement.
+ * Firn's native system policy has its own Edit/Write/MultiEdit matcher because
+ * it does not receive Codex's apply_patch envelope.
  */
 export function expectedManagedCodexHooks(
   managedDir = CODEX_MANAGED_HOOKS_DIR,
@@ -161,17 +157,18 @@ export function expectedManagedCodexHooks(
       },
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
-        hooks: [
-          command("launch-critical-worktree-guard.sh", 10, managedDir),
-          nativeCommand(systemPolicyPath, 10, managedDir),
-        ],
+        hooks: [command("launch-critical-worktree-guard.sh", 10, managedDir)],
+      },
+      {
+        matcher: "^(Edit|Write|MultiEdit)$",
+        hooks: [nativeCommand(systemPolicyPath)],
       },
       {
         matcher: "^Bash$",
         hooks: [
           command("agent-spawn-guard.sh", 10, managedDir),
           command("tripwire-guard.sh", 10, managedDir),
-          nativeCommand(systemPolicyPath, 10, managedDir),
+          nativeCommand(systemPolicyPath),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
