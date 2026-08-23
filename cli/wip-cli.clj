@@ -101,7 +101,8 @@
        (update-in state [:reservations subject predicate]
                   (fnil conj #{}) value)
 
-       (and (= predicate :kernel/lease)
+       (and (string? subject)
+            (= predicate :kernel/lease)
             (str/starts-with? subject "session:"))
        (update state :work conj [subject predicate value])
 
@@ -154,7 +155,8 @@
 (defn live-controls-from-rows [rows now-ms]
   (->> rows
        (filter (fn [[subject predicate _]]
-                 (and (= predicate :kernel/lease)
+                 (and (string? subject)
+                      (= predicate :kernel/lease)
                       (str/starts-with? subject "session:"))))
        (group-by first)
        (map (fn [[subject leases]]

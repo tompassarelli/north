@@ -150,6 +150,8 @@
        (empty?
         (north.wip-cli/live-controls-from-rows
          [["session:broken" :kernel/lease "bad"]
+          [(store.types/triple "nested" "resource" "id") :kernel/lease
+           (store.types/triple "nested" :kernel/expires-at 2000000000000)]
           ["session:wrong" :kernel/lease
            (store.types/triple "somebody-else" :kernel/expires-at 2000000000000)]
           ["session:duplicate" :kernel/lease
