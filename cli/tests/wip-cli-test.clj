@@ -146,22 +146,21 @@
               (= north.projections/unresolved (activity idx "@unresolved"))
               (= north.projections/unresolved (activity idx "@conflict")))))
 
-(check "malformed or conflicting session leases fail the WIP projection closed"
-       (and
-        (try
-          (north.wip-cli/live-controls-from-rows
-           [["session:broken" :kernel/lease "bad"]] now-ms)
-          false
-          (catch clojure.lang.ExceptionInfo _ true))
-        (try
-          (north.wip-cli/live-controls-from-rows
-           [["session:duplicate" :kernel/lease
-             (store.types/triple "duplicate" :kernel/expires-at 2000000000000)]
-            ["session:duplicate" :kernel/lease
-             (store.types/triple "duplicate" :kernel/expires-at 3000000000000)]]
-           now-ms)
-          false
-          (catch clojure.lang.ExceptionInfo _ true))))
+(check "malformed, mismatched, or duplicate session leases prove no live control"
+       (empty?
+        (north.wip-cli/live-controls-from-rows
+         [["session:broken" :kernel/lease "bad"]
+          ["session:wrong" :kernel/lease
+           (store.types/triple "somebody-else" :kernel/expires-at 2000000000000)]
+          ["session:duplicate" :kernel/lease
+           (store.types/triple "duplicate" :kernel/expires-at 2000000000000)]
+          ["session:duplicate" :kernel/lease
+           (store.types/triple "duplicate" :kernel/expires-at 3000000000000)]
+          ["session:repeated" :kernel/lease
+           (store.types/triple "repeated" :kernel/expires-at 2000000000000)]
+          ["session:repeated" :kernel/lease
+           (store.types/triple "repeated" :kernel/expires-at 2000000000000)]]
+         now-ms)))
 
 (let [coordination-rows
       [["@work" "title" "new \"quoted\" title"]

@@ -139,31 +139,28 @@
    {}
    reservations))
 
-(defn session-lease-control! [subject lease now-ms]
+(defn session-lease-control [subject lease now-ms]
   (when (str/starts-with? subject "session:")
     (let [handle (subs subject (count "session:"))]
-      (when-not (and (not (str/blank? handle))
-                     (t/triple? lease)
-                     (= handle (t/triple-t1 lease))
-                     (= :kernel/expires-at (t/triple-t2 lease))
-                     (integer? (t/triple-t3 lease))
-                     (<= 0 (t/triple-t3 lease)))
-        (throw (ex-info "WIP session lease evidence is malformed"
-                        {:subject subject})))
-      (when (> (t/triple-t3 lease) now-ms) handle))))
+      (when (and (not (str/blank? handle))
+                 (t/triple? lease)
+                 (= handle (t/triple-t1 lease))
+                 (= :kernel/expires-at (t/triple-t2 lease))
+                 (integer? (t/triple-t3 lease))
+                 (<= 0 (t/triple-t3 lease))
+                 (> (t/triple-t3 lease) now-ms))
+        handle))))
 
 (defn live-controls-from-rows [rows now-ms]
   (->> rows
        (filter (fn [[subject predicate _]]
                  (and (= predicate :kernel/lease)
                       (str/starts-with? subject "session:"))))
-       distinct
        (group-by first)
        (map (fn [[subject leases]]
-              (when-not (= 1 (count leases))
-                (throw (ex-info "WIP session has conflicting lease evidence"
-                                {:subject subject})))
-              (session-lease-control! subject (nth (first leases) 2) now-ms)))
+              (when (= 1 (count leases))
+                (session-lease-control
+                 subject (nth (first leases) 2) now-ms))))
        (keep identity)
        sort
        vec))
