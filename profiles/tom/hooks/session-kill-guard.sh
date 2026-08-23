@@ -16,7 +16,7 @@
 # jobs a shared 48G hard ceiling. Quoted mentions in commit messages and
 # heredoc bodies stay allowed: only a command-position invocation is denied.
 #
-# Kill-switch: persistent `north config guards off` (activation) OR env
+# Kill-switch: persistent `north config agents off session-kill-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================
@@ -350,7 +350,8 @@ if hit is not None:
         " or a unique pattern (`pkill -f '<unique-pattern>'`); manage your own "
         "units by exact name. Session/compositor teardown is the operator's call. "
         "Prose that mentions these phrases is unaffected — only a command-position "
-        "invocation is denied. Rare explicit override: `north config guards off` "
+        "invocation is denied. Rare explicit override: "
+        "`north config agents off session-kill-guard` "
         "(persistent, live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
     ) % hit
 else:

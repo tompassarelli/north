@@ -634,24 +634,11 @@
   {:summary (skills-summary) :warnings []})
 
 (def skills-usage
-  "usage: north config skills [list|on|off <skill-id>|category on|off <category>|all on|off|sync]")
+  "usage: north config skills [list]")
 
 (defn- agent-activation []
   (or (north.agent-catalog/current-activation)
       (north.agent-catalog/compile-activation (north.agent-catalog/load-catalog))))
-
-(defn- agent-skills []
-  (filterv #(= "skill" (get % "kind")) (get (agent-activation) "units")))
-
-(defn- require-skill! [inventory id]
-  (when-not (some #(= id (get % "id")) inventory)
-    (die (str "unknown skill: " id)))
-  id)
-
-(defn- require-skill-category! [inventory category]
-  (when-not (some #(= category (get % "category")) inventory)
-    (die (str "unknown skill category: " category)))
-  category)
 
 (defn- print-agent-skills []
   (let [activation (agent-activation)
@@ -679,48 +666,6 @@
         (print-agent-skills)
         (println)
         (run-config-drift-audit! "--section" "skills"))
-
-      ("on" "off")
-      (let [[id & extra] xs]
-        (when (or (nil? id) (seq extra)) (die skills-usage))
-        (let [inventory (agent-skills)]
-          (require-skill! inventory id)
-          (north.agent-catalog/change-permissions! {id verb})
-          (println (str "skill " id " → " verb " (skills synchronized)"))))
-
-      "category"
-      (let [[state category & extra] xs]
-        (when (or (not (#{"on" "off"} state))
-                  (nil? category)
-                  (seq extra))
-          (die skills-usage))
-        (let [inventory (agent-skills)]
-          (require-skill-category! inventory category)
-          (north.agent-catalog/change-permissions!
-           (into {} (map (fn [unit] [(get unit "id") state]))
-                 (filter #(= category (get % "category")) inventory)))
-          (println (str "skill category " category " → " state
-                        " (skills synchronized)"))))
-
-      "all"
-      (let [[state & extra] xs]
-        (when (or (not (#{"on" "off"} state)) (seq extra))
-          (die skills-usage))
-        (north.agent-catalog/change-permissions!
-         (into {} (map (fn [unit] [(get unit "id") state])) (agent-skills)))
-        (println (str "skills all → " state " (skills synchronized)")))
-
-      "sync"
-      (do
-        (when (seq xs) (die skills-usage))
-        (let [activation (north.agent-catalog/sync!)]
-          (println (str "skills synchronized → " (north.agent-catalog/agents-root)
-                        "/current/skills/shared ("
-                        (count (filter #(and (= "skill" (get % "kind"))
-                                             (get % "active"))
-                                       (get activation "units")))
-                        " active)"))))
-
       (die skills-usage))))
 
 ;; --- communications protocol ---------------------------------------------
@@ -902,7 +847,7 @@
  3  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
     " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-system-policy") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "beagle-session-start") " beagle-session
-    [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
+    [live]   permissions → north config agents on|off <guard-UnitId>   (persists; dispatch remains independent)
     [launch] one session → AGENT_NO_AUTHORING_HOOKS=1 provider   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
 
  4  ROUTING    provider targets + entitlement envelopes
@@ -912,7 +857,8 @@
     policy: " ROUTING-POLICY "
 
  5  HOOKS      catalog activation   [" (hooks-summary) "]
-    configure → north config hooks · north config agents inspect <hook-id>
+    view → north config hooks · inspect → north config agents inspect <hook-id>
+    permission → north config agents on|off <hook-id>
 
  6  SKILLS     shared provider-neutral discovery projection
     " (:summary skills-readout) " · source: " (north.agent-catalog/catalog-path) "
@@ -921,7 +867,7 @@
     farm: " (north.agent-catalog/agents-root) "/current/skills/shared
     published: " (skills-publication-summary) "
     one UnitId permission authority
-    configure → north config skills
+    view → north config skills · permission → north config agents on|off <skill-id>
 
  7  COMMS      peer mail protocol
     base: " (:base comms-native) " · native: " (:selected comms-native) " · managed: " (:selected comms-managed) " · enforcement: " (:enforcement comms-native) "
@@ -959,12 +905,12 @@
 
  3 GUARDS — the PreToolUse/SessionStart authoring guards.
    Registered in the global catalog and materialized as generated provider adapters.
-   Kill-switch is VALUE-AWARE and has two surfaces:
+   The persistent CLI has one UnitId mutation surface:
 
-   [live] catalog permission flip (effective across ALL sessions; hooks read
-   the current activation generation on every call):
-     north config guards off
-     north config guards on
+   [live] catalog permission flip (hooks read the current activation generation
+   on every call):
+     north config agents off <guard-UnitId>
+     north config agents on <guard-UnitId>
 
    [launch] env override — single session, launch ONLY; mid-session flip
    impossible; per-command env prefix does nothing after the provider harness
@@ -991,25 +937,22 @@
    sessions. No API keys, credit balances, prices, or dollars live
    in this policy.
 
- 5 HOOKS — thin batch and status views over agent activation.
+ 5 HOOKS — read-only filtered views over agent activation.
    List resolved state and provenance:
      north config hooks
      north config hooks explain <hook-id>
-   Mutate one hook or a batch through the same UnitId authority:
-     north config hooks on|off <hook-id>
-     north config hooks category on|off <category>
-     north config hooks all on|off
-   `north config guards` is the authoring-hook batch client. Hook activation
-   permission is durable until its next explicit change.
+     north config sets
+   Mutate exactly one hook through the UnitId authority:
+     north config agents on|off <hook-id>
+   `north config guards` is a read-only authoring-hook view. Hook activation
+   permission is durable until its next explicit UnitId change.
 
  6 SKILLS — resolved shared skill discovery.
    North reads `north:agent-catalog/catalog.json`; it never scans projects.
      north config skills
-     north config skills on|off <skill-id>
-     north config skills category on|off <category>
-     north config skills all on|off
-     north config skills sync
-   Every mutation materializes a complete immutable generation and atomically
+     north config agents on|off <skill-id>
+     north config agents sync
+   Every UnitId mutation materializes a complete immutable generation and atomically
    replaces ~/.local/state/north/agents/current. Provider-owned system and
    plugin skills remain outside the shared user farm.
 
@@ -1102,7 +1045,7 @@
     (die "usage: north config coord [north|linear|both]")))
 
 (def hooks-usage
-  "usage: north config hooks [list|explain <hook-id>|on|off <hook-id>|category on|off <category>|all on|off]")
+  "usage: north config hooks [list|explain <hook-id>]")
 
 (defn- agent-hooks []
   (filterv #(= "hook" (get % "kind")) (get (agent-activation) "units")))
@@ -1110,10 +1053,6 @@
 (defn- require-hook! [id]
   (or (some #(when (= id (get % "id")) %) (agent-hooks))
       (die (str "unknown hook: " id))))
-
-(defn- parse-hook-permission! [state args]
-  (when (or (not (#{"on" "off"} state)) (seq args)) (die hooks-usage))
-  state)
 
 (defn- print-hooks []
   (doseq [hook (agent-hooks)]
@@ -1125,14 +1064,6 @@
              (str (get-in hook ["owner" "repo"]) ":"
                   (get-in hook ["owner" "path"]))))))
 
-(defn- mutate-hook-batch! [hooks permission label]
-  (when-not (seq hooks) (die (str "no hooks matched " label)))
-  (let [activation
-        (north.agent-catalog/change-permissions!
-         (into {} (map (fn [hook] [(get hook "id") permission])) hooks))]
-    (println (str label " → " permission " · generation "
-                  (get activation "generationId")))))
-
 (defn cmd-hooks [args]
   (let [[verb & xs] args]
     (case (or verb "list")
@@ -1141,34 +1072,17 @@
                   (when (or (nil? id) (seq extra)) (die hooks-usage))
                   (let [hook (require-hook! id)]
                     (println (json/generate-string hook {:pretty true}))))
-      ("on" "off")
-      (let [[id & extra] xs
-            hook (require-hook! id)
-            permission (parse-hook-permission! verb extra)]
-        (mutate-hook-batch! [hook] permission (str "hook " id)))
-      "category"
-      (let [[state category & extra] xs
-            permission (parse-hook-permission! state extra)
-            hooks (filterv #(= category (get % "category")) (agent-hooks))]
-        (mutate-hook-batch! hooks permission (str "hook category " category)))
-      "all"
-      (let [[state & extra] xs
-            permission (parse-hook-permission! state extra)]
-        (mutate-hook-batch! (agent-hooks) permission "hooks all"))
       (die hooks-usage))))
 
 (defn cmd-guards [[sub & extra]]
-  (when (or (seq extra) (and sub (not (#{"on" "off"} sub))))
-    (die "usage: north config guards [on|off]"))
+  (when (or sub (seq extra))
+    (die "usage: north config guards"))
   (let [hooks (filterv #(= "authoring" (get % "category")) (agent-hooks))]
-    (if sub
-      (mutate-hook-batch! hooks sub "authoring guards")
-      (do
-        (println (str "authoring guards: " (effective-ks)))
-        (doseq [hook hooks]
-          (println (str "  " (get hook "id") " · "
-                        (get hook "permission") " · "
-                        (if (get hook "active") "active" "inactive"))))))))
+    (println (str "authoring guards: " (effective-ks)))
+    (doseq [hook hooks]
+      (println (str "  " (get hook "id") " · "
+                    (get hook "permission") " · "
+                    (if (get hook "active") "active" "inactive"))))))
 (defn cmd-audit [args]
   (when-not (or (empty? args) (= ["--json"] (vec args)))
     (die "usage: north config audit [--json]"))

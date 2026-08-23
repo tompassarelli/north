@@ -41,7 +41,8 @@
 #   blocks work when it is itself broken is worse than the leak it prevents.
 #
 # KILL-SWITCH (opt-out, consistent with the other authoring guards)
-#   `north config guards off`, or launch with AGENT_NO_AUTHORING_HOOKS set to
+#   `north config agents off launch-critical-worktree-guard`, or launch with
+#   AGENT_NO_AUTHORING_HOOKS set to
 #   anything but 0/false. Do NOT un-wire it from settings.json.
 # ============================================================================
 set -uo pipefail

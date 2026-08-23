@@ -120,10 +120,10 @@ through the chosen provider's catalog. See
 
 ## Emergency recovery
 
-`north panic` is a Bash-only kill switch that works when babashka, Beagle Store, or the
-Store RPC server are unavailable. It writes `dispatch=native` and `guards=off` to
+`north panic` is a Bash-only recovery path that works when babashka, Beagle Store, or the
+Store RPC server are unavailable. It writes `dispatch=native` to
 `~/.local/state/north/harness.conf`, preserves the other keys, and prints the
-exact restore commands. Use it to return to stock native operation while
+exact restore command. Use it to return to stock native operation while
 repairing North, not as a routine posture change — `north config` is the
 routine surface.
 

@@ -46,11 +46,11 @@ set_state() {
     auto) action=allow; admission=allow ;;
     *) action=invalid; admission=invalid ;;
   esac
-  printf 'dispatch=%s\nguards=%s\n' "$1" "$2" >"$SCRATCH/home/.local/state/north/harness.conf"
+  printf 'dispatch=%s\n' "$1" >"$SCRATCH/home/.local/state/north/harness.conf"
   printf '%s\n' "$action" >"$NORTH_DISPATCH_TEST_ACTION_FILE"
   printf '%s\n' "$admission" >"$NORTH_DISPATCH_TEST_ADMISSION_FILE"
 }
-set_state managed on
+set_state managed
 
 # run EXPECT DESCRIPTION TOPOLOGY TOOL PAYLOAD [ENV]
 # EXPECT: allow | deny | silent. TOPOLOGY: worker | orchestrator | unset.
@@ -102,11 +102,11 @@ run deny 'direct SDK spawn entrypoint' worker Bash 'bun run /home/tom/code/north
 run deny 'direct SDK dispatch entrypoint' worker Bash 'bun /home/tom/code/north/main/sdk/src/dispatch.ts thread-1'
 run deny 'repo-relative SDK spawn entrypoint' worker Bash 'bun run sdk/src/spawn.ts "do work"'
 run deny 'direct command-envelope peer control' worker Bash 'bb ~/code/north/main/cli/msg-cli.clj 7977 send-cmd me lane-1 spawn "{:prompt \"x\"}"'
-run deny 'worker cannot disable its own guards' worker Bash 'north config guards off'
+run deny 'worker cannot disable an agent UnitId' worker Bash 'north config agents off agent-spawn-guard'
 run deny 'worker cannot weaken dispatch policy' worker Bash 'env north config dispatch native'
 run deny 'worker cannot mutate routing policy' worker Bash 'north config routing mode preferential'
-run deny 'direct config CLI cannot disable guards' worker Bash 'bb ~/code/north/main/cli/config-cli.clj guards off'
-run deny 'worker cannot synchronize skills projection' worker Bash 'north config skills sync'
+run deny 'direct config CLI cannot disable a UnitId' worker Bash 'bb ~/code/north/main/cli/config-cli.clj agents off agent-spawn-guard'
+run deny 'worker cannot synchronize agent projection' worker Bash 'north config agents sync'
 run deny 'ambiguous config forms fail closed' worker Bash 'north config future-axis'
 run allow 'ordinary North message remains available' worker Bash 'bb ~/code/north/main/cli/msg-cli.clj 7977 send me lane-1 progress "done"'
 run allow 'spawn dry-run composes but does not launch' worker Bash 'north spawn integrator "probe" --dry-run'
@@ -114,6 +114,8 @@ run allow 'msg dry-run does not command peer' worker Bash 'north msg lane-1 "pro
 run deny 'goal has no dry-run contract' worker Bash 'north goal lane-1 "probe" --dry-run'
 run allow 'North config report remains available' worker Bash 'north config'
 run allow 'North guard status remains available' worker Bash 'north config guards'
+run allow 'North set view remains available' worker Bash 'north config sets'
+run allow 'North filtered agent view remains available' worker Bash 'north config agents hooks --json'
 run allow 'North routing configuration remains available' worker Bash 'north config routing show'
 run allow 'North learning report remains available' worker Bash 'north config learning'
 run allow 'North hook explanation remains available' worker Bash 'north config hooks explain agent-spawn-guard'
@@ -176,7 +178,7 @@ run deny 'Claude continue session without prompt' worker Bash 'claude --continue
 echo '== command-position anchoring and compound shell syntax =='
 run deny 'spawn after && separator' worker Bash 'printf ready && north spawn executor "work"'
 run deny 'delegate after || separator' worker Bash 'false || north delegate "work"'
-run deny 'guard mutation after separator' worker Bash 'north show thread-1; north config guards off'
+run deny 'UnitId mutation after separator' worker Bash 'north show thread-1; north config agents off agent-spawn-guard'
 run deny 'spawn after pipeline' worker Bash 'printf prompt | codex exec -'
 run deny 'spawn on next line' worker Bash $'printf ready\nnorth spawn executor "work"'
 run deny 'spawn in command substitution' worker Bash 'printf "%s" "$(north spawn executor work)"'
@@ -185,7 +187,7 @@ run deny 'spawn in explicit shell -c' worker Bash 'bash -c "north spawn executor
 run deny 'spawn in login-shell option cluster' worker Bash 'bash -lc "north spawn implementer work"'
 run deny 'delegate in errexit-shell option cluster' worker Bash 'bash -ec "north delegate work"'
 run deny 'provider turn in trace-shell option cluster' worker Bash 'sh -xc "codex exec work"'
-run deny 'guard mutation in wrapped login shell' worker Bash 'env bash -lc "north config guards off"'
+run deny 'UnitId mutation in wrapped login shell' worker Bash 'env bash -lc "north config agents off agent-spawn-guard"'
 run deny 'spawn in timeout-wrapped login shell' worker Bash 'timeout 5s bash -lc "north spawn implementer work"'
 run deny 'provider turn in sudo-wrapped shell cluster' worker Bash 'sudo -u tom sh -ec "codex exec work"'
 run deny 'fish long command option' worker Bash 'fish --command "north spawn implementer work"'
@@ -246,21 +248,21 @@ run allow 'untopologized session may create an admitted North lane' unset Bash '
 run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn implementer work'
 
 echo '== canonical dispatch surfaces =='
-set_state native on
+set_state native
 run deny 'dispatch=native does not waive worker topology' worker Bash 'north spawn implementer work'
 run deny 'dispatch=native denies North lane creation' orchestrator Bash 'north spawn implementer work'
 run silent 'dispatch=native admits provider-native Agent' unset Agent 'native work'
 run allow 'dispatch=native admits provider-native shell turn' orchestrator Bash 'codex exec work'
 run deny 'dispatch=native catches North lane after provider turn' orchestrator Bash 'codex exec work && north spawn implementer work'
 run deny 'dispatch=native catches wrapped North lane after provider turn' orchestrator Bash 'bash -c "codex exec work && north spawn implementer work"'
-set_state managed on
+set_state managed
 run deny 'dispatch=managed does not waive worker topology' worker Bash 'north spawn implementer work'
 run allow 'dispatch=managed admits North lane creation' orchestrator Bash 'north spawn implementer work'
 run deny 'dispatch=managed redirects provider-native Agent' unset Agent 'native work'
 run deny 'dispatch=managed redirects provider-native shell turn' orchestrator Bash 'codex exec work'
 run deny 'dispatch=managed catches provider turn after North lane' orchestrator Bash 'north spawn implementer work && codex exec work'
 run deny 'dispatch=managed catches wrapped provider turn after North lane' orchestrator Bash 'bash -c "north spawn implementer work && codex exec work"'
-set_state auto on
+set_state auto
 run deny 'dispatch=auto does not waive worker topology' worker Bash 'north spawn implementer work'
 run allow 'dispatch=auto admits system-selected North lane creation' orchestrator Bash 'north spawn implementer work'
 run silent 'dispatch=auto admits system-selected provider-native Agent' unset Agent 'native work'
@@ -269,7 +271,7 @@ run allow 'dispatch=auto admits system-selected provider-native shell turn' orch
 run silent 'dispatch=auto admits system-selected Task without nudge' unset Task 'native work'
 
 echo '== native Orchestration redirect preserves the complete routing contract =='
-set_state managed on
+set_state managed
 routing_input="$(jq -nc --arg d "$REPO" '{
   tool_name:"Agent",
   tool_input:{subagent_type:"orchestration:integrator",prompt:"integrate the seam"},
@@ -317,14 +319,11 @@ fi
 
 echo '== topology policy is independent of authoring kill-switches =='
 run deny 'AGENT_NO_AUTHORING_HOOKS cannot disable worker topology' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=1
-set_state managed off
-run deny 'persistent guards=off cannot disable worker topology' worker Bash 'north spawn implementer work'
-run deny 'persistent guards=off cannot defeat dispatch=managed redirect' unset Agent 'native work'
 run deny 'AGENT_NO_AUTHORING_HOOKS=0 leaves topology live' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=0
-set_state native off
-run allow 'dispatch=native remains deliberate native-agent escape with guards=off' unset Agent 'native work'
+set_state native
+run allow 'dispatch=native remains deliberate native-agent escape' unset Agent 'native work'
 run deny 'dispatch=native still cannot waive North worker topology' worker Bash 'north spawn implementer work'
-set_state managed on
+set_state managed
 
 echo '== shared dispatch action contract fails loud =='
 printf '%s\n' invalid >"$NORTH_DISPATCH_TEST_ACTION_FILE"

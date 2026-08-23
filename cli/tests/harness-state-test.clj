@@ -88,12 +88,12 @@
            (and (zero? (:exit dashboard))
                 (= "managed" (str/trim (:out dashboard))))))
 
-  (spit canonical "dispatch=surprise\nguards=off\n")
+  (spit canonical "dispatch=surprise\ncustom=preserved\n")
   (let [bad-read (try (north.harness-state/get-dispatch-mode home-path) false
                       (catch Exception error
                         (str/includes? (.getMessage error) "invalid dispatch mode")))
         unrelated-write (try
-                          (north.harness-state/put-value! home-path "guards" "on")
+                          (north.harness-state/put-value! home-path "custom" "updated")
                           false
                           (catch Exception error
                             (str/includes? (.getMessage error) "invalid dispatch mode")))]
@@ -102,7 +102,8 @@
   (north.harness-state/put-value! home-path "dispatch" "native")
   (check "a valid dispatch write recovers invalid persisted state"
          (and (= "native" (north.harness-state/get-dispatch-mode home-path))
-              (= "native" (north.harness-state/get-value home-path "dispatch" nil))))
+              (= "native" (north.harness-state/get-value home-path "dispatch" nil))
+              (= "preserved" (north.harness-state/get-value home-path "custom" nil))))
 
   (let [bad-key (try (north.harness-state/put-value! home-path "bad\nkey" "x") false
                      (catch Exception _ true))

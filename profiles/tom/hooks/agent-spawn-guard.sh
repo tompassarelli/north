@@ -20,8 +20,8 @@
 # State:       read only through `${NORTH_HOME}/bin/north config dispatch` machine
 #              probes; flip via `north config dispatch <mode>`
 # Escape:      `north config dispatch native`. Agent topology is coordination
-#              policy, not an authoring guard, so the general guards=off switch
-#              and its session aliases do not disable this hook.
+#              policy, not an authoring guard, so authoring-hook permissions
+#              and their session override do not disable this hook.
 # ============================================================================
 set -uo pipefail
 
@@ -566,6 +566,7 @@ def north_config_mutation(args):
         ("beagle",), ("beagle", "list"),
         ("guards",),
         ("hooks",), ("hooks", "list"),
+        ("sets",), ("sets", "list"),
         ("context",), ("context", "show"),
         ("skills",), ("skills", "list"),
         ("comms",), ("comms", "show"), ("comms", "doctor"),
@@ -576,6 +577,15 @@ def north_config_mutation(args):
         return None
     if len(form) == 3 and form[:2] == ("hooks", "explain"):
         return None
+    if form[:1] == ("agents",) and form.count("--json") <= 1:
+        agent_form = tuple(token for token in form[1:] if token != "--json")
+        if (agent_form in {
+                (), ("status",), ("skills",), ("skills", "list"),
+                ("hooks",), ("hooks", "list"), ("sets",), ("sets", "list"),
+            }
+                or (len(agent_form) == 2
+                    and agent_form[0] in ("path", "inspect"))):
+            return None
     return "north config mutation"
 
 def is_direct_spawn(command, args, cwd):

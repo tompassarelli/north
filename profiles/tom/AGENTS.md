@@ -331,7 +331,8 @@ a finished lane's shell never lingers.
   the dirty state intact to `<container>/worktrees/rescue-<ts>` and restores
   main to clean.
   Genuine git surgery on a main rides the deliberate bypass
-  (`north config guards off`), stated aloud, guards back on after.
+  (`north config agents off launch-critical-worktree-guard`), stated aloud,
+  with that UnitId restored after.
   Out-of-footprint anomalies: one sentence or a `north capture`, never an
   inline investigation.
 - **Billing: subscription entitlements only, never API credits** — NEVER

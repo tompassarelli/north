@@ -214,7 +214,7 @@ run deny 'bounded find -mtime +30 -delete under personal data' \
   'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
 case "$LAST_OUT" in *bounded*) pass=$((pass + 1)); echo 'PASS  deny   reason says bounded, not whole-tree' ;;
   *) fail=$((fail + 1)); printf 'FAIL  deny   reason says bounded (got: %s)\n' "$LAST_OUT" ;; esac
-case "$LAST_OUT" in *'north config guards off'*) pass=$((pass + 1)); echo 'PASS  deny   reason names the deliberate path' ;;
+case "$LAST_OUT" in *'north config agents off tripwire-guard'*) pass=$((pass + 1)); echo 'PASS  deny   reason names the deliberate path' ;;
   *) fail=$((fail + 1)); printf 'FAIL  deny   reason names the deliberate path (got: %s)\n' "$LAST_OUT" ;; esac
 run deny 'personal dir with no repo above it' 'rm -rf ./stuff' "$NOREPO_CWD"
 run deny 'unclassifiable path is blocked, not waved through' "rm -rf $UNCLASSIFIED"
@@ -350,7 +350,7 @@ fi
 echo "== kill-switch: shared value-aware semantics (lib/authoring-killswitch.sh) =="
 # Precedence: env 0/false = force-live (beats activation); any other non-empty env =
 # off; otherwise the immutable activation generation decides. The deliberate path
-# written by `north config guards off` is an inactive hook unit —
+# written by `north config agents off tripwire-guard` is an inactive hook unit —
 # a personal-data delete is refused while guards are live and goes through once
 # the human turns them off, which is the whole point of the friction.
 # (The env=1 allow case lives in the plumbing block above.)
@@ -358,13 +358,13 @@ echo "== kill-switch: shared value-aware semantics (lib/authoring-killswitch.sh)
 # (`[ -n "$VAR" ] && exit 0`) would have ALLOWED these — the bug this rewire fixes.
 # Persistent inactive unit (env unset) -> guard OFF -> allow.
 printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"tripwire-guard","kind":"hook","category":"authoring","active":false}]}' >"$SCRATCH/activation.json"
-run allow 'north config guards off -> personal delete allowed' 'rm -rf ~/Pictures/Screenshots'
-run allow 'north config guards off -> bounded find allowed' \
+run allow 'tripwire UnitId off -> personal delete allowed' 'rm -rf ~/Pictures/Screenshots'
+run allow 'tripwire UnitId off -> bounded find allowed' \
   'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
-run allow "north config guards off -> another lane's worktree allowed (human's call)" \
+run allow "tripwire UnitId off -> another lane's worktree allowed (human's call)" \
   "rm -rf $OTHER_WT"
-# State off BUT env=0 -> env force-live BEATS state -> deny.
-run deny 'env=0 force-live beats state guards=off' \
+# UnitId off BUT env=0 -> env force-live BEATS activation -> deny.
+run deny 'env=0 force-live beats inactive UnitId' \
   'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" AGENT_NO_AUTHORING_HOOKS=0
 rm -f "${SCRATCH:?}/activation.json" # restore neutral state for the benches below
 

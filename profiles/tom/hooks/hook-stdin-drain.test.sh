@@ -14,7 +14,7 @@ STATE="$SCRATCH/harness.conf"
 ACTIVATION="$SCRATCH/activation.json"
 mkdir -p "$HOME_DIR" "$PLAIN_DIR" "$SCRATCH/session-state"
 touch "$PLAIN_DIR/notes.txt"
-printf '%s\n' 'dispatch=native' 'guards=on' >"$STATE"
+printf '%s\n' 'dispatch=native' >"$STATE"
 
 hooks=(
   agent-spawn-guard.sh
@@ -121,7 +121,7 @@ else:
     except FileNotFoundError:
         pass
     with open(state, "w", encoding="utf-8") as handle:
-        handle.write("dispatch=native\nguards=on\n")
+        handle.write("dispatch=native\n")
 env.update({
     "HOME": home,
     "BEAGLE_HOME": os.path.join(os.environ["HOME"], "code/beagle/main"),
@@ -189,7 +189,7 @@ PY
 done
 
 # Keep representative decision paths pinned while transport mechanics change.
-printf '%s\n' 'dispatch=managed' 'guards=on' >"$STATE"
+printf '%s\n' 'dispatch=managed' >"$STATE"
 printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":true},{"id":"tripwire-guard","kind":"hook","category":"authoring","active":true}]}' >"$ACTIVATION"
 agent_out="$(
   python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"work"}}))' |

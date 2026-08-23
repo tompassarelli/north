@@ -24,7 +24,7 @@
 #     command word must be unquoted and at command position for anything to
 #     match, and the first non-option operand of a grep-like is the pattern.
 #
-# Kill-switch: persistent `north config guards off` (activation) OR env
+# Kill-switch: persistent `north config agents off corpus-scan-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false;
 # 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================
@@ -458,7 +458,8 @@ reason = (
     "file: one transcript path, a single day or project directory and deeper, "
     "any non-transcript subtree of north-data, `find <root> -maxdepth 2`, "
     "`rg --max-depth 2`, or a non-recursive grep. "
-    "Rare explicit override: `north config guards off` (persistent, live), or "
+    "Rare explicit override: `north config agents off corpus-scan-guard` "
+    "(persistent, live), or "
     "a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
 ) % (
     hit_tool,

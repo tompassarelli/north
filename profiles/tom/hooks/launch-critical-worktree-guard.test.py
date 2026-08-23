@@ -453,7 +453,8 @@ check("the checkout-- denial names wt-rescue",
 check("the reset --hard denial names wt-rescue",
       "wt-rescue" in (run(bash(f"git -C {NIXOS} reset --hard")) or ""))
 check("the denial names the deliberate-bypass escape",
-      "north config guards off" in (run(bash("git stash", cwd=NORTH)) or ""))
+      "north config agents off launch-critical-worktree-guard"
+      in (run(bash("git stash", cwd=NORTH)) or ""))
 check("the allowlist is per SEGMENT — a reset --hard after it still denies",
       run(bash(f"wt-rescue {NORTH} && git -C {NORTH} reset --hard origin/main")))
 check("...and a plain mutation after it still denies",
