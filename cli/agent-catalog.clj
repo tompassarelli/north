@@ -453,13 +453,14 @@
         activation))))
 
 (defn current-permissions [catalog]
-  (let [known (set (map #(get % "id") (:units catalog)))
-        previous (get (current-activation) "permissions" {})
-        unknown (sort (remove known (keys previous)))]
-    (when (seq unknown)
-      (fail (str "current activation contains unknown permissions: "
-                 (str/join ", " unknown)) {:ids unknown}))
-    (merge (seed-permissions catalog) previous)))
+  (if-let [activation (current-activation)]
+    (let [previous (get activation "permissions" {})]
+      (into (sorted-map)
+            (map (fn [unit]
+                   (let [id (get unit "id")]
+                     [id (get previous id "off")])))
+            (:units catalog)))
+    (seed-permissions catalog)))
 
 (defn- validate-permissions! [catalog permissions]
   (let [known (set (map #(get % "id") (:units catalog)))
