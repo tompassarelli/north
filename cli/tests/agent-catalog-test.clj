@@ -28,6 +28,17 @@
 
 (def catalog-path (str root "/agent-catalog/catalog.json"))
 (def base (json/parse-string (slurp catalog-path)))
+(def catalog-schema-value
+  (json/parse-string (slurp (str root "/agent-catalog/catalog.schema.json"))))
+(def activation-schema-value
+  (json/parse-string (slurp (str root "/agent-catalog/activation.schema.json"))))
+(def catalog-unit-fields
+  #{"id" "kind" "title" "triggerDescription" "category" "seedPermission"
+    "owner" "members" "supports" "distributions"})
+(def resolved-unit-fields
+  #{"id" "kind" "title" "triggerDescription" "category" "permission" "active"
+    "owner" "ownerProvenance" "members" "supports" "distributions"
+    "activationPaths"})
 
 (defn load-value [value]
   (let [path (str tmp "/fixture-" (java.util.UUID/randomUUID) ".json")]
@@ -92,6 +103,16 @@
                 (re-matches #"sha256:[0-9a-f]{64}" (get activation "generationId"))
                 (= (set (map #(get % "id") (:units catalog)))
                    (set (keys (get activation "permissions"))))))
+    (check "unit schemas and records expose only the global UnitId contract"
+           (and (= catalog-unit-fields
+                   (set (keys (get-in catalog-schema-value
+                                      ["$defs" "unit" "properties"]))))
+                (= resolved-unit-fields
+                   (set (keys (get-in activation-schema-value
+                                      ["$defs" "unit" "properties"]))))
+                (every? #(every? catalog-unit-fields (keys %)) (get base "units"))
+                (every? #(every? resolved-unit-fields (keys %))
+                        (get activation "units"))))
     (check "generation identity commits deterministic owner content and revision provenance"
            (and (= (get activation "generationId")
                    (get (north.agent-catalog/compile-activation
@@ -152,15 +173,19 @@
                                   [_ entries] targets
                                   entry entries]
                               entry)))))
-    (check "project-private units and inactive adapters seed inert"
+    (check "project-packaged units are global IDs that seed inert"
            (every? #(and (= "off" (get-in by-id [% "permission"]))
-                         (false? (get-in by-id [% "active"])))
+                         (false? (get-in by-id [% "active"]))
+                         (= [["project:beagle"]]
+                            (mapv (fn [distribution] (get distribution "targets"))
+                                  (get-in by-id [% "distributions"]))))
                    ["code-as-facts" "code-upstream-guard"])))
 
-  (check "duplicate UnitIds are rejected"
+  (check "UnitIds are globally unique across sets, skills, and hooks"
          (throws-containing?
           "duplicate catalog unit ids"
-          #(load-value (update base "units" conj (first (get base "units"))))))
+          #(load-value (mutate-unit base "code-upstream-guard"
+                                    (fn [unit] (assoc unit "id" "webdev"))))))
   (check "duplicate set members are rejected"
          (throws-containing?
           "duplicate or invalid members"
@@ -176,11 +201,11 @@
           "owner escapes"
           #(load-value (mutate-unit base "webdev"
                                     (fn [unit] (assoc-in unit ["owner" "path"] "../escape"))))))
-  (check "unknown scopes are rejected"
+  (check "undeclared unit fields are rejected"
          (throws-containing?
-          "invalid scope"
+          "unsupported fields"
           #(load-value (mutate-unit base "webdev"
-                                    (fn [unit] (assoc unit "scope" "workspace"))))))
+                                    (fn [unit] (assoc unit "legacyField" true))))))
   (check "unknown distribution targets are rejected"
          (throws-containing?
           "invalid or duplicate targets"
@@ -196,7 +221,8 @@
 
   (let [catalog (north.agent-catalog/load-catalog)
         activation (north.agent-catalog/compile-activation
-                    catalog (north.agent-catalog/seed-permissions catalog))
+                    catalog (assoc (north.agent-catalog/seed-permissions catalog)
+                                   "code-as-facts" "on"))
         state-root (str tmp "/state")
         codex-skills (.toPath (io/file tmp "direct-codex-skills"))]
     (with-redefs [north.agent-catalog/agents-root (constantly state-root)
@@ -215,10 +241,14 @@
                                       "gen-")
                     (= (get activation "generationId") (get published "generationId"))))
         (check "publication and scratch cleanup never mutate owner payloads"
-               (= (mapv #(get-in % ["ownerProvenance" "contentDigest"])
-                        (get activation "units"))
-                  (mapv #(get-in % ["ownerProvenance" "contentDigest"])
-                        (get after "units"))))
+               (= (into {} (map (fn [unit]
+                                  [(get unit "id")
+                                   (get-in unit ["ownerProvenance" "contentDigest"])]))
+                         (get activation "units"))
+                  (into {} (map (fn [unit]
+                                  [(get unit "id")
+                                   (get-in unit ["ownerProvenance" "contentDigest"])]))
+                         (get after "units"))))
         (check "generation has one materialized shared skill farm"
                (and (= 43 (count shared))
                     (not (.exists (io/file current "skills/codex")))
@@ -230,7 +260,14 @@
                           (.resolve codex-skills "code-as-facts")
                           (into-array java.nio.file.LinkOption
                                       [java.nio.file.LinkOption/NOFOLLOW_LINKS])))))
-        (check "every declared instruction target and inactive provider adapters are materialized"
+        (check "project targets materialize explicitly permitted units only in their package"
+               (and (.isFile (io/file current
+                                      "projects/beagle/skill/code-as-facts/SKILL.md"))
+                    (.isFile (io/file current
+                                      "projects/beagle/hook/code-upstream-guard"))
+                    (not (contains? shared "code-as-facts"))
+                    (not (.exists (io/file current "skills/shared/code-as-facts")))))
+        (check "every declared instruction target and provider adapter is materialized"
                (every? #(.isFile (io/file current %))
                        ["instructions/shared/AGENTS.md"
                         "instructions/codex/AGENTS.md"
@@ -238,8 +275,7 @@
                         "instructions/north/AGENTS.md"
                         "instructions/bridge/AGENTS.md"
                         "provider-hooks/lib/harness-dial.sh"
-                        "provider-hooks/logcompress.js"
-                        "projects/beagle/hook/code-upstream-guard"]))
+                        "provider-hooks/logcompress.js"]))
         (check "every declared agent-template target is materialized by UnitId"
                (every? #(.isFile (io/file current %))
                        ["agent-templates/north/staffing/integrator.md"

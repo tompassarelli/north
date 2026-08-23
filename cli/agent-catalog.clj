@@ -10,6 +10,9 @@
 
 (def ^:private unit-id-pattern #"[a-z0-9][a-z0-9-]*")
 (def ^:private kinds #{"skill" "hook" "set"})
+(def ^:private unit-fields
+  #{"id" "kind" "title" "triggerDescription" "category" "seedPermission"
+    "owner" "members" "supports" "distributions"})
 (def ^:private distribution-types
   #{"skill" "instructions" "hook" "agentTemplates" "providerAdapter"
     "projectPackage"})
@@ -107,12 +110,12 @@
     (str "sha256:"
          (apply str (map #(format "%02x" (bit-and 0xff %)) (.digest digest))))))
 
-(defn- project-scope? [value]
+(defn- project-target? [value]
   (boolean (and (string? value)
                 (re-matches #"project:[a-z0-9][a-z0-9-]*" value))))
 
 (defn- valid-target? [target]
-  (or (distribution-targets target) (project-scope? target)))
+  (or (distribution-targets target) (project-target? target)))
 
 (defn- posix-mode [path]
   (try
@@ -247,14 +250,16 @@
 
 (defn- validate-unit-shape! [unit]
   (let [id (get unit "id")
-        kind (get unit "kind")]
+        kind (get unit "kind")
+        unknown-fields (sort (remove unit-fields (keys unit)))]
     (when-not (re-matches unit-id-pattern (or id ""))
       (fail "catalog has an invalid unit id" {:id id}))
     (when-not (kinds kind)
       (fail (str "unit " id " has an invalid kind") {:kind kind}))
-    (when-not (or (= "global" (get unit "scope"))
-                  (project-scope? (get unit "scope")))
-      (fail (str "unit " id " has an invalid scope") {:scope (get unit "scope")}))
+    (when (seq unknown-fields)
+      (fail (str "unit " id " has unsupported fields: "
+                 (str/join ", " unknown-fields))
+            {:id id :fields unknown-fields}))
     (when-not (re-matches permission-pattern (or (get unit "seedPermission") ""))
       (fail (str "unit " id " has an invalid seed permission")
             {:permission (get unit "seedPermission")}))
@@ -346,11 +351,7 @@
             (fail (str "non-set unit " id " declares members") {:members members}))
           (doseq [member members]
             (when-not (contains? by-id member)
-              (fail (str "set " id " names unknown member " member) {:id id :member member}))
-            (when (and (= "global" (get unit "scope"))
-                       (not= "global" (get-in by-id [member "scope"])))
-              (fail (str "global set " id " contains narrower project member " member)
-                    {:id id :member member})))
+              (fail (str "set " id " names unknown member " member) {:id id :member member})))
           (when-not (and (vector? supports) (= (count supports) (count (distinct supports))))
             (fail (str "unit " id " has duplicate or invalid supports") {:supports supports}))
           (when (and (not= kind "hook") (seq supports))
@@ -358,13 +359,7 @@
           (doseq [supported supports]
             (when-not (#{"skill" "set"} (get-in by-id [supported "kind"]))
               (fail (str "hook " id " supports unknown or invalid unit " supported)
-                    {:id id :supports supported})))
-          (when (project-scope? (get unit "scope"))
-            (doseq [distribution (get unit "distributions")
-                    target (get distribution "targets")]
-              (when-not (= target (get unit "scope"))
-                (fail (str "project-scoped unit " id " escapes its project distribution")
-                      {:id id :scope (get unit "scope") :target target}))))))
+                    {:id id :supports supported})))))
       (exact-set-cycles! units by-id)
       (let [enriched
             (mapv
@@ -499,7 +494,7 @@
                     activation-paths (get @paths id [])]
                 (-> (select-keys unit ["id" "kind" "title" "triggerDescription"
                                        "owner" "members" "supports" "distributions"
-                                       "scope" "category" "ownerProvenance"])
+                                       "category" "ownerProvenance"])
                     (assoc "permission" (get permissions id)
                            "active" (boolean (seq activation-paths))
                            "activationPaths" activation-paths))))
@@ -662,7 +657,7 @@
 (defn- stage-projects! [temporary activation]
   (doseq [[type targets] (get activation "projectionPlan")
           [target entries] targets
-          :when (project-scope? target)
+          :when (project-target? target)
           entry entries]
     (let [repo (subs target (count "project:"))
           id (get entry "unitId")
