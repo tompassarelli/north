@@ -96,7 +96,7 @@
 #     ask is not a denial; the guard_denial graph idiom stays denial-only.
 #
 # Test matrix: sibling tripwire-guard.test.sh — run it after EVERY edit here.
-# Kill-switch: persistent `north config guards off` (state) OR env
+# Kill-switch: persistent `north config guards off` (activation) OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
 # Shared impl: lib/authoring-killswitch.sh. House parity.
 # =============================================================================

@@ -8,7 +8,7 @@ import {
 
 const temporary: string[] = [];
 const saved = Object.fromEntries([
-  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "AGENT_ESO",
+  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "NORTH_AGENT_SKILLS", "AGENT_ESO",
 ].map((key) => [key, process.env[key]]));
 
 afterEach(() => {
@@ -68,7 +68,7 @@ test("North composes one canonical bootstrap and a metadata-only active skill ca
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
   process.env.AGENT_LAWS_PATH = laws;
-  process.env.AGENT_SKILLS_DIR = skills;
+  process.env.NORTH_AGENT_SKILLS = skills;
   process.env.AGENT_ESO = "off";
 
   const catalog = activeSkillCatalog();

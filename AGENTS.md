@@ -3,7 +3,7 @@
 This file governs changes to the North repository: architecture ownership,
 stewardship, code boundaries, and verification. It is not an operator guide and
 does not activate North's coordination or orchestration features. Consumer
-instructions live in switchboard-controlled modules. Product documentation
+instructions live in switchboard-controlled sets. Product documentation
 under `docs/` is reference material, not agent policy. The coordination graph
 is canonical; `threads/` is a projection.
 
@@ -15,7 +15,7 @@ is canonical; `threads/` is a projection.
 - MCP is the shared data/tool boundary for interactive provider sessions.
 - Never add a provider model ID to provider-neutral orchestration code.
 - Keep consumer behavior out of repository `AGENTS.md` files. Put optional
-  runtime guidance in the module or skill that owns the behavior.
+  runtime guidance in the set or skill that owns the behavior.
 
 ## Safe writes and verification
 

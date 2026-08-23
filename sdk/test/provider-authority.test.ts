@@ -41,7 +41,7 @@ import { managedCodexNetworkArguments } from "../src/providers/codex-network-pol
 const north = join(import.meta.dir, "../..");
 const temporary: string[] = [];
 const envKeys = [
-  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "AGENT_SKILLS_DIR", "NORTH_PORT",
+  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "NORTH_AGENT_SKILLS", "NORTH_PORT",
   "NORTH_STORE_HOST", "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
   "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
@@ -580,19 +580,19 @@ test("global laws path resolves an exact override or the portable ~/.agents defa
   );
 });
 
-test("domain skills dir resolves an exact override or the portable ~/.agents/skills default, never a provider checkout", () => {
+test("domain skills dir resolves the current North generation or an exact override", () => {
   const home = mkdtempSync(join(tmpdir(), "north-skills-dir-"));
   temporary.push(home);
 
   const dfault = domainSkillsDir({ HOME: home });
-  expect(dfault).toBe(join(home, ".agents", "skills"));
+  expect(dfault).toBe(join(home, ".local", "state", "north", "agents", "current", "skills", "shared"));
   expect(dfault).not.toBe(join(home, ".codex", "skills"));
   expect(dfault).not.toContain("nixos-config");
 
   const override = join(home, "portable-skills");
-  expect(domainSkillsDir({ HOME: home, AGENT_SKILLS_DIR: override })).toBe(override);
-  expect(domainSkillsDir({ AGENT_SKILLS_DIR: override })).toBe(override);
-  expect(domainSkillsDir({ HOME: home, AGENT_SKILLS_DIR: "  " })).toBe(dfault); // blank ignored
+  expect(domainSkillsDir({ HOME: home, NORTH_AGENT_SKILLS: override })).toBe(override);
+  expect(domainSkillsDir({ NORTH_AGENT_SKILLS: override })).toBe(override);
+  expect(domainSkillsDir({ HOME: home, NORTH_AGENT_SKILLS: "  " })).toBe(dfault); // blank ignored
 });
 
 test("ambient and isolated Codex targets resolve the exact canonical global AGENTS source", () => {

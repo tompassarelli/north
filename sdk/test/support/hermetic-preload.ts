@@ -19,13 +19,13 @@ import { join } from "node:path";
 // routing surface (AGENT_WORKTREE included — it already matches
 // AGENT_*) BEFORE any test file's own module-load snapshot, so `bun run test`
 // is env-independent and no `env -u ...` prefix is ever required again.
-const explicitTestHooksDir = process.env.NORTH_TEST_AGENT_HOOKS_DIR;
+const explicitTestHooksDir = process.env.NORTH_TEST_AGENT_PROVIDER_HOOKS;
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_"))
     delete process.env[key];
 }
 delete process.env.NORTH_SHADOW_REVIEWER;
-if (explicitTestHooksDir) process.env.AGENT_HOOKS_DIR = explicitTestHooksDir;
+if (explicitTestHooksDir) process.env.NORTH_AGENT_PROVIDER_HOOKS = explicitTestHooksDir;
 
 // Same leak, orchestration side: an installed `north` wrapper (or a managed
 // lane launched from one) exports NORTH_ORCHESTRATION_HOME pinned at the
@@ -263,24 +263,9 @@ if (!process.env.AGENT_LAWS_PATH) {
   process.env.AGENT_LAWS_PATH = fixture;
 }
 
-// Same class of leak as NORTH_PORT/AGENT_LAWS_PATH above, for the authoring-guard
-// killswitch: authoringGuardsOff() (src/authoring-guards.ts) falls back to reading
-// $NORTH_HARNESS_STATE / $AUTHORING_KILLSWITCH_STATE / ~/.local/state/north/harness.conf
-// when neither override is set. On a real dev box that file tracks the operator's own
-// live `north config` state (e.g. "guards=off" while doing unrelated authoring-guard
-// work) — an ambient value with nothing to do with the suite. Any harness test that
-// exercises a PreToolUse guard chain (orchestration-operational-semantics topology test
-// included) would then silently no-op every guard and pass/fail on host mood instead
-// of code (observed 2026-07-24: host harness.conf had guards=off, which alone flips
-// "topology controls prompt and tools with positive-only orchestration authority"
-// from 14/14 to 13/14 with NO src/ diff at all — confirmed by toggling the real file
-// to guards=on and rerunning green). Pin the harness state at a fixture this suite
-// owns, so the fallback always resolves to guards-on (the safe hermetic default)
-// unless a test explicitly opts into its own fixture.
-//
-// No `guards=` key: authoringGuardsOff() reads that prefix only, so the file pins
-// the dispatch mode without touching guards.
-if (!process.env.NORTH_HARNESS_STATE && !process.env.AUTHORING_KILLSWITCH_STATE) {
+// Harness state remains the dispatch and communications authority. Pin it to a
+// suite-owned fixture unless a test explicitly supplies one.
+if (!process.env.NORTH_HARNESS_STATE) {
   const state = join(tmpdir(), `north-sdk-harness-state-${process.pid}.conf`);
   writeFileSync(state, "dispatch=managed\n");
   process.env.NORTH_HARNESS_STATE = state;

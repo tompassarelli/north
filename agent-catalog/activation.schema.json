@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "north.agent-activation/v1",
+  "title": "North resolved agent activation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "catalogSchema", "catalogDigest", "generationId",
+    "baselines", "providerSupport", "permissions", "rootOrder", "units", "projectionPlan"
+  ],
+  "properties": {
+    "schema": {"const": "north.agent-activation/v1"},
+    "catalogSchema": {"const": "north.agent-catalog/v1"},
+    "catalogDigest": {"$ref": "#/$defs/digest"},
+    "generationId": {"$ref": "#/$defs/digest"},
+    "baselines": {"type":"array","items":{"type":"object"}},
+    "providerSupport": {"type":"array","items":{"type":"object"}},
+    "permissions": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/unitId"},
+      "additionalProperties": {"$ref": "#/$defs/permission"}
+    },
+    "rootOrder": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/unitId"}
+    },
+    "units": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/unit"}
+    },
+    "projectionPlan": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["unitId", "owner", "adapterId", "provenance"],
+            "properties": {
+              "unitId": {"$ref": "#/$defs/unitId"},
+              "owner": {"$ref": "#/$defs/owner"},
+              "adapterId": {"type":"string","minLength":1},
+              "provenance": {"$ref":"#/$defs/provenance"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "unitId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "permission": {
+      "type": "string",
+      "pattern": "^(on|off|off:until=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$"
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "path"],
+      "properties": {
+        "repo": {"$ref": "#/$defs/unitId"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "provenance": {
+      "type":"object","additionalProperties":false,
+      "required":["owner","revision","contentDigest"],
+      "properties":{"owner":{"$ref":"#/$defs/owner"},"revision":{"type":"string","pattern":"^[0-9a-f]{40,64}$"},
+                    "contentDigest":{"$ref":"#/$defs/digest"}}
+    },
+    "distribution": {
+      "type": "object",
+      "required": ["type", "targets", "owner"],
+      "properties": {
+        "type": {"enum": ["skill", "instructions", "hook", "agentTemplates", "providerAdapter", "projectPackage"]},
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type":"string","pattern":"^(shared|codex|code|north|bridge|firn|claude|project:[a-z0-9][a-z0-9-]*)$"}
+        },
+        "owner": {"$ref": "#/$defs/owner"},
+        "adapterId": {"type":"string","minLength":1},
+        "provenance": {"$ref":"#/$defs/provenance"}
+      }
+    },
+    "unit": {
+      "type": "object",
+      "required": [
+        "id", "kind", "title", "triggerDescription", "permission", "active",
+        "owner", "ownerProvenance", "members", "supports", "distributions", "activationPaths", "scope"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/unitId"},
+        "kind": {"enum": ["skill", "hook", "set"]},
+        "title": {"type": "string", "minLength": 1},
+        "triggerDescription": {"type": "string", "minLength": 1},
+        "permission": {"$ref": "#/$defs/permission"},
+        "active": {"type": "boolean"},
+        "owner": {"$ref": "#/$defs/owner"},
+        "ownerProvenance": {"$ref":"#/$defs/provenance"},
+        "members": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/unitId"}},
+        "supports": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/unitId"}},
+        "distributions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/distribution"}},
+        "activationPaths": {
+          "type": "array",
+          "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/unitId"}}
+        },
+        "scope": {"type":"string","pattern":"^(global|project:[a-z0-9][a-z0-9-]*)$"},
+        "category": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

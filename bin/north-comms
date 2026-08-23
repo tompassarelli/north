@@ -28,7 +28,7 @@ die() {
 
 raw_or() {
   local key="$1" fallback="$2" value
-  north_dial_raw value "$key"
+  north_config_raw value "$key"
   builtin printf '%s\n' "${value:-$fallback}"
 }
 

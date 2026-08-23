@@ -7,9 +7,8 @@ description: >-
 
 # Importing skills
 
-Import third-party skills into the provider-neutral North profile, then register
-the same slugs with Firn's Codex adapter. A provider-local copy is an incomplete
-import.
+Import third-party skills into North's global unit catalog. A provider-local
+copy is an incomplete import.
 
 ## Gate the source before reading it
 
@@ -48,43 +47,39 @@ Inventory directories containing `SKILL.md`. For each selected skill:
    an unspecified license, carry the upstream identity and the local MIT
    default.
 
-## Install through both authorities
+## Register with the catalog authority
 
-Use `repo-safety`. Create separate sibling worktrees for North and Firn.
+Use `repo-safety`. Create one North worktree.
 
 - Put each tracked skill at
-  `north:profiles/tom/skills/<slug>/`. `north:agent-profile/skills` is the
-  runtime alias, not a Git path to stage.
-- In `nixos-config:dotfiles/bin/agents`, add every slug to `SKILLS` and map it
-  in `skill_source()` to
-  `~/code/north/main/agent-profile/skills/<slug>`. This registry is required
-  for Codex's separately owned `~/.codex/skills`; do not replace its existing
-  directories.
+  `north:profiles/tom/skills/<slug>/`.
+- Add one `skill` unit per slug to `north:agent-catalog/catalog.json`. Its
+  owner names the tracked `SKILL.md`, and its skill distribution targets
+  `shared`. Use a set only when several skills, hooks, or nested sets must
+  activate as one compositional unit.
 
 The resulting discovery paths are:
 
 ```text
-North profile -> North skills farm -> ~/.agents/skills
-North profile -> Firn skill registry -----------------> ~/.codex/skills
+North catalog -> immutable shared generation -> provider adapters
 ```
 
 ## Verify, land, and activate
 
 Validate every imported directory with the skill-creator `quick_validate.py`.
-Run North's `cli/tests/config-skills-test.clj` and Firn's
-`dotfiles/bin/agents.test.sh`, plus the nearest checks for any imported scripts.
+Run North's `cli/tests/agent-catalog-test.clj`, plus the nearest checks for any
+imported scripts.
 
-Commit enumerated paths and land with `safe-push --to main`; fast-forward each
-clean `main`. Land North before Firn so registry targets exist. Then run:
+Commit enumerated paths and land with `safe-push --to main`; fast-forward the
+clean North `main`. Then run:
 
 ```text
-north config skills sync
-agents apply
+north config agents sync
 ```
 
-Confirm every slug resolves in `north config skills` and exists through
-`~/.agents/skills` and `~/.codex/skills`. Finally remove both landed worktrees
-and their local branches.
+Confirm every slug resolves in `north config agents skills` and appears through
+the generated shared skill projection and each configured provider adapter.
+Finally remove the landed worktree and its local branch.
 
 ## Stop conditions
 

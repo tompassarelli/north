@@ -279,7 +279,7 @@ jobs:
         working-directory: north/sdk
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
-          NORTH_TEST_AGENT_HOOKS_DIR: ${{ github.workspace }}/north/profiles/tom/hooks
+          NORTH_TEST_AGENT_PROVIDER_HOOKS: ${{ github.workspace }}/north/profiles/tom/hooks
           BEAGLE_STORE_TEST_CHECKOUT: ${{ github.workspace }}/beagle/store
         run: |
           set -euo pipefail

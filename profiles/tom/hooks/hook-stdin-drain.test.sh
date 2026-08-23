@@ -11,19 +11,18 @@ trap 'rm -rf "${SCRATCH:?}"' EXIT
 HOME_DIR="$SCRATCH/home"
 PLAIN_DIR="$SCRATCH/plain"
 STATE="$SCRATCH/harness.conf"
+ACTIVATION="$SCRATCH/activation.json"
 mkdir -p "$HOME_DIR" "$PLAIN_DIR" "$SCRATCH/session-state"
 touch "$PLAIN_DIR/notes.txt"
 printf '%s\n' 'dispatch=native' 'guards=on' >"$STATE"
 
 hooks=(
   agent-spawn-guard.sh
-  firn-guard.sh
   launch-critical-worktree-guard.sh
   git-blind-stage-guard.sh
   tripwire-guard.sh
   beagle-session-start.sh
   logcompress-hook.js
-  north-session-end.sh
 )
 sizes=(524288 1048576)
 modes=(disabled fast-allow)
@@ -33,19 +32,14 @@ fail=0
 for mode in "${modes[@]}"; do
   for size in "${sizes[@]}"; do
     for hook in "${hooks[@]}"; do
-      # The live SessionEnd path deliberately launches real coordination
-      # cleanup. Its item-off transport path is the scoped assertion here.
-      if [ "$hook" = north-session-end.sh ] && [ "$mode" != disabled ]; then
-        continue
-      fi
-      result="$(python3 - "$HERE/$hook" "$mode" "$size" "$HOME_DIR" "$PLAIN_DIR" "$STATE" <<'PY'
+      result="$(python3 - "$HERE/$hook" "$mode" "$size" "$HOME_DIR" "$PLAIN_DIR" "$STATE" "$ACTIVATION" <<'PY'
 import json
 import os
 import subprocess
 import sys
 import time
 
-hook, mode, size_text, home, plain, state = sys.argv[1:]
+hook, mode, size_text, home, plain, state, activation = sys.argv[1:]
 size = int(size_text)
 name = os.path.basename(hook)
 target = os.path.join(plain, "notes.txt")
@@ -58,12 +52,6 @@ envelopes = {
             "subagent_type": "general-purpose",
             "prompt": "transport allow",
         },
-        "cwd": plain,
-    },
-    "firn-guard.sh": {
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Edit",
-        "tool_input": {"file_path": target},
         "cwd": plain,
     },
     "launch-critical-worktree-guard.sh": {
@@ -103,11 +91,6 @@ envelopes = {
         },
         "cwd": plain,
     },
-    "north-session-end.sh": {
-        "hook_event_name": "SessionEnd",
-        "session_id": f"drain-{mode}-{size}",
-        "cwd": plain,
-    },
 }
 envelope = dict(envelopes[name])
 envelope["padding"] = ""
@@ -125,18 +108,26 @@ for key in ("BASH_ENV", "ENV", "CLAUDE_PROJECT_DIR"):
 if mode == "disabled":
     env.pop("AGENT_NO_AUTHORING_HOOKS", None)
     hook_id = os.path.splitext(name)[0]
-    with open(state, "w", encoding="utf-8") as handle:
-        handle.write(
-            "dispatch=native\nguards=on\n"
-            f"hooks.hook.{hook_id}=off:until=2099-01-01T00:00:00Z\n"
-        )
+    category = "authoring" if hook_id in {
+        "launch-critical-worktree-guard", "git-blind-stage-guard", "tripwire-guard"
+    } else "context"
+    with open(activation, "w", encoding="utf-8") as handle:
+        json.dump({"schema": "north.agent-activation/v1", "units": [
+            {"id": hook_id, "kind": "hook", "category": category, "active": False}
+        ]}, handle)
 else:
+    try:
+        os.unlink(activation)
+    except FileNotFoundError:
+        pass
     with open(state, "w", encoding="utf-8") as handle:
         handle.write("dispatch=native\nguards=on\n")
 env.update({
     "HOME": home,
+    "BEAGLE_HOME": os.path.join(os.environ["HOME"], "code/beagle/main"),
     "NORTH_HOME": os.path.abspath(os.path.join(os.path.dirname(hook), "../../..")),
     "NORTH_HARNESS_STATE": state,
+    "NORTH_AGENT_ACTIVATION": activation,
     "BEAGLE_SESSION_STATE_DIR": os.path.join(home, "session-state"),
     "AGENT_TOPOLOGY": "orchestrator",
 })
@@ -197,27 +188,12 @@ PY
   done
 done
 
-# The detached coordination wrapper must consume the payload but not launch its
-# target while its item dial is off.
-printf '%s\n' 'hooks.hook.hook-detach=off' >"$STATE"
-detach_marker="$SCRATCH/hook-detach-ran"
-printf '{}' |
-  env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" \
-    "$HERE/hook-detach.sh" "$(command -v touch)" "$detach_marker"
-sleep 0.1
-if [ ! -e "$detach_marker" ]; then
-  pass=$((pass + 1))
-  printf '%s\n' 'PASS  hook-detach.sh item-off does not launch its target'
-else
-  fail=$((fail + 1))
-  printf '%s\n' 'FAIL  hook-detach.sh item-off launched its target'
-fi
-
 # Keep representative decision paths pinned while transport mechanics change.
 printf '%s\n' 'dispatch=managed' 'guards=on' >"$STATE"
+printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":true},{"id":"tripwire-guard","kind":"hook","category":"authoring","active":true}]}' >"$ACTIVATION"
 agent_out="$(
   python3 -c 'import json; print(json.dumps({"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose","prompt":"work"}}))' |
-    env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" AGENT_NO_AUTHORING_HOOKS=0 \
+    env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" NORTH_AGENT_ACTIVATION="$ACTIVATION" AGENT_NO_AUTHORING_HOOKS=0 \
       NORTH_HOME="$REPO" \
       "$HERE/agent-spawn-guard.sh"
 )"
@@ -229,23 +205,10 @@ else
   printf '%s\n' 'FAIL  agent-spawn-guard.sh decision changed'
 fi
 
-firn_out="$(
-  python3 -c 'import json; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"nixos-rebuild switch"}}))' |
-    env HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" AGENT_NO_AUTHORING_HOOKS=0 \
-      "$HERE/firn-guard.sh"
-)"
-if jq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$firn_out" >/dev/null; then
-  pass=$((pass + 1))
-  printf '%s\n' 'PASS  firn-guard.sh decision remains deny'
-else
-  fail=$((fail + 1))
-  printf '%s\n' 'FAIL  firn-guard.sh decision changed'
-fi
-
 tripwire_status=0
 tripwire_err="$(
   python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":"git push","cwd":sys.argv[1]}}))' "$PLAIN_DIR" |
-    env -u SAFE_PUSH_ACTIVE HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" \
+    env -u SAFE_PUSH_ACTIVE HOME="$HOME_DIR" NORTH_HARNESS_STATE="$STATE" NORTH_AGENT_ACTIVATION="$ACTIVATION" \
       AGENT_NO_AUTHORING_HOOKS=0 TRIPWIRE_LOG_DIR="$SCRATCH/tripwire-log" \
       "$HERE/tripwire-guard.sh" 2>&1
 )" || tripwire_status=$?

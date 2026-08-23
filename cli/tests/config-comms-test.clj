@@ -17,7 +17,6 @@
 (def state (str tmp-dir "/harness.conf"))
 (def mail-root (str tmp-dir "/mail"))
 (def doctor (str tmp-dir "/doctor"))
-(def skills-profile (str tmp-dir "/skills"))
 (def checks (atom []))
 
 (defn check [label value]
@@ -42,7 +41,9 @@
     :extra-env {"HOME" scratch-home
                 "NORTH_HOME" root
                 "NORTH_HARNESS_STATE" state
-                "NORTH_SKILLS_PROFILE" skills-profile}}
+                "NORTH_REPO_ROOTS" (str "{\"north\":\"" root
+                                        "\",\"beagle\":\"/home/tom/code/beagle/main\","
+                                        "\"nixos-config\":\"/home/tom/code/nixos-config/main\"}")}}
    "bb" cli "status"))
 
 (defn stored [key]
@@ -55,9 +56,6 @@
 
 (try
   (.mkdirs (io/file scratch-home))
-  (io/make-parents (str skills-profile "/fixture/SKILL.md"))
-  (spit (str skills-profile "/fixture/SKILL.md")
-        "---\nname: fixture\ndescription: fixture\n---\n")
   (spit doctor "#!/usr/bin/env bash\nprintf 'doctor scratch round-trip: PASS\\n'\n")
   (.setExecutable (io/file doctor) true)
 
@@ -138,7 +136,7 @@
                 (= "doctor scratch round-trip: PASS\n" (:out doctor-result))))
     (check "full config report exposes comms"
            (and (zero? (:exit status-result))
-                (str/includes? (:out status-result) "9  COMMS")
+                (str/includes? (:out status-result) "7  COMMS")
                 (str/includes? (:out status-result)
                                "configure → north config comms"))))
 

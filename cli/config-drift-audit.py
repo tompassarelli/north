@@ -16,8 +16,8 @@ from typing import Any
 
 
 HOME = Path(os.environ.get("HOME", "")).expanduser()
-SKILLS_FARM = Path(
-    os.environ.get("NORTH_SKILLS_FARM", HOME / ".local/state/north/skills")
+SHARED_SKILLS = Path(
+    os.environ.get("NORTH_AGENT_SKILLS", HOME / ".local/state/north/agents/current/skills/shared")
 )
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", HOME / ".codex"))
 CODEX_CONFIG = Path(
@@ -306,12 +306,12 @@ def skill_audit() -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     sources: list[dict[str, str]] = []
 
-    farm = canonical_directory(SKILLS_FARM, "north", "shared-farm", diagnostics)
-    sources.append(source_record("north-shared-farm", SKILLS_FARM, "ok" if farm else "unavailable"))
+    farm = canonical_directory(SHARED_SKILLS, "north", "shared", diagnostics)
+    sources.append(source_record("north-shared", SHARED_SKILLS, "ok" if farm else "unavailable"))
     if farm is not None:
         entries.extend(
             skill_directories(
-                SKILLS_FARM, "north", "shared-farm", "shared", diagnostics, contain_in=None
+                SHARED_SKILLS, "north", "shared", "shared", diagnostics, contain_in=None
             )
         )
 
