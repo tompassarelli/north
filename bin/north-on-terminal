@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# north-on-terminal — bounded, output-silent provider-native terminal telemetry.
+# north-on-terminal — bounded, output-silent provider-native subagent telemetry.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export NORTH_HOME
 
-# SessionEnd has a three-second provider deadline. Publication is telemetry:
+# SubagentStop has a three-second provider deadline. Publication is telemetry:
 # malformed input, unavailable Store state, or a wedged dependency must never
-# trap or change the provider session's outcome.
+# trap or change the provider subagent's outcome.
 timeout --signal=TERM --kill-after=0.1s 2.5s \
   bun run "$NORTH_HOME/sdk/src/provider-native-terminal.ts" >/dev/null 2>&1 || true
 exit 0

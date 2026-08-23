@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-	providerNativeActorKey,
+	providerNativeAgentKey,
 	recordCodexProviderNativeTerminal,
 	type ProviderNativeTerminalDependencies,
 } from "../src/provider-native-terminal";
@@ -26,21 +26,18 @@ interface Fixture {
 
 function fixture(
 	terminal: Readonly<Record<string, unknown>>,
-	options: { readonly identity?: boolean; readonly event?: "SessionEnd" | "SubagentStop" } = {},
+	options: { readonly identity?: boolean } = {},
 ): Fixture {
 	const root = mkdtempSync(join(tmpdir(), "north-native-terminal-"));
 	roots.push(root);
-	const event = options.event ?? "SessionEnd";
 	const sessionId = "session-123";
 	const agentId = "agent-456";
-	const actorId = event === "SessionEnd" ? sessionId : agentId;
-	const actorNamespace = event === "SessionEnd" ? "session" : "agent";
 	const transcriptPath = join(root, "rollout.jsonl");
 	const records = [
 		{
 			type: "session_meta",
 			timestamp: "2026-08-21T00:00:00.000Z",
-			payload: { id: actorId, session_id: sessionId },
+			payload: { id: agentId, session_id: sessionId },
 		},
 		{
 			type: "event_msg",
@@ -55,7 +52,7 @@ function fixture(
 		const identityDir = join(runtimeDir, "north-agent-ids");
 		mkdirSync(identityDir, { recursive: true });
 		writeFileSync(
-			join(identityDir, providerNativeActorKey(actorNamespace, actorId)),
+			join(identityDir, providerNativeAgentKey(agentId)),
 			"native-exact-agent",
 		);
 	}
@@ -63,11 +60,10 @@ function fixture(
 	const telemetry: WireRunTelemetryProjection[] = [];
 	return {
 		input: {
-			hook_event_name: event,
+			hook_event_name: "SubagentStop",
 			session_id: sessionId,
-			...(event === "SubagentStop"
-				? { agent_id: agentId, agent_transcript_path: transcriptPath }
-				: { transcript_path: transcriptPath }),
+			agent_id: agentId,
+			agent_transcript_path: transcriptPath,
 		},
 		dependencies: {
 			runtimeDir,
@@ -98,7 +94,7 @@ function facts(projection: WireRunTelemetryProjection): Map<string, string> {
 	return new Map(projection.facts);
 }
 
-test("direct Codex success publishes one attributable duration-bearing Wire run", async () => {
+test("native Codex subagent success publishes one attributable duration-bearing Wire run", async () => {
 	const state = fixture(terminal("task_complete"));
 	const result = await recordCodexProviderNativeTerminal(state.input, state.dependencies);
 	expect(result).toMatchObject({ status: "recorded", processOutcome: "ran" });
@@ -114,7 +110,7 @@ test("direct Codex success publishes one attributable duration-bearing Wire run"
 	expect(run.get("execution_source")).toBe("provider-native");
 });
 
-test("direct Codex provider failure preserves the existing failed/provider_error vocabulary", async () => {
+test("native Codex subagent provider failure preserves the failed/provider_error vocabulary", async () => {
 	const state = fixture(terminal("turn_aborted", { reason: "provider_error" }));
 	const result = await recordCodexProviderNativeTerminal(state.input, state.dependencies);
 	expect(result).toMatchObject({ status: "recorded", processOutcome: "provider_error" });
@@ -124,10 +120,8 @@ test("direct Codex provider failure preserves the existing failed/provider_error
 	expect(run.get("process_outcome")).toBe("provider_error");
 });
 
-test("direct Codex abandonment preserves the existing cancelled/aborted vocabulary", async () => {
-	const state = fixture(terminal("turn_aborted", { reason: "interrupted" }), {
-		event: "SubagentStop",
-	});
+test("native Codex subagent abandonment preserves the cancelled/aborted vocabulary", async () => {
+	const state = fixture(terminal("turn_aborted", { reason: "interrupted" }));
 	const result = await recordCodexProviderNativeTerminal(state.input, state.dependencies);
 	expect(result).toMatchObject({ status: "recorded", processOutcome: "aborted" });
 	const run = facts(state.telemetry[0]!);

@@ -712,31 +712,6 @@
     strip-focused? "strip"
     :else "composer")))
 
-;; Pure: what tab means, which is entirely a question of who has the keyboard.
-;; In the panel it is the fold — the affordance the tree had no discoverable key
-;; for, since ←/→ and h/l are conventions you either know or never find. In the
-;; composer it swaps which view is on screen, which is what it has always meant
-;; there. In the palette it completes, which is all it has ever meant there.
-;;
-;; A live filter keeps folding: tab is never a character — the letters h and l
-;; stand down while a query is up precisely because they ARE characters, and tab
-;; has no such conflict to lose.
-;;
-;; On a row that is not a node, tab climbs to the node the row lives inside
-;; rather than doing nothing. A key that appears in the legend has to move
-;; something wherever the cursor is standing, and the row you land on is the one
-;; the next press folds.
-(js/export
- (defn tab-action
-   [focus String
-    dir-row? Bool
-    expanded? Bool] String
-   (cond
-    (identical? focus "palette") "complete"
-    (or (identical? focus "panel") (identical? focus "filter"))
-    (if dir-row? (if expanded? "collapse" "expand") "climb")
-    :else "swap-view")))
-
 ;; Pure: the view a swap lands on. Two views, so the swap is the other one.
 (js/export
  (defn tab-swap-view [view String] String

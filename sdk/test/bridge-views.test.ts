@@ -497,9 +497,7 @@ test("showing Threads extends the bar with that view's own tabs", async () => {
   expect(list.snapshot).not.toContain("[Board]");
 });
 
-// Tab's other meaning, the one it has always had: with the keyboard in the
-// composer it swaps which view is on screen. The panel's fold is a different
-// surface's verb and cannot reach here.
+// With the keyboard in the composer, tab swaps which view is on screen.
 test("tab swaps the view on screen, and swaps it back", async () => {
   expect(tabSwapView("agents")).toBe("threads");
   expect(tabSwapView("threads")).toBe("agents");

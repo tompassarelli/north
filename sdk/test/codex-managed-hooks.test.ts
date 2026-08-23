@@ -67,7 +67,7 @@ function requirements(
     `managed_dir = ${JSON.stringify(document.hooks.managed_dir)}`,
   ];
   const canonicalEvents = [
-    "SessionStart", "SessionEnd", "SubagentStart", "SubagentStop",
+    "SessionStart", "SubagentStart", "SubagentStop",
     "PreToolUse", "PostToolUse", "Stop",
   ];
   const events = [
@@ -267,7 +267,6 @@ test("managed Codex requirements reject every authority-bearing drift", () => {
       });
     },
     (document) => { document.hooks.Stop[0].hooks[0].command = "/bin/true"; },
-    (document) => { document.hooks.SessionEnd[0].hooks[0].command = "/bin/true"; },
     (document) => { document.hooks.SubagentStop[0].hooks[0].timeout = 10; },
     (document) => {
       document.hooks.UserPromptSubmit = [{
