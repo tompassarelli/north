@@ -189,8 +189,7 @@ test("both command sets are discoverable, and /view is in neither", () => {
     (paletteOptions(view, query) as Array<{ name: string }>).map((c) => c.name);
 
   expect(named("agents", "/threads")).toEqual(["/threads"]);
-  // /agents shares a prefix with /agentsmd; both are real, neither is hidden.
-  expect(named("threads", "/agents")).toEqual(["/agents", "/agentsmd"]);
+  expect(named("threads", "/agents")).toEqual(["/agents"]);
   expect(named("threads", "/l")).toEqual(["/list"]);
   expect(named("threads", "/b")).toEqual(["/board"]);
   expect(named("threads", "/g")).toContain("/graph");

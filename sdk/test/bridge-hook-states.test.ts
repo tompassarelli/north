@@ -9,8 +9,8 @@ import { resolved } from "./bridge-set-members.test";
 test("Bridge presents authority-resolved hook activity and every claimant", () => {
   const activation = activationOfJson(resolved());
   const hook = activation.units.find((unit: { name: string }) => unit.name === "worktree-guard");
-  expect(configEntryActive(hook, [], [])).toBe(true);
-  expect(configStateText(hook, [], [], true, false)).toBe("on · permission on");
+  expect(configEntryActive(hook)).toBe(true);
+  expect(configStateText(hook)).toBe("on · permission on");
   expect(hook.supports).toEqual(["repo-safety", "orchestration"]);
   expect(hook.activationPaths).toEqual([
     ["orchestration", "worktree-guard"],
@@ -18,6 +18,6 @@ test("Bridge presents authority-resolved hook activity and every claimant", () =
   ]);
 
   const inactive = { ...hook, active: false, permission: "on", state: "on" };
-  expect(configEntryActive(inactive, [], [])).toBe(false);
-  expect(configStateText(inactive, [], [], false, false)).toBe("off · permission on");
+  expect(configEntryActive(inactive)).toBe(false);
+  expect(configStateText(inactive)).toBe("off · permission on");
 });
