@@ -46,6 +46,12 @@
     (with-redefs [north.agent-catalog/catalog-path (constantly path)]
       (north.agent-catalog/load-catalog))))
 
+(defn loads? [value]
+  (try
+    (load-value value)
+    true
+    (catch clojure.lang.ExceptionInfo _ false)))
+
 (defn mutate-unit [catalog id f]
   (update catalog "units"
           (fn [units]
@@ -74,6 +80,18 @@
       (throw (ex-info (str "cannot make fixture executable: " file)
                       {:path (str file)})))
     file))
+
+(def project-set-fixture
+  {"id" "beagle-tools"
+   "kind" "set"
+   "title" "Beagle Tools"
+   "triggerDescription" "Project-packaged Beagle authoring behavior."
+   "seedPermission" "off"
+   "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}
+   "members" ["code-as-facts"]
+   "distributions" [{"type" "projectPackage"
+                     "targets" ["project:beagle"]
+                     "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}}]})
 
 (defn delete-scratch! [path]
   ;; Files.walk does not follow projection symlinks without FOLLOW_LINKS.
@@ -179,7 +197,9 @@
                          (= [["project:beagle"]]
                             (mapv (fn [distribution] (get distribution "targets"))
                                   (get-in by-id [% "distributions"]))))
-                   ["code-as-facts" "code-upstream-guard"])))
+                   ["code-as-facts" "code-upstream-guard"]))
+    (check "catalog category agrees with source frontmatter when declared"
+           (= "nixos" (get-in by-id ["firn" "category"]))))
 
   (check "UnitIds are globally unique across sets, skills, and hooks"
          (throws-containing?
@@ -196,6 +216,19 @@
           "unknown member"
           #(load-value (mutate-unit base "coordination"
                                     (fn [unit] (update unit "members" conj "missing"))))))
+  (check "broadly distributed sets reject project-only members"
+         (throws-containing?
+          "contains project-only member"
+          #(load-value (mutate-unit base "coordination"
+                                    (fn [unit]
+                                      (update unit "members" conj "code-as-facts"))))))
+  (check "project-only set membership and hook support remain valid"
+         (loads? (update base "units" conj project-set-fixture)))
+  (check "broadly distributed claimants reject project-only hooks"
+         (throws-containing?
+          "cannot depend on project-only hook"
+          #(load-value (mutate-unit base "code-upstream-guard"
+                                    (fn [unit] (assoc unit "supports" ["webdev"]))))))
   (check "owner escapes are rejected"
          (throws-containing?
           "owner escapes"
@@ -206,6 +239,12 @@
           "unsupported fields"
           #(load-value (mutate-unit base "webdev"
                                     (fn [unit] (assoc unit "legacyField" true))))))
+  (check "catalog categories reject disagreement with source frontmatter"
+         (throws-containing?
+          "source declares category"
+          #(load-value (mutate-unit base "firn"
+                                    (fn [unit]
+                                      (assoc unit "category" "uncategorized"))))))
   (check "unknown distribution targets are rejected"
          (throws-containing?
           "invalid or duplicate targets"
