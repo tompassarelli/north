@@ -308,12 +308,11 @@
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
-   (->SlashCommand "/config" "toggle the context switchboard" false "" false)
+   (->SlashCommand "/config" "toggle the switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global sets, skills, hooks" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -339,12 +338,11 @@
    (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
    (->SlashCommand "/sound" "configure completion sounds" true "" false)
    (->SlashCommand "/mute" "turn completion sounds off" false "" false)
-   (->SlashCommand "/config" "toggle the context switchboard" false "" false)
+   (->SlashCommand "/config" "toggle the switchboard" false "" false)
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global sets, skills, hooks" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show thread commands" false "" false)])
 
@@ -1208,205 +1206,43 @@
    distributions Any
    activationPaths Any])
 
-;; A hook's stored axis is permission, not activity. The pre-two-axis spelling
-;; `on` is gone: the CLI normalises every hook row to enabled/disabled when it
-;; touches the manifest, and the migration has landed, so a row spelled `on`
-;; can no longer reach this panel. Reading one as permission would now be a
-;; guess about a shape that does not occur.
-(defn config-hook-enabled? [state String] Bool
-  (not (or (identical? state "disabled") (identical? state "off"))))
+(defn config-permission-on? [state String] Bool
+  (identical? state "on"))
 
 (defn config-entry-members [entry Any] Any
   (let [members Any (.-members entry)]
     (if (Array/isArray members) members [])))
 
-;; The kinds that are rows inside a directory's subtree rather than sections of
-;; their own: the directory's instruction file (`ins`), the gate over its
-;; memories (`memroot`), and one memory (`mem`). A `dir` row is the subtree's
-;; own gate and heads it.
-(defn config-subtree-kind? [kind String] Bool
-  (or (identical? kind "ins")
-      (identical? kind "memroot")
-      (identical? kind "mem")))
-
-;; Pure: which directory a row belongs to. Every subtree row is named for its
-;; directory's slug; a `mem` row qualifies that with the memory's own name, so
-;; two directories may both carry `memories/architecture` without colliding.
-(defn config-row-slug
-  [kind String
-   name String] String
-  (if (identical? kind "mem")
-    (let [cut Int (.indexOf name "/")]
-      (if (< cut 0) name (.slice name 0 cut)))
-    name))
-
-;; Pure: the memory's own name, which is what the row prints — the slug in front
-;; of it is the directory it is already nested under.
-(defn config-mem-name [name String] String
-  (let [cut Int (.indexOf name "/")]
-    (if (< cut 0) name (.slice name (+ cut 1)))))
-
-;; Pure: how a row is named when some OTHER row is talking about it. A bare name
-;; in a provenance column reads as a peer — a hook that says it follows
-;; `repo-safety` reads as a hook following a hook — so the kind comes with it,
-;; and it stays legible with every colour turned off. The word is the one the
-;; panel would use for that row out loud rather than the manifest's token: a
-;; directory's instruction file is a `file`, its memories gate is `memories`.
-(js/export
- (defn config-kind-word [kind String] String
-  (cond
-    (identical? kind "ins") "file"
-    (identical? kind "memroot") "memories"
-    (identical? kind "mem") "memory"
-    :else kind)))
-
-(js/export
- (defn config-provenance-name
-   [kind String
-    name String] String
-   (if (identical? kind "") name (str (config-kind-word kind) ": " name))))
-
-;; Pure: what a row calls itself on screen. A subtree row is named for its
-;; directory in the manifest and for what it IS in the panel — the instruction
-;; file says `AGENTS.md`, the memories gate says `memories`, a memory says its
-;; own name — because the directory is already the row it is nested under and
-;; printing the slug again on every child would say nothing new.
-(js/export
- (defn config-row-label
-   [kind String
-    name String] String
-   (cond
-    (identical? kind "ins") "AGENTS.md"
-    (identical? kind "memroot") "MEMORIES"
-    (identical? kind "mem") (config-mem-name name)
-    :else name)))
-
-;; Pure: the argument the CLI verbs take for this row — `agents on|off <target>`
-;; and `agents path <target>`, which speak the same spellings.
-;;
-;; Everything under a directory gate is addressed THROUGH it, because that is
-;; what it is: `code/AGENTS.md` is that directory's instruction file,
-;; `code/memories` the group, and any other leaf is a memory by its file name.
-;; The slash is what keeps memory names out of the bare unit namespace — two
-;; directories may both remember `style.md`
-;; — and it is what ends the collision the slug used to have with its own
-;; subtree: `agents off code` closes the directory, and nothing else answers to
-;; that name any more.
-;;
-;; A memory's manifest name already carries both halves, extension and all, so
-;; it is its own address. One function, so the whole panel speaks to the CLI in
-;; one place.
-(js/export
- (defn config-cli-name
-   [kind String
-    name String] String
-   (cond
-    (identical? kind "ins") (str name "/AGENTS.md")
-    (identical? kind "memroot") (str name "/memories")
-    :else name)))
-
-;; Pure: how a row is written into a sentence. `@` on a row drops it into the
-;; composer as a reference the reader can resolve without the panel in front of
-;; them — the kind first, because `@repo-safety` alone is the same ambiguity the
-;; provenance column had, and the CLI's own address after it.
+;; UnitId is globally unique across the three activation kinds, so references
+;; never need a directory or source-path alias.
 (js/export
  (defn config-reference-text
    [kind String
     name String] String
-   (str "@" (config-kind-word kind) ":" (config-cli-name kind name) " ")))
+   (str "@" kind ":" name " ")))
 
-;; Pure: the row a name refers to. Members may be any kind, so this spans all of
-;; them; a companion may not be a hook (see config-entry-active?), so that
-;; lookup skips them.
+;; UnitId is the lookup key across every kind.
 (defn config-find-entry
-  [manifest Any
+  [entries Any
    name String] Any
-  (.find manifest
+  (.find entries
          (fn [entry Any] Bool
            (identical? (configentry-name entry) name))))
 
-;; Pure: the row of exactly this kind. A name is only unique within a kind now
-;; that a directory's slug names its `dir` gate, its `ins` file and its
-;; `memroot` alike, so every lookup that knows which kind it wants has to say
-;; so or it will answer with whichever row the manifest happened to append
-;; first.
-(defn config-find-kind
-  [manifest Any
-   kind String
-   name String] Any
-  (.find manifest
-         (fn [entry Any] Bool
-           (and (identical? (configentry-kind entry) kind)
-                (identical? (configentry-name entry) name)))))
-
-(defn config-find-companion
-  [manifest Any
-   name String] Any
-  (.find manifest
-         (fn [entry Any] Bool
-           (and (not (identical? (configentry-kind entry) "hook"))
-                (identical? (configentry-name entry) name)))))
-
-;; Pure: the row whose activity gates this one's subtree, or nil for a row that
-;; is nobody's child. The instruction file and the memories group hang off their
-;; directory's `dir` row; a memory hangs off its directory's `memroot`, which
-;; hangs off the same `dir` row in turn — so one press on the directory closes
-;; the whole subtree, two links down, without any row but the gate's changing.
-;;
-;; A memory whose manifest carries no `memroot` falls back to the `dir` gate
-;; directly: the dir-gate half of a memory's activity is not optional, and
-;; skipping a missing middle row keeps the answer right instead of deriving a
-;; permanent off. A subtree row whose directory is not in the manifest at all is
-;; ungated rather than dead — absence here means the CLI never registered the
-;; scope, and the honest thing to show is the row's own switch. (Derivation
-;; always reads the whole manifest, never the filtered view, so absence is
-;; really absence and not a narrowed view.)
-(defn config-subtree-gate
-  [manifest Any
-   kind String
-   name String] Any
-  (let [slug String (config-row-slug kind name)]
-    (cond
-      (or (identical? kind "ins") (identical? kind "memroot"))
-      (config-find-kind manifest "dir" slug)
-
-      (identical? kind "mem")
-      (let [root Any (config-find-kind manifest "memroot" slug)]
-        (if root root (config-find-kind manifest "dir" slug)))
-
-      :else nil)))
-
-;; Activity is copied verbatim from the resolved generation. The extra
-;; parameters keep presentation helpers uniform; they never become inputs to
-;; another resolver.
-(defn config-active-along?
-  [entry Any
-   _manifest Any
-   _memberships Any
-   _trail Any] Bool
-  (if (.-active entry) true false))
-
-;; Pure: the derived axis. Needs the whole manifest, not the filtered view —
-;; /hooks shows no companion rows at all and still has to say which of its hooks
-;; are running — and the memberships beside it, because a unit's own row never
-;; mentions the bundle that gates it.
+;; Activity is already resolved by North and is never recomputed in Bridge.
 (js/export
- (defn config-entry-active?
-   [entry Any
-    manifest Any
-    memberships Any] Bool
-   (config-active-along? entry manifest memberships [])))
+ (defn config-entry-active? [entry Any] Bool
+   (if (.-active entry) true false)))
 
 ;; Pure: the same question asked by name, for callers holding a companion or a
-;; roster entry rather than a row. A name the manifest does not carry is not an
+;; roster entry rather than a row. A name the generation does not carry is not an
 ;; active unit.
 (js/export
  (defn config-unit-active?
-   [manifest Any
-    memberships Any
+   [entries Any
     name String] Bool
-   (let [entry Any (config-find-entry manifest name)]
-    (if entry (config-entry-active? entry manifest memberships) false))))
+   (let [entry Any (config-find-entry entries name)]
+    (if entry (config-entry-active? entry) false))))
 
 ;; Pure: the state a row is in — ONE token, and a qualifier only where the row
 ;; diverges from what that token would let you assume.
@@ -1428,14 +1264,9 @@
 ;; parent row already gives its provenance. The kind comes with a companion's
 ;; name; an absent companion has no kind to state.
 (js/export
- (defn config-state-text
-   [entry Any
-    manifest Any
-    memberships Any
-    active? Bool
-    nested? Bool] String
+ (defn config-state-text [entry Any] String
    (let [state String (text-or (configentry-state entry) "default")
-         resolved String (if active? "on" "off")]
+         resolved String (if (config-entry-active? entry) "on" "off")]
      (str resolved " · permission " state))))
 
 ;; Pure: which CLI verb a space on this row means. Both axes flip through the
@@ -1443,87 +1274,17 @@
 ;; clears the pin or switches the unit on — and the cascade math is the CLI's.
 (js/export
  (defn config-toggle-verb [state String] String
-  (if (or (identical? state "on") (identical? state "enabled")) "off" "on")))
+  (if (identical? state "on") "off" "on")))
 
-;; The global profile is a `dir` row like any other — the instruction file for
-;; the root scope, carrying `~` where a per-directory row carries its path. It
-;; is one row rather than a kind of its own, which is why /agentsmd is now
-;; literally one section and why /globals has to name a row instead of a kind.
-(def GLOBAL-DIR-NAME String "global")
-
-(defn config-global-row?
-  [kind String
-   name String] Bool
-  (and (identical? kind "dir") (identical? name GLOBAL-DIR-NAME)))
-
-;; ---------------------------------------------------------------------------
-;; The switchboard is a DIRECTORY-ROOTED TREE. Directories are the top level and
-;; every other row hangs off one of them: a unit is only ever in force somewhere,
-;; and the somewhere is the thing you can flip. The root scope is a node like any
-;; other — `global`, whose directory is `~` — and it reads first because every
-;; narrower scope is layered on top of it.
-;;
-;; Resolved activation units are global; directory-local rows are not part of
-;; this generation contract.
-;; ---------------------------------------------------------------------------
-
-;; Pure: the directory node a row belongs under. A `dir` row is its own node; a
-;; subtree row names its node in its slug; everything else is scoped to the root
-;; until the CLI can say otherwise.
-(js/export
- (defn config-row-scope
-   [kind String
-    name String] String
-   (cond
-    (identical? kind "dir") name
-    (config-subtree-kind? kind) (config-row-slug kind name)
-    :else GLOBAL-DIR-NAME)))
-
-;; The switchboard's views are names, not manifest kinds — and every one of them
-;; is now a projection of the same tree, narrowed by which rows it admits.
-;; `globals` is the root node alone with everything scoped to it; `agentsmd` is
-;; every node's own files; a kind name is that kind under whichever nodes have
-;; any. Directory rows are admitted everywhere, because a row with no node over
-;; it has nowhere to hang — the nodes that end up holding nothing are pruned
-;; afterwards, where the whole list is in view.
+;; Views are projections of the one ordered activation-unit list.
 (js/export
  (defn config-view-includes?
    [view String
     kind String
     _name String] Bool
    (cond
-    (or (identical? view "all") (identical? view "globals")) true
+    (identical? view "all") true
     :else (identical? kind view))))
-
-;; A view that asked a narrow question prints only the nodes that answer it: an
-;; empty SKILLS heading under a directory that has no skills is a row spent
-;; saying nothing. The full tree keeps its empty nodes — a directory you have
-;; registered exists whether or not anything is scoped to it yet, and that is
-;; the fact /config is for.
-(defn config-view-prunes? [_view String] Bool false)
-
-;; Folding is for the view that shows everything. A narrowed view is already an
-;; answer; hiding its rows behind a fold would leave it answering nothing.
-(js/export
- (defn config-view-folds? [view String] Bool
-  false))
-
-;; ---------------------------------------------------------------------------
-;; A row's role is its authority-owned kind. Skills stay skills even when they
-;; own hooks; nesting comes only from explicit set membership.
-(defn config-hook-companion [entry Any] String
-  (if (identical? (configentry-kind entry) "hook")
-    (text (configentry-detail entry))
-    ""))
-
-(js/export
- (defn config-skill-hooks
-   [rows Any
-    name String] Any
-   (.filter rows
-           (fn [entry Any] Bool
-             (and (identical? (configentry-kind entry) "hook")
-                  (identical? (config-hook-companion entry) name))))))
 
 (js/export
  (defn config-row-role
@@ -1531,33 +1292,14 @@
     _rows Any] String
    (configentry-kind entry)))
 
-;; Reading order inside a node: what the directory SAYS before what it turns on.
-;; Its instruction file and its memories are the directory itself speaking, and
-;; they are the reason you opened the node; the switches under them are things
-;; that happen to be in force there. Resolved units then read sets, skills, and
-;; hooks.
+;; Sets are the sole composition unit and therefore always precede leaf kinds.
 (defn config-section-rank [role String] Int
   (cond
-    (identical? role "ins") 0
-    (identical? role "memroot") 1
-    (identical? role "mem") 2
-    (identical? role "set") 3
-    (identical? role "skill") 4
-    (identical? role "hook") 5
+    (identical? role "set") 0
+    (identical? role "skill") 1
+    (identical? role "hook") 2
     :else 10))
 
-;; The global profile is the file every other node is read on top of, so its
-;; node reads first no matter where the CLI appended it.
-(defn config-node-rank [entry Any] Int
-  (if (config-global-row? (configentry-kind entry) (configentry-name entry))
-    0
-    1))
-
-;; Pure: flat manifest rows -> the tree, depth-first. Each directory node is
-;; followed by everything scoped to it, in section order; rows whose node is not
-;; in this view keep their place at the end rather than disappearing, because a
-;; row the panel cannot nest is still a switch that exists and silently dropping
-;; rows is the one failure a switchboard exists to prevent.
 (defn config-tree-rows [entries Any] Any
   (.sort (.slice entries)
          (fn
@@ -1566,60 +1308,18 @@
            (- (config-section-rank (config-row-role a entries))
               (config-section-rank (config-row-role b entries))))))
 
-;; Pure: manifest rows -> the rows this view shows, as a tree. A node earns its
-;; row by having something under it.
+;; Preserve authority order within each kind while presenting sections in the
+;; fixed set, skill, hook hierarchy.
 (js/export
  (defn config-view-rows
    [entries Any
     view String] Any
-   (let [kept Any (.filter entries
-                      (fn [entry Any] Bool
-                        (config-view-includes? view
-                                               (configentry-kind entry)
-                                               (configentry-name entry))))
-         held Any (.filter kept
-                      (fn [entry Any] Bool
-                        (if (or (not (config-view-prunes? view))
-                                (not (identical? (configentry-kind entry) "dir")))
-                          true
-                          (.some kept
-                                 (fn [child Any] Bool
-                                   (and (not (identical? (configentry-kind child)
-                                                         "dir"))
-                                        (identical?
-                                         (config-row-scope
-                                          (configentry-kind child)
-                                          (configentry-name child))
-                                         (configentry-name entry))))))))]
-     (config-tree-rows held))))
-
-;; Pure: which nodes are open. Session-local and defaulting to none, so the panel
-;; opens as a list of directories — the question "which scopes exist" answered
-;; before the question "what is in them".
-(js/export
- (defn config-node-expanded?
-   [expanded Any
-    slug String] Bool
-   (if expanded (.includes expanded slug) false)))
-
-;; Pure: the tree minus the nodes that are folded shut. A row whose node is not
-;; in the list at all stays visible: there is no fold row to open it with, so
-;; folding it away would put it out of reach.
-(js/export
- (defn config-fold-rows
-   [entries Any
-    expanded Any] Any
-   (let [nodes Any (.map (.filter entries
-                             (fn [entry Any] Bool
-                               (identical? (configentry-kind entry) "dir")))
-                    (fn [entry Any] String (configentry-name entry)))]
+   (config-tree-rows
     (.filter entries
              (fn [entry Any] Bool
-               (let [kind String (configentry-kind entry)
-                     scope String (config-row-scope kind (configentry-name entry))]
-                 (or (identical? kind "dir")
-                     (not (.includes nodes scope))
-                     (config-node-expanded? expanded scope))))))))
+               (config-view-includes? view
+                                      (configentry-kind entry)
+                                      (configentry-name entry)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The live filter. `/` inside an open panel narrows its rows as you type; the
@@ -1627,20 +1327,15 @@
 ;; edits, so a filtered panel is a smaller panel and not a different surface.
 ;; ---------------------------------------------------------------------------
 
-;; Pure: the text a query is matched against — what the row SAYS plus what it is
-;; called plus what it carries. The label is on screen (`AGENTS.md`), the name is
-;; how the manifest and the CLI spell it (`code`, `code/style`), and the detail
-;; is the path or whatever else the row's fourth field holds. Searching what you
-;; can see and what you can address are the same question asked from two ends,
-;; and answering only one of them makes rows unfindable by the name printed on
-;; them.
+;; Search the unit's stable identity and authority-owned presentation fields.
 (js/export
  (defn config-row-search-text [entry Any] String
   (let [kind String (configentry-kind entry)
         name String (configentry-name entry)]
-    (.toLowerCase (str (config-row-label kind name) " "
-                       name " "
-                       (text (configentry-detail entry)))))))
+    (.toLowerCase (str kind " " name " "
+                       (configentry-title entry) " "
+                       (configentry-detail entry) " "
+                       (configentry-owner entry))))))
 
 ;; Pure: case-insensitive substring, and an empty query matches everything —
 ;; entering filter mode must not blank the panel before a character is typed.
@@ -1652,108 +1347,39 @@
     (or (identical? needle "")
         (.includes (config-row-search-text entry) needle)))))
 
-;; Pure: the node slugs of the matched rows of one kind, which is how a match
-;; reaches the rows above and below it.
-(defn config-matched-slugs
-  [entries Any
-   query String
-   kind String] Any
-  (.map (.filter entries
-                 (fn [entry Any] Bool
-                   (and (identical? (configentry-kind entry) kind)
-                        (config-row-matches? entry query))))
-        (fn [entry Any] String
-          (config-row-scope (configentry-kind entry) (configentry-name entry)))))
-
-;; Pure: rows + query -> the rows the panel shows. A match never arrives alone:
-;;
-;;   a matching row keeps the node it is scoped to, because a skill under a
-;;   directory you cannot see is a row with no address on screen;
-;;   a matching node keeps everything under it, because narrowing to a directory
-;;   is how you ask what that directory carries.
-;;
-;; The fold is not consulted while a query is up — a match opens whatever it is
-;; buried under, and the fold state it ignored is still there when the query is
-;; cleared. Section headers need no rule of their own either: they are printed
-;; from the rows that survive, so a section with nothing left prints nothing.
+;; Filtering never re-resolves composition; it narrows the rows already emitted
+;; by the immutable activation generation.
 (js/export
  (defn config-query-rows
    [entries Any
     query String] Any
    (if (identical? (.trim query) "")
-    entries
-    ;; The nodes some matched row hangs off, which is what keeps a
-    ;; directory on screen above its match.
-    ;; A bound hook is drawn inside the skill that declared it, so that
-    ;; skill is one of its ancestors and comes with it.
-    (let [open-nodes Any (config-matched-slugs entries query "dir")
-          open-mems Any (config-matched-slugs entries query "memroot")
-          held Any (.map (.filter entries
-                              (fn [entry Any] Bool
-                                (config-row-matches? entry query)))
-                     (fn [entry Any] String
-                       (config-row-scope (configentry-kind entry)
-                                         (configentry-name entry))))
-          held-mems Any (.map (.filter entries
-                                   (fn [entry Any] Bool
-                                     (and (identical? (configentry-kind entry)
-                                                      "mem")
-                                          (config-row-matches? entry query))))
-                          (fn [entry Any] String
-                            (config-row-scope (configentry-kind entry)
-                                              (configentry-name entry))))
-          held-skills Any (.map (.filter entries
-                                     (fn [entry Any] Bool
-                                       (and (identical? (configentry-kind entry)
-                                                        "hook")
-                                            (config-row-matches? entry query))))
-                            (fn [entry Any] String
-                              (config-hook-companion entry)))
-          open-skills Any (.map (.filter entries
-                                     (fn [entry Any] Bool
-                                       (and (identical? (configentry-kind entry)
-                                                        "skill")
-                                            (config-row-matches? entry query))))
-                            (fn [entry Any] String
-                              (configentry-name entry)))]
-      (.filter entries
-               (fn [entry Any] Bool
-                 (let [kind String (configentry-kind entry)
-                       scope String (config-row-scope kind (configentry-name entry))]
-                   (or (config-row-matches? entry query)
-                       ;; A matched node opens everything scoped to it.
-                       (.includes open-nodes scope)
-                       ;; A matched memories gate opens the memories it holds.
-                       (and (identical? kind "mem") (.includes open-mems scope))
-                       ;; A matched anything keeps the node over it.
-                       (and (identical? kind "dir") (.includes held scope))
-                       ;; A matched memory keeps the gate over it.
-                       (and (identical? kind "memroot")
-                            (.includes held-mems scope))
-                       ;; A matched hook keeps the skill it is drawn inside.
-                       (and (identical? kind "skill")
-                            (.includes held-skills (configentry-name entry)))
-                       ;; A matched skill brings the hooks it declared.
-                       (and (identical? kind "hook")
-                            (.includes open-skills
-                                       (config-hook-companion entry)))))))))))
+     entries
+     (.filter entries
+              (fn [entry Any] Bool
+                (config-row-matches? entry query))))))
 
-;; Pure: whether this row is on screen on its own account or only to give a
-;; match its context. The panel dims the second kind: it is scaffolding around
-;; the answer, not the answer.
 (js/export
  (defn config-row-context-only?
-   [entry Any
-    query String] Bool
-   (and (not (identical? (.trim query) ""))
-       (not (config-row-matches? entry query)))))
+   [_entry Any
+    _query String] Bool
+   false))
 
 (def ACTIVATION-SCHEMA String "north.agent-activation/v1")
 
-(defn config-activation-path [runtime Any] String
-  (text-or (text (.-configActivationPath runtime))
-           (str (text (.-HOME (.-env process)))
-                "/.local/state/north/agents/current/activation.json")))
+(js/export
+ (defn config-activation-path-from
+   [runtime Any
+    environment Any] String
+   (let [state-root String (text-or (text (.-NORTH_AGENT_STATE_ROOT environment))
+                   (str (text (.-HOME environment))
+                        "/.local/state/north/agents"))]
+     (text-or (text (.-configActivationPath runtime))
+              (str state-root "/current/activation.json")))))
+
+(js/export
+ (defn config-activation-path [runtime Any] String
+   (config-activation-path-from runtime (.-env process))))
 
 (defn config-array [value Any] Any
   (if (Array/isArray value) value []))
@@ -1799,12 +1425,22 @@
                     (text-or schema "missing")))))
      (when (not (Array/isArray units))
        (throw (new Error "activation generation has no ordered units")))
+     (let [invalid Any (.find units
+                   (fn [unit Any] Bool
+                     (let [kind String (text (.-kind unit))]
+                       (not (or (identical? kind "set")
+                                (identical? kind "skill")
+                                (identical? kind "hook"))))))]
+       (when invalid
+         (throw (new Error
+                     (str "activation generation has invalid unit kind: "
+                          (text-or (text (.-kind invalid)) "missing"))))))
      {:schema schema
       :digest (text (.-catalogDigest parsed))
       :generation (text (.-generationId parsed))
       :units (.map units config-unit-entry)})))
 
-;; Filter mode is a state of the open panel, not of the manifest: the query and
+;; Filter mode is a state of the open panel, not of the generation: the query and
 ;; the mode are separate facts because `/` with nothing typed yet is already
 ;; filtering — the field is on screen and the next keystroke goes into it.
 (defn panel-filtering? [runtime Any] Bool
@@ -1813,44 +1449,15 @@
 (defn panel-query [runtime Any] String
   (if (panel-filtering? runtime) (text (.-panelQuery runtime)) ""))
 
-;; The rows the panel is actually showing, which is what the cursor walks and
-;; what space and enter act on. Every caller that used to read configEntries
-;; directly reads this instead, or the filter would be a lie told only to the
-;; renderer and space would flip a row that is not on screen.
-;; What is open before you have opened anything. GLOBAL is the profile every
-;; other node is read on top of, so it is the one node whose contents are always
-;; part of the answer; the rest open folded, which is what makes the panel a list
-;; of scopes rather than a wall. An empty list is a state you chose — shutting
-;; GLOBAL keeps it shut — because only an absent field falls back to this.
-(def PANEL-DEFAULT-EXPANDED Any [GLOBAL-DIR-NAME])
-
-;; The nodes this session has opened. Session-local by construction: it lives on
-;; the runtime and nothing writes it to disk, so the panel opens to the same
-;; shape every time and a fold is never a setting you have to remember you
-;; changed.
-(defn panel-expanded [runtime Any] Any
-  (let [stored Any (.-expandedDirs runtime)]
-    (if stored stored PANEL-DEFAULT-EXPANDED)))
-
+;; The filtered rows are the rows the cursor walks and the toggle mutates.
 (js/export
  (defn config-panel-rows [runtime Any] Any
   (let [stored Any (.-configEntries runtime)
         entries Any (if stored stored [])
-        query String (panel-query runtime)
-        view String (text-or (text (.-configFilter runtime)) "all")]
+        query String (panel-query runtime)]
     (if (not (identical? (.trim query) ""))
-      ;; A query outranks the fold: it opens whatever it found.
       (config-query-rows entries query)
-      (if (config-view-folds? view)
-        (config-fold-rows entries (panel-expanded runtime))
-        entries)))))
-
-;; The node a row belongs to, which is the row `h` climbs to and the node `l`
-;; opens. A dir row is its own node, so the fold keys work wherever the cursor
-;; happens to be inside it.
-(js/export
- (defn config-row-node [entry Any] String
-  (config-row-scope (configentry-kind entry) (configentry-name entry))))
+      entries))))
 
 ;; The cursor belongs to the filtered list, so every change to the query drags
 ;; it back inside. A query that empties the panel parks it at zero rather than
@@ -1876,36 +1483,6 @@
   (set! (.-panelFiltering runtime) false)
   (set! (.-panelQuery runtime) "")
   (clamp-panel-cursor! runtime)))
-
-;; Open or shut one node. The cursor keeps its index, which is the row it was
-;; on: expanding pushes rows in below it and collapsing takes them away, and
-;; either way the row under the cursor is the node you just folded.
-(js/export
- (defn set-node-expanded!
-   [runtime Any
-    slug String
-    open? Bool] Any
-   (let [current Any (panel-expanded runtime)
-         without Any (.filter current
-                         (fn [held String] Bool
-                           (not (identical? held slug))))]
-     (set! (.-expandedDirs runtime)
-          (if open? (.concat without [slug]) without))
-    (clamp-panel-cursor! runtime))))
-
-;; Pure: what a fold key means on the row under the cursor. `l` opens the node
-;; you are on; `h` shuts it, or climbs to the node when you are inside one —
-;; the tree convention, so a hand that knows one tree knows this one.
-(js/export
- (defn fold-key-action
-   [dir-row? Bool
-    expanded? Bool
-    open-key? Bool] String
-   (cond
-    (and open-key? dir-row?) (if expanded? "" "expand")
-    open-key? ""
-    dir-row? (if expanded? "collapse" "")
-    :else "climb")))
 
 (defn ^:async load-config-entries! [runtime Any] (Promise Any)
   (try
@@ -1998,12 +1575,9 @@
             verb String (config-toggle-verb (configentry-state entry))]
         (await (run-command [(north-bin) "config" "agents" verb
                             (configentry-name entry)]))
-        ;; Reload the whole manifest, never patch the row that was flipped. One
-        ;; skill flip changes the derived activity of every hook bound to it,
-        ;; a directory flip changes every row in its subtree two links down, and
-        ;; the CLI may pin or unpin rows this panel never touched; a local patch
-        ;; would leave the rest of the panel asserting a state that is no longer
-        ;; true.
+        ;; Reload the authority-owned generation rather than patching one row:
+        ;; one permission change can alter every reachable member and supporting
+        ;; hook in the resolved set graph.
         (await (load-config-entries! runtime))
         (.render runtime)))))
 
@@ -2142,9 +1716,6 @@
 
           (identical? name "sets")
           (do (open-config-panel! runtime ui "set") true)
-
-          (identical? name "globals")
-          (do (open-config-panel! runtime ui "globals") true)
 
           (identical? name "restart")
           (do (restart-daemon! runtime) true)
@@ -3252,13 +2823,7 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
-;; The heading a role prints under. Directories head NOTHING: they are the
-;; panel's root level, not rows inside a section about directories, and a
-;; heading over them would be a word spent saying what the shape already says.
-;; A directory's two files are rows rather than sections for the same reason
-;; from the other end — they carry a switch each, and a heading you cannot flip
-;; would be a worse lie than a row that reads in capitals. A bound hook heads
-;; nothing either: it is drawn under the skill that declared it.
+;; The sole composition type leads, followed by the two leaf kinds.
 (js/export
  (defn config-section-title [role String] String
   (cond
@@ -3272,8 +2837,6 @@
 ;; need printed" is answered by comparing paths and nothing has to remember what
 ;; came before.
 ;;
-;; A directory sits under nothing, and so do the files it carries: an empty path
-;; is the root of the panel.
 (js/export
  (defn config-header-roles [role String] Any
   (cond
@@ -3282,19 +2845,16 @@
     (identical? role "hook") ["hook"]
     :else [])))
 
-;; Pure: those headings as keys that say which NODE they belong to, so two
-;; directories with skills print two SKILLS headings — one inside each — and a
-;; window that opens mid-node still prints the heading the row is under.
+;; Section names are global because activation units no longer live under
+;; directory nodes.
 (js/export
  (defn config-header-keys
    [entry Any
     rows Any] Any
-   (let [role String (config-row-role entry rows)
-         scope String (config-row-scope (configentry-kind entry)
-                                (configentry-name entry))]
+   (let [role String (config-row-role entry rows)]
      (.map (config-header-roles role)
           (fn [heading String] String
-            (str scope " " heading))))))
+            heading)))))
 
 ;; Pure: how many of two heading paths agree from the outside in, which is how
 ;; many headings a row does NOT have to print again.
@@ -3318,11 +2878,10 @@
     (identical? config-filter "hook") "hooks"
     (identical? config-filter "skill") "skills"
     (identical? config-filter "set") "sets"
-    (identical? config-filter "globals") "globals"
-    :else "context switchboard"))
+    :else "switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
-;; panel lied about a manifest that simply has no rows of this kind. A query
+;; panel lied about a generation that simply has no rows of this kind. A query
 ;; that matches nothing is a third answer again: the rows are there, and this is
 ;; what you asked for.
 (js/export
@@ -3349,8 +2908,8 @@
 (js/export
  (defn config-panel-legend [filtering? Bool] String
   (if filtering?
-    "  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter"
-    "  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close")))
+    "  ↑/↓ move · space toggle · enter inspect set · esc clears filter"
+    "  ↑/↓ move · space toggle · enter inspect set · / filter · esc close")))
 
 ;; The dimmest tone the panel has: brightBlack with the dim attribute on top of
 ;; it. What you switched off, and what is only on screen to give a match its
@@ -3362,83 +2921,17 @@
 (defn config-member-count-text [count Int] String
   (str count (if (identical? count 1) " member" " members")))
 
-;; One row's label: what the row calls itself, plus whatever it has to add after
-;; the state. A set row adds the size of its ordered member list. Clipped to the
-;; panel so
-;; a long path cannot wrap and desync the rendered height from
-;; detail-body-lines. A hook's fourth field is the unit it follows, which the
-;; state column already carries as provenance — printing it twice on one row
-;; says nothing new; a subtree row's directory is the row it is nested under and
-;; is not printed twice either.
-;; The fold marker, which is the one thing a collapsed node has to say that an
-;; open one does not: there is more here. Only directories fold, so only they
-;; carry it, and it is drawn rather than stored in the label — a glyph is a
-;; rendering of the fold state, not part of what the row is called, and a search
-;; must never have to match it.
-(defn config-fold-glyph
-  [dir-row? Bool
-   expanded? Bool] String
-  (if (not dir-row?) "" (if expanded? "▾ " "▸ ")))
-
-;; Pure: what a directory row calls itself on screen — the place, not the slug.
-;; `code  ~/code` said the same thing twice, and the half that answers
-;; "which directory is this" is the path: two checkouts of one repo have the
-;; same slug and different paths, and the path is what you would type. The slug
-;; stays every internal thing it already was — the flip address, `agents path`,
-;; the search text, an `@dir:` reference — because none of those are reading.
-;; A row whose path the CLI has not filled in falls back to the slug rather
-;; than rendering nothing.
-;;
-;; The root scope is the exception, and not really one: its "directory" is `~`,
-;; which names a place but not the thing it is — the profile every other node is
-;; read on top of. It says GLOBAL, which is what it is.
-(defn config-dir-label [entry Any] String
-  (if (config-global-row? (configentry-kind entry) (configentry-name entry))
-    "GLOBAL"
-    (let [path String (short-directory (text (configentry-detail entry)))]
-      (text-or path (configentry-name entry)))))
-
-;; Pure: does this row have to say what KIND it is? A row drawn under a heading
-;; that already names its kind does not — HOOKS says it once over the whole
-;; section, and repeating it per row is the same duplication the state column
-;; was carrying. A row nested inside another UNIT does: the heading over it names
-;; its parent's kind. General rule rather than a hook special case — any kind
-;; that ends up
-;; nested under a differently-kinded parent inherits it.
-;;
-;; Dim by construction at the call site: the tag says which sort of thing this
-;; is, and the name is still what you are scanning for.
-(js/export
- (defn config-kind-tag
-   [kind String
-    role String] String
-   (let [headings Any (config-header-roles role)
-         depth Int (.-length headings)
-         innermost Any (if (> depth 0) (nth headings (- depth 1)) "")]
-     (if (or (identical? innermost "") (identical? innermost role))
-      ""
-      (str kind " · ")))))
-
-;; Pure: one row, in the order it reads. The NAME leads, because the name is
+;; Pure: one row, in the order it reads. The UnitId leads because it is the
 ;; what you came to the list to find; the state follows it after a colon,
-;; answering the question you only ask once you have found the row. The state
-;; column used to lead, which put a column of `on`s between the cursor and every
-;; name on screen.
-;;
-;; The name is what gives way when the panel is narrow: a clipped state is not a
-;; smaller answer, it is a wrong one.
-;; A directory's path is its label, so it is never repeated as detail.
+;; and the set/support summary follows. The UnitId gives way first when narrow;
+;; clipping permission or activity would change the answer.
 (js/export
  (defn config-row-parts
    [entry Any
-    memberships Any
-    expanded? Bool
-    role String
     state-text String
     width Int] Any
    (let [kind String (configentry-kind entry)
          name String (configentry-name entry)
-         dir? Bool (identical? kind "dir")
          members Any (config-entry-members entry)
          detail String (cond
                  (identical? kind "hook")
@@ -3446,52 +2939,30 @@
                    (if (> (.-length claims) 0)
                      (str "supports " (.join claims ", "))
                      ""))
-                 (config-subtree-kind? kind) ""
-                 dir? ""
                  (identical? kind "set")
                  (config-member-count-text (.-length members))
                  :else (text (configentry-detail entry)))
-         indent String (config-row-indent role)
-         glyph String (config-fold-glyph dir? expanded?)
-         tag String (config-kind-tag kind role)
-         label String (if dir? (config-dir-label entry) (config-row-label kind name))
+         indent String (config-row-indent)
          indent-width Int (.-length indent)
-         glyph-width Int (.-length glyph)
-         tag-width Int (.-length tag)
          state-width Int (.-length state-text)
          detail-width Int (.-length detail)
-         room Int (Math/max 8 (- width indent-width glyph-width tag-width
-                                state-width detail-width 4))]
+         room Int (Math/max 8 (- width indent-width state-width detail-width 4))]
      {:indent indent
-     :glyph glyph
-     :tag tag
-     :name (compact-text label room)
+     :name (compact-text name room)
      :state state-text
      :detail detail})))
 
-;; How far a row sits from the panel's left edge, in steps of two. Depth reads
-;; as depth: the directory at the margin, its own two files one step in, the
-;; rows inside a section one step further, and a memory under the gate that
-;; holds it. Section headings sit one step left of the rows they head, which is
-;; the same relation DIRECTORY has to the directories under it. The cursor
-;; gutter is outside all of it, so the marker is always in the same column no
-;; matter how deep the row it is on.
+;; Section rows sit one step under their heading. Recursive membership is shown
+;; by the set inspector instead of creating a second folding hierarchy here.
 (def CONFIG-INDENT-WIDTH Int 2)
 
-(js/export
- (defn config-row-depth [role String] Int
-  (cond
-    :else 2)))
+(defn config-row-indent [] String
+  (.repeat " " CONFIG-INDENT-WIDTH))
 
-(defn config-row-indent [role String] String
-  (.repeat " " (* CONFIG-INDENT-WIDTH (config-row-depth role))))
-
-;; A heading is drawn one step left of the rows it heads, which is the relation
-;; DIRECTORY already has to the directories under it. The outermost heading in a
-;; node sits where that node's own files sit; a subsection heading sits one step
-;; further in, over rows one step further in again.
+;; Each kind has one heading level; keep the argument because the renderer walks
+;; heading paths generically.
 (defn config-header-indent [index Int] String
-  (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 2))))
+  (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 1))))
 
 (defn config-unit-parents
   [entries Any
@@ -3577,22 +3048,17 @@
   ;; cursor walks and what space flips, and one list decides all three.
   ;; Activity and provenance are already resolved by the selected generation;
   ;; the full unit list remains available only for inspection traversal.
-  ;; Roles are read off the view's rows, never the filtered ones: a row
-  ;; must not change depth because a query hid its neighbour.
   ;; An unfocused panel is still on screen and no longer yours: the cursor
   ;; stops burning and the row it is on stops standing out, so the view
   ;; says where the keyboard went without moving anything.
   (let [entries Any (config-panel-rows runtime)
         total Any (.-length entries)
         stored-entries Any (.-configEntries runtime)
-        stored-manifest Any (.-configAllEntries runtime)
-        manifest Any (if stored-manifest
-                   stored-manifest
+        stored-all Any (.-configAllEntries runtime)
+        all-entries Any (if stored-all
+                   stored-all
                    (if stored-entries stored-entries entries))
-        stored-memberships Any (.-configMemberships runtime)
-        memberships Any (if stored-memberships stored-memberships [])
         basis Any (if stored-entries stored-entries entries)
-        expanded Any (panel-expanded runtime)
         config-filter String (text-or (text (.-configFilter runtime)) "all")
         filtering? Bool (panel-filtering? runtime)
         focused? Bool (panel-focused? runtime)
@@ -3603,7 +3069,7 @@
       (new StyledText
            [(brightYellow "set inspection")
             (brightBlack "  enter returns\n")
-            (brightWhite (config-set-inspection-text! manifest inspect-id))])
+            (brightWhite (config-set-inspection-text! all-entries inspect-id))])
 
       (identical? total 0)
       (new StyledText [(brightYellow (config-panel-title config-filter))
@@ -3633,24 +3099,12 @@
                     (let [i Int (+ start offset)
                           cursor? Bool (identical? i index)
                           kind String (configentry-kind entry)
-                          active? Bool (config-entry-active? entry manifest
-                                                        memberships)
-                          pinned? Any (and (identical? kind "hook")
-                                       (not (config-hook-enabled?
-                                             (configentry-state entry))))
+                          active? Bool (config-entry-active? entry)
+                          permission-off? Bool (not (config-permission-on? (configentry-state entry)))
                           context? Bool (config-row-context-only? entry query)
                           role String (config-row-role entry basis)
-                          open? Any (and (identical? kind "dir")
-                                     (or (not (identical? (.trim query) ""))
-                                         (not (config-view-folds? config-filter))
-                                         (config-node-expanded?
-                                          expanded (configentry-name entry))))
-                          nested? Bool (identical? role "boundhook")
-                          state-text String (config-state-text entry manifest
-                                                        memberships active?
-                                                        nested?)
-                          row Any (config-row-parts entry memberships open? role
-                                                state-text width)
+                          state-text String (config-state-text entry)
+                          row Any (config-row-parts entry state-text width)
                           headings Any (config-header-keys entry basis)
                           prior Any (if (identical? i start)
                                   []
@@ -3672,17 +3126,14 @@
                                      (brightCyan "› ")
                                      (if cursor? (brightBlack "› ")
                                          (brightBlack "  "))))
-                      (let [name-tone Any (cond pinned? dimmest
+                      (let [name-tone Any (cond permission-off? dimmest
                                             (and cursor? focused?) brightWhite
                                             context? dimmest
                                             :else brightBlack)
-                            state-tone Any (cond pinned? dimmest
+                            state-tone Any (cond permission-off? dimmest
                                              active? brightGreen
                                              :else brightBlack)]
-                        (.push parts (name-tone (str (.-indent row)
-                                                     (.-glyph row))))
-                        (when (not (identical? (.-tag row) ""))
-                          (.push parts (dimmest (.-tag row))))
+                        (.push parts (name-tone (.-indent row)))
                         (.push parts (name-tone (.-name row)))
                         (.push parts (name-tone ": "))
                         (.push parts (state-tone (.-state row)))
@@ -3695,7 +3146,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Docked detail area. One surface, one render path, one piece of state saying
-;; which tenant is showing: "" (collapsed), "config" (the context switchboard),
+;; which tenant is showing: "" (collapsed), "config" (the switchboard),
 ;; "agents" (the roster behind a strip segment). New tenants add a branch to
 ;; render-detail-panel! and detail-body-lines and nothing else.
 ;; ---------------------------------------------------------------------------
@@ -3748,16 +3199,12 @@
   (fitted-window total (terminal-rows)
                  (+ CHROME-ROWS MIN-WORKSPACE-ROWS DETAIL-CHROME-ROWS extra)))
 
-;; A narrowed view pays only for the headings it can actually show, so it keeps
-;; the rows the full switchboard has to give up. /globals is the root node with
-;; everything but plugins; /agentsmd is directories and the files they carry,
-;; which are rows under no heading whatsoever; a kind view is that one kind's
-;; heading under whichever nodes have any.
+;; A narrowed view pays only for its one heading, so it keeps the rows the full
+;; switchboard gives up to all three kind headings.
 (js/export
  (defn config-section-rows [view String] Int
   (cond
     (identical? view "all") CONFIG-SECTION-ROWS
-    (identical? view "globals") CONFIG-SECTION-ROWS
     :else 1)))
 
 (js/export
@@ -3892,7 +3339,7 @@
 (def HELP-ROWS (Vec HelpRow)
   ;; One key, two meanings, decided by who holds the keyboard — so the row says
   ;; both rather than naming one and leaving the other to be discovered.
-  [(->HelpRow "Tab" "swap Agents/Threads; folds in the switchboard")
+  [(->HelpRow "Tab" "swap Agents/Threads")
    (->HelpRow "←/→" "switch thread view")
    (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
    (->HelpRow "Esc /close /esc" "back or dismiss; cancels a turn at root")
@@ -5777,74 +5224,6 @@
        (not (.-ctrl key))
        (not (or (.-meta key) (.-option key)))))
 
-;; The arrows fold the tree, and so do h and l — the convention every tree in a
-;; terminal already keeps. The letters stand down while a filter is up: there
-;; they are two characters of a query, and a key cannot be both.
-(defn fold-key?
-  [runtime Any
-   name String
-   key Any] Bool
-  (or (identical? name "left")
-      (identical? name "right")
-      (and (not (panel-filtering? runtime))
-           (or (bare-letter? name key "h") (bare-letter? name key "l")))))
-
-;; Carry out one fold decision. Every key that folds — the arrows, h and l, tab —
-;; decides with its own pure function and lands here, so the decisions stay
-;; separable and the effect stays one thing.
-(defn apply-fold-action!
-  [runtime Any
-   rows Any
-   node String
-   action String] Any
-  (cond
-    (identical? action "expand") (set-node-expanded! runtime node true)
-    (identical? action "collapse") (set-node-expanded! runtime node false)
-    (identical? action "climb")
-    (let [at Any (.findIndex rows
-                         (fn [row Any] Bool
-                           (and (identical? (configentry-kind row) "dir")
-                                (identical? (configentry-name row) node))))]
-      (when (>= at 0) (set! (.-configIndex runtime) at)))
-    :else nil))
-
-;; One press of a fold key, on whatever row the cursor is on. `l` opens the node
-;; you are on; `h` shuts it, or climbs to the node when you are inside one, and
-;; the cursor lands on the row you just folded so the next press has something
-;; to act on.
-(defn fold-step!
-  [runtime Any
-   open-key? Bool] Any
-  (let [rows Any (config-panel-rows runtime)
-        total Any (.-length rows)]
-    (when (> total 0)
-      (let [index Int (clamped-index (.-configIndex runtime) total)
-            entry Any (nth rows index)
-            dir? Bool (identical? (configentry-kind entry) "dir")
-            node String (config-row-node entry)]
-        (apply-fold-action!
-         runtime rows node
-         (fold-key-action dir?
-                          (config-node-expanded? (panel-expanded runtime) node)
-                          open-key?))))))
-
-;; One press of tab inside the panel: the fold, toggled rather than split across
-;; an open key and a shut one, because a key that has to be discoverable can
-;; only carry one verb.
-(js/export
- (defn tab-fold-step! [runtime Any] Any
-  (let [rows Any (config-panel-rows runtime)
-        total Any (.-length rows)]
-    (when (> total 0)
-      (let [index Int (clamped-index (.-configIndex runtime) total)
-            entry Any (nth rows index)
-            dir? Bool (identical? (configentry-kind entry) "dir")
-            node String (config-row-node entry)]
-        (apply-fold-action!
-         runtime rows node
-         (tab-action "panel" dir?
-                     (config-node-expanded? (panel-expanded runtime) node))))))))
-
 (defn ctrl-up-key?
   [name String
    key Any] Bool
@@ -5936,12 +5315,7 @@
                   (not palette-open)
                   (or (identical? name "up") (identical? name "down")
                       (ctrl-up-key? name key) (ctrl-down-key? name key)
-                      (identical? name "space") (submit-key? name)
-                      ;; Tab is claimed here before the composer's view swap can
-                      ;; see it: with the panel focused the keyboard is the
-                      ;; panel's, and one key cannot mean two things at once.
-                      (identical? name "tab")
-                      (fold-key? runtime name key)))
+                      (identical? name "space") (submit-key? name)))
              (let [up? Any (or (identical? name "up") (ctrl-up-key? name key))
                    down? Any (or (identical? name "down") (ctrl-down-key? name key))]
                (.preventDefault key)
@@ -5955,13 +5329,6 @@
                            delta Int (if up? -1 1)]
                        (set! (.-configIndex runtime)
                              (mod (+ current delta total) total)))))
-
-                 (identical? name "tab") (tab-fold-step! runtime)
-
-                 (fold-key? runtime name key)
-                 (fold-step! runtime
-                             (or (identical? name "right")
-                                 (bare-key? name key "l")))
 
                  (identical? name "space")
                  (report-promise! runtime (toggle-config-entry! runtime))

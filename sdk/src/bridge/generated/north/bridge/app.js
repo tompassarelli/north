@@ -288,9 +288,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/globals", "switchboard: global sets, skills, hooks", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/globals", "switchboard: global sets, skills, hooks", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -886,8 +886,8 @@ function configentry_distributions(r) { return r.distributions; }
 
 function configentry_activationPaths(r) { return r.activationPaths; }
 
-function config_hook_enabled_p(state) {
-  return (!((_truthy) => _truthy !== false && _truthy != null)(((state === "disabled") || (state === "off"))));
+function config_permission_on_p(state) {
+  return (state === "on");
 }
 
 function config_entry_members(entry) {
@@ -895,112 +895,35 @@ function config_entry_members(entry) {
   return (Array.isArray(members) ? members : []);
 }
 
-function config_subtree_kind_p(kind) {
-  return ((kind === "ins") || ((kind === "memroot") || (kind === "mem")));
-}
-
-function config_row_slug(kind, name) {
-  if ((kind === "mem")) {
-    const cut = name.indexOf("/");
-    return ((cut < 0) ? name : name.slice(0, cut));
-  } else {
-    return name;
-  }
-}
-
-function config_mem_name(name) {
-  const cut = name.indexOf("/");
-  return ((cut < 0) ? name : name.slice((cut + 1)));
-}
-
-function config_kind_word(kind) {
-  return (((kind === "ins")) ? "file" : ((kind === "memroot")) ? "memories" : ((kind === "mem")) ? "memory" : kind);
-}
-
-function config_provenance_name(kind, name) {
-  return ((kind === "") ? name : $$bc$str(config_kind_word(kind), ": ", name));
-}
-
-function config_row_label(kind, name) {
-  return (((kind === "ins")) ? "AGENTS.md" : ((kind === "memroot")) ? "MEMORIES" : ((kind === "mem")) ? config_mem_name(name) : name);
-}
-
-function config_cli_name(kind, name) {
-  return (((kind === "ins")) ? $$bc$str(name, "/AGENTS.md") : ((kind === "memroot")) ? $$bc$str(name, "/memories") : name);
-}
-
 function config_reference_text(kind, name) {
-  return $$bc$str("@", config_kind_word(kind), ":", config_cli_name(kind, name), " ");
+  return $$bc$str("@", kind, ":", name, " ");
 }
 
-function config_find_entry(manifest, name) {
-  return manifest.find((entry) => (configentry_name(entry) === name));
+function config_find_entry(entries, name) {
+  return entries.find((entry) => (configentry_name(entry) === name));
 }
 
-function config_find_kind(manifest, kind, name) {
-  return manifest.find((entry) => ((configentry_kind(entry) === kind) && (configentry_name(entry) === name)));
-}
-
-function config_find_companion(manifest, name) {
-  return manifest.find((entry) => ((!(configentry_kind(entry) === "hook")) && (configentry_name(entry) === name)));
-}
-
-function config_subtree_gate(manifest, kind, name) {
-  const slug = config_row_slug(kind, name);
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((kind === "ins") || (kind === "memroot")))) ? config_find_kind(manifest, "dir", slug) : ((kind === "mem")) ? (() => { const root = config_find_kind(manifest, "memroot", slug); return (((_truthy) => _truthy !== false && _truthy != null)(root) ? root : config_find_kind(manifest, "dir", slug)); })() : null);
-}
-
-function config_active_along_p(entry, __manifest, __memberships, __trail) {
+function config_entry_active_p(entry) {
   return (((_truthy) => _truthy !== false && _truthy != null)(entry.active) ? true : false);
 }
 
-function config_entry_active_p(entry, manifest, memberships) {
-  return config_active_along_p(entry, manifest, memberships, []);
+function config_unit_active_p(entries, name) {
+  const entry = config_find_entry(entries, name);
+  return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? config_entry_active_p(entry) : false);
 }
 
-function config_unit_active_p(manifest, memberships, name) {
-  const entry = config_find_entry(manifest, name);
-  return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? config_entry_active_p(entry, manifest, memberships) : false);
-}
-
-function config_state_text(entry, manifest, memberships, active_p, nested_p) {
+function config_state_text(entry) {
   const state = text_or(configentry_state(entry), "default");
-  const resolved = (active_p ? "on" : "off");
+  const resolved = (config_entry_active_p(entry) ? "on" : "off");
   return $$bc$str(resolved, " · permission ", state);
 }
 
 function config_toggle_verb(state) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(((state === "on") || (state === "enabled"))) ? "off" : "on");
-}
-
-const GLOBAL_DIR_NAME = "global";
-
-function config_global_row_p(kind, name) {
-  return ((kind === "dir") && (name === GLOBAL_DIR_NAME));
-}
-
-function config_row_scope(kind, name) {
-  return (((kind === "dir")) ? name : (config_subtree_kind_p(kind)) ? config_row_slug(kind, name) : GLOBAL_DIR_NAME);
+  return ((state === "on") ? "off" : "on");
 }
 
 function config_view_includes_p(view, kind, __name) {
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((view === "all") || (view === "globals")))) ? true : (kind === view));
-}
-
-function config_view_prunes_p(__view) {
-  return false;
-}
-
-function config_view_folds_p(view) {
-  return false;
-}
-
-function config_hook_companion(entry) {
-  return ((configentry_kind(entry) === "hook") ? text(configentry_detail(entry)) : "");
-}
-
-function config_skill_hooks(rows, name) {
-  return rows.filter((entry) => ((configentry_kind(entry) === "hook") && (config_hook_companion(entry) === name)));
+  return (((view === "all")) ? true : (kind === view));
 }
 
 function config_row_role(entry, __rows) {
@@ -1008,11 +931,7 @@ function config_row_role(entry, __rows) {
 }
 
 function config_section_rank(role) {
-  return (((role === "ins")) ? 0 : ((role === "memroot")) ? 1 : ((role === "mem")) ? 2 : ((role === "set")) ? 3 : ((role === "skill")) ? 4 : ((role === "hook")) ? 5 : 10);
-}
-
-function config_node_rank(entry) {
-  return (config_global_row_p(configentry_kind(entry), configentry_name(entry)) ? 0 : 1);
+  return (((role === "set")) ? 0 : ((role === "skill")) ? 1 : ((role === "hook")) ? 2 : 10);
 }
 
 function config_tree_rows(entries) {
@@ -1020,26 +939,13 @@ function config_tree_rows(entries) {
 }
 
 function config_view_rows(entries, view) {
-  const kept = entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry)));
-  const held = kept.filter((entry) => (((_truthy) => _truthy !== false && _truthy != null)(((!config_view_prunes_p(view)) || (!(configentry_kind(entry) === "dir")))) ? true : kept.some((child) => ((!(configentry_kind(child) === "dir")) && (config_row_scope(configentry_kind(child), configentry_name(child)) === configentry_name(entry))))));
-  return config_tree_rows(held);
-}
-
-function config_node_expanded_p(expanded, slug) {
-  return (((_truthy) => _truthy !== false && _truthy != null)(expanded) ? expanded.includes(slug) : false);
-}
-
-function config_fold_rows(entries, expanded) {
-  const nodes = entries.filter((entry) => (configentry_kind(entry) === "dir")).map((entry) => configentry_name(entry));
-  return entries.filter((entry) => { const kind = configentry_kind(entry);
-const scope = config_row_scope(kind, configentry_name(entry));
-return ((kind === "dir") || ((!((_truthy) => _truthy !== false && _truthy != null)(nodes.includes(scope))) || config_node_expanded_p(expanded, scope))); });
+  return config_tree_rows(entries.filter((entry) => config_view_includes_p(view, configentry_kind(entry), configentry_name(entry))));
 }
 
 function config_row_search_text(entry) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  return $$bc$str(config_row_label(kind, name), " ", name, " ", text(configentry_detail(entry))).toLowerCase();
+  return $$bc$str(kind, " ", name, " ", configentry_title(entry), " ", configentry_detail(entry), " ", configentry_owner(entry)).toLowerCase();
 }
 
 function config_row_matches_p(entry, query) {
@@ -1047,34 +953,23 @@ function config_row_matches_p(entry, query) {
   return ((needle === "") || config_row_search_text(entry).includes(needle));
 }
 
-function config_matched_slugs(entries, query, kind) {
-  return entries.filter((entry) => ((configentry_kind(entry) === kind) && config_row_matches_p(entry, query))).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
-}
-
 function config_query_rows(entries, query) {
-  if ((query.trim() === "")) {
-    return entries;
-  } else {
-    const open_nodes = config_matched_slugs(entries, query, "dir");
-    const open_mems = config_matched_slugs(entries, query, "memroot");
-    const held = entries.filter((entry) => config_row_matches_p(entry, query)).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
-    const held_mems = entries.filter((entry) => ((configentry_kind(entry) === "mem") && config_row_matches_p(entry, query))).map((entry) => config_row_scope(configentry_kind(entry), configentry_name(entry)));
-    const held_skills = entries.filter((entry) => ((configentry_kind(entry) === "hook") && config_row_matches_p(entry, query))).map((entry) => config_hook_companion(entry));
-    const open_skills = entries.filter((entry) => ((configentry_kind(entry) === "skill") && config_row_matches_p(entry, query))).map((entry) => configentry_name(entry));
-    return entries.filter((entry) => { const kind = configentry_kind(entry);
-const scope = config_row_scope(kind, configentry_name(entry));
-return (config_row_matches_p(entry, query) || ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((_logical) => (_logical !== false && _logical != null ? _logical : ((kind === "hook") && open_skills.includes(config_hook_companion(entry)))))(((kind === "skill") && held_skills.includes(configentry_name(entry))))))(((kind === "memroot") && held_mems.includes(scope)))))(((kind === "dir") && held.includes(scope)))))(((kind === "mem") && open_mems.includes(scope)))))(open_nodes.includes(scope))); });
-  }
+  return ((query.trim() === "") ? entries : entries.filter((entry) => config_row_matches_p(entry, query)));
 }
 
-function config_row_context_only_p(entry, query) {
-  return ((!(query.trim() === "")) && (!config_row_matches_p(entry, query)));
+function config_row_context_only_p(__entry, __query) {
+  return false;
 }
 
 const ACTIVATION_SCHEMA = "north.agent-activation/v1";
 
+function config_activation_path_from(runtime, environment) {
+  const state_root = text_or(text(environment.NORTH_AGENT_STATE_ROOT), $$bc$str(text(environment.HOME), "/.local/state/north/agents"));
+  return text_or(text(runtime.configActivationPath), $$bc$str(state_root, "/current/activation.json"));
+}
+
 function config_activation_path(runtime) {
-  return text_or(text(runtime.configActivationPath), $$bc$str(text(process.env.HOME), "/.local/state/north/agents/current/activation.json"));
+  return config_activation_path_from(runtime, process.env);
 }
 
 function config_array(value) {
@@ -1099,6 +994,11 @@ function config_activation_of_json(content) {
   if ((!Array.isArray(units))) {
     (() => { throw new Error("activation generation has no ordered units"); })();
   }
+  const invalid = units.find((unit) => { const kind = text(unit.kind);
+return (!((_truthy) => _truthy !== false && _truthy != null)(((kind === "set") || ((kind === "skill") || (kind === "hook"))))); });
+  if (((_truthy) => _truthy !== false && _truthy != null)(invalid)) {
+    (() => { throw new Error($$bc$str("activation generation has invalid unit kind: ", text_or(text(invalid.kind), "missing"))); })();
+  }
   return {[$$bc$property_key($$bc$keyword("schema"))]: schema, [$$bc$property_key($$bc$keyword("digest"))]: text(parsed.catalogDigest), [$$bc$property_key($$bc$keyword("generation"))]: text(parsed.generationId), [$$bc$property_key($$bc$keyword("units"))]: units.map(config_unit_entry)};
 }
 
@@ -1110,23 +1010,11 @@ function panel_query(runtime) {
   return (panel_filtering_p(runtime) ? text(runtime.panelQuery) : "");
 }
 
-const PANEL_DEFAULT_EXPANDED = [GLOBAL_DIR_NAME];
-
-function panel_expanded(runtime) {
-  const stored = runtime.expandedDirs;
-  return (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : PANEL_DEFAULT_EXPANDED);
-}
-
 function config_panel_rows(runtime) {
   const stored = runtime.configEntries;
   const entries = (((_truthy) => _truthy !== false && _truthy != null)(stored) ? stored : []);
   const query = panel_query(runtime);
-  const view = text_or(text(runtime.configFilter), "all");
-  return ((!(query.trim() === "")) ? config_query_rows(entries, query) : (config_view_folds_p(view) ? config_fold_rows(entries, panel_expanded(runtime)) : entries));
-}
-
-function config_row_node(entry) {
-  return config_row_scope(configentry_kind(entry), configentry_name(entry));
+  return ((!(query.trim() === "")) ? config_query_rows(entries, query) : entries);
 }
 
 function clamp_panel_cursor_bang(runtime) {
@@ -1146,17 +1034,6 @@ function clear_panel_filter_bang(runtime) {
   (runtime.panelFiltering = false);
   (runtime.panelQuery = "");
   return clamp_panel_cursor_bang(runtime);
-}
-
-function set_node_expanded_bang(runtime, slug, open_p) {
-  const current = panel_expanded(runtime);
-  const without = current.filter((held) => (!(held === slug)));
-  (runtime.expandedDirs = (open_p ? without.concat([slug]) : without));
-  return clamp_panel_cursor_bang(runtime);
-}
-
-function fold_key_action(dir_row_p, expanded_p, open_key_p) {
-  return ((((_truthy) => _truthy !== false && _truthy != null)((open_key_p && dir_row_p))) ? (expanded_p ? "" : "expand") : (open_key_p) ? "" : (dir_row_p) ? (expanded_p ? "collapse" : "") : "climb");
 }
 
 async function load_config_entries_bang(runtime) {
@@ -1321,7 +1198,6 @@ return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runt
 return true; })() : ((name === "mcp")) ? (() => { const parts = rest.trim().split(/\\s+/).filter((part) => (!(part === "")));
 run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
 return true; })() : ((name === "sets")) ? (() => { open_config_panel_bang(runtime, ui, "set");
-return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, ui, "globals");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
 return true; })() : ((name === "agents")) ? (() => { show_view_bang(runtime, ui, "agents");
 return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
@@ -1961,8 +1837,7 @@ function config_header_roles(role) {
 
 function config_header_keys(entry, rows) {
   const role = config_row_role(entry, rows);
-  const scope = config_row_scope(configentry_kind(entry), configentry_name(entry));
-  return config_header_roles(role).map((heading) => $$bc$str(scope, " ", heading));
+  return config_header_roles(role).map((heading) => heading);
 }
 
 function config_header_shared_bang(prior, current) {
@@ -1974,7 +1849,7 @@ function config_header_shared_bang(prior, current) {
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "set")) ? "sets" : ((config_filter === "globals")) ? "globals" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "set")) ? "sets" : "switchboard");
 }
 
 function config_empty_note(loaded_p, filtering_p) {
@@ -1986,7 +1861,7 @@ function config_query_field(filtering_p, query) {
 }
 
 function config_panel_legend(filtering_p) {
-  return (filtering_p ? "  ↑/↓ move · tab fold · space toggle · enter edit · esc clears filter" : "  ↑/↓ move · tab fold · space toggle · enter edit · / filter · esc close");
+  return (filtering_p ? "  ↑/↓ move · space toggle · enter inspect set · esc clears filter" : "  ↑/↓ move · space toggle · enter inspect set · / filter · esc close");
 }
 
 function dimmest(value) {
@@ -1997,57 +1872,27 @@ function config_member_count_text(count) {
   return $$bc$str(count, ((count === 1) ? " member" : " members"));
 }
 
-function config_fold_glyph(dir_row_p, expanded_p) {
-  return ((!dir_row_p) ? "" : (expanded_p ? "▾ " : "▸ "));
-}
-
-function config_dir_label(entry) {
-  if (config_global_row_p(configentry_kind(entry), configentry_name(entry))) {
-    return "GLOBAL";
-  } else {
-    const path = short_directory(text(configentry_detail(entry)));
-    return text_or(path, configentry_name(entry));
-  }
-}
-
-function config_kind_tag(kind, role) {
-  const headings = config_header_roles(role);
-  const depth = headings.length;
-  const innermost = ((depth > 0) ? headings[(depth - 1)] : "");
-  return (((_truthy) => _truthy !== false && _truthy != null)(((innermost === "") || (innermost === role))) ? "" : $$bc$str(kind, " · "));
-}
-
-function config_row_parts(entry, memberships, expanded_p, role, state_text, width) {
+function config_row_parts(entry, state_text, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
-  const dir_p = (kind === "dir");
   const members = config_entry_members(entry);
-  const detail = (((kind === "hook")) ? (() => { const claims = config_array(entry.supports); return ((claims.length > 0) ? $$bc$str("supports ", claims.join(", ")) : ""); })() : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "set")) ? config_member_count_text(members.length) : text(configentry_detail(entry)));
-  const indent = config_row_indent(role);
-  const glyph = config_fold_glyph(dir_p, expanded_p);
-  const tag = config_kind_tag(kind, role);
-  const label = (dir_p ? config_dir_label(entry) : config_row_label(kind, name));
+  const detail = (((kind === "hook")) ? (() => { const claims = config_array(entry.supports); return ((claims.length > 0) ? $$bc$str("supports ", claims.join(", ")) : ""); })() : ((kind === "set")) ? config_member_count_text(members.length) : text(configentry_detail(entry)));
+  const indent = config_row_indent();
   const indent_width = indent.length;
-  const glyph_width = glyph.length;
-  const tag_width = tag.length;
   const state_width = state_text.length;
   const detail_width = detail.length;
-  const room = Math.max(8, (width - indent_width - glyph_width - tag_width - state_width - detail_width - 4));
-  return {[$$bc$property_key($$bc$keyword("indent"))]: indent, [$$bc$property_key($$bc$keyword("glyph"))]: glyph, [$$bc$property_key($$bc$keyword("tag"))]: tag, [$$bc$property_key($$bc$keyword("name"))]: compact_text(label, room), [$$bc$property_key($$bc$keyword("state"))]: state_text, [$$bc$property_key($$bc$keyword("detail"))]: detail};
+  const room = Math.max(8, (width - indent_width - state_width - detail_width - 4));
+  return {[$$bc$property_key($$bc$keyword("indent"))]: indent, [$$bc$property_key($$bc$keyword("name"))]: compact_text(name, room), [$$bc$property_key($$bc$keyword("state"))]: state_text, [$$bc$property_key($$bc$keyword("detail"))]: detail};
 }
 
 const CONFIG_INDENT_WIDTH = 2;
 
-function config_row_depth(role) {
-  return (2);
-}
-
-function config_row_indent(role) {
-  return " ".repeat((CONFIG_INDENT_WIDTH * config_row_depth(role)));
+function config_row_indent() {
+  return " ".repeat(CONFIG_INDENT_WIDTH);
 }
 
 function config_header_indent(index) {
-  return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
+  return " ".repeat((CONFIG_INDENT_WIDTH * (index + 1)));
 }
 
 function config_unit_parents(entries, id) {
@@ -2089,28 +1934,23 @@ function render_config_panel_bang(runtime) {
   const entries = config_panel_rows(runtime);
   const total = entries.length;
   const stored_entries = runtime.configEntries;
-  const stored_manifest = runtime.configAllEntries;
-  const manifest = (((_truthy) => _truthy !== false && _truthy != null)(stored_manifest) ? stored_manifest : (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries));
-  const stored_memberships = runtime.configMemberships;
-  const memberships = (((_truthy) => _truthy !== false && _truthy != null)(stored_memberships) ? stored_memberships : []);
+  const stored_all = runtime.configAllEntries;
+  const all_entries = (((_truthy) => _truthy !== false && _truthy != null)(stored_all) ? stored_all : (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries));
   const basis = (((_truthy) => _truthy !== false && _truthy != null)(stored_entries) ? stored_entries : entries);
-  const expanded = panel_expanded(runtime);
   const config_filter = text_or(text(runtime.configFilter), "all");
   const filtering_p = panel_filtering_p(runtime);
   const focused_p = panel_focused_p(runtime);
   const query = panel_query(runtime);
   const inspect_id = text(runtime.configInspectId);
-  return (((!(inspect_id === ""))) ? new StyledText([brightYellow("set inspection"), brightBlack("  enter returns\n"), brightWhite(config_set_inspection_text_bang(manifest, inspect_id))]) : ((total === 0)) ? new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(text_or(text(runtime.configDiagnostic), config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p)))]) : (() => { const index = clamped_index(runtime.configIndex, total); const window = config_visible_count(total, config_filter); const start = window_start(index, total, window); const stop = Math.min(total, (start + window)); const width = Math.max(12, (terminal_columns() - 12)); const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))]; entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+  return (((!(inspect_id === ""))) ? new StyledText([brightYellow("set inspection"), brightBlack("  enter returns\n"), brightWhite(config_set_inspection_text_bang(all_entries, inspect_id))]) : ((total === 0)) ? new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(text_or(text(runtime.configDiagnostic), config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p)))]) : (() => { const index = clamped_index(runtime.configIndex, total); const window = config_visible_count(total, config_filter); const start = window_start(index, total, window); const stop = Math.min(total, (start + window)); const width = Math.max(12, (terminal_columns() - 12)); const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))]; entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
-const active_p = config_entry_active_p(entry, manifest, memberships);
-const pinned_p = ((kind === "hook") && (!config_hook_enabled_p(configentry_state(entry))));
+const active_p = config_entry_active_p(entry);
+const permission_off_p = (!config_permission_on_p(configentry_state(entry)));
 const context_p = config_row_context_only_p(entry, query);
 const role = config_row_role(entry, basis);
-const open_p = ((kind === "dir") && ((!(query.trim() === "")) || ((!config_view_folds_p(config_filter)) || config_node_expanded_p(expanded, configentry_name(entry)))));
-const nested_p = (role === "boundhook");
-const state_text = config_state_text(entry, manifest, memberships, active_p, nested_p);
-const row = config_row_parts(entry, memberships, open_p, role, state_text, width);
+const state_text = config_state_text(entry);
+const row = config_row_parts(entry, state_text, width);
 const headings = config_header_keys(entry, basis);
 const prior = ((i === start) ? [] : config_header_keys(entries[(i - 1)], basis));
 const shared = config_header_shared_bang(prior, headings);
@@ -2119,12 +1959,9 @@ config_header_roles(role).forEach((heading, at) => { if ((at >= shared)) {
   return parts.push(brightYellow($$bc$str(config_header_indent(at), config_section_title(heading), "\n")));
 } });
 parts.push((((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p)) ? brightCyan("› ") : (cursor_p ? brightBlack("› ") : brightBlack("  "))));
-const name_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p))) ? brightWhite : (context_p) ? dimmest : brightBlack);
-const state_tone = ((((_truthy) => _truthy !== false && _truthy != null)(pinned_p)) ? dimmest : (active_p) ? brightGreen : brightBlack);
-parts.push(name_tone($$bc$str(row.indent, row.glyph)));
-if ((!(row.tag === ""))) {
-  parts.push(dimmest(row.tag));
-}
+const name_tone = ((permission_off_p) ? dimmest : (((_truthy) => _truthy !== false && _truthy != null)((cursor_p && focused_p))) ? brightWhite : (context_p) ? dimmest : brightBlack);
+const state_tone = ((permission_off_p) ? dimmest : (active_p) ? brightGreen : brightBlack);
+parts.push(name_tone(row.indent));
 parts.push(name_tone(row.name));
 parts.push(name_tone(": "));
 parts.push(state_tone(row.state));
@@ -2174,7 +2011,7 @@ function detail_visible_count(total, extra) {
 }
 
 function config_section_rows(view) {
-  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? CONFIG_SECTION_ROWS : 1);
+  return (((view === "all")) ? CONFIG_SECTION_ROWS : 1);
 }
 
 function config_visible_count(total, view) {
@@ -2271,7 +2108,7 @@ function helprow_keys(r) { return r.keys; }
 
 function helprow_meaning(r) { return r.meaning; }
 
-const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads; folds in the switchboard"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
+const HELP_ROWS = [HelpRow("Tab", "swap Agents/Threads"), HelpRow("←/→", "switch thread view"), HelpRow("Ctrl-J / ↓", "into the agent strip, esc back out"), HelpRow("Esc /close /esc", "back or dismiss; cancels a turn at root"), HelpRow("Ctrl-C /interrupt", "cancel the turn; the message comes back"), HelpRow("/q /exit / Ctrl-Q", "quit Northbridge"), HelpRow("/help", "this panel"), HelpRow("/glyph <one>|reset", "prompt glyph"), HelpRow("/emoji <query>", "picker"), HelpRow("/sound on|off|pack", "voice lines"), HelpRow("/mute", "quiet")];
 
 const HELP_KEY_WIDTH = 22;
 
@@ -3401,40 +3238,6 @@ function bare_letter_p(name, key, letter) {
   return ((name === letter) && ((!((_truthy) => _truthy !== false && _truthy != null)(key.ctrl)) && (!((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : key.option))(key.meta)))));
 }
 
-function fold_key_p(runtime, name, key) {
-  return ((name === "left") || ((name === "right") || ((!panel_filtering_p(runtime)) && (bare_letter_p(name, key, "h") || bare_letter_p(name, key, "l")))));
-}
-
-function apply_fold_action_bang(runtime, rows, node, action) {
-  return (((action === "expand")) ? set_node_expanded_bang(runtime, node, true) : ((action === "collapse")) ? set_node_expanded_bang(runtime, node, false) : ((action === "climb")) ? (() => { const at = rows.findIndex((row) => ((configentry_kind(row) === "dir") && (configentry_name(row) === node))); if ((at >= 0)) {
-  return (runtime.configIndex = at);
-} })() : null);
-}
-
-function fold_step_bang(runtime, open_key_p) {
-  const rows = config_panel_rows(runtime);
-  const total = rows.length;
-  if ((total > 0)) {
-    const index = clamped_index(runtime.configIndex, total);
-    const entry = rows[index];
-    const dir_p = (configentry_kind(entry) === "dir");
-    const node = config_row_node(entry);
-    return apply_fold_action_bang(runtime, rows, node, fold_key_action(dir_p, config_node_expanded_p(panel_expanded(runtime), node), open_key_p));
-  }
-}
-
-function tab_fold_step_bang(runtime) {
-  const rows = config_panel_rows(runtime);
-  const total = rows.length;
-  if ((total > 0)) {
-    const index = clamped_index(runtime.configIndex, total);
-    const entry = rows[index];
-    const dir_p = (configentry_kind(entry) === "dir");
-    const node = config_row_node(entry);
-    return apply_fold_action_bang(runtime, rows, node, tab_action("panel", dir_p, config_node_expanded_p(panel_expanded(runtime), node)));
-  }
-}
-
 function ctrl_up_key_p(name, key) {
   return ((_logical) => (_logical !== false && _logical != null ? (name === "k") : _logical))(key.ctrl);
 }
@@ -3462,7 +3265,7 @@ return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != n
 key.stopPropagation();
 close_detail_bang(runtime);
 focus_composer_bang(runtime, ui);
-return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || (submit_key_p(name) || ((name === "tab") || fold_key_p(runtime, name, key))))))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
+return runtime.render(); })() : (((_truthy) => _truthy !== false && _truthy != null)((detail_showing_p(runtime, "config") && (panel_focused_p(runtime) && ((!palette_open) && ((name === "up") || ((name === "down") || (ctrl_up_key_p(name, key) || (ctrl_down_key_p(name, key) || ((name === "space") || submit_key_p(name))))))))))) ? (() => { const up_p = ((name === "up") || ctrl_up_key_p(name, key)); const down_p = ((name === "down") || ctrl_down_key_p(name, key)); key.preventDefault();
 key.stopPropagation();
 if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? _logical : down_p))(up_p))) {
   const total = config_panel_rows(runtime).length;
@@ -3472,10 +3275,6 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical
     const delta = (((_truthy) => _truthy !== false && _truthy != null)(up_p) ? -1 : 1);
     (runtime.configIndex = ((current + delta + total) % total));
   }
-} else if ((name === "tab")) {
-  tab_fold_step_bang(runtime);
-} else if (fold_key_p(runtime, name, key)) {
-  fold_step_bang(runtime, ((name === "right") || bare_key_p(name, key, "l")));
 } else if ((name === "space")) {
   report_promise_bang(runtime, toggle_config_entry_bang(runtime));
 } else {
@@ -3668,40 +3467,30 @@ export { cleanup_suspend_bang as "cleanup-suspend!" };
 export { clear_panel_filter_bang as "clear-panel-filter!" };
 export { composer_hint as "composer-hint" };
 export { config_activation_of_json as "config-activation-of-json" };
-export { config_cli_name as "config-cli-name" };
+export { config_activation_path as "config-activation-path" };
+export { config_activation_path_from as "config-activation-path-from" };
 export { config_detail_lines_bang as "config-detail-lines!" };
 export { config_empty_note as "config-empty-note" };
 export { config_entry_active_p as "config-entry-active?" };
-export { config_fold_rows as "config-fold-rows" };
 export { config_header_keys as "config-header-keys" };
 export { config_header_roles as "config-header-roles" };
 export { config_header_shared_bang as "config-header-shared!" };
-export { config_kind_tag as "config-kind-tag" };
-export { config_kind_word as "config-kind-word" };
-export { config_node_expanded_p as "config-node-expanded?" };
 export { config_panel_legend as "config-panel-legend" };
 export { config_panel_rows as "config-panel-rows" };
-export { config_provenance_name as "config-provenance-name" };
 export { config_query_field as "config-query-field" };
 export { config_query_rows as "config-query-rows" };
 export { config_reference_text as "config-reference-text" };
 export { config_row_context_only_p as "config-row-context-only?" };
-export { config_row_depth as "config-row-depth" };
-export { config_row_label as "config-row-label" };
 export { config_row_matches_p as "config-row-matches?" };
-export { config_row_node as "config-row-node" };
 export { config_row_parts as "config-row-parts" };
 export { config_row_role as "config-row-role" };
-export { config_row_scope as "config-row-scope" };
 export { config_row_search_text as "config-row-search-text" };
 export { config_section_rows as "config-section-rows" };
 export { config_section_title as "config-section-title" };
 export { config_set_inspection_text_bang as "config-set-inspection-text!" };
-export { config_skill_hooks as "config-skill-hooks" };
 export { config_state_text as "config-state-text" };
 export { config_toggle_verb as "config-toggle-verb" };
 export { config_unit_active_p as "config-unit-active?" };
-export { config_view_folds_p as "config-view-folds?" };
 export { config_view_includes_p as "config-view-includes?" };
 export { config_view_rows as "config-view-rows" };
 export { config_visible_count as "config-visible-count" };
@@ -3709,7 +3498,6 @@ export { detail_height_bang as "detail-height!" };
 export { escape_rung as "escape-rung" };
 export { filter_character as "filter-character" };
 export { filter_key_action as "filter-key-action" };
-export { fold_key_action as "fold-key-action" };
 export { handle_local_command_bang as "handle-local-command!" };
 export { help_query_rows as "help-query-rows" };
 export { install_keys_bang as "install-keys!" };
@@ -3736,12 +3524,10 @@ export { session_banner_bang as "session-banner!" };
 export { session_banner_lines as "session-banner-lines" };
 export { session_banner_runs as "session-banner-runs" };
 export { set_launch_route_bang as "set-launch-route!" };
-export { set_node_expanded_bang as "set-node-expanded!" };
 export { set_panel_query_bang as "set-panel-query!" };
 export { submit_input_bang as "submit-input!" };
 export { suspend_runtime_bang as "suspend-runtime!" };
 export { tab_action as "tab-action" };
-export { tab_fold_step_bang as "tab-fold-step!" };
 export { tab_swap_view as "tab-swap-view" };
 export { take_launch_route_flags_bang as "take-launch-route-flags!" };
 export { thread_view_command_p as "thread-view-command?" };

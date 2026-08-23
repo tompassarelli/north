@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  "config-activation-path-from" as activationPathFrom,
   "config-activation-of-json" as activationOfJson,
   "config-set-inspection-text!" as setInspectionText,
   "config-view-rows" as configViewRows,
@@ -61,11 +62,33 @@ test("resolved generation preserves ordered recursive set edges and provenance",
   expect(tree).toContain("activation: workspace → planning → coordination → messages");
 });
 
-test("unknown or missing schema fails closed instead of using a legacy reader", () => {
+test("unknown or missing schema fails closed", () => {
   expect(() => activationOfJson(resolved({ schema: "north.agent-activation/v2" })))
     .toThrow("unsupported activation schema: north.agent-activation/v2");
   expect(() => activationOfJson(JSON.stringify({ units })))
     .toThrow("unsupported activation schema: missing");
+});
+
+test("only set, skill, and hook reach Bridge presentation", () => {
+  for (const kind of ["plugin", "unknown"]) {
+    const payload = JSON.parse(resolved());
+    payload.units = [{ ...payload.units[0], kind }];
+    expect(() => activationOfJson(JSON.stringify(payload)))
+      .toThrow(`activation generation has invalid unit kind: ${kind}`);
+  }
+});
+
+test("activation path honors the configured North agent state root", () => {
+  expect(activationPathFrom({}, {
+    HOME: "/home/tester",
+    NORTH_AGENT_STATE_ROOT: "/var/lib/north-agent-state",
+  })).toBe("/var/lib/north-agent-state/current/activation.json");
+  expect(activationPathFrom({}, { HOME: "/home/tester" }))
+    .toBe("/home/tester/.local/state/north/agents/current/activation.json");
+  expect(activationPathFrom({ configActivationPath: "/run/test/activation.json" }, {
+    HOME: "/home/tester",
+    NORTH_AGENT_STATE_ROOT: "/var/lib/north-agent-state",
+  })).toBe("/run/test/activation.json");
 });
 
 test("owner formatting is safe at the dynamic activation boundary", () => {
