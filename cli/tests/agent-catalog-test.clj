@@ -210,14 +210,20 @@
                           (.resolve codex-skills "code-as-facts")
                           (into-array java.nio.file.LinkOption
                                       [java.nio.file.LinkOption/NOFOLLOW_LINKS])))))
-        (check "baseline instructions and inactive provider adapters are materialized"
+        (check "every declared instruction target and inactive provider adapters are materialized"
                (every? #(.isFile (io/file current %))
                        ["instructions/shared/AGENTS.md"
                         "instructions/codex/AGENTS.md"
                         "instructions/code/AGENTS.md"
+                        "instructions/north/AGENTS.md"
+                        "instructions/bridge/AGENTS.md"
                         "provider-hooks/lib/harness-dial.sh"
                         "provider-hooks/logcompress.js"
                         "projects/beagle/hook/code-upstream-guard"]))
+        (check "every declared agent-template target is materialized by UnitId"
+               (every? #(.isFile (io/file current %))
+                       ["agent-templates/north/staffing/integrator.md"
+                        "agent-templates/claude/staffing/integrator.md"]))
         (check "materialized generation never links back into owner trees"
                (not-any? #(java.nio.file.Files/isSymbolicLink %)
                          (with-open [walk (java.nio.file.Files/walk
