@@ -816,6 +816,7 @@
                "     (System/getenv \"NORTH_AGENT_INITIALIZATION\"))))\n"))
     (doseq [[stage crash-id]
             [["manifest-temporary-staged" ""]
+             ["receipt-temporary-staged" ""]
              ["current-transitioned" ""]
              ["link-transitioned" "agent-policy"]
              ["link-retired" "smoke"]
@@ -888,7 +889,7 @@
                          (get receipt "schema"))
                       (not (.exists transaction))
                       (not-any? #(or (str/includes? % ".initialization.tmp")
-                                     (= % ".initialization-transaction.pending"))
+                                     (str/starts-with? % ".north-write-"))
                                 state-names)
                       (not-any? #(str/starts-with? % ".north-initialization-")
                                 codex-names)

@@ -1425,6 +1425,24 @@
     (fail (str "interrupted agent initialization has unexpected " label)
           {:actual actual :allowed allowed})))
 
+(def ^:private north-write-scratch-pattern
+  #"\.north-write-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp")
+
+(defn- cleanup-journaled-write-scratch! [root transaction]
+  (let [content-digests
+        #{(get-in transaction ["manifest" "contentDigest"])
+          (get-in transaction ["receipt" "contentDigest"])}]
+    (with-open [stream (java.nio.file.Files/list root)]
+      (doseq [path (iterator-seq (.iterator stream))
+              :when (and (re-matches north-write-scratch-pattern
+                                     (str (.getFileName path)))
+                         (java.nio.file.Files/isRegularFile
+                          path
+                          (into-array java.nio.file.LinkOption
+                                      [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
+                         (content-digests (sha256 (slurp (str path)))))]
+        (java.nio.file.Files/deleteIfExists path)))))
+
 (defn- recover-initialization! [root activation initialization transaction]
   (let [directory (codex-skills-dir)
         expected (initialization-transaction-document
@@ -1483,6 +1501,7 @@
              #{absent new}))))
       ;; Every state is validated before recovery writes begin. Each recovery
       ;; step moves an entry to another state accepted by the same journal.
+      (cleanup-journaled-write-scratch! root transaction)
       (doseq [entry (get transaction "entries")]
         (let [id (get entry "id")
               path (.resolve directory id)
