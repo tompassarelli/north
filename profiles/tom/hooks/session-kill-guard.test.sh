@@ -7,10 +7,13 @@ HOOK="$HERE/session-kill-guard.sh"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/session-kill-guard-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
 mkdir -p "$SCRATCH/home/.local/state/north"
+ACTIVATION="$SCRATCH/activation.json"
 
 pass=0 fail=0 LAST_OUT=""
-set_state() { printf 'guards=%s\n' "$1" >"$SCRATCH/home/.local/state/north/harness.conf"; }
-set_state on
+set_active() {
+  printf '{"schema":"north.agent-activation/v1","units":[{"id":"session-kill-guard","kind":"hook","category":"authoring","active":%s}]}\n' "$1" >"$ACTIVATION"
+}
+set_active true
 
 # run EXPECT DESCRIPTION COMMAND [ENV...]
 run() {
@@ -18,7 +21,7 @@ run() {
   local input out decision ok=0
   input="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")"
   out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
-    HOME="$SCRATCH/home" "$@" "$HOOK" 2>&1)"
+    HOME="$SCRATCH/home" NORTH_AGENT_ACTIVATION="$ACTIVATION" "$@" "$HOOK" 2>&1)"
   LAST_OUT="$out"
   decision="$(python3 -c 'import json,sys
 try:
@@ -122,10 +125,10 @@ EOF
 
 echo '== kill-switch =='
 run allow 'guards off via env' 'kill -9 -1' AGENT_NO_AUTHORING_HOOKS=1
-set_state off
-run allow 'guards off via state' 'kill -9 -1'
-set_state on
-run deny 'guards back on via state' 'kill -9 -1'
+set_active false
+run allow 'UnitId off via activation' 'kill -9 -1'
+set_active true
+run deny 'UnitId back on via activation' 'kill -9 -1'
 
 echo
 printf '== result: %s passed, %s failed ==\n' "$pass" "$fail"

@@ -5,7 +5,7 @@
 
 (def usage
   (str "usage: north config agents "
-       "[sync [--json]|status [--json]|on|off <UnitId> [--json]|skills|hooks|sets [list|on|off <id>] [--json]|"
+       "[sync [--json]|status [--json]|on|off <UnitId> [--json]|skills|hooks|sets [list] [--json]|"
        "path <id> [--json]|inspect <id> [--json]]"))
 
 (defn- fail [message]
@@ -50,31 +50,14 @@
       (fail usage))
     [rest (boolean json?)]))
 
-(defn- require-kind! [id kind]
-  (let [unit (catalog/unit id)]
-    (when-not (= kind (get unit "kind"))
-      (fail (str id " is a " (get unit "kind") ", not a " kind)))
-    unit))
-
 (defn- kind-command! [kind args]
   (let [[args json?] (split-json args)
-        [verb id & extra] args]
+        [verb & extra] args]
     (case (or verb "list")
       "list"
       (do
-        (when (or id (seq extra)) (fail usage))
+        (when (seq extra) (fail usage))
         (output-activation! (select-kind (current!) kind) json?))
-
-      ("on" "off")
-      (do
-        (when (or (nil? id) (seq extra)) (fail usage))
-        (require-kind! id kind)
-        (let [activation (catalog/change-permissions! {id verb})]
-          (if json?
-            (json! activation)
-            (println (str kind " " id " → " verb " · generation "
-                          (get activation "generationId"))))))
-
       (fail usage))))
 
 (defn cmd-agents [args]

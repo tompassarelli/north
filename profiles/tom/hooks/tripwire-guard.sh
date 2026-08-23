@@ -36,7 +36,8 @@
 #      (stdout ask envelope, exit 0); unattended (bypassPermissions, or a
 #      missing/empty/unknown permission_mode — old harness or SDK-dispatched
 #      lane) fails CLOSED to the hard deny, and the reason names
-#      `north config guards off` as the deliberate path. never/sacred are HARD
+#      `north config agents off tripwire-guard` as the deliberate path.
+#      never/sacred are HARD
 #      in every mode. Asks ACCUMULATE, they do not exit — a later hard-deny
 #      class in the same command (e.g. `rm -rf ~/x && git push -f`) still wins
 #      (exit 2); the ask envelope emits only after the full walk with asks
@@ -96,7 +97,7 @@
 #     ask is not a denial; the guard_denial graph idiom stays denial-only.
 #
 # Test matrix: sibling tripwire-guard.test.sh — run it after EVERY edit here.
-# Kill-switch: persistent `north config guards off` (activation) OR env
+# Kill-switch: persistent `north config agents off tripwire-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false; 0/false forces guards live).
 # Shared impl: lib/authoring-killswitch.sh. House parity.
 # =============================================================================
@@ -124,7 +125,7 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 # Kill-switch: shared semantics in lib/authoring-killswitch.sh — persistent
-# `north config guards off` (state, live) or env AGENT_NO_AUTHORING_HOOKS
+# `north config agents off tripwire-guard` (live) or env AGENT_NO_AUTHORING_HOOKS
 # (any value but 0/false kills this session; 0/false forces guards live).
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "$0")/lib/authoring-killswitch.sh" 2>/dev/null || true
@@ -328,7 +329,7 @@ resolve_path() {
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}"
 # The deliberate path, quoted verbatim in every ask/deny reason: it is the move
 # that worked, and a denial that does not name the exit is a trap.
-OVERRIDE='deliberate path: `north config guards off`, run it, `north config guards on`'
+OVERRIDE='deliberate path: `north config agents off tripwire-guard`, run it, `north config agents on tripwire-guard`'
 
 # is_never_path PATH : exact roots whose recursive delete is catastrophic in
 # every mode. /tmp is here as the ROOT (other lanes' scratchpads live in it);

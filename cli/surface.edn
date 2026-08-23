@@ -141,7 +141,7 @@
   {:verb "config" :form "north config" :topic :routing
    :summary "every posture setting + routing policy, one report"
    :details ["north config dispatch <mode> — native · managed · auto"
-             "north config guards on|off — value-aware kill-switch for authoring guards"
+             "north config agents on|off <UnitId> — the one agent permission mutation"
              "north config routing — allocation detail inside auto: provider order, pressure, reserves, envelopes"
              "north config learning — frozen known-best or learning bounded experimental assignment"]
    :card {:section :system :form "north config"

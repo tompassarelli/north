@@ -24,28 +24,42 @@
 (try
   (.mkdirs (io/file home))
   (check "sync succeeds" (zero? (:exit (run "agents" "sync"))))
-  (let [listed (run "hooks")]
-    (check "hook view comes from the catalog"
-           (and (zero? (:exit listed))
-                (str/includes? (:out listed) "firn-system-policy"))))
-  (let [disabled (run "hooks" "off" "tripwire-guard")
+  (let [hooks (run "hooks")
+        skills (run "skills")
+        sets (run "sets")
+        guards (run "guards")
+        filtered (run "agents" "hooks" "--json")]
+    (check "kind and guard views remain read-only catalog projections"
+           (and (every? #(zero? (:exit %)) [hooks skills sets guards filtered])
+                (str/includes? (:out hooks) "firn-system-policy")
+                (str/includes? (:out skills) "webdev")
+                (str/includes? (:out sets) "coordination")
+                (str/includes? (:out guards) "tripwire-guard")
+                (every? #(= "hook" (get % "kind"))
+                        (get (json/parse-string (:out filtered)) "units")))))
+  (let [disabled (run "agents" "off" "tripwire-guard")
         inspected (run "agents" "inspect" "tripwire-guard" "--json")
         unit (json/parse-string (:out inspected))]
-    (check "hook mutation writes the one UnitId permission"
+    (check "the agents UnitId ABI is the permission writer"
            (and (zero? (:exit disabled)) (zero? (:exit inspected))
                 (= "off" (get unit "permission"))
                 (false? (get unit "active")))))
-  (check "hook TTL syntax is absent"
-         (not (zero? (:exit (run "hooks" "off" "tripwire-guard"
-                                 "--until" "2099-01-01T00:00:00Z")))))
-  (let [guards (run "guards" "off")
-        status (json/parse-string (:out (run "agents" "status" "--json")))
-        authoring (filter #(and (= "hook" (get % "kind"))
-                                (= "authoring" (get % "category")))
-                          (get status "units"))]
-    (check "guards is a thin authoring-hook batch client"
-           (and (zero? (:exit guards)) (seq authoring)
-                (every? #(= "off" (get % "permission")) authoring))))
+  (let [legacy-results
+        (mapv #(apply run %)
+              [["hooks" "off" "tripwire-guard"]
+               ["hooks" "category" "off" "authoring"]
+               ["hooks" "all" "off"]
+               ["skills" "off" "webdev"]
+               ["skills" "category" "off" "webdev"]
+               ["skills" "all" "off"]
+               ["skills" "sync"]
+               ["sets" "off" "coordination"]
+               ["guards" "off"]
+               ["agents" "hooks" "off" "tripwire-guard"]
+               ["agents" "skills" "off" "webdev"]
+               ["agents" "sets" "off" "coordination"]])]
+    (check "kind, category, all, guard, and sync mutation aliases are absent"
+           (every? #(not (zero? (:exit %))) legacy-results)))
   (check "legacy harness permission state is not written"
          (not (.exists (io/file home ".local/state/north/harness.conf"))))
   (finally

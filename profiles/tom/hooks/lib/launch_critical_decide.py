@@ -282,7 +282,7 @@ def _apply_patch_fail_closed():
         "This apply_patch call is denied fail-closed: a patch whose targets "
         "cannot be read cannot be checked. Re-issue it with well-formed "
         "`*** Add/Update/Delete File:` headers. Deliberate bypass: "
-        "`north config guards off`.")
+        "`north config agents off launch-critical-worktree-guard`.")
 
 
 def _apply_patch_target_decision(targets, cwd, removal_targets=()):
@@ -789,7 +789,7 @@ def decide(payload):
                 f"  git -C {target} status --porcelain   # inspect, do not discard\n"
                 f"  wt-rescue {target}\n"
                 f"  # dirty main? run `wt-rescue` (relocates intact, restores clean)\n"
-                f"  # rare surgery only: `north config guards off` — deliberate\n"
+                f"  # rare surgery only: `north config agents off launch-critical-worktree-guard` — deliberate\n"
                 f"  # bypass, state why, re-enable after\n"
                 f"{worktree_advice(project)}")
 

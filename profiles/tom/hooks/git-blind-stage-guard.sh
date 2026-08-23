@@ -16,7 +16,7 @@
 # string, after a shell separator, or after sudo/doas) — never a bare
 # occurrence anywhere in the string.
 #
-# Kill-switch: persistent `north config guards off` (activation) OR env
+# Kill-switch: persistent `north config agents off git-blind-stage-guard` OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================
@@ -44,7 +44,7 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 # Kill-switch: shared semantics in lib/authoring-killswitch.sh — persistent
-# `north config guards off` (state, live) or env AGENT_NO_AUTHORING_HOOKS
+# `north config agents off git-blind-stage-guard` (live) or env AGENT_NO_AUTHORING_HOOKS
 # (any value but 0/false kills this session; 0/false forces guards live).
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "$0")/lib/authoring-killswitch.sh" 2>/dev/null || true
@@ -194,7 +194,7 @@ reason = (
     "commit instead, e.g. `git add path/to/file` or `git commit path/to/file "
     "-m '...'`. A commit MESSAGE or heredoc body that merely mentions "
     "the phrase is unaffected — only a real command-position invocation is "
-    "denied. Rare explicit override: `north config guards off` (persistent, "
+    "denied. Rare explicit override: `north config agents off git-blind-stage-guard` (persistent, "
     "live), or a session LAUNCHED with AGENT_NO_AUTHORING_HOOKS=1."
 ) % hit
 
