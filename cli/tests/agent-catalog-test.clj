@@ -44,6 +44,26 @@
   ["north-on-spawn" "north-on-tooluse" "north-on-stop"
    "north-on-terminal" "north-mark-delegated"])
 
+(defn executable-on-path [name]
+  (or (some (fn [directory]
+              (let [candidate (io/file directory name)]
+                (when (and (.isFile candidate) (.canExecute candidate))
+                  (.toRealPath (.toPath candidate)
+                               (make-array java.nio.file.LinkOption 0)))))
+            (str/split (or (System/getenv "PATH") "")
+                       (re-pattern (java.util.regex.Pattern/quote
+                                    java.io.File/pathSeparator))))
+      (throw (ex-info (str "missing executable on PATH: " name) {:name name}))))
+
+(defn write-executable! [path content]
+  (let [file (io/file path)]
+    (.mkdirs (.getParentFile file))
+    (spit file content)
+    (when-not (.setExecutable file true false)
+      (throw (ex-info (str "cannot make fixture executable: " file)
+                      {:path (str file)})))
+    file))
+
 (defn delete-scratch! [path]
   ;; Files.walk does not follow projection symlinks without FOLLOW_LINKS.
   (when (.exists (io/file path))
@@ -224,20 +244,88 @@
                (every? #(.isFile (io/file current %))
                        ["agent-templates/north/staffing/integrator.md"
                         "agent-templates/claude/staffing/integrator.md"]))
+        (check "provider activation helper and lifecycle adapters materialize from exact owners"
+               (let [support (first (filter #(= "north-agent-activation" (get % "id"))
+                                            (get activation "providerSupport")))
+                     helper (io/file current "provider-hooks/lib/north-agent-activation.sh")]
+                 (and (= {"repo" "nixos-config"
+                          "path" "dotfiles/agents/lib/north-agent-activation.sh"}
+                         (get support "owner"))
+                      (= "lib/north-agent-activation.sh" (get support "path"))
+                      (.isFile helper)
+                      (= (slurp (north.agent-catalog/owner-path
+                                 (get support "owner") "activation helper test"))
+                         (slurp helper))
+                      (every? #(.isFile (io/file current "provider-hooks"
+                                                  (str % "-codex")))
+                              lifecycle-hook-ids))))
         (check "materialized generation never links back into owner trees"
                (not-any? #(java.nio.file.Files/isSymbolicLink %)
                          (with-open [walk (java.nio.file.Files/walk
                                           (.toPath (.getCanonicalFile current))
                                           (make-array java.nio.file.FileVisitOption 0))]
-                           (vec (iterator-seq (.iterator walk)))))))))
+                           (vec (iterator-seq (.iterator walk))))))
+        (let [hooks-root (io/file current "provider-hooks")
+              runtime-root (io/file hooks-root "runtime")
+              target-root (io/file hooks-root "north/bin")
+              gate-state (io/file tmp "adapter-gate-state")
+              activation-file (io/file gate-state "current/activation.json")
+              run-adapter
+              (fn [id]
+                (p/shell {:out :string :err :string :continue true :in ""
+                          :extra-env
+                          {"NORTH_AGENT_STATE_ROOT" (str gate-state)
+                           "NORTH_MANAGED_LANE" "0"
+                           "AGENT_TOPOLOGY" ""
+                           "AGENT_ID" ""}}
+                         (str (io/file hooks-root (str id "-codex")))))]
+          (.mkdirs runtime-root)
+          (.mkdirs target-root)
+          (.mkdirs (.getParentFile activation-file))
+          (java.nio.file.Files/createSymbolicLink
+           (.toPath (io/file runtime-root "bash")) (executable-on-path "bash")
+           (make-array java.nio.file.attribute.FileAttribute 0))
+          (java.nio.file.Files/createSymbolicLink
+           (.toPath (io/file runtime-root "python3")) (executable-on-path "python3")
+           (make-array java.nio.file.attribute.FileAttribute 0))
+          (doseq [id lifecycle-hook-ids]
+            (write-executable!
+             (io/file target-root id)
+             (str "printf 'executed:" id ":%s\\n' \"${AGENT_PROVIDER:-}\"\n")))
+          (spit activation-file (json/generate-string activation))
+          (check "materialized lifecycle adapters execute when their exact hooks are active"
+                 (every?
+                  (fn [[id result]]
+                    (and (zero? (:exit result))
+                         (= (str "executed:" id ":openai\n") (:out result))
+                         (str/blank? (:err result))))
+                  (mapv (fn [id] [id (run-adapter id)]) lifecycle-hook-ids)))
+          (check "materialized lifecycle adapters stay inert when only their exact hook is off"
+                 (every?
+                  (fn [[_id result]]
+                    (and (zero? (:exit result))
+                         (str/blank? (:out result))
+                         (str/blank? (:err result))))
+                  (mapv (fn [id]
+                          (spit activation-file
+                                (json/generate-string
+                                 (north.agent-catalog/compile-activation
+                                  catalog
+                                  (assoc (get activation "permissions") id "off"))))
+                          [id (run-adapter id)])
+                        lifecycle-hook-ids)))))))
 
   (let [cli (str root "/cli/config-cli.clj")
         cli-home (str tmp "/cli-home")
         cli-state (str tmp "/cli-state")
+        configured-roots (some-> (System/getenv "NORTH_REPO_ROOTS")
+                                 json/parse-string)
         repo-roots (json/generate-string
-                    {"north" root
-                     "beagle" "/home/tom/code/beagle/main"
-                     "nixos-config" "/home/tom/code/nixos-config/main"})
+                    (merge {"north" root
+                            "beagle" "/home/tom/code/beagle/main"
+                            "nixos-config" "/home/tom/code/nixos-config/main"}
+                           configured-roots
+                           {"north" root}))
         env {"HOME" cli-home "NORTH_HOME" root
              "NORTH_AGENT_STATE_ROOT" cli-state "NORTH_REPO_ROOTS" repo-roots}
         run (fn [& args]

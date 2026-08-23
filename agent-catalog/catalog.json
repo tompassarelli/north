@@ -6,6 +6,7 @@
   ],
   "providerSupport": [
     {"id":"activation-gate","owner":{"repo":"north","path":"profiles/tom/hooks/lib/harness-dial.sh"},"path":"lib/harness-dial.sh"},
+    {"id":"north-agent-activation","owner":{"repo":"nixos-config","path":"dotfiles/agents/lib/north-agent-activation.sh"},"path":"lib/north-agent-activation.sh"},
     {"id":"authoring-gate","owner":{"repo":"north","path":"profiles/tom/hooks/lib/authoring-killswitch.sh"},"path":"lib/authoring-killswitch.sh"},
     {"id":"launch-critical-decider","owner":{"repo":"north","path":"profiles/tom/hooks/lib/launch_critical_decide.py"},"path":"lib/launch_critical_decide.py"},
     {"id":"launch-critical-paths","owner":{"repo":"north","path":"profiles/tom/hooks/lib/launch_critical_paths.py"},"path":"lib/launch_critical_paths.py"},
