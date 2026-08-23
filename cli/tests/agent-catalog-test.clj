@@ -40,6 +40,10 @@
           (fn [units]
             (mapv #(if (= id (get % "id")) (f %) %) units))))
 
+(def lifecycle-hook-ids
+  ["north-on-spawn" "north-on-tooluse" "north-on-stop"
+   "north-on-terminal" "north-mark-delegated"])
+
 (defn delete-scratch! [path]
   ;; Files.walk does not follow projection symlinks without FOLLOW_LINKS.
   (when (.exists (io/file path))
@@ -55,11 +59,12 @@
                     catalog (north.agent-catalog/seed-permissions catalog))
         by-id (into {} (map (juxt #(get % "id") identity)) (get activation "units"))]
     (check "catalog inventories every audited skill, hook, and set"
-           (and (= 60 (count (:units catalog)))
+           (and (= 65 (count (:units catalog)))
                 (every? (:by-id catalog)
-                        ["coordination" "orchestration" "compose" "elicit"
-                         "store-modeling" "code-as-facts"
-                         "code-upstream-guard"])))
+                        (concat ["coordination" "orchestration" "compose" "elicit"
+                                 "store-modeling" "code-as-facts"
+                                 "code-upstream-guard"]
+                                lifecycle-hook-ids))))
     (check "generation exposes the stable root contract"
            (and (= "north.agent-activation/v1" (get activation "schema"))
                 (= "north.agent-catalog/v1" (get activation "catalogSchema"))
@@ -92,6 +97,41 @@
            (= [["orchestration" "session-kill-guard"]
                ["repo-safety" "session-kill-guard"]]
               (get-in by-id ["session-kill-guard" "activationPaths"])))
+    (check "Codex lifecycle hooks have five exact independent projection outputs"
+           (let [owner-for (fn [id]
+                             {"repo" "nixos-config"
+                              "path" (str "dotfiles/codex/hooks/" id "-codex")})
+                 entries (->> (get-in activation
+                                      ["projectionPlan" "providerAdapter" "codex"])
+                              (filter #(some #{(get % "unitId")} lifecycle-hook-ids))
+                              (group-by #(get % "unitId")))]
+             (and (= (set lifecycle-hook-ids) (set (keys entries)))
+                  (every?
+                   (fn [id]
+                     (let [[entry :as matches] (get entries id)
+                           owner (owner-for id)]
+                       (and (= 1 (count matches))
+                            (= #{"unitId" "owner" "adapterId" "provenance"}
+                               (set (keys entry)))
+                            (= id (get entry "unitId"))
+                            (= (str id "-codex") (get entry "adapterId"))
+                            (= owner (get entry "owner"))
+                            (= owner (get-in entry ["provenance" "owner"]))
+                            (re-matches #"[0-9a-f]{40,64}"
+                                        (get-in entry ["provenance" "revision"]))
+                            (re-matches #"sha256:[0-9a-f]{64}"
+                                        (get-in entry ["provenance" "contentDigest"])))))
+                   lifecycle-hook-ids))))
+    (check "retired lifecycle umbrella identity is absent"
+           (let [retired-id (str "north-session-" "lifecycle")]
+             (and (nil? (get (:by-id catalog) retired-id))
+                  (nil? (get by-id retired-id))
+                  (not (contains? (get activation "permissions") retired-id))
+                  (not-any? #(= retired-id (get % "unitId"))
+                            (for [[_ targets] (get activation "projectionPlan")
+                                  [_ entries] targets
+                                  entry entries]
+                              entry)))))
     (check "project-private units and inactive adapters seed inert"
            (every? #(and (= "off" (get-in by-id [% "permission"]))
                          (false? (get-in by-id [% "active"])))
