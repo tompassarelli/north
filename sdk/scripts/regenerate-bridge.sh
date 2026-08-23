@@ -17,7 +17,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for required in "$beagle/bin/beagle-build" "$beagle/bin/beagle-fmt" "$runtime_source/core.js" "$beagle/LICENSE-MIT"; do
+for required in \
+  "$beagle/bin/beagle-build" \
+  "$beagle/bin/beagle-fmt" \
+  "$runtime_source/core.js" \
+  "$beagle/LICENSE-MIT" \
+  "$root/scripts/generate-bridge-declarations.ts"; do
   if [[ ! -f "$required" ]]; then
     printf 'missing Beagle bridge-generation input: %s\n' "$required" >&2
     exit 1
@@ -53,6 +58,10 @@ BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='../../beagle/' \
     "$source_stage/north/bridge/app.bjs" \
     "$output_stage/north/bridge/app.js"
 
+bun run "$root/scripts/generate-bridge-declarations.ts" \
+  "$output_stage/north/bridge/app.js" \
+  "$output_stage/north/bridge/app.d.ts"
+
 node --check "$output_stage/north/bridge/model.js"
 node --check "$output_stage/north/bridge/app.js"
 
@@ -62,7 +71,7 @@ mkdir -p "$generated/beagle" "$generated/north/bridge"
 for runtime_file in LICENSE-MIT core.js exception-dispatch.js exception-info.js hamt.js host.js; do
   install -m 0644 "$output_stage/beagle/$runtime_file" "$generated/beagle/$runtime_file"
 done
-for bridge_file in model.js app.js; do
+for bridge_file in model.js app.js app.d.ts; do
   install -m 0644 "$output_stage/north/bridge/$bridge_file" \
     "$generated/north/bridge/$bridge_file"
 done

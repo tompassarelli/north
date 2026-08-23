@@ -542,10 +542,6 @@ function active_focus(palette_open_p, panel_open_p, panel_focused_p, filtering_p
   return ((palette_open_p) ? "palette" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && (panel_focused_p && filtering_p)))) ? "filter" : (((_truthy) => _truthy !== false && _truthy != null)((panel_open_p && panel_focused_p))) ? "panel" : (strip_focused_p) ? "strip" : "composer");
 }
 
-function tab_action(focus, dir_row_p, expanded_p) {
-  return (((focus === "palette")) ? "complete" : (((_truthy) => _truthy !== false && _truthy != null)(((focus === "panel") || (focus === "filter")))) ? (dir_row_p ? (expanded_p ? "collapse" : "expand") : "climb") : "swap-view");
-}
-
 function tab_swap_view(view) {
   return (threads_view_p(view) ? "agents" : "threads");
 }
@@ -3527,7 +3523,6 @@ export { set_launch_route_bang as "set-launch-route!" };
 export { set_panel_query_bang as "set-panel-query!" };
 export { submit_input_bang as "submit-input!" };
 export { suspend_runtime_bang as "suspend-runtime!" };
-export { tab_action as "tab-action" };
 export { tab_swap_view as "tab-swap-view" };
 export { take_launch_route_flags_bang as "take-launch-route-flags!" };
 export { thread_view_command_p as "thread-view-command?" };

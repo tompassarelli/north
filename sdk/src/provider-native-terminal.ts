@@ -48,11 +48,8 @@ export interface ProviderNativeTerminalDependencies {
 	readonly telemetryWriter?: WireRunTelemetryWriter;
 }
 
-interface CodexHookInput {
-	readonly event: "SessionEnd" | "SubagentStop";
-	readonly sessionId: string;
-	readonly actorNamespace: "session" | "agent";
-	readonly actorId: string;
+interface CodexSubagentStopInput {
+	readonly agentId: string;
 	readonly transcriptPath: string;
 }
 
@@ -87,43 +84,29 @@ function sha256(parts: readonly string[]): string {
 	return hash.digest("hex");
 }
 
-export function providerNativeActorKey(
-	namespace: "session" | "agent",
-	actorId: string,
-): string {
-	const id = boundedOpaqueId(actorId);
-	if (id === undefined) throw new TypeError("provider-native actor id is invalid");
-	return sha256(["north-actor-key-v1\0", namespace, "\0", id]);
+export function providerNativeAgentKey(agentId: string): string {
+	const id = boundedOpaqueId(agentId);
+	if (id === undefined) throw new TypeError("provider-native agent id is invalid");
+	return sha256(["north-actor-key-v1\0agent\0", id]);
 }
 
-function parseHookInput(value: unknown): CodexHookInput | undefined {
+function parseHookInput(value: unknown): CodexSubagentStopInput | undefined {
 	const input = record(value);
 	if (input === undefined) return undefined;
 	const event = input.hook_event_name;
 	const sessionId = boundedOpaqueId(input.session_id);
-	if ((event !== "SessionEnd" && event !== "SubagentStop")
-		|| sessionId === undefined) {
+	if (event !== "SubagentStop" || sessionId === undefined) {
 		return undefined;
 	}
-	const transcriptPath = event === "SubagentStop"
-		? input.agent_transcript_path : input.transcript_path;
+	const transcriptPath = input.agent_transcript_path;
 	if (typeof transcriptPath !== "string"
 		|| !transcriptPath.startsWith("/")
 		|| Buffer.byteLength(transcriptPath, "utf8") > 4096
 		|| /[\0\n\r\t]/u.test(transcriptPath)) {
 		return undefined;
 	}
-	if (event === "SessionEnd") {
-		return { event, sessionId, actorNamespace: "session", actorId: sessionId, transcriptPath };
-	}
 	const agentId = boundedOpaqueId(input.agent_id);
-	return agentId === undefined ? undefined : {
-		event,
-		sessionId,
-		actorNamespace: "agent",
-		actorId: agentId,
-		transcriptPath,
-	};
+	return agentId === undefined ? undefined : { agentId, transcriptPath };
 }
 
 function managedLane(env: NodeJS.ProcessEnv): boolean {
@@ -163,7 +146,7 @@ function transcriptLines(path: string): { readonly first: readonly string[]; rea
 	}
 }
 
-function transcriptEvidence(input: CodexHookInput): TerminalEvidence | undefined {
+function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | undefined {
 	const lines = transcriptLines(input.transcriptPath);
 	const firstRecords = lines.first.map(parseJsonLine).filter((entry): entry is JsonRecord => entry !== undefined);
 	const startedAt = firstRecords.map((entry) => instant(entry.timestamp)).find(
@@ -172,7 +155,7 @@ function transcriptEvidence(input: CodexHookInput): TerminalEvidence | undefined
 	const matchingMeta = firstRecords.some((entry) => {
 		if (entry.type !== "session_meta") return false;
 		const payload = record(entry.payload);
-		return payload?.id === input.actorId;
+		return payload?.id === input.agentId;
 	});
 	if (startedAt === undefined || !matchingMeta) return undefined;
 
@@ -262,7 +245,7 @@ export async function recordCodexProviderNativeTerminal(
 	try {
 		const input = parseHookInput(value);
 		if (input === undefined) return { status: "unknown", reason: "terminal" };
-		const actorKey = providerNativeActorKey(input.actorNamespace, input.actorId);
+		const actorKey = providerNativeAgentKey(input.agentId);
 		const runtimeDir = dependencies.runtimeDir ?? env.XDG_RUNTIME_DIR ?? "/tmp";
 		const agent = exactCachedIdentity(runtimeDir, actorKey);
 		if (agent === undefined) return { status: "unknown", reason: "identity" };

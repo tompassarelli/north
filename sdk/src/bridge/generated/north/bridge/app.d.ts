@@ -119,7 +119,6 @@ declare const sessionBannerLines: (...args: any[]) => any;
 declare const sessionBannerRuns: (...args: any[]) => any;
 declare const setPanelQuery: (...args: any[]) => any;
 declare const submitInput: (...args: any[]) => any;
-declare const tabAction: (...args: any[]) => any;
 declare const tabSwapView: (...args: any[]) => any;
 declare const threadViewCommand: (...args: any[]) => any;
 declare const threadsView: (...args: any[]) => any;
@@ -199,14 +198,13 @@ export {
   rosterVisibleRows as "roster-visible-rows",
   runNorthbridgeApp as "run-northbridge-app!",
   selectedAgentId as "selected-agent-id",
-  setLaunchRoute as "set-launch-route!",
   sessionBanner as "session-banner!",
   sessionBannerLines as "session-banner-lines",
   sessionBannerRuns as "session-banner-runs",
+  setLaunchRoute as "set-launch-route!",
   setPanelQuery as "set-panel-query!",
-  suspendRuntime as "suspend-runtime!",
   submitInput as "submit-input!",
-  tabAction as "tab-action",
+  suspendRuntime as "suspend-runtime!",
   tabSwapView as "tab-swap-view",
   takeLaunchRouteFlags as "take-launch-route-flags!",
   threadViewCommand as "thread-view-command?",

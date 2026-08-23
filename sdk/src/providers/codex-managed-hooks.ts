@@ -137,7 +137,7 @@ export function expectedManagedCodexHooks(
   managedDir = CODEX_MANAGED_HOOKS_DIR,
   systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): Record<
-  | "SessionStart" | "SessionEnd" | "SubagentStart" | "SubagentStop"
+  | "SessionStart" | "SubagentStart" | "SubagentStop"
   | "PreToolUse" | "PostToolUse" | "Stop",
   ManagedMatcher[]
 > {
@@ -150,9 +150,6 @@ export function expectedManagedCodexHooks(
     }],
     SubagentStart: [{
       hooks: [command("north-on-spawn-codex", 15, managedDir)],
-    }],
-    SessionEnd: [{
-      hooks: [command("north-on-terminal-codex", 3, managedDir)],
     }],
     SubagentStop: [{
       hooks: [command("north-on-terminal-codex", 3, managedDir)],
