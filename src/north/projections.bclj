@@ -2,9 +2,9 @@
 (ns north.projections
   "Read-only dependency-derived views over canonical Beagle Store Triples.")
 
-(require store.types :as t)
-(require store.kernel-classify :as kc)
-(require clojure.string :as str)
+(require [store.types :as t])
+(require [store.kernel-classify :as kc])
+(require [clojure.string :as str])
 
 ;; Triple slots are Any because Beagle Store's recursive Term ABI cannot be expressed
 ;; in-place. The Triple constructor validates the recursive Term boundary.
@@ -295,24 +295,30 @@
   (let [d String? (string-value-at idx te "do_on")]
     (and (some? d) (before? today d))))
 
-;; --- driver LIVENESS is an explicit classifier input (not a stored fact) -----
-;; A `driver` fact is an assignment, not proof of activity now: a pickup dead
-;; since May still carries its driver. The ONE canonical classifier therefore
-;; asks a `live?` predicate — [Index te -> Bool] — exactly as it asks today/
-;; before? for the clock, rather than reading `driver` raw. Production callers
-;; supply one lease+recency predicate for the entire command; tests inject a
-;; deterministic predicate. `assigned?` remains orthogonal so grooming can show
-;; stale assignments without inventing a second lifecycle.
+;; --- driver ACTIVITY is an explicit three-valued classifier input ------------
+;; A `driver` fact is an assignment, not proof of activity now. The classifier
+;; consumes one derived judgment per thread:
+;;   LiveProven   — one valid, unexpired session lease proves activity;
+;;   AbsentProven — the complete projection contains no driver assignment;
+;;   Unresolved   — an assignment exists but its activity cannot be proved.
+;; Only AbsentProven may fall through toward ready. Unknown judgment values fail
+;; closed as unresolved, so malformed or conflicting evidence is never pull
+;; authority. Production derives the judgment from the served Store snapshot;
+;; tests inject a deterministic function.
+(def live-proven "LiveProven")
+(def absent-proven "AbsentProven")
+(def unresolved "Unresolved")
+
 (defn assigned?
   [idx ProjectionIndex
    te String] Bool
-  (some? (string-value-at idx te "driver")))
+  (not (empty? (values-at idx te "driver"))))
 
 ;; The ONE shared precedence classifier (the-model §3): every single-bucket view
 ;; calls this, so two views can never disagree. EXACT precedence:
-;;   terminal > blocked > active > dormant > ready > draft
-;; `active` = a LIVE driver (per the caller's live? predicate); a parked/stale
-;; driver is NOT active and falls through to its committed/schedule state.
+;;   terminal > blocked > active > unresolved > dormant > ready > draft
+;; `active` requires LiveProven. An assigned thread without positive liveness is
+;; unresolved, retained, and ineligible; it never falls through to ready.
 ;; `dormant` (a future do_on) dominates `ready`: a committed thread scheduled for
 ;; later is NOT pull-able now, so it drops out of ready/next EVERYWHERE (schedule
 ;; is an eligibility gate, not a display hint — the prior "committed dominates the
@@ -322,33 +328,38 @@
    te String
    today String
    before? (Fn [String String] Bool)
-   live? (Fn [ProjectionIndex String] Bool)] String
+   activity (Fn [ProjectionIndex String] String)] String
   (cond
     [(terminal-i? idx te) "terminal"]
     [(blocked? idx te) "blocked"]
-    [(live? idx te) "active"]
-    [(dormant? idx te today before?) "dormant"]
-    [(some? (string-value-at idx te "committed")) "ready"]
-    [:else "draft"]))
+    [:else
+     (let [judgment String (activity idx te)]
+       (cond
+         [(= judgment live-proven) "active"]
+         [(not (= judgment absent-proven)) "unresolved"]
+         [(dormant? idx te today before?) "dormant"]
+         [(some? (string-value-at idx te "committed")) "ready"]
+         [:else "draft"]))]))
 
 ;; ELIGIBILITY is DERIVED from the one classifier, never a parallel filter: a
-;; thread is pull-able now iff it classifies `ready` (committed + unblocked + no
-;; live driver + not scheduled-later). ready/next/board's READY bucket all reduce
-;; to this predicate, so their eligibility sets are identical by construction.
+;; thread is pull-able now iff it classifies `ready` (committed + unblocked +
+;; AbsentProven + not scheduled-later). ready/next/board's READY bucket all
+;; reduce to this predicate, so their eligibility sets are identical by
+;; construction.
 (defn eligible?
   [idx ProjectionIndex
    te String
    today String
    before? (Fn [String String] Bool)
-   live? (Fn [ProjectionIndex String] Bool)] Bool
-  (= (classify idx te today before? live?) "ready"))
+   activity (Fn [ProjectionIndex String] String)] Bool
+  (= (classify idx te today before? activity) "ready"))
 
 (defn ready
   [idx ProjectionIndex
    today String
    before? (Fn [String String] Bool)
-   live? (Fn [ProjectionIndex String] Bool)] (Vec String)
-  (filterv (fn [te String] Bool (eligible? idx te today before? live?))
+   activity (Fn [ProjectionIndex String] String)] (Vec String)
+  (filterv (fn [te String] Bool (eligible? idx te today before? activity))
            (work-thread-ids-i idx)))
 
 ;; One-line human/agent explanation of WHY a thread is (in)eligible — the state
@@ -365,8 +376,8 @@
    te String
    today String
    before? (Fn [String String] Bool)
-   live? (Fn [ProjectionIndex String] Bool)] Eligibility
-  (let [st String (classify idx te today before? live?)]
+   activity (Fn [ProjectionIndex String] String)] Eligibility
+  (let [st String (classify idx te today before? activity)]
     (->Eligibility
      st
      (= st "ready")
@@ -374,8 +385,9 @@
        [(= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"]
        [(= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")]
        [(= st "active") "a live driver is on it now — being worked, not pull-able"]
+       [(= st "unresolved") "a driver is assigned but activity is not proved — retained, not pull-able"]
        [(= st "dormant") (str "scheduled for a future do_on (" (let [d String? (string-value-at idx te "do_on")] (if (some? d) d "?")) ") — dormant until then")]
-       [(= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"]
+       [(= st "ready") "committed, unblocked, assignment absence proved, not scheduled-later — pull anytime"]
        [:else "uncommitted draft — decide + commit before it is work"]))))
 
 (defn blocked [idx ProjectionIndex] (Vec String)
@@ -384,15 +396,15 @@
            (work-thread-ids-i idx)))
 
 ;; Derived condition of a work thread — delegates to the ONE precedence classifier
-;; so plate text + json + the blocked command all agree. live? is threaded through
-;; exactly as today/before? are (the caller owns the liveness notion).
+;; so plate text + json + the blocked command all agree. activity is threaded
+;; through exactly as today/before? are (the caller owns the evidence judgment).
 (defn condition-i
   [idx ProjectionIndex
    te String
    today String
    before? (Fn [String String] Bool)
-   live? (Fn [ProjectionIndex String] Bool)] String
-  (classify idx te today before? live?))
+   activity (Fn [ProjectionIndex String] String)] String
+  (classify idx te today before? activity))
 
 ;; Presentation: a deterministic, user-configurable emoji per condition. Engine
 ;; defaults here; any is overridden by a fact `@ui emoji_<condition> "<glyph>"`,
@@ -400,6 +412,7 @@
 (defn- default-emoji [c String] String
   (cond
     [(= c "active") "🔵"]
+    [(= c "unresolved") "🟠"]
     [(= c "ready") "🟢"]
     [(= c "blocked") "🔴"]
     [(= c "dormant") "🟡"]

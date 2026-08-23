@@ -33,9 +33,9 @@
   {:verb "retract" :form "north retract <id> <pred> <value>" :topic :work
    :summary "retract a fact through the fact server"}
   {:verb "threads" :form "north threads [--all]" :topic :work
-   :summary "thread-kind overview: active drivers, top ready, counts"
+   :summary "thread-kind overview: live-proven active, unresolved assignments, top ready, counts"
    :card {:section :work :form "north threads"
-          :text "active / ready / blocked overview"}}
+          :text "active / unresolved / ready / blocked overview"}}
   {:verb "ready" :form "north ready [--all]" :topic :work
    :summary "committed + unblocked work; manual queue order, leverage fallback"
    :card {:section :now :rank 2 :form "north ready"

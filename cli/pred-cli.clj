@@ -287,7 +287,7 @@
    ["reached" "multi"  "literal" "monotone maturity level a concern has reached (exploring|building|likely-to-land|landed); status = max level (decision 8: status is derived, never set)"]
    ["candidate_rev" "single" "literal" "exact Git commit advertised by a likely-to-land concern"]
    ["candidate_git_dir" "single" "literal" "durable local Git common directory used to derive candidate landing"]
-   ["driver"  "single" "ref"     "the @handle currently driving a thread/concern (presence ⇒ active)"]
+   ["driver"  "single" "ref"     "the assigned @handle (a matching live session lease proves active; otherwise unresolved)"]
    ["touches" "multi"  "literal" "file paths a concern touches (display label + the path-string footprint fallback for non-flipped repos)"]
    ["footprint" "multi" "ref"    "code node (@mod#n) in a concern's footprint; asserted on the repo's warm code port and joined through the server-derived calls_defn closure"]
    ["code_port" "single" "literal" "port of the repo's warm code server, so a reader finds the concern footprint database"]

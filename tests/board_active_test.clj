@@ -1,67 +1,52 @@
-;; board_active_test.clj — the curated board's ACTIVE-honesty filter (driver-live?).
-;; A `driver` fact is never retired, so classify calls every historical pickup
-;; "active". board-curated partitions on DERIVED liveness, combining two honest
-;; signals in preference order:
-;;   (a) AGENT presence lease — @lease:session:<handle> exp still in the future
-;;       (the SAME renewable-lease rule concern-cli/coord.clj `online?` uses).
-;;   (b) RECENCY fallback — `updated_at` within NORTH_DRIVER_STALE_DAYS (default 14).
-;; Asserts: fresh lease => live; expired lease falls through to recency; a human
-;; (no lease) rides recency; stale on both axes => parked; no driver => not-active;
-;; a garbage updated_at never crashes.
+;; board_active_test.clj — the curated board's three-valued activity authority.
+;; A complete Store projection proves absence only when no driver is assigned.
+;; One current typed session lease proves liveness. Every assigned thread whose
+;; lease is missing, expired, malformed, or conflicting remains Unresolved;
+;; `updated_at` never promotes activity.
 ;;   BEAGLE_STORE_OUT=/path/to/store/out bb -cp out:"$BEAGLE_STORE_OUT" tests/board_active_test.clj
 (require '[store.types :as t] '[north.projections :as proj]
-         '[north.main :as m] '[store.rt :as rt])
+         '[north.main :as m])
 
-;; A fixed "now" pinned to a real ISO datetime so the runtime date helpers agree.
-(def now-str "2026-07-09T12:00:00")
-(def now-secs (rt/iso-to-seconds now-str))
-(def window (* 14 86400))                 ; NORTH_DRIVER_STALE_DAYS default
-
-(defn lease-val [exp-secs] (str "sess|" (* exp-secs 1000) "|0"))
-(def fresh-exp   (+ now-secs 1800))       ; +30m -> live lease
-(def expired-exp (- now-secs 1800))       ; -30m -> lapsed lease
+(def now-ms 1500000000000)
+(def fresh-exp (+ now-ms 1800000))
+(def expired-exp (- now-ms 1800000))
+(defn lease-val [handle exp]
+  (t/triple handle :kernel/expires-at exp))
 
 (def facts
   [;; @live-lease — agent driver holding a FRESH lease -> live (lease path)
-   (t/triple "@live-lease" "title" "live via lease") (t/triple "@live-lease" "driver" "@ag-live")
-   (t/triple "@lease:session:ag-live" "lease" (lease-val fresh-exp))
-   ;; @lapsed-recent — lease EXPIRED but thread updated today -> live (recency rescue)
+   (t/triple "@live-lease" "title" "live via lease")
+   (t/triple "@live-lease" "driver" "@ag-live")
+   (t/triple "session:ag-live" :kernel/lease (lease-val "ag-live" fresh-exp))
+   ;; @lapsed-recent — an expired lease stays unresolved despite recency.
    (t/triple "@lapsed-recent" "title" "lapsed but recent") (t/triple "@lapsed-recent" "driver" "@ag-lapsed")
-   (t/triple "@lease:session:ag-lapsed" "lease" (lease-val expired-exp))
+   (t/triple "session:ag-lapsed" :kernel/lease (lease-val "ag-lapsed" expired-exp))
    (t/triple "@lapsed-recent" "updated_at" "2026-07-08")
-   ;; @human-recent — human driver, NO lease, updated 3 days ago -> live (recency)
+   ;; @human-recent — a human driver with no lease remains unresolved.
    (t/triple "@human-recent" "title" "human recent") (t/triple "@human-recent" "driver" "@tom")
    (t/triple "@human-recent" "updated_at" "2026-07-06")
-   ;; @human-stale — human driver, NO lease, updated in MAY -> parked
+   ;; @human-stale — chronology does not change the same unresolved verdict.
    (t/triple "@human-stale" "title" "human stale") (t/triple "@human-stale" "driver" "@tom")
    (t/triple "@human-stale" "updated_at" "2026-05-28")
-   ;; @no-signal — driver, no lease, no updated_at -> parked
+   ;; @no-signal — driver, no lease, no updated_at -> unresolved.
    (t/triple "@no-signal" "title" "no signal") (t/triple "@no-signal" "driver" "@ghost")
-   ;; @no-driver — no driver fact at all -> not active
+   ;; @no-driver — the complete projection proves assignment absence.
    (t/triple "@no-driver" "title" "no driver")
-   ;; @garbage-ts — driver, no lease, unparseable updated_at -> parked (no crash)
+   ;; @garbage-ts — timestamp shape cannot affect activity or crash it.
    (t/triple "@garbage-ts" "title" "garbage ts") (t/triple "@garbage-ts" "driver" "@tom")
-   (t/triple "@garbage-ts" "updated_at" "not-a-date")
-   ;; boundary bracket (now = 2026-07-09T12:00, window 14d => cutoff 2026-06-25T12:00):
-   ;; @edge-in updated 2026-06-26 (inside) -> live; @edge-out 2026-06-24 (outside) -> parked
-   (t/triple "@edge-in" "title" "edge in") (t/triple "@edge-in" "driver" "@tom")
-   (t/triple "@edge-in" "updated_at" "2026-06-26")
-   (t/triple "@edge-out" "title" "edge out") (t/triple "@edge-out" "driver" "@tom")
-   (t/triple "@edge-out" "updated_at" "2026-06-24")])
+   (t/triple "@garbage-ts" "updated_at" "not-a-date")])
 
 (def idx (proj/index-triples facts))
-(defn live? [te] (#'m/driver-live? idx te now-secs window))
+(defn activity [te] (#'m/driver-activity idx te now-ms))
 
 (def cases
-  [["fresh lease => live"            (live? "@live-lease")     true]
-   ["expired lease + recent => live" (live? "@lapsed-recent")  true]
-   ["human recent => live"           (live? "@human-recent")   true]
-   ["human stale (May) => parked"    (live? "@human-stale")    false]
-   ["no lease + no updated_at => parked" (live? "@no-signal")  false]
-   ["no driver => not active"        (live? "@no-driver")      false]
-   ["garbage updated_at => parked"   (live? "@garbage-ts")     false]
-   ["inside 14d window (2026-06-26) => live"  (live? "@edge-in")  true]
-   ["outside 14d window (2026-06-24) => parked" (live? "@edge-out") false]])
+  [["fresh typed lease => LiveProven" (activity "@live-lease") proj/live-proven]
+   ["expired lease + recent => Unresolved" (activity "@lapsed-recent") proj/unresolved]
+   ["human recent without lease => Unresolved" (activity "@human-recent") proj/unresolved]
+   ["human stale without lease => Unresolved" (activity "@human-stale") proj/unresolved]
+   ["no lease + no updated_at => Unresolved" (activity "@no-signal") proj/unresolved]
+   ["no driver => AbsentProven" (activity "@no-driver") proj/absent-proven]
+   ["garbage updated_at => Unresolved" (activity "@garbage-ts") proj/unresolved]])
 
 (def fails (filter (fn [[_ got want]] (not= got want)) cases))
 (doseq [[nm got want] cases]

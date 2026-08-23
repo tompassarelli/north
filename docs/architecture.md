@@ -20,7 +20,7 @@ and derivations that turn a domain-neutral triple store into a work ledger:
 
 | module | owns |
 |---|---|
-| `projections.bclj` | the derived lifecycle — ready, blocked, terminal, driver liveness |
+| `projections.bclj` | the derived lifecycle — ready, blocked, terminal, and three-valued driver activity authority |
 | `staleness.bclj` | needs-review and the staleness classifiers |
 | `validate.bclj` | North's work rules on top of the engine's integrity rules |
 | `worker_policy.bclj` | coordination-worker policy — idle/backoff bounds, admission, selection |
