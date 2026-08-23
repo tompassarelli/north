@@ -1081,8 +1081,12 @@ function config_array(value) {
   return (Array.isArray(value) ? value : []);
 }
 
+function config_owner_text(owner) {
+  return (((typeof owner === "string")) ? text(owner) : (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (typeof owner === "object") : _logical))(owner))) ? (() => { const repo = text(owner.repo); const path = text(owner.path); return ((((_truthy) => _truthy !== false && _truthy != null)(((!(repo === "")) && (!(path === ""))))) ? $$bc$str(repo, ":", path) : ((!(repo === ""))) ? repo : path); })() : "");
+}
+
 function config_unit_entry(unit) {
-  return ConfigEntry(text(unit.kind), text(unit.id), text_or(text(unit.permission), "default"), text(unit.triggerDescription), text_or(text(unit.title), text(unit.id)), (((_truthy) => _truthy !== false && _truthy != null)(unit.active) ? true : false), text(unit.owner), config_array(unit.members), config_array(unit.supports), config_array(unit.distributions), config_array(unit.activationPaths));
+  return ConfigEntry(text(unit.kind), text(unit.id), text_or(text(unit.permission), "default"), text(unit.triggerDescription), text_or(text(unit.title), text(unit.id)), (((_truthy) => _truthy !== false && _truthy != null)(unit.active) ? true : false), config_owner_text(unit.owner), config_array(unit.members), config_array(unit.supports), config_array(unit.distributions), config_array(unit.activationPaths));
 }
 
 function config_activation_of_json(content) {

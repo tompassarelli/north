@@ -1758,6 +1758,19 @@
 (defn config-array [value Any] Any
   (if (Array/isArray value) value []))
 
+(defn config-owner-text [owner Any] String
+  (cond
+    (identical? (js/typeof owner) "string") (text owner)
+    (and owner (identical? (js/typeof owner) "object"))
+    (let [repo String (text (.-repo owner))
+          path String (text (.-path owner))]
+      (cond
+        (and (not (identical? repo "")) (not (identical? path "")))
+        (str repo ":" path)
+        (not (identical? repo "")) repo
+        :else path))
+    :else ""))
+
 (defn config-unit-entry [unit Any] Any
   (->ConfigEntry
    (text (.-kind unit))
@@ -1766,7 +1779,7 @@
    (text (.-triggerDescription unit))
    (text-or (text (.-title unit)) (text (.-id unit)))
    (if (.-active unit) true false)
-   (text (.-owner unit))
+   (config-owner-text (.-owner unit))
    (config-array (.-members unit))
    (config-array (.-supports unit))
    (config-array (.-distributions unit))
