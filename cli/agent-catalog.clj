@@ -644,6 +644,12 @@
              (str "<!-- " (get owner "repo") ":" (get owner "path") " -->\n"
                   (slurp source)))))))
 
+(defn- instruction-targets [activation]
+  (->> (concat (mapcat #(get % "targets") (get activation "baselines"))
+               (keys (get-in activation ["projectionPlan" "instructions"])))
+       distinct
+       sort))
+
 (defn- stage-skills! [temporary activation]
   (let [directory (.resolve temporary "skills/shared")]
     (java.nio.file.Files/createDirectories
@@ -662,6 +668,14 @@
           id (get entry "unitId")
           source (owner-path (get entry "owner") (str "project projection " id))]
       (copy-source! source (.resolve temporary (str "projects/" repo "/" type "/" id))))))
+
+(defn- stage-agent-templates! [temporary activation]
+  (doseq [[target entries] (get-in activation ["projectionPlan" "agentTemplates"])
+          entry entries]
+    (let [id (get entry "unitId")
+          source (owner-path (get entry "owner") (str "agent templates " id))]
+      (copy-source! source
+                    (.resolve temporary (str "agent-templates/" target "/" id))))))
 
 (defn- stage-provider-hooks! [temporary activation]
   (let [directory (.resolve temporary "provider-hooks")
@@ -698,9 +712,10 @@
         (java.nio.file.Files/createDirectory
          temporary (make-array java.nio.file.attribute.FileAttribute 0))
         (stage-skills! temporary activation)
-        (doseq [target ["shared" "codex" "code"]]
+        (doseq [target (instruction-targets activation)]
           (write-instructions! temporary activation target))
         (stage-projects! temporary activation)
+        (stage-agent-templates! temporary activation)
         (stage-provider-hooks! temporary activation)
         (spit (str (.resolve temporary "activation.json"))
               (str (json/generate-string activation {:pretty true}) "\n"))
