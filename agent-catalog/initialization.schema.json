@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "north.agent-initialization/v1",
+  "title": "North one-time agent activation initialization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "id", "permissionAuthorities", "permissionResolutions",
+    "skillLinks", "retiredPermissionObservations"
+  ],
+  "properties": {
+    "schema": {"const": "north.agent-initialization/v1"},
+    "id": {"$ref": "#/$defs/unitId"},
+    "permissionAuthorities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "permissions"],
+        "properties": {
+          "id": {"$ref": "#/$defs/unitId"},
+          "source": {"type": "string", "minLength": 1},
+          "permissions": {
+            "type": "object",
+            "minProperties": 1,
+            "propertyNames": {"$ref": "#/$defs/unitId"},
+            "additionalProperties": {"$ref": "#/$defs/permission"}
+          },
+          "sourceIds": {
+            "type": "object",
+            "propertyNames": {"$ref": "#/$defs/unitId"},
+            "additionalProperties": {"$ref": "#/$defs/unitId"}
+          }
+        }
+      }
+    },
+    "permissionResolutions": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/unitId"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["permission", "reason"],
+        "properties": {
+          "permission": {"$ref": "#/$defs/permission"},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "skillLinks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner", "action"],
+        "properties": {
+          "id": {"$ref": "#/$defs/unitId"},
+          "owner": {"$ref": "#/$defs/owner"},
+          "action": {"enum": ["adopt", "retire"]}
+        }
+      }
+    },
+    "retiredPermissionObservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authority", "sourceId", "permission", "reason"],
+        "properties": {
+          "authority": {"type": "string", "minLength": 1},
+          "sourceId": {"$ref": "#/$defs/unitId"},
+          "permission": {"$ref": "#/$defs/permission"},
+          "reason": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "unitId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "permission": {"enum": ["on", "off"]},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "path"],
+      "properties": {
+        "repo": {"$ref": "#/$defs/unitId"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

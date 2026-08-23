@@ -1,0 +1,170 @@
+{
+  "schema": "north.agent-initialization/v1",
+  "id": "switchboard-cutover-2026-08-24",
+  "permissionAuthorities": [
+    {
+      "id": "legacy-switchboard",
+      "source": "Observed ~/.config/agents/manifest.conf intent and its activity.conf projection before cutover.",
+      "permissions": {
+        "coordination": "on",
+        "orchestration": "on",
+        "webdev": "off",
+        "importing-skills": "on",
+        "threejs-animation": "on",
+        "threejs-fundamentals": "on",
+        "threejs-geometry": "on",
+        "threejs-interaction": "on",
+        "threejs-lighting": "on",
+        "threejs-loaders": "on",
+        "threejs-materials": "on",
+        "threejs-postprocessing": "on",
+        "threejs-shaders": "on",
+        "threejs-textures": "on",
+        "beagle-authoring": "on",
+        "beagle-system-design": "on",
+        "fact-modeling": "off",
+        "firn": "on",
+        "repo-safety": "on",
+        "staffing": "on",
+        "messages": "on",
+        "threads": "on",
+        "assignments": "on",
+        "todo": "on",
+        "convo": "on",
+        "guard-authoring": "on",
+        "cloudflare-deploy": "on",
+        "verification": "on",
+        "estimate": "on",
+        "agent-policy": "on",
+        "delegating-agents": "on",
+        "executive-orchestration": "on",
+        "executive-report": "on",
+        "rust-development": "on",
+        "project-structure": "on",
+        "external-code": "on",
+        "planning": "on",
+        "prior-art": "on",
+        "program-craftsmanship": "on",
+        "production-hardening": "on",
+        "program-stewardship": "on",
+        "skill-maintenance": "on",
+        "terse": "off",
+        "greenfield": "off",
+        "code-as-facts": "off",
+        "agent-spawn-guard": "off",
+        "beagle-session-start": "on",
+        "comment-bloat-guard": "off",
+        "corpus-scan-guard": "on",
+        "firn-system-policy": "on",
+        "git-blind-stage-guard": "on",
+        "logcompress-hook": "off",
+        "session-kill-guard": "on",
+        "tripwire-guard": "on",
+        "launch-critical-worktree-guard": "on",
+        "north-on-spawn": "off",
+        "north-on-tooluse": "off",
+        "north-on-stop": "off",
+        "north-on-terminal": "off",
+        "north-mark-delegated": "off"
+      },
+      "sourceIds": {
+        "coordination": "coordination",
+        "orchestration": "orchestration",
+        "logcompress-hook": "logcompress",
+        "launch-critical-worktree-guard": "worktree-guard",
+        "north-on-spawn": "north-session-lifecycle",
+        "north-on-tooluse": "north-session-lifecycle",
+        "north-on-stop": "north-session-lifecycle",
+        "north-on-terminal": "north-session-lifecycle",
+        "north-mark-delegated": "north-session-lifecycle"
+      }
+    },
+    {
+      "id": "legacy-north",
+      "source": "Observed legacy North dials before cutover; entries absent here asserted no permission for this import.",
+      "permissions": {
+        "webdev": "on",
+        "agent-spawn-guard": "on",
+        "comment-bloat-guard": "on",
+        "logcompress-hook": "on",
+        "north-on-terminal": "on",
+        "tripwire-guard": "on"
+      },
+      "sourceIds": {
+        "north-on-terminal": "north-session-end"
+      }
+    }
+  ],
+  "permissionResolutions": {
+    "webdev": {
+      "permission": "off",
+      "reason": "Reviewed cutover ruling: preserve the explicit switchboard intent; provider-path presence and the legacy North dial do not self-activate the skill."
+    },
+    "agent-spawn-guard": {
+      "permission": "off",
+      "reason": "Reviewed cutover ruling: preserve the explicit switchboard permission over the contradictory legacy North dial."
+    },
+    "comment-bloat-guard": {
+      "permission": "off",
+      "reason": "Reviewed cutover ruling: preserve the explicit switchboard permission over the contradictory legacy North dial."
+    },
+    "logcompress-hook": {
+      "permission": "off",
+      "reason": "Reviewed cutover ruling: preserve the explicit switchboard permission over the contradictory legacy North dial."
+    },
+    "north-on-terminal": {
+      "permission": "off",
+      "reason": "Reviewed cutover ruling: the disabled lifecycle bundle initializes every replacement hook off; the retired north-session-end dial is not activation authority."
+    }
+  },
+  "skillLinks": [
+    {"id":"agent-policy","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/agent-policy"},"action":"adopt"},
+    {"id":"assignments","owner":{"repo":"north","path":"coordination/assignments"},"action":"adopt"},
+    {"id":"beagle-authoring","owner":{"repo":"beagle","path":"integrations/north/skills/beagle-authoring"},"action":"adopt"},
+    {"id":"beagle-system-design","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/beagle-system-design"},"action":"adopt"},
+    {"id":"cloudflare-deploy","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/cloudflare-deploy"},"action":"adopt"},
+    {"id":"convo","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/convo"},"action":"adopt"},
+    {"id":"delegating-agents","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/delegating-agents"},"action":"adopt"},
+    {"id":"estimate","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/estimate"},"action":"adopt"},
+    {"id":"executive-orchestration","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/executive-orchestration"},"action":"adopt"},
+    {"id":"executive-report","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/executive-report"},"action":"adopt"},
+    {"id":"external-code","owner":{"repo":"north","path":"agent-profile/skills/external-code"},"action":"adopt"},
+    {"id":"fact-normal-form","owner":{"repo":"beagle","path":"store/integrations/north/skills/fact-normal-form"},"action":"retire"},
+    {"id":"firn","owner":{"repo":"nixos-config","path":"modules/north-profile/firn/skills/firn"},"action":"adopt"},
+    {"id":"guard-authoring","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/guard-authoring"},"action":"adopt"},
+    {"id":"importing-skills","owner":{"repo":"north","path":"agent-profile/skills/importing-skills"},"action":"adopt"},
+    {"id":"messages","owner":{"repo":"north","path":"coordination/messages"},"action":"adopt"},
+    {"id":"planning","owner":{"repo":"north","path":"agent-profile/skills/planning"},"action":"adopt"},
+    {"id":"prior-art","owner":{"repo":"north","path":"agent-profile/skills/prior-art"},"action":"adopt"},
+    {"id":"production-hardening","owner":{"repo":"north","path":"agent-profile/skills/production-hardening"},"action":"adopt"},
+    {"id":"program-craftsmanship","owner":{"repo":"north","path":"agent-profile/skills/program-craftsmanship"},"action":"adopt"},
+    {"id":"program-stewardship","owner":{"repo":"north","path":"agent-profile/skills/program-stewardship"},"action":"adopt"},
+    {"id":"project-structure","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/project-structure"},"action":"adopt"},
+    {"id":"repo-safety","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/repo-safety"},"action":"adopt"},
+    {"id":"rust-development","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/rust-development"},"action":"adopt"},
+    {"id":"skill-maintenance","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/skill-maintenance"},"action":"adopt"},
+    {"id":"smoke","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/smoke"},"action":"retire"},
+    {"id":"staffing","owner":{"repo":"north","path":"orchestration/staffing"},"action":"adopt"},
+    {"id":"threads","owner":{"repo":"north","path":"coordination/threads"},"action":"adopt"},
+    {"id":"threejs-animation","owner":{"repo":"north","path":"agent-profile/skills/threejs-animation"},"action":"adopt"},
+    {"id":"threejs-fundamentals","owner":{"repo":"north","path":"agent-profile/skills/threejs-fundamentals"},"action":"adopt"},
+    {"id":"threejs-geometry","owner":{"repo":"north","path":"agent-profile/skills/threejs-geometry"},"action":"adopt"},
+    {"id":"threejs-interaction","owner":{"repo":"north","path":"agent-profile/skills/threejs-interaction"},"action":"adopt"},
+    {"id":"threejs-lighting","owner":{"repo":"north","path":"agent-profile/skills/threejs-lighting"},"action":"adopt"},
+    {"id":"threejs-loaders","owner":{"repo":"north","path":"agent-profile/skills/threejs-loaders"},"action":"adopt"},
+    {"id":"threejs-materials","owner":{"repo":"north","path":"agent-profile/skills/threejs-materials"},"action":"adopt"},
+    {"id":"threejs-postprocessing","owner":{"repo":"north","path":"agent-profile/skills/threejs-postprocessing"},"action":"adopt"},
+    {"id":"threejs-shaders","owner":{"repo":"north","path":"agent-profile/skills/threejs-shaders"},"action":"adopt"},
+    {"id":"threejs-textures","owner":{"repo":"north","path":"agent-profile/skills/threejs-textures"},"action":"adopt"},
+    {"id":"todo","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/todo"},"action":"adopt"},
+    {"id":"verification","owner":{"repo":"nixos-config","path":"dotfiles/agents/skills/verification"},"action":"adopt"}
+  ],
+  "retiredPermissionObservations": [
+    {
+      "authority": "legacy-switchboard",
+      "sourceId": "hook-detach",
+      "permission": "off",
+      "reason": "The retired hook has no successor UnitId and is not projected into the initialized generation."
+    }
+  ]
+}

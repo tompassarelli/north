@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "north.agent-initialization-receipt/v1",
+  "title": "North completed agent initialization receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema", "initializationId", "initializationDigest", "catalogDigest",
+    "generationId", "permissions", "adopted", "created", "retired"
+  ],
+  "properties": {
+    "schema": {"const": "north.agent-initialization-receipt/v1"},
+    "initializationId": {"$ref": "#/$defs/unitId"},
+    "initializationDigest": {"$ref": "#/$defs/digest"},
+    "catalogDigest": {"$ref": "#/$defs/digest"},
+    "generationId": {"$ref": "#/$defs/digest"},
+    "permissions": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/unitId"},
+      "additionalProperties": {"$ref": "#/$defs/permission"}
+    },
+    "adopted": {"$ref": "#/$defs/unitIds"},
+    "created": {"$ref": "#/$defs/unitIds"},
+    "retired": {"$ref": "#/$defs/unitIds"}
+  },
+  "$defs": {
+    "unitId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "unitIds": {
+      "type": "array", "uniqueItems": true,
+      "items": {"$ref": "#/$defs/unitId"}
+    },
+    "permission": {"enum": ["on", "off"]},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

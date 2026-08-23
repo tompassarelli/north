@@ -42,14 +42,13 @@
     "unit": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "seedPermission", "owner", "distributions"],
+      "required": ["id", "kind", "owner", "distributions"],
       "properties": {
         "id": {"$ref": "#/$defs/unitId"},
         "kind": {"enum": ["skill", "hook", "set"]},
         "title": {"type": "string", "minLength": 1},
         "triggerDescription": {"type": "string", "minLength": 1},
         "category": {"type": "string", "minLength": 1},
-        "seedPermission": {"enum": ["on", "off"]},
         "owner": {"$ref": "#/$defs/owner"},
         "members": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/unitId"}},
         "supports": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/unitId"}},
