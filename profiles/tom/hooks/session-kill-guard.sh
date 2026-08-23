@@ -16,7 +16,7 @@
 # jobs a shared 48G hard ceiling. Quoted mentions in commit messages and
 # heredoc bodies stay allowed: only a command-position invocation is denied.
 #
-# Kill-switch: persistent `north config guards off` (state) OR env
+# Kill-switch: persistent `north config guards off` (activation) OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================

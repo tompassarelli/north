@@ -18,13 +18,13 @@ import { execFile } from "node:child_process";
 // Classify a deny reason to the guard that produced it, so analytics can group by
 // guard without threading the guard name through the hook protocol (the guards emit
 // only a reason string). Substrings are matched against the REAL guard outputs:
-//   firn-guard           -> "BLOCKED: …"
+//   firn-system-policy   -> "BLOCKED: …"
 //   tripwire-guard       -> exit-2 stderr (reason carries "tripwire" or the policy line)
 // Unknown reasons fall to "other" rather than being dropped — an unclassified deny is
 // still a deny worth counting, and a new "other" mass is the signal to add a label.
 export function classifyGuard(reason: string): string {
   const r = reason.toLowerCase();
-  if (r.includes("blocked:") || r.includes("firn")) return "firn-guard";
+  if (r.includes("blocked:") || r.includes("firn")) return "firn-system-policy";
   if (r.includes("tripwire") || r.includes("safe-push") || r.includes("allowlist")) return "tripwire-guard";
   return "other";
 }

@@ -12,9 +12,8 @@
 ;; top-level settings surface. Output contract is byte-faithful to the bash tool
 ;; (self-references now read `north config`); the slash command renders it verbatim.
 ;;
-;; Provider-neutral posture state lives at ~/.local/state/north/harness.conf.
-;; The kill-switch precedence below is a faithful inline copy
-;; of hooks/lib/authoring-killswitch.sh so report and enforcement agree.
+;; Agent unit permissions live in the immutable activation generation. Other
+;; provider-neutral posture remains in ~/.local/state/north/harness.conf.
 
 (require '[clojure.string :as str]
          '[clojure.java.io :as io]
@@ -28,19 +27,17 @@
 (load-file (str (or (System/getenv "NORTH_HOME")
                     (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
                 "/cli/harness-dial.clj"))
+(load-file (str (or (System/getenv "NORTH_HOME")
+                    (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+                "/cli/agent-catalog.clj"))
+(load-file (str (or (System/getenv "NORTH_HOME")
+                    (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
+                "/cli/agent-catalog-cli.clj"))
 (def STATE           (north.harness-state/canonical-path home))
-(def HOOK-REGISTRY   (north.harness-dial/registry-path home))
 (def ROUTING-POLICY  (or (System/getenv "NORTH_ROUTING_POLICY")
                          (str home "/.config/north/routing-policy.json")))
 (def LEARNING-POLICY (or (System/getenv "NORTH_LEARNING_POLICY")
                          (str home "/.config/north/learning-policy.json")))
-(def SKILLS-PROFILE  (or (System/getenv "NORTH_SKILLS_PROFILE")
-                         (str (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)
-                              "/agent-profile/skills")))
-(def SKILLS-FARM     (or (System/getenv "NORTH_SKILLS_FARM")
-                         (str home "/.local/state/north/skills")))
-(def SKILLS-GENERATIONS (str SKILLS-FARM ".d"))
-(def SKILLS-LOCK     (str SKILLS-FARM ".lock"))
 (def COMMS-BIN       (or (System/getenv "NORTH_COMMS_BIN")
                          (str (or (System/getenv "NORTH_HOME")
                                   (some-> *file* io/file .getCanonicalFile
@@ -172,45 +169,29 @@
     (println "\n10 CODEX PLUGINS  provider-owned installations")
     (render "Codex" "plugin" codex-plugins "codex plugin uninstall %s" CODEX-CONFIG)))
 
-(defn hook-registry []
-  (north.harness-dial/read-registry HOOK-REGISTRY))
-
-(defn- hook-entry [id]
-  (some #(when (= id (:id %)) %) (hook-registry)))
-
-(defn- hook-file [{:keys [path]}]
-  (let [registry-file (.getCanonicalFile (io/file HOOK-REGISTRY))
-        candidate (io/file path)]
-    (.getCanonicalFile
-     (if (.isAbsolute candidate)
-       candidate
-       (io/file (.getParentFile registry-file) path)))))
-
-(defn- hook-path-status [hook]
-  (let [file (hook-file hook)]
-    (cond
-      (not (.exists file)) "MISSING"
-      (.canExecute file) "EXEC"
-      :else "NONEXEC")))
+(declare agent-activation)
 
 (defn wired [id]
-  (if-let [hook (hook-entry id)]
-    (if (= "EXEC" (hook-path-status hook)) "✓" "✗")
-    "✗")) ; ✓ / ✗
+  (let [activation (agent-activation)
+        entries (for [type ["hook" "providerAdapter"]
+                      [_target plans] (get-in activation ["projectionPlan" type])
+                      plan plans
+                      :when (= id (get plan "unitId"))]
+                  plan)
+        directory (io/file (north.agent-catalog/agents-root) "current/provider-hooks")]
+    (if (and (seq entries)
+             (every? #(.canExecute (io/file directory (get % "adapterId"))) entries))
+      "✓"
+      "✗"))) ; ✓ / ✗
 
-;; Kill-switch effective state — precedence identical to authoring-killswitch.sh:
-;;   env 0|false  → force-live (state ignored this session)
-;;   env non-empty (other) → engaged this session
-;;   unset/empty  → state file `guards=off` decides
-;; Delegates to the shared resolver rather than keeping a second copy. The
-;; report and hooks both use the shared canonical authoring dial.
 (defn effective-ks []
   (case (north.harness-dial/authoring-env)
     "on"  "env force-live — guards LIVE (state ignored this session)"
     "off" "ENGAGED via env (this session) — authoring guards OFF; dispatch topology unchanged"
-    (if (= "off" (get' "guards" ""))
-      "ENGAGED via state — authoring guards OFF; dispatch topology unchanged (north config guards on restores)"
-      "off — guards LIVE")))
+    (let [hooks (filter #(and (= "hook" (get % "kind"))
+                              (= "authoring" (get % "category")))
+                        (get (agent-activation) "units"))]
+      (str (count (filter #(get % "active") hooks)) "/" (count hooks) " active"))))
 
 (defn today []
   (.format (java.time.LocalDate/now)
@@ -633,407 +614,61 @@
                           (die learning-usage)))
       (die learning-usage))))
 
-;; --- shared skill projection ----------------------------------------------
-;; The source inventory stays declarative and complete. Runtime dials select a
-;; fresh immutable generation, then one atomic symlink replacement moves every
-;; provider that follows ~/.agents/skills onto the same resolved set.
-(def ^:private skill-slug #"[a-z0-9][a-z0-9-]*")
-(defonce ^:private skills-in-process-lock (Object.))
-
-(defn- absolute-path [path]
-  (.toAbsolutePath (.normalize (.toPath (io/file path)))))
-
-(defn- nofollow-exists? [path]
-  (java.nio.file.Files/exists
-   path
-   (into-array java.nio.file.LinkOption
-               [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
-
-(defn- nofollow-directory? [path]
-  (java.nio.file.Files/isDirectory
-   path
-   (into-array java.nio.file.LinkOption
-               [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
-
-(defn- skill-metadata [skill-file]
-  (let [lines (vec (str/split-lines (slurp skill-file)))
-        end (first
-             (keep-indexed
-              (fn [index line]
-                (when (and (pos? index) (= "---" line)) index))
-              lines))]
-    (when-not (= "---" (first lines))
-      (throw (ex-info (str "skill lacks YAML frontmatter: " skill-file)
-                      {:path (str skill-file)})))
-    (when-not end
-      (throw (ex-info (str "skill has unterminated YAML frontmatter: " skill-file)
-                      {:path (str skill-file)})))
-    (let [frontmatter (subvec lines 1 end)
-          ;; Only unindented scalar keys belong to the root contract. Folded
-          ;; description text and document body prose cannot manufacture one.
-          root (reduce
-                (fn [metadata line]
-                  (if-let [[_ key value]
-                           (and (not (re-find #"^\s" line))
-                                (re-matches
-                                 #"([A-Za-z][A-Za-z0-9_-]*):\s*(.*)"
-                                 line))]
-                    (assoc metadata key (str/trim value))
-                    metadata))
-                {}
-                frontmatter)
-          metadata-index (first
-                          (keep-indexed
-                           (fn [index line]
-                             (when (re-matches #"metadata:\s*" line) index))
-                           frontmatter))
-          nested-category
-          (when metadata-index
-            (some
-             (fn [line]
-               (some-> (re-matches #"\s+category:\s*(.*)" line) second str/trim))
-             (take-while
-              #(or (str/blank? %) (re-find #"^\s" %))
-              (drop (inc metadata-index) frontmatter))))]
-      (when (and nested-category (contains? root "category"))
-        (throw (ex-info (str "skill declares category twice: " skill-file)
-                        {:path (str skill-file)})))
-      (cond-> root
-        nested-category (assoc "category" nested-category)))))
-
-(defn- skill-inventory []
-  (let [root (io/file SKILLS-PROFILE)]
-    (when-not (.isDirectory root)
-      (throw (ex-info (str "skills source is not a directory: " SKILLS-PROFILE)
-                      {:path SKILLS-PROFILE})))
-    (let [entries (.listFiles root)]
-      (when (nil? entries)
-        (throw (ex-info (str "cannot read skills source: " SKILLS-PROFILE)
-                        {:path SKILLS-PROFILE})))
-      (when (empty? entries)
-        (throw (ex-info (str "skills source is empty: " SKILLS-PROFILE)
-                        {:path SKILLS-PROFILE})))
-      (mapv
-       (fn [entry]
-         (let [id (.getName entry)
-               skill-file (io/file entry "SKILL.md")]
-           (when-not (re-matches skill-slug id)
-             (throw (ex-info (str "invalid skill id: " id) {:id id})))
-           (when-not (.isDirectory entry)
-             (throw (ex-info (str "skill source entry is not a directory: " entry)
-                             {:id id})))
-           (when-not (.isFile skill-file)
-             (throw (ex-info (str "skill is missing SKILL.md: " entry)
-                             {:id id})))
-           (let [metadata (skill-metadata skill-file)
-                 declared-name (get metadata "name")
-                 category (if (contains? metadata "category")
-                            (get metadata "category")
-                            "uncategorized")]
-             (when-not (= id declared-name)
-               (throw
-                (ex-info
-                 (str "skill frontmatter name " (pr-str declared-name)
-                      " does not match directory " id)
-                 {:id id :declared-name declared-name})))
-             (when-not (re-matches skill-slug category)
-               (throw (ex-info (str "invalid skill category for " id ": "
-                                    (pr-str category))
-                               {:id id :category category})))
-             {:id id
-              :category category
-              ;; Keep the composed North profile as the visible authority.
-              ;; Its owner link may move without rewriting a farm generation.
-              :source (absolute-path entry)})))
-       (sort-by #(.getName %) entries)))))
-
-;; Readouts must remain useful while an individual profile item is malformed;
-;; publication commands intentionally continue to use the strict inventory.
-(defn- skill-readout-inventory []
-  (let [root (io/file SKILLS-PROFILE)]
-    (if-not (.isDirectory root)
-      {:inventory [] :warnings [(str "skills source: not a directory: " SKILLS-PROFILE)]}
-      (let [entries (.listFiles root)]
-        (if (nil? entries)
-          {:inventory [] :warnings [(str "skills source: cannot read: " SKILLS-PROFILE)]}
-          (reduce
-           (fn [{:keys [inventory warnings]} entry]
-             (try
-               (let [id (.getName entry)]
-                 (if-not (.isDirectory entry)
-                   {:inventory inventory
-                    :warnings (conj warnings (str id ": not a skill directory"))}
-                   (let [skill-file (io/file entry "SKILL.md")
-                         metadata (do
-                                    (when-not (.isFile skill-file)
-                                      (throw (ex-info "missing SKILL.md" {})))
-                                    (skill-metadata skill-file))
-                         declared-name (get metadata "name")
-                         category (get metadata "category" "uncategorized")]
-                     (when-not (= id declared-name)
-                       (throw (ex-info (str "frontmatter name " (pr-str declared-name)
-                                            " does not match directory") {})))
-                     (when-not (re-matches skill-slug category)
-                       (throw (ex-info (str "invalid category " (pr-str category)) {})))
-                     {:inventory (conj inventory {:id id :category category
-                                                  :source (absolute-path entry)})
-                      :warnings warnings})))
-               (catch Exception error
-                 {:inventory inventory
-                  :warnings (conj warnings
-                                  (str (.getName entry) ": "
-                                       (or (.getMessage error) "invalid skill")))})))
-           {:inventory [] :warnings []}
-           (sort-by #(.getName %) entries)))))))
-
-(defn- state-with-overlay [overlay key]
-  (if (contains? overlay key)
-    (get overlay key)
-    (get' key nil)))
-
-(defn- skill-resolutions
-  ([inventory] (skill-resolutions inventory {}))
-  ([inventory overlay]
-   (let [now (north.harness-dial/now-iso)
-         all (state-with-overlay overlay "skills")]
-     (mapv
-      (fn [{:keys [id category] :as skill}]
-        (let [[verdict decided-by]
-              (north.harness-dial/resolve-dial
-               all
-               (state-with-overlay overlay (str "skills.cat." category))
-               (state-with-overlay overlay (str "skills.skill." id))
-               nil
-               now)]
-          (assoc skill :verdict verdict :decided-by decided-by)))
-      inventory))))
-
-(defn- ensure-skills-lock-file! []
-  (let [path (absolute-path SKILLS-LOCK)
-        parent (.getParent path)]
-    (java.nio.file.Files/createDirectories
-     parent
-     (make-array java.nio.file.attribute.FileAttribute 0))
-    (try
-      (java.nio.file.Files/createFile
-       path
-       (make-array java.nio.file.attribute.FileAttribute 0))
-      (catch java.nio.file.FileAlreadyExistsException _))
-    (when (or (java.nio.file.Files/isSymbolicLink path)
-              (not (java.nio.file.Files/isRegularFile
-                    path
-                    (into-array java.nio.file.LinkOption
-                                [java.nio.file.LinkOption/NOFOLLOW_LINKS]))))
-      (throw (ex-info (str "skills lock must be a regular file: " path)
-                      {:path (str path)})))
-    path))
-
-(defn- with-skills-lock [f]
-  (locking skills-in-process-lock
-    (let [path (ensure-skills-lock-file!)]
-      (with-open
-        [channel
-         (java.nio.channels.FileChannel/open
-          path
-          (into-array
-           java.nio.file.OpenOption
-           [java.nio.file.StandardOpenOption/WRITE
-            java.nio.file.LinkOption/NOFOLLOW_LINKS]))]
-        (let [_held (.lock channel)]
-          (f))))))
-
-(defn- ensure-skills-topology! []
-  (let [farm (absolute-path SKILLS-FARM)
-        generations (absolute-path SKILLS-GENERATIONS)
-        parent (.getParent farm)]
-    (java.nio.file.Files/createDirectories
-     parent
-     (make-array java.nio.file.attribute.FileAttribute 0))
-    (when (and (nofollow-exists? farm)
-               (not (java.nio.file.Files/isSymbolicLink farm)))
-      (throw
-       (ex-info
-        (str "refusing to replace unmanaged skills farm path: " farm)
-        {:path (str farm)})))
-    (if (nofollow-exists? generations)
-      (when-not (nofollow-directory? generations)
-        (throw
-         (ex-info
-          (str "skills generation root must be a real directory: " generations)
-          {:path (str generations)})))
-      (java.nio.file.Files/createDirectories
-       generations
-       (make-array java.nio.file.attribute.FileAttribute 0)))
-    {:farm farm :generations generations}))
-
-(defn- cleanup-prepared-skills! [{:keys [generation pointer]}]
-  ;; A private generation contains only immediate symlinks created below.
-  ;; Delete entries without walking them: following one would traverse back
-  ;; into the authoritative profile.
-  (when pointer
-    (try (java.nio.file.Files/deleteIfExists pointer) (catch Throwable _)))
-  (when generation
-    (try
-      (when (nofollow-directory? generation)
-        (doseq [entry (or (.listFiles (.toFile generation))
-                          (make-array java.io.File 0))]
-          (java.nio.file.Files/deleteIfExists (.toPath entry))))
-      (java.nio.file.Files/deleteIfExists generation)
-      (catch Throwable _))))
-
-(defn- prepare-skills-publication! [resolutions]
-  (let [{:keys [farm generations]} (ensure-skills-topology!)
-        generation (.resolve
-                    generations
-                    (str "gen-" (System/currentTimeMillis) "-"
-                         (java.util.UUID/randomUUID)))
-        pointer (.resolve
-                 (.getParent farm)
-                 (str ".skills-" (java.util.UUID/randomUUID) ".tmp"))
-        prepared {:generation generation :pointer pointer}]
-    (try
-      (java.nio.file.Files/createDirectory
-       generation
-       (make-array java.nio.file.attribute.FileAttribute 0))
-      (doseq [{:keys [id source verdict]} resolutions
-              :when (= "on" verdict)]
-        (java.nio.file.Files/createSymbolicLink
-         (.resolve generation id)
-         source
-         (make-array java.nio.file.attribute.FileAttribute 0)))
-      (java.nio.file.Files/createSymbolicLink
-       pointer
-       generation
-       (make-array java.nio.file.attribute.FileAttribute 0))
-      (assoc prepared :farm farm)
-      (catch Throwable error
-        (cleanup-prepared-skills! prepared)
-        (throw
-         (ex-info (str "cannot stage skills farm: " (.getMessage error))
-                  {:farm SKILLS-FARM}
-                  error))))))
-
-(defn- publish-prepared-skills! [{:keys [farm pointer]}]
-  ;; There is deliberately no non-atomic fallback. If the filesystem cannot
-  ;; honor this replacement, the previous pointer remains authoritative.
-  (when (and (nofollow-exists? farm)
-             (not (java.nio.file.Files/isSymbolicLink farm)))
-    (throw
-     (ex-info
-      (str "refusing to replace unmanaged skills farm path: " farm)
-      {:path (str farm)})))
-  (java.nio.file.Files/move
-   pointer
-   farm
-   (into-array
-    java.nio.file.CopyOption
-    [java.nio.file.StandardCopyOption/ATOMIC_MOVE
-     java.nio.file.StandardCopyOption/REPLACE_EXISTING])))
-
-(defn- sync-skills! [inventory]
-  (let [resolutions (skill-resolutions inventory)
-        prepared (prepare-skills-publication! resolutions)]
-    (try
-      (publish-prepared-skills! prepared)
-      (catch Throwable error
-        (cleanup-prepared-skills! prepared)
-        (throw
-         (ex-info (str "cannot publish skills farm: " (.getMessage error))
-                  {:farm SKILLS-FARM}
-                  error))))
-    (println
-     (str "skills synchronized → " SKILLS-FARM " ("
-          (count (filter #(= "on" (:verdict %)) resolutions))
-          "/" (count resolutions) " enabled)"))))
-
-(defn- change-skill-dial! [inventory key state label]
-  (let [old-value (get' key nil)
-        resolutions (skill-resolutions inventory {key state})
-        prepared (prepare-skills-publication! resolutions)]
-    ;; The expensive and fallible source/generation work is complete before
-    ;; state changes. The only remaining farm operation is one atomic rename.
-    (try
-      (put' key state)
-      (publish-prepared-skills! prepared)
-      (catch Throwable error
-        (let [rollback-error
-              (try
-                ;; Empty is resolver-equivalent to an absent prior key.
-                (put' key (or old-value ""))
-                nil
-                (catch Throwable rollback rollback))]
-          (cleanup-prepared-skills! prepared)
-          (if rollback-error
-            (throw
-             (ex-info
-              (str "skills update failed and state rollback also failed: "
-                   (.getMessage error) "; rollback: "
-                   (.getMessage rollback-error))
-              {:key key :farm SKILLS-FARM}
-              error))
-            (throw
-             (ex-info (str "skills update failed; prior state restored: "
-                           (.getMessage error))
-                      {:key key :farm SKILLS-FARM}
-                      error))))))
-    (println (str label " → " state " (skills synchronized)"))))
-
-(defn- print-skills [inventory]
-  (println (str "skills source: " SKILLS-PROFILE))
-  (println (str "skills farm:   " SKILLS-FARM))
-  (let [farm (absolute-path SKILLS-FARM)
-        generations (absolute-path SKILLS-GENERATIONS)
-        target (when (java.nio.file.Files/isSymbolicLink farm)
-                 (.toAbsolutePath (.normalize (.resolve (.getParent farm)
-                                                          (java.nio.file.Files/readSymbolicLink farm)))))
-        published? (and target
-                        (.startsWith target generations)
-                        (nofollow-directory? target))]
-    (println (str "published target: " (or (some-> target str) "MISSING")))
-    (println (str "published generation: "
-                  (if published? (.getFileName target) "MISSING")))
-    (println (str "published farm: " (if published? "READY" "NOT PUBLISHED"))))
-  (doseq [{:keys [id category verdict decided-by]}
-          (skill-resolutions inventory)]
-    (println
-     (format "%-24s %-16s %-3s %s"
-             id category verdict decided-by)))
-  (println "provider/plugin-contributed skills live outside this farm and are not controlled here"))
+;; Agent skill projection and permissions are owned by north.agent-catalog.
 
 (defn- skills-publication-summary []
-  (let [farm (absolute-path SKILLS-FARM)
-        generations (absolute-path SKILLS-GENERATIONS)
-        target (when (java.nio.file.Files/isSymbolicLink farm)
-                 (.toAbsolutePath (.normalize (.resolve (.getParent farm)
-                                                          (java.nio.file.Files/readSymbolicLink farm)))))
-        published? (and target (.startsWith target generations) (nofollow-directory? target))]
-    (if published?
-      (str "READY · target: " target " · generation: " (.getFileName target))
-      "NOT PUBLISHED")))
+  (if-let [activation (north.agent-catalog/current-activation)]
+    (str "READY · target: " (north.agent-catalog/agents-root)
+         "/current/skills/shared · generation: " (get activation "generationId"))
+    "NOT PUBLISHED"))
 
 (defn- skills-summary []
-  (let [resolutions (skill-resolutions (skill-inventory))]
-    (str (count (filter #(= "on" (:verdict %)) resolutions))
-         "/" (count resolutions) " enabled")))
+  (let [activation (or (north.agent-catalog/current-activation)
+                       (north.agent-catalog/compile-activation
+                        (north.agent-catalog/load-catalog)))
+        skills (filter #(= "skill" (get % "kind")) (get activation "units"))]
+    (str (count (filter #(get % "active") skills))
+         "/" (count skills) " active")))
 
-(defn- skills-readout-summary [{:keys [inventory warnings]}]
-  {:summary (str (count (filter #(= "on" (:verdict %))
-                                (skill-resolutions inventory)))
-                 "/" (count inventory) " enabled")
-   :warnings warnings})
+(defn- skills-readout-summary [_]
+  {:summary (skills-summary) :warnings []})
 
 (def skills-usage
   "usage: north config skills [list|on|off <skill-id>|category on|off <category>|all on|off|sync]")
 
+(defn- agent-activation []
+  (or (north.agent-catalog/current-activation)
+      (north.agent-catalog/compile-activation (north.agent-catalog/load-catalog))))
+
+(defn- agent-skills []
+  (filterv #(= "skill" (get % "kind")) (get (agent-activation) "units")))
+
 (defn- require-skill! [inventory id]
-  (when-not (some #(= id (:id %)) inventory)
+  (when-not (some #(= id (get % "id")) inventory)
     (die (str "unknown skill: " id)))
   id)
 
 (defn- require-skill-category! [inventory category]
-  (when-not (some #(= category (:category %)) inventory)
+  (when-not (some #(= category (get % "category")) inventory)
     (die (str "unknown skill category: " category)))
   category)
+
+(defn- print-agent-skills []
+  (let [activation (agent-activation)
+        current? (some? (north.agent-catalog/current-activation))]
+    (println (str "skills source: " (north.agent-catalog/catalog-path)))
+    (println (str "skills farm:   " (north.agent-catalog/agents-root)
+                  "/current/skills/shared"))
+    (println (str "published generation: "
+                  (if current? (get activation "generationId") "MISSING")))
+    (println (str "published farm: " (if current? "READY" "NOT PUBLISHED")))
+    (doseq [skill (filter #(= "skill" (get % "kind")) (get activation "units"))]
+      (println
+       (format "%-24s %-16s %-13s %s"
+               (get skill "id") (get skill "category" "uncategorized")
+               (get skill "permission")
+               (if (get skill "active") "active" "inactive"))))
+    (println "provider-owned system skills live outside this catalog and are not controlled here")))
 
 (defn cmd-skills [args]
   (let [[verb & xs] args]
@@ -1041,23 +676,17 @@
       "list"
       (do
         (when (seq xs) (die skills-usage))
-        (with-skills-lock
-          #(print-skills (skill-inventory)))
+        (print-agent-skills)
         (println)
         (run-config-drift-audit! "--section" "skills"))
 
       ("on" "off")
       (let [[id & extra] xs]
         (when (or (nil? id) (seq extra)) (die skills-usage))
-        (with-skills-lock
-          (fn []
-            (let [inventory (skill-inventory)]
-              (require-skill! inventory id)
-              (change-skill-dial!
-               inventory
-               (str "skills.skill." id)
-               verb
-               (str "skill " id))))))
+        (let [inventory (agent-skills)]
+          (require-skill! inventory id)
+          (north.agent-catalog/change-permissions! {id verb})
+          (println (str "skill " id " → " verb " (skills synchronized)"))))
 
       "category"
       (let [[state category & extra] xs]
@@ -1065,31 +694,32 @@
                   (nil? category)
                   (seq extra))
           (die skills-usage))
-        (with-skills-lock
-          (fn []
-            (let [inventory (skill-inventory)]
-              (require-skill-category! inventory category)
-              (change-skill-dial!
-               inventory
-               (str "skills.cat." category)
-               state
-               (str "skill category " category))))))
+        (let [inventory (agent-skills)]
+          (require-skill-category! inventory category)
+          (north.agent-catalog/change-permissions!
+           (into {} (map (fn [unit] [(get unit "id") state]))
+                 (filter #(= category (get % "category")) inventory)))
+          (println (str "skill category " category " → " state
+                        " (skills synchronized)"))))
 
       "all"
       (let [[state & extra] xs]
         (when (or (not (#{"on" "off"} state)) (seq extra))
           (die skills-usage))
-        (with-skills-lock
-          (fn []
-            (let [inventory (skill-inventory)]
-              (change-skill-dial! inventory "skills" state "skills all")))))
+        (north.agent-catalog/change-permissions!
+         (into {} (map (fn [unit] [(get unit "id") state])) (agent-skills)))
+        (println (str "skills all → " state " (skills synchronized)")))
 
       "sync"
       (do
         (when (seq xs) (die skills-usage))
-        (with-skills-lock
-          (fn []
-            (sync-skills! (skill-inventory)))))
+        (let [activation (north.agent-catalog/sync!)]
+          (println (str "skills synchronized → " (north.agent-catalog/agents-root)
+                        "/current/skills/shared ("
+                        (count (filter #(and (= "skill" (get % "kind"))
+                                             (get % "active"))
+                                       (get activation "units")))
+                        " active)"))))
 
       (die skills-usage))))
 
@@ -1244,13 +874,9 @@
          "│" label (apply str (repeat gap " ")) d "       │\n"
          "╰" rule "╯")))
 
-(defn- hook-verdict [id]
-  (north.harness-dial/hook-verdict #(get' % nil) (hook-registry) id))
-
 (defn- hooks-summary []
-  (let [hooks (hook-registry)
-        executable (count (filter #(= "EXEC" (hook-path-status %)) hooks))]
-    (str executable "/" (count hooks) " executable")))
+  (let [hooks (filter #(= "hook" (get % "kind")) (get (agent-activation) "units"))]
+    (str (count (filter #(get % "active") hooks)) "/" (count hooks) " active")))
 
 (defn status []
   (let [d  (dispatch-mode)
@@ -1258,7 +884,7 @@
         comms-native (comms-resolution "native")
         comms-managed (comms-resolution "managed")
         learning (learning-read)
-        skills-readout (skills-readout-summary (skill-readout-inventory))
+        skills-readout (skills-readout-summary nil)
         ]
     (println (banner))
     (println (str "
@@ -1274,7 +900,7 @@
     flip → north config coord north|linear|both
 
  3  GUARDS     authoring-guard hooks           kill-switch: " (effective-ks) "
-    " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-guard") " firn
+    " (wired "agent-spawn-guard") " agent-spawn-guard   " (wired "firn-system-policy") " firn
     " (wired "tripwire-guard") " tripwire            " (wired "beagle-session-start") " beagle-session
     [live]   flip authoring guards → north config guards on|off   (persists, all sessions; dispatch remains independent)
     [launch] one session → AGENT_NO_AUTHORING_HOOKS=1 provider   (launch ONLY — mid-session flip impossible; per-command prefix does nothing; 0/false forces guards live)
@@ -1285,17 +911,16 @@
     configure → north config routing
     policy: " ROUTING-POLICY "
 
- 5  HOOKS      per-hook and per-category runtime dials   [" (hooks-summary) "]
-    precedence: item > category > all > default(on); coordination is excluded from all
-    configure → north config hooks · north config hooks explain <hook-id>
+ 5  HOOKS      catalog activation   [" (hooks-summary) "]
+    configure → north config hooks · north config agents inspect <hook-id>
 
  6  SKILLS     shared provider-neutral discovery projection
-    " (:summary skills-readout) " · source: " SKILLS-PROFILE "
+    " (:summary skills-readout) " · source: " (north.agent-catalog/catalog-path) "
     warnings: " (if (seq (:warnings skills-readout))
                     (str/join " · " (:warnings skills-readout)) "none") "
-    farm: " SKILLS-FARM "
+    farm: " (north.agent-catalog/agents-root) "/current/skills/shared
     published: " (skills-publication-summary) "
-    precedence: item > category > all > default(on)
+    one UnitId permission authority
     configure → north config skills
 
  7  COMMS      peer mail protocol
@@ -1310,8 +935,8 @@
     configure → north config learning
 
  elsewhere: system/nix settings → firn tag status · session effort → /effort
- dials: [live] north config flip, effective now · [launch] env at provider launch, frozen for session · [spawn] request-owned routing; managed compression defaults off when no request/env exists
- state: ~/.local/state/north/harness.conf · descriptions + advice: north config help"))
+ agents: immutable generation at ~/.local/state/north/agents/current · session-only authoring override at provider launch
+ other state: ~/.local/state/north/harness.conf · descriptions + advice: north config help"))
     (print-provider-readouts)))
 
 (defn help []
@@ -1333,13 +958,13 @@
    Advice: north.
 
  3 GUARDS — the PreToolUse/SessionStart authoring guards.
-   Registered under ~/.agents/hooks and projected to active provider adapters.
+   Registered in the global catalog and materialized as generated provider adapters.
    Kill-switch is VALUE-AWARE and has two surfaces:
 
-   [live] state flip (primary — effective immediately across ALL sessions,
-   no relaunch; hooks re-read state on every call):
-     north config guards off   → writes guards=off to ~/.local/state/north/harness.conf
-     north config guards on    → removes that line (or writes guards=on)
+   [live] catalog permission flip (effective across ALL sessions; hooks read
+   the current activation generation on every call):
+     north config guards off
+     north config guards on
 
    [launch] env override — single session, launch ONLY; mid-session flip
    impossible; per-command env prefix does nothing after the provider harness
@@ -1348,9 +973,9 @@
      AGENT_NO_AUTHORING_HOOKS=0 provider    force-live (state ignored)
    Any non-empty value other than 0/false kills guards; 0 or false forces
    them live. This never changes native-vs-North agent topology; `north config
-   dispatch` owns that independent axis. Env beats state. Semantics live in the shared lib sourced by
-   every guard hook AND by this verb:
-     ~/.agents/hooks/lib/authoring-killswitch.sh
+   dispatch` owns that independent axis. Env beats activation for authoring
+   hooks only. Semantics live in the generated support library:
+     ~/.local/state/north/agents/current/provider-hooks/lib/authoring-killswitch.sh
 
  4 ROUTING — durable provider selection and subscription-entitlement policy.
    Show everything with `north config routing`. Balanced allocation is the
@@ -1366,34 +991,27 @@
    sessions. No API keys, credit balances, prices, or dollars live
    in this policy.
 
- 5 HOOKS — runtime control for every registered hook.
-   List resolved state, provenance, and executable path status:
+ 5 HOOKS — thin batch and status views over agent activation.
+   List resolved state and provenance:
      north config hooks
      north config hooks explain <hook-id>
-   Set the most specific level needed:
+   Mutate one hook or a batch through the same UnitId authority:
      north config hooks on|off <hook-id> [--until ISO]
      north config hooks category on|off <category> [--until ISO]
      north config hooks all on|off [--until ISO]
-   Resolution is item > category > all > default(on). Coordination/identity
-   hooks are excluded from the global sweep and must be named. Disabling any
-   deny-capable scope expires after 24 hours by default; --until sets an
-   explicit deadline. `north config guards` remains the compatibility surface
-   for the authoring category.
+   `north config guards` is the authoring-hook batch client. The optional
+   --until value stores a timed-off permission in the same generation.
 
  6 SKILLS — resolved shared skill discovery.
-   North inventories the complete source at agent-profile/skills in the current
-   checkout. NORTH_SKILLS_PROFILE can select an isolated source for tests and
-   tools. Optional `category:` frontmatter groups skills; a missing category
-   resolves as `uncategorized`.
+   North reads `north:agent-catalog/catalog.json`; it never scans projects.
      north config skills
      north config skills on|off <skill-id>
      north config skills category on|off <category>
      north config skills all on|off
      north config skills sync
-   Resolution is item > category > all > default(on). Every mutation stages a
-   complete immutable generation and atomically replaces
-   ~/.local/state/north/skills; ~/.agents/skills and provider adapters follow
-   that stable farm. Provider/plugin-contributed skills remain outside it.
+   Every mutation materializes a complete immutable generation and atomically
+   replaces ~/.local/state/north/agents/current. Provider-owned system and
+   plugin skills remain outside the shared user farm.
 
    The readout also proves the published farm symlink, its resolved immutable
    generation, and whether that generation is ready for provider discovery.
@@ -1486,129 +1104,75 @@
 (def hooks-usage
   "usage: north config hooks [list|explain <hook-id>|on|off <hook-id> [--until ISO]|category on|off <category> [--until ISO]|all on|off [--until ISO]]")
 
+(defn- agent-hooks []
+  (filterv #(= "hook" (get % "kind")) (get (agent-activation) "units")))
+
 (defn- require-hook! [id]
-  (or (hook-entry id)
+  (or (some #(when (= id (get % "id")) %) (agent-hooks))
       (die (str "unknown hook: " id))))
 
-(defn- require-hook-category! [category]
-  (when-not (some #(= category (:category %)) (hook-registry))
-    (die (str "unknown hook category: " category)))
-  category)
-
-(defn- hook-category-key [category]
-  (if (= category "authoring")
-    "guards"
-    (str "hooks.cat." category)))
-
-(defn- parse-hook-until! [args]
+(defn- parse-hook-permission! [state args]
+  (when-not (#{"on" "off"} state) (die hooks-usage))
   (cond
-    (empty? args) nil
-    (and (= 2 (count args)) (= "--until" (first args)))
-    (canonical-iso! (second args))
+    (empty? args) state
+    (and (= state "off") (= 2 (count args)) (= "--until" (first args)))
+    (str "off:until=" (canonical-iso! (second args)))
     :else (die hooks-usage)))
 
-(defn- put-hook-dial!
-  [key state until ttl-required? label]
-  (when-not (#{"on" "off"} state)
-    (die hooks-usage))
-  (when (and (= state "on") until)
-    (die "--until is valid only when disabling a hook scope"))
-  (let [deadline (when (= state "off")
-                   (or until (when ttl-required? (default-hook-until))))
-        value (if deadline (str "off:until=" deadline) state)]
-    (put' key value)
-    (println (str label " → " value
-                  (when (and deadline (nil? until))
-                    " (default 24h TTL)")))))
-
 (defn- print-hooks []
-  (let [hooks (hook-registry)]
-    (if (empty? hooks)
-      (println "(no hooks registered)")
-      (doseq [{:keys [id category kind events] :as hook} hooks
-              :let [[verdict decided-by] (hook-verdict id)]]
-        (println
-         (format "%-34s %-13s %-9s %-3s %-9s %-7s %s · %s"
-                 id category kind verdict decided-by
-                 (hook-path-status hook) events (str (hook-file hook))))))))
+  (doseq [hook (agent-hooks)]
+    (println
+     (format "%-34s %-13s %-24s %s"
+             (get hook "id") (get hook "category" "uncategorized")
+             (str (get hook "permission") " · "
+                  (if (get hook "active") "active" "inactive"))
+             (str (get-in hook ["owner" "repo"]) ":"
+                  (get-in hook ["owner" "path"]))))))
 
-(defn- explain-hook [id]
-  (let [{:keys [category in-all?] :as hook} (require-hook! id)
-        item-key (str "hooks.hook." id)
-        category-key (hook-category-key category)
-        item (get' item-key nil)
-        category-value (get' category-key nil)
-        all (when in-all? (get' "hooks" nil))
-        env (when (= category "authoring")
-              (north.harness-dial/authoring-env))
-        [verdict decided-by] (hook-verdict id)
-        shown #(or % "(unset)")]
-    (println (str id " · " category " · " (:kind hook)))
-    (println (str "  item      " item-key "=" (shown item)))
-    (println (str "  category  " category-key "=" (shown category-value)))
-    (println (str "  all       "
-                  (if in-all? (str "hooks=" (shown all)) "(excluded)")))
-    (println (str "  env       " (shown env)))
-    (println "  default   on")
-    (println (str "  effective " verdict " (decided by " decided-by ")"))
-    (println (str "  path      " (hook-path-status hook) " " (hook-file hook)))))
+(defn- mutate-hook-batch! [hooks permission label]
+  (when-not (seq hooks) (die (str "no hooks matched " label)))
+  (let [activation
+        (north.agent-catalog/change-permissions!
+         (into {} (map (fn [hook] [(get hook "id") permission])) hooks))]
+    (println (str label " → " permission " · generation "
+                  (get activation "generationId")))))
 
 (defn cmd-hooks [args]
   (let [[verb & xs] args]
     (case (or verb "list")
-      "list"
-      (do
-        (when (seq xs) (die hooks-usage))
-        (print-hooks))
-
-      "explain"
-      (let [[id & extra] xs]
-        (when (or (nil? id) (seq extra)) (die hooks-usage))
-        (explain-hook id))
-
+      "list" (do (when (seq xs) (die hooks-usage)) (print-hooks))
+      "explain" (let [[id & extra] xs]
+                  (when (or (nil? id) (seq extra)) (die hooks-usage))
+                  (let [hook (require-hook! id)]
+                    (println (json/generate-string hook {:pretty true}))))
       ("on" "off")
       (let [[id & extra] xs
             hook (require-hook! id)
-            until (parse-hook-until! extra)]
-        (put-hook-dial! (str "hooks.hook." id) verb until
-                        (:ttl-required? hook) (str "hook " id)))
-
+            permission (parse-hook-permission! verb extra)]
+        (mutate-hook-batch! [hook] permission (str "hook " id)))
       "category"
       (let [[state category & extra] xs
-            _ (when (or (nil? state) (nil? category)) (die hooks-usage))
-            _ (require-hook-category! category)
-            until (parse-hook-until! extra)
-            ttl-required? (boolean
-                           (some #(and (= category (:category %))
-                                       (:ttl-required? %))
-                                 (hook-registry)))]
-        (put-hook-dial! (hook-category-key category) state until
-                        ttl-required? (str "hook category " category)))
-
+            permission (parse-hook-permission! state extra)
+            hooks (filterv #(= category (get % "category")) (agent-hooks))]
+        (mutate-hook-batch! hooks permission (str "hook category " category)))
       "all"
       (let [[state & extra] xs
-            _ (when (nil? state) (die hooks-usage))
-            until (parse-hook-until! extra)
-            ttl-required? (boolean
-                           (some #(and (:in-all? %) (:ttl-required? %))
-                                 (hook-registry)))]
-        (put-hook-dial! "hooks" state until ttl-required? "hooks all"))
-
+            permission (parse-hook-permission! state extra)]
+        (mutate-hook-batch! (agent-hooks) permission "hooks all"))
       (die hooks-usage))))
 
-(defn cmd-guards [[sub]]
-  (cond
-    (= sub "off") (do (put' "guards" "off")
-                      (println "guards → OFF in all sessions (hooks re-read state per call, no relaunch needed); north config guards on restores"))
-    (= sub "on")  (do (put' "guards" "on")
-                      (println "guards → LIVE in all sessions (takes effect immediately)"))
-    (nil? sub)
-    (do (println (str "kill-switch: " (effective-ks)))
-        (doseq [g ["agent-spawn-guard" "firn-guard"
-                   "tripwire-guard" "beagle-session-start"]]
-          (println (str "  " (wired g) " " g))))
-    :else (die "usage: north config guards [on|off]")))
-
+(defn cmd-guards [[sub & extra]]
+  (when (or (seq extra) (and sub (not (#{"on" "off"} sub))))
+    (die "usage: north config guards [on|off]"))
+  (let [hooks (filterv #(= "authoring" (get % "category")) (agent-hooks))]
+    (if sub
+      (mutate-hook-batch! hooks sub "authoring guards")
+      (do
+        (println (str "authoring guards: " (effective-ks)))
+        (doseq [hook hooks]
+          (println (str "  " (get hook "id") " · "
+                        (get hook "permission") " · "
+                        (if (get hook "active") "active" "inactive"))))))))
 (defn cmd-audit [args]
   (when-not (or (empty? args) (= ["--json"] (vec args)))
     (die "usage: north config audit [--json]"))
@@ -1624,13 +1188,15 @@
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
         "skills"   (cmd-skills rest)
+        "sets"     (north.agent-catalog-cli/cmd-agents (cons "sets" rest))
+        "agents"   (north.agent-catalog-cli/cmd-agents rest)
         "mcp"      (cmd-mcp rest)
         "audit"    (cmd-audit rest)
         "comms"    (cmd-comms rest)
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|mcp|audit|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|sets|agents|mcp|audit|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 

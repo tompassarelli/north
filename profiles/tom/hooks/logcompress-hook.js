@@ -3,7 +3,7 @@
 // PostToolUse hook: collapse repetitive Bash output before it lands in context,
 // and stash the original so any detail stays retrievable.
 //
-// Always-on (no mode gate). Two emit conditions:
+// Once activated by North's generation, two emit conditions apply:
 //   • ≥1 lines were collapsed (repeated-run dedup)
 //   • ANSI stripping alone saved >200 chars (pure token noise)
 // Falls through silently on small / already-clean output. Fail-open everywhere:
@@ -51,7 +51,7 @@ if (process.env.LOGCOMPRESS_INNER !== "1") {
         killSignal: "SIGKILL",
       },
     );
-    // Status 1 is the resolver's deliberate off verdict. Any other failure is
+    // Status 1 is the activation gate's deliberate off verdict. Any other failure is
     // fail-open so telemetry plumbing cannot erase the original tool result.
     if (dial.status === 1) process.exit(0);
     const maxBuffer = Math.min(

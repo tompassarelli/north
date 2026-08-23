@@ -13,7 +13,7 @@
 // Guard-script result protocol:
 //   - stdout JSON with hookSpecificOutput.permissionDecision === "deny"
 //       -> DENY, reason = permissionDecisionReason
-//       (firn-guard)
+//       (firn-system-policy)
 //   - process exit code 2 -> DENY, reason = stderr
 //       (tripwire-guard)
 //   - unavailable guards remain advisory; their explicit denials still win.
@@ -22,19 +22,21 @@ import {
   spawn, type ChildProcess,
 } from "node:child_process";
 import {
-  closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync,
+  closeSync, constants, existsSync, mkdtempSync, openSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseStrictJson } from "./strict-json";
 
-// Guard scripts default to the portable ~/.agents/hooks, overridable by an exact
-// AGENT_HOOKS_DIR. No provider checkout fallback: a host without the directory
-// simply finds no scripts and every unavailable guard is skipped.
+// Provider workers consume the current immutable North generation. The exact
+// override exists for hermetic tests and alternate state roots, not as another
+// hook inventory.
 export function authoringHooksDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.AGENT_HOOKS_DIR?.trim();
+  const override = env.NORTH_AGENT_PROVIDER_HOOKS?.trim();
   if (override) return resolve(override);
-  return resolve(env.HOME ?? "", ".agents", "hooks");
+  const stateRoot = env.NORTH_AGENT_STATE_ROOT?.trim()
+    || resolve(env.HOME ?? "", ".local", "state", "north", "agents");
+  return resolve(stateRoot, "current", "provider-hooks");
 }
 
 export const HOOKS_DIR = authoringHooksDir();
@@ -94,27 +96,7 @@ function preparedGuardInput(hookInput: unknown): { fd: number; dispose(): void }
   }
 }
 
-export function authoringGuardsOff(env: NodeJS.ProcessEnv = process.env): boolean {
-  const explicit = env.AGENT_NO_AUTHORING_HOOKS ?? "";
-  if (explicit === "0" || explicit === "false") return false;
-  if (explicit) return true;
-  const statePath = env.NORTH_HARNESS_STATE
-    ?? env.AUTHORING_KILLSWITCH_STATE
-    ?? (env.HOME ? resolve(env.HOME, ".local/state/north/harness.conf") : undefined);
-  if (!statePath) return false;
-  try {
-    const values = readFileSync(statePath, "utf8")
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("guards="));
-    return values.at(-1)?.slice("guards=".length) === "off";
-  } catch {
-    return false;
-  }
-}
-
-// Resolve a guard by name to its absolute path IF it exists, else null. The harness
-// existence-checks the guard lists at startup with this and drops the missing ones,
-// so a portable SDK checkout never tries to run a script that isn't there.
+// Resolve a generated provider adapter by name to its absolute path IF it exists.
 export function resolveGuard(name: string): string | null {
   const p = resolve(HOOKS_DIR, name);
   return existsSync(p) ? p : null;

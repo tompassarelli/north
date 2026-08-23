@@ -76,7 +76,7 @@
           :continue true
           :extra-env {"HOME" scratch-home
                       "NORTH_HOME" root
-                      "NORTH_SKILLS_FARM" farm
+                      "NORTH_AGENT_SKILLS" farm
                       "CODEX_HOME" codex-home
                       "NORTH_CODEX_SYSTEM_SKILLS" codex-system
                       "NORTH_CODEX_CONFIG" codex-config

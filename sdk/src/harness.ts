@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { delimiter, dirname, relative, resolve, sep } from "node:path";
 import {
-  authoringGuardsOff, evaluateGuards, HOOKS_DIR, resolveManagedGuardChain,
+  evaluateGuards, resolveManagedGuardChain,
 } from "./authoring-guards";
 import { recordDenial } from "./guard-log";
 import {
@@ -880,14 +880,14 @@ function requirementSlug(requirement: string): string {
 }
 
 /**
- * The portable domain-skill root: an explicit AGENT_SKILLS_DIR wins outright,
- * otherwise ~/.agents/skills. No provider config home (~/.codex) and no repo
- * checkout (nixos-config) fallback — a missing root simply yields no candidate.
+ * The active shared-skill root from North's current immutable generation.
  */
 export function domainSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
-  const override = env.AGENT_SKILLS_DIR?.trim();
+  const override = env.NORTH_AGENT_SKILLS?.trim();
   if (override) return resolve(override);
-  return resolve(env.HOME ?? "", ".agents", "skills");
+  const stateRoot = env.NORTH_AGENT_STATE_ROOT?.trim()
+    || resolve(env.HOME ?? "", ".local", "state", "north", "agents");
+  return resolve(stateRoot, "current", "skills", "shared");
 }
 
 export interface ActiveSkillCandidate {
@@ -1626,12 +1626,9 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
   return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
 }
 
-// SDK worker authoring-guard parity (see authoring-guards.ts for the WHY). The SDK
-// never loads ~/.claude/settings.json, so we re-run the SAME PreToolUse guard scripts
-// the interactive matchers run and translate their output into HookJSONOutput.
-// PARITY SOURCE: nixos-config:dotfiles/agents/hooks.d/*.json, the fragments
-// `agents apply` composes into ~/.claude/settings.json (PreToolUse). Keep the chains
-// in lockstep with those manifests' matchers.
+// SDK workers execute the catalog-owned adapters from the current immutable
+// activation generation. Every adapter applies its own UnitId gate before owner
+// behavior, so the activation document is the only hook authority.
 //   Edit|Write|MultiEdit -> worktree, firn
 //   Bash                 -> worktree, blind-stage, tripwire, firn, corpus-scan
 // The worktree guard is on BOTH entrances because a write into a protected `main`
@@ -1641,19 +1638,18 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // by construction.
 // BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
 // (agent-spawn-guard): repository layout and staging discipline bind every lane.
-const FIRN_SYSTEM_POLICY = "/run/current-system/sw/bin/firn-system-policy";
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "launch-critical-worktree-guard.sh", FIRN_SYSTEM_POLICY,
+  "launch-critical-worktree-guard.sh", "firn-system-policy",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", FIRN_SYSTEM_POLICY, "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
   "session-kill-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", FIRN_SYSTEM_POLICY, "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
   "session-kill-guard.sh",
 ]);
 
@@ -1735,7 +1731,6 @@ function harnessEnvironmentReceipt(args: {
 // reason and can correct the command, exactly like the interactive deny.
 async function guardHook(self: string, scripts: string[], input: unknown, topology?: Topology) {
   const env = topology ? { ...process.env, AGENT_TOPOLOGY: topology } : process.env;
-  if (authoringGuardsOff(env)) return { continue: true };
   const deny = (reason: string) => {
     recordDenial(self, reason, input);
     return {

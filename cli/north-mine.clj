@@ -124,7 +124,7 @@
 (defn guard-label [s]
   (let [t (str/triml s)]
     (cond
-      (str/starts-with? t "BLOCKED:")                             "firn-guard"
+      (str/starts-with? t "BLOCKED:")                             "firn-system-policy"
       (str/includes? t "operation blocked by hook")               "hook-block"
       (str/starts-with? t "Permission for this action was denied by the Claude Code auto mode classifier")
       "auto-classifier"

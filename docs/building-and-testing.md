@@ -74,7 +74,7 @@ The SDK receipt suite also needs its repository-owned hook fixture:
 ```console
 $ cd sdk
 $ BEAGLE_STORE_TEST_CHECKOUT="$BEAGLE_STORE_HOME" \
-    NORTH_TEST_AGENT_HOOKS_DIR="$PWD/../profiles/tom/hooks" \
+    NORTH_TEST_AGENT_PROVIDER_HOOKS="$PWD/../profiles/tom/hooks" \
     ../bin/test-suite --sandbox-home -- bun run test
 ```
 

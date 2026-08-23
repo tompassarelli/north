@@ -1,137 +1,46 @@
 #!/usr/bin/env bash
-# harness-dial.test.sh — asserts the bash resolver against the shared
-# precedence contract. The Clojure report and the TS SDK assert against the
-# same table; that is what stops three readers of one state file from drifting.
-set -uo pipefail
+set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/harness-dial.sh
-. "$HERE/lib/harness-dial.sh"
-
-CASES="$HERE/harness-dial-cases.tsv"
-pass=0 fail=0
-
-fail_case() {
-  printf 'FAIL  %-40s %s\n' "$1" "$2"
-  fail=$((fail + 1))
-}
-
-# --- the precedence algebra, straight off the shared table ------------------
-while IFS=$'\t' read -r id all cat item env now expect || [[ -n $id ]]; do
-  [[ $id == \#* || -z $id || $id == id ]] && continue
-  [[ $all  == - ]] && all=''
-  [[ $cat  == - ]] && cat=''
-  [[ $item == - ]] && item=''
-  [[ $now  == - ]] && now=''
-
-  unset AGENT_NO_AUTHORING_HOOKS
-  if [[ $env != - ]]; then
-    # `VAR=` must land as set-but-empty, which is not the same as unset.
-    export "${env%%=*}=${env#*=}"
-  fi
-
-  env_decision=''
-  north_dial_authoring_env env_decision
-  north_dial_resolve got "$all" "$cat" "$item" "$env_decision" "$now"
-
-  if [[ $got == "$expect" ]]; then
-    pass=$((pass + 1))
-  else
-    fail_case "$id" "expected $expect, got $got"
-  fi
-done <"$CASES"
-unset AGENT_NO_AUTHORING_HOOKS
-
-# --- registry integration: the two special categories -----------------------
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "${scratch:?}"' EXIT
-export NORTH_HARNESS_STATE="$scratch/harness.conf"
-export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/missing-switchboard-activity.sh"
+export NORTH_AGENT_ACTIVATION="$scratch/activation.json"
 
-reload() {
-  __NORTH_DIAL_LOADED=0
-  __NORTH_DIAL_STATE=()
-}
+# shellcheck source=lib/harness-dial.sh
+source "$here/lib/harness-dial.sh"
 
-expect_hook() {
-  local id="$1" want="$2" label="$3"
-  reload
-  if north_hook_enabled "$id"; then got=on; else got=off; fi
-  if [[ $got == "$want" ]]; then
+cat >"$NORTH_AGENT_ACTIVATION" <<'JSON'
+{"schema":"north.agent-activation/v1","units":[
+  {"id":"tripwire-guard","kind":"hook","category":"authoring","active":true},
+  {"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":false}
+]}
+JSON
+
+pass=0
+fail=0
+expect() {
+  local id="$1" wanted="$2" got=off
+  if north_hook_enabled "$id"; then got=on; fi
+  if [[ "$got" == "$wanted" ]]; then
     pass=$((pass + 1))
   else
-    fail_case "$label" "hook $id expected $want, got $got"
+    printf 'FAIL  %s expected %s got %s\n' "$id" "$wanted" "$got"
+    fail=$((fail + 1))
   fi
 }
 
-printf 'hooks=off\n' >"$NORTH_HARNESS_STATE"
-expect_hook tripwire-guard          off "all-sweeps-authoring"
-expect_hook north-session-end       on  "all-never-sweeps-coordination"
-expect_hook hook-detach             on  "all-never-sweeps-coordination-2"
+expect tripwire-guard on
+expect agent-spawn-guard off
+expect missing-hook on
 
-printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
-expect_hook tripwire-guard          off "guards-is-authoring-category"
-expect_hook agent-spawn-guard       on  "guards-does-not-reach-dispatch"
+AGENT_NO_AUTHORING_HOOKS=1 expect tripwire-guard off
+AGENT_NO_AUTHORING_HOOKS=0 expect tripwire-guard on
 
-printf 'guards=off\nhooks.hook.tripwire-guard=on\n' >"$NORTH_HARNESS_STATE"
-expect_hook tripwire-guard          on  "item-on-beats-guards-off"
-expect_hook firn-guard              off "sibling-verdict-unchanged"
+printf '%s\n' '{}' >"$NORTH_AGENT_ACTIVATION"
+expect tripwire-guard on
 
-printf 'hooks.cat.coordination=off\n' >"$NORTH_HARNESS_STATE"
-expect_hook north-session-end       off "coordination-off-when-named"
+mv "$NORTH_AGENT_ACTIVATION" "$scratch/absent.json"
+expect tripwire-guard on
 
-# --- static Codex hooks obey the switchboard's effective projection --------
-cat >"$scratch/switchboard-activity.sh" <<'SH'
-agents_switchboard_active() {
-  local wanted_kind="$1" wanted_name="$2" kind name state rest
-  [ -r "$AGENTS_ACTIVITY_FILE" ] || return 0
-  while read -r kind name state rest; do
-    if [ "$kind" = "$wanted_kind" ] && [ "$name" = "$wanted_name" ]; then
-      [ "$state" = on ]
-      return
-    fi
-  done <"$AGENTS_ACTIVITY_FILE"
-  return 1
-}
-SH
-export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/switchboard-activity.sh"
-export AGENTS_ACTIVITY_FILE="$scratch/activity.conf"
-printf 'hook tripwire-guard off\nhook firn-guard on\n' >"$AGENTS_ACTIVITY_FILE"
-printf 'guards=on\n' >"$NORTH_HARNESS_STATE"
-expect_hook tripwire-guard          off "switchboard-off-beats-live-dial"
-expect_hook firn-guard              on  "switchboard-on-keeps-live-dial"
-expect_hook agent-spawn-guard       off "switchboard-missing-row-is-off"
-rm -f "$AGENTS_ACTIVITY_FILE"
-expect_hook tripwire-guard          on  "missing-projection-preserves-installed-hook"
-unset AGENTS_ACTIVITY_FILE
-export AGENTS_SWITCHBOARD_ACTIVITY_LIB="$scratch/missing-switchboard-activity.sh"
-
-# --- the env var must not reach across categories --------------------------
-printf '' >"$NORTH_HARNESS_STATE"
-export AGENT_NO_AUTHORING_HOOKS=1
-expect_hook tripwire-guard          off "env-kills-authoring"
-expect_hook agent-spawn-guard       on  "env-does-not-kill-dispatch"
-unset AGENT_NO_AUTHORING_HOOKS
-
-# --- compatibility entrypoint identifies registered callers ----------------
-export NORTH_HOOK_ID=tripwire-guard
-printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then pass=$((pass + 1)); else fail_case "registered-authoring-category" "expected off"; fi
-printf 'guards=off\nhooks.hook.tripwire-guard=on\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then fail_case "registered-item-on" "expected live"; else pass=$((pass + 1)); fi
-
-# Unknown external callers keep the pre-dial authoring-only behavior.
-printf 'guards=off\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then pass=$((pass + 1)); else fail_case "compat-guards-off" "expected off"; fi
-printf 'guards=on\n' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then fail_case "compat-guards-on" "expected live"; else pass=$((pass + 1)); fi
-printf '' >"$NORTH_HARNESS_STATE"
-reload
-if authoring_guards_off; then fail_case "compat-default" "expected live"; else pass=$((pass + 1)); fi
-
-printf '\n%d passed, %d failed\n' "$pass" "$fail"
-[[ $fail -eq 0 ]]
+printf '%d passed, %d failed\n' "$pass" "$fail"
+((fail == 0))

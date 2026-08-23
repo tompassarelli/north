@@ -9,4 +9,5 @@ SCRIPT_DIR="$(
 
 export NORTH_HOOK_ID=beagle-session-start
 export BEAGLE_AUTHORING_KILLSWITCH_LIB="$SCRIPT_DIR/lib/authoring-killswitch.sh"
-exec "$SCRIPT_DIR/../../../../../beagle/main/integrations/north/hooks/beagle-session-start.sh" "$@"
+BEAGLE_HOME="${BEAGLE_HOME:-$HOME/code/beagle/main}"
+exec "$BEAGLE_HOME/integrations/north/hooks/beagle-session-start.sh" "$@"

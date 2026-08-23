@@ -1,1 +1,0 @@
-../../../../../nixos-config/main/modules/north-profile/firn/hooks/firn-guard.test.sh

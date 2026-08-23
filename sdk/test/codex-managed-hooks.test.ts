@@ -232,7 +232,6 @@ test("managed Codex authoring entrances invoke the native Firn system policy", (
       .map((hook) => hook.command);
     expect(commands).toContain(systemPolicyCommand);
     expect(commands).not.toContain(FIRN_SYSTEM_POLICY);
-    expect(commands.some((command) => command.includes("firn-guard.sh"))).toBe(false);
   }
 });
 

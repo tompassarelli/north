@@ -98,10 +98,12 @@ test("hook emits a shape-preserving updatedToolOutput object on storm", () => {
   assert.equal(updated.noOutputExpected, false);
 });
 
-test("hook item dial disables compression without changing the original result", () => {
-  const state = path.join(cacheDir, "harness.conf");
-  fs.writeFileSync(state, "hooks.hook.logcompress-hook=off\n");
-  assert.equal(run(bashStorm, { ...env, NORTH_HARNESS_STATE: state }), "");
+test("activation generation disables compression without changing the original result", () => {
+  const activation = path.join(cacheDir, "activation.json");
+  fs.writeFileSync(activation, JSON.stringify({ schema: "north.agent-activation/v1", units: [
+    { id: "logcompress-hook", kind: "hook", category: "context", active: false },
+  ] }));
+  assert.equal(run(bashStorm, { ...env, NORTH_AGENT_ACTIVATION: activation }), "");
 });
 
 test("hook stashes original to cache file", () => {

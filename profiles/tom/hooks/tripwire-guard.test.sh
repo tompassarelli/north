@@ -72,7 +72,7 @@ run() {
   set -- env -u SAFE_PUSH_ACTIVE -u XDG_CACHE_HOME \
     HOME="$FH" TMPDIR=/tmp \
     TRIPWIRE_LOG_DIR="$SCRATCH" AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" \
-    NORTH_BIN=/bin/true
+    NORTH_AGENT_ACTIVATION="$SCRATCH/activation.json" NORTH_BIN=/bin/true
   # shellcheck disable=SC2086  # deliberate split: EXTRA_ENV may name several vars
   [ -n "$extra" ] && set -- "$@" $extra
   out="$(printf '%s' "$json" | "$@" "$HOOK" 2>&1)"
@@ -348,16 +348,16 @@ else
 fi
 
 echo "== kill-switch: shared value-aware semantics (lib/authoring-killswitch.sh) =="
-# Precedence: env 0/false = force-live (beats state); any other non-empty env =
-# off; else state `guards=off` = off, unset/empty = live. The deliberate path the
-# class-1 reasons NAME is this state file, written by `north config guards off` —
+# Precedence: env 0/false = force-live (beats activation); any other non-empty env =
+# off; otherwise the immutable activation generation decides. The deliberate path
+# written by `north config guards off` is an inactive hook unit —
 # a personal-data delete is refused while guards are live and goes through once
 # the human turns them off, which is the whole point of the friction.
 # (The env=1 allow case lives in the plumbing block above.)
 # env 0/false force guards LIVE -> guard runs -> deny. The old presence-only check
 # (`[ -n "$VAR" ] && exit 0`) would have ALLOWED these — the bug this rewire fixes.
-# Persistent state `guards=off` (env unset) -> guards OFF -> allow.
-printf 'guards=off\n' >"$SCRATCH/killswitch.state"
+# Persistent inactive unit (env unset) -> guard OFF -> allow.
+printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"tripwire-guard","kind":"hook","category":"authoring","active":false}]}' >"$SCRATCH/activation.json"
 run allow 'north config guards off -> personal delete allowed' 'rm -rf ~/Pictures/Screenshots'
 run allow 'north config guards off -> bounded find allowed' \
   'find ~/Pictures/Screenshots -type f -mtime +30 -delete'
@@ -366,7 +366,7 @@ run allow "north config guards off -> another lane's worktree allowed (human's c
 # State off BUT env=0 -> env force-live BEATS state -> deny.
 run deny 'env=0 force-live beats state guards=off' \
   'rm -rf ~/Pictures/Screenshots' "$REPO_CWD" AGENT_NO_AUTHORING_HOOKS=0
-rm -f "${SCRATCH:?}/killswitch.state" # restore neutral state for the benches below
+rm -f "${SCRATCH:?}/activation.json" # restore neutral state for the benches below
 
 echo "== latency (fast path = prescreen miss; slow path = parse, allow) =="
 bench() {
@@ -377,6 +377,7 @@ bench() {
   for _ in $(seq 1 50); do
     printf '%s' "$json" | env HOME="$FH" TRIPWIRE_LOG_DIR="$SCRATCH" \
       AUTHORING_KILLSWITCH_STATE="$SCRATCH/killswitch.state" NORTH_BIN=/bin/true \
+      NORTH_AGENT_ACTIVATION="$SCRATCH/activation.json" \
       "$HOOK" >/dev/null 2>&1
   done
   t1=$(date +%s%N)

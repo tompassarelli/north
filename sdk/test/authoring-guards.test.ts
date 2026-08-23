@@ -73,24 +73,21 @@ afterAll(() => {
 
 const HOOK = { tool_name: "Write", tool_input: { file_path: "/x" }, cwd: "/x", session_id: "s" };
 
-describe("authoringHooksDir — portable default and exact override", () => {
-  test("defaults to ~/.agents/hooks, never a provider checkout", () => {
+describe("authoringHooksDir — generation default and exact override", () => {
+  test("defaults to the current immutable generation", () => {
     const home = join(dir, "hooks-home");
     const dflt = authoringHooksDir({ HOME: home });
-    expect(dflt).toBe(join(home, ".agents", "hooks"));
-    expect(dflt).not.toContain("nixos-config");
-    expect(dflt).not.toContain(".claude");
-    expect(dflt).not.toContain(".codex");
+    expect(dflt).toBe(join(home, ".local", "state", "north", "agents", "current", "provider-hooks"));
   });
 
-  test("an exact AGENT_HOOKS_DIR override wins outright and is home-independent", () => {
+  test("an exact provider-hook override wins outright and is home-independent", () => {
     const override = join(dir, "portable-hooks");
-    expect(authoringHooksDir({ HOME: join(dir, "hooks-home"), AGENT_HOOKS_DIR: override }))
+    expect(authoringHooksDir({ HOME: join(dir, "hooks-home"), NORTH_AGENT_PROVIDER_HOOKS: override }))
       .toBe(override);
-    expect(authoringHooksDir({ AGENT_HOOKS_DIR: override })).toBe(override);
+    expect(authoringHooksDir({ NORTH_AGENT_PROVIDER_HOOKS: override })).toBe(override);
     // A blank override is ignored and falls back to the portable default.
-    expect(authoringHooksDir({ HOME: join(dir, "hooks-home"), AGENT_HOOKS_DIR: "  " }))
-      .toBe(join(dir, "hooks-home", ".agents", "hooks"));
+    expect(authoringHooksDir({ HOME: join(dir, "hooks-home"), NORTH_AGENT_PROVIDER_HOOKS: "  " }))
+      .toBe(join(dir, "hooks-home", ".local", "state", "north", "agents", "current", "provider-hooks"));
   });
 });
 

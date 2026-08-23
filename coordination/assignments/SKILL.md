@@ -1,7 +1,6 @@
 ---
 name: assignments
 description: Bind concrete North threads to agents or people, inspect assignment state, and release ownership. Use after staffing decides the role; assignment records who owns this particular work.
-hooks: [north-session-lifecycle]
 ---
 
 # Coordination assignments

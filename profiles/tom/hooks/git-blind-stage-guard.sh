@@ -16,7 +16,7 @@
 # string, after a shell separator, or after sudo/doas) — never a bare
 # occurrence anywhere in the string.
 #
-# Kill-switch: persistent `north config guards off` (state) OR env
+# Kill-switch: persistent `north config guards off` (activation) OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but
 # 0/false; 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================

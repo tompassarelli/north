@@ -24,7 +24,7 @@
 #     command word must be unquoted and at command position for anything to
 #     match, and the first non-option operand of a grep-like is the pattern.
 #
-# Kill-switch: persistent `north config guards off` (state) OR env
+# Kill-switch: persistent `north config guards off` (activation) OR env
 # AGENT_NO_AUTHORING_HOOKS (any value but 0/false;
 # 0/false forces guards live). Shared impl: lib/authoring-killswitch.sh.
 # ============================================================================

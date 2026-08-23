@@ -7,7 +7,7 @@ import { classifyGuard, denialFacts } from "../src/guard-log";
 
 describe("classifyGuard", () => {
   test("maps each real guard's reason to its label", () => {
-    expect(classifyGuard("BLOCKED: edit .nix directly — write the .bnix")).toBe("firn-guard");
+    expect(classifyGuard("BLOCKED: edit .nix directly — write the .bnix")).toBe("firn-system-policy");
     expect(classifyGuard("tripwire: recursive delete outside safe roots")).toBe("tripwire-guard");
     expect(classifyGuard("raw 'git push' — house policy: use safe-push")).toBe("tripwire-guard");
   });
@@ -32,7 +32,7 @@ describe("denialFacts", () => {
     const m = new Map(facts);
     expect(m.get("kind")).toBe("guard_denial");
     expect(m.get("agent")).toBe("sdk-abc123");
-    expect(m.get("guard")).toBe("firn-guard");
+    expect(m.get("guard")).toBe("firn-system-policy");
     expect(m.get("tool")).toBe("Edit");
     expect(m.get("at")).toBe(TS);
     expect(m.get("target")).toBe("/home/tom/code/client/msa/kea/x.ts");
