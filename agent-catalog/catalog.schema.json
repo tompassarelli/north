@@ -41,13 +41,13 @@
     },
     "unit": {
       "type": "object",
-      "required": ["id", "kind", "scope", "seedPermission", "owner", "distributions"],
+      "additionalProperties": false,
+      "required": ["id", "kind", "seedPermission", "owner", "distributions"],
       "properties": {
         "id": {"$ref": "#/$defs/unitId"},
         "kind": {"enum": ["skill", "hook", "set"]},
         "title": {"type": "string", "minLength": 1},
         "triggerDescription": {"type": "string", "minLength": 1},
-        "scope": {"type":"string","pattern":"^(global|project:[a-z0-9][a-z0-9-]*)$"},
         "category": {"type": "string", "minLength": 1},
         "seedPermission": {"enum": ["on", "off"]},
         "owner": {"$ref": "#/$defs/owner"},
