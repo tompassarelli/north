@@ -1,0 +1,4 @@
+interface:
+  display_name: "Program Stewardship"
+  short_description: "Set a bounded engineering quality posture"
+  default_prompt: "Use $program-stewardship to select the quality posture and route any explicit maintenance work for this scope."

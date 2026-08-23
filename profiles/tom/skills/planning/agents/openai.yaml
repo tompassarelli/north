@@ -1,0 +1,4 @@
+interface:
+  display_name: "Planning"
+  short_description: "Orient consequential engineering work"
+  default_prompt: "Use $planning to orient this consequential engineering decision and produce the smallest executable plan."
