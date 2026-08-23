@@ -1,0 +1,4 @@
+interface:
+  display_name: "Program Craftsmanship"
+  short_description: "Improve mature code without redesign"
+  default_prompt: "Use $program-craftsmanship to run a bounded behavior-preserving maintenance pass on this scope."
