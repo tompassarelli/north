@@ -252,8 +252,6 @@ function north_bin() {
   return ((configured === "") ? "north" : configured);
 }
 
-const AGENTS_BIN = (() => { const configured = text(process.env.AGENTS_BIN); return ((configured === "") ? "agents" : configured); })();
-
 const SUPERVISOR_BOOT_PROMPT = "You are the Northbridge supervisor. Reply only READY, then wait for operator input.";
 
 const BOARD_LANES = [BoardLane("not-started", "Not Started"), BoardLane("in-progress", "In Progress"), BoardLane("done", "Done")];
@@ -290,9 +288,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/globals", "switchboard: global sets, skills, hooks", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/plugins", "switchboard: plugins only", false, "", false), SlashCommand("/modules", "switchboard: orchestration modules only", false, "", false), SlashCommand("/globals", "switchboard: global knobs, skills, hooks", false, "", false), SlashCommand("/agentsmd", "switchboard: AGENTS.md and directory context", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the context switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/globals", "switchboard: global sets, skills, hooks", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -862,8 +860,8 @@ function sound_status(runtime) {
   return $$bc$str("sound ", (((_truthy) => _truthy !== false && _truthy != null)(runtime.soundEnabled) ? "on" : "off"), " · pack ", text(runtime.soundPack), " · player ", (((_truthy) => _truthy !== false && _truthy != null)(player) ? soundplayer_kind(player) : "none"), " · ", text(runtime.soundDirectory));
 }
 
-function ConfigEntry(kind, name, state, detail) {
-  return $$bc$record_value("north.bridge.app/ConfigEntry", {_tag: "ConfigEntry", kind, name, state, detail});
+function ConfigEntry(kind, name, state, detail, title, active, owner, members, supports, distributions, activationPaths) {
+  return $$bc$record_value("north.bridge.app/ConfigEntry", {_tag: "ConfigEntry", kind, name, state, detail, title, active, owner, members, supports, distributions, activationPaths});
 }
 
 function configentry_kind(r) { return r.kind; }
@@ -874,25 +872,27 @@ function configentry_state(r) { return r.state; }
 
 function configentry_detail(r) { return r.detail; }
 
+function configentry_title(r) { return r.title; }
+
+function configentry_active(r) { return r.active; }
+
+function configentry_owner(r) { return r.owner; }
+
+function configentry_members(r) { return r.members; }
+
+function configentry_supports(r) { return r.supports; }
+
+function configentry_distributions(r) { return r.distributions; }
+
+function configentry_activationPaths(r) { return r.activationPaths; }
+
 function config_hook_enabled_p(state) {
-  return (state === "enabled");
+  return (!((_truthy) => _truthy !== false && _truthy != null)(((state === "disabled") || (state === "off"))));
 }
 
-function ModuleMembership(module, members) {
-  return $$bc$record_value("north.bridge.app/ModuleMembership", {_tag: "ModuleMembership", module, members});
-}
-
-function modulemembership_module(r) { return r.module; }
-
-function modulemembership_members(r) { return r.members; }
-
-function config_owner_modules(memberships, name) {
-  return memberships.filter((membership) => modulemembership_members(membership).includes(name)).map((membership) => modulemembership_module(membership));
-}
-
-function config_module_members(memberships, name) {
-  const found = memberships.find((membership) => (modulemembership_module(membership) === name));
-  return (((_truthy) => _truthy !== false && _truthy != null)(found) ? modulemembership_members(found) : null);
+function config_entry_members(entry) {
+  const members = entry.members;
+  return (Array.isArray(members) ? members : []);
 }
 
 function config_subtree_kind_p(kind) {
@@ -950,26 +950,8 @@ function config_subtree_gate(manifest, kind, name) {
   return ((((_truthy) => _truthy !== false && _truthy != null)(((kind === "ins") || (kind === "memroot")))) ? config_find_kind(manifest, "dir", slug) : ((kind === "mem")) ? (() => { const root = config_find_kind(manifest, "memroot", slug); return (((_truthy) => _truthy !== false && _truthy != null)(root) ? root : config_find_kind(manifest, "dir", slug)); })() : null);
 }
 
-function config_active_along_p(entry, manifest, memberships, trail) {
-  const kind = configentry_kind(entry);
-  const name = configentry_name(entry);
-  const key = $$bc$str(kind, " ", name);
-  if (((_truthy) => _truthy !== false && _truthy != null)(trail.includes(key))) {
-    return false;
-  } else {
-    const walked = trail.concat([key]);
-    const hook_p = (kind === "hook");
-    const state = configentry_state(entry);
-    const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
-    const owners = config_owner_modules(memberships, name);
-    const gated_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
-return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_active_along_p(row, manifest, memberships, walked) : false); }));
-    const companion = (hook_p ? text(configentry_detail(entry)) : "");
-    const followed_p = ((companion === "") ? true : (() => { const row = config_find_companion(manifest, companion); return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_active_along_p(row, manifest, memberships, walked) : false); })());
-    const gate = config_subtree_gate(manifest, kind, name);
-    const scoped_p = (((_truthy) => _truthy !== false && _truthy != null)(gate) ? config_active_along_p(gate, manifest, memberships, walked) : true);
-    return (own_p && ((_logical) => (_logical !== false && _logical != null ? (followed_p && scoped_p) : _logical))(gated_p));
-  }
+function config_active_along_p(entry, __manifest, __memberships, __trail) {
+  return (((_truthy) => _truthy !== false && _truthy != null)(entry.active) ? true : false);
 }
 
 function config_entry_active_p(entry, manifest, memberships) {
@@ -981,29 +963,10 @@ function config_unit_active_p(manifest, memberships, name) {
   return (((_truthy) => _truthy !== false && _truthy != null)(entry) ? config_entry_active_p(entry, manifest, memberships) : false);
 }
 
-function config_gate_modules(entry, manifest, memberships) {
-  const kind = configentry_kind(entry);
-  const name = configentry_name(entry);
-  const gate = config_subtree_gate(manifest, kind, name);
-  const scope = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? (!config_entry_active_p(gate, manifest, memberships)) : _logical))(gate)) ? [config_provenance_name(configentry_kind(gate), configentry_name(gate))] : []);
-  const owners = config_owner_modules(memberships, name);
-  const open_p = ((owners.length === 0) || owners.some((owner) => { const row = config_find_kind(manifest, "module", owner);
-return (((_truthy) => _truthy !== false && _truthy != null)(row) ? config_entry_active_p(row, manifest, memberships) : false); }));
-  return scope.concat((((_truthy) => _truthy !== false && _truthy != null)(open_p) ? [] : owners.map((owner) => config_provenance_name("module", owner))));
-}
-
 function config_state_text(entry, manifest, memberships, active_p, nested_p) {
-  const state = configentry_state(entry);
-  const hook_p = (configentry_kind(entry) === "hook");
-  const own_p = (hook_p ? config_hook_enabled_p(state) : (state === "on"));
-  const gates = config_gate_modules(entry, manifest, memberships);
-  const gate_note = ((gates.length === 0) ? "" : $$bc$str(" (", gates.join(", "), " off)"));
-  const companion = (hook_p ? text(configentry_detail(entry)) : "");
-  const followed = config_find_companion(manifest, companion);
-  const provenance = (((_truthy) => _truthy !== false && _truthy != null)((nested_p || (companion === ""))) ? "" : $$bc$str(" · ", config_provenance_name((((_truthy) => _truthy !== false && _truthy != null)(followed) ? configentry_kind(followed) : ""), companion)));
-  const claimant_off_p = ((_logical) => (_logical !== false && _logical != null ? (!config_entry_active_p(followed, manifest, memberships)) : _logical))(followed);
-  const reason = (((!(gate_note === ""))) ? gate_note : (((_truthy) => _truthy !== false && _truthy != null)(claimant_off_p)) ? $$bc$str(" (", config_provenance_name(configentry_kind(followed), companion), " off)") : "");
-  return ((((_truthy) => _truthy !== false && _truthy != null)((hook_p && (!own_p)))) ? "disabled" : ((!own_p)) ? "off" : (active_p) ? $$bc$str("on", provenance) : $$bc$str("off", reason));
+  const state = text_or(configentry_state(entry), "default");
+  const resolved = (active_p ? "on" : "off");
+  return $$bc$str(resolved, " · permission ", state);
 }
 
 function config_toggle_verb(state) {
@@ -1020,16 +983,16 @@ function config_row_scope(kind, name) {
   return (((kind === "dir")) ? name : (config_subtree_kind_p(kind)) ? config_row_slug(kind, name) : GLOBAL_DIR_NAME);
 }
 
-function config_view_includes_p(view, kind, name) {
-  return (((view === "all")) ? true : ((kind === "dir")) ? ((view === "globals") ? (name === GLOBAL_DIR_NAME) : true) : ((view === "globals")) ? ((config_row_scope(kind, name) === GLOBAL_DIR_NAME) && (!(kind === "plugin"))) : ((view === "agentsmd")) ? config_subtree_kind_p(kind) : (kind === view));
+function config_view_includes_p(view, kind, __name) {
+  return ((((_truthy) => _truthy !== false && _truthy != null)(((view === "all") || (view === "globals")))) ? true : (kind === view));
 }
 
-function config_view_prunes_p(view) {
-  return (!((_truthy) => _truthy !== false && _truthy != null)(((view === "all") || ((view === "globals") || (view === "agentsmd")))));
+function config_view_prunes_p(__view) {
+  return false;
 }
 
 function config_view_folds_p(view) {
-  return (view === "all");
+  return false;
 }
 
 function config_hook_companion(entry) {
@@ -1040,14 +1003,12 @@ function config_skill_hooks(rows, name) {
   return rows.filter((entry) => ((configentry_kind(entry) === "hook") && (config_hook_companion(entry) === name)));
 }
 
-function config_row_role(entry, rows) {
-  const kind = configentry_kind(entry);
-  const name = configentry_name(entry);
-  return (((kind === "module")) ? "moduleset" : ((kind === "skill")) ? ((config_skill_hooks(rows, name).length > 0) ? "module" : "skill") : ((kind === "hook")) ? (() => { const companion = config_hook_companion(entry); return (((_truthy) => _truthy !== false && _truthy != null)(((!(companion === "")) && rows.some((row) => ((configentry_kind(row) === "skill") && (configentry_name(row) === companion))))) ? "boundhook" : "hook"); })() : kind);
+function config_row_role(entry, __rows) {
+  return configentry_kind(entry);
 }
 
 function config_section_rank(role) {
-  return (((role === "ins")) ? 0 : ((role === "memroot")) ? 1 : ((role === "mem")) ? 2 : ((role === "moduleset")) ? 3 : ((role === "module")) ? 4 : ((role === "boundhook")) ? 5 : ((role === "skill")) ? 6 : ((role === "hook")) ? 7 : ((role === "plugin")) ? 8 : ((role === "other")) ? 9 : 10);
+  return (((role === "ins")) ? 0 : ((role === "memroot")) ? 1 : ((role === "mem")) ? 2 : ((role === "set")) ? 3 : ((role === "skill")) ? 4 : ((role === "hook")) ? 5 : 10);
 }
 
 function config_node_rank(entry) {
@@ -1055,21 +1016,7 @@ function config_node_rank(entry) {
 }
 
 function config_tree_rows(entries) {
-  const dirs = entries.filter((entry) => (configentry_kind(entry) === "dir"));
-  const kids = entries.filter((entry) => (!(configentry_kind(entry) === "dir")));
-  const ordered = dirs.slice().sort((a, b) => (config_node_rank(a) - config_node_rank(b)));
-  const tree = [];
-  ordered.forEach((node) => { tree.push(node);
-const slug = configentry_name(node);
-const owned = kids.filter((child) => (config_row_scope(configentry_kind(child), configentry_name(child)) === slug));
-const sorted = owned.sort((a, b) => (config_section_rank(config_row_role(a, entries)) - config_section_rank(config_row_role(b, entries))));
-return sorted.forEach((child) => { if ((!(config_row_role(child, entries) === "boundhook"))) {
-  tree.push(child);
-  if ((config_row_role(child, entries) === "module")) {
-    return config_skill_hooks(sorted, configentry_name(child)).forEach((hook) => tree.push(hook));
-  }
-} }); });
-  return tree.concat(kids.filter((child) => (!((_truthy) => _truthy !== false && _truthy != null)(tree.includes(child)))));
+  return entries.slice().sort((a, b) => (config_section_rank(config_row_role(a, entries)) - config_section_rank(config_row_role(b, entries))));
 }
 
 function config_view_rows(entries, view) {
@@ -1124,74 +1071,31 @@ function config_row_context_only_p(entry, query) {
   return ((!(query.trim() === "")) && (!config_row_matches_p(entry, query)));
 }
 
-function config_manifest_path() {
-  return $$bc$str(text(process.env.HOME), "/.config/agents/manifest.conf");
+const ACTIVATION_SCHEMA = "north.agent-activation/v1";
+
+function config_activation_path(runtime) {
+  return text_or(text(runtime.configActivationPath), $$bc$str(text(process.env.HOME), "/.local/state/north/agents/current/activation.json"));
 }
 
-function config_modules_dir(runtime) {
-  return text_or(text(runtime.configModulesDir), $$bc$str(text(process.env.HOME), "/code/nixos-config/main/dotfiles/agents/modules.d"));
+function config_array(value) {
+  return (Array.isArray(value) ? value : []);
 }
 
-function config_membership_of_json(module, content) {
-  return (() => { try {
-    const parsed = JSON.parse(content);
-  const members = (((_truthy) => _truthy !== false && _truthy != null)(((_logical) => (_logical !== false && _logical != null ? Array.isArray(parsed.members) : _logical))(parsed)) ? parsed.members : []);
-  return ModuleMembership(module, members.map((member) => text(member)));
-  } catch (_catch_4) {
-    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
-      case 0: {
-        const __ = _catch_4;
-        return ModuleMembership(module, []);
-      }
-    }
-  } })();
+function config_unit_entry(unit) {
+  return ConfigEntry(text(unit.kind), text(unit.id), text_or(text(unit.permission), "default"), text(unit.triggerDescription), text_or(text(unit.title), text(unit.id)), (((_truthy) => _truthy !== false && _truthy != null)(unit.active) ? true : false), text(unit.owner), config_array(unit.members), config_array(unit.supports), config_array(unit.distributions), config_array(unit.activationPaths));
 }
 
-async function list_module_files_bang(directory) {
-  return (async () => { try {
-    const listing = await run_command(["ls", directory]);
-  return listing.trim().split("\n").filter((name) => name.endsWith(".json"));
-  } catch (_catch_5) {
-    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
-      case 0: {
-        const __ = _catch_5;
-        return [];
-      }
-    }
-  } })();
-}
-
-async function read_module_file_bang(path) {
-  return (async () => { try {
-    return await run_command(["cat", path]);
-  } catch (_catch_6) {
-    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
-      case 0: {
-        const __ = _catch_6;
-        return "";
-      }
-    }
-  } })();
-}
-
-async function load_config_memberships_bang(directory) {
-  const files = await list_module_files_bang(directory);
-  const contents = await Promise.all(files.map((file) => read_module_file_bang($$bc$str(directory, "/", file))));
-  return files.map((file, index) => { const file_length = file.length;
-return config_membership_of_json(file.slice(0, (file_length - 5)), text(contents[index])); });
-}
-
-async function ensure_config_manifest_bang() {
-  return (async () => { try {
-    return await run_command(["test", "-f", config_manifest_path()]);
-  } catch (_catch_7) {
-    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
-      case 0: {
-        const __ = _catch_7;
-        return await run_command([AGENTS_BIN, "status"]);
-      }
-    }
-  } })();
+function config_activation_of_json(content) {
+  const parsed = JSON.parse(content);
+  const schema = text(parsed.schema);
+  const units = parsed.units;
+  if ((!(schema === ACTIVATION_SCHEMA))) {
+    (() => { throw new Error($$bc$str("unsupported activation schema: ", text_or(schema, "missing"))); })();
+  }
+  if ((!Array.isArray(units))) {
+    (() => { throw new Error("activation generation has no ordered units"); })();
+  }
+  return {[$$bc$property_key($$bc$keyword("schema"))]: schema, [$$bc$property_key($$bc$keyword("digest"))]: text(parsed.catalogDigest), [$$bc$property_key($$bc$keyword("generation"))]: text(parsed.generationId), [$$bc$property_key($$bc$keyword("units"))]: units.map(config_unit_entry)};
 }
 
 function panel_filtering_p(runtime) {
@@ -1252,17 +1156,28 @@ function fold_key_action(dir_row_p, expanded_p, open_key_p) {
 }
 
 async function load_config_entries_bang(runtime) {
-  await ensure_config_manifest_bang();
-  const content = await run_command(["cat", config_manifest_path()]);
-  const memberships = await load_config_memberships_bang(config_modules_dir(runtime));
+  await (async () => { try {
+    const file = Bun.file(config_activation_path(runtime));
+  const content = await file.text();
+  const activation = config_activation_of_json(content);
+  const all_entries = activation.units;
   const config_filter = text_or(text(runtime.configFilter), "all");
-  const lines = content.split("\n").filter((line) => (!(line.trim() === "")));
-  const all_entries = lines.map((line) => { const parts = line.trim().split(" ").filter((part) => (!(part === "")));
-return ConfigEntry(text(parts[0]), text(parts[1]), text(parts[2]), parts.slice(3).join(" ")); });
   const entries = config_view_rows(all_entries, config_filter);
+  (runtime.configDiagnostic = "");
+  (runtime.configGeneration = activation.generation);
+  (runtime.configDigest = activation.digest);
   (runtime.configAllEntries = all_entries);
-  (runtime.configMemberships = memberships);
-  (runtime.configEntries = entries);
+  return (runtime.configEntries = entries);
+  } catch (_catch_4) {
+    switch ($$bd$catch_dispatch(_catch_4, [Error])) {
+      case 0: {
+        const error = _catch_4;
+        (runtime.configAllEntries = []);
+        (runtime.configEntries = []);
+        return (runtime.configDiagnostic = $$bc$str("activation unavailable — ", error_message(error)));
+      }
+    }
+  } })();
   clamp_panel_cursor_bang(runtime);
   (runtime.configLoaded = true);
   return runtime.render();
@@ -1306,20 +1221,9 @@ async function edit_config_entry_bang(runtime) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
-    const raw_path = await run_command([AGENTS_BIN, "path", config_cli_name(configentry_kind(entry), configentry_name(entry))]);
-    const path = raw_path.trim();
-    const editor = text_or(text(process.env.EDITOR), "vi");
-    const ghostty = Bun.which("ghostty");
-    const kitty = Bun.which("kitty");
-    const foot = Bun.which("foot");
-    const xterm = Bun.which("xterm");
-    const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, editor, path] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", editor, path] : null);
-    if ((argv == null)) {
-      (() => { throw new Error("no supported terminal found for edit"); })();
+    if ((configentry_kind(entry) === "set")) {
+      return (runtime.configInspectId = ((text(runtime.configInspectId) === configentry_name(entry)) ? "" : configentry_name(entry)));
     }
-    const child = Bun.spawn({[$$bc$property_key($$bc$keyword("cmd"))]: argv, [$$bc$property_key($$bc$keyword("stdin"))]: "ignore", [$$bc$property_key($$bc$keyword("stdout"))]: "ignore", [$$bc$property_key($$bc$keyword("stderr"))]: "ignore"});
-    child.unref();
-    return publish_line_bang(runtime, $$bc$str("editing ", path));
   }
 }
 
@@ -1331,7 +1235,7 @@ async function toggle_config_entry_bang(runtime) {
     const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
     const verb = config_toggle_verb(configentry_state(entry));
-    await run_command([AGENTS_BIN, verb, config_cli_name(configentry_kind(entry), configentry_name(entry))]);
+    await run_command([north_bin(), "config", "agents", verb, configentry_name(entry)]);
     await load_config_entries_bang(runtime);
     return runtime.render();
   }
@@ -1368,10 +1272,10 @@ async function restart_daemon_bang(runtime) {
   forget_control_session_bang(runtime);
   publish_line_bang(runtime, "control daemon replaced; session restored");
   return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
-  } catch (_catch_8) {
-    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
+  } catch (_catch_5) {
+    switch ($$bd$catch_dispatch(_catch_5, [Error])) {
       case 0: {
-        const error = _catch_8;
+        const error = _catch_5;
         return append_error_bang(runtime, error_message(error));
       }
     }
@@ -1412,10 +1316,8 @@ return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runti
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
 return true; })() : ((name === "mcp")) ? (() => { const parts = rest.trim().split(/\\s+/).filter((part) => (!(part === "")));
 run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
-return true; })() : ((name === "plugins")) ? (() => { open_config_panel_bang(runtime, ui, "plugin");
-return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, ui, "module");
+return true; })() : ((name === "sets")) ? (() => { open_config_panel_bang(runtime, ui, "set");
 return true; })() : ((name === "globals")) ? (() => { open_config_panel_bang(runtime, ui, "globals");
-return true; })() : ((name === "agentsmd")) ? (() => { open_config_panel_bang(runtime, ui, "agentsmd");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
 return true; })() : ((name === "agents")) ? (() => { show_view_bang(runtime, ui, "agents");
 return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
@@ -1449,10 +1351,10 @@ function cleanup_suspend_bang(runtime, process_api) {
   if (suspended_p) {
     (() => { try {
     return runtime.renderer.resume();
-  } catch (_catch_9) {
-    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
+  } catch (_catch_6) {
+    switch ($$bd$catch_dispatch(_catch_6, [Error])) {
       case 0: {
-        const error = _catch_9;
+        const error = _catch_6;
         return (runtime.suspendError = error_message(error));
       }
     }
@@ -1480,10 +1382,10 @@ if ((runtime.suspendResume === handler)) {
   runtime.renderer.suspend();
   process_api.kill(0, "SIGSTOP");
   return true;
-  } catch (_catch_10) {
-    switch ($$bd$catch_dispatch(_catch_10, [Error])) {
+  } catch (_catch_7) {
+    switch ($$bd$catch_dispatch(_catch_7, [Error])) {
       case 0: {
-        const error = _catch_10;
+        const error = _catch_7;
         (runtime.suspendError = error_message(error));
         cleanup_suspend_bang(runtime, process_api);
         return false;
@@ -1503,10 +1405,10 @@ function quiesce_bang(runtime) {
     (runtime.spinnerTimer = null);
     runtime.soundChildren.forEach((child) => (() => { try {
     return child.kill();
-  } catch (_catch_11) {
-    switch ($$bd$catch_dispatch(_catch_11, [Error])) {
+  } catch (_catch_8) {
+    switch ($$bd$catch_dispatch(_catch_8, [Error])) {
       case 0: {
-        const __ = _catch_11;
+        const __ = _catch_8;
         return null;
       }
     }
@@ -2046,11 +1948,11 @@ function visible_notice(notice) {
 }
 
 function config_section_title(role) {
-  return (((role === "moduleset")) ? "SETS" : ((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : ((role === "plugin")) ? "PLUGINS" : ((role === "other")) ? "OTHER" : "");
+  return (((role === "set")) ? "SETS" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : "");
 }
 
 function config_header_roles(role) {
-  return (((role === "moduleset")) ? ["moduleset"] : ((role === "module")) ? ["skill", "module"] : ((role === "boundhook")) ? ["skill", "module"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : ((role === "plugin")) ? ["plugin"] : ((role === "other")) ? ["other"] : []);
+  return (((role === "set")) ? ["set"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : []);
 }
 
 function config_header_keys(entry, rows) {
@@ -2068,7 +1970,7 @@ function config_header_shared_bang(prior, current) {
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "plugin")) ? "plugins" : ((config_filter === "module")) ? "modules" : ((config_filter === "globals")) ? "globals" : ((config_filter === "agentsmd")) ? "directory context" : "context switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "set")) ? "sets" : ((config_filter === "globals")) ? "globals" : "context switchboard");
 }
 
 function config_empty_note(loaded_p, filtering_p) {
@@ -2115,8 +2017,8 @@ function config_row_parts(entry, memberships, expanded_p, role, state_text, widt
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const dir_p = (kind === "dir");
-  const members = config_module_members(memberships, name);
-  const detail = (((kind === "hook")) ? "" : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "module")) ? ((members == null) ? "" : config_member_count_text(members.length)) : text(configentry_detail(entry)));
+  const members = config_entry_members(entry);
+  const detail = (((kind === "hook")) ? (() => { const claims = config_array(entry.supports); return ((claims.length > 0) ? $$bc$str("supports ", claims.join(", ")) : ""); })() : (config_subtree_kind_p(kind)) ? "" : (dir_p) ? "" : ((kind === "set")) ? config_member_count_text(members.length) : text(configentry_detail(entry)));
   const indent = config_row_indent(role);
   const glyph = config_fold_glyph(dir_p, expanded_p);
   const tag = config_kind_tag(kind, role);
@@ -2133,7 +2035,7 @@ function config_row_parts(entry, memberships, expanded_p, role, state_text, widt
 const CONFIG_INDENT_WIDTH = 2;
 
 function config_row_depth(role) {
-  return (((role === "dir")) ? 0 : ((role === "ins")) ? 1 : ((role === "memroot")) ? 1 : ((role === "module")) ? 3 : ((role === "boundhook")) ? 4 : 2);
+  return (2);
 }
 
 function config_row_indent(role) {
@@ -2142,6 +2044,41 @@ function config_row_indent(role) {
 
 function config_header_indent(index) {
   return " ".repeat((CONFIG_INDENT_WIDTH * (index + 2)));
+}
+
+function config_unit_parents(entries, id) {
+  return entries.filter((entry) => ((configentry_kind(entry) === "set") && config_entry_members(entry).includes(id))).map((entry) => configentry_name(entry));
+}
+
+function config_path_text(path) {
+  return (Array.isArray(path) ? path.map((id) => text(id)).join(" → ") : text(path));
+}
+
+function config_unit_summary(entry, entries, parent) {
+  const id = configentry_name(entry);
+  const parents = config_unit_parents(entries, id);
+  const others = parents.filter((owner) => (!(owner === parent)));
+  const supports = config_array(entry.supports);
+  return $$bc$str(configentry_kind(entry), " ", id, ": ", (((_truthy) => _truthy !== false && _truthy != null)(entry.active) ? "on" : "off"), " · permission ", text_or(configentry_state(entry), "default"), ((text(entry.owner) === "") ? "" : $$bc$str(" · owner ", text(entry.owner))), ((supports.length > 0) ? $$bc$str(" · supports ", supports.join(", ")) : ""), ((others.length > 0) ? $$bc$str(" · also in ", others.join(", ")) : ""));
+}
+
+function config_inspection_walk_bang(lines, entries, entry, parent, depth, trail) {
+  const id = configentry_name(entry);
+  const indent = "  ".repeat(depth);
+  const paths = config_array(entry.activationPaths);
+  lines.push($$bc$str(indent, ((depth > 0) ? "└─ " : ""), config_unit_summary(entry, entries, parent)));
+  paths.forEach((path) => lines.push($$bc$str(indent, "   activation: ", config_path_text(path))));
+  if ((configentry_kind(entry) === "set")) {
+    config_entry_members(entry).forEach((member_id) => { const member = text(member_id);
+const child = config_find_entry(entries, member);
+return ((child == null) ? lines.push($$bc$str(indent, "  └─ missing unit ", member)) : (((_truthy) => _truthy !== false && _truthy != null)(trail.includes(member)) ? lines.push($$bc$str(indent, "  └─ cycle ", member)) : config_inspection_walk_bang(lines, entries, child, id, (depth + 1), trail.concat([member])))); });
+  }
+  return lines;
+}
+
+function config_set_inspection_text_bang(entries, id) {
+  const entry = config_find_entry(entries, id);
+  return (((_truthy) => _truthy !== false && _truthy != null)(((entry == null) || (!(configentry_kind(entry) === "set")))) ? $$bc$str("set unavailable: ", id) : config_inspection_walk_bang([], entries, entry, "", 0, [id]).join("\n"));
 }
 
 function render_config_panel_bang(runtime) {
@@ -2158,16 +2095,8 @@ function render_config_panel_bang(runtime) {
   const filtering_p = panel_filtering_p(runtime);
   const focused_p = panel_focused_p(runtime);
   const query = panel_query(runtime);
-  if ((total === 0)) {
-    return new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p))]);
-  } else {
-    const index = clamped_index(runtime.configIndex, total);
-    const window = config_visible_count(total, config_filter);
-    const start = window_start(index, total, window);
-    const stop = Math.min(total, (start + window));
-    const width = Math.max(12, (terminal_columns() - 12));
-    const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))];
-    entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+  const inspect_id = text(runtime.configInspectId);
+  return (((!(inspect_id === ""))) ? new StyledText([brightYellow("set inspection"), brightBlack("  enter returns\n"), brightWhite(config_set_inspection_text_bang(manifest, inspect_id))]) : ((total === 0)) ? new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(text_or(text(runtime.configDiagnostic), config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p)))]) : (() => { const index = clamped_index(runtime.configIndex, total); const window = config_visible_count(total, config_filter); const start = window_start(index, total, window); const stop = Math.min(total, (start + window)); const width = Math.max(12, (terminal_columns() - 12)); const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))]; entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry, manifest, memberships);
@@ -2196,8 +2125,7 @@ parts.push(name_tone(row.name));
 parts.push(name_tone(": "));
 parts.push(state_tone(row.state));
 return parts.push(name_tone($$bc$str(((row.detail === "") ? "" : $$bc$str("  ", row.detail)), tail))); });
-    return new StyledText(parts);
-  }
+return new StyledText(parts); })());
 }
 
 function detail_open_p(runtime) {
@@ -2235,14 +2163,14 @@ function detail_agents(runtime) {
 
 const DETAIL_CHROME_ROWS = 3;
 
-const CONFIG_SECTION_ROWS = 6;
+const CONFIG_SECTION_ROWS = 3;
 
 function detail_visible_count(total, extra) {
   return fitted_window(total, terminal_rows(), (CHROME_ROWS + MIN_WORKSPACE_ROWS + DETAIL_CHROME_ROWS + extra));
 }
 
 function config_section_rows(view) {
-  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? 5 : ((view === "agentsmd")) ? 0 : 1);
+  return (((view === "all")) ? CONFIG_SECTION_ROWS : ((view === "globals")) ? CONFIG_SECTION_ROWS : 1);
 }
 
 function config_visible_count(total, view) {
@@ -2791,10 +2719,10 @@ function record_line(line) {
     const payload = ((space < 0) ? "" : rest.slice((space + 1)).trim());
     return (() => { try {
     return ParsedRecord(Number(line.slice(1, close)), kind, ((payload === "") ? {} : JSON.parse(payload)));
-  } catch (_catch_12) {
-    switch ($$bd$catch_dispatch(_catch_12, [Error])) {
+  } catch (_catch_9) {
+    switch ($$bd$catch_dispatch(_catch_9, [Error])) {
       case 0: {
-        const __ = _catch_12;
+        const __ = _catch_9;
         return null;
       }
     }
@@ -3735,19 +3663,17 @@ export { clamp_panel_cursor_bang as "clamp-panel-cursor!" };
 export { cleanup_suspend_bang as "cleanup-suspend!" };
 export { clear_panel_filter_bang as "clear-panel-filter!" };
 export { composer_hint as "composer-hint" };
+export { config_activation_of_json as "config-activation-of-json" };
 export { config_cli_name as "config-cli-name" };
 export { config_detail_lines_bang as "config-detail-lines!" };
 export { config_empty_note as "config-empty-note" };
 export { config_entry_active_p as "config-entry-active?" };
 export { config_fold_rows as "config-fold-rows" };
-export { config_gate_modules as "config-gate-modules" };
 export { config_header_keys as "config-header-keys" };
 export { config_header_roles as "config-header-roles" };
 export { config_header_shared_bang as "config-header-shared!" };
 export { config_kind_tag as "config-kind-tag" };
 export { config_kind_word as "config-kind-word" };
-export { config_membership_of_json as "config-membership-of-json" };
-export { config_module_members as "config-module-members" };
 export { config_node_expanded_p as "config-node-expanded?" };
 export { config_panel_legend as "config-panel-legend" };
 export { config_panel_rows as "config-panel-rows" };
@@ -3766,6 +3692,7 @@ export { config_row_scope as "config-row-scope" };
 export { config_row_search_text as "config-row-search-text" };
 export { config_section_rows as "config-section-rows" };
 export { config_section_title as "config-section-title" };
+export { config_set_inspection_text_bang as "config-set-inspection-text!" };
 export { config_skill_hooks as "config-skill-hooks" };
 export { config_state_text as "config-state-text" };
 export { config_toggle_verb as "config-toggle-verb" };
@@ -3783,7 +3710,6 @@ export { handle_local_command_bang as "handle-local-command!" };
 export { help_query_rows as "help-query-rows" };
 export { install_keys_bang as "install-keys!" };
 export { launch_route_flags as "launch-route-flags" };
-export { load_config_memberships_bang as "load-config-memberships!" };
 export { normalize_agents as "normalize-agents" };
 export { palette_enter_action as "palette-enter-action" };
 export { palette_options as "palette-options" };

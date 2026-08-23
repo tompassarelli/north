@@ -64,15 +64,13 @@ declare const bannerRuleLine: (...args: any[]) => any;
 declare const bootView: (...args: any[]) => any;
 declare const clearPanelFilter: (...args: any[]) => any;
 declare const composerHint: (...args: any[]) => any;
+declare const configActivationOfJson: (...args: any[]) => any;
 declare const configCliName: (...args: any[]) => any;
 declare const configDetailLines: (...args: any[]) => any;
 declare const configEntryActive: (...args: any[]) => any;
 declare const configFoldRows: (...args: any[]) => any;
-declare const configGateModules: (...args: any[]) => any;
 declare const configHeaderRoles: (...args: any[]) => any;
 declare const configKindTag: (...args: any[]) => any;
-declare const configMembershipOfJson: (...args: any[]) => any;
-declare const configModuleMembers: (...args: any[]) => any;
 declare const configNodeExpanded: (...args: any[]) => any;
 declare const configPanelLegend: (...args: any[]) => any;
 declare const configPanelRows: (...args: any[]) => any;
@@ -83,11 +81,13 @@ declare const configRowContextOnly: (...args: any[]) => any;
 declare const configRowDepth: (...args: any[]) => any;
 declare const configRowLabel: (...args: any[]) => any;
 declare const configRowMatches: (...args: any[]) => any;
+declare const configRowParts: (...args: any[]) => any;
 declare const configRowRole: (...args: any[]) => any;
 declare const configRowScope: (...args: any[]) => any;
 declare const configRowSearchText: (...args: any[]) => any;
 declare const configSectionRows: (...args: any[]) => any;
 declare const configSectionTitle: (...args: any[]) => any;
+declare const configSetInspectionText: (...args: any[]) => any;
 declare const configStateText: (...args: any[]) => any;
 declare const configToggleVerb: (...args: any[]) => any;
 declare const configUnitActive: (...args: any[]) => any;
@@ -102,7 +102,6 @@ declare const filterKeyAction: (...args: any[]) => any;
 declare const foldKeyAction: (...args: any[]) => any;
 declare const helpQueryRows: (...args: any[]) => any;
 declare const installKeys: (...args: any[]) => any;
-declare const loadConfigMemberships: (...args: any[]) => any;
 declare const normalizeAgents: (...args: any[]) => any;
 declare const paletteEnterAction: (...args: any[]) => any;
 declare const quitCommand: (...args: any[]) => any;
@@ -147,15 +146,13 @@ export {
   cleanupSuspend as "cleanup-suspend!",
   clearPanelFilter as "clear-panel-filter!",
   composerHint as "composer-hint",
+  configActivationOfJson as "config-activation-of-json",
   configCliName as "config-cli-name",
   configDetailLines as "config-detail-lines!",
   configEntryActive as "config-entry-active?",
   configFoldRows as "config-fold-rows",
-  configGateModules as "config-gate-modules",
   configHeaderRoles as "config-header-roles",
   configKindTag as "config-kind-tag",
-  configMembershipOfJson as "config-membership-of-json",
-  configModuleMembers as "config-module-members",
   configNodeExpanded as "config-node-expanded?",
   configPanelLegend as "config-panel-legend",
   configPanelRows as "config-panel-rows",
@@ -166,11 +163,13 @@ export {
   configRowDepth as "config-row-depth",
   configRowLabel as "config-row-label",
   configRowMatches as "config-row-matches?",
+  configRowParts as "config-row-parts",
   configRowRole as "config-row-role",
   configRowScope as "config-row-scope",
   configRowSearchText as "config-row-search-text",
   configSectionRows as "config-section-rows",
   configSectionTitle as "config-section-title",
+  configSetInspectionText as "config-set-inspection-text!",
   configStateText as "config-state-text",
   configToggleVerb as "config-toggle-verb",
   configUnitActive as "config-unit-active?",
@@ -187,7 +186,6 @@ export {
   helpQueryRows as "help-query-rows",
   installKeys as "install-keys!",
   launchRouteFlags as "launch-route-flags",
-  loadConfigMemberships as "load-config-memberships!",
   normalizeAgents as "normalize-agents",
   paletteEnterAction as "palette-enter-action",
   paletteOptions as "palette-options",

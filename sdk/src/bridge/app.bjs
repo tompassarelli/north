@@ -156,10 +156,6 @@
   (let [configured String (text (.-NORTH_BIN (.-env process)))]
     (if (identical? configured "") "north" configured)))
 
-(def AGENTS-BIN String
-  (let [configured String (text (.-AGENTS_BIN (.-env process)))]
-    (if (identical? configured "") "agents" configured)))
-
 (def SUPERVISOR-BOOT-PROMPT String
   "You are the Northbridge supervisor. Reply only READY, then wait for operator input.")
 
@@ -316,10 +312,8 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
-   (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
-   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
+   (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
+   (->SlashCommand "/globals" "switchboard: global sets, skills, hooks" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -349,10 +343,8 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
-   (->SlashCommand "/plugins" "switchboard: plugins only" false "" false)
-   (->SlashCommand "/modules" "switchboard: orchestration modules only" false "" false)
-   (->SlashCommand "/globals" "switchboard: global knobs, skills, hooks" false "" false)
-   (->SlashCommand "/agentsmd" "switchboard: AGENTS.md and directory context" false "" false)
+   (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
+   (->SlashCommand "/globals" "switchboard: global sets, skills, hooks" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show thread commands" false "" false)])
 
@@ -1199,17 +1191,22 @@
          " · player " (if player (soundplayer-kind player) "none")
          " · " (text (.-soundDirectory runtime)))))
 
-;; `state` is the stored axis, which is not the same question for every kind. A
-;; skill or knob stores `on`/`off` — whether it is active. A hook stores
-;; `enabled`/`disabled` — whether the user permits it; its activity is derived
-;; by config-entry-active?. `detail` carries the manifest's optional fourth
-;; column: a `dir` row's triggering directory or a bound `hook` row's followed
-;; unit, and is empty for three-column rows.
+;; The first four fields keep the panel's small row vocabulary; every remaining
+;; field is copied from the resolved activation generation. `state` is the
+;; unit's own permission, while `active` is authority-resolved and is never
+;; recomputed by Bridge.
 (defrecord ConfigEntry
   [kind String
    name String
    state String
-   detail String])
+   detail String
+   title String
+   active Bool
+   owner String
+   members Any
+   supports Any
+   distributions Any
+   activationPaths Any])
 
 ;; A hook's stored axis is permission, not activity. The pre-two-axis spelling
 ;; `on` is gone: the CLI normalises every hook row to enabled/disabled when it
@@ -1217,38 +1214,11 @@
 ;; can no longer reach this panel. Reading one as permission would now be a
 ;; guess about a shape that does not occur.
 (defn config-hook-enabled? [state String] Bool
-  (identical? state "enabled"))
+  (not (or (identical? state "disabled") (identical? state "off"))))
 
-;; Membership is not in the manifest. A module's roster lives beside it in
-;; modules.d/<module>.json, so joining a bundle never rewrites the member's own
-;; row — the member keeps its own switch and gains a gate. One record per file
-;; that exists; a module with no file has no roster at all, which is a different
-;; fact from a module whose roster is empty (that one shows `0 members`).
-(defrecord ModuleMembership
-  [module String
-   members Any])
-
-;; Pure: the modules whose roster names this unit. Union semantics live here —
-;; a unit shared by two bundles has two owners and needs only one of them on.
-(defn config-owner-modules
-  [memberships Any
-   name String] Any
-  (.map (.filter memberships
-                 (fn [membership Any] Bool
-                   (.includes (modulemembership-members membership) name)))
-        (fn [membership Any] String
-          (modulemembership-module membership))))
-
-;; Pure: this module's roster, or nil when modules.d carries no file for it.
-;; Absence and emptiness are different answers and the row says so.
-(js/export
- (defn config-module-members
-   [memberships Any
-    name String] Any
-   (let [found Any (.find memberships
-                     (fn [membership Any] Bool
-                       (identical? (modulemembership-module membership) name)))]
-    (if found (modulemembership-members found) nil))))
+(defn config-entry-members [entry Any] Any
+  (let [members Any (.-members entry)]
+    (if (Array/isArray members) members [])))
 
 ;; The kinds that are rows inside a directory's subtree rather than sections of
 ;; their own: the directory's instruction file (`ins`), the gate over its
@@ -1317,8 +1287,8 @@
 ;; Everything under a directory gate is addressed THROUGH it, because that is
 ;; what it is: `code/AGENTS.md` is that directory's instruction file,
 ;; `code/memories` the group, and any other leaf is a memory by its file name.
-;; The slash is what keeps memory names out of the bare namespace a companion or
-;; a module member is written in — two directories may both remember `style.md`
+;; The slash is what keeps memory names out of the bare unit namespace — two
+;; directories may both remember `style.md`
 ;; — and it is what ends the collision the slug used to have with its own
 ;; subtree: `agents off code` closes the directory, and nothing else answers to
 ;; that name any more.
@@ -1406,59 +1376,15 @@
 
       :else nil)))
 
-;; Pure: the whole activity formula, walked along one path so a cycle can be
-;; seen. A unit is active when
-;;
-;;   its own switch is on
-;;   AND (it belongs to no module OR at least one module holding it is active)
-;;   AND (for a hook, the unit it follows is active — the full chain, not that
-;;        unit's own switch, because a companion inside a switched-off bundle
-;;        is not composing either)
-;;   AND (for a row inside a directory's subtree, the gate over that subtree is
-;;        active — the same full chain, for the same reason)
-;;
-;; `trail` is the rows already on this path, keyed by kind AND name: a
-;; directory's slug names three rows now, and keying on the name alone would
-;; read `ins code` gating on `dir code` as a cycle.
+;; Activity is copied verbatim from the resolved generation. The extra
+;; parameters keep presentation helpers uniform; they never become inputs to
+;; another resolver.
 (defn config-active-along?
   [entry Any
-   manifest Any
-   memberships Any
-   trail Any] Bool
-  (let [kind String (configentry-kind entry)
-        name String (configentry-name entry)
-        key String (str kind " " name)]
-    (if (.includes trail key)
-      false
-      (let [walked Any (.concat trail [key])
-            hook? Bool (identical? kind "hook")
-            state String (configentry-state entry)
-            own? Bool (if hook?
-                   (config-hook-enabled? state)
-                   (identical? state "on"))
-            owners Any (config-owner-modules memberships name)
-            gated? Any (or (identical? (.-length owners) 0)
-                       (.some owners
-                              (fn [owner String] Bool
-                                (let [row Any (config-find-kind manifest "module"
-                                                            owner)]
-                                  (if row
-                                    (config-active-along? row manifest
-                                                          memberships walked)
-                                    false)))))
-            companion String (if hook? (text (configentry-detail entry)) "")
-            followed? Bool (if (identical? companion "")
-                        true
-                        (let [row Any (config-find-companion manifest companion)]
-                          (if row
-                            (config-active-along? row manifest memberships
-                                                  walked)
-                            false)))
-            gate Any (config-subtree-gate manifest kind name)
-            scoped? Bool (if gate
-                      (config-active-along? gate manifest memberships walked)
-                      true)]
-        (and own? gated? followed? scoped?)))))
+   _manifest Any
+   _memberships Any
+   _trail Any] Bool
+  (if (.-active entry) true false))
 
 ;; Pure: the derived axis. Needs the whole manifest, not the filtered view —
 ;; /hooks shows no companion rows at all and still has to say which of its hooks
@@ -1481,44 +1407,6 @@
     name String] Bool
    (let [entry Any (config-find-entry manifest name)]
     (if entry (config-entry-active? entry manifest memberships) false))))
-
-;; Pure: the rows that are the reason this row is not composing — the gate over
-;; its subtree when that gate is closed, plus every module holding it when none
-;; of them is active. Empty when nothing above it is in the way, because then
-;; naming anything would be noise.
-;;
-;; One hop, never the whole chain: a memory names `memories`, and the memories
-;; row names the directory that closed it. That is the same reading a gated
-;; skill already gets — it names the bundle directly over it, and that bundle's
-;; own row names whatever is over IT — so a subtree reads top-down as a ladder
-;; rather than repeating the root on every rung.
-(js/export
- (defn config-gate-modules
-   [entry Any
-    manifest Any
-    memberships Any] Any
-   (let [kind String (configentry-kind entry)
-         name String (configentry-name entry)
-         gate Any (config-subtree-gate manifest kind name)
-         scope (Vec String) (if (and gate
-                       (not (config-entry-active? gate manifest memberships)))
-                [(config-provenance-name (configentry-kind gate)
-                                         (configentry-name gate))]
-                [])
-         owners Any (config-owner-modules memberships name)
-         open? Any (or (identical? (.-length owners) 0)
-                  (.some owners
-                         (fn [owner String] Bool
-                           (let [row Any (config-find-kind manifest "module" owner)]
-                             (if row
-                               (config-entry-active? row manifest memberships)
-                               false)))))]
-     (.concat scope
-             (if open?
-               []
-               (.map owners
-                     (fn [owner String] String
-                       (config-provenance-name "module" owner))))))))
 
 ;; Pure: the state a row is in — ONE token, and a qualifier only where the row
 ;; diverges from what that token would let you assume.
@@ -1546,36 +1434,9 @@
     memberships Any
     active? Bool
     nested? Bool] String
-   (let [state String (configentry-state entry)
-         hook? Bool (identical? (configentry-kind entry) "hook")
-         own? Bool (if hook? (config-hook-enabled? state) (identical? state "on"))
-         gates Any (config-gate-modules entry manifest memberships)
-         gate-note String (if (identical? (.-length gates) 0)
-                    ""
-                    (str " (" (.join gates ", ") " off)"))
-         companion String (if hook? (text (configentry-detail entry)) "")
-         followed Any (config-find-companion manifest companion)
-         provenance String (if (or nested? (identical? companion ""))
-                     ""
-                     (str " · "
-                          (config-provenance-name
-                           (if followed (configentry-kind followed) "")
-                           companion)))
-         claimant-off? Any (and followed
-                           (not (config-entry-active? followed manifest
-                                                      memberships)))
-         reason String (cond
-                 (not (identical? gate-note "")) gate-note
-                 claimant-off? (str " ("
-                                    (config-provenance-name
-                                     (configentry-kind followed) companion)
-                                    " off)")
-                 :else "")]
-     (cond
-      (and hook? (not own?)) "disabled"
-      (not own?) "off"
-      active? (str "on" provenance)
-      :else (str "off" reason)))))
+   (let [state String (text-or (configentry-state entry) "default")
+         resolved String (if active? "on" "off")]
+     (str resolved " · permission " state))))
 
 ;; Pure: which CLI verb a space on this row means. Both axes flip through the
 ;; same two verbs — `off` pins a hook disabled or switches a unit off, `on`
@@ -1602,11 +1463,8 @@
 ;; other — `global`, whose directory is `~` — and it reads first because every
 ;; narrower scope is layered on top of it.
 ;;
-;; Only the global node carries skills, hooks, modules, plugins and loose
-;; switches today, because the CLI has no per-directory spelling for them yet.
-;; The shape does not know that: a row names the directory it is scoped to, and
-;; the day a project can carry its own skills they slot into that project's node
-;; with nothing here to change.
+;; Resolved activation units are global; directory-local rows are not part of
+;; this generation contract.
 ;; ---------------------------------------------------------------------------
 
 ;; Pure: the directory node a row belongs under. A `dir` row is its own node; a
@@ -1632,15 +1490,9 @@
  (defn config-view-includes?
    [view String
     kind String
-    name String] Bool
+    _name String] Bool
    (cond
-    (identical? view "all") true
-    (identical? kind "dir")
-    (if (identical? view "globals") (identical? name GLOBAL-DIR-NAME) true)
-    (identical? view "globals")
-    (and (identical? (config-row-scope kind name) GLOBAL-DIR-NAME)
-         (not (identical? kind "plugin")))
-    (identical? view "agentsmd") (config-subtree-kind? kind)
+    (or (identical? view "all") (identical? view "globals")) true
     :else (identical? kind view))))
 
 ;; A view that asked a narrow question prints only the nodes that answer it: an
@@ -1648,37 +1500,17 @@
 ;; saying nothing. The full tree keeps its empty nodes — a directory you have
 ;; registered exists whether or not anything is scoped to it yet, and that is
 ;; the fact /config is for.
-(defn config-view-prunes? [view String] Bool
-  (not (or (identical? view "all")
-           (identical? view "globals")
-           (identical? view "agentsmd"))))
+(defn config-view-prunes? [_view String] Bool false)
 
 ;; Folding is for the view that shows everything. A narrowed view is already an
 ;; answer; hiding its rows behind a fold would leave it answering nothing.
 (js/export
  (defn config-view-folds? [view String] Bool
-  (identical? view "all")))
+  false))
 
 ;; ---------------------------------------------------------------------------
-;; A row's ROLE is what it does here, which is not always what kind it is. The
-;; manifest's vocabulary is older than the panel's:
-;;
-;;   a `module` row is a SET — a roster in modules.d that carries other units,
-;;   and the coarsest switch a node has;
-;;   a `skill` that some hook follows is a MODULE — it brings enforcement with
-;;   it, so it reads with its hooks nested under it rather than beside them;
-;;   a `skill` nobody follows is a plain SKILL;
-;;   a `hook` that follows a skill in view is that skill's, and is drawn there;
-;;   only the unclaimed ones need a HOOKS heading of their own.
-;;
-;; Derived, never stored: the relation already exists in the manifest — a bound
-;; hook names the unit it follows — so this is reading what is there, not asking
-;; the CLI for a new column.
-;;
-;; The basis is the rows the VIEW carries, not the whole manifest and not the
-;; filtered subset: a narrow view that admits no hooks has no modules in it,
-;; which is the truth about what is on screen, and a live filter must not make
-;; rows change depth as you type.
+;; A row's role is its authority-owned kind. Skills stay skills even when they
+;; own hooks; nesting comes only from explicit set membership.
 (defn config-hook-companion [entry Any] String
   (if (identical? (configentry-kind entry) "hook")
     (text (configentry-detail entry))
@@ -1696,45 +1528,22 @@
 (js/export
  (defn config-row-role
    [entry Any
-    rows Any] String
-   (let [kind String (configentry-kind entry)
-         name String (configentry-name entry)]
-     (cond
-      (identical? kind "module") "moduleset"
-
-      (identical? kind "skill")
-      (if (> (.-length (config-skill-hooks rows name)) 0) "module" "skill")
-
-      (identical? kind "hook")
-      (let [companion String (config-hook-companion entry)]
-        (if (and (not (identical? companion ""))
-                 (.some rows
-                        (fn [row Any] Bool
-                          (and (identical? (configentry-kind row) "skill")
-                               (identical? (configentry-name row) companion)))))
-          "boundhook"
-          "hook"))
-
-      :else kind))))
+    _rows Any] String
+   (configentry-kind entry)))
 
 ;; Reading order inside a node: what the directory SAYS before what it turns on.
 ;; Its instruction file and its memories are the directory itself speaking, and
 ;; they are the reason you opened the node; the switches under them are things
-;; that happen to be in force there. Then the coarsest of those first — the sets
-;; that carry everything, the skills (modules with their hooks, then the plain
-;; ones), the hooks nobody claimed, other people's plugins, the loose switches.
+;; that happen to be in force there. Resolved units then read sets, skills, and
+;; hooks.
 (defn config-section-rank [role String] Int
   (cond
     (identical? role "ins") 0
     (identical? role "memroot") 1
     (identical? role "mem") 2
-    (identical? role "moduleset") 3
-    (identical? role "module") 4
-    (identical? role "boundhook") 5
-    (identical? role "skill") 6
-    (identical? role "hook") 7
-    (identical? role "plugin") 8
-    (identical? role "other") 9
+    (identical? role "set") 3
+    (identical? role "skill") 4
+    (identical? role "hook") 5
     :else 10))
 
 ;; The global profile is the file every other node is read on top of, so its
@@ -1750,61 +1559,12 @@
 ;; row the panel cannot nest is still a switch that exists and silently dropping
 ;; rows is the one failure a switchboard exists to prevent.
 (defn config-tree-rows [entries Any] Any
-  (let [dirs Any (.filter entries
-                      (fn [entry Any] Bool
-                        (identical? (configentry-kind entry) "dir")))
-        kids Any (.filter entries
-                      (fn [entry Any] Bool
-                        (not (identical? (configentry-kind entry) "dir"))))
-        ordered Any (.sort (.slice dirs)
-                       (fn
-                         [a Any
-                          b Any] Int
-                         (- (config-node-rank a) (config-node-rank b))))
-        tree (Vec Any) []]
-    (.forEach ordered
-              (fn [node Any] Any
-                (.push tree node)
-                ;; Stable, so rows keep the order the CLI wrote them in
-                ;; wherever the section order has nothing to say.
-                (let [slug String (configentry-name node)
-                      owned Any (.filter kids
-                                     (fn [child Any] Bool
-                                       (identical?
-                                        (config-row-scope
-                                         (configentry-kind child)
-                                         (configentry-name child))
-                                        slug)))
-                      sorted Any (.sort owned
-                                    (fn
-                                      [a Any
-                                       b Any] Int
-                                      (- (config-section-rank
-                                          (config-row-role a entries))
-                                         (config-section-rank
-                                          (config-row-role b entries)))))]
-                  (.forEach sorted
-                            (fn [child Any] Any
-                              ;; A bound hook is drawn under the skill that
-                              ;; declared it, so it is placed by that skill and
-                              ;; skipped where the sort left it.
-                              (when (not (identical?
-                                          (config-row-role child entries)
-                                          "boundhook"))
-                                (.push tree child)
-                                (when (identical? (config-row-role child entries)
-                                                  "module")
-                                  (.forEach (config-skill-hooks
-                                             sorted (configentry-name child))
-                                            (fn [hook Any] Any
-                                              (.push tree hook))))))))))
-    ;; Whatever the tree could not place — a row scoped to a node this view does
-    ;; not carry, a bound hook whose skill it does not — keeps its place at the
-    ;; end rather than disappearing.
-    (.concat tree
-             (.filter kids
-                      (fn [child Any] Bool
-                        (not (.includes tree child)))))))
+  (.sort (.slice entries)
+         (fn
+           [a Any
+            b Any] Int
+           (- (config-section-rank (config-row-role a entries))
+              (config-section-rank (config-row-role b entries))))))
 
 ;; Pure: manifest rows -> the rows this view shows, as a tree. A node earns its
 ;; row by having something under it.
@@ -1988,73 +1748,48 @@
    (and (not (identical? (.trim query) ""))
        (not (config-row-matches? entry query)))))
 
-(defn config-manifest-path [] String
-  (str (text (.-HOME (.-env process))) "/.config/agents/manifest.conf"))
+(def ACTIVATION-SCHEMA String "north.agent-activation/v1")
 
-;; Where the rosters live. A static path the panel reads directly, on exactly
-;; the trust it already extends to the manifest: both are files the CLI writes
-;; and nobody else does. Injectable through the runtime so a test can point the
-;; reader at a fixture directory instead of the machine's real one.
-(defn config-modules-dir [runtime Any] String
-  (text-or (text (.-configModulesDir runtime))
+(defn config-activation-path [runtime Any] String
+  (text-or (text (.-configActivationPath runtime))
            (str (text (.-HOME (.-env process)))
-                "/code/nixos-config/main/dotfiles/agents/modules.d")))
+                "/.local/state/north/agents/current/activation.json")))
 
-;; Pure: one modules.d file -> one roster. A file that is unreadable JSON, or
-;; carries no `members` array, is a module with an empty roster and never an
-;; exception: a broken roster must not take the switchboard down with it.
+(defn config-array [value Any] Any
+  (if (Array/isArray value) value []))
+
+(defn config-unit-entry [unit Any] Any
+  (->ConfigEntry
+   (text (.-kind unit))
+   (text (.-id unit))
+   (text-or (text (.-permission unit)) "default")
+   (text (.-triggerDescription unit))
+   (text-or (text (.-title unit)) (text (.-id unit)))
+   (if (.-active unit) true false)
+   (text (.-owner unit))
+   (config-array (.-members unit))
+   (config-array (.-supports unit))
+   (config-array (.-distributions unit))
+   (config-array (.-activationPaths unit))))
+
+;; The selected immutable generation is the adapter seam. Rejecting every
+;; other schema before exposing a row keeps Bridge from silently inventing a
+;; legacy interpretation of authority-owned activity.
 (js/export
- (defn config-membership-of-json
-   [module String
-    content String] Any
-   (try
-    (let [parsed Any (JSON/parse content)
-          members Any (if (and parsed (Array/isArray (.-members parsed)))
-                    (.-members parsed)
-                    [])]
-      (->ModuleMembership module
-                          (.map members (fn [member Any] String
-                                          (text member)))))
-    (catch Error _ (->ModuleMembership module [])))))
-
-;; The roster directory need not exist — no module has ever been given members,
-;; or this machine has no nixos-config checkout — and that is not an error. No
-;; directory means no memberships, which means every unit gates on its own
-;; switch exactly as it did before bundles existed.
-(defn ^:async list-module-files! [directory String] (Promise Any)
-  (try
-    (let [listing String (await (run-command ["ls" directory]))]
-      (.filter (.split (.trim listing) "\n")
-               (fn [name String] Bool (.endsWith name ".json"))))
-    (catch Error _ [])))
-
-(defn ^:async read-module-file! [path String] (Promise String)
-  (try
-    (await (run-command ["cat" path]))
-    (catch Error _ "")))
-
-(js/export
- (defn ^:async load-config-memberships! [directory String] (Promise Any)
-  (let [files Any (await (list-module-files! directory))
-        contents Any (await
-                  (.all Promise
-                   (.map files (fn [file String] Any
-                                 (read-module-file! (str directory "/" file))))))]
-    (.map files
-          (fn
-            [file String
-             index Int] Any
-            (let [file-length Int (.-length file)]
-              (config-membership-of-json
-               (.slice file 0 (- file-length 5))
-               (text (nth contents index)))))))))
-
-(defn ^:async ensure-config-manifest! [] (Promise Any)
-  ;; `agents status` creates the manifest; only pay for it when absent.
-  (try
-    (await (run-command ["test" "-f" (config-manifest-path)]))
-    (catch Error _
-      (await (run-command [AGENTS-BIN "status"])))))
+ (defn config-activation-of-json [content String] Any
+   (let [parsed Any (JSON/parse content)
+         schema String (text (.-schema parsed))
+         units Any (.-units parsed)]
+     (when (not (identical? schema ACTIVATION-SCHEMA))
+       (throw (new Error
+               (str "unsupported activation schema: "
+                    (text-or schema "missing")))))
+     (when (not (Array/isArray units))
+       (throw (new Error "activation generation has no ordered units")))
+     {:schema schema
+      :digest (text (.-catalogDigest parsed))
+      :generation (text (.-generationId parsed))
+      :units (.map units config-unit-entry)})))
 
 ;; Filter mode is a state of the open panel, not of the manifest: the query and
 ;; the mode are separate facts because `/` with nothing typed yet is already
@@ -2160,33 +1895,26 @@
     :else "climb")))
 
 (defn ^:async load-config-entries! [runtime Any] (Promise Any)
-  (await (ensure-config-manifest!))
-  ;; The filtered rows drive the panel, while the full manifest and rosters
-  ;; derive activity. Cursor clamping follows the filtered list, and this load
-  ;; owns the render that exposes its result.
-  (let [content String (await (run-command ["cat" (config-manifest-path)]))
-        memberships Any (await (load-config-memberships!
-                               (config-modules-dir runtime)))
-        config-filter String (text-or (text (.-configFilter runtime)) "all")
-        lines Any (.filter (.split content "\n")
-                       (fn [line String] Bool
-                         (not (identical? (.trim line) ""))))
-        all-entries Any (.map lines
-                          (fn [line String] Any
-                            (let [parts Any (.filter (.split (.trim line) " ")
-                                                 (fn [part String] Bool
-                                                   (not (identical? part ""))))]
-                              (->ConfigEntry (text (nth parts 0))
-                                             (text (nth parts 1))
-                                             (text (nth parts 2))
-                                             (.join (.slice parts 3) " ")))))
-        entries Any (config-view-rows all-entries config-filter)]
-    (set! (.-configAllEntries runtime) all-entries)
-    (set! (.-configMemberships runtime) memberships)
-    (set! (.-configEntries runtime) entries)
-    (clamp-panel-cursor! runtime)
-    (set! (.-configLoaded runtime) true)
-    (.render runtime)))
+  (try
+    (let [file ResponseValue (.file Bun (config-activation-path runtime))
+          content String (await (.text file))
+          activation Any (config-activation-of-json content)
+          all-entries Any (.-units activation)
+          config-filter String (text-or (text (.-configFilter runtime)) "all")
+          entries Any (config-view-rows all-entries config-filter)]
+      (set! (.-configDiagnostic runtime) "")
+      (set! (.-configGeneration runtime) (.-generation activation))
+      (set! (.-configDigest runtime) (.-digest activation))
+      (set! (.-configAllEntries runtime) all-entries)
+      (set! (.-configEntries runtime) entries))
+    (catch Error error
+      (set! (.-configAllEntries runtime) [])
+      (set! (.-configEntries runtime) [])
+      (set! (.-configDiagnostic runtime)
+            (str "activation unavailable — " (error-message error)))))
+  (clamp-panel-cursor! runtime)
+  (set! (.-configLoaded runtime) true)
+  (.render runtime))
 
 ;; An open panel holds the keyboard. The strip already works this way and for
 ;; the same reason: a surface with a cursor in it must not share the keys with a
@@ -2234,36 +1962,17 @@
 (defn ^:async edit-config-entry! [runtime Any] (Promise Any)
   (let [entries Any (config-panel-rows runtime)]
     (when (> (.-length entries) 0)
-      ;; A memory's address carries its directory (`code/architecture`);
-      ;; the instruction file's is the directory alone, because that is
-      ;; already what `agents path` resolves to that file.
       (let [entry-count Int (.-length entries)
             raw Any (.-configIndex runtime)
             index Int (Math/max 0 (Math/min (if raw raw 0)
                                               (- entry-count 1)))
-            entry Any (nth entries index)
-            raw-path String (await (run-command
-                                [AGENTS-BIN "path"
-                                 (config-cli-name (configentry-kind entry)
-                                                  (configentry-name entry))]))
-            path String (.trim raw-path)
-            editor String (text-or (text (.-EDITOR (.-env process))) "vi")
-            ghostty Any (.which Bun "ghostty")
-            kitty Any (.which Bun "kitty")
-            foot Any (.which Bun "foot")
-            xterm Any (.which Bun "xterm")
-            argv (U (Vec Any) Nil) (cond
-                   ghostty [ghostty "-e" editor path]
-                   kitty [kitty "--detach" editor path]
-                   foot [foot editor path]
-                   xterm [xterm "-e" editor path]
-                   :else nil)]
-        (when (nil? argv)
-          (throw (new Error "no supported terminal found for edit")))
-        (let [child Any (.spawn Bun {:cmd argv :stdin "ignore"
-                                 :stdout "ignore" :stderr "ignore"})]
-          (.unref child)
-          (publish-line! runtime (str "editing " path)))))))
+            entry Any (nth entries index)]
+        (when (identical? (configentry-kind entry) "set")
+          (set! (.-configInspectId runtime)
+                (if (identical? (text (.-configInspectId runtime))
+                                (configentry-name entry))
+                  ""
+                  (configentry-name entry))))))))
 
 (defn ^:async toggle-config-entry! [runtime Any] (Promise Any)
   (let [entries Any (config-panel-rows runtime)]
@@ -2274,9 +1983,8 @@
                                               (- entry-count 1)))
             entry Any (nth entries index)
             verb String (config-toggle-verb (configentry-state entry))]
-        (await (run-command [AGENTS-BIN verb
-                                (config-cli-name (configentry-kind entry)
-                                                 (configentry-name entry))]))
+        (await (run-command [(north-bin) "config" "agents" verb
+                            (configentry-name entry)]))
         ;; Reload the whole manifest, never patch the row that was flipped. One
         ;; skill flip changes the derived activity of every hook bound to it,
         ;; a directory flip changes every row in its subtree two links down, and
@@ -2419,17 +2127,11 @@
                                 (str "error: " (error-message error))))))
             true)
 
-          (identical? name "plugins")
-          (do (open-config-panel! runtime ui "plugin") true)
-
-          (identical? name "modules")
-          (do (open-config-panel! runtime ui "module") true)
+          (identical? name "sets")
+          (do (open-config-panel! runtime ui "set") true)
 
           (identical? name "globals")
           (do (open-config-panel! runtime ui "globals") true)
-
-          (identical? name "agentsmd")
-          (do (open-config-panel! runtime ui "agentsmd") true)
 
           (identical? name "restart")
           (do (restart-daemon! runtime) true)
@@ -3547,34 +3249,24 @@
 (js/export
  (defn config-section-title [role String] String
   (cond
-    (identical? role "moduleset") "SETS"
-    (identical? role "module") "MODULES"
+    (identical? role "set") "SETS"
     (identical? role "skill") "SKILLS"
     (identical? role "hook") "HOOKS"
-    (identical? role "plugin") "PLUGINS"
-    (identical? role "other") "OTHER"
     :else "")))
 
 ;; Pure: the headings a row sits under, outermost first — the full path, not
 ;; just the heading it introduces, so that "which heading does this row still
 ;; need printed" is answered by comparing paths and nothing has to remember what
-;; came before. MODULES is a subsection INSIDE skills rather than a sibling of
-;; it: a module is a skill — one that brings hooks with it — so it reads within
-;; SKILLS and not above it, and its hooks share its path exactly because they
-;; are drawn inside it.
+;; came before.
 ;;
 ;; A directory sits under nothing, and so do the files it carries: an empty path
 ;; is the root of the panel.
 (js/export
  (defn config-header-roles [role String] Any
   (cond
-    (identical? role "moduleset") ["moduleset"]
-    (identical? role "module") ["skill" "module"]
-    (identical? role "boundhook") ["skill" "module"]
+    (identical? role "set") ["set"]
     (identical? role "skill") ["skill"]
     (identical? role "hook") ["hook"]
-    (identical? role "plugin") ["plugin"]
-    (identical? role "other") ["other"]
     :else [])))
 
 ;; Pure: those headings as keys that say which NODE they belong to, so two
@@ -3612,10 +3304,8 @@
   (cond
     (identical? config-filter "hook") "hooks"
     (identical? config-filter "skill") "skills"
-    (identical? config-filter "plugin") "plugins"
-    (identical? config-filter "module") "modules"
+    (identical? config-filter "set") "sets"
     (identical? config-filter "globals") "globals"
-    (identical? config-filter "agentsmd") "directory context"
     :else "context switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
@@ -3660,10 +3350,8 @@
   (str count (if (identical? count 1) " member" " members")))
 
 ;; One row's label: what the row calls itself, plus whatever it has to add after
-;; the state. A `dir` row adds its directory. A `module` row adds the size of its
-;; roster, which is the one fact about a bundle that is nowhere else on screen —
-;; and only when modules.d actually carries a file for it, so "no roster yet" and
-;; "a roster with nobody in it" stay different answers. Clipped to the panel so
+;; the state. A set row adds the size of its ordered member list. Clipped to the
+;; panel so
 ;; a long path cannot wrap and desync the rendered height from
 ;; detail-body-lines. A hook's fourth field is the unit it follows, which the
 ;; state column already carries as provenance — printing it twice on one row
@@ -3701,8 +3389,8 @@
 ;; that already names its kind does not — HOOKS says it once over the whole
 ;; section, and repeating it per row is the same duplication the state column
 ;; was carrying. A row nested inside another UNIT does: the heading over it names
-;; its parent's kind, so without the tag a hook under a module reads as another
-;; module. General rule rather than a hook special case — any kind that ends up
+;; its parent's kind. General rule rather than a hook special case — any kind
+;; that ends up
 ;; nested under a differently-kinded parent inherits it.
 ;;
 ;; Dim by construction at the call site: the tag says which sort of thing this
@@ -3738,15 +3426,17 @@
    (let [kind String (configentry-kind entry)
          name String (configentry-name entry)
          dir? Bool (identical? kind "dir")
-         members Any (config-module-members memberships name)
+         members Any (config-entry-members entry)
          detail String (cond
-                 (identical? kind "hook") ""
+                 (identical? kind "hook")
+                 (let [claims Any (config-array (.-supports entry))]
+                   (if (> (.-length claims) 0)
+                     (str "supports " (.join claims ", "))
+                     ""))
                  (config-subtree-kind? kind) ""
                  dir? ""
-                 (identical? kind "module")
-                 (if (nil? members)
-                   ""
-                   (config-member-count-text (.-length members)))
+                 (identical? kind "set")
+                 (config-member-count-text (.-length members))
                  :else (text (configentry-detail entry)))
          indent String (config-row-indent role)
          glyph String (config-fold-glyph dir? expanded?)
@@ -3778,11 +3468,6 @@
 (js/export
  (defn config-row-depth [role String] Int
   (cond
-    (identical? role "dir") 0
-    (identical? role "ins") 1
-    (identical? role "memroot") 1
-    (identical? role "module") 3
-    (identical? role "boundhook") 4
     :else 2)))
 
 (defn config-row-indent [role String] String
@@ -3795,15 +3480,90 @@
 (defn config-header-indent [index Int] String
   (.repeat " " (* CONFIG-INDENT-WIDTH (+ index 2))))
 
+(defn config-unit-parents
+  [entries Any
+   id String] Any
+  (.map
+   (.filter entries
+            (fn [entry Any] Bool
+              (and (identical? (configentry-kind entry) "set")
+                   (.includes (config-entry-members entry) id))))
+   (fn [entry Any] String (configentry-name entry))))
+
+(defn config-path-text [path Any] String
+  (if (Array/isArray path)
+    (.join (.map path (fn [id Any] String (text id))) " → ")
+    (text path)))
+
+(defn config-unit-summary
+  [entry Any
+   entries Any
+   parent String] String
+  (let [id String (configentry-name entry)
+        parents Any (config-unit-parents entries id)
+        others Any (.filter parents
+                            (fn [owner String] Bool
+                              (not (identical? owner parent))))
+        supports Any (config-array (.-supports entry))]
+    (str (configentry-kind entry) " " id
+         ": " (if (.-active entry) "on" "off")
+         " · permission " (text-or (configentry-state entry) "default")
+         (if (identical? (text (.-owner entry)) "")
+           ""
+           (str " · owner " (text (.-owner entry))))
+         (if (> (.-length supports) 0)
+           (str " · supports " (.join supports ", "))
+           "")
+         (if (> (.-length others) 0)
+           (str " · also in " (.join others ", "))
+           ""))))
+
+(defn config-inspection-walk!
+  [lines Any
+   entries Any
+   entry Any
+   parent String
+   depth Int
+   trail Any] Any
+  (let [id String (configentry-name entry)
+        indent String (.repeat "  " depth)
+        paths Any (config-array (.-activationPaths entry))]
+    (.push lines (str indent (if (> depth 0) "└─ " "")
+                      (config-unit-summary entry entries parent)))
+    (.forEach paths
+              (fn [path Any] Any
+                (.push lines (str indent "   activation: "
+                                  (config-path-text path)))))
+    (when (identical? (configentry-kind entry) "set")
+      (.forEach (config-entry-members entry)
+                (fn [member-id Any] Any
+                  (let [member String (text member-id)
+                        child Any (config-find-entry entries member)]
+                    (if (nil? child)
+                      (.push lines (str indent "  └─ missing unit " member))
+                      (if (.includes trail member)
+                        (.push lines (str indent "  └─ cycle " member))
+                        (config-inspection-walk!
+                         lines entries child id (+ depth 1)
+                         (.concat trail [member]))))))))
+    lines))
+
+(js/export
+ (defn config-set-inspection-text!
+   [entries Any
+    id String] String
+   (let [entry Any (config-find-entry entries id)]
+     (if (or (nil? entry)
+             (not (identical? (configentry-kind entry) "set")))
+       (str "set unavailable: " id)
+       (.join (config-inspection-walk! [] entries entry "" 0 [id]) "\n")))))
+
 (js/export
  (defn render-config-panel! [runtime Any] Any
   ;; The filtered rows, not the view's: what the panel draws is what the
   ;; cursor walks and what space flips, and one list decides all three.
-  ;; Derivation reads the whole manifest. A caller that has only the
-  ;; filtered rows (every sectioned view carries its own skills) gets the
-  ;; same answer from them.
-  ;; No rosters is a fact, not a missing input: before any module has
-  ;; members every unit gates on its own switch alone.
+  ;; Activity and provenance are already resolved by the selected generation;
+  ;; the full unit list remains available only for inspection traversal.
   ;; Roles are read off the view's rows, never the filtered ones: a row
   ;; must not change depth because a query hid its neighbour.
   ;; An unfocused panel is still on screen and no longer yours: the cursor
@@ -3823,13 +3583,24 @@
         config-filter String (text-or (text (.-configFilter runtime)) "all")
         filtering? Bool (panel-filtering? runtime)
         focused? Bool (panel-focused? runtime)
-        query String (panel-query runtime)]
-    (if (identical? total 0)
+        query String (panel-query runtime)
+        inspect-id String (text (.-configInspectId runtime))]
+    (cond
+      (not (identical? inspect-id ""))
+      (new StyledText
+           [(brightYellow "set inspection")
+            (brightBlack "  enter returns\n")
+            (brightWhite (config-set-inspection-text! manifest inspect-id))])
+
+      (identical? total 0)
       (new StyledText [(brightYellow (config-panel-title config-filter))
                     (brightCyan (config-query-field filtering? query))
-                    (brightBlack (config-empty-note
-                                  (if (.-configLoaded runtime) true false)
-                                  filtering?))])
+                    (brightBlack
+                     (text-or (text (.-configDiagnostic runtime))
+                              (config-empty-note
+                               (if (.-configLoaded runtime) true false)
+                               filtering?)))])
+      :else
       ;; A user pin stays dim even under the cursor. Filter context is dimmed;
       ;; a bound hook omits provenance already supplied by its parent. Section
       ;; headings print only where they diverge from the preceding row, and
@@ -3955,13 +3726,8 @@
 (def DETAIL-CHROME-ROWS Int 3)
 
 ;; Headings are content the panel inserts between rows, so the layout budgets
-;; for them: inside a node, SETS, SKILLS, its MODULES subsection, HOOKS,
-;; PLUGINS and OTHER. Six, because only the root node carries kind sections
-;; today — the day a project carries its own skills, a window spanning two nodes
-;; can print more, and this ceiling is where that is paid for. Directories head
-;; nothing at all, and a directory's own files and memories are ROWS rather than
-;; headings, so a deeper tree costs list rows and never a heading.
-(def CONFIG-SECTION-ROWS Int 6)
+;; for the three authority-owned kinds.
+(def CONFIG-SECTION-ROWS Int 3)
 
 (defn detail-visible-count
   [total Int
@@ -3978,8 +3744,7 @@
  (defn config-section-rows [view String] Int
   (cond
     (identical? view "all") CONFIG-SECTION-ROWS
-    (identical? view "globals") 5
-    (identical? view "agentsmd") 0
+    (identical? view "globals") CONFIG-SECTION-ROWS
     :else 1)))
 
 (js/export
