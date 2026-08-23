@@ -113,23 +113,32 @@
   (let [d (string-value-at idx te "do_on")]
   (and (some? d) (before? today d))))
 
-(defn ^Boolean assigned? [^ProjectionIndex idx ^String te]
-  (some? (string-value-at idx te "driver")))
+(def live-proven "LiveProven")
 
-(defn ^String classify [^ProjectionIndex idx ^String te ^String today before? live?]
+(def absent-proven "AbsentProven")
+
+(def unresolved "Unresolved")
+
+(defn ^Boolean assigned? [^ProjectionIndex idx ^String te]
+  (not (empty? (values-at idx te "driver"))))
+
+(defn ^String classify [^ProjectionIndex idx ^String te ^String today before? activity]
   (cond
   (terminal-i? idx te) "terminal"
   (blocked? idx te) "blocked"
-  (live? idx te) "active"
+  :else (let [judgment (activity idx te)]
+  (cond
+  (= judgment live-proven) "active"
+  (not (= judgment absent-proven)) "unresolved"
   (dormant? idx te today before?) "dormant"
   (some? (string-value-at idx te "committed")) "ready"
-  :else "draft"))
+  :else "draft"))))
 
-(defn ^Boolean eligible? [^ProjectionIndex idx ^String te ^String today before? live?]
-  (= (classify idx te today before? live?) "ready"))
+(defn ^Boolean eligible? [^ProjectionIndex idx ^String te ^String today before? activity]
+  (= (classify idx te today before? activity) "ready"))
 
-(defn ready [^ProjectionIndex idx ^String today before? live?]
-  (filterv (fn [^String te] (eligible? idx te today before? live?)) (work-thread-ids-i idx)))
+(defn ready [^ProjectionIndex idx ^String today before? activity]
+  (filterv (fn [^String te] (eligible? idx te today before? activity)) (work-thread-ids-i idx)))
 
 (defrecord Eligibility [state eligible reason])
 
@@ -139,26 +148,28 @@
 
 (defn eligibility-reason [r] (:reason r))
 
-(defn ^Eligibility explain [^ProjectionIndex idx ^String te ^String today before? live?]
-  (let [st (classify idx te today before? live?)]
+(defn ^Eligibility explain [^ProjectionIndex idx ^String te ^String today before? activity]
+  (let [st (classify idx te today before? activity)]
   (->Eligibility st (= st "ready") (cond
   (= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"
   (= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")
   (= st "active") "a live driver is on it now — being worked, not pull-able"
+  (= st "unresolved") "a driver is assigned but activity is not proved — retained, not pull-able"
   (= st "dormant") (str "scheduled for a future do_on (" (let [d (string-value-at idx te "do_on")]
   (if (some? d) d "?")) ") — dormant until then")
-  (= st "ready") "committed, unblocked, no live driver, not scheduled-later — pull anytime"
+  (= st "ready") "committed, unblocked, assignment absence proved, not scheduled-later — pull anytime"
   :else "uncommitted draft — decide + commit before it is work"))))
 
 (defn blocked [^ProjectionIndex idx]
   (filterv (fn [^String te] (and (not (terminal-i? idx te)) (blocked? idx te))) (work-thread-ids-i idx)))
 
-(defn ^String condition-i [^ProjectionIndex idx ^String te ^String today before? live?]
-  (classify idx te today before? live?))
+(defn ^String condition-i [^ProjectionIndex idx ^String te ^String today before? activity]
+  (classify idx te today before? activity))
 
 (defn- ^String default-emoji [^String c]
   (cond
   (= c "active") "🔵"
+  (= c "unresolved") "🟠"
   (= c "ready") "🟢"
   (= c "blocked") "🔴"
   (= c "dormant") "🟡"

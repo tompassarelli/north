@@ -82,7 +82,7 @@ at once, and each is true separately.
 |---|---|---|
 | **commitment** | `committed` (date) / `abandoned` (reason) | desired = committed ∧ ¬abandoned; canceled = abandoned |
 | **completion** | `outcome` (what came of it) | done = outcome present |
-| **activity** | `driver` (which actor is pushing it *now*) | active = driver present |
+| **assignment/activity** | `driver` (which actor owns the thread) | active = one valid live session lease; unresolved = assigned without positive liveness proof; absent = no driver in a complete projection |
 | **blocked** | `depends_on` (thread refs) | blocked = any target non-terminal |
 | **schedule** | `do_on` (start date), `valid_until` (expiry) | dormant-until = future do_on; stale = past valid_until |
 | **composition** | `part_of` (parent thread) | — (a project = thread with children) |
@@ -92,7 +92,7 @@ at once, and each is true separately.
 orthogonal when *stored*, but a single-bucket view (`plate`, `ready`, `next`) must
 pick *one* bucket per thread — so it applies one fixed **precedence**:
 
-> terminal (`outcome`/`abandoned`) → blocked → active → ready → dormant → draft
+> terminal (`outcome`/`abandoned`) → blocked → active → unresolved → dormant → ready → draft
 
 One shared classifier function; every view calls it; two views can never disagree
 (today `blocked` and `plate` disagree by 18 threads because there's no precedence —
@@ -108,13 +108,16 @@ kernel's identities and surfacing in the unified view, but never written into yo
 canonical intent log. They are **ephemeral** (TTL'd, garbage-collected, never durable
 history).
 
-- **lease** = `@lease:<resource>` · `holder` (agent), `epoch`, `expires_at`.
-  Mutual exclusion with liveness + fencing. Replaces agentchat's BUILD-LOCK.
-  **This is where the `driver`/lease conflation gets fixed: a lease is its own node
-  with its own predicates; `driver` stays the activity signal on threads. They never
-  share a cell again.**
-- **session** = `@session:<agent>` · `agent`, `started_at`, `heartbeat`, `task`.
-  Liveness/presence (online = fresh heartbeat). Replaces agentchat presence files.
+- **lease** = `Triple(<resource>, :kernel/lease,
+  Triple(<holder>, :kernel/expires-at, <expiry-ms>))`. Session presence uses the
+  resource `session:<handle>` with the same handle as holder. The Store lease
+  operation owns mutual exclusion, expiry, and fencing; only one valid,
+  unexpired matching session lease proves a thread driver live. **This is where
+  the `driver`/lease conflation gets fixed: `driver` is durable assignment and
+  the typed Store lease is ephemeral activity proof. They never share a cell.**
+- **session metadata** = `@agent:<handle>` facts such as `current_thread`, kept
+  separate from the `session:<handle>` lease resource. Metadata describes the
+  session; it is not liveness evidence.
 
 These never carry `title` or `name`, so they're never mistaken for threads or
 people, and a query for "real work" structurally excludes them. The scratch/probe
@@ -131,9 +134,10 @@ thread model:
 - Agents pick up work by asking the graph **"what's `ready` and unresolved?"** —
   `ready` / `next` / `plate`, the same projections you use, filtered to a lane
   (by `owner`, or by `relates_to @some-topic`, or by `lead @themselves`).
-- An agent **acquires** a thread by setting `driver @itself` (→ active). It records
-  progress as it goes and `outcome` when done. `depends_on` gives execution order
-  for free.
+- An agent **acquires** a thread by setting `driver @itself`; a matching current
+  session lease makes it active. Without that proof the assignment remains visible
+  as unresolved and cannot re-enter `ready`. It records progress as it goes and
+  `outcome` when done. `depends_on` gives execution order for free.
 - Because the work *is* the shared graph, most of agentchat's message bus
   **dissolves** — agents coordinate *stigmergically* through thread state (acquire,
   resolve, depend) rather than by mailing each other. Directed messages shrink to a
@@ -176,7 +180,7 @@ already writes its own scratch log, never your canonical one.)*
 a derivation, answer a query, or trigger a behavior. The audit:
 
 **Keep (load-bearing):** `title` (kind), `committed`/`outcome`/`abandoned` (lifecycle
-axes), `driver` (activity), `depends_on` (blocked+order), `part_of` (hierarchy),
+axes), `driver` (assignment), `depends_on` (blocked+order), `part_of` (hierarchy),
 `relates_to` (grouping — most-used, 587), `valid_until` (staleness), `estimate_hours`
 (planning), `lead` (accountability), `created_at`/`updated_at` (chronology), `repo`
 (navigation), `name` (person kind), `clarifies`/`amends` (belief-revision →

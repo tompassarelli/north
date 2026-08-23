@@ -8,6 +8,13 @@
 (def wip-cli (str root "/cli/wip-cli.clj"))
 
 (System/setProperty "north.wip.lib" "1")
+(create-ns 'north.coord)
+(intern 'north.coord 'PORT "7977")
+(intern 'north.coord 'query-page-row-limit 4096)
+(intern 'north.coord 'telemetry-partition-enabled?
+        (fn [] (throw (ex-info "unstubbed telemetry query" {}))))
+(intern 'north.coord 'query-page-in-domain
+        (fn [& _] (throw (ex-info "unstubbed Store query" {}))))
 (System/setProperty "babashka.file" wip-cli)
 (load-file wip-cli)
 
@@ -33,6 +40,10 @@
    ["@ready-b" "title" "second pull"]
    ["@ready-b" "committed" "2026-07-28"]
    ["@ready-b" "created_at" "2026-07-28"]
+   ["@uncertain" "title" "assigned without live control"]
+   ["@uncertain" "committed" "2026-07-28"]
+   ["@uncertain" "driver" "@missing-control"]
+   ["@uncertain" "updated_at" "2026-07-28"]
    ["@dependent" "depends_on" "@ready-a"]
    ["@concern-ready" "title" "not work"]
    ["@concern-ready" "kind" "concern"]
@@ -62,6 +73,14 @@
               (str/ends-with?
                output
                "WIP 2/3 — SHORTFALL: pull @ready-a @ready-b")))
+  (check "unresolved assignment is rendered but never pullable"
+         (and (= 1 (:unresolved-depth report))
+              (= [{:thread "@uncertain"
+                   :title "assigned without live control"
+                   :driver "@missing-control"}]
+                 (:unresolved report))
+              (str/includes? output "UNRESOLVED ASSIGNMENTS — 1")
+              (not (some #{"@uncertain"} (map :thread (:top report))))))
   (check "live managed lanes carry their reservation thread bindings"
          (= [{:control "lane-a" :thread "@lane-thread-a"
               :title "lane A work" :binding-conflict false}
@@ -111,11 +130,48 @@
             (= {:check true :floor 5}
                (north.wip-cli/parse-options ["--floor" "5" "--check"]))))
 
+(let [idx (north.wip-cli/rows->index
+           [["@absent" "title" "absent"]
+            ["@live" "title" "live"]
+            ["@live" "driver" "@lane-a"]
+            ["@unresolved" "title" "unresolved"]
+            ["@unresolved" "driver" "@offline"]
+            ["@conflict" "title" "conflict"]
+            ["@conflict" "driver" "@lane-a"]
+            ["@conflict" "driver" "@offline"]])
+      activity (north.wip-cli/driver-activity-predicate #{"lane-a"})]
+  (check "hosted WIP derives the same three activity judgments"
+         (and (= north.projections/absent-proven (activity idx "@absent"))
+              (= north.projections/live-proven (activity idx "@live"))
+              (= north.projections/unresolved (activity idx "@unresolved"))
+              (= north.projections/unresolved (activity idx "@conflict")))))
+
+(check "malformed or conflicting session leases fail the WIP projection closed"
+       (and
+        (try
+          (north.wip-cli/live-controls-from-rows
+           [["session:broken" :kernel/lease "bad"]] now-ms)
+          false
+          (catch clojure.lang.ExceptionInfo _ true))
+        (try
+          (north.wip-cli/live-controls-from-rows
+           [["session:duplicate" :kernel/lease
+             (store.types/triple "duplicate" :kernel/expires-at 2000000000000)]
+            ["session:duplicate" :kernel/lease
+             (store.types/triple "duplicate" :kernel/expires-at 3000000000000)]]
+           now-ms)
+          false
+          (catch clojure.lang.ExceptionInfo _ true))))
+
 (let [coordination-rows
       [["@work" "title" "new \"quoted\" title"]
        ["@work" "committed" "2026-07-28"]
        ["@agent:lane-a" "kind" "lane"]
-       ["@agent:coordinator" "current_thread" "@floor-thread"]]
+       ["@agent:coordinator" "current_thread" "@floor-thread"]
+       ["session:coordinator" :kernel/lease
+        (store.types/triple "coordinator" :kernel/expires-at 2000000000000)]
+       ["session:lane-a" :kernel/lease
+        (store.types/triple "lane-a" :kernel/expires-at 2000000000000)]]
       telemetry-rows
       [["@run:one" "run_reservation_agent" "@agent:lane-a"]
        ["@run:one" "run_reservation_thread" "@work"]]
@@ -142,20 +198,17 @@
   (check "WIP reads coordination and telemetry through bounded query pages"
          (and (= #{:coordination :telemetry} (set (map first @calls)))
               (every? #(= north.wip-cli/selected-page-limit (nth % 2)) @calls)
-              (every? nil? (mapcat #(subvec (vec %) 3) @calls))))
-  (let [lease-calls (atom [])
-        presence
+              (every? nil? (mapcat #(subvec (vec %) 3) @calls))
+              (some #{:kernel/lease}
+                    (mapcat (fn [[_ query]]
+                              (map #(get-in % [:head :args 1]) (:rules query)))
+                            @calls))))
+  (let [presence
         (with-redefs
-         [north.wip-cli/coordination-state (constantly state)
-          north.coord/online-session-leases
-          (fn [port now-ms]
-            (swap! lease-calls conj [port now-ms])
-            [{:handle "coordinator" :exp 2000000000000}
-             {:handle "lane-a" :exp 2000000000000}])]
+         [north.wip-cli/coordination-state (constantly state)]
           (north.wip-cli/presence-state 1000000000000))]
-    (check "WIP obtains live controls through one canonical lease scan"
-           (and (= [[7977 1000000000000]] @lease-calls)
-                (= ["coordinator" "lane-a"] (:controls presence))
+    (check "WIP derives live controls from the same coherent fact projection"
+           (and (= ["coordinator" "lane-a"] (:controls presence))
                 (= #{"lane-a"} (:managed presence))))))
 
 (if (seq @failures)

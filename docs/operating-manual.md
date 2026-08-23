@@ -116,7 +116,7 @@ ones in live use (run `north show <id>` on a few real threads to see them):
 | `title`        | string literal      | human-readable title. **Its presence is what makes a node a thread.** |
 | `owner`        | literal             | the entity the thread serves (`personal`, a client like `acme`, …) |
 | `lead`         | person ref `@h`     | person accountable for the thread landing                          |
-| `driver`       | person/agent ref    | who is *currently* pushing it (presence ⇒ derived **active**)      |
+| `driver`       | person/agent ref    | who is assigned; one matching live session lease proves **active**, otherwise the assignment is **unresolved** |
 | `source`       | literal             | where it originated (`tom`, `ai`, `stakeholder`, `client`, `bug`, `observation`, `system`, `migrated`) |
 | `proposed_by`  | person ref(s)       | conceptual originator(s); repeat the line for shared authorship    |
 | `created_by`   | person/agent ref    | mechanical author of the record                                    |
@@ -216,7 +216,7 @@ readers do.
 
 ## Lifecycle is derived, not stored
 
-**There is no `state` enum.** `draft`/`ready`/`active`/`done`/`canceled` are
+**There is no `state` enum.** `draft`/`ready`/`active`/`unresolved`/`done`/`canceled` are
 *not* values you write anywhere. A thread's condition is a **query over its
 facts** along orthogonal axes:
 
@@ -225,16 +225,16 @@ facts** along orthogonal axes:
 | commitment / desire      | `committed` present (and no `abandoned`) ⇒ accepted and wanted       |
 | completion               | `outcome` present ⇒ done                                             |
 | cancellation             | `abandoned` present ⇒ canceled (reason is the object)               |
-| activity (cycles)        | a `driver` set / a clock running *now* ⇒ active; else dormant       |
+| assignment / activity    | no driver in a complete projection ⇒ absent; one valid matching live session lease ⇒ active; any other assignment evidence ⇒ unresolved |
 | blocked (cycles)         | any `depends_on` target not yet terminal ⇒ blocked                  |
 
 The derived conditions you'll actually use (all `north` projections):
 
-- **ready** = committed ∧ not blocked ∧ not active ∧ no outcome
+- **ready** = committed ∧ not blocked ∧ driver absence proved ∧ not future-scheduled ∧ no outcome
 - **blocked** = a `depends_on` target is still open
-- **active** = has a `driver` (or a live clock) now
-- **dormant** = committed ∧ not active ∧ not done ∧ not abandoned (the "wanted but
-  resting" case the old enum had no honest home for)
+- **active** = exactly one assigned driver has one valid, unexpired matching session lease
+- **unresolved** = a driver is assigned but current activity cannot be proved; retained and never pullable
+- **dormant** = carries a future `do_on`; excluded from `ready` until that date
 - **done** = `outcome` present
 - **abandoned** = `abandoned` present
 - **desired** = committed ∧ not abandoned
@@ -242,9 +242,10 @@ The derived conditions you'll actually use (all `north` projections):
 So lifecycle is moved by **adding facts**, not by editing a status field:
 
 - Capturing creates a `committed` thread (accepted, in-play) by default.
-- To pick it up, add a `driver` → it's active. To set it down, drop the driver
-  → it goes dormant; the commitment survives. (No `paused` state — dormant *is*
-  paused, derived.)
+- To pick it up, add a `driver`; it is active while that driver's matching
+  session lease is live. Without the lease it is unresolved, not ready. To set
+  it down, retract the driver; a committed unscheduled thread becomes ready and
+  the commitment survives.
 - To finish: add `outcome "<what came of it>"`.
 - To cancel: add `abandoned "<reason>"`. The reason lives inline in the object.
 - For a speculative capture you haven't accepted yet, simply **omit
@@ -349,7 +350,7 @@ Threads with `source ai` carry habits (not enforced):
 
 - Give them a near-term `valid_until` (`created_at + ~14 days`) unless promoted —
   AI proposals expire fast.
-- Don't put a `driver` on them at birth — active is a deliberate pickup Tom owns.
+- Don't put a `driver` on them at birth — assignment is a deliberate pickup Tom owns.
 - Record the human review in `## Log`.
 
 ---
@@ -563,7 +564,7 @@ north ready       # curated: top 15 work threads by leverage (--all = every read
 north blocked     # waiting on a depends_on target
 north next        # the recommended next pull
 north agenda      # calendar projection: buckets by do_on (overdue/today/next N)
-north threads     # curated: active drivers + top-15 ready + counts (--all = full kanban)
+north threads     # curated: live-proven active + unresolved assignments + top-15 ready + counts (--all = full kanban)
 north leverage    # high-leverage threads (most unblocks downstream)
 north schema      # vocabulary census: subjects/facts by entity kind + predicate metadata
 north show <id>   # one thread's facts + body; resolves id/slug/substring
@@ -584,8 +585,8 @@ same way a "project" is just a thread with children. `threads` buckets threads
 by *derived* condition.
 
 `threads` and `ready` **default to signal, not the full dump.** Bare `threads`
-shows the active drivers (who's on what, rendered by `display_name`), the top ~15
-ready threads by leverage, and a counts line (open/active/ready/blocked +
+shows lease-proven active drivers, unresolved assignments, the top ~15 ready
+threads by leverage, and a counts line (open/active/unresolved/ready/blocked +
 open-concern count); it scopes to `kind thread`, so the ~200 concerns and
 telemetry subjects that also carry a `title` no longer drown the work graph. Bare
 `ready` is the top 15 by leverage. `--all` on either restores the complete
@@ -1053,15 +1054,16 @@ actual work session — what an AI does when Tom starts *doing* something.
    - `repo` against the active checkout / cwd
    - title and body grep against the topic of recent messages
 
-   If one matches, surface its title, derived condition (ready/active/blocked/
-   dormant), and the relevant body sections (`## Acceptance`, open `## Log`). If
+   If one matches, surface its title, derived condition (ready/active/unresolved/
+   blocked/dormant), and the relevant body sections (`## Acceptance`, open `## Log`). If
    several match, list and ask. If none match, ask whether to create one — only
    if the work looks substantive. One-off chores don't need threads.
 
-2. **Activate on engagement, not on mention.** A committed-but-dormant thread Tom
-   starts actually executing should become active by setting a `driver` — but
-   not silently. Offer it; `north tell <id> driver @claude-code` (or his
-   handle) is the act.
+2. **Activate on engagement, not on mention.** A committed thread Tom starts
+   executing should receive a `driver` deliberately, never silently. It becomes
+   active only while that driver's matching session lease is live; otherwise it
+   remains visibly unresolved. Offer the assignment; `north tell <id> driver
+   @agent-handle` is the act.
 
 3. **Small things go in the body, not as new threads.** A discrete to-do that
    fits an existing thread's scope goes in its `## Log` or an open list, not a new

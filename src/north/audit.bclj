@@ -5,8 +5,8 @@
   is now a `relates_to` edge to a real thread, which can't drift), so the tag
   audits retired with them. Pure logic.")
 
-(require north.projections :as proj)
-(require clojure.string :as str)
+(require [north.projections :as proj])
+(require [clojure.string :as str])
 
 (defrecord DriftGroup
   [norm String

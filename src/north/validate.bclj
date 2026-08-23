@@ -8,8 +8,8 @@
   Actor refs (lead/driver/proposed_by) are NOT integrity-checked; see the note
   in work-violations-i for why.")
 
-(require store.kernel-classify :as kc)
-(require north.projections :as proj)
+(require [store.kernel-classify :as kc])
+(require [north.projections :as proj])
 
 (def thread-ref-preds (Vec String) ["part_of" "depends_on" "relates_to"])
 

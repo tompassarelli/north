@@ -10,8 +10,9 @@
             [store.types :as t]
             [north.projections :as proj]))
 
-(load-file
- (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(when-not (= "1" (System/getProperty "north.wip.lib"))
+  (load-file
+   (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj")))
 
 (def default-floor 4)
 (def max-live-controls 256)
@@ -21,13 +22,13 @@
 (def thread-predicates
   #{"title" "committed" "outcome" "abandoned" "superseded_by" "driver"
     "depends_on" "part_of" "do_on" "valid_until" "estimate_hours" "lead"
-    "proposed_by" "created_at" "updated_at" "repo" "wip_floor" "kind"
+    "proposed_by" "created_at" "repo" "wip_floor" "kind"
     "entity_kind"})
 (def reservation-predicates
   #{"run_reservation_agent" "run_reservation_thread"})
 (def selected-predicates
   (into thread-predicates
-        (concat #{"current_thread"} reservation-predicates)))
+        (concat #{"current_thread" :kernel/lease} reservation-predicates)))
 (def selected-page-limit north.coord/query-page-row-limit)
 
 (defn selected-facts-query [predicates]
@@ -39,7 +40,7 @@
               :args [{:var "subject"} predicate {:var "value"}]}
        :body [{:rel "triple"
                :args [{:var "subject"} predicate {:var "value"}]}]})
-    (sort predicates))})
+    (sort-by pr-str predicates))})
 
 (defn selected-domain-rows [port domain predicates]
   (let [query (selected-facts-query predicates)]
@@ -100,6 +101,10 @@
        (update-in state [:reservations subject predicate]
                   (fnil conj #{}) value)
 
+       (and (= predicate :kernel/lease)
+            (str/starts-with? subject "session:"))
+       (update state :work conj [subject predicate value])
+
        (contains? thread-predicates predicate)
        (update state :work conj [subject predicate value])
 
@@ -134,13 +139,39 @@
    {}
    reservations))
 
+(defn session-lease-control! [subject lease now-ms]
+  (when (str/starts-with? subject "session:")
+    (let [handle (subs subject (count "session:"))]
+      (when-not (and (not (str/blank? handle))
+                     (t/triple? lease)
+                     (= handle (t/triple-t1 lease))
+                     (= :kernel/expires-at (t/triple-t2 lease))
+                     (integer? (t/triple-t3 lease))
+                     (<= 0 (t/triple-t3 lease)))
+        (throw (ex-info "WIP session lease evidence is malformed"
+                        {:subject subject})))
+      (when (> (t/triple-t3 lease) now-ms) handle))))
+
+(defn live-controls-from-rows [rows now-ms]
+  (->> rows
+       (filter (fn [[subject predicate _]]
+                 (and (= predicate :kernel/lease)
+                      (str/starts-with? subject "session:"))))
+       distinct
+       (group-by first)
+       (map (fn [[subject leases]]
+              (when-not (= 1 (count leases))
+                (throw (ex-info "WIP session has conflicting lease evidence"
+                                {:subject subject})))
+              (session-lease-control! subject (nth (first leases) 2) now-ms)))
+       (keep identity)
+       sort
+       vec))
+
 (defn presence-state [now-ms]
   (let [{:keys [managed session-threads reservations work]}
         (coordination-state)
-        controls
-        (mapv :handle
-              (north.coord/online-session-leases
-               (parse-long north.coord/PORT) now-ms))]
+        controls (live-controls-from-rows work now-ms)]
     (when (> (count controls) max-live-controls)
       (throw (ex-info "live session roster exceeds the WIP bound" {})))
     {:controls controls
@@ -175,47 +206,16 @@
        sort
        vec))
 
-(defn parse-date-ms [value]
-  (try
-    (cond
-      (re-matches #"\d{4}-\d{2}-\d{2}" value)
-      (.toEpochMilli
-       (.toInstant
-        (.atStartOfDay
-         (java.time.LocalDate/parse value)
-         java.time.ZoneOffset/UTC)))
-
-      (re-matches #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}" value)
-      (.toEpochMilli
-       (.toInstant
-        (.atZone
-         (java.time.LocalDateTime/parse value)
-         java.time.ZoneOffset/UTC)))
-
-      (re-matches #"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}" value)
-      (.toEpochMilli
-       (.toInstant
-        (.atZone
-         (java.time.LocalDateTime/parse value)
-         java.time.ZoneOffset/UTC)))
-
-      :else nil)
-    (catch Exception _ nil)))
-
-(defn driver-live-predicate [live-set now-ms]
-  (let [raw-days (or (System/getenv "NORTH_DRIVER_STALE_DAYS") "14")
-        parsed-days (parse-long raw-days)
-        days (if (and parsed-days (pos? parsed-days)) parsed-days 14)
-        window-ms (* days 86400000)]
-    (fn [idx thread]
-      (when-let [driver (proj/string-value-at idx thread "driver")]
-        (let [control (str/replace-first driver #"^@" "")
-              updated
-              (some-> (proj/string-value-at idx thread "updated_at")
-                      parse-date-ms)]
-          (boolean
-           (or (contains? live-set control)
-               (and updated (< (- now-ms updated) window-ms)))))))))
+(defn driver-activity-predicate [live-set]
+  (fn [idx thread]
+    (let [drivers (proj/values-at idx thread "driver")]
+      (cond
+        (empty? drivers) proj/absent-proven
+        (not= 1 (count drivers)) proj/unresolved
+        (not (string? (first drivers))) proj/unresolved
+        (contains? live-set (str/replace-first (first drivers) #"^@" ""))
+        proj/live-proven
+        :else proj/unresolved))))
 
 (defn work-thread? [idx subject]
   (let [bare (str/replace-first subject #"^@" "")
@@ -263,13 +263,25 @@
                   {:thread thread :value raw}))))))
 
 (defn snapshot
-  [rows live-controls options now-ms]
+  [rows live-controls options _now-ms]
   (let [idx (rows->index rows)
         live-set (set live-controls)
-        live? (driver-live-predicate live-set now-ms)
+        activity (driver-activity-predicate live-set)
         today (str (java.time.LocalDate/now java.time.ZoneOffset/UTC))
-        ready (->> (proj/ready idx today #(< (compare %1 %2) 0) live?)
+        before? (fn [left right] (< (compare left right) 0))
+        ready (->> (proj/ready idx today before? activity)
                    (filterv #(work-thread? idx %)))
+        unresolved
+        (->> (proj/work-thread-ids-i idx)
+             (filterv #(work-thread? idx %))
+             (filterv #(= "unresolved"
+                          (proj/condition-i idx % today
+                                            before?
+                                            activity)))
+             (mapv (fn [thread]
+                     {:thread thread
+                      :title (or (proj/string-value-at idx thread "title") "")
+                      :driver (proj/string-value-at idx thread "driver")})))
         scored
         (->> ready
              (map (fn [thread]
@@ -306,11 +318,14 @@
     {:live (count lanes)
      :floor floor
      :ready-depth (count ready)
+     :unresolved-depth (count unresolved)
+     :unresolved unresolved
      :lanes lanes
      :top scored
      :shortfall (and (< (count lanes) floor) (pos? (count ready)))}))
 
-(defn render-report [{:keys [live floor ready-depth lanes top shortfall]}]
+(defn render-report
+  [{:keys [live floor ready-depth unresolved-depth unresolved lanes top shortfall]}]
   (let [pull (map :thread top)
         verdict
         (str "WIP " live "/" floor " — "
@@ -332,7 +347,15 @@
                   :else "unbound")))
          lanes)
         ["  none"])
-      [(str "READY — " ready-depth " committed, undriven")
+      [(str "UNRESOLVED ASSIGNMENTS — " unresolved-depth)]
+      (if (seq unresolved)
+        (map
+         (fn [{:keys [thread title driver]}]
+           (str "  " thread " ← " (or driver "?")
+                (when-not (str/blank? title) (str "  " title))))
+         unresolved)
+        ["  none"])
+      [(str "READY — " ready-depth " committed, assignment absence proved")
        "TOP PULLS — leverage-ranked"]
       (if (seq top)
         (map
