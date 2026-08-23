@@ -16,7 +16,7 @@
 (def ^:private distribution-targets
   #{"shared" "codex" "code" "north" "bridge" "firn" "claude"})
 (def ^:private permission-pattern
-  #"(?:on|off|off:until=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)")
+  #"(?:on|off)")
 (def ^:private source-root
   (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
 (defonce ^:private publication-lock (Object.))
@@ -411,13 +411,8 @@
          :by-id (into {} (map (juxt #(get % "id") identity)) enriched)
          :root-order roots}))))
 
-(defn- permission-live? [permission now]
-  (cond
-    (= permission "on") true
-    (= permission "off") false
-    (str/starts-with? permission "off:until=")
-    (not (neg? (compare now (subs permission (count "off:until=")))))
-    :else false))
+(defn- permission-live? [permission]
+  (= permission "on"))
 
 (defn seed-permissions [catalog]
   (into (sorted-map)
@@ -463,9 +458,7 @@
    (validate-permissions! catalog permissions)
    (let [units (:units catalog)
          by-id (:by-id catalog)
-         now (.format (java.time.format.DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss'Z'")
-                      (java.time.ZonedDateTime/now java.time.ZoneOffset/UTC))
-         live? #(permission-live? (get permissions %) now)
+         live? #(permission-live? (get permissions %))
          supporting
          (reduce
           (fn [index unit]
