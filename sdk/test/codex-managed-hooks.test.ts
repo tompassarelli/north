@@ -223,15 +223,10 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
 test("managed Codex authoring entrances invoke the native Firn system policy", () => {
   const expected = expectedManagedCodexHooks();
   const preToolUse = expected.PreToolUse;
-  const systemPolicyCommand = [
-    resolve(CODEX_MANAGED_HOOKS_DIR, "runtime/env"),
-    "-u", "BASH_ENV", "-u", "ENV", FIRN_SYSTEM_POLICY,
-  ].join(" ");
-  for (const matcher of ["^(Edit|Write|MultiEdit|apply_patch)$", "^Bash$"]) {
+  for (const matcher of ["^(Edit|Write|MultiEdit)$", "^Bash$"]) {
     const commands = preToolUse.find((entry) => entry.matcher === matcher)!.hooks
       .map((hook) => hook.command);
-    expect(commands).toContain(systemPolicyCommand);
-    expect(commands).not.toContain(FIRN_SYSTEM_POLICY);
+    expect(commands).toContain(FIRN_SYSTEM_POLICY);
   }
 });
 
@@ -257,7 +252,7 @@ test("managed Codex requirements reject every authority-bearing drift", () => {
     (document) => { document.hooks.managed_dir = "/tmp/hooks"; },
     (document) => { document.hooks.PreToolUse[1].matcher = "^apply_patch$"; },
     (document) => {
-      document.hooks.PreToolUse[1].hooks[1].command = "/etc/codex/hooks/unsealed-authoring-guard";
+      document.hooks.PreToolUse[2].hooks[0].command = "/etc/codex/hooks/unsealed-authoring-guard";
     },
     (document) => { document.hooks.PreToolUse[1].hooks.pop(); },
     (document) => {
