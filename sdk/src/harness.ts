@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import {
   accessSync, constants, existsSync, readFileSync, readdirSync, realpathSync, statSync,
 } from "node:fs";
-import { delimiter, dirname, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, relative, resolve, sep } from "node:path";
 import {
   evaluateGuards, resolveManagedGuardChain,
 } from "./authoring-guards";
@@ -879,6 +879,8 @@ function requirementSlug(requirement: string): string {
   return requirement.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
+const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
 /**
  * The active shared-skill root from North's current immutable generation.
  */
@@ -890,6 +892,56 @@ export function domainSkillsDir(env: NodeJS.ProcessEnv = process.env): string {
   return resolve(stateRoot, "current", "skills", "shared");
 }
 
+export interface ProjectSkillTarget {
+  readonly id: string;
+  readonly gitRoot: string;
+}
+
+function lifecycleProjectId(gitRoot: string, env: NodeJS.ProcessEnv): string | undefined {
+  let container: string;
+  if (basename(gitRoot) === "main") container = dirname(gitRoot);
+  else if (["worktrees", "pins"].includes(basename(dirname(gitRoot))))
+    container = dirname(dirname(gitRoot));
+  else return undefined;
+
+  const home = env.HOME?.trim();
+  if (!home) return undefined;
+  let codeRoot: string;
+  try { codeRoot = resolve(realpathSync(home), "code"); }
+  catch { return undefined; }
+  const path = relative(codeRoot, container);
+  if (!path || path === ".." || path.startsWith(`..${sep}`) || path.startsWith(sep))
+    return undefined;
+  const segments = path.split(sep);
+  const id = segments.length === 1
+    ? segments[0]
+    : segments.length === 3 && segments[0] === "clients" ? segments[2] : undefined;
+  return id && SKILL_NAME.test(id) ? id : undefined;
+}
+
+/** Exact catalog project identity for a Git checkout in the governed lifecycle layout. */
+export function projectSkillTarget(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): ProjectSkillTarget | undefined {
+  const project = gitRootForProject(cwd);
+  try {
+    const marker = statSync(resolve(project.root, ".git"));
+    if (!marker.isDirectory() && !marker.isFile()) return undefined;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return undefined;
+    throw new Error(`project skill target cannot inspect Git marker: ${project.root}`, { cause: error });
+  }
+  const lifecycleId = lifecycleProjectId(project.root, env);
+  const explicit = env.NORTH_PROJECT?.trim();
+  if (explicit && !SKILL_NAME.test(explicit))
+    throw new Error(`project skill target has invalid NORTH_PROJECT: ${explicit}`);
+  if (explicit && lifecycleId && explicit !== lifecycleId)
+    throw new Error(`project skill target contradicts lifecycle identity: ${explicit} != ${lifecycleId}`);
+  const id = explicit || lifecycleId;
+  return id ? Object.freeze({ id, gitRoot: project.root }) : undefined;
+}
+
 export interface ActiveSkillCandidate {
   readonly name: string;
   readonly description: string;
@@ -898,11 +950,10 @@ export interface ActiveSkillCandidate {
 
 export interface ActiveSkillCatalog {
   readonly root: string;
+  readonly roots: readonly string[];
   readonly candidates: readonly ActiveSkillCandidate[];
   readonly appendix: string;
 }
-
-const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function skillTriggerMetadata(path: string, folder: string): ActiveSkillCandidate {
   let bytes: Buffer;
@@ -937,37 +988,77 @@ function skillTriggerMetadata(path: string, folder: string): ActiveSkillCandidat
 /** Metadata-only view of the active provider-neutral skill farm. */
 export function activeSkillCatalog(
   env: NodeJS.ProcessEnv = process.env,
+  cwd?: string,
 ): ActiveSkillCatalog {
-  const root = domainSkillsDir(env);
-  let entries: import("node:fs").Dirent[];
+  const configuredRoot = domainSkillsDir(env);
+  let root: string;
   try {
-    const info = statSync(root);
-    if (!info.isDirectory()) throw new Error(`active skill catalog is not a directory: ${root}`);
-    entries = readdirSync(root, { withFileTypes: true });
+    root = realpathSync(configuredRoot);
+    if (!statSync(root).isDirectory())
+      throw new Error(`active skill catalog is not a directory: ${root}`);
   } catch (cause: any) {
-    if (cause?.code === "ENOENT") return Object.freeze({ root, candidates: Object.freeze([]), appendix: "" });
-    throw new Error(`active skill catalog is unreadable: ${root}`, { cause });
+    if (cause?.code === "ENOENT") return Object.freeze({
+      root: configuredRoot, roots: Object.freeze([]), candidates: Object.freeze([]), appendix: "",
+    });
+    throw new Error(`active skill catalog is unreadable: ${configuredRoot}`, { cause });
   }
-  const candidates = entries
-    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
-    .map((entry) => {
-      const directory = resolve(root, entry.name);
+
+  const roots = [root];
+  if (cwd && !env.NORTH_AGENT_SKILLS?.trim()
+      && basename(root) === "shared" && basename(dirname(root)) === "skills") {
+    const target = projectSkillTarget(cwd, env);
+    if (target) {
+      const generation = dirname(dirname(root));
+      const candidate = resolve(generation, "projects", target.id, "skill");
+      try {
+        const canonical = realpathSync(candidate);
+        const fromGeneration = relative(generation, canonical);
+        if (fromGeneration === ".." || fromGeneration.startsWith(`..${sep}`)
+            || fromGeneration.startsWith(sep) || !statSync(canonical).isDirectory())
+          throw new Error(`project skill package escapes its generation: ${candidate}`);
+        roots.push(canonical);
+      } catch (cause: any) {
+        if (cause?.code !== "ENOENT")
+          throw new Error(`project skill package is unreadable: ${candidate}`, { cause });
+      }
+    }
+  }
+
+  const byName = new Map<string, ActiveSkillCandidate>();
+  for (const skillRoot of roots) {
+    const entries = readdirSync(skillRoot, { withFileTypes: true })
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      const directory = resolve(skillRoot, entry.name);
       try {
         if (!statSync(directory).isDirectory())
           throw new Error(`active skill entry is not a directory: ${directory}`);
       } catch (cause) {
         throw new Error(`active skill entry is stale or unreadable: ${directory}`, { cause });
       }
-      return skillTriggerMetadata(resolve(directory, "SKILL.md"), entry.name);
-    });
+      const candidate = skillTriggerMetadata(resolve(directory, "SKILL.md"), entry.name);
+      const previous = byName.get(candidate.name);
+      if (previous) {
+        if (!readFileSync(previous.path).equals(readFileSync(candidate.path)))
+          throw new Error(
+            `active skill UnitId collision ${candidate.name}: ${previous.path} != ${candidate.path}`,
+          );
+        continue;
+      }
+      byName.set(candidate.name, candidate);
+    }
+  }
+  const candidates = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
   const rows = candidates.map((candidate) => `- ${JSON.stringify(candidate)}`);
   const appendix = rows.length ? [
-    "", "", `## Active skill candidates — ${root}`,
+    "", "", `## Active skill candidates — ${roots.join(", ")}`,
     "Trigger metadata only. Match the request against every description and load each",
     "matching SKILL.md under the global skill-loading law; no skill body is injected here.",
     ...rows,
   ].join("\n") : "";
-  return Object.freeze({ root, candidates: Object.freeze(candidates), appendix });
+  return Object.freeze({
+    root, roots: Object.freeze(roots), candidates: Object.freeze(candidates), appendix,
+  });
 }
 
 function domainContextCandidates(
@@ -1770,9 +1861,10 @@ export function harnessOptions(o: HarnessOpts): Options {
   const capabilities = orchestration.evidence.capabilities;
   const skillCatalog: ActiveSkillCatalog = o.dataOnly
     ? Object.freeze({
-      root: domainSkillsDir(composerEnvironment), candidates: Object.freeze([]), appendix: "",
+      root: domainSkillsDir(composerEnvironment), roots: Object.freeze([]),
+      candidates: Object.freeze([]), appendix: "",
     })
-    : activeSkillCatalog(composerEnvironment);
+    : activeSkillCatalog(composerEnvironment, cwd);
   // Shared head: DEFAULT (or override) + ESO. The canonical bootstrap, skill
   // catalog, orchestration contracts, project instructions, and unique tail are
   // composed from the immutable state below.

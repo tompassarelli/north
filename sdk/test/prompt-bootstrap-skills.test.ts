@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,7 +8,8 @@ import {
 
 const temporary: string[] = [];
 const saved = Object.fromEntries([
-  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "NORTH_AGENT_SKILLS", "AGENT_ESO",
+  "HOME", "AGENT_LAWS", "AGENT_LAWS_PATH", "NORTH_AGENT_SKILLS", "NORTH_AGENT_STATE_ROOT",
+  "NORTH_PROJECT", "AGENT_ESO",
 ].map((key) => [key, process.env[key]]));
 
 afterEach(() => {
@@ -112,4 +113,68 @@ test("North composes one canonical bootstrap and a metadata-only active skill ca
   expect(moduleIds).toContain("global-bootstrap");
   expect(moduleIds).toContain("active-skill-catalog");
   expect(moduleIds.some((id) => id.startsWith("constitution-"))).toBe(false);
+});
+
+test("project skill packages compose additively for exact main, worktree, and explicit identities", () => {
+  const home = mkdtempSync(join(tmpdir(), "north-project-skills-"));
+  temporary.push(home);
+  const state = join(home, "state");
+  const generation = join(state, "gen-exact");
+  const shared = join(generation, "skills", "shared");
+  const projectSkills = join(generation, "projects", "beagle", "skill");
+  writeSkill(shared, "repo-safety", "Use before repository writes.", "SHARED_BODY_CANARY");
+  writeSkill(projectSkills, "code-as-facts", "Use when Beagle code is the evidence.", "PROJECT_BODY_CANARY");
+  mkdirSync(state, { recursive: true });
+  symlinkSync("gen-exact", join(state, "current"), "dir");
+  const main = join(home, "code", "beagle", "main");
+  const worktree = join(home, "code", "beagle", "worktrees", "lane");
+  const unrelated = join(home, "code", "gjoa", "main");
+  const clone = join(home, "ephemeral-clone");
+  for (const root of [main, worktree, unrelated, clone])
+    mkdirSync(join(root, ".git"), { recursive: true });
+  process.env.HOME = home;
+  process.env.NORTH_AGENT_STATE_ROOT = state;
+  delete process.env.NORTH_AGENT_SKILLS;
+  delete process.env.NORTH_PROJECT;
+  process.env.AGENT_LAWS = "off";
+  process.env.AGENT_ESO = "off";
+
+  for (const cwd of [main, worktree]) {
+    const catalog = activeSkillCatalog(process.env, cwd);
+    expect(catalog.roots).toEqual([shared, projectSkills]);
+    expect(catalog.candidates.map(({ name }) => name)).toEqual(["code-as-facts", "repo-safety"]);
+    const options = harnessOptions({ self: `project-${cwd.length}`, cwd, presenceRegistrar: false }) as any;
+    expect(options.systemPrompt).toContain(join(projectSkills, "code-as-facts", "SKILL.md"));
+    expect(options.systemPrompt).not.toContain("PROJECT_BODY_CANARY");
+  }
+
+  expect(activeSkillCatalog(process.env, unrelated).candidates.map(({ name }) => name))
+    .toEqual(["repo-safety"]);
+  process.env.NORTH_PROJECT = "beagle";
+  expect(activeSkillCatalog(process.env, clone).candidates.map(({ name }) => name))
+    .toEqual(["code-as-facts", "repo-safety"]);
+});
+
+test("project skill UnitIds deduplicate exact sources and reject divergent collisions", () => {
+  const home = mkdtempSync(join(tmpdir(), "north-project-skill-collision-"));
+  temporary.push(home);
+  const state = join(home, "state");
+  const generation = join(state, "gen-collision");
+  const shared = join(generation, "skills", "shared");
+  const projectSkills = join(generation, "projects", "beagle", "skill");
+  writeSkill(shared, "same-skill", "Exact same skill.", "SAME_BODY");
+  writeSkill(projectSkills, "same-skill", "Exact same skill.", "SAME_BODY");
+  mkdirSync(state, { recursive: true });
+  symlinkSync("gen-collision", join(state, "current"), "dir");
+  const main = join(home, "code", "beagle", "main");
+  mkdirSync(join(main, ".git"), { recursive: true });
+  process.env.HOME = home;
+  process.env.NORTH_AGENT_STATE_ROOT = state;
+  delete process.env.NORTH_AGENT_SKILLS;
+  delete process.env.NORTH_PROJECT;
+
+  expect(activeSkillCatalog(process.env, main).candidates.map(({ name }) => name))
+    .toEqual(["same-skill"]);
+  writeSkill(projectSkills, "same-skill", "Divergent project skill.", "DIFFERENT_BODY");
+  expect(() => activeSkillCatalog(process.env, main)).toThrow("active skill UnitId collision same-skill");
 });
