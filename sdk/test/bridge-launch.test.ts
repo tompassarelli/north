@@ -585,6 +585,7 @@ test("/restart is in both command sets and restores the session in place", async
     spinnerIndex: 0,
     agentIndex: 3,
     supervisorId: dead,
+    controlThreadId: "bridge-control-thread",
     bridgeExecutions: new Set([dead]),
     model: upsertAgent(
       makeModel("list"),
@@ -604,7 +605,9 @@ test("/restart is in both command sets and restores the session in place", async
   const argv = readFileSync(marker, "utf8").trim().split("\n").map((line) => line.trim());
   // Retire, then reopen the control session here rather than telling someone to.
   expect(argv[0]).toBe("bridge restart");
-  expect(argv[1]).toContain("bridge --role director");
+  expect(argv[1]).toContain(
+    "bridge app-launch --thread bridge-control-thread --role director",
+  );
   expect(runtime.conversation.map((item) => item.body))
     .toContain("control daemon replaced; session restored");
 

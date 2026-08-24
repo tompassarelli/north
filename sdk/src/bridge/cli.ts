@@ -5,6 +5,10 @@ import { acquireFileLease } from "../file-lease";
 import {
   "run-northbridge-app!" as runNorthbridgeApp,
 } from "./generated/north/bridge/app.js";
+import {
+  prepareManagedBridgeAppLaunch,
+  type ManagedBridgeAppLaunch,
+} from "./app-launch-reservation";
 import { runBridgeAcceptance } from "./accept";
 import type { WireEvent } from "../wire/events";
 import {
@@ -25,6 +29,18 @@ export interface BridgeLaunchArguments extends BridgeLaunchSelection {
   promptArguments: string[];
 }
 
+export interface BridgeAppLaunchArguments extends BridgeLaunchSelection {
+  role: BridgeLaunchRole;
+  promptArguments: string[];
+  selectedThreadId: string;
+}
+
+interface ParsedBridgeRouteArguments extends BridgeLaunchSelection {
+  role: BridgeLaunchRole;
+  promptArguments: string[];
+  attemptId?: string;
+}
+
 function usage(): never {
   console.error(
     "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
@@ -43,7 +59,10 @@ function usage(): never {
   process.exit(2);
 }
 
-export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArguments {
+function parseBridgeRouteArguments(
+  args: string[],
+  attemptMode: "required" | "forbidden",
+): ParsedBridgeRouteArguments {
   let role: BridgeLaunchRole = "implementer";
   let provider: BridgeLaunchProvider | undefined;
   let tier: BridgeLaunchSelection["tier"];
@@ -61,6 +80,9 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
       continue;
     }
     if (argument === "--attempt") {
+      if (attemptMode === "forbidden") {
+        throw new Error("bridge app-launch reserves its own attempt");
+      }
       if (index + 1 >= args.length) {
         throw new Error("bridge --attempt requires a canonical reserved attempt id");
       }
@@ -90,17 +112,81 @@ export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArgument
     }
     break;
   }
-  if (attemptId === undefined) {
+  if (attemptMode === "required" && attemptId === undefined) {
     throw new Error("bridge launch requires --attempt with a reserved attempt id");
   }
   return {
     role,
-    attemptId,
+    ...(attemptId ? { attemptId } : {}),
     ...(provider ? { provider } : {}),
     ...(tier ? { tier } : {}),
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
     promptArguments: args.slice(index),
+  };
+}
+
+export function parseBridgeLaunchArguments(args: string[]): BridgeLaunchArguments {
+  const parsed = parseBridgeRouteArguments(args, "required");
+  if (!parsed.attemptId) {
+    throw new Error("bridge launch requires --attempt with a reserved attempt id");
+  }
+  return { ...parsed, attemptId: parsed.attemptId };
+}
+
+export function parseBridgeAppLaunchArguments(
+  args: string[],
+): BridgeAppLaunchArguments {
+  let selectedThreadId: string | undefined;
+  const launchArguments: string[] = [];
+  const valuedFlags = new Set(["--role", "--provider", "--tier", "--model", "--effort"]);
+  let index = 0;
+  while (index < args.length) {
+    const argument = args[index]!;
+    if (argument === "--attempt") {
+      throw new Error("bridge app-launch reserves its own attempt");
+    }
+    if (argument === "--thread") {
+      const value = args[index + 1];
+      if (!value) throw new Error("bridge app-launch --thread requires an exact thread id");
+      if (selectedThreadId !== undefined) {
+        throw new Error("bridge app-launch accepts exactly one --thread");
+      }
+      selectedThreadId = value;
+      index += 2;
+      continue;
+    }
+    if (argument === "--claude" || argument === "--anthropic"
+      || argument === "--openai" || argument === "--codex") {
+      launchArguments.push(argument);
+      index += 1;
+      continue;
+    }
+    if (valuedFlags.has(argument)) {
+      const value = args[index + 1];
+      if (!value) throw new Error(`bridge app-launch ${argument} requires a value`);
+      launchArguments.push(argument, value);
+      index += 2;
+      continue;
+    }
+    launchArguments.push(...args.slice(index));
+    break;
+  }
+  if (!selectedThreadId) {
+    throw new Error("bridge app-launch requires --thread with an exact Store thread id");
+  }
+  const parsed = parseBridgeRouteArguments(launchArguments, "forbidden");
+  if (parsed.promptArguments.length === 0) {
+    throw new Error("bridge app-launch requires a prompt");
+  }
+  return {
+    role: parsed.role,
+    promptArguments: parsed.promptArguments,
+    selectedThreadId,
+    ...(parsed.provider ? { provider: parsed.provider } : {}),
+    ...(parsed.tier ? { tier: parsed.tier } : {}),
+    ...(parsed.model ? { model: parsed.model } : {}),
+    ...(parsed.effort ? { effort: parsed.effort } : {}),
   };
 }
 
@@ -441,10 +527,25 @@ export function renderWireEvent(event: WireEvent): string {
   return `[${event.sequence + 1}] ${event.kind} ${JSON.stringify(event)}`;
 }
 
-function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
-  const result = Promise.withResolvers<number>();
+interface BridgeClientOutcome {
+  code: number;
+  launched: boolean;
+}
+
+interface BridgeClientHooks {
+  onDurableWireEvent?(event: WireEvent): void | Promise<void>;
+}
+
+function runClient(
+  socket: Socket,
+  request: BridgeRequest,
+  hooks: BridgeClientHooks = {},
+): Promise<BridgeClientOutcome> {
+  const result = Promise.withResolvers<BridgeClientOutcome>();
   let buffer = "";
   let exitCode = 0;
+  let launched = false;
+  let observationTail = Promise.resolve();
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
     buffer += chunk;
@@ -456,11 +557,24 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
       if (!line) continue;
       const message = JSON.parse(line) as BridgeServerMessage;
       if (message.type === "hello") continue;
-      if (message.type === "launched") console.log(`execution ${message.executionId}`);
+      if (message.type === "launched") {
+        launched = true;
+        console.log(`execution ${message.executionId}`);
+      }
       else if (message.type === "controlled")
         console.log(`${message.executionId} ${message.delivery}`);
       else if (message.type === "event") console.log(renderRecord(message.record));
-      else if (message.type === "wire") console.log(renderWireEvent(message.event));
+      else if (message.type === "wire") {
+        console.log(renderWireEvent(message.event));
+        observationTail = observationTail.then(async () => {
+          await hooks.onDurableWireEvent?.(message.event);
+        }).catch((error) => {
+          console.error(
+            `north bridge: ${error instanceof Error ? error.message : "wire settlement failed"}`,
+          );
+          exitCode = 1;
+        });
+      }
       else if (message.type === "barrier") {
         console.log(`attached ${message.executionId} at ${message.cursor}`);
         if (message.tornTail) {
@@ -480,9 +594,67 @@ function runClient(socket: Socket, request: BridgeRequest): Promise<number> {
     console.error(`north bridge: ${error.message}`);
     exitCode = 1;
   });
-  socket.once("close", () => result.resolve(exitCode));
+  socket.once("close", () => {
+    void observationTail.then(() => result.resolve({ code: exitCode, launched }));
+  });
   socket.write(`${JSON.stringify(request)}\n`);
   return result.promise;
+}
+
+export async function settleManagedAppLaunchClose(
+  managed: ManagedBridgeAppLaunch,
+  launched: boolean,
+): Promise<void> {
+  if (!launched && !managed.providerEffectObserved && !managed.settled) {
+    await managed.proveUnsent("daemon-launch-refused");
+  }
+}
+
+async function runManagedAppLaunch(launch: BridgeAppLaunchArguments): Promise<number> {
+  let managed: ManagedBridgeAppLaunch | undefined;
+  try {
+    const prompt = launch.promptArguments.join(" ").trim();
+    managed = await prepareManagedBridgeAppLaunch({
+      role: launch.role,
+      prompt,
+      cwd: process.cwd(),
+      selectedThreadId: launch.selectedThreadId,
+      ...(launch.provider ? { provider: launch.provider } : {}),
+      ...(launch.tier ? { tier: launch.tier } : {}),
+      ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
+    });
+    let socket: Socket;
+    try {
+      socket = (await verifiedSocket(bridgeSocketPath())).socket;
+    } catch (error) {
+      await managed.proveUnsent("daemon-not-contacted");
+      throw error;
+    }
+    const outcome = await runClient(socket, {
+      op: "launch",
+      executionId: managed.executionId,
+      attemptId: managed.attemptId,
+      prompt,
+      cwd: process.cwd(),
+      role: launch.role,
+      provider: managed.provider,
+      model: managed.model,
+      ...(launch.tier ? { tier: launch.tier } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
+    }, {
+      onDurableWireEvent: (event) => managed!.observeDurableWireEvent(event),
+    });
+    await settleManagedAppLaunchClose(managed, outcome.launched);
+    if (outcome.launched && !managed.settled) {
+      console.error("north bridge: app launch stream closed before durable attempt settlement");
+      return 1;
+    }
+    return outcome.code;
+  } catch (error) {
+    console.error(`north bridge: ${error instanceof Error ? error.message : "app launch failed"}`);
+    return 1;
+  }
 }
 
 async function main(args: string[]): Promise<number> {
@@ -516,6 +688,14 @@ async function main(args: string[]): Promise<number> {
       return 0;
     }
     catch { return 1; }
+  }
+  if (args[0] === "app-launch") {
+    try {
+      return await runManagedAppLaunch(parseBridgeAppLaunchArguments(args.slice(1)));
+    } catch (error) {
+      console.error(`north bridge: ${error instanceof Error ? error.message : "app launch failed"}`);
+      return 1;
+    }
   }
   let request: BridgeRequest;
   if (args[0] === "attach") {
@@ -554,7 +734,7 @@ async function main(args: string[]): Promise<number> {
     };
   }
   const { socket } = await verifiedSocket(bridgeSocketPath());
-  return runClient(socket, request);
+  return (await runClient(socket, request)).code;
 }
 
 if (import.meta.main) process.exitCode = await main(process.argv.slice(2));
