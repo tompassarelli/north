@@ -596,6 +596,20 @@ function parsedNativeFence(value: unknown, expectedResource: string): DeliveryLe
   return { resource: expectedResource, holder: parsed.holder, epoch: parsed.epoch };
 }
 
+function renewedDeliveryLeaseFence(
+  value: unknown,
+  previous: DeliveryLeaseFence,
+): DeliveryLeaseFence {
+  const renewed = parsedNativeFence(value, previous.resource);
+  if (renewed.holder !== previous.holder) {
+    throw new Error("Store changed a delivery attempt lease holder during renewal");
+  }
+  if (renewed.epoch <= previous.epoch) {
+    throw new Error("Store did not advance a delivery attempt lease fence during renewal");
+  }
+  return renewed;
+}
+
 export async function acquireDeliveryAttemptLeases(
   context: DeliveryRunContext,
   accountId: string,
@@ -616,24 +630,22 @@ export async function acquireDeliveryAttemptLeases(
       maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
     });
     try {
-      const renewedThread = parsedNativeFence(
+      const previousThread = threadLease;
+      const previousAccount = accountLease;
+      threadLease = renewedDeliveryLeaseFence(
         (await renewClient.leaseRenew(
-          rpcFence(threadLease.resource, threadLease.holder, threadLease.epoch),
+          rpcFence(previousThread.resource, previousThread.holder, previousThread.epoch),
           ttlMs,
         )).fence,
-        threadResource,
+        previousThread,
       );
-      const renewedAccount = parsedNativeFence(
+      accountLease = renewedDeliveryLeaseFence(
         (await renewClient.leaseRenew(
-          rpcFence(accountLease.resource, accountLease.holder, accountLease.epoch),
+          rpcFence(previousAccount.resource, previousAccount.holder, previousAccount.epoch),
           ttlMs,
         )).fence,
-        accountResource,
+        previousAccount,
       );
-      if (JSON.stringify(renewedThread) !== JSON.stringify(threadLease)
-        || JSON.stringify(renewedAccount) !== JSON.stringify(accountLease)) {
-        throw new Error("Store changed a delivery attempt lease fence during renewal");
-      }
     } finally {
       renewClient.close();
     }
@@ -662,7 +674,12 @@ export async function acquireDeliveryAttemptLeases(
       accountResource,
     );
     client.close();
-    return { threadLease, accountLease, renew, release };
+    return {
+      get threadLease() { return threadLease!; },
+      get accountLease() { return accountLease!; },
+      renew,
+      release,
+    };
   } catch (error) {
     client.close();
     await release().catch(() => undefined);
