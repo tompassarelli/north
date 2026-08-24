@@ -164,6 +164,7 @@ export const DELIVERY_ATTEMPT_LEASE_TTL_MS = 30 * 60 * 1_000;
 export interface DeliveryAttemptLeaseClaim {
   threadLease: DeliveryLeaseFence;
   accountLease: DeliveryLeaseFence;
+  renew(): Promise<void>;
   release(): Promise<void>;
 }
 
@@ -607,6 +608,36 @@ export async function acquireDeliveryAttemptLeases(
   const client = await StoreRpcClient.connect({ maxAttempts: 1, retryDelayMs: 0, jitterMs: 0 });
   let threadLease: DeliveryLeaseFence | undefined;
   let accountLease: DeliveryLeaseFence | undefined;
+  const renew = async (): Promise<void> => {
+    if (!threadLease || !accountLease) {
+      throw new Error("delivery attempt leases are not fully acquired");
+    }
+    const renewClient = await StoreRpcClient.connect({
+      maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
+    });
+    try {
+      const renewedThread = parsedNativeFence(
+        (await renewClient.leaseRenew(
+          rpcFence(threadLease.resource, threadLease.holder, threadLease.epoch),
+          ttlMs,
+        )).fence,
+        threadResource,
+      );
+      const renewedAccount = parsedNativeFence(
+        (await renewClient.leaseRenew(
+          rpcFence(accountLease.resource, accountLease.holder, accountLease.epoch),
+          ttlMs,
+        )).fence,
+        accountResource,
+      );
+      if (JSON.stringify(renewedThread) !== JSON.stringify(threadLease)
+        || JSON.stringify(renewedAccount) !== JSON.stringify(accountLease)) {
+        throw new Error("Store changed a delivery attempt lease fence during renewal");
+      }
+    } finally {
+      renewClient.close();
+    }
+  };
   const release = async (): Promise<void> => {
     const releaseClient = await StoreRpcClient.connect({
       maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
@@ -631,7 +662,7 @@ export async function acquireDeliveryAttemptLeases(
       accountResource,
     );
     client.close();
-    return { threadLease, accountLease, release };
+    return { threadLease, accountLease, renew, release };
   } catch (error) {
     client.close();
     await release().catch(() => undefined);

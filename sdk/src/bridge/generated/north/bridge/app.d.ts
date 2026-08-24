@@ -3,6 +3,22 @@ declare function runNorthbridgeApp(options: {
   sourceIdentity?: string;
 }): Promise<unknown>;
 
+declare function boot<T>(
+  runtime: T,
+  launch: (prompt: string, role: string) => Promise<unknown>,
+): T;
+
+declare function bridgeAppLaunchArgv(
+  runtime: unknown,
+  prompt: string,
+  role: string,
+): string[];
+
+declare function launchThreadId(
+  runtime: unknown,
+  role: string,
+): string;
+
 declare function handleLocalCommand(
   runtime: unknown,
   ui: unknown,
@@ -62,9 +78,7 @@ declare const bannerLineSegments: (...args: any[]) => any;
 declare const bannerPermissions: (...args: any[]) => any;
 declare const bannerRevision: (...args: any[]) => any;
 declare const bannerRuleLine: (...args: any[]) => any;
-declare const boot: (...args: any[]) => any;
 declare const bootView: (...args: any[]) => any;
-declare const bridgeAppLaunchArgv: (...args: any[]) => any;
 declare const clampPanelCursor: (...args: any[]) => any;
 declare const clearPanelFilter: (...args: any[]) => any;
 declare const composerHint: (...args: any[]) => any;
@@ -102,7 +116,6 @@ declare const filterCharacter: (...args: any[]) => any;
 declare const filterKeyAction: (...args: any[]) => any;
 declare const helpQueryRows: (...args: any[]) => any;
 declare const installKeys: (...args: any[]) => any;
-declare const launchThreadId: (...args: any[]) => any;
 declare const normalizeAgents: (...args: any[]) => any;
 declare const paletteEnterAction: (...args: any[]) => any;
 declare const quitCommand: (...args: any[]) => any;

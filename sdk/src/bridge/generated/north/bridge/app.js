@@ -288,9 +288,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: anthropic, openai, or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -1147,7 +1147,7 @@ async function restart_daemon_bang(runtime) {
   return (async () => { try {
     await run_command([north_bin(), "bridge", "restart"]);
   forget_control_session_bang(runtime);
-  if ((launch_thread_id(runtime) === "")) {
+  if ((launch_thread_id(runtime, "supervisor") === "")) {
     return publish_line_bang(runtime, "control daemon replaced; select a thread before /launch");
   } else {
     publish_line_bang(runtime, "control daemon replaced; session restored");
@@ -2720,6 +2720,9 @@ function launch_route_flags(provider, tier, model, effort) {
   const tier_value = text(tier).trim();
   const model_value = text(model).trim();
   const effort_value = text(effort).trim();
+  if ((!((_truthy) => _truthy !== false && _truthy != null)(((provider_value === "") || (provider_value === "openai"))))) {
+    (() => { throw new Error("Bridge app launches require provider openai or auto"); })();
+  }
   return [].concat(((provider_value === "") ? [] : ["--provider", provider_value]), ((tier_value === "") ? [] : ["--tier", tier_value]), ((model_value === "") ? [] : ["--model", model_value]), ((effort_value === "") ? [] : ["--effort", effort_value]));
 }
 
@@ -2734,8 +2737,8 @@ function set_launch_route_bang(runtime, name, value) {
     (() => { throw new Error($$bc$str(name, " requires a value or auto")); })();
   }
   if ((name === "provider")) {
-    if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || ((choice === "anthropic") || (choice === "openai")))))) {
-      (() => { throw new Error("provider requires anthropic, openai, or auto"); })();
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(((choice === "auto") || (choice === "openai"))))) {
+      (() => { throw new Error("provider requires openai or auto"); })();
     }
     (runtime.launchProvider = ((choice === "auto") ? "" : choice));
   } else if ((name === "model")) {
@@ -2771,17 +2774,17 @@ function take_launch_route_flags_bang(runtime) {
 
 function main_agent_label(runtime) {
   const value = text(runtime.launchProvider).trim();
-  return (((value === "anthropic")) ? "Claude Main" : ((value === "openai")) ? "Codex Main" : "Main");
+  return (((value === "openai")) ? "Codex Main" : "Main");
 }
 
-function launch_thread_id(runtime) {
+function launch_thread_id(runtime, role) {
   const state = snapshot(runtime.model);
   const selected = bridgesnapshot_selected_thread(state);
-  return text_or(selected, text(runtime.controlThreadId));
+  return ((role === "supervisor") ? text(runtime.controlThreadId) : selected);
 }
 
 function bridge_app_launch_argv_bang(runtime, prompt, role) {
-  const thread_id = launch_thread_id(runtime);
+  const thread_id = launch_thread_id(runtime, role);
   if ((thread_id === "")) {
     (() => { throw new Error("launch requires a selected or managed control thread"); })();
   }
@@ -2803,7 +2806,7 @@ async function launch_agent_bang(runtime, prompt, role) {
 }
 
 function boot_bang(runtime, launch) {
-  if ((!(launch_thread_id(runtime) === ""))) {
+  if ((!(launch_thread_id(runtime, "supervisor") === ""))) {
     report_promise_bang(runtime, launch(SUPERVISOR_BOOT_PROMPT, "supervisor"));
   }
   return runtime;

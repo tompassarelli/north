@@ -54,6 +54,7 @@ function usage(): never {
     + "\nroute flags: --provider anthropic|openai | --claude | --openai"
     + " --tier economy|standard|senior|frontier --model ID"
     + " --effort low|medium|high|xhigh|max"
+    + "\napp launches support Store-authorized OpenAI routes only"
     + "\nlaunch requires a reserved attempt id; role defaults to implementer",
   );
   process.exit(2);
@@ -156,8 +157,10 @@ export function parseBridgeAppLaunchArguments(
       index += 2;
       continue;
     }
-    if (argument === "--claude" || argument === "--anthropic"
-      || argument === "--openai" || argument === "--codex") {
+    if (argument === "--claude" || argument === "--anthropic") {
+      throw new Error("bridge app-launch requires a Store-authorized OpenAI route");
+    }
+    if (argument === "--openai" || argument === "--codex") {
       launchArguments.push(argument);
       index += 1;
       continue;
@@ -196,8 +199,8 @@ async function runApp(args: string[]): Promise<number> {
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
     if (argument === "--claude" || argument === "--anthropic") {
-      process.env.NORTH_BRIDGE_PROVIDER = "anthropic";
-      continue;
+      console.error("north bridge: the app requires a Store-authorized OpenAI route");
+      return 1;
     }
     if (argument === "--openai" || argument === "--codex") {
       process.env.NORTH_BRIDGE_PROVIDER = "openai";
@@ -207,7 +210,12 @@ async function runApp(args: string[]): Promise<number> {
       const value = args[index + 1];
       if (!value) usage();
       if (argument === "--provider") {
-        process.env.NORTH_BRIDGE_PROVIDER = parseBridgeLaunchProvider(value)!;
+        const provider = parseBridgeLaunchProvider(value)!;
+        if (provider !== "openai") {
+          console.error("north bridge: the app requires a Store-authorized OpenAI route");
+          return 1;
+        }
+        process.env.NORTH_BRIDGE_PROVIDER = provider;
       } else if (argument === "--tier") {
         process.env.NORTH_BRIDGE_TIER = parseBridgeLaunchTier(value)!;
       } else if (argument === "--model") {
@@ -219,6 +227,10 @@ async function runApp(args: string[]): Promise<number> {
       continue;
     }
     rest.push(argument);
+  }
+  if (process.env.NORTH_BRIDGE_PROVIDER?.trim() === "anthropic") {
+    console.error("north bridge: the app requires a Store-authorized OpenAI route");
+    return 1;
   }
   if (rest.length) {
     if (rest.length !== 2 || rest[0] !== "--view-id" || !rest[1]) usage();
@@ -530,10 +542,28 @@ export function renderWireEvent(event: WireEvent): string {
 interface BridgeClientOutcome {
   code: number;
   launched: boolean;
+  refused: boolean;
+  errors: string[];
+  cursor: number;
 }
 
 interface BridgeClientHooks {
   onDurableWireEvent?(event: WireEvent): void | Promise<void>;
+}
+
+export function bridgeAppLaunchRecoveryAction(
+  phase: "launch" | "attach",
+  outcome: Pick<BridgeClientOutcome, "refused" | "errors">,
+  state: Pick<ManagedBridgeAppLaunch, "providerEffectObserved" | "settled">,
+): "complete" | "prove-unsent" | "reconnect" {
+  if (state.settled) return "complete";
+  if (state.providerEffectObserved) return "reconnect";
+  if (phase === "launch" && outcome.refused) return "prove-unsent";
+  if (phase === "attach" && outcome.refused
+    && outcome.errors.some((message) => message.startsWith("unknown bridge execution "))) {
+    return "prove-unsent";
+  }
+  return "reconnect";
 }
 
 function runClient(
@@ -545,7 +575,11 @@ function runClient(
   let buffer = "";
   let exitCode = 0;
   let launched = false;
+  let refused = false;
+  const errors: string[] = [];
+  let cursor = 0;
   let observationTail = Promise.resolve();
+  let observationFailed = false;
   socket.setEncoding("utf8");
   socket.on("data", (chunk: string) => {
     buffer += chunk;
@@ -567,15 +601,21 @@ function runClient(
       else if (message.type === "wire") {
         console.log(renderWireEvent(message.event));
         observationTail = observationTail.then(async () => {
-          await hooks.onDurableWireEvent?.(message.event);
-        }).catch((error) => {
-          console.error(
-            `north bridge: ${error instanceof Error ? error.message : "wire settlement failed"}`,
-          );
-          exitCode = 1;
+          if (observationFailed) return;
+          try {
+            await hooks.onDurableWireEvent?.(message.event);
+            cursor = Math.max(cursor, message.event.sequence + 1);
+          } catch (error) {
+            observationFailed = true;
+            console.error(
+              `north bridge: ${error instanceof Error ? error.message : "wire settlement failed"}`,
+            );
+            exitCode = 1;
+          }
         });
       }
       else if (message.type === "barrier") {
+        if (!hooks.onDurableWireEvent) cursor = Math.max(cursor, message.cursor);
         console.log(`attached ${message.executionId} at ${message.cursor}`);
         if (message.tornTail) {
           console.error(
@@ -585,6 +625,8 @@ function runClient(
           exitCode = 1;
         }
       } else {
+        refused = !launched;
+        errors.push(message.message);
         console.error(`north bridge: ${message.message}`);
         exitCode = 1;
       }
@@ -595,19 +637,25 @@ function runClient(
     exitCode = 1;
   });
   socket.once("close", () => {
-    void observationTail.then(() => result.resolve({ code: exitCode, launched }));
+    void observationTail.then(() => result.resolve({
+      code: exitCode, launched, refused, errors, cursor,
+    }));
   });
   socket.write(`${JSON.stringify(request)}\n`);
   return result.promise;
 }
 
-export async function settleManagedAppLaunchClose(
+export async function settleManagedAppLaunchRefusal(
   managed: ManagedBridgeAppLaunch,
-  launched: boolean,
 ): Promise<void> {
-  if (!launched && !managed.providerEffectObserved && !managed.settled) {
+  if (!managed.providerEffectObserved && !managed.settled) {
     await managed.proveUnsent("daemon-launch-refused");
   }
+}
+
+async function terminateManagedAppLaunch(executionId: string): Promise<void> {
+  const { socket } = await verifiedSocket(bridgeSocketPath());
+  await runClient(socket, { op: "terminateSession", executionId });
 }
 
 async function runManagedAppLaunch(launch: BridgeAppLaunchArguments): Promise<number> {
@@ -631,7 +679,7 @@ async function runManagedAppLaunch(launch: BridgeAppLaunchArguments): Promise<nu
       await managed.proveUnsent("daemon-not-contacted");
       throw error;
     }
-    const outcome = await runClient(socket, {
+    const launchRequest: BridgeRequest = {
       op: "launch",
       executionId: managed.executionId,
       attemptId: managed.attemptId,
@@ -642,15 +690,63 @@ async function runManagedAppLaunch(launch: BridgeAppLaunchArguments): Promise<nu
       model: managed.model,
       ...(launch.tier ? { tier: launch.tier } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
-    }, {
+    };
+    const hooks: BridgeClientHooks = {
       onDurableWireEvent: (event) => managed!.observeDurableWireEvent(event),
-    });
-    await settleManagedAppLaunchClose(managed, outcome.launched);
-    if (outcome.launched && !managed.settled) {
-      console.error("north bridge: app launch stream closed before durable attempt settlement");
-      return 1;
+    };
+    let leaseFailed = false;
+    const runMonitoredClient = async (
+      clientSocket: Socket,
+      request: BridgeRequest,
+    ): Promise<BridgeClientOutcome> => {
+      const client = runClient(clientSocket, request, hooks);
+      if (leaseFailed) return client;
+      const winner = await Promise.race([
+        client.then((outcome) => ({ kind: "client" as const, outcome })),
+        managed!.leaseFailure.then((error) => ({ kind: "lease" as const, error })),
+      ]);
+      if (winner.kind === "client") return winner.outcome;
+      leaseFailed = true;
+      console.error(`north bridge: delivery lease renewal failed: ${winner.error.message}`);
+      clientSocket.destroy();
+      try { await terminateManagedAppLaunch(managed!.executionId); }
+      catch {}
+      return client;
+    };
+
+    let outcome = await runMonitoredClient(socket, launchRequest);
+    if (bridgeAppLaunchRecoveryAction("launch", outcome, managed) === "prove-unsent") {
+      await settleManagedAppLaunchRefusal(managed);
+      return outcome.code;
     }
-    return outcome.code;
+    let cursor = outcome.cursor;
+    while (!managed.settled) {
+      if (leaseFailed) {
+        try { await terminateManagedAppLaunch(managed.executionId); }
+        catch {
+          await Bun.sleep(250);
+          continue;
+        }
+      }
+      try {
+        socket = (await verifiedSocket(bridgeSocketPath())).socket;
+      } catch {
+        await Bun.sleep(250);
+        continue;
+      }
+      outcome = await runMonitoredClient(socket, {
+        op: "attach",
+        executionId: managed.executionId,
+        cursor,
+      });
+      cursor = Math.max(cursor, outcome.cursor);
+      if (bridgeAppLaunchRecoveryAction("attach", outcome, managed) === "prove-unsent") {
+        await settleManagedAppLaunchRefusal(managed);
+        return 1;
+      }
+      if (!managed.settled) await Bun.sleep(250);
+    }
+    return leaseFailed ? 1 : outcome.code;
   } catch (error) {
     console.error(`north bridge: ${error instanceof Error ? error.message : "app launch failed"}`);
     return 1;

@@ -3,8 +3,9 @@ import {
   prepareManagedBridgeAppLaunch,
 } from "../src/bridge/app-launch-reservation";
 import {
+  bridgeAppLaunchRecoveryAction,
   parseBridgeAppLaunchArguments,
-  settleManagedAppLaunchClose,
+  settleManagedAppLaunchRefusal,
 } from "../src/bridge/cli";
 import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
@@ -73,12 +74,24 @@ test("ordinary empty-selection boot spawns no invalid Bridge child", () => {
 });
 
 test("authored launches ask the broker to reserve an attempt for the exact thread", () => {
-  const argv = bridgeAppLaunchArgv(runtime(THREAD_ID), "implement", "worker") as string[];
+  const argv = bridgeAppLaunchArgv(runtime(THREAD_ID), "implement", "worker");
   expect(argv.slice(1)).toEqual([
     "bridge", "app-launch", "--thread", THREAD_ID,
     "--role", "implementer", "implement",
   ]);
   expect(argv).not.toContain("--attempt");
+});
+
+test("supervisors use the managed control thread while workers use the selection", () => {
+  const app = runtime(THREAD_ID, "bridge-control-thread");
+  expect(bridgeAppLaunchArgv(app, "supervise", "supervisor"))
+    .toContain("bridge-control-thread");
+  expect(bridgeAppLaunchArgv(app, "implement", "worker"))
+    .toContain(THREAD_ID);
+
+  const launches: string[] = [];
+  boot(app, async (_prompt, role) => { launches.push(role); });
+  expect(launches).toEqual(["supervisor"]);
 });
 
 test("the app-launch parser accepts an exact thread but never a caller attempt", () => {
@@ -94,6 +107,29 @@ test("the app-launch parser accepts an exact thread but never a caller attempt",
   expect(() => parseBridgeAppLaunchArguments([
     "--thread", THREAD_ID, "--attempt", ATTEMPT_ID, "supervise",
   ])).toThrow("reserves its own attempt");
+  expect(() => parseBridgeAppLaunchArguments([
+    "--thread", THREAD_ID, "--claude", "supervise",
+  ])).toThrow("Store-authorized OpenAI route");
+});
+
+test("transport close reconnects and only an authoritative refusal proves unsent", () => {
+  const state = { providerEffectObserved: false, settled: false };
+  expect(bridgeAppLaunchRecoveryAction(
+    "launch", { refused: false, errors: [] }, state,
+  )).toBe("reconnect");
+  expect(bridgeAppLaunchRecoveryAction(
+    "launch", { refused: true, errors: ["launch refused"] }, state,
+  )).toBe("prove-unsent");
+  expect(bridgeAppLaunchRecoveryAction(
+    "attach", { refused: true, errors: ["Store read unavailable"] }, state,
+  )).toBe("reconnect");
+  expect(bridgeAppLaunchRecoveryAction(
+    "attach", { refused: true, errors: ["unknown bridge execution fixture"] }, state,
+  )).toBe("prove-unsent");
+  expect(bridgeAppLaunchRecoveryAction(
+    "launch", { refused: true, errors: ["launch refused"] },
+    { providerEffectObserved: true, settled: false },
+  )).toBe("reconnect");
 });
 
 test("the broker owns Store reservation through the durable provider terminal", async () => {
@@ -137,6 +173,7 @@ test("the broker owns Store reservation through the durable provider terminal", 
     acquireLeases: async () => ({
       threadLease: THREAD_LEASE,
       accountLease: ACCOUNT_LEASE,
+      renew: async () => { calls.push("renew"); },
       release: async () => { calls.push("release"); },
     }),
     reserve: () => {
@@ -195,7 +232,7 @@ test("the broker owns Store reservation through the durable provider terminal", 
   ]);
 });
 
-test("only a client close before daemon launch is proved unsent", async () => {
+test("an explicit daemon refusal is proved unsent after lease renewal is monitored", async () => {
   const calls: string[] = [];
   const managed = await prepareManagedBridgeAppLaunch({
     role: "implementer",
@@ -217,6 +254,10 @@ test("only a client close before daemon launch is proved unsent", async () => {
     acquireLeases: async () => ({
       threadLease: THREAD_LEASE,
       accountLease: ACCOUNT_LEASE,
+      renew: async () => {
+        calls.push("renew");
+        throw new Error("lease lost");
+      },
       release: async () => { calls.push("release"); },
     }),
     reserve: () => RESERVATION,
@@ -236,15 +277,13 @@ test("only a client close before daemon launch is proved unsent", async () => {
       };
     },
     commandReceipts: new MemoryBridgeCommandReceipts([STORE_ROUTE]),
+    leaseRenewIntervalMs: 1,
   });
 
-  await settleManagedAppLaunchClose(managed, true);
-  expect(managed.settled).toBe(false);
-  expect(calls).toEqual([]);
-
-  await settleManagedAppLaunchClose(managed, false);
+  expect((await managed.leaseFailure).message).toBe("lease lost");
+  await settleManagedAppLaunchRefusal(managed);
   expect(managed.settled).toBe(true);
-  expect(calls).toEqual(["proved-unsent", "release"]);
+  expect(calls).toEqual(["renew", "proved-unsent", "release"]);
 });
 
 test("an unregistered TUI selection cannot reach provider routing", async () => {
@@ -256,6 +295,17 @@ test("an unregistered TUI selection cannot reach provider routing", async () => 
     selectedThreadId: "missing-thread",
   }, {
     loadThreadFacts: () => [],
+    selectProvider: async () => { routed = true; throw new Error("must not route"); },
+  })).rejects.toThrow("not registered in Store");
+  expect(routed).toBe(false);
+
+  await expect(prepareManagedBridgeAppLaunch({
+    role: "implementer",
+    prompt: "implement",
+    cwd: "/tmp",
+    selectedThreadId: "factful-non-thread",
+  }, {
+    loadThreadFacts: () => [{ predicate: "owner", value: "personal" }],
     selectProvider: async () => { routed = true; throw new Error("must not route"); },
   })).rejects.toThrow("not registered in Store");
   expect(routed).toBe(false);

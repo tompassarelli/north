@@ -9,6 +9,19 @@ const typedDeclarations = new Map<string, string>([
   viewId?: string;
   sourceIdentity?: string;
 }): Promise<unknown>;`],
+  ["boot!", `declare function boot<T>(
+  runtime: T,
+  launch: (prompt: string, role: string) => Promise<unknown>,
+): T;`],
+  ["bridge-app-launch-argv!", `declare function bridgeAppLaunchArgv(
+  runtime: unknown,
+  prompt: string,
+  role: string,
+): string[];`],
+  ["launch-thread-id", `declare function launchThreadId(
+  runtime: unknown,
+  role: string,
+): string;`],
   ["handle-local-command!", `declare function handleLocalCommand(
   runtime: unknown,
   ui: unknown,
