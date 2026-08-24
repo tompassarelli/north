@@ -91,6 +91,7 @@ declare const configEntryActive: (...args: any[]) => any;
 declare const configHeaderKeys: (...args: any[]) => any;
 declare const configHeaderRoles: (...args: any[]) => any;
 declare const configHeaderShared: (...args: any[]) => any;
+declare const configModuleInspectionText: (...args: any[]) => any;
 declare const configPanelLegend: (...args: any[]) => any;
 declare const configPanelRows: (...args: any[]) => any;
 declare const configQueryField: (...args: any[]) => any;
@@ -103,7 +104,6 @@ declare const configRowRole: (...args: any[]) => any;
 declare const configRowSearchText: (...args: any[]) => any;
 declare const configSectionRows: (...args: any[]) => any;
 declare const configSectionTitle: (...args: any[]) => any;
-declare const configSetInspectionText: (...args: any[]) => any;
 declare const configStateText: (...args: any[]) => any;
 declare const configToggleVerb: (...args: any[]) => any;
 declare const configUnitActive: (...args: any[]) => any;
@@ -171,6 +171,7 @@ export {
   configHeaderKeys as "config-header-keys",
   configHeaderRoles as "config-header-roles",
   configHeaderShared as "config-header-shared!",
+  configModuleInspectionText as "config-module-inspection-text!",
   configPanelLegend as "config-panel-legend",
   configPanelRows as "config-panel-rows",
   configQueryField as "config-query-field",
@@ -183,7 +184,6 @@ export {
   configRowSearchText as "config-row-search-text",
   configSectionRows as "config-section-rows",
   configSectionTitle as "config-section-title",
-  configSetInspectionText as "config-set-inspection-text!",
   configStateText as "config-state-text",
   configToggleVerb as "config-toggle-verb",
   configUnitActive as "config-unit-active?",

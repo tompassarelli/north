@@ -12,7 +12,7 @@ capability. Neither implies the other.
   not in routing laws or North-facing contracts.
 - `agents/*.md` and `docs/adapters/north.md` are generated. Change source docs,
   provider catalogs, or `scripts/build-agents.mjs`, then rebuild them.
-- `doctrine.md` is injected by the `orchestration` set. It must contain
+- `doctrine.md` is injected by the `orchestration` module. It must contain
   orchestration policy only; transport commands belong to coordination.
 - `staffing/SKILL.md` owns the role-profile module, including its hook and
   generated agent-template declarations. Keep it a narrow pointer to the

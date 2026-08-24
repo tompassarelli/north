@@ -26,14 +26,14 @@
   (check "sync succeeds" (zero? (:exit (run "agents" "sync"))))
   (let [hooks (run "hooks")
         skills (run "skills")
-        sets (run "sets")
+        modules (run "modules")
         guards (run "guards")
         filtered (run "agents" "hooks" "--json")]
     (check "kind and guard views remain read-only catalog projections"
-           (and (every? #(zero? (:exit %)) [hooks skills sets guards filtered])
+           (and (every? #(zero? (:exit %)) [hooks skills modules guards filtered])
                 (str/includes? (:out hooks) "firn-system-policy")
                 (str/includes? (:out skills) "webdev")
-                (str/includes? (:out sets) "coordination")
+                (str/includes? (:out modules) "coordination")
                 (str/includes? (:out guards) "tripwire-guard")
                 (every? #(= "hook" (get % "kind"))
                         (get (json/parse-string (:out filtered)) "units")))))
@@ -53,11 +53,11 @@
                ["skills" "category" "off" "webdev"]
                ["skills" "all" "off"]
                ["skills" "sync"]
-               ["sets" "off" "coordination"]
+               ["modules" "off" "coordination"]
                ["guards" "off"]
                ["agents" "hooks" "off" "tripwire-guard"]
                ["agents" "skills" "off" "webdev"]
-               ["agents" "sets" "off" "coordination"]])]
+               ["agents" "modules" "off" "coordination"]])]
     (check "kind, category, all, guard, and sync mutation aliases are absent"
            (every? #(not (zero? (:exit %))) legacy-results)))
   (check "legacy harness permission state is not written"

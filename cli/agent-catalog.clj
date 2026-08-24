@@ -12,7 +12,7 @@
 (def initialization-transaction-schema "north.agent-initialization-transaction/v1")
 
 (def ^:private unit-id-pattern #"[a-z0-9][a-z0-9-]*")
-(def ^:private kinds #{"skill" "hook" "set"})
+(def ^:private kinds #{"skill" "hook" "module"})
 (def ^:private distribution-types
   #{"skill" "instructions" "hook" "agentTemplates" "providerAdapter"
     "projectPackage"})
@@ -278,29 +278,29 @@
     (when-not (and (vector? (get unit "distributions"))
                    (seq (get unit "distributions")))
       (fail (str "unit " id " has no distributions") {:id id}))
-    (when (and (= kind "set")
+    (when (and (= kind "module")
                (or (str/blank? (get unit "title" ""))
                    (str/blank? (get unit "triggerDescription" ""))))
-      (fail (str "set " id " must declare title and triggerDescription") {:id id}))
+      (fail (str "module " id " must declare title and triggerDescription") {:id id}))
     unit))
 
-(defn- exact-set-cycles! [units by-id]
+(defn- exact-module-cycles! [units by-id]
   (let [color (atom {})]
     (letfn [(visit [id stack]
-              (when (= "set" (get-in by-id [id "kind"]))
+              (when (= "module" (get-in by-id [id "kind"]))
                 (case (get @color id)
                   :grey (let [start (.indexOf stack id)
                               cycle (conj (subvec stack start) id)]
-                          (fail (str "catalog set cycle: " (str/join " -> " cycle))
+                          (fail (str "catalog module cycle: " (str/join " -> " cycle))
                                 {:cycle cycle}))
                   :black nil
                   (do
                     (swap! color assoc id :grey)
                     (doseq [member (get-in by-id [id "members"])]
-                      (when (= "set" (get-in by-id [member "kind"]))
+                      (when (= "module" (get-in by-id [member "kind"]))
                         (visit member (conj stack id))))
                     (swap! color assoc id :black)))))]
-      (doseq [unit units :when (= "set" (get unit "kind"))]
+      (doseq [unit units :when (= "module" (get unit "kind"))]
         (visit (get unit "id") [])))))
 
 (defn load-catalog []
@@ -358,14 +358,14 @@
               supports (get unit "supports" [])]
           (when-not (and (vector? members) (= (count members) (count (distinct members))))
             (fail (str "unit " id " has duplicate or invalid members") {:members members}))
-          (when (and (not= kind "set") (seq members))
-            (fail (str "non-set unit " id " declares members") {:members members}))
+          (when (and (not= kind "module") (seq members))
+            (fail (str "non-module unit " id " declares members") {:members members}))
           (doseq [member members]
             (when-not (contains? by-id member)
-              (fail (str "set " id " names unknown member " member) {:id id :member member}))
+              (fail (str "module " id " names unknown member " member) {:id id :member member}))
             (when (and (broadly-distributed? unit)
                        (project-only? (get by-id member)))
-              (fail (str "broadly distributed set " id
+              (fail (str "broadly distributed module " id
                          " contains project-only member " member)
                     {:id id :member member})))
           (when-not (and (vector? supports) (= (count supports) (count (distinct supports))))
@@ -373,16 +373,16 @@
           (when (and (not= kind "hook") (seq supports))
             (fail (str "non-hook unit " id " declares supports") {:supports supports}))
           (doseq [supported supports]
-            (when-not (#{"skill" "set"} (get-in by-id [supported "kind"]))
+            (when-not (#{"skill" "module"} (get-in by-id [supported "kind"]))
               (fail (str "hook " id " supports unknown or invalid unit " supported)
                     {:id id :supports supported}))
-            (when (and (#{"skill" "set"} (get-in by-id [supported "kind"]))
+            (when (and (#{"skill" "module"} (get-in by-id [supported "kind"]))
                        (project-only? unit)
                        (broadly-distributed? (get by-id supported)))
               (fail (str "broadly distributed unit " supported
                          " cannot depend on project-only hook " id)
                     {:id id :supports supported})))))
-      (exact-set-cycles! units by-id)
+      (exact-module-cycles! units by-id)
       (let [enriched
             (mapv
              (fn [unit]
@@ -716,7 +716,7 @@
                  (let [path (conj parent-path id)
                        unit (get by-id id)]
                    (record! id path)
-                   (when (= "set" (get unit "kind"))
+                   (when (= "module" (get unit "kind"))
                      (doseq [member (get unit "members")]
                        (walk! member path)))
                    (doseq [hook-id (get supporting id)]

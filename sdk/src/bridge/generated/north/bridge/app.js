@@ -288,9 +288,9 @@ const EMOJI_COMMANDS = [SlashCommand("😀", "grinning face · happy smile", fal
 
 const GLYPH_COMMANDS = [SlashCommand("❯", "heavy chevron", false, "/glyph ❯", true), SlashCommand("›", "single chevron", false, "/glyph ›", true), SlashCommand("»", "double chevron", false, "/glyph »", true), SlashCommand("→", "right arrow", false, "/glyph →", true), SlashCommand("λ", "lambda", false, "/glyph λ", true), SlashCommand("◆", "diamond", false, "/glyph ◆", true), SlashCommand("•", "bullet", false, "/glyph •", true), SlashCommand("$", "shell dollar", false, "/glyph $", true)];
 
-const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
+const AGENT_COMMANDS = [SlashCommand("/launch", "start another Codex worker", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/interrupt", "interrupt the active agent turn", false, "", false), SlashCommand("/transcript", "show selected or all execution transcripts", true, "", false), SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/threads", "show Threads (or `popout`)", true, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show Northbridge controls", false, "", false)];
 
-const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/sets", "switchboard: recursive sets only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
+const THREAD_COMMANDS = [SlashCommand("/capture", "capture a new thread", true, "", false), SlashCommand("/provider", "set next launch: openai or auto", true, "", false), SlashCommand("/model", "set next launch: tier, exact model, or auto", true, "", false), SlashCommand("/effort", "set next launch: low, medium, high, xhigh, max, or auto", true, "", false), SlashCommand("/filter", "filter visible threads", true, "", false), SlashCommand("/assign", "reassign the selected thread", true, "", false), SlashCommand("/outcome", "record a selected thread outcome", true, "", false), SlashCommand("/list", "threads as a list", false, "", false), SlashCommand("/board", "threads as a board", false, "", false), SlashCommand("/graph", "threads as a graph", false, "", false), SlashCommand("/agents", "back to Agents", false, "", false), SlashCommand("/refresh", "refresh agents and threads", false, "", false), SlashCommand("/restart", "retire the control daemon now", false, "", false), SlashCommand("/popout", "open the current view in another terminal", true, "", false), SlashCommand("/glyph", "set the shared prompt glyph", true, "", false), SlashCommand("/emoji", "insert a curated emoji or glyph", true, "", false), SlashCommand("/sound", "configure completion sounds", true, "", false), SlashCommand("/mute", "turn completion sounds off", false, "", false), SlashCommand("/config", "toggle the switchboard", false, "", false), SlashCommand("/hooks", "switchboard: hooks only", false, "", false), SlashCommand("/skills", "switchboard: skills only", false, "", false), SlashCommand("/mcp", "share MCP: add <name> <url|-- command> | remove <name> | list", true, "", false), SlashCommand("/modules", "switchboard: recursive modules only", false, "", false), SlashCommand("/q", "quit Northbridge", false, "", false), SlashCommand("/help", "show thread commands", false, "", false)];
 
 function text(value) {
   return ((typeof value === "string") ? value : "");
@@ -909,13 +909,11 @@ function config_unit_active_p(entries, name) {
 }
 
 function config_state_text(entry) {
-  const state = text_or(configentry_state(entry), "default");
-  const resolved = (config_entry_active_p(entry) ? "on" : "off");
-  return $$bc$str(resolved, " · permission ", state);
+  return (config_entry_active_p(entry) ? "on" : "off");
 }
 
-function config_toggle_verb(state) {
-  return ((state === "on") ? "off" : "on");
+function config_toggle_verb(resolved) {
+  return ((resolved === "on") ? "off" : "on");
 }
 
 function config_view_includes_p(view, kind, __name) {
@@ -927,11 +925,12 @@ function config_row_role(entry, __rows) {
 }
 
 function config_section_rank(role) {
-  return (((role === "set")) ? 0 : ((role === "skill")) ? 1 : ((role === "hook")) ? 2 : 10);
+  return (((role === "hook")) ? 0 : ((role === "module")) ? 1 : ((role === "skill")) ? 2 : 10);
 }
 
 function config_tree_rows(entries) {
-  return entries.slice().sort((a, b) => (config_section_rank(config_row_role(a, entries)) - config_section_rank(config_row_role(b, entries))));
+  return entries.slice().sort((a, b) => { const section_order = (config_section_rank(config_row_role(a, entries)) - config_section_rank(config_row_role(b, entries)));
+return ((!(section_order === 0)) ? section_order : compare_text(configentry_name(a), configentry_name(b))); });
 }
 
 function config_view_rows(entries, view) {
@@ -991,7 +990,7 @@ function config_activation_of_json(content) {
     (() => { throw new Error("activation generation has no ordered units"); })();
   }
   const invalid = units.find((unit) => { const kind = text(unit.kind);
-return (!((_truthy) => _truthy !== false && _truthy != null)(((kind === "set") || ((kind === "skill") || (kind === "hook"))))); });
+return (!((_truthy) => _truthy !== false && _truthy != null)(((kind === "module") || ((kind === "skill") || (kind === "hook"))))); });
   if (((_truthy) => _truthy !== false && _truthy != null)(invalid)) {
     (() => { throw new Error($$bc$str("activation generation has invalid unit kind: ", text_or(text(invalid.kind), "missing"))); })();
   }
@@ -1098,7 +1097,7 @@ async function edit_config_entry_bang(runtime) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
-    if ((configentry_kind(entry) === "set")) {
+    if ((configentry_kind(entry) === "module")) {
       return (runtime.configInspectId = ((text(runtime.configInspectId) === configentry_name(entry)) ? "" : configentry_name(entry)));
     }
   }
@@ -1111,7 +1110,7 @@ async function toggle_config_entry_bang(runtime) {
     const raw = runtime.configIndex;
     const index = Math.max(0, Math.min((((_truthy) => _truthy !== false && _truthy != null)(raw) ? raw : 0), (entry_count - 1)));
     const entry = entries[index];
-    const verb = config_toggle_verb(configentry_state(entry));
+    const verb = config_toggle_verb(config_state_text(entry));
     await run_command([north_bin(), "config", "agents", verb, configentry_name(entry)]);
     await load_config_entries_bang(runtime);
     return runtime.render();
@@ -1197,7 +1196,7 @@ return true; })() : ((name === "hooks")) ? (() => { open_config_panel_bang(runti
 return true; })() : ((name === "skills")) ? (() => { open_config_panel_bang(runtime, ui, "skill");
 return true; })() : ((name === "mcp")) ? (() => { const parts = rest.trim().split(/\\s+/).filter((part) => (!(part === "")));
 run_command([north_bin(), "config", "mcp"].concat(parts)).then((output) => publish_line_bang(runtime, output.trim())).catch((error) => publish_line_bang(runtime, $$bc$str("error: ", error_message(error))));
-return true; })() : ((name === "sets")) ? (() => { open_config_panel_bang(runtime, ui, "set");
+return true; })() : ((name === "modules")) ? (() => { open_config_panel_bang(runtime, ui, "module");
 return true; })() : ((name === "restart")) ? (() => { restart_daemon_bang(runtime);
 return true; })() : ((name === "agents")) ? (() => { show_view_bang(runtime, ui, "agents");
 return true; })() : ((name === "threads")) ? (() => { if ((rest.trim().toLowerCase() === "popout")) {
@@ -1828,11 +1827,11 @@ function visible_notice(notice) {
 }
 
 function config_section_title(role) {
-  return (((role === "set")) ? "SETS" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : "");
+  return (((role === "module")) ? "MODULES" : ((role === "skill")) ? "SKILLS" : ((role === "hook")) ? "HOOKS" : "");
 }
 
 function config_header_roles(role) {
-  return (((role === "set")) ? ["set"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : []);
+  return (((role === "module")) ? ["module"] : ((role === "skill")) ? ["skill"] : ((role === "hook")) ? ["hook"] : []);
 }
 
 function config_header_keys(entry, rows) {
@@ -1849,7 +1848,7 @@ function config_header_shared_bang(prior, current) {
 }
 
 function config_panel_title(config_filter) {
-  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "set")) ? "sets" : "switchboard");
+  return (((config_filter === "hook")) ? "hooks" : ((config_filter === "skill")) ? "skills" : ((config_filter === "module")) ? "modules" : "switchboard");
 }
 
 function config_empty_note(loaded_p, filtering_p) {
@@ -1861,7 +1860,7 @@ function config_query_field(filtering_p, query) {
 }
 
 function config_panel_legend(filtering_p) {
-  return (filtering_p ? "  ↑/↓ move · space toggle · enter inspect set · esc clears filter" : "  ↑/↓ move · space toggle · enter inspect set · / filter · esc close");
+  return (filtering_p ? "  ↑/↓ move · space toggle · enter inspect module · esc clears filter" : "  ↑/↓ move · space toggle · enter inspect module · / filter · esc close");
 }
 
 function dimmest(value) {
@@ -1876,7 +1875,7 @@ function config_row_parts(entry, state_text, width) {
   const kind = configentry_kind(entry);
   const name = configentry_name(entry);
   const members = config_entry_members(entry);
-  const detail = (((kind === "hook")) ? (() => { const claims = config_array(entry.supports); return ((claims.length > 0) ? $$bc$str("supports ", claims.join(", ")) : ""); })() : ((kind === "set")) ? config_member_count_text(members.length) : text(configentry_detail(entry)));
+  const detail = (((kind === "hook")) ? (() => { const claims = config_array(entry.supports); return ((claims.length > 0) ? $$bc$str("supports ", claims.join(", ")) : ""); })() : ((kind === "module")) ? config_member_count_text(members.length) : text(configentry_detail(entry)));
   const indent = config_row_indent();
   const indent_width = indent.length;
   const state_width = state_text.length;
@@ -1896,7 +1895,7 @@ function config_header_indent(index) {
 }
 
 function config_unit_parents(entries, id) {
-  return entries.filter((entry) => ((configentry_kind(entry) === "set") && config_entry_members(entry).includes(id))).map((entry) => configentry_name(entry));
+  return entries.filter((entry) => ((configentry_kind(entry) === "module") && config_entry_members(entry).includes(id))).map((entry) => configentry_name(entry));
 }
 
 function config_path_text(path) {
@@ -1917,17 +1916,17 @@ function config_inspection_walk_bang(lines, entries, entry, parent, depth, trail
   const paths = config_array(entry.activationPaths);
   lines.push($$bc$str(indent, ((depth > 0) ? "└─ " : ""), config_unit_summary(entry, entries, parent)));
   paths.forEach((path) => lines.push($$bc$str(indent, "   activation: ", config_path_text(path))));
-  if ((configentry_kind(entry) === "set")) {
-    config_entry_members(entry).forEach((member_id) => { const member = text(member_id);
+  if ((configentry_kind(entry) === "module")) {
+    config_entry_members(entry).slice().sort((left, right) => compare_text(text(left), text(right))).forEach((member_id) => { const member = text(member_id);
 const child = config_find_entry(entries, member);
 return ((child == null) ? lines.push($$bc$str(indent, "  └─ missing unit ", member)) : (((_truthy) => _truthy !== false && _truthy != null)(trail.includes(member)) ? lines.push($$bc$str(indent, "  └─ cycle ", member)) : config_inspection_walk_bang(lines, entries, child, id, (depth + 1), trail.concat([member])))); });
   }
   return lines;
 }
 
-function config_set_inspection_text_bang(entries, id) {
+function config_module_inspection_text_bang(entries, id) {
   const entry = config_find_entry(entries, id);
-  return (((_truthy) => _truthy !== false && _truthy != null)(((entry == null) || (!(configentry_kind(entry) === "set")))) ? $$bc$str("set unavailable: ", id) : config_inspection_walk_bang([], entries, entry, "", 0, [id]).join("\n"));
+  return (((_truthy) => _truthy !== false && _truthy != null)(((entry == null) || (!(configentry_kind(entry) === "module")))) ? $$bc$str("module unavailable: ", id) : config_inspection_walk_bang([], entries, entry, "", 0, [id]).join("\n"));
 }
 
 function render_config_panel_bang(runtime) {
@@ -1942,7 +1941,7 @@ function render_config_panel_bang(runtime) {
   const focused_p = panel_focused_p(runtime);
   const query = panel_query(runtime);
   const inspect_id = text(runtime.configInspectId);
-  return (((!(inspect_id === ""))) ? new StyledText([brightYellow("set inspection"), brightBlack("  enter returns\n"), brightWhite(config_set_inspection_text_bang(all_entries, inspect_id))]) : ((total === 0)) ? new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(text_or(text(runtime.configDiagnostic), config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p)))]) : (() => { const index = clamped_index(runtime.configIndex, total); const window = config_visible_count(total, config_filter); const start = window_start(index, total, window); const stop = Math.min(total, (start + window)); const width = Math.max(12, (terminal_columns() - 12)); const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))]; entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
+  return (((!(inspect_id === ""))) ? new StyledText([brightYellow("module inspection"), brightBlack("  enter returns\n"), brightWhite(config_module_inspection_text_bang(all_entries, inspect_id))]) : ((total === 0)) ? new StyledText([brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack(text_or(text(runtime.configDiagnostic), config_empty_note((((_truthy) => _truthy !== false && _truthy != null)(runtime.configLoaded) ? true : false), filtering_p)))]) : (() => { const index = clamped_index(runtime.configIndex, total); const window = config_visible_count(total, config_filter); const start = window_start(index, total, window); const stop = Math.min(total, (start + window)); const width = Math.max(12, (terminal_columns() - 12)); const parts = [brightYellow(config_panel_title(config_filter)), brightCyan(config_query_field(filtering_p, query)), brightBlack($$bc$str(config_panel_legend(filtering_p), "\n"))]; entries.slice(start, stop).forEach((entry, offset) => { const i = (start + offset);
 const cursor_p = (i === index);
 const kind = configentry_kind(entry);
 const active_p = config_entry_active_p(entry);
@@ -3502,6 +3501,7 @@ export { config_entry_active_p as "config-entry-active?" };
 export { config_header_keys as "config-header-keys" };
 export { config_header_roles as "config-header-roles" };
 export { config_header_shared_bang as "config-header-shared!" };
+export { config_module_inspection_text_bang as "config-module-inspection-text!" };
 export { config_panel_legend as "config-panel-legend" };
 export { config_panel_rows as "config-panel-rows" };
 export { config_query_field as "config-query-field" };
@@ -3514,7 +3514,6 @@ export { config_row_role as "config-row-role" };
 export { config_row_search_text as "config-row-search-text" };
 export { config_section_rows as "config-section-rows" };
 export { config_section_title as "config-section-title" };
-export { config_set_inspection_text_bang as "config-set-inspection-text!" };
 export { config_state_text as "config-state-text" };
 export { config_toggle_verb as "config-toggle-verb" };
 export { config_unit_active_p as "config-unit-active?" };

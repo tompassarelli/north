@@ -122,13 +122,13 @@
                       {:path (str file)})))
     file))
 
-(def project-set-fixture
+(def project-module-fixture
   {"id" "beagle-tools"
-   "kind" "set"
+   "kind" "module"
    "title" "Beagle Tools"
    "triggerDescription" "Project-packaged Beagle authoring behavior."
    "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}
-   "members" ["code-as-facts"]
+   "members" ["code-as-facts" "code-upstream-guard"]
    "distributions" [{"type" "projectPackage"
                      "targets" ["project:beagle"]
                      "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}}]})
@@ -189,7 +189,7 @@
         activation (north.agent-catalog/compile-activation
                     catalog (initial-permissions catalog))
         by-id (into {} (map (juxt #(get % "id") identity)) (get activation "units"))]
-    (check "catalog inventories every audited skill, hook, and set"
+    (check "catalog inventories every audited module, skill, and hook"
            (and (= 65 (count (:units catalog)))
                 (every? (:by-id catalog)
                         (concat ["coordination" "orchestration" "compose" "elicit"
@@ -230,7 +230,7 @@
                       "active" "owner" "members" "supports" "distributions"
                       "activationPaths"])
             (get activation "units")))
-    (check "sets expand permitted members depth-first in declared order"
+    (check "modules expand permitted members depth-first in declared order"
            (= ["orchestration" "staffing" "agent-spawn-guard"
                "compose" "elicit" "coordination"
                "messages" "threads" "assignments"]
@@ -302,12 +302,12 @@
                                     catalog permissions)
                                    "permissions")))))))
 
-  (check "UnitIds are globally unique across sets, skills, and hooks"
+  (check "UnitIds are globally unique across modules, skills, and hooks"
          (throws-containing?
           "duplicate catalog unit ids"
           #(load-value (mutate-unit base "code-upstream-guard"
                                     (fn [unit] (assoc unit "id" "webdev"))))))
-  (check "duplicate set members are rejected"
+  (check "duplicate module members are rejected"
          (throws-containing?
           "duplicate or invalid members"
           #(load-value (mutate-unit base "coordination"
@@ -317,14 +317,14 @@
           "unknown member"
           #(load-value (mutate-unit base "coordination"
                                     (fn [unit] (update unit "members" conj "missing"))))))
-  (check "broadly distributed sets reject project-only members"
+  (check "broadly distributed modules reject project-only members"
          (throws-containing?
           "contains project-only member"
           #(load-value (mutate-unit base "coordination"
                                     (fn [unit]
                                       (update unit "members" conj "code-as-facts"))))))
-  (check "project-only set membership and hook support remain valid"
-         (loads? (update base "units" conj project-set-fixture)))
+  (check "project-only module membership and hook support remain valid"
+         (loads? (update base "units" conj project-module-fixture)))
   (check "broadly distributed claimants reject project-only hooks"
          (throws-containing?
           "cannot depend on project-only hook"
@@ -353,11 +353,28 @@
                         base "webdev"
                         (fn [unit]
                           (assoc-in unit ["distributions" 0 "targets"] ["unknown"]))))))
-  (check "exact recursive set cycles are rejected"
+  (check "exact recursive module cycles are rejected"
          (throws-containing?
-          "catalog set cycle"
+          "catalog module cycle"
           #(load-value (mutate-unit base "coordination"
                                     (fn [unit] (update unit "members" conj "orchestration"))))))
+
+  (let [catalog (load-value (-> base
+                                (update "units" conj project-module-fixture)
+                                (update "rootOrder" conj "beagle-tools")))
+        permissions (into (sorted-map)
+                          (map (fn [unit] [(get unit "id") "on"]))
+                          (:units catalog))
+        activation (north.agent-catalog/compile-activation catalog permissions)
+        by-id (into {} (map (juxt #(get % "id") identity))
+                    (get activation "units"))]
+    (check "modules compose direct skill and hook members alongside nested modules"
+           (and (some #(= ["orchestration" "coordination"] %)
+                      (get-in by-id ["coordination" "activationPaths"]))
+                (some #(= ["beagle-tools" "code-as-facts"] %)
+                      (get-in by-id ["code-as-facts" "activationPaths"]))
+                (some #(= ["beagle-tools" "code-upstream-guard"] %)
+                      (get-in by-id ["code-upstream-guard" "activationPaths"])))))
 
   (let [conflicting
         (update (json/parse-string (slurp initialization-path))
@@ -617,8 +634,8 @@
         before-unknown (run "agents" "status" "--json")
         unknown (run "agents" "off" "unknown-unit")
         after-unknown (run "agents" "status" "--json")
-        set-disabled (run "agents" "off" "coordination")
-        set-inspected (run "agents" "inspect" "coordination" "--json")
+        module-disabled (run "agents" "off" "coordination")
+        module-inspected (run "agents" "inspect" "coordination" "--json")
         hook-disabled (run "agents" "off" "tripwire-guard")
         hook-inspected (run "agents" "inspect" "tripwire-guard" "--json")
         before-repeat (get (json/parse-string (:out hook-inspected)) "permission")
@@ -639,9 +656,9 @@
                 (str/includes? (:err unknown) "unknown unit: unknown-unit")
                 (= (get (json/parse-string (:out before-unknown)) "generationId")
                    (get (json/parse-string (:out after-unknown)) "generationId"))))
-    (check "direct UnitId ABI accepts sets and hooks"
-           (and (zero? (:exit set-disabled)) (zero? (:exit hook-disabled))
-                (= "off" (get (json/parse-string (:out set-inspected)) "permission"))
+    (check "direct UnitId ABI accepts modules and hooks"
+           (and (zero? (:exit module-disabled)) (zero? (:exit hook-disabled))
+                (= "off" (get (json/parse-string (:out module-inspected)) "permission"))
                 (= "off" (get (json/parse-string (:out hook-inspected)) "permission"))))
     (check "one-time adoption preserves system and genuine user entries exactly"
            (and (.isFile (io/file cli-home ".codex/skills/.system/marker"))
