@@ -151,7 +151,9 @@ test("Bridge route commands set and reset only the next launch", () => {
     launchProvider: "", launchTier: "", launchModel: "", launchEffort: "",
   });
   expect(() => setLaunchRoute(runtime, "provider", "gemini"))
-    .toThrow("provider requires anthropic, openai, or auto");
+    .toThrow("provider requires openai or auto");
+  expect(() => setLaunchRoute(runtime, "provider", "anthropic"))
+    .toThrow("provider requires openai or auto");
   expect(() => setLaunchRoute(runtime, "effort", "ultra"))
     .toThrow("effort requires low, medium, high, xhigh, max, or auto");
 });
@@ -159,10 +161,10 @@ test("Bridge route commands set and reset only the next launch", () => {
 test("a route selection is consumed once", () => {
   const runtime = launchRouteRuntime();
   Object.assign(runtime, {
-    launchProvider: "anthropic", launchModel: "fable", launchEffort: "xhigh",
+    launchProvider: "openai", launchModel: "gpt-5.6-sol", launchEffort: "xhigh",
   });
   expect(takeLaunchRouteFlags(runtime)).toEqual([
-    "--provider", "anthropic", "--model", "fable", "--effort", "xhigh",
+    "--provider", "openai", "--model", "gpt-5.6-sol", "--effort", "xhigh",
   ]);
   expect(runtime).toMatchObject({
     launchProvider: "", launchTier: "", launchModel: "", launchEffort: "",

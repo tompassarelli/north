@@ -292,7 +292,7 @@
 
 (def AGENT-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
-   (->SlashCommand "/provider" "set next launch: anthropic, openai, or auto" true "" false)
+   (->SlashCommand "/provider" "set next launch: openai or auto" true "" false)
    (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
    (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
@@ -318,7 +318,7 @@
 
 (def THREAD-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/capture" "capture a new thread" true "" false)
-   (->SlashCommand "/provider" "set next launch: anthropic, openai, or auto" true "" false)
+   (->SlashCommand "/provider" "set next launch: openai or auto" true "" false)
    (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
    (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
    (->SlashCommand "/filter" "filter visible threads" true "" false)
@@ -1606,7 +1606,7 @@
   (try
     (await (run-command [(north-bin) "bridge" "restart"]))
     (forget-control-session! runtime)
-    (if (identical? (launch-thread-id runtime) "")
+    (if (identical? (launch-thread-id runtime "supervisor") "")
       (publish-line! runtime "control daemon replaced; select a thread before /launch")
       (do
         (publish-line! runtime "control daemon replaced; session restored")
@@ -4439,6 +4439,9 @@
          tier-value String (.trim (text tier))
          model-value String (.trim (text model))
          effort-value String (.trim (text effort))]
+     (when (not (or (identical? provider-value "")
+                    (identical? provider-value "openai")))
+       (throw (new Error "Bridge app launches require provider openai or auto")))
      (.concat []
              (if (identical? provider-value "") [] ["--provider" provider-value])
              (if (identical? tier-value "") [] ["--tier" tier-value])
@@ -4464,9 +4467,8 @@
       (identical? name "provider")
       (do
         (when (not (or (identical? choice "auto")
-                       (identical? choice "anthropic")
                        (identical? choice "openai")))
-          (throw (new Error "provider requires anthropic, openai, or auto")))
+          (throw (new Error "provider requires openai or auto")))
         (set! (.-launchProvider runtime) (if (identical? choice "auto") "" choice)))
 
       (identical? name "model")
@@ -4505,22 +4507,25 @@
 (defn main-agent-label [runtime Any] String
   (let [value String (.trim (text (.-launchProvider runtime)))]
     (cond
-      (identical? value "anthropic") "Claude Main"
       (identical? value "openai") "Codex Main"
       :else "Main")))
 
 (js/export
- (defn launch-thread-id [runtime Any] String
-  (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-        selected String (bridgesnapshot-selected-thread state)]
-    (text-or selected (text (.-controlThreadId runtime))))))
+ (defn launch-thread-id
+   [runtime Any
+    role String] String
+   (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
+         selected String (bridgesnapshot-selected-thread state)]
+     (if (identical? role "supervisor")
+      (text (.-controlThreadId runtime))
+      selected))))
 
 (js/export
  (defn bridge-app-launch-argv!
    [runtime Any
     prompt String
     role String] (Vec String)
-   (let [thread-id String (launch-thread-id runtime)]
+   (let [thread-id String (launch-thread-id runtime role)]
      (when (identical? thread-id "")
        (throw (new Error "launch requires a selected or managed control thread")))
      (let [route-flags (Vec String) (take-launch-route-flags! runtime)]
@@ -4557,7 +4562,7 @@
  (defn boot!
    [runtime Any
     launch (Fn [String String] (Promise Any))] Any
-   (when (not (identical? (launch-thread-id runtime) ""))
+   (when (not (identical? (launch-thread-id runtime "supervisor") ""))
      (report-promise! runtime (launch SUPERVISOR-BOOT-PROMPT "supervisor")))
    runtime))
 

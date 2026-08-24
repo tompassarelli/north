@@ -4,6 +4,7 @@ import {
   commitDeliveryAttemptProviderStart,
   commitDeliveryAttemptProvedUnsent,
   commitDeliveryAttemptTerminal,
+  DELIVERY_ATTEMPT_LEASE_TTL_MS,
   newDeliveryRunContext,
   reserveDeliveryRun,
   reserveDeliveryRunWithRecovery,
@@ -44,6 +45,7 @@ export interface ManagedBridgeAppLaunch {
   readonly model: string;
   readonly providerEffectObserved: boolean;
   readonly settled: boolean;
+  readonly leaseFailure: Promise<Error>;
   observeDurableWireEvent(event: WireEvent): Promise<void>;
   proveUnsent(
     reason: Exclude<BridgeAppLaunchUnsentReason, "attempt-binding-refused">,
@@ -62,6 +64,7 @@ interface BridgeAppLaunchDependencies {
   terminal?: typeof commitDeliveryAttemptTerminal;
   commandReceipts?: BridgeCommandReceipts;
   executionId?: string;
+  leaseRenewIntervalMs?: number;
 }
 
 function sha256(value: string): string {
@@ -84,7 +87,10 @@ function exactRegisteredThread(
     );
   }
   const threadId = normalizeNorthEntityId(candidate);
-  if (loadThreadFacts(threadId).length === 0) {
+  const titles = loadThreadFacts(threadId)
+    .filter(({ predicate }) => predicate === "title")
+    .map(({ value }) => value);
+  if (titles.length !== 1 || !titles[0]?.trim()) {
     throw new Error(`Bridge app launch thread @${threadId} is not registered in Store`);
   }
   return threadId;
@@ -200,9 +206,38 @@ export async function prepareManagedBridgeAppLaunch(
   let providerStart: DeliveryAttemptProviderStart | undefined;
   let isSettled = false;
   let released = false;
+  let renewalTimer: ReturnType<typeof setTimeout> | undefined;
+  let renewing: Promise<void> | undefined;
+  const leaseFailure = Promise.withResolvers<Error>();
+  const renewalIntervalMs = Math.max(
+    1,
+    dependencies.leaseRenewIntervalMs ?? Math.floor(DELIVERY_ATTEMPT_LEASE_TTL_MS / 3),
+  );
+  const scheduleRenewal = (): void => {
+    if (released || isSettled) return;
+    renewalTimer = setTimeout(async () => {
+      renewalTimer = undefined;
+      if (released || isSettled) return;
+      renewing = leases.renew();
+      try {
+        await renewing;
+        scheduleRenewal();
+      } catch (error) {
+        leaseFailure.resolve(error instanceof Error
+          ? error
+          : new Error("Bridge app launch lease renewal failed"));
+      } finally {
+        renewing = undefined;
+      }
+    }, renewalIntervalMs);
+  };
+  scheduleRenewal();
   const release = async (): Promise<void> => {
     if (released) return;
     released = true;
+    if (renewalTimer !== undefined) clearTimeout(renewalTimer);
+    renewalTimer = undefined;
+    await renewing?.catch(() => undefined);
     await leases.release();
   };
   const commitUnsent = async (receiptSha256: string): Promise<void> => {
@@ -223,8 +258,9 @@ export async function prepareManagedBridgeAppLaunch(
     model: resolved.model,
     get providerEffectObserved() { return effectObserved; },
     get settled() { return isSettled; },
+    leaseFailure: leaseFailure.promise,
     async observeDurableWireEvent(event: WireEvent): Promise<void> {
-      if (event.kind === "model-call.started" && !effectObserved) {
+      if (event.kind === "model-call.started" && !providerStart) {
         effectObserved = true;
         providerStart = (dependencies.providerStart ?? commitDeliveryAttemptProviderStart)(
           context,
