@@ -312,7 +312,7 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
-   (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
+   (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
@@ -342,7 +342,7 @@
    (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
    (->SlashCommand "/skills" "switchboard: skills only" false "" false)
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
-   (->SlashCommand "/sets" "switchboard: recursive sets only" false "" false)
+   (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show thread commands" false "" false)])
 
@@ -1219,37 +1219,18 @@
    (let [entry Any (config-find-entry entries name)]
     (if entry (config-entry-active? entry) false))))
 
-;; Pure: the state a row is in — ONE token, and a qualifier only where the row
-;; diverges from what that token would let you assume.
-;;
-;; The two-axis model underneath is unchanged; this is what it prints. `enabled`
-;; is never one of the words: a row that is on says `on`, and a row whose own
-;; switch is on while it is not composing says `off` and then why. Spending a
-;; whole token on the axis that agrees with the answer said nothing and buried
-;; the axis that did not.
-;;
-;; Provenance is the same rule one level out. A hook drawn UNDER the skill that
-;; claims it is already standing in the answer — the parent row names the
-;; claimant, and repeating it on every child is the noise that made a nested
-;; hook unreadable. Printed only where the row is not nested under its claimant:
-;; the flat hooks view, and hooks nobody claimed. Where the row is off BECAUSE
-;; of that claimant, the reason already names it and nothing repeats it.
-;; The claimant IS the reason a bound hook is not running, and it is the one
-;; provenance a nested row still has to print — as the divergence, since the
-;; parent row already gives its provenance. The kind comes with a companion's
-;; name; an absent companion has no kind to state.
+;; Ordinary rows present the authority-resolved answer. Stored permission and
+;; activation provenance stay available to the module inspector.
 (js/export
  (defn config-state-text [entry Any] String
-   (let [state String (text-or (configentry-state entry) "default")
-         resolved String (if (config-entry-active? entry) "on" "off")]
-     (str resolved " · permission " state))))
+   (if (config-entry-active? entry) "on" "off")))
 
-;; Pure: which CLI verb a space on this row means. Both axes flip through the
-;; same two verbs — `off` pins a hook disabled or switches a unit off, `on`
-;; clears the pin or switches the unit on — and the cascade math is the CLI's.
+;; Pure: which CLI verb a space on this row means. The verb follows the answer
+;; the row displays, so an inactive unit whose stored permission is already on
+;; is never silently pinned off when the operator asks to move it toward on.
 (js/export
- (defn config-toggle-verb [state String] String
-  (if (identical? state "on") "off" "on")))
+ (defn config-toggle-verb [resolved String] String
+  (if (identical? resolved "on") "off" "on")))
 
 ;; Views are projections of the one ordered activation-unit list.
 (js/export
@@ -1267,12 +1248,12 @@
     _rows Any] String
    (configentry-kind entry)))
 
-;; Sets are the sole composition unit and therefore always precede leaf kinds.
+;; Section order follows the labels operators read: Hooks, Modules, Skills.
 (defn config-section-rank [role String] Int
   (cond
-    (identical? role "set") 0
-    (identical? role "skill") 1
-    (identical? role "hook") 2
+    (identical? role "hook") 0
+    (identical? role "module") 1
+    (identical? role "skill") 2
     :else 10))
 
 (defn config-tree-rows [entries Any] Any
@@ -1280,11 +1261,13 @@
          (fn
            [a Any
             b Any] Int
-           (- (config-section-rank (config-row-role a entries))
-              (config-section-rank (config-row-role b entries))))))
+           (let [section-order Int (- (config-section-rank (config-row-role a entries))
+                    (config-section-rank (config-row-role b entries)))]
+             (if (not (identical? section-order 0))
+               section-order
+               (compare-text (configentry-name a) (configentry-name b)))))))
 
-;; Preserve authority order within each kind while presenting sections in the
-;; fixed set, skill, hook hierarchy.
+;; The selected generation owns activity; Bridge owns deterministic presentation.
 (js/export
  (defn config-view-rows
    [entries Any
@@ -1403,7 +1386,7 @@
      (let [invalid Any (.find units
                    (fn [unit Any] Bool
                      (let [kind String (text (.-kind unit))]
-                       (not (or (identical? kind "set")
+                       (not (or (identical? kind "module")
                                 (identical? kind "skill")
                                 (identical? kind "hook"))))))]
        (when invalid
@@ -1532,7 +1515,7 @@
             index Int (Math/max 0 (Math/min (if raw raw 0)
                                               (- entry-count 1)))
             entry Any (nth entries index)]
-        (when (identical? (configentry-kind entry) "set")
+        (when (identical? (configentry-kind entry) "module")
           (set! (.-configInspectId runtime)
                 (if (identical? (text (.-configInspectId runtime))
                                 (configentry-name entry))
@@ -1547,12 +1530,12 @@
             index Int (Math/max 0 (Math/min (if raw raw 0)
                                               (- entry-count 1)))
             entry Any (nth entries index)
-            verb String (config-toggle-verb (configentry-state entry))]
+            verb String (config-toggle-verb (config-state-text entry))]
         (await (run-command [(north-bin) "config" "agents" verb
                             (configentry-name entry)]))
         ;; Reload the authority-owned generation rather than patching one row:
         ;; one permission change can alter every reachable member and supporting
-        ;; hook in the resolved set graph.
+        ;; hook in the resolved module graph.
         (await (load-config-entries! runtime))
         (.render runtime)))))
 
@@ -1692,8 +1675,8 @@
                                 (str "error: " (error-message error))))))
             true)
 
-          (identical? name "sets")
-          (do (open-config-panel! runtime ui "set") true)
+          (identical? name "modules")
+          (do (open-config-panel! runtime ui "module") true)
 
           (identical? name "restart")
           (do (restart-daemon! runtime) true)
@@ -2801,11 +2784,11 @@
       (identical? value "view kanban") "view board"
       :else value)))
 
-;; The sole composition type leads, followed by the two leaf kinds.
+;; Section labels are the public kind vocabulary.
 (js/export
  (defn config-section-title [role String] String
   (cond
-    (identical? role "set") "SETS"
+    (identical? role "module") "MODULES"
     (identical? role "skill") "SKILLS"
     (identical? role "hook") "HOOKS"
     :else "")))
@@ -2818,7 +2801,7 @@
 (js/export
  (defn config-header-roles [role String] Any
   (cond
-    (identical? role "set") ["set"]
+    (identical? role "module") ["module"]
     (identical? role "skill") ["skill"]
     (identical? role "hook") ["hook"]
     :else [])))
@@ -2855,7 +2838,7 @@
   (cond
     (identical? config-filter "hook") "hooks"
     (identical? config-filter "skill") "skills"
-    (identical? config-filter "set") "sets"
+    (identical? config-filter "module") "modules"
     :else "switchboard"))
 
 ;; An empty result is not a pending one. Saying "loading…" forever is how the
@@ -2886,8 +2869,8 @@
 (js/export
  (defn config-panel-legend [filtering? Bool] String
   (if filtering?
-    "  ↑/↓ move · space toggle · enter inspect set · esc clears filter"
-    "  ↑/↓ move · space toggle · enter inspect set · / filter · esc close")))
+    "  ↑/↓ move · space toggle · enter inspect module · esc clears filter"
+    "  ↑/↓ move · space toggle · enter inspect module · / filter · esc close")))
 
 ;; The dimmest tone the panel has: brightBlack with the dim attribute on top of
 ;; it. What you switched off, and what is only on screen to give a match its
@@ -2901,7 +2884,7 @@
 
 ;; Pure: one row, in the order it reads. The UnitId leads because it is the
 ;; what you came to the list to find; the state follows it after a colon,
-;; and the set/support summary follows. The UnitId gives way first when narrow;
+;; and the module/support summary follows. The UnitId gives way first when narrow;
 ;; clipping permission or activity would change the answer.
 (js/export
  (defn config-row-parts
@@ -2917,7 +2900,7 @@
                    (if (> (.-length claims) 0)
                      (str "supports " (.join claims ", "))
                      ""))
-                 (identical? kind "set")
+                 (identical? kind "module")
                  (config-member-count-text (.-length members))
                  :else (text (configentry-detail entry)))
          indent String (config-row-indent)
@@ -2931,7 +2914,7 @@
      :detail detail})))
 
 ;; Section rows sit one step under their heading. Recursive membership is shown
-;; by the set inspector instead of creating a second folding hierarchy here.
+;; by the module inspector instead of creating a second folding hierarchy here.
 (def CONFIG-INDENT-WIDTH Int 2)
 
 (defn config-row-indent [] String
@@ -2948,7 +2931,7 @@
   (.map
    (.filter entries
             (fn [entry Any] Bool
-              (and (identical? (configentry-kind entry) "set")
+              (and (identical? (configentry-kind entry) "module")
                    (.includes (config-entry-members entry) id))))
    (fn [entry Any] String (configentry-name entry))))
 
@@ -2996,8 +2979,12 @@
               (fn [path Any] Any
                 (.push lines (str indent "   activation: "
                                   (config-path-text path)))))
-    (when (identical? (configentry-kind entry) "set")
-      (.forEach (config-entry-members entry)
+    (when (identical? (configentry-kind entry) "module")
+      (.forEach (.sort (.slice (config-entry-members entry))
+                       (fn
+                         [left Any
+                          right Any] Int
+                         (compare-text (text left) (text right))))
                 (fn [member-id Any] Any
                   (let [member String (text member-id)
                         child Any (config-find-entry entries member)]
@@ -3011,13 +2998,13 @@
     lines))
 
 (js/export
- (defn config-set-inspection-text!
+ (defn config-module-inspection-text!
    [entries Any
     id String] String
    (let [entry Any (config-find-entry entries id)]
      (if (or (nil? entry)
-             (not (identical? (configentry-kind entry) "set")))
-       (str "set unavailable: " id)
+             (not (identical? (configentry-kind entry) "module")))
+       (str "module unavailable: " id)
        (.join (config-inspection-walk! [] entries entry "" 0 [id]) "\n")))))
 
 (js/export
@@ -3045,9 +3032,9 @@
     (cond
       (not (identical? inspect-id ""))
       (new StyledText
-           [(brightYellow "set inspection")
+           [(brightYellow "module inspection")
             (brightBlack "  enter returns\n")
-            (brightWhite (config-set-inspection-text! all-entries inspect-id))])
+            (brightWhite (config-module-inspection-text! all-entries inspect-id))])
 
       (identical? total 0)
       (new StyledText [(brightYellow (config-panel-title config-filter))

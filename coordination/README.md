@@ -1,7 +1,7 @@
-# Coordination set
+# Coordination module
 
 Coordination is the shared-ledger half of North's optional orchestration
-surface. It is a nested set with three members:
+surface. It is a nested module with three members:
 
 | Member | Responsibility |
 |---|---|
@@ -9,14 +9,15 @@ surface. It is a nested set with three members:
 | `threads` | intentions, facts, dependencies, queue state, outcomes |
 | `assignments` | the actor-to-thread ownership binding |
 
-The set instructions are in `guide.md`; each member's consumer entry
+The module instructions are in `guide.md`; each member's consumer entry
 point is its `SKILL.md`. The switchboard definition lives in
 `north:agent-catalog/catalog.json`, and the outer
-`orchestration` set contains this set. That containment is deliberate: the
-member switches remember their state, while an inactive outer set prevents any
-coordination instructions or skills from reaching a session. Provider adapters
-that require static hook manifests consult the resolved North generation at
-`~/.local/state/north/agents/current`, so the same containment also suppresses
+`orchestration` module contains this module. That containment is deliberate:
+the member switches remember their state, while an inactive outer module
+prevents any coordination instructions or skills from reaching a session.
+Provider adapters that require static hook manifests consult the resolved North
+generation at `~/.local/state/north/agents/current`, so the same containment
+also suppresses
 North lifecycle hooks without re-resolving activity.
 
 Coordination does not choose roles or models. Orchestration makes the routing

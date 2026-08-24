@@ -20,11 +20,11 @@ payload (role, grade, topology, posture, comms, provider family block, exact
 model delta) for any provider, so custom-surface lanes never launch on a bare
 task prompt.
 
-In a switchboard installation, Orchestration is a set rather than one
-consumer skill. The set injects `doctrine.md` and contains the `staffing`
-module; it also contains the nested `coordination` set, whose messages,
+In a switchboard installation, Orchestration is a module rather than one
+consumer skill. The module injects `doctrine.md` and contains the `staffing`
+skill; it also contains the nested `coordination` module, whose messages,
 threads, and assignments remain separate responsibilities. Turning off the
-outer set therefore removes the complete runtime surface without changing the
+outer module therefore removes the complete runtime surface without changing the
 members' remembered switches.
 
 Install it and your sessions gain:

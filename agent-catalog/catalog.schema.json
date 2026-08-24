@@ -45,7 +45,7 @@
       "required": ["id", "kind", "owner", "distributions"],
       "properties": {
         "id": {"$ref": "#/$defs/unitId"},
-        "kind": {"enum": ["skill", "hook", "set"]},
+        "kind": {"enum": ["skill", "hook", "module"]},
         "title": {"type": "string", "minLength": 1},
         "triggerDescription": {"type": "string", "minLength": 1},
         "category": {"type": "string", "minLength": 1},

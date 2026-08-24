@@ -61,7 +61,7 @@
   "units": [
     {
       "id": "coordination",
-      "kind": "set",
+      "kind": "module",
       "title": "Coordination",
       "triggerDescription": "Durable participant messaging, shared work threads, and concrete assignment ownership.",
       "owner": {"repo": "north", "path": "agent-catalog/catalog.json"},
@@ -73,7 +73,7 @@
     },
     {
       "id": "orchestration",
-      "kind": "set",
+      "kind": "module",
       "title": "Orchestration",
       "triggerDescription": "Provider-neutral routing, staffing, composition, and nested coordination for delegated agent work.",
       "owner": {"repo": "north", "path": "agent-catalog/catalog.json"},

@@ -114,7 +114,7 @@ run allow 'msg dry-run does not command peer' worker Bash 'north msg lane-1 "pro
 run deny 'goal has no dry-run contract' worker Bash 'north goal lane-1 "probe" --dry-run'
 run allow 'North config report remains available' worker Bash 'north config'
 run allow 'North guard status remains available' worker Bash 'north config guards'
-run allow 'North set view remains available' worker Bash 'north config sets'
+run allow 'North module view remains available' worker Bash 'north config modules'
 run allow 'North filtered agent view remains available' worker Bash 'north config agents hooks --json'
 run allow 'North routing configuration remains available' worker Bash 'north config routing show'
 run allow 'North learning report remains available' worker Bash 'north config learning'

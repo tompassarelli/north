@@ -7,7 +7,7 @@ workers need shared state that cannot safely remain in one transcript. Merely
 working in the North repository does not require a North call, and repository
 governance never activates coordination implicitly.
 
-The coordination set has three independent responsibilities:
+The coordination module has three independent responsibilities:
 
 - MESSAGES deliver durable or urgent communication between participants.
 - THREADS record intentions, facts, dependencies, and outcomes in the shared

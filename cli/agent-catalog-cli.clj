@@ -5,7 +5,7 @@
 
 (def usage
   (str "usage: north config agents "
-       "[sync [--json]|status [--json]|on|off <UnitId> [--json]|skills|hooks|sets [list] [--json]|"
+       "[sync [--json]|status [--json]|on|off <UnitId> [--json]|skills|hooks|modules [list] [--json]|"
        "path <id> [--json]|inspect <id> [--json]]"))
 
 (defn- fail [message]
@@ -93,7 +93,7 @@
 
       "skills" (kind-command! "skill" rest)
       "hooks" (kind-command! "hook" rest)
-      "sets" (kind-command! "set" rest)
+      "modules" (kind-command! "module" rest)
 
       "path"
       (let [[args json?] (split-json rest)

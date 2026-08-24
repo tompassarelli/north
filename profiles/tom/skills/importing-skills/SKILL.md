@@ -55,8 +55,8 @@ Use `repo-safety`. Create one North worktree.
   `north:profiles/tom/skills/<slug>/`.
 - Add one `skill` unit per slug to `north:agent-catalog/catalog.json`. Its
   owner names the tracked `SKILL.md`, and its skill distribution targets
-  `shared`. Use a set only when several skills, hooks, or nested sets must
-  activate as one compositional unit.
+  `shared`. Use a module only when several skills, hooks, or nested modules
+  must activate as one compositional unit.
 
 The resulting discovery paths are:
 

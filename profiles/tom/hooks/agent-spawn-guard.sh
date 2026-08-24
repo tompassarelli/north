@@ -566,7 +566,7 @@ def north_config_mutation(args):
         ("beagle",), ("beagle", "list"),
         ("guards",),
         ("hooks",), ("hooks", "list"),
-        ("sets",), ("sets", "list"),
+        ("modules",), ("modules", "list"),
         ("context",), ("context", "show"),
         ("skills",), ("skills", "list"),
         ("comms",), ("comms", "show"), ("comms", "doctor"),
@@ -581,7 +581,7 @@ def north_config_mutation(args):
         agent_form = tuple(token for token in form[1:] if token != "--json")
         if (agent_form in {
                 (), ("status",), ("skills",), ("skills", "list"),
-                ("hooks",), ("hooks", "list"), ("sets",), ("sets", "list"),
+                ("hooks",), ("hooks", "list"), ("modules",), ("modules", "list"),
             }
                 or (len(agent_form) == 2
                     and agent_form[0] in ("path", "inspect"))):

@@ -941,7 +941,7 @@
    List resolved state and provenance:
      north config hooks
      north config hooks explain <hook-id>
-     north config sets
+     north config modules
    Mutate exactly one hook through the UnitId authority:
      north config agents on|off <hook-id>
    `north config guards` is a read-only authoring-hook view. Hook activation
@@ -1098,7 +1098,7 @@
         "guards"   (cmd-guards rest)
         "hooks"    (cmd-hooks rest)
         "skills"   (cmd-skills rest)
-        "sets"     (north.agent-catalog-cli/cmd-agents (cons "sets" rest))
+        "modules"  (north.agent-catalog-cli/cmd-agents (cons "modules" rest))
         "agents"   (north.agent-catalog-cli/cmd-agents rest)
         "mcp"      (cmd-mcp rest)
         "audit"    (cmd-audit rest)
@@ -1106,7 +1106,7 @@
         "routing"  (cmd-routing rest)
         "learning" (cmd-learning rest)
         ("help" "-h" "--help") (help)
-        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|sets|agents|mcp|audit|comms|routing|learning|help]")))
+        (die "usage: north config [status|dispatch|coord|guards|hooks|skills|modules|agents|mcp|audit|comms|routing|learning|help]")))
     (catch clojure.lang.ExceptionInfo error
       (die (.getMessage error)))))
 
