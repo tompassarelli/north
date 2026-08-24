@@ -1606,8 +1606,11 @@
   (try
     (await (run-command [(north-bin) "bridge" "restart"]))
     (forget-control-session! runtime)
-    (publish-line! runtime "control daemon replaced; session restored")
-    (await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
+    (if (identical? (launch-thread-id runtime) "")
+      (publish-line! runtime "control daemon replaced; select a thread before /launch")
+      (do
+        (publish-line! runtime "control daemon replaced; session restored")
+        (await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))))
     (catch Error error
       (append-error! runtime (error-message error)))))
 
@@ -4506,6 +4509,26 @@
       (identical? value "openai") "Codex Main"
       :else "Main")))
 
+(js/export
+ (defn launch-thread-id [runtime Any] String
+  (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
+        selected String (bridgesnapshot-selected-thread state)]
+    (text-or selected (text (.-controlThreadId runtime))))))
+
+(js/export
+ (defn bridge-app-launch-argv!
+   [runtime Any
+    prompt String
+    role String] (Vec String)
+   (let [thread-id String (launch-thread-id runtime)]
+     (when (identical? thread-id "")
+       (throw (new Error "launch requires a selected or managed control thread")))
+     (let [route-flags (Vec String) (take-launch-route-flags! runtime)]
+       (.concat [(north-bin) "bridge" "app-launch" "--thread" thread-id "--role"
+                 (if (identical? role "supervisor") "director" "implementer")]
+                route-flags
+                [prompt])))))
+
 (defn ^:async launch-agent!
   [runtime Any
    prompt String
@@ -4517,11 +4540,7 @@
                       :booting (identical? role "supervisor") :soundLive false}
         exit-code Int (await
          (stream-command
-          (.concat [(north-bin) "bridge" "--role"
-                    (if (identical? role "supervisor") "director" "implementer")]
-
-                   (take-launch-route-flags! runtime)
-                   [prompt])
+          (bridge-app-launch-argv! runtime prompt role)
           (fn [chunk String] Any
             (parse-bridge-stream! runtime stream-state chunk))
           (fn [chunk String] Any
@@ -4533,6 +4552,14 @@
                      (str "Bridge exited " exit-code
                           (if (identical? (.trim (text (.-stderr stream-state))) "") ""
                             (str "\n" (.trim (text (.-stderr stream-state))))))))))
+
+(js/export
+ (defn boot!
+   [runtime Any
+    launch (Fn [String String] (Promise Any))] Any
+   (when (not (identical? (launch-thread-id runtime) ""))
+     (report-promise! runtime (launch SUPERVISOR-BOOT-PROMPT "supervisor")))
+   runtime))
 
 (defn popout!
   [runtime Any
@@ -5628,6 +5655,10 @@
                  :launchTier (text (.-NORTH_BRIDGE_TIER (.-env process)))
                  :launchModel (text (.-NORTH_BRIDGE_MODEL (.-env process)))
                  :launchEffort (text (.-NORTH_BRIDGE_EFFORT (.-env process)))
+                 :controlThreadId
+                 (text-or (text (.-NORTH_BRIDGE_CONTROL_THREAD (.-env process)))
+                          (text-or (text (.-NORTH_THREAD_ID (.-env process)))
+                                   (text (.-AGENT_THREAD (.-env process)))))
                  :sessionCwd (text (.cwd process))
                  :sessionBranch ""
                  ;; Reported by the session, not guessed here: until it says,
@@ -5742,7 +5773,11 @@
     (.focus composer-input)
     (report-promise! runtime (discover-session-branch! runtime))
     (report-promise! runtime (refresh! runtime))
-    (report-promise! runtime (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))
+    (boot! runtime
+           (fn
+             [prompt String
+              role String] (Promise Any)
+             (launch-agent! runtime prompt role)))
     runtime))
 
 (js/export

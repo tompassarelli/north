@@ -62,7 +62,9 @@ declare const bannerLineSegments: (...args: any[]) => any;
 declare const bannerPermissions: (...args: any[]) => any;
 declare const bannerRevision: (...args: any[]) => any;
 declare const bannerRuleLine: (...args: any[]) => any;
+declare const boot: (...args: any[]) => any;
 declare const bootView: (...args: any[]) => any;
+declare const bridgeAppLaunchArgv: (...args: any[]) => any;
 declare const clampPanelCursor: (...args: any[]) => any;
 declare const clearPanelFilter: (...args: any[]) => any;
 declare const composerHint: (...args: any[]) => any;
@@ -100,6 +102,7 @@ declare const filterCharacter: (...args: any[]) => any;
 declare const filterKeyAction: (...args: any[]) => any;
 declare const helpQueryRows: (...args: any[]) => any;
 declare const installKeys: (...args: any[]) => any;
+declare const launchThreadId: (...args: any[]) => any;
 declare const normalizeAgents: (...args: any[]) => any;
 declare const paletteEnterAction: (...args: any[]) => any;
 declare const quitCommand: (...args: any[]) => any;
@@ -139,7 +142,9 @@ export {
   bannerPermissions as "banner-permissions",
   bannerRevision as "banner-revision",
   bannerRuleLine as "banner-rule-line?",
+  boot as "boot!",
   bootView as "boot-view",
+  bridgeAppLaunchArgv as "bridge-app-launch-argv!",
   clampPanelCursor as "clamp-panel-cursor!",
   cleanupSuspend as "cleanup-suspend!",
   clearPanelFilter as "clear-panel-filter!",
@@ -180,6 +185,7 @@ export {
   helpQueryRows as "help-query-rows",
   installKeys as "install-keys!",
   launchRouteFlags as "launch-route-flags",
+  launchThreadId as "launch-thread-id",
   normalizeAgents as "normalize-agents",
   paletteEnterAction as "palette-enter-action",
   paletteOptions as "palette-options",

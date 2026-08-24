@@ -1147,8 +1147,12 @@ async function restart_daemon_bang(runtime) {
   return (async () => { try {
     await run_command([north_bin(), "bridge", "restart"]);
   forget_control_session_bang(runtime);
-  publish_line_bang(runtime, "control daemon replaced; session restored");
-  return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
+  if ((launch_thread_id(runtime) === "")) {
+    return publish_line_bang(runtime, "control daemon replaced; select a thread before /launch");
+  } else {
+    publish_line_bang(runtime, "control daemon replaced; session restored");
+    return await launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor");
+  }
   } catch (_catch_5) {
     switch ($$bd$catch_dispatch(_catch_5, [Error])) {
       case 0: {
@@ -2770,17 +2774,39 @@ function main_agent_label(runtime) {
   return (((value === "anthropic")) ? "Claude Main" : ((value === "openai")) ? "Codex Main" : "Main");
 }
 
+function launch_thread_id(runtime) {
+  const state = snapshot(runtime.model);
+  const selected = bridgesnapshot_selected_thread(state);
+  return text_or(selected, text(runtime.controlThreadId));
+}
+
+function bridge_app_launch_argv_bang(runtime, prompt, role) {
+  const thread_id = launch_thread_id(runtime);
+  if ((thread_id === "")) {
+    (() => { throw new Error("launch requires a selected or managed control thread"); })();
+  }
+  const route_flags = take_launch_route_flags_bang(runtime);
+  return [north_bin(), "bridge", "app-launch", "--thread", thread_id, "--role", ((role === "supervisor") ? "director" : "implementer")].concat(route_flags, [prompt]);
+}
+
 async function launch_agent_bang(runtime, prompt, role) {
   if ((prompt.trim() === "")) {
     (() => { throw new Error("launch requires a prompt"); })();
   }
   set_working_bang(runtime, true, $$bc$str("Starting ", main_agent_label(runtime), "…"));
   const stream_state = {[$$bc$property_key($$bc$keyword("buffer"))]: "", [$$bc$property_key($$bc$keyword("stderr"))]: "", [$$bc$property_key($$bc$keyword("executionId"))]: "", [$$bc$property_key($$bc$keyword("role"))]: role, [$$bc$property_key($$bc$keyword("booting"))]: (role === "supervisor"), [$$bc$property_key($$bc$keyword("soundLive"))]: false};
-  const exit_code = await stream_command([north_bin(), "bridge", "--role", ((role === "supervisor") ? "director" : "implementer")].concat(take_launch_route_flags_bang(runtime), [prompt]), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped($$bc$str(stream_state.stderr, chunk), 6000)));
+  const exit_code = await stream_command(bridge_app_launch_argv_bang(runtime, prompt, role), (chunk) => parse_bridge_stream_bang(runtime, stream_state, chunk), (chunk) => (stream_state.stderr = clipped($$bc$str(stream_state.stderr, chunk), 6000)));
   if ((!(exit_code === 0))) {
     set_working_bang(runtime, false, "");
     return append_error_bang(runtime, $$bc$str("Bridge exited ", exit_code, ((text(stream_state.stderr).trim() === "") ? "" : $$bc$str("\n", text(stream_state.stderr).trim()))));
   }
+}
+
+function boot_bang(runtime, launch) {
+  if ((!(launch_thread_id(runtime) === ""))) {
+    report_promise_bang(runtime, launch(SUPERVISOR_BOOT_PROMPT, "supervisor"));
+  }
+  return runtime;
 }
 
 function popout_bang(runtime, view_id) {
@@ -3379,7 +3405,7 @@ async function open_app_bang(view_id, source_identity) {
   const view = canonical_work_view(view_id);
   const renderer_promise = createCliRenderer({[$$bc$property_key($$bc$keyword("exitOnCtrlC"))]: false, [$$bc$property_key($$bc$keyword("clearOnShutdown"))]: true});
   const renderer = await renderer_promise;
-  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: BOOT_VIEW, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
+  const runtime = {[$$bc$property_key($$bc$keyword("model"))]: make_model(view), [$$bc$property_key($$bc$keyword("renderer"))]: renderer, [$$bc$property_key($$bc$keyword("disposed"))]: false, [$$bc$property_key($$bc$keyword("rendererSuspended"))]: false, [$$bc$property_key($$bc$keyword("suspendResume"))]: null, [$$bc$property_key($$bc$keyword("suspendError"))]: "", [$$bc$property_key($$bc$keyword("view"))]: BOOT_VIEW, [$$bc$property_key($$bc$keyword("activeView"))]: view, [$$bc$property_key($$bc$keyword("agentIndex"))]: 0, [$$bc$property_key($$bc$keyword("workIndex"))]: 0, [$$bc$property_key($$bc$keyword("collapsedListConditions"))]: new Set(["blocked", "dormant", "draft", "terminal", "other"]), [$$bc$property_key($$bc$keyword("workScroll"))]: null, [$$bc$property_key($$bc$keyword("boardSignature"))]: "", [$$bc$property_key($$bc$keyword("dragThreadId"))]: "", [$$bc$property_key($$bc$keyword("bridgeExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("supervisorId"))]: "", [$$bc$property_key($$bc$keyword("conversation"))]: [], [$$bc$property_key($$bc$keyword("transcriptView"))]: "selected", [$$bc$property_key($$bc$keyword("itemSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastAssistantText"))]: "", [$$bc$property_key($$bc$keyword("lastSubmitted"))]: "", [$$bc$property_key($$bc$keyword("working"))]: false, [$$bc$property_key($$bc$keyword("workingExecutions"))]: new Set(), [$$bc$property_key($$bc$keyword("workingLabel"))]: "", [$$bc$property_key($$bc$keyword("workingSince"))]: 0, [$$bc$property_key($$bc$keyword("spinnerIndex"))]: 0, [$$bc$property_key($$bc$keyword("spinnerTimer"))]: null, [$$bc$property_key($$bc$keyword("stripFocused"))]: false, [$$bc$property_key($$bc$keyword("stripIndex"))]: 0, [$$bc$property_key($$bc$keyword("detailView"))]: "", [$$bc$property_key($$bc$keyword("detailSegment"))]: "all", [$$bc$property_key($$bc$keyword("detailIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteIndex"))]: 0, [$$bc$property_key($$bc$keyword("paletteStart"))]: 0, [$$bc$property_key($$bc$keyword("paletteRows"))]: 0, [$$bc$property_key($$bc$keyword("promptGlyph"))]: DEFAULT_PROMPT_GLYPH, [$$bc$property_key($$bc$keyword("soundEnabled"))]: sound_enabled_from_env(text(process.env.NORTH_BRIDGE_SOUND)), [$$bc$property_key($$bc$keyword("soundPack"))]: sound_pack_from_env(text(process.env.NORTH_BRIDGE_SOUND_PACK)), [$$bc$property_key($$bc$keyword("soundDirectory"))]: sound_directory_from_env(text(process.env.NORTH_BRIDGE_SOUND_DIR)), [$$bc$property_key($$bc$keyword("soundPlayer"))]: discover_sound_player(), [$$bc$property_key($$bc$keyword("soundChildren"))]: new Set(), [$$bc$property_key($$bc$keyword("soundWarningShown"))]: false, [$$bc$property_key($$bc$keyword("soundSequence"))]: 0, [$$bc$property_key($$bc$keyword("lastSoundPath"))]: "", [$$bc$property_key($$bc$keyword("lastSoundAt"))]: 0, [$$bc$property_key($$bc$keyword("workspaceNotice"))]: "", [$$bc$property_key($$bc$keyword("keymap"))]: null, [$$bc$property_key($$bc$keyword("sessionModel"))]: text_or(process.env.NORTH_BRIDGE_MODEL, text(process.env.AGENT_MODEL)), [$$bc$property_key($$bc$keyword("sessionEffort"))]: text(process.env.AGENT_REASONING), [$$bc$property_key($$bc$keyword("launchProvider"))]: text(process.env.NORTH_BRIDGE_PROVIDER), [$$bc$property_key($$bc$keyword("launchTier"))]: text(process.env.NORTH_BRIDGE_TIER), [$$bc$property_key($$bc$keyword("launchModel"))]: text(process.env.NORTH_BRIDGE_MODEL), [$$bc$property_key($$bc$keyword("launchEffort"))]: text(process.env.NORTH_BRIDGE_EFFORT), [$$bc$property_key($$bc$keyword("controlThreadId"))]: text_or(text(process.env.NORTH_BRIDGE_CONTROL_THREAD), text_or(text(process.env.NORTH_THREAD_ID), text(process.env.AGENT_THREAD))), [$$bc$property_key($$bc$keyword("sessionCwd"))]: text(process.cwd()), [$$bc$property_key($$bc$keyword("sessionBranch"))]: "", [$$bc$property_key($$bc$keyword("sessionPermissions"))]: "", [$$bc$property_key($$bc$keyword("sourceIdentity"))]: source_identity, [$$bc$property_key($$bc$keyword("renderConversation"))]: () => null, [$$bc$property_key($$bc$keyword("render"))]: () => null};
   const root = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "column", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("height"))]: "100%", [$$bc$property_key($$bc$keyword("gap"))]: 0, [$$bc$property_key($$bc$keyword("paddingTop"))]: 1, [$$bc$property_key($$bc$keyword("paddingBottom"))]: 0, [$$bc$property_key($$bc$keyword("paddingLeft"))]: 1, [$$bc$property_key($$bc$keyword("paddingRight"))]: 1, [$$bc$property_key($$bc$keyword("onSizeChange"))]: () => runtime.render()});
   const workspace = new BoxRenderable(renderer, {[$$bc$property_key($$bc$keyword("flexDirection"))]: "row", [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexGrow"))]: 1, [$$bc$property_key($$bc$keyword("gap"))]: 0});
   const view_tabs_text = new TextRenderable(renderer, {[$$bc$property_key($$bc$keyword("height"))]: 1, [$$bc$property_key($$bc$keyword("width"))]: "100%", [$$bc$property_key($$bc$keyword("flexShrink"))]: 0, [$$bc$property_key($$bc$keyword("wrapMode"))]: "none", [$$bc$property_key($$bc$keyword("truncate"))]: true});
@@ -3438,7 +3464,7 @@ async function open_app_bang(view_id, source_identity) {
   composer_input.focus();
   report_promise_bang(runtime, discover_session_branch_bang(runtime));
   report_promise_bang(runtime, refresh_bang(runtime));
-  report_promise_bang(runtime, launch_agent_bang(runtime, SUPERVISOR_BOOT_PROMPT, "supervisor"));
+  boot_bang(runtime, (prompt, role) => launch_agent_bang(runtime, prompt, role));
   return runtime;
 }
 
@@ -3457,7 +3483,9 @@ export { banner_line_segments as "banner-line-segments" };
 export { banner_permissions as "banner-permissions" };
 export { banner_revision as "banner-revision" };
 export { banner_rule_line_p as "banner-rule-line?" };
+export { boot_bang as "boot!" };
 export { boot_view as "boot-view" };
+export { bridge_app_launch_argv_bang as "bridge-app-launch-argv!" };
 export { clamp_panel_cursor_bang as "clamp-panel-cursor!" };
 export { cleanup_suspend_bang as "cleanup-suspend!" };
 export { clear_panel_filter_bang as "clear-panel-filter!" };
@@ -3498,6 +3526,7 @@ export { handle_local_command_bang as "handle-local-command!" };
 export { help_query_rows as "help-query-rows" };
 export { install_keys_bang as "install-keys!" };
 export { launch_route_flags as "launch-route-flags" };
+export { launch_thread_id as "launch-thread-id" };
 export { normalize_agents as "normalize-agents" };
 export { palette_enter_action as "palette-enter-action" };
 export { palette_options as "palette-options" };
