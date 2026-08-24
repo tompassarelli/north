@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  acquireDeliveryAttemptLeases,
   DeliveryEvidenceProofTransportFailure, DeliveryEvidenceRecordTransportFailure,
   DeliveryReservationWriterProcessFailure,
   deliveryEvidenceWriterError, deliveryReservationFailureCause, deliveryRunEnvironment,
@@ -16,6 +17,8 @@ import {
 } from "../src/delivery-evidence";
 import { MANAGED_NORTH_MCP_ENV_KEYS } from "../src/execution-admission";
 import { harnessOptions } from "../src/harness";
+import { parseFence, rpcFence, type Term } from "../src/store-rpc-codec";
+import { StoreRpcClient } from "../src/store-rpc-client";
 import {
   canonicalEvidenceText, MAX_DELIVERY_BARS,
   MAX_RUN_BAR_EVIDENCE_RECORD_UTF8_BYTES, MAX_UNRESERVED_BAR_UTF8_BYTES,
@@ -74,6 +77,66 @@ test("delivery run context is explicit and never mutates ambient process env", (
     thread: process.env.NORTH_THREAD_ID,
     capability: process.env.NORTH_RUN_CAPABILITY,
   }).toEqual(before);
+});
+
+test("delivery attempt renewal retains every advanced epoch through partial failure", async () => {
+  const renewals: Array<[string, number]> = [];
+  const releases: Array<[string, number]> = [];
+  let accountRenewals = 0;
+  const client = {
+    async leaseAcquire(resource: Term, holder: Term) {
+      const epoch = String(resource).startsWith("thread:") ? 1 : 10;
+      return { fence: rpcFence(resource, holder, epoch) };
+    },
+    async leaseRenew(fence: Term) {
+      const previous = parseFence(fence);
+      renewals.push([String(previous.resource), previous.epoch]);
+      if (String(previous.resource).startsWith("thread:")) {
+        return {
+          fence: rpcFence(previous.resource, previous.holder, previous.epoch + 1),
+        };
+      }
+      accountRenewals += 1;
+      if (accountRenewals === 2) throw new Error("account renewal failed");
+      return {
+        fence: rpcFence(previous.resource, previous.holder, previous.epoch + 1),
+      };
+    },
+    async leaseRelease(fence: Term) {
+      const released = parseFence(fence);
+      releases.push([String(released.resource), released.epoch]);
+      return { released: true };
+    },
+    close() {},
+  };
+  const context = newDeliveryRunContext(
+    "run-lease-renewal-test",
+    "thread-lease-renewal-test",
+    "bridge-lease-renewal-test",
+  );
+  const connect = spyOn(StoreRpcClient, "connect")
+    .mockImplementation(async () => client as never);
+  try {
+    const claim = await acquireDeliveryAttemptLeases(context, "codex-a", 60_000);
+    await claim.renew();
+    expect([claim.threadLease.epoch, claim.accountLease.epoch]).toEqual([2, 11]);
+    await expect(claim.renew()).rejects.toThrow("account renewal failed");
+    expect([claim.threadLease.epoch, claim.accountLease.epoch]).toEqual([3, 11]);
+    await claim.release();
+
+    expect(renewals).toEqual([
+      ["thread:thread-lease-renewal-test:dispatch", 1],
+      ["codex-account:codex-a:slot:0", 10],
+      ["thread:thread-lease-renewal-test:dispatch", 2],
+      ["codex-account:codex-a:slot:0", 11],
+    ]);
+    expect(releases).toEqual([
+      ["codex-account:codex-a:slot:0", 11],
+      ["thread:thread-lease-renewal-test:dispatch", 3],
+    ]);
+  } finally {
+    connect.mockRestore();
+  }
 });
 
 test("writer failures never echo the live capability in diagnostics", () => {
