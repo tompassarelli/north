@@ -43,6 +43,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "profiles/tom/hooks/logcompress-hook.py",
   },
+  "logcompress.py": {
+    repository: "north",
+    path: "profiles/tom/hooks/logcompress.py",
+  },
   "session-kill-guard.sh": {
     repository: "north",
     path: "profiles/tom/hooks/session-kill-guard.sh",
@@ -51,6 +55,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "profiles/tom/hooks/tripwire-guard.sh",
   },
+};
+
+const PROMOTED_HOOK_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = {
+  "logcompress-hook.py": ["logcompress.py"],
 };
 
 interface PromotionRecord {
@@ -449,6 +457,15 @@ function managedCommandPaths(
   return { env, interpreter, executable: script, script };
 }
 
+function managedHookDependencies(
+  script: string,
+  managedDir: string,
+): string[] {
+  const hook = relative(resolve(managedDir), resolve(script));
+  return (PROMOTED_HOOK_DEPENDENCIES[hook] ?? [])
+    .map((dependency) => resolve(managedDir, dependency));
+}
+
 /**
  * Pre-provider proof that Codex will load only the root-managed, exact hook
  * surface. The explicit installation argument exists for hermetic contract
@@ -494,6 +511,23 @@ export function validateManagedCodexHookInstallation(
         throw new Error(`${paths.script} is neither Nix-supplied nor a proven sealed hook`, {
           cause: sealedCause,
         });
+      }
+    }
+    for (const dependency of managedHookDependencies(paths.script, installation.managedDir)) {
+      try {
+        assertNixManagedFile(dependency, false, installation.nixStoreRoot);
+      } catch (cause) {
+        promotion ??= captureActivePromotion(
+          installation.enforcementRoot,
+          installation.expectedOwnerUid,
+        );
+        try {
+          assertSealedPromotedHook(dependency, installation.managedDir, promotion);
+        } catch (sealedCause) {
+          throw new Error(`${dependency} is neither Nix-supplied nor a proven sealed hook dependency`, {
+            cause: sealedCause,
+          });
+        }
       }
     }
   }
@@ -589,6 +623,10 @@ export function reportManagedCodexHookInstallation(
     record(runtime, paths.env, true);
     if (paths.interpreter) record(runtime, paths.interpreter, true);
     record(hooks, paths.executable, paths.script === undefined);
+    if (paths.script) {
+      for (const dependency of managedHookDependencies(paths.script, installation.managedDir))
+        record(hooks, dependency, false);
+    }
   }
   const bySupply = (entries: Iterable<ManagedCodexHookSupply>) =>
     [...entries].sort((left, right) => left.hook.localeCompare(right.hook));

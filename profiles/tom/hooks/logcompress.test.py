@@ -162,6 +162,16 @@ try:
         check=True,
     )
     check("malformed input fails open", malformed.stdout == "")
+    nonfinite = subprocess.run(
+        [sys.executable, str(HOOK)],
+        input='{"tool_name":"Bash","tool_response":{"stdout":NaN}}',
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env={**os.environ, **base_environment},
+        check=True,
+    )
+    check("non-finite JSON input fails open", nonfinite.stdout == "")
 
     held_open = subprocess.Popen(
         [sys.executable, str(HOOK)],
