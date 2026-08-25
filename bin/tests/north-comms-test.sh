@@ -109,13 +109,19 @@ assert_contains() {
 
 db_case() {
   write_state "comms=db" "comms.enforcement=forced"
-  local sent polled acked top_level_acked present watched
+  local sent polled acked top_level_acked invalid_ack_error ack_log_before
+  local present watched
   sent="$(run_comms send sender target subject body)"
   polled="$(
     DB_POLL_TEXT=$'✉ from sender — subject\n  body\n' run_comms poll target
   )"
   acked="$(run_comms ack target @msg:fixture)"
   top_level_acked="$(run_north_ack target @msg:top-level-fixture)"
+  ack_log_before="$(<"$ack_log")"
+  if invalid_ack_error="$(run_north_ack target @cmd:not-a-message 2>&1)"; then
+    printf 'FAIL north ack accepted a command id on the DB route\n' >&2
+    exit 1
+  fi
   present="$(run_comms presence target)"
   watched="$(run_comms watch target --once)"
 
@@ -128,6 +134,10 @@ db_case() {
     "target acked @msg:fixture" "$acked"
   assert_eq "north ack preserves the explicit actor and DB mail route" \
     "target acked @msg:top-level-fixture" "$top_level_acked"
+  assert_contains "north ack rejects a command id before DB dispatch" \
+    "$invalid_ack_error" "message id is malformed or too large"
+  assert_eq "rejected north ack never reaches the DB ack" \
+    "$ack_log_before" "$(<"$ack_log")"
   assert_eq "db presence" "reachable db-recipient" "$present"
   assert_eq "db watch" "WATCH" "$watched"
   printf 'north-comms db seam: PASS\n'
