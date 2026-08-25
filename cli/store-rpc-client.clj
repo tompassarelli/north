@@ -61,7 +61,7 @@
 (defn- header-body-length! [header]
   (dotimes [index 8]
     (when-not (= (bit-and 255 (int (aget header index)))
-                 (bit-and 255 (int (aget wire/rpc-v2-magic index))))
+                 (bit-and 255 (int (aget wire/store-rpc-v2-magic index))))
       (throw (ex-info "Store RPC response magic does not match"
                       {:type :rpc-invalid-magic}))))
   (let [buffer (doto (ByteBuffer/wrap header) (.order ByteOrder/LITTLE_ENDIAN))]
@@ -105,12 +105,13 @@
                         {:type :rpc-truncated})))
       (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
       (System/arraycopy body 0 packet wire/rpc-v2-header-bytes body-length)
-      (wire/decode-rpc-frame-v2! packet))))
+      (wire/store-rpc-decode-packet-v2! packet))))
 
 (defn encode-request-packet!
   "Encode one request through TermCodecV1 and enforce the shared body limit."
   [request-id request]
-  (wire/encode-rpc-frame-v2! (wire/rpc-request-frame request-id request)))
+  (wire/store-rpc-encode-packet-v2!
+   (wire/store-rpc-request-packet request-id request)))
 
 (defn transport-round-trip!
   "Perform one unary socket exchange. The daemon owns one request per socket."
@@ -131,11 +132,11 @@
             (.write output bytes)
             (.flush output))
           (let [packet (read-packet! (.getInputStream socket))
-                response (t/rpcframev2-response packet)]
-            (when-not (= :response (t/rpcframev2-kind packet))
+                response (t/storerpcpacketv2-response packet)]
+            (when-not (= :response (t/storerpcpacketv2-kind packet))
               (throw (ex-info "Store RPC unary request received a non-response packet"
                               {:type :rpc-invalid-kind})))
-            (when-not (= request-id (t/rpcframev2-request-id packet))
+            (when-not (= request-id (t/storerpcpacketv2-request-id packet))
               (throw (ex-info "Store RPC response request-id does not match"
                               {:type :rpc-request-id-mismatch})))
             (when-not (and (= (t/rpcrequest-space request)

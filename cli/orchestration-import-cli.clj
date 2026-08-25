@@ -3,8 +3,8 @@
 ;; 019f8f5c-74e0-7be7-ba65-3179f1bccde1; design doc:
 ;; north-orchestration-vocabulary-design.md in the repo's private docs —
 ;; packaged code must not embed checkout/home paths, per the package
-;; path-hygiene lint, so the Orchestration source root is resolved at runtime from
-;; $NORTH_ORCHESTRATION_HOME / $HOME, never a literal).
+;; path-hygiene lint, so the portable and runtime source roots are resolved at
+;; runtime from environment-owned repository identities.
 ;;
 ;; Lifts the machine catalog into the coordination graph as DRAFT subjects under a
 ;; version namespace (@catalog:v<N>:*), then flips the @catalog:current
@@ -46,8 +46,13 @@
 
 (defn orchestration-home [arg]
   (or arg
-      (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
+      (System/getenv "AGENT_MACHINERY_HOME")
+      (str (System/getenv "HOME") "/code/agent-machinery/main")))
+
+(defn agent-runtime-home []
+  (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir"))
+           "/agent-runtime/orchestration")))
 
 (defn read-json [root & segs]
   (json/parse-string (slurp (apply io/file root segs))))
@@ -55,7 +60,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Prompt-block fence extraction — mirrors sdk/src/harness.ts
 ;; extractFenceFromSection / extractFirstFence so the imported prompt_block is
-;; byte-identical to what the harness reads from NORTH_ORCHESTRATION_HOME today.
+;; byte-identical to what the harness reads from the two explicit owner roots.
 ;; ---------------------------------------------------------------------------
 (defn extract-section-fence [text heading]
   (let [lines (str/split text #"\n" -1)
@@ -266,8 +271,9 @@
 
 ;; Provider catalogs — provider derives from the subject namespace, so no
 ;; `provider` ref fact is emitted (the R9 ref/literal collision stays deferred).
-(defn emit-provider! [port ver root provider]
-  (let [cat (read-json root "providers" (str provider ".json"))
+(defn emit-provider! [port ver _root provider]
+  (let [runtime (agent-runtime-home)
+        cat (read-json runtime "providers" (str provider ".json"))
         psubj (ns-subject ver "provider" provider)
         prov (get cat "provenance")]
     (s1! port psubj "kind" "provider_catalog")
@@ -300,7 +306,7 @@
             (let [path (get delta "path")]
               (s1! port msubj "doctrine_source" path)
               (s1! port msubj "prompt_block"
-                   (extract-first-fence (slurp (io/file root path)))))))))
+                   (extract-first-fence (slurp (io/file runtime path)))))))))
     ;; tier rows — model id stored as a literal (value-kind compatible with the
     ;; existing single-literal `model` predicate); the row's own tier + levels.
     (doseq [[tier spec] (get cat "tiers")]

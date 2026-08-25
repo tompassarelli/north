@@ -17,13 +17,13 @@ printf '%s\n' \
   'if [ "${1:-}" = store ]; then shift; fi' \
   'printf "%s\n" "store $*" >>"$TEST_CALLS"' \
   'case "${1:-}" in' \
-  '  tell-existing|untell-existing)' \
+  '  tell-existing|retract-existing)' \
   '    if [[ "${2:-}" = 019fa4d4-93aa-7447-aae5-0a5bcfca6849 ]]; then' \
   '      printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}"' \
   '    else' \
   '      exit 3' \
   '    fi ;;' \
-  '  tell|untell) printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}" ;;' \
+  '  tell|retract) printf "%s\n" "committed via coordinator (v2): ${2:-} ${3:-} = ${4:-}" ;;' \
   'esac' \
   >"$fake_store/store"
 chmod +x "$fake_store/store"
@@ -60,7 +60,7 @@ grep -q '^store tell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-
 env "${common_env[@]}" "$root/bin/north" retract \
   019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress "cli-fix probe" \
   >"$scratch/exact-retract.out"
-grep -q '^store untell-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
+grep -q '^store retract-existing 019fa4d4-93aa-7447-aae5-0a5bcfca6849 progress cli-fix probe$' "$calls"
 [[ "$(wc -l <"$calls")" -eq 1 ]]
 [[ ! -e "$bb_calls" ]]
 

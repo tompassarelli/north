@@ -36,18 +36,19 @@ does not silently restore defaults over invalid state.
 
 Changing `mode` never changes a pinned dispatch surface. The dispatch setting is
 `native` (provider-native pinned), `north` (North-managed pinned), or `auto`
-(choose for each dispatch). Under `auto`, frozen versus learning says whether
+(resolve for each dispatch). Under `auto`, frozen versus learning says whether
 that assignment is deterministic known-best or bounded experimental. Account
 allocation policy remains a routing detail within `auto`, never a peer dispatch
 mode.
 
 ## Assignment contract
 
-The harness decides and durably publishes the complete assignment before it
-selects or invokes a provider. If publication fails, provider execution does
-not begin. The deterministic key commits the policy fingerprint, policy seed
-and epoch, and stable episode identity. This makes replay exact without making
-assignment depend on provider availability or timing.
+The harness deterministically resolves and durably publishes the complete
+assignment before it selects or invokes a provider. If publication fails,
+provider execution does not begin. The deterministic key commits the policy
+fingerprint, policy seed and epoch, and stable episode identity. This makes
+replay exact without making assignment depend on provider availability or
+timing.
 
 The control arm is the frozen policy that would otherwise run. An exploratory
 episode changes one of these axes:

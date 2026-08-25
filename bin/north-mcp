@@ -286,14 +286,10 @@
 (def routing-economics-preflight (str sdk-dir "/routing-economics-preflight-cli.ts"))
 (def struggle-policy-cli (str sdk-dir "/struggle.ts"))
 (def artifact-read-cli (str sdk-dir "/run-artifact-read-cli.ts"))
-;; NORTH_ORCHESTRATION_HOME is the canonical name every other surface reads, and
-;; the fallback is the IN-REPO orchestration/ (derived from this script, via
-;; `here`) — never the former sibling checkout location, which stopped existing
-;; when the catalog moved inside North and left this MCP resolving a missing path.
 (def orchestration-staffing-path
   (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-      (str (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-               (str (.getParentFile here) "/orchestration"))
+      (str (or (System/getenv "AGENT_MACHINERY_HOME")
+               (str (System/getenv "HOME") "/code/agent-machinery/main"))
            "/staffing/catalog.json")))
 (def orchestration-staffing
   (try (north.orchestration-staffing/load-catalog orchestration-staffing-path)

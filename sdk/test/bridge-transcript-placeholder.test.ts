@@ -233,7 +233,7 @@ function runtimeWith(status: string) {
 }
 
 test("agents-pane transcript stops saying Starting, and shows the session instead", async () => {
-  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 90, height: 12,
   });
 
@@ -248,14 +248,14 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   // there is nothing to state about a session that has not started.
   transcript.content = renderConversation(runtimeWith("starting"));
   await renderOnce();
-  const booting = captureCharSnapshot();
+  const booting = captureCharFrame();
   expect(booting).toContain("Starting Main");
   expect(booting).not.toContain("North Bridge");
 
   // The exact transition the screenshot never showed: session.idle -> ready.
   transcript.content = renderConversation(runtimeWith("ready"));
   await renderOnce();
-  const ready = captureCharSnapshot();
+  const ready = captureCharFrame();
   expect(ready).not.toContain("Starting Main");
   // The line the banner replaces, gone.
   expect(ready).not.toContain("Main is ready.");
@@ -275,7 +275,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   }];
   transcript.content = renderConversation(withItem);
   await renderOnce();
-  const answered = captureCharSnapshot();
+  const answered = captureCharFrame();
   expect(answered).not.toContain("Starting Main");
   expect(answered).not.toContain("North Bridge");
   expect(answered).not.toContain("╭");
@@ -284,7 +284,7 @@ test("agents-pane transcript stops saying Starting, and shows the session instea
   // A session that is gone says so, and states nothing about itself.
   transcript.content = renderConversation(runtimeWith("offline"));
   await renderOnce();
-  const offline = captureCharSnapshot();
+  const offline = captureCharFrame();
   expect(offline).toContain("Main is offline.");
   expect(offline).not.toContain("North Bridge");
 
@@ -403,7 +403,7 @@ test("agent selection does not leak its execution UUID into the status line", ()
 });
 
 test("the roster row and the banner are never on screen together", async () => {
-  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 90, height: 14,
   });
   const pane = new BoxRenderable(renderer, { id: "agents-pane", flexGrow: 1 });
@@ -422,7 +422,7 @@ test("the roster row and the banner are never on screen together", async () => {
   roster.content = bannerRoster;
   transcript.content = renderConversation(ready);
   await renderOnce();
-  const banner = captureCharSnapshot();
+  const banner = captureCharFrame();
   expect(banner).toContain(">_ North Bridge (1f3c2de7)");
   expect(banner).not.toContain("Northbridge control session");
   expect(banner).not.toContain("Main (ready)");
@@ -440,7 +440,7 @@ test("the roster row and the banner are never on screen together", async () => {
   roster.content = answeredRoster;
   transcript.content = renderConversation(answered);
   await renderOnce();
-  const conversing = captureCharSnapshot();
+  const conversing = captureCharFrame();
   expect(conversing).not.toContain("North Bridge (");
   expect(conversing).toContain("Main (ready)");
   expect(conversing).toContain("Northbridge control session");

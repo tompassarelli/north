@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { ProviderRetrySafeError, type RoutedQueryArguments } from "../src/providers";
 import { ManagedCodexHarvestError } from "../src/providers/codex-app-server";
 import { managedCodexHarvestEvidence } from "../src/providers/openai";
@@ -22,6 +23,10 @@ import type { ShadowReviewerNote, ShadowReviewerUpdate } from "../src/shadow-rev
 import {
   DeliveryEvidenceRetryableError,
   DeliveryReservationWriterProcessFailure,
+  type DeliveryAttemptLaunchIntent,
+  type DeliveryAttemptProviderStart,
+  type DeliveryAttemptRoute,
+  type DeliveryReservation,
   type DeliveryRunContext,
 } from "../src/delivery-evidence";
 import { presetRequest } from "./routing-fixtures";
@@ -80,16 +85,104 @@ const LOW_RISK_ASSESSMENT: RoutingAssessment = {
   version: "minimum-sufficient-v1",
   signals: {
     decisionOwnership: "none", seamScope: "none",
-    errorExposure: "contained-reversible", oracleStrength: "objective-local",
+    errorExposure: "contained-reversible", oracleStrength: "objective-end-to-end",
     foundationalImpact: "none", dependencyShape: "atomic-cohesive",
     reasoningShape: "deterministic",
   },
   derived: {
     minimumTier: "economy", minimumReasoning: "low",
-    ruleCodes: ["reasoning-shape:deterministic"],
+    ruleCodes: ["reasoning-shape:deterministic-tight-strong-oracle"],
   },
   selected: { tier: "economy", reasoning: "low" },
 };
+
+function attemptRoute(
+  threadId: string,
+  provider: "anthropic" | "openai" = "openai",
+): DeliveryAttemptRoute {
+  const accountId = provider === "openai" ? "codex-test" : "anthropic-test";
+  return {
+    provider,
+    accountId,
+    model: provider === "openai" ? "gpt-test" : "claude-test",
+    accountAuthorityReceiptSha256: "1".repeat(64),
+    routeObservationReceiptSha256: "2".repeat(64),
+    threadLease: {
+      resource: `thread:${threadId}:dispatch`, holder: "test-holder", epoch: 1,
+    },
+    accountLease: {
+      resource: `codex-account:${accountId}:slot:0`, holder: "test-holder", epoch: 1,
+    },
+  };
+}
+
+function attemptReservation(
+  context: DeliveryRunContext,
+  route: DeliveryAttemptRoute,
+  baselineDoneWhen: string[],
+): DeliveryReservation {
+  const manifestSha256 = createHash("sha256").update(context.runId).digest("hex");
+  return {
+    contractOrigin: "accepted",
+    baselineDoneWhen,
+    attemptId: `@attempt:${manifestSha256}`,
+    attemptOrdinal: 1,
+    manifestSha256,
+    ...route,
+  };
+}
+
+function linkedAttemptId(
+  reservation: DeliveryReservation,
+  ...transitions: Array<DeliveryAttemptLaunchIntent | DeliveryAttemptProviderStart>
+): string {
+  if (transitions.some(({ attemptId }) => attemptId !== reservation.attemptId)) {
+    throw new Error("fixture transition does not name its exact reservation attempt");
+  }
+  return reservation.attemptId;
+}
+
+function attemptTransitions() {
+  return {
+    launchIntent(
+      _context: DeliveryRunContext,
+      reservation: DeliveryReservation,
+    ): DeliveryAttemptLaunchIntent {
+      return {
+        attemptId: linkedAttemptId(reservation),
+        launchIntentSha256: "4".repeat(64),
+        launchedAt: "2026-08-25T00:00:00.000Z",
+      };
+    },
+    providerStart(
+      _context: DeliveryRunContext,
+      reservation: DeliveryReservation,
+      launchIntent: DeliveryAttemptLaunchIntent,
+      providerStartReceiptSha256: string,
+    ): DeliveryAttemptProviderStart {
+      return {
+        attemptId: linkedAttemptId(reservation, launchIntent),
+        providerStartReceiptSha256,
+        providerStartManifestSha256: "5".repeat(64),
+        providerStartedAt: "2026-08-25T00:00:01.000Z",
+      };
+    },
+    terminal(
+      _context: DeliveryRunContext,
+      reservation: DeliveryReservation,
+      launchIntent: DeliveryAttemptLaunchIntent,
+      providerStart: DeliveryAttemptProviderStart,
+      terminalReceiptSha256: string,
+    ) {
+      return {
+        attemptId: linkedAttemptId(reservation, launchIntent, providerStart),
+        terminalReceiptSha256,
+        terminalManifestSha256: "6".repeat(64),
+        terminalAt: "2026-08-25T00:00:02.000Z",
+      };
+    },
+  };
+}
 
 function pinEvidence(
   provider: "anthropic" | "openai",
@@ -522,33 +615,30 @@ test("a synchronous provider-construction failure records run telemetry", async 
 test("a Orchestration prompt-composition failure is blocked preflight before query construction", async () => {
   const { spawn } = await import("./support/spawn");
   writeFileSync(log, "");
-  const sourceOrchestration = process.env.NORTH_ORCHESTRATION_HOME
-    ?? resolve(import.meta.dir, "../..", "orchestration");
-  const brokenOrchestration = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
-  mkdirSync(join(brokenOrchestration, "providers"), { recursive: true });
-  mkdirSync(join(brokenOrchestration, "docs", "deltas"), { recursive: true });
+  const sourceRuntime = process.env.NORTH_AGENT_RUNTIME_HOME
+    ?? resolve(import.meta.dir, "../..", "agent-runtime/orchestration");
+  const brokenRuntime = mkdtempSync(join(tmpdir(), "north-missing-model-delta-"));
+  mkdirSync(join(brokenRuntime, "providers"), { recursive: true });
+  mkdirSync(join(brokenRuntime, "docs", "deltas"), { recursive: true });
   for (const name of ["anthropic.json", "openai.json"]) {
     copyFileSync(
-      join(sourceOrchestration, "providers", name),
-      join(brokenOrchestration, "providers", name),
+      join(sourceRuntime, "providers", name),
+      join(brokenRuntime, "providers", name),
     );
   }
-  for (const name of ["roles.md", "comms.md", "task-grades.md", "topologies.md", "postures.md"]) {
-    copyFileSync(join(sourceOrchestration, "docs", name), join(brokenOrchestration, "docs", name));
-  }
-  const priorOrchestrationHome = process.env.NORTH_ORCHESTRATION_HOME;
+  const priorRuntimeHome = process.env.NORTH_AGENT_RUNTIME_HOME;
   let queryConstructionCalls = 0;
   try {
-    process.env.NORTH_ORCHESTRATION_HOME = brokenOrchestration;
+    process.env.NORTH_AGENT_RUNTIME_HOME = brokenRuntime;
     const routingMetadata = applyOrchestrationStaffing({
       role: "scout",
       tier: "standard",
-      reasoning: "low",
+      reasoning: "medium",
       composition: {
         kind: "template",
         id: "scout",
-        overrides: ["tier"],
-        overrideReason: "exercise the Terra prompt-composition preflight boundary",
+        overrides: ["tier", "reasoning"],
+        overrideReason: "exercise the Sol prompt-composition preflight boundary",
       },
     });
     const result = await spawn({
@@ -565,9 +655,9 @@ test("a Orchestration prompt-composition failure is blocked preflight before que
     });
     expect(result).toBe("");
   } finally {
-    if (priorOrchestrationHome === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
-    else process.env.NORTH_ORCHESTRATION_HOME = priorOrchestrationHome;
-    rmSync(brokenOrchestration, { recursive: true, force: true });
+    if (priorRuntimeHome === undefined) delete process.env.NORTH_AGENT_RUNTIME_HOME;
+    else process.env.NORTH_AGENT_RUNTIME_HOME = priorRuntimeHome;
+    rmSync(brokenRuntime, { recursive: true, force: true });
   }
 
   expect(queryConstructionCalls).toBe(0);
@@ -1298,7 +1388,7 @@ test("the absolute hard deadline suppresses repair even when its timer has not f
   expect(lines.some((line) => line.endsWith(" process_outcome ran_empty"))).toBe(true);
 });
 
-test("SIGTERM during provider preflight waits for envelope and driver cleanup", async () => {
+test("SIGTERM during outer preflight waits for envelope and driver cleanup", async () => {
   const { dispatch } = await import("./support/dispatch");
   const host = fakeTerminationHost();
   const coordinator = new HostTerminationCoordinator(host.control as any);
@@ -1307,28 +1397,21 @@ test("SIGTERM during provider preflight waits for envelope and driver cleanup", 
   const envelopeGate = new Promise<void>((resolve) => { finishEnvelope = resolve; });
   let finishDriver!: () => void;
   const driverGate = new Promise<void>((resolve) => { finishDriver = resolve; });
-  let codexPreflightCalls = 0;
   const execution = dispatch("test-signal-preflight-cleanup", {
     agentId: "test-signal-preflight-cleanup-agent",
     routingMetadata: presetRequest("integrator"),
     registerTermination: (options: any) => coordinator.register(options),
     loadThreadFacts: () => [
-      { predicate: "title", value: "Signal during provider preflight" },
+      { predicate: "title", value: "Signal during outer preflight" },
       { predicate: "planned", value: "true" },
       { predicate: "atomic", value: "true" },
     ],
     loadChildren: () => [],
     claimDriver: (() => ({ release: () => true })) as any,
-    admitResourceEnvelope: (async () => undefined) as any,
-    refreshAccountUsages: (async ({ signal }: { signal?: AbortSignal }) => {
+    admitResourceEnvelope: (async () => {
       order.push("preflight");
       host.emit("SIGTERM");
-      expect(signal?.aborted).toBe(true);
-      return [];
-    }) as any,
-    refreshCodexEntitlements: (async () => {
-      codexPreflightCalls++;
-      return [];
+      return undefined;
     }) as any,
     completeResourceEnvelope: (async () => {
       order.push("envelope:start");
@@ -1360,7 +1443,6 @@ test("SIGTERM during provider preflight waits for envelope and driver cleanup", 
     "envelope:start", "envelope:end",
     "driver:start", "driver:error",
   ]);
-  expect(codexPreflightCalls).toBe(0);
   await eventuallyTrue(() => host.exitCodes.length === 1, "coordinated SIGTERM exit");
   expect(host.exitCodes).toEqual([143]);
 });
@@ -1560,8 +1642,8 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
       close: async () => {},
       [Symbol.asyncIterator](): AsyncIterator<WireEvent> {
         return (async function*(): AsyncGenerator<WireEvent> {
-          for (let pulse = 0; pulse < 8; pulse++) {
-            await Bun.sleep(8);
+          for (let pulse = 0; pulse < 25; pulse++) {
+            await Bun.sleep(10);
             activity.record("provider", "provider.codex.command.interaction");
           }
           yield* wireTurnEvents(args, {
@@ -1571,7 +1653,7 @@ test("spawn and dispatch keep a silent outer stream alive from provider-native a
       },
     };
   };
-  process.env.NORTH_STALL_MS = "20";
+  process.env.NORTH_STALL_MS = "100";
   try {
     for (const surface of ["spawn", "dispatch"] as const) {
       writeFileSync(log, "");
@@ -1867,12 +1949,11 @@ test("dispatch publishes newly observed done-bar evidence as reported, never sel
           { predicate: "outcome", value: "worker also closed the thread" },
         ],
     deliveryRuntime: {
-      reserve(context) {
+      attemptRoute: attemptRoute("test-reported-delivery"),
+      ...attemptTransitions(),
+      reserve(context, route) {
         reserved = context;
-        return {
-          contractOrigin: "accepted",
-          baselineDoneWhen: ["focused tests pass"],
-        };
+        return attemptReservation(context, route, ["focused tests pass"]);
       },
       load(runId) {
         if (!reserved || runId !== reserved.runId) {
@@ -1930,6 +2011,7 @@ test("spawn reserves before provider execution and binds evidence plus telemetry
       ];
     },
     deliveryRuntime: {
+      attemptRoute: attemptRoute("test-proof-bound-thread"),
       reserve(context) {
         events.push("reserve");
         reserved = context;
@@ -2663,7 +2745,10 @@ test("a resumed continuation turn carries the same parent-run context for recurs
     pinEvidence: pinEvidence("anthropic"),
     coordinator: TEST_COORDINATOR,
     queryFn,
-    deliveryRuntime: { reserve: () => ({}), load: () => ({}) },
+    deliveryRuntime: {
+      attemptRoute: attemptRoute("2026-07-23-101500", "anthropic"),
+      reserve: () => ({}), load: () => ({}),
+    },
     childSettlementReader: () => settlement,
   });
 
@@ -3159,6 +3244,7 @@ test("spawn replays one transport-ambiguous reservation with the exact context b
     routingMetadata: presetRequest("integrator"),
     thread: "thread-reservation-retry",
     deliveryRuntime: {
+      attemptRoute: attemptRoute("thread-reservation-retry"),
       reserve(context) {
         reservations.push(context);
         if (reservations.length === 1)
@@ -3218,6 +3304,7 @@ test("reservation refusal or repeated transport failure constructs no provider",
         return "recorded" as const;
       },
       deliveryRuntime: {
+        attemptRoute: attemptRoute("thread-spawn-reservation-refusal"),
         reserve(context) {
           reserveCalls++;
           reservations.push(context);
@@ -3250,13 +3337,13 @@ test("reservation refusal or repeated transport failure constructs no provider",
   }
 });
 
-test("dispatch fails open to provider but rotates telemetry off its failed reservation", async () => {
+test("dispatch fails closed before provider construction when reservation is unavailable", async () => {
   const { dispatch } = await import("./support/dispatch");
   writeFileSync(log, "");
   let failedRunId: string | undefined;
   let reserveCalls = 0;
   let constructions = 0;
-  await dispatch("test-dispatch-reservation-rotation", {
+  await expect(dispatch("test-dispatch-reservation-rotation", {
     agentId: "test-dispatch-reservation-rotation-agent",
     routingMetadata: presetRequest("integrator"),
     claimDriver: (() => ({ release() {} })) as any,
@@ -3267,6 +3354,7 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
       { predicate: "atomic", value: "true" },
     ],
     deliveryRuntime: {
+      attemptRoute: attemptRoute("test-dispatch-reservation-rotation"),
       reserve(context) {
         reserveCalls++;
         failedRunId = context.runId;
@@ -3281,20 +3369,10 @@ test("dispatch fails open to provider but rotates telemetry off its failed reser
       constructions++;
       return wireTurnQuery(args, { output: "done", turns: 1, providerDurationMs: 1 });
     },
-  });
+  })).rejects.toThrow("delivery evidence reserve rejected: publication deadline exceeded");
   expect(reserveCalls).toBe(1);
-  expect(constructions).toBe(1);
-  const lines = await settledRunLines(
-    "test-dispatch-reservation-rotation-agent",
-    "applied_domain_requirement_count 0",
-  );
-  const subjects = new Set(lines.map((line) => line.split(/\s+/)[1]));
+  expect(constructions).toBe(0);
   expect(failedRunId).toBeDefined();
-  expect(subjects.size).toBe(1);
-  expect(subjects.has(failedRunId!)).toBe(false);
-  expect(lines.some((line) =>
-    line.endsWith(" delivery_reason delivery_reservation_unavailable_at_finalize"),
-  )).toBe(true);
 });
 
 test("dispatch retains its wire run when its reservation is invalid at finalization", async () => {
@@ -3313,9 +3391,11 @@ test("dispatch retains its wire run when its reservation is invalid at finalizat
       { predicate: "done_when", value: "tests pass" },
     ],
     deliveryRuntime: {
-      reserve(context) {
+      attemptRoute: attemptRoute("test-dispatch-finalize-rotation"),
+      ...attemptTransitions(),
+      reserve(context, route) {
         reservedRunId = context.runId;
-        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+        return attemptReservation(context, route, ["tests pass"]);
       },
       load() {
         return { reservationValid: false, evidence: [] };
@@ -3366,8 +3446,10 @@ test("dispatch's finalize names an exhausted thread load apart from a genuinely 
         throw new Error("torn thread fact row");
       },
       deliveryRuntime: {
-        reserve(context) {
-          return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+        attemptRoute: attemptRoute("test-dispatch-thread-load-failed"),
+        ...attemptTransitions(),
+        reserve(context, route) {
+          return attemptReservation(context, route, ["tests pass"]);
         },
         load() {
           return { reservationValid: true, evidence: [] };
@@ -3421,9 +3503,11 @@ test("dispatch still reports delivery when the thread read only fails transientl
       return baseline;
     },
     deliveryRuntime: {
-      reserve(context) {
+      attemptRoute: attemptRoute("test-dispatch-contended-thread-load"),
+      ...attemptTransitions(),
+      reserve(context, route) {
         reservedRunId = context.runId;
-        return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
+        return attemptReservation(context, route, ["focused tests pass"]);
       },
       load(runId) {
         return { reservationValid: true, evidence: [{
@@ -3477,8 +3561,10 @@ test("dispatch's finalize leaves a genuinely absent thread fail-closed without r
       return [];
     },
     deliveryRuntime: {
-      reserve(context) {
-        return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
+      attemptRoute: attemptRoute("test-dispatch-thread-absent"),
+      ...attemptTransitions(),
+      reserve(context, route) {
+        return attemptReservation(context, route, ["tests pass"]);
       },
       load() {
         return { reservationValid: true, evidence: [] };
@@ -3515,6 +3601,7 @@ test("spawn's finalize-rotation names an exhausted load apart from an invalid re
       routingMetadata: presetRequest("integrator"),
       thread: "thread-spawn-finalize-rotation-loud",
       deliveryRuntime: {
+        attemptRoute: attemptRoute("thread-spawn-finalize-rotation-loud"),
         reserve(context) {
           return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
         },
@@ -3565,6 +3652,7 @@ test("spawn still reports delivery when the reservation read only fails transien
       { predicate: "done_when", value: "focused tests pass" },
     ],
     deliveryRuntime: {
+      attemptRoute: attemptRoute("thread-spawn-contended-load"),
       reserve(context) {
         reservedRunId = context.runId;
         return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
@@ -3608,6 +3696,7 @@ test("spawn retains its wire run when its reservation is invalid at finalization
     routingMetadata: presetRequest("integrator"),
     thread: "thread-spawn-finalize-rotation",
     deliveryRuntime: {
+      attemptRoute: attemptRoute("thread-spawn-finalize-rotation"),
       reserve(context) {
         reservedRunId = context.runId;
         return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
@@ -3655,6 +3744,7 @@ test("spawn's finalize names an exhausted thread load apart from a genuinely abs
         throw new Error("torn thread fact row");
       },
       deliveryRuntime: {
+        attemptRoute: attemptRoute("thread-spawn-thread-load-failed-loud"),
         reserve(context) {
           return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
         },
@@ -3712,6 +3802,7 @@ test("spawn still reports delivery when the thread read only fails transiently",
       return contendedFacts;
     },
     deliveryRuntime: {
+      attemptRoute: attemptRoute("thread-spawn-contended-thread-load"),
       reserve(context) {
         reservedRunId = context.runId;
         return { contractOrigin: "accepted", baselineDoneWhen: ["focused tests pass"] };
@@ -3764,6 +3855,7 @@ test("spawn's finalize leaves a genuinely absent thread fail-closed without retr
         : [];
     },
     deliveryRuntime: {
+      attemptRoute: attemptRoute("thread-spawn-thread-absent"),
       reserve(context) {
         return { contractOrigin: "accepted", baselineDoneWhen: ["tests pass"] };
       },

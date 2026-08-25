@@ -77,8 +77,11 @@ exit 2
 
   const env = {
     ...process.env,
-    // Keep the real Orchestration catalog resolvable once HOME is redirected.
-    NORTH_ORCHESTRATION_HOME: process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"),
+    // Keep both owner roots resolvable once HOME is redirected.
+    AGENT_MACHINERY_HOME: process.env.AGENT_MACHINERY_HOME
+      ?? "/home/tom/code/agent-machinery/main",
+    NORTH_AGENT_RUNTIME_HOME: process.env.NORTH_AGENT_RUNTIME_HOME
+      ?? resolve(import.meta.dir, "..", "..", "agent-runtime/orchestration"),
     HOME: home,
     PATH: `${bin}:${process.env.PATH}`,
     NORTH_ROUTING_POLICY: policy,

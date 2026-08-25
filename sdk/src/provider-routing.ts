@@ -1271,9 +1271,9 @@ export async function collectExecutionModelRefreshAttempts(
  */
 export interface ExecutionRoutingDecision extends RoutingDecision {
   /** The exact Store authority and admitted auth/quota evidence for a Codex route. */
-  readonly executionAccountReceipt?: Awaited<ReturnType<typeof allocateCodexExecutionAccount>> extends infer Allocation
-    ? Allocation extends { receipt: infer Receipt } ? Receipt : never
-    : never;
+  readonly executionAccountReceipt?: NonNullable<
+    Awaited<ReturnType<typeof allocateCodexExecutionAccount>>
+  >["receipt"];
 }
 
 /**

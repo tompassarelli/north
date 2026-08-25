@@ -13,7 +13,11 @@ import {
   readCodexEntitlementObservation, refreshCodexEntitlementIfStale,
   refreshCodexEntitlementsIfStale, shouldRefreshCodexEntitlement,
 } from "../src/codex-entitlement";
-import { writeProviderUsageObservations } from "../src/provider-observation-store";
+import {
+  writeProviderUsageObservations as writeProviderUsageObservationsProduction,
+} from "../src/provider-observation-store";
+import type { StoreObservationClient } from "../src/store-observation-adapter";
+import { storeObservationClient } from "./support/store-observation-client";
 
 const fixture = resolve(import.meta.dir, "fixtures/fake-codex-app-server.mjs");
 const saved = {
@@ -22,6 +26,7 @@ const saved = {
   home: process.env.HOME,
 };
 const temporary: string[] = [];
+const storeClients = new Map<string, StoreObservationClient>();
 afterEach(() => {
   if (saved.responses === undefined) delete process.env.FAKE_CODEX_RESPONSES;
   else process.env.FAKE_CODEX_RESPONSES = saved.responses;
@@ -30,7 +35,23 @@ afterEach(() => {
   if (saved.home === undefined) delete process.env.HOME;
   else process.env.HOME = saved.home;
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+  storeClients.clear();
 });
+
+const writeProviderUsageObservations: typeof writeProviderUsageObservationsProduction = (
+  incoming, path, options = {},
+) => {
+  const key = path ?? "<default>";
+  let client = storeClients.get(key);
+  if (!client) {
+    client = storeObservationClient();
+    storeClients.set(key, client);
+  }
+  return writeProviderUsageObservationsProduction(incoming, path, {
+    ...options,
+    client: options.client ?? client,
+  });
+};
 
 function responses(account: unknown = { type: "chatgpt", email: "person@example.invalid", planType: "pro" }) {
   return {
@@ -190,6 +211,7 @@ test("atomically updates the shared observation store", async () => {
   const observation = await observeCodexEntitlement({
     command: process.execPath, commandArgs: [fixture], timeoutMs: 1_000,
     targetId: "codex-primary", now: new Date("2026-07-16T12:00:00Z"), storePath,
+    writeObservations: writeProviderUsageObservations,
   });
   expect(JSON.parse(readFileSync(storePath, "utf8"))).toEqual({ version: 1, observations: [observation] });
 });
@@ -322,6 +344,7 @@ test("fresh cached observation skips the app-server probe", async () => {
   await writeProviderUsageObservations(cached, storePath);
   let probes = 0;
   const result = await refreshCodexEntitlementIfStale({ storePath, targetId: "codex-primary", now,
+    writeObservations: writeProviderUsageObservations,
     observe: async () => { probes++; throw new Error("must not run"); } });
   expect(result).toEqual(cached);
   expect(probes).toBe(0);
@@ -338,6 +361,7 @@ test("stale cached observation refreshes and persists the replacement", async ()
   const replacement = { ...stale, observedAt: now.toISOString(), state: "low" as const };
   await writeProviderUsageObservations(stale, storePath);
   const result = await refreshCodexEntitlementIfStale({ storePath, targetId: "codex-primary", now,
+    writeObservations: writeProviderUsageObservations,
     observe: async ({ storePath: destination }) => {
       await writeProviderUsageObservations(replacement, destination);
       return replacement;
@@ -362,7 +386,10 @@ test("twenty parallel stale refreshes single-flight one entitlement probe", asyn
     return replacement;
   };
   const results = await Promise.all(Array.from({ length: 20 }, () =>
-    refreshCodexEntitlementIfStale({ storePath, targetId: "codex-primary", now, observe })));
+    refreshCodexEntitlementIfStale({
+      storePath, targetId: "codex-primary", now, observe,
+      writeObservations: writeProviderUsageObservations,
+    })));
   expect(probes).toBe(1);
   expect(results.every((result) => result?.observedAt === replacement.observedAt)).toBe(true);
 });
@@ -415,6 +442,7 @@ test("different Codex targets refresh concurrently with disjoint state and obser
     timeoutMs: 1_000,
     now: new Date("2026-07-16T12:00:00Z"),
     spawnProcess,
+    writeObservations: writeProviderUsageObservations,
   });
   expect(maxActive).toBe(2);
   expect(observed.map((entry) => entry?.targetId).sort()).toEqual(["codex-one", "codex-two"]);
@@ -444,6 +472,7 @@ test("refresh failure replaces stale pressure with explicit unknown and a fixed 
   await writeProviderUsageObservations(stale, storePath);
   const diagnostics: string[] = [];
   const failed = { storePath, targetId: "codex-primary", now,
+    writeObservations: writeProviderUsageObservations,
     observe: async () => { throw new Error("probe failed"); }, onDiagnostic: (message: string) => diagnostics.push(message) };
   const unknown = { targetId: "codex-primary", provider: "openai" as const,
     source: "codex-app-server:account-rate-limits" as const,

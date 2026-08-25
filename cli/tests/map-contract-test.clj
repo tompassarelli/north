@@ -9,14 +9,18 @@
 (def store (or (System/getenv "BEAGLE_STORE_HOME")
               (.getCanonicalPath (io/file root ".." ".." "store" "main"))))
 (def store-out (str store "/out"))
-(def orchestration (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-                       (str root "/orchestration")))
+(def agent-machinery (or (System/getenv "AGENT_MACHINERY_HOME")
+                         "/home/tom/code/agent-machinery/main"))
+(def agent-runtime (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
+                       (str root "/agent-runtime/orchestration")))
 (def checks (atom []))
 (defn check [label value] (swap! checks conj [label (boolean value)]))
 (load-file (str root "/cli/batch-id.clj"))
 (defn run [role]
   (proc/shell {:out :string :err :string :continue true
-               :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration "AGENT_TOPOLOGY" "orchestrator"}}
+               :extra-env {"AGENT_MACHINERY_HOME" agent-machinery
+                           "NORTH_AGENT_RUNTIME_HOME" agent-runtime
+                           "AGENT_TOPOLOGY" "orchestrator"}}
               "bb" "-cp" store-out cli "59999" "map" role "1" "probe"))
 
 (let [director (run "director") unknown (run "made-up")]
@@ -50,7 +54,8 @@
       _ (.setExecutable sentinel true)
       result
       (proc/shell {:out :string :err :string :continue true
-                   :extra-env {"NORTH_ORCHESTRATION_HOME" orchestration
+                   :extra-env {"AGENT_MACHINERY_HOME" agent-machinery
+                               "NORTH_AGENT_RUNTIME_HOME" agent-runtime
                                "AGENT_TOPOLOGY" "orchestrator"
                                "NORTH_BUN" (.getCanonicalPath sentinel)}}
                   "bb" "-cp" store-out cli "59999" "map" "verifier" "1" "probe")]

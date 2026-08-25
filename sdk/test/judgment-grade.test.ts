@@ -105,5 +105,5 @@ test("generic write boundaries reserve judgment_grade for ambient humans and orc
   expect(written).toContain("store tell thread-probe judgment_grade s");
   expect(written).toContain("store tell thread-probe judgment_grade l");
   expect(written).toContain("store set thread-probe judgment_grade m");
-  expect(written).toContain("store untell thread-probe judgment_grade legacy-medium");
+  expect(written).toContain("store retract thread-probe judgment_grade legacy-medium");
 });

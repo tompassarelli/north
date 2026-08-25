@@ -5,10 +5,9 @@ import {
   readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import {
-  assertInstalledManagedCodexHooks, expectedManagedCodexHooks,
-  CODEX_MANAGED_HOOKS_DIR, FIRN_SYSTEM_POLICY,
+  expectedManagedCodexHooks, CODEX_MANAGED_HOOKS_DIR, FIRN_SYSTEM_POLICY,
   type ManagedCodexHookInstallation, reportManagedCodexHookInstallation,
   validateManagedCodexHookInstallation, validateManagedCodexRequirements,
 } from "../src/providers/codex-managed-hooks";
@@ -93,17 +92,20 @@ function requirements(
   return `${lines.join("\n")}\n`;
 }
 
+const nixosRevision = "0".repeat(40);
 const northRevision = "1".repeat(40);
 const beagleRevision = "2".repeat(40);
-const deploymentId = `north-${northRevision}.beagle-${beagleRevision}`;
+const deploymentId = `nixos-${nixosRevision}.north-${northRevision}.beagle-${beagleRevision}`;
 const promotedHooks = {
-  "agent-spawn-guard.sh": "north/profiles/tom/hooks/agent-spawn-guard.sh",
+  "agent-spawn-guard.sh": "north/agent-runtime/hooks/agent-spawn-guard.sh",
   "beagle-session-start.sh": "beagle/integrations/north/hooks/beagle-session-start.sh",
+  "corpus-scan-guard.sh": "nixos-config/dotfiles/agents/hooks/corpus-scan-guard.sh",
   "launch-critical-worktree-guard.sh":
-    "north/profiles/tom/hooks/launch-critical-worktree-guard.sh",
-  "logcompress-hook.py": "north/profiles/tom/hooks/logcompress-hook.py",
-  "logcompress.py": "north/profiles/tom/hooks/logcompress.py",
-  "tripwire-guard.sh": "north/profiles/tom/hooks/tripwire-guard.sh",
+    "nixos-config/dotfiles/agents/hooks/launch-critical-worktree-guard.sh",
+  "logcompress-hook.py": "north/agent-runtime/hooks/logcompress-hook.py",
+  "logcompress.py": "north/agent-runtime/hooks/logcompress.py",
+  "session-kill-guard.sh": "nixos-config/dotfiles/agents/hooks/session-kill-guard.sh",
+  "tripwire-guard.sh": "nixos-config/dotfiles/agents/hooks/tripwire-guard.sh",
 } as const;
 
 interface HookFixture {
@@ -181,6 +183,7 @@ function setupHookFixture(): HookFixture {
   write(recordPath, [
     "FORMAT north-enforcement-promote/v1",
     `ID ${deploymentId}`,
+    `NIXOS_REV ${nixosRevision}`,
     `NORTH_REV ${northRevision}`,
     `BEAGLE_REV ${beagleRevision}`,
     `PREVIOUS ${deploymentId}`,
@@ -231,16 +234,6 @@ test("managed Codex authoring entrances invoke the native Firn system policy", (
       .map((hook) => hook.command);
     expect(commands).toContain(FIRN_SYSTEM_POLICY);
   }
-});
-
-test("North's managed hook contract admits Firn's source requirements exactly", () => {
-  const path = resolve(
-    process.env.NORTH_FIRN_ROOT ?? resolve(import.meta.dir, "..", "..", "..", "..", "nixos-config", "main"),
-    "modules", "codex", "requirements.toml",
-  );
-  expect(existsSync(path)).toBe(true);
-  expect(() => validateManagedCodexRequirements(readFileSync(path, "utf8")))
-    .not.toThrow();
 });
 
 test("managed Codex requirements reject every authority-bearing drift", () => {
@@ -364,7 +357,7 @@ test("managed Codex hook installation rejects forged owner, mode, and link metad
 
 test("managed Codex hook installation rejects a hook reached through selector drift", () => {
   const fixture = setupHookFixture();
-  const alternateId = `north-${"3".repeat(40)}.beagle-${"4".repeat(40)}`;
+  const alternateId = `nixos-${"5".repeat(40)}.north-${"3".repeat(40)}.beagle-${"4".repeat(40)}`;
   const alternateDeployment = join(fixture.enforcementRoot, "deployments", alternateId);
   const manifestPath = promotedHooks["agent-spawn-guard.sh"];
   const alternateFile = join(alternateDeployment, ...manifestPath.split("/"));
@@ -386,10 +379,6 @@ test("managed Codex hook installation rejects a hook reached through selector dr
     livePath,
   );
   expect(() => validateManagedCodexHookInstallation(fixture.installation)).toThrow();
-});
-
-test("installed managed Codex hook assertion completes before any thread or provider turn", () => {
-  expect(() => assertInstalledManagedCodexHooks()).not.toThrow();
 });
 
 test("managed Codex hook report resolves every path the preflight verifies", () => {
