@@ -24,8 +24,8 @@
     :selection "learning-regime"
     :guard-action "allow"
     :managed-admission "allow"
-    :summary "system chooses per dispatch via the learning regime"
-    :help "choose per dispatch: frozen is deterministic known-best; learning permits bounded experiments."}])
+    :summary "dispatch resolves per run via the learning regime"
+    :help "resolve per dispatch: frozen is deterministic known-best; learning permits bounded experiments."}])
 
 (def ^:private specs-by-name
   (into {} (map (juxt :name identity) mode-specs)))

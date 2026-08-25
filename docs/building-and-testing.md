@@ -60,23 +60,22 @@ $ bb -cp "$CP" tests/staleness_test.clj
 ```
 
 CI runs every test command through [`bin/test-suite`](../bin/test-suite) with
-`--sandbox-home`. The mode creates a new empty `HOME`, removes ambient XDG and
-North/Beagle Store state selectors, prints the scratch path, and deletes it after the
-command. Use the same boundary locally while keeping the Beagle Store fixture explicit:
+`--sandbox-home`. The mode creates a new `HOME`, removes ambient XDG and
+North/Beagle Store state selectors, projects an explicit `AGENT_MACHINERY_HOME`
+under the sandbox dependency area, points the variable at that projection,
+prints the scratch path, and deletes it after the command. No mutable checkout
+fallback is created. Without that explicit package root, the new home remains empty.
+Use the same boundary locally while keeping the Beagle Store fixture explicit:
 
 ```console
 $ BEAGLE_STORE_TEST_CHECKOUT="$BEAGLE_STORE_HOME" \
     bin/test-suite --sandbox-home -- bb -cp "$CP" tests/clock_test.clj
 ```
 
-The SDK receipt suite also needs its repository-owned hook fixture:
-
-```console
-$ cd sdk
-$ BEAGLE_STORE_TEST_CHECKOUT="$BEAGLE_STORE_HOME" \
-    NORTH_TEST_AGENT_PROVIDER_HOOKS="$PWD/../profiles/tom/hooks" \
-    ../bin/test-suite --sandbox-home -- bun run test
-```
+The SDK suite reads a composed hook generation only when
+`NORTH_TEST_AGENT_PROVIDER_HOOKS` names one explicitly. Source-owner repositories
+prove individual guard behavior; North's suite proves the composed chain when a
+generation is supplied.
 
 Omit `--sandbox-home` to run a command with the existing environment unchanged:
 

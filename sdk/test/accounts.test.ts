@@ -1,6 +1,7 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -20,13 +21,82 @@ import {
   readCodexAccountAuthority,
 } from "../src/accounts";
 import { StoreTriple } from "../src/store-rpc-codec";
+import { StoreRpcClient } from "../src/store-rpc-client";
 
 const root = join(import.meta.dir, "..");
 const cli = join(root, "src/account-cli.ts");
 const temporaryHomes: string[] = [];
+const savedStoreEnvironment = {
+  port: process.env.NORTH_PORT,
+  spaceId: process.env.BEAGLE_STORE_SPACE_ID,
+};
+let accountStoreRoot: string | undefined;
+let accountStoreServer: ReturnType<typeof Bun.spawn> | undefined;
 // Account CLI cases launch one or more nested Bun/provider fixtures. Their
 // process budget must tolerate the same loaded-host latency as SDK reads.
 const ACCOUNT_PROCESS_TEST_TIMEOUT_MS = 45_000;
+
+function unusedPort(): number {
+  const listener = Bun.serve({ port: 0, fetch: () => new Response("unused") });
+  const port = listener.port;
+  listener.stop(true);
+  return port;
+}
+
+async function waitForStore(port: number, spaceId: string): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    try {
+      const client = await StoreRpcClient.connect({
+        port, spaceId, connectTimeoutMs: 100, readTimeoutMs: 500,
+        maxAttempts: 1, retryDelayMs: 0, jitterMs: 0,
+      });
+      client.close();
+      return;
+    } catch {}
+    await Bun.sleep(25);
+  }
+  throw new Error("isolated Beagle Store server did not become ready for account tests");
+}
+
+beforeAll(async () => {
+  const storeHome = process.env.BEAGLE_STORE_TEST_CHECKOUT
+    ?? process.env.BEAGLE_STORE_HOME
+    ?? "/home/tom/code/beagle/main/store";
+  const server = join(storeHome, "bin/beagle-store-server");
+  if (!existsSync(server)) throw new Error("account tests require the frozen Beagle Store server");
+  accountStoreRoot = mkdtempSync(join(tmpdir(), "north-account-store-"));
+  const port = unusedPort();
+  const spaceId = "north-account-authority-test";
+  process.env.NORTH_PORT = String(port);
+  process.env.BEAGLE_STORE_SPACE_ID = spaceId;
+  accountStoreServer = Bun.spawn([
+    server, "serve", String(port), join(accountStoreRoot, "history.storelog"), spaceId,
+  ], {
+    cwd: storeHome,
+    env: {
+      ...process.env,
+      BEAGLE_STORE_HOME: storeHome,
+      BEAGLE_STORE_BIN: join(storeHome, "bin"),
+      BEAGLE_STORE_OUT: join(storeHome, "out"),
+      BEAGLE_STORE_SERVER_QUIET: "1",
+      BEAGLE_STORE_SERVER_XMX: "1g",
+      BEAGLE_STORE_SNAPSHOT_BOOT: "0",
+    },
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  await waitForStore(port, spaceId);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
+afterAll(async () => {
+  accountStoreServer?.kill();
+  if (accountStoreServer) await accountStoreServer.exited;
+  if (accountStoreRoot) rmSync(accountStoreRoot, { recursive: true, force: true });
+  if (savedStoreEnvironment.port === undefined) delete process.env.NORTH_PORT;
+  else process.env.NORTH_PORT = savedStoreEnvironment.port;
+  if (savedStoreEnvironment.spaceId === undefined) delete process.env.BEAGLE_STORE_SPACE_ID;
+  else process.env.BEAGLE_STORE_SPACE_ID = savedStoreEnvironment.spaceId;
+});
 
 mock.module("@anthropic-ai/claude-agent-sdk", () => ({
   startup: async () => { throw new Error("Anthropic SDK is outside this Codex process fixture"); },
@@ -893,8 +963,9 @@ test("Codex account authority accepts only exact Store singleton role and eligib
   };
   await expect(readCodexAccountAuthority(target, { client }))
     .resolves.toMatchObject({ role: "execution", executionEligible: true,
-      receipt: { subject: "@account:codex-pm", servedVersion: 17,
-        facts: [{ predicate: "kind", value: "provider_account" }] } });
+      receipt: { version: "north:codex-account-authority:v1",
+        subject: "@account:codex-pm", servedVersion: 17,
+        facts: facts.map(([predicate, value]) => ({ predicate, value })) } });
 });
 
 test("Codex account authority fails closed on duplicate or mismatched Store facts", async () => {

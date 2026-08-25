@@ -95,3 +95,4 @@ export type {
 } from "./types";
 export type { RoutedQueryArguments } from "./internal-router";
 export type { ProviderAuthoritySurface } from "./authority";
+export type { ExecutionRoutingDecision } from "../provider-routing";

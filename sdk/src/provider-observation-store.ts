@@ -96,20 +96,20 @@ export async function writeProviderUsageObservations(
   throwIfProviderRefreshCancelled(options.signal);
   const validatedIncoming = parseProviderUsageObservations({ version: 1, observations: [incoming].flat() }, "<incoming observations>");
   const now = new Date();
-  const admitted: ProviderUsageObservation[] = [];
-  for (const observation of validatedIncoming.observations) {
-    if (Date.parse(observation.observedAt) > now.getTime() + OBSERVATION_CLOCK_SKEW_MS) continue;
-    throwIfProviderRefreshCancelled(options.signal);
-    admitted.push((await admitStoreObservation({
-      subject: providerUsageObservationSubject(observation), observation,
-      codec: providerUsageObservationCodec, client: options.client,
-    })).observation);
-  }
   const directory = dirname(path);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   throwIfProviderRefreshCancelled(options.signal);
   const lockPath = `${path}.lock`;
   return withFileLease(lockPath, async () => {
+    const admitted: ProviderUsageObservation[] = [];
+    for (const observation of validatedIncoming.observations) {
+      if (Date.parse(observation.observedAt) > now.getTime() + OBSERVATION_CLOCK_SKEW_MS) continue;
+      throwIfProviderRefreshCancelled(options.signal);
+      admitted.push((await admitStoreObservation({
+        subject: providerUsageObservationSubject(observation), observation,
+        codec: providerUsageObservationCodec, client: options.client,
+      })).observation);
+    }
     throwIfProviderRefreshCancelled(options.signal);
     const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
     try {

@@ -8,11 +8,9 @@
 //
 // Hermetic in BOTH directions. LAUNCH_CRITICAL_CODE_ROOT points the worktree guard
 // at a fixture container tree, so no assertion depends on this machine's ~/code —
-// and NORTH_AGENT_PROVIDER_HOOKS points the chain at repository-owned adapters, so
-// no assertion depends on when `firn rebuild` last projected them into
-// ~/.agents/hooks. Without the second half these cases prove only what the last
-// rebuild shipped: a guard edited here would sit unverified until a rebuild, which
-// is the exact window a layout change has to be proven inside.
+// and an explicit NORTH_AGENT_PROVIDER_HOOKS may point the chain at a composed
+// immutable generation. Source-owner repositories prove their guard behavior;
+// this suite proves North's composed chain when such a generation is supplied.
 // The chain-resolution mechanism it guards (resolveManagedGuardChain silently drops
 // a name it cannot resolve) is unaffected: the names are still resolved, just
 // against a directory this test can vouch for.
@@ -23,7 +21,6 @@ import { join, resolve } from "node:path";
 
 const north = resolve(import.meta.dir, "..", "..");
 process.env.NORTH_HOME = north;
-process.env.NORTH_AGENT_PROVIDER_HOOKS ||= resolve(north, "profiles", "tom", "hooks");
 // Dynamic, because harness.ts resolves its guard chains at MODULE LOAD: a plain
 // import is hoisted above the assignment above and would read the old directory.
 const { HOOKS_DIR } = await import("../src/authoring-guards");

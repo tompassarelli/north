@@ -73,8 +73,12 @@ grep -Fq 'bash bin/north-release-preflight "v$(jq -r '\''.version'\'' sdk/packag
 grep -Fxq '          bash bin/tests/north-release-preflight-test.sh' <<<"$lock_step"
 grep -Fq 'beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"' <<<"$test_job"
 grep -Fq 'beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"' <<<"$test_job"
+grep -Fq 'agent_machinery_repository="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source repository)"' <<<"$test_job"
+grep -Fq 'agent_machinery_ref="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source revision)"' <<<"$test_job"
 grep -Fq 'echo "beagle_repository=$beagle_repository"' <<<"$test_job"
 grep -Fq 'echo "beagle_ref=$beagle_ref"' <<<"$test_job"
+grep -Fq 'echo "agent_machinery_repository=$agent_machinery_repository"' <<<"$test_job"
+grep -Fq 'echo "agent_machinery_ref=$agent_machinery_ref"' <<<"$test_job"
 
 [[ -n "$release_trigger" ]]
 [[ -n "$release_tag_input" ]]
@@ -187,6 +191,7 @@ shell_bars=(
 )
 clojure_bars=(
   cli/tests/agent-identity-publication-integration-test.clj
+  cli/tests/agent-catalog-import-test.clj
   cli/tests/agents-cli-test.clj
   cli/tests/spawn-notify-listener-warning-test.clj
   cli/tests/json-show-indexed-test.clj
@@ -222,13 +227,17 @@ done
 # These are literal workflow expressions, not shell expansions in this process.
 # shellcheck disable=SC2016
 grep -Fq 'BEAGLE_STORE_TEST_CHECKOUT: ${{ github.workspace }}/beagle/store' "$WORKFLOW"
-# shellcheck disable=SC2016
-grep -Fq 'ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration' "$WORKFLOW"
+grep -Fq 'AGENT_MACHINERY_HOME=$GITHUB_WORKSPACE/agent-machinery' "$WORKFLOW"
+grep -Fq 'NORTH_AGENT_RUNTIME_HOME=$GITHUB_WORKSPACE/north/agent-runtime/orchestration' "$WORKFLOW"
 grep -Fq 'BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store' "$WORKFLOW"
 grep -Fq 'BEAGLE_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
 grep -Fq 'BABASHKA_CLASSPATH=$GITHUB_WORKSPACE/north/out:$GITHUB_WORKSPACE/beagle/store/out' "$WORKFLOW"
 if grep -Eq '/home/tom/code/(store|beagle)' "$WORKFLOW"; then
   echo 'CI must bind bare bb to the exact-ref GitHub checkout, never a local engine path' >&2
+  exit 1
+fi
+if grep -Fq 'ORCHESTRATION_HOME' "$WORKFLOW"; then
+  echo 'CI must use the split portable-package and North-runtime roots' >&2
   exit 1
 fi
 # The patched executable's behavioral smoke must remain connected all the way

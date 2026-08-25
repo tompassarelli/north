@@ -12,7 +12,7 @@ The coordination module has three independent responsibilities:
 - MESSAGES deliver durable or urgent communication between participants.
 - THREADS record intentions, facts, dependencies, and outcomes in the shared
   graph; `threads/` is only a projection.
-- ASSIGNMENTS bind an actor to a thread. Staffing chooses a role; assignment
+- ASSIGNMENTS bind an actor to a thread. Staffing resolves a role; assignment
   records who owns this concrete piece of work.
 
 Treat availability as an execution fact, not a precondition. If the first

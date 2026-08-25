@@ -47,7 +47,7 @@ what could not be verified from source.
 | **posture** | how a lane works (`explore` / `deliver` / `evaluate` / `preserve`); `evaluate` orders evidence quality, decision correctness, coverage, speed, then polish; derived from thread facts by `dispatch`, or passed on `spawn` |
 | **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"template"`; never a mandatory worker identity |
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
-| **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`orchestration/docs/task-grades.md`); not a model identity |
+| **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`agent-machinery:docs/task-grades.md`); not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
 | **coordination workers** | independently supervised processes for durable reconciliation, projection, and bounded scheduled maintenance |
 
@@ -162,7 +162,8 @@ activity.
 It classifies dependency shape once: atomic work selects an exact stock
 template, an explicit template override, or a bespoke composition for its
 terminal Orchestration worker; composite work alone selects the director.
-North then selects the provider, account, concrete model, and runtime control.
+North then filters eligible provider accounts and resolves the concrete model
+and runtime control.
 Carrying context is BINARY (y/n), a trailing flag not a separate verb: bare =
 this session's concise context brief rides along by default; `--new` = a clean
 lane with a self-contained task. (Merges the retired `/request` + `/offload`.)
@@ -193,7 +194,7 @@ sequenceDiagram
     alt atomic work
         SP->>SP: WORK — terminal worker executes directly; no agent spawning
     else composite work
-        SP->>SP: WORK — director staffs worker lanes and owns reduction;<br/>director never executes a worker subtask
+        SP->>SP: WORK — agent run with director contract staffs worker lanes and performs reduction;<br/>that run never executes a worker subtask
     end
     T-->>SP: MSG — peer ping (subscribeFeed) injected as user turn, no re-arm
     alt clean finish
@@ -212,9 +213,10 @@ composite, select a terminal role/composition only for atomic work, spawn once,
 confirm once, end the turn. It never selects provider, account, or concrete
 model from its current session. Allocation stays automatic unless an explicit
 user/task provider or exceptional account pin is forwarded; concrete model
-selection stays North-owned. The launched lane does not re-decide its topology:
-an atomic worker executes directly; a composite director decomposes and
-reduces. The coordinator hears back through one of two terminal signals:
+model resolution remains deterministic in North. The launched agent run does
+not re-decide its topology: an atomic run executes directly; a composite agent
+run decomposes and reduces. The coordinator hears back through one of two
+terminal signals:
 `AGENT COMPLETE` on clean finish (`spawn.ts:147`) or `AGENT DEATH` on a caught
 subprocess death (`death.ts`).
 
@@ -303,7 +305,7 @@ sequenceDiagram
 
 Notes: this is the surface orchestration's doctrine actually routes to under
 `dispatch=managed`. Template resolution consumes Orchestration's canonical provider-neutral
-contract in `north:orchestration/docs/routing.md`; this workflow map does not redefine
+contract in `agent-machinery:docs/routing.md`; this workflow map does not redefine
 the axes or infer one from another. `north templates` renders the stock catalog
 and its resolved routing defaults. Source gathering uses the `scout` template
 (junior grade, economy tier); novel hypothesis/experiment work uses the
@@ -620,7 +622,7 @@ below are its rule set.
 | mail/commands | `north:cli/msg-cli.clj` | `send`/`inbox`/`ack`/`send-cmd` (@cmd facts), derived inbox |
 | listener | `north:cli/north-listen.clj` | dormant-until-pinged pub/sub; role-addressing |
 | cockpit | `north:cli/dashboard-cli.clj` (`north dashboard`/`doctor`; bare `north` card in `bin/north`) | dashboard/doctor/profile; parse-don't-fork orchestration; ownership rule (folded from convoy 2026-07-10) |
-| staffing | `north:orchestration/doctrine.md` + `docs/adapters/north.md` | shapes→squad, laws, canonical dial table |
+| staffing | `agent-machinery:doctrine.md` + `agent-machinery:agents/` | shapes→squad, laws, canonical dial table |
 | delegate intake | `nixos-config:dotfiles/codex/prompts/delegate.md` | `/delegate` intelligent atomic/composite classifier (context is orthogonal) |
 | coordination-v2 | thread `019f4418-bed5-7625-b2ad-41abb6518269` | census, failure receipts, the specced reaping fix plan |
 ```

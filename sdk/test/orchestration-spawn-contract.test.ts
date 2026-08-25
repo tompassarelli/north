@@ -12,8 +12,8 @@ import { wireTurnQuery } from "./support/wire-query";
 import type { RoutedQueryArguments } from "../src/providers";
 
 const north = resolve(import.meta.dir, "../..");
-const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
-const compose = resolve(orchestration, "scripts/compose-routing.mjs");
+const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const compose = resolve(agentMachinery, "scripts/compose-routing.mjs");
 
 function composed(...args: string[]): any {
   const result = spawnSync(process.execPath, [compose, ...args], { encoding: "utf8" });
@@ -226,7 +226,7 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
 });
 
 test("SDK presets inherit catalog axes while declared compatible overrides win independently", () => {
-  const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
+  const catalog = loadOrchestrationStaffing(resolve(agentMachinery, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "integrator", tier: "frontier" }, catalog))
     .toThrow("supply template composition.overrides");
   expect(applyOrchestrationStaffing({ role: "integrator", tier: "frontier", reasoning: "xhigh",
@@ -269,7 +269,7 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
     "--tier", "frontier", "--reasoning", "xhigh", "--posture", "prune",
     "--override-reason", "principal bounded retirement"], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    env: { ...process.env, NO_COLOR: "1", ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");
@@ -279,7 +279,7 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
 });
 
 test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
-  const catalog = loadOrchestrationStaffing(resolve(orchestration, "staffing/catalog.json"));
+  const catalog = loadOrchestrationStaffing(resolve(agentMachinery, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
     .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
   expect(() => validateRoutingMetadata({

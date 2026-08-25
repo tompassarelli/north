@@ -644,14 +644,15 @@ north templates           # Orchestration's reusable stock templates and routing
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
-**division of labor** the fold preserves: **Orchestration answers WHO does the work**
-(role, composition, semantic tier, reasoning, and posture); **North answers WHERE
-it runs and HOW you see and drive it** (account target, subscription pressure,
-dashboard, spawn, watch, msg, profile). Orchestration is account-blind. `north spawn`
-reads `~/code/north/main/orchestration/staffing/catalog.json`, then North selects an eligible target
-and resolves the semantic tier through that provider's catalog. Generated agent
-markdown and `~/code/north/main/orchestration/docs/adapters/north.md` remain provider-adapter
-artifacts, never North's metadata source.
+**division of labor** the fold preserves: **Orchestration describes the behavior
+contract** (role, composition, semantic tier, reasoning, and posture); **North
+deterministically resolves and hosts the run** (account target, subscription
+pressure, dashboard, spawn, watch, msg, profile). Orchestration is account-blind.
+`north spawn` reads `agent-machinery:staffing/catalog.json`, then
+North filters eligible targets and the provider catalog resolves the semantic
+tier. Generated agent
+markdown under `agent-machinery:agents/` remains portable generated output,
+never North's metadata source.
 
 `north bridge` is the other operator face: a durable local execution host with a
 terminal app (`north bridge app`) carrying its own slash commands — `/config`
@@ -671,8 +672,8 @@ metadata is evidence for later analysis, not a live causal verdict.
 
 The dispatch surface has exactly three values (`cli/dispatch-mode.clj`).
 `native` pins the provider-native surface, `managed` pins the North-managed
-surface (and denies provider-native agent calls), and `auto` lets the system
-choose a surface for each dispatch. `managed` is the default. The **learning
+surface (and denies provider-native agent calls), and `auto` resolves a surface
+for each dispatch. `managed` is the default. The **learning
 regime** is a separate operational axis governing `auto`: `frozen` consistently
 uses the deterministic best-known admitted route, prompt, authoring surface, and
 history strategy while retaining full measurement; `learning` permits bounded
@@ -698,7 +699,7 @@ stable weighted distribution adjusted by per-target numeric headroom, and
 prints each eligible account's normalized approximate share; reserved mode preserves a
 configured target for frontier work. A runtime fallback requires typed proof
 that the provider never accepted the request and occurs before any emitted event;
-North never decides replay safety from exception text. Agent/run facts preserve
+North never infers replay safety from exception text. Agent/run facts preserve
 the requested target, resolved target, selection reason, pressure, and fallback
 path. Token reports likewise preserve evidence: exact totals remain exact,
 unknown coverage never becomes zero, and mixed coverage is labeled as a known
@@ -731,8 +732,9 @@ north delegate "<task>" --thread <id> ...                     # bind an existing
 
 There is no unclassified default. Atomic handoff forwards every normal spawn
 axis and bespoke-composition option, so it starts exactly one selected worker.
-Composite handoff hydrates an orchestrator, which owns its direct children and
-their reduction. An orchestrator may recursively delegate another composite:
+Composite handoff hydrates an agent run with orchestrator topology; that run
+coordinates its direct children and performs their reduction. An agent run with
+orchestrator authority may recursively delegate another composite:
 each level passes through North admission again and receives a fresh child
 thread, run reservation, routing/economics receipt, immediate-parent
 `coordinator` edge, and local settlement/reduction gate. Context carriage
@@ -740,9 +742,9 @@ remains orthogonal via `--context <file>`.
 
 Every executed delegation has one durable, exact thread before a provider is
 invoked. `--thread` wins and must resolve to a title-bearing thread. Without it,
-North accepts a managed parent binding only when the ambient run reservation,
+North admits a managed parent binding only when the ambient run reservation,
 reporter, and capability all verify; stray or stale environment variables never
-count as proof. A managed orchestrator's child spawn never reuses that parent
+count as proof. A managed agent run's child spawn never reuses that parent
 evidence thread: North captures a new committed child and proves its exact
 `part_of` edge before the provider starts. Otherwise North mechanically captures
 one committed root thread. Its

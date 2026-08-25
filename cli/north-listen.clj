@@ -589,7 +589,7 @@
       (with-native-listener-generation!
        port node uuid kind
        (fn [generation]
-         ;; The exact kind read decides whether North owns the route. Native
+         ;; The exact kind read determines whether the route belongs to North. Native
          ;; sessions fence and freeze before any mutable scope projection.
          (let [baseline (north.coord/cur-ver port)
                projection (listener-node-projection port node)

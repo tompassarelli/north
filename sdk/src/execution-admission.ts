@@ -82,7 +82,8 @@ export const MANAGED_NORTH_MCP_ENV_KEYS = [
   "BEAGLE_STORE_TERMINAL_PREDS",
   "BEAGLE_STORE_THREADS",
   "BEAGLE_STORE_WITHDRAWN_PREDS",
-  "NORTH_ORCHESTRATION_HOME",
+  "AGENT_MACHINERY_HOME",
+  "NORTH_AGENT_RUNTIME_HOME",
   "ORCHESTRATION_STAFFING_CATALOG",
   "NORTH_ROUTING_POLICY",
   "NORTH_PROVIDER_OBSERVATIONS",
@@ -269,10 +270,10 @@ export function admitManagedDispatchAuthority(
       `managed_dispatch_authority_invalid_action: ${JSON.stringify(action)}`,
     );
   }
-  // A repair is an explicitly classified recovery action; ordinary feature
-  // dispatch consumes the sole deterministic Firn floor fact and fails closed.
+  // A repair or validated direct-human request is explicitly controlled;
+  // automated feature dispatch consumes the deterministic Firn floor fact.
   try {
-    if (dispatchClass === "repair") return;
+    if (dispatchClass !== "feature") return;
     if (!deliveryLivenessRequiredFromEnvironment(environment, activationPath)) return;
     admitDeliveryLivenessFact({
       path: deliveryLivenessPath(environment),

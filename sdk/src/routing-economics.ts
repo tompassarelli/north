@@ -274,7 +274,8 @@ export function admitRoutingAssessment(
     ...(exception ? { exception } : {}),
     ...(exceptionalDeliberation ? { exceptionalDeliberation } : {}),
   };
-  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+  const orchestrationRoot = resolve(process.env.AGENT_MACHINERY_HOME ??
+    resolve(process.env.HOME ?? "", "code/agent-machinery/main"));
   const validator = process.env.ORCHESTRATION_SELECTION_ASSESSMENT_MODULE
     ?? resolve(orchestrationRoot, "scripts/selection-assessment.mjs");
   const validation = spawnSync(process.execPath, [
@@ -410,7 +411,8 @@ export function admitRoutingEconomics(args: {
   // watermarks) instead of digesting catalog FILES; file mode keeps the FILE
   // digests as the packaged rollback evidence.
   const catalogPin = graphMode ? graphCatalogPin() : undefined;
-  const orchestrationRoot = resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+  const orchestrationRoot = resolve(process.env.NORTH_AGENT_RUNTIME_HOME ??
+    resolve(import.meta.dir, "..", "..", "agent-runtime/orchestration"));
   const providerDigests = graphMode ? undefined : {
     anthropic: fileDigest(resolve(orchestrationRoot, "providers/anthropic.json")),
     openai: fileDigest(resolve(orchestrationRoot, "providers/openai.json")),

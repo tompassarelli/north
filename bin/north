@@ -143,16 +143,16 @@ fi
 STORE="${BEAGLE_STORE_HOME:?north requires the sealed Beagle Store selection}"
 : "${BEAGLE_STORE_BIN:?north requires the sealed Beagle Store selection (BEAGLE_STORE_BIN)}"
 : "${BEAGLE_STORE_OUT:?north requires the sealed Beagle Store selection (BEAGLE_STORE_OUT)}"
-BEAGLE_STORE_CLI="${BEAGLE_STORE_CLI:-${STORE%/store}/bin/beagle}"
+BEAGLE_STORE_CLI="${BEAGLE_STORE_CLI:-${STORE%/store}/bin/beagle-store-cli}"
 export BEAGLE_STORE_HOME="$STORE" BEAGLE_STORE_BIN BEAGLE_STORE_OUT
 export BEAGLE_STORE_SPACE_ID="${BEAGLE_STORE_SPACE_ID:-north-coordination}"
 # Launch admission requires NORTH_PORT explicitly; export it with the same default.
 export NORTH_PORT="${NORTH_PORT:-7977}"
 export BEAGLE_STORE_SERVER_PORT="${BEAGLE_STORE_SERVER_PORT:-$NORTH_PORT}"
 export NORTH_TELEMETRY_SPACE_ID="${NORTH_TELEMETRY_SPACE_ID:-north-telemetry}"
-# A checkout owns its Orchestration contract; the packaged tree ships none, so its env pin stands.
-if [ -d "$NORTH/orchestration" ]; then
-  export NORTH_ORCHESTRATION_HOME="$NORTH/orchestration"
+# North owns provider/runtime additions; portable doctrine stays in its package.
+if [ -z "${NORTH_AGENT_RUNTIME_HOME:-}" ] && [ -d "$NORTH/agent-runtime/orchestration" ]; then
+  export NORTH_AGENT_RUNTIME_HOME="$NORTH/agent-runtime/orchestration"
 fi
 NORTH_RUNTIME_CLASSPATH="$NORTH/out:$BEAGLE_STORE_OUT"
 BABASHKA_CLASSPATH="$NORTH_RUNTIME_CLASSPATH${BABASHKA_CLASSPATH:+:$BABASHKA_CLASSPATH}"
@@ -465,6 +465,12 @@ case "${1:-}" in
     fi
     exec "$BB" "$NORTH/cli/msg-cli.clj" "${NORTH_PORT:-7977}" inbox \
       "$_north_inbox_actor" ;;
+  ack)
+    if [ "$#" -ne 3 ]; then
+      echo "usage: north ack <actor> <message-id>" >&2
+      exit 2
+    fi
+    exec "$NORTH/bin/north-comms" ack "$2" "$3" ;;
   mention|interrupt)
     # Sender-driven attention. Prefer the live harness identity, then North's
     # stable agent id, then the configured author identity. The shared comms
@@ -538,8 +544,7 @@ case "${1:-}" in
     exec "$BEAGLE_STORE_CLI" store "$@" ;;
   tell|retract)
     # `retract` is the primary agent-facing retraction verb (R&N TELL/RETRACT);
-    # Both map onto Store's `untell` CLI verb (whose wire op is already "retract")
-    # at the boundary below.
+    # Store exposes the same active verb at this boundary.
     # Handles (and @ids) are a NORTH concern: Store is handle-blind and re-adds
     # the leading @ to the bare subject it's handed. So resolve the SUBJECT ref to
     # its canonical id here first — that's what makes `north tell @perf ...`
@@ -567,7 +572,7 @@ case "${1:-}" in
         *)      set -- "$1" "${canon#@}" "${@:3}" ;;
       esac
     fi
-    store_verb="$1"; [ "$store_verb" = retract ] && store_verb=untell
+    store_verb="$1"
     # Done-bars echo (friction gradient): closing a barred thread SEES its bars
     # at the moment of judgment — a reminder, never a reject. cmd-done-bars is
     # silent for bar-less threads; failures never block the write.

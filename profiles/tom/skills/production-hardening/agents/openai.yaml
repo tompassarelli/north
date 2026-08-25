@@ -1,4 +1,0 @@
-interface:
-  display_name: "Production Hardening"
-  short_description: "Establish bounded operational guarantees"
-  default_prompt: "Use $production-hardening to define and prove the required operational guarantees for this scope."

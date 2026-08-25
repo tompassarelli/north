@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "north.agent-catalog-sources/v1",
+  "title": "North agent catalog source composition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema", "sources"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema": {"const": "north.agent-catalog-sources/v1"},
+    "sources": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"$ref": "#/$defs/source"}
+    }
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "path"],
+      "properties": {
+        "repo": {"$ref": "#/$defs/id"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "owner"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "role": {"enum": ["source", "package", "operator"]},
+        "owner": {"$ref": "#/$defs/owner"}
+      }
+    }
+  }
+}

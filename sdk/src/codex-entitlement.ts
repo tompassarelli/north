@@ -75,6 +75,7 @@ interface AppServerOptions {
 
 interface ObserveOptions extends AppServerOptions {
   storePath?: string;
+  writeObservations?: typeof writeProviderUsageObservations;
 }
 
 interface RefreshOptions extends ObserveOptions {
@@ -433,7 +434,7 @@ export async function readCodexEntitlementObservation(
 /** Probe and atomically merge the observation into North's shared provider store. */
 export async function observeCodexEntitlement(options: ObserveOptions = {}): Promise<ProviderUsageObservation> {
   const observation = await readCodexEntitlementObservation(options);
-  await writeProviderUsageObservations(observation, options.storePath);
+  await (options.writeObservations ?? writeProviderUsageObservations)(observation, options.storePath);
   return observation;
 }
 
@@ -507,7 +508,7 @@ async function refreshOneCodexEntitlement(options: RefreshOptions): Promise<Prov
             state: "unknown",
             collectionFailure: { observedAt: now.toISOString(), reason },
           };
-      try { await writeProviderUsageObservations(failed, storePath); }
+      try { await (options.writeObservations ?? writeProviderUsageObservations)(failed, storePath); }
       catch { /* the fixed diagnostic below still reports an unavailable observation path */ }
       (options.onDiagnostic ?? console.warn)(
         `[north] Codex subscription headroom unavailable; pressure is unknown (${reason})`,

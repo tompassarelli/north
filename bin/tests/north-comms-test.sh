@@ -4,6 +4,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 comms="$root/bin/north-comms"
+north="$root/bin/north"
 scratch="$(mktemp -d /tmp/north-comms-test.XXXXXX)"
 trap 'rm -rf -- "${scratch:?}"' EXIT
 
@@ -76,6 +77,19 @@ run_comms() {
   "$comms" "$@"
 }
 
+run_north_ack() {
+  HOME="$home" \
+  NORTH_HOME="$root" \
+  NORTH_HARNESS_STATE="$state" \
+  NORTH_BB="$fake_bin/bb" \
+  BEAGLE_STORE_HOME="$scratch/store" \
+  BEAGLE_STORE_BIN="$scratch/store/bin" \
+  BEAGLE_STORE_OUT="$scratch/store/out" \
+  BB_LOG="$bb_log" \
+  ACK_LOG="$ack_log" \
+  "$north" ack "$@"
+}
+
 assert_eq() {
   local label="$1" expected="$2" actual="$3"
   if [ "$expected" != "$actual" ]; then
@@ -95,12 +109,19 @@ assert_contains() {
 
 db_case() {
   write_state "comms=db" "comms.enforcement=forced"
-  local sent polled acked present watched
+  local sent polled acked top_level_acked invalid_ack_error ack_log_before
+  local present watched
   sent="$(run_comms send sender target subject body)"
   polled="$(
     DB_POLL_TEXT=$'✉ from sender — subject\n  body\n' run_comms poll target
   )"
   acked="$(run_comms ack target @msg:fixture)"
+  top_level_acked="$(run_north_ack target @msg:top-level-fixture)"
+  ack_log_before="$(<"$ack_log")"
+  if invalid_ack_error="$(run_north_ack target @cmd:not-a-message 2>&1)"; then
+    printf 'FAIL north ack accepted a command id on the DB route\n' >&2
+    exit 1
+  fi
   present="$(run_comms presence target)"
   watched="$(run_comms watch target --once)"
 
@@ -111,6 +132,12 @@ db_case() {
     $'✉ from sender — subject\n  body' "$polled"
   assert_eq "db ack stdout is forwarded byte-for-byte" \
     "target acked @msg:fixture" "$acked"
+  assert_eq "north ack preserves the explicit actor and DB mail route" \
+    "target acked @msg:top-level-fixture" "$top_level_acked"
+  assert_contains "north ack rejects a command id before DB dispatch" \
+    "$invalid_ack_error" "message id is malformed or too large"
+  assert_eq "rejected north ack never reaches the DB ack" \
+    "$ack_log_before" "$(<"$ack_log")"
   assert_eq "db presence" "reachable db-recipient" "$present"
   assert_eq "db watch" "WATCH" "$watched"
   printf 'north-comms db seam: PASS\n'

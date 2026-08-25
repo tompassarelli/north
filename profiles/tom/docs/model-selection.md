@@ -1,7 +1,7 @@
 # Model and payload selection
 
 Personal adapter only. Normative routing semantics live in
-`north:orchestration/doctrine.md` and `north:orchestration/docs/routing.md`;
+`agent-machinery:doctrine.md` and `agent-machinery:docs/routing.md`;
 provider/account allocation lives in `north:docs/provider-architecture.md`. If
 this file disagrees with either, those sources win. Shared policy never
 chooses a concrete provider model, account, SDK, or subscription pool:

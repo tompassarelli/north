@@ -5,6 +5,9 @@
             [clojure.string :as str]))
 
 (def catalog-schema "north.agent-catalog/v1")
+(def catalog-sources-schema "north.agent-catalog-sources/v1")
+(def catalog-config-schema "north.agent-catalog-config/v1")
+(def package-catalog-schema "agent-machinery.catalog/v1")
 (def activation-schema "north.agent-activation/v1")
 (def permission-schema "north.agent-permissions/v1")
 (def initialization-schema "north.agent-initialization/v1")
@@ -23,6 +26,14 @@
 (def ^:private unit-fields
   #{"id" "kind" "title" "triggerDescription" "category" "owner"
     "members" "supports" "distributions"})
+(def ^:private exact-catalog-sources
+  {"source" {"id" "north"
+             "owner" {"repo" "north" "path" "agent-catalog/north.json"}}
+   "package" {"id" "agent-machinery"
+              "owner" {"repo" "agent-machinery" "path" "catalog.json"}}
+   "operator" {"id" "operator"
+               "owner" {"repo" "nixos-config"
+                        "path" "dotfiles/agents/catalog-config.json"}}})
 (def ^:private source-root
   (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str))
 (defonce ^:private publication-lock (Object.))
@@ -38,7 +49,7 @@
 
 (defn catalog-path []
   (or (System/getenv "NORTH_AGENT_CATALOG")
-      (str (north-root) "/agent-catalog/catalog.json")))
+      (str (north-root) "/agent-catalog/sources.json")))
 
 (defn agents-root []
   (or (not-empty (System/getenv "NORTH_AGENT_STATE_ROOT"))
@@ -55,6 +66,8 @@
 (defn repo-root [repo]
   (or (get (configured-repo-roots) repo)
       (when (= repo "north") (north-root))
+      (when (= repo "agent-machinery")
+        (not-empty (System/getenv "AGENT_MACHINERY_HOME")))
       (str (System/getenv "HOME") "/code/" repo "/main")))
 
 (defn- relative-owner-path! [owner context]
@@ -240,17 +253,23 @@
           (assoc owner "path" (str/replace (get owner "path") #"/SKILL\.md$" ""))
           owner))))
 
+(declare exact-fields!)
+
 (defn- validate-distribution! [unit index distribution]
   (let [context (str "unit " (get unit "id") " distribution " index)
         type (get distribution "type")
         targets (get distribution "targets")
         owner (distribution-owner unit distribution)]
+    (exact-fields! distribution #{"type" "targets"} #{"owner" "adapterId"}
+                   context)
     (when-not (distribution-types type)
       (fail (str context " has an invalid type") {:type type}))
     (when-not (and (vector? targets) (seq targets)
                    (= (count targets) (count (distinct targets)))
                    (every? valid-target? targets))
       (fail (str context " has invalid or duplicate targets") {:targets targets}))
+    (when (contains? distribution "adapterId")
+      (relative-projection-path! (get distribution "adapterId") context))
     (owner-path owner context)
     (-> distribution
         (assoc "owner" owner
@@ -278,10 +297,6 @@
     (when-not (and (vector? (get unit "distributions"))
                    (seq (get unit "distributions")))
       (fail (str "unit " id " has no distributions") {:id id}))
-    (when (and (= kind "module")
-               (or (str/blank? (get unit "title" ""))
-                   (str/blank? (get unit "triggerDescription" ""))))
-      (fail (str "module " id " must declare title and triggerDescription") {:id id}))
     unit))
 
 (defn- exact-module-cycles! [units by-id]
@@ -303,13 +318,316 @@
       (doseq [unit units :when (= "module" (get unit "kind"))]
         (visit (get unit "id") [])))))
 
+(defn- exact-fields! [value required optional context]
+  (when-not (map? value)
+    (fail (str context " must be an object") {:value value}))
+  (let [actual (set (keys value))
+        missing (sort (remove actual required))
+        unsupported (sort (remove (into required optional) actual))]
+    (when (seq missing)
+      (fail (str context " omits fields: " (str/join ", " missing))
+            {:fields missing}))
+    (when (seq unsupported)
+      (fail (str context " has unsupported fields: "
+                 (str/join ", " unsupported))
+            {:fields unsupported})))
+  value)
+
+(defn- read-json! [path context]
+  (try
+    (json/parse-string (slurp path))
+    (catch Exception error
+      (fail (str "cannot read " context ": " (.getMessage error))
+            {:path (str path)}))))
+
+(defn- unique-values! [values context]
+  (let [duplicates (->> values frequencies
+                        (keep (fn [[value count]] (when (> count 1) value)))
+                        sort vec)]
+    (when (seq duplicates)
+      (fail (str context " contains duplicates: " (str/join ", " duplicates))
+            {:values duplicates})))
+  values)
+
+(defn- child-owner! [manifest-owner relative context]
+  (relative-projection-path! relative context)
+  (let [manifest-path (.normalize (.toPath (io/file (get manifest-owner "path"))))
+        parent (or (.getParent manifest-path) (.toPath (io/file ".")))
+        path (.normalize (.resolve parent relative))
+        owner {"repo" (get manifest-owner "repo") "path" (str path)}]
+    (when (or (.isAbsolute path)
+              (zero? (.getNameCount path))
+              (= ".." (str (.getName path 0))))
+      (fail (str context " escapes its package")
+            {:owner manifest-owner :path relative}))
+    (owner-path owner context)
+    owner))
+
+(defn- validate-source-config! [document]
+  (exact-fields! document #{"$schema" "schema" "role" "units"} #{}
+                 "North source catalog")
+  (when-not (and (= catalog-config-schema (get document "schema"))
+                 (= "source" (get document "role")))
+    (fail "unsupported North source catalog"
+          {:schema (get document "schema") :role (get document "role")}))
+  (let [units (get document "units")]
+    (when-not (and (vector? units) (seq units))
+      (fail "North source catalog units must be a non-empty array" {}))
+    (doseq [[index unit] (map-indexed vector units)]
+      (let [context (str "North source unit " index)
+            kind (get unit "kind")]
+        (exact-fields! unit #{"id" "kind" "owner"}
+                       #{"title" "triggerDescription" "category" "members"}
+                       context)
+        (when-not (re-matches unit-id-pattern (or (get unit "id") ""))
+          (fail (str context " has an invalid id") {:unit unit}))
+        (when-not (kinds kind)
+          (fail (str context " has an invalid kind") {:unit unit}))
+        (doseq [field ["title" "triggerDescription" "category"]
+                :when (contains? unit field)]
+          (when (str/blank? (get unit field))
+            (fail (str context " has an invalid " field) {:unit unit})))
+        (owner-path (get unit "owner") context)
+        (let [members (get unit "members")]
+          (if (= "module" kind)
+            (when-not (and (vector? members) (seq members)
+                           (= (count members) (count (distinct members))))
+              (fail (str context " has invalid members") {:members members}))
+            (when (contains? unit "members")
+              (fail (str context " is not a module but declares members")
+                    {:unit unit}))))))
+    (unique-values! (mapv #(get % "id") units) "North source unit ids")
+    units))
+
+(defn- validate-package-catalog! [manifest-owner document]
+  (exact-fields! document
+                 #{"$schema" "schema" "package" "units" "assets" "contracts"}
+                 #{} "agent machinery catalog")
+  (when-not (= package-catalog-schema (get document "schema"))
+    (fail "unsupported agent machinery catalog"
+          {:schema (get document "schema")}))
+  (let [package (get document "package")
+        units (get document "units")
+        assets (get document "assets")
+        contracts (get document "contracts")]
+    (exact-fields! package #{"name" "version" "license"} #{}
+                   "agent machinery package")
+    (when-not (and (= "@tompassarelli/agent-machinery" (get package "name"))
+                   (string? (get package "version"))
+                   (re-matches #"[0-9]+\.[0-9]+\.[0-9]+" (get package "version"))
+                   (= "MIT OR Apache-2.0" (get package "license")))
+      (fail "agent machinery package metadata is invalid" {:package package}))
+    (when-not (and (vector? units) (seq units))
+      (fail "agent machinery units must be a non-empty array" {}))
+    (let [prepared
+          (mapv
+           (fn [[index unit]]
+             (let [context (str "agent machinery unit " index)
+                   kind (get unit "kind")]
+               (exact-fields! unit #{"id" "kind" "source"} #{"members"} context)
+               (when-not (re-matches unit-id-pattern (or (get unit "id") ""))
+                 (fail (str context " has an invalid id") {:unit unit}))
+               (when-not (#{"module" "skill"} kind)
+                 (fail (str context " has an invalid kind") {:kind kind}))
+               (let [members (get unit "members")]
+                 (if (= "module" kind)
+                   (when-not (and (vector? members) (seq members)
+                                  (= (count members) (count (distinct members))))
+                     (fail (str context " has invalid members") {:members members}))
+                   (when (contains? unit "members")
+                     (fail (str context " is not a module but declares members")
+                           {:unit unit}))))
+               (-> unit
+                   (assoc "owner" (child-owner! manifest-owner (get unit "source") context))
+                   (dissoc "source"))))
+           (map-indexed vector units))
+          by-id (into {} (map (juxt #(get % "id") identity)) prepared)]
+      (unique-values! (mapv #(get % "id") prepared)
+                      "agent machinery unit ids")
+      (doseq [unit prepared
+              member (get unit "members" [])]
+        (when-not (contains? by-id member)
+          (fail (str "agent machinery module " (get unit "id")
+                     " names unknown member " member)
+                {:id (get unit "id") :member member})))
+      (exact-module-cycles! prepared by-id)
+      (when-not (and (vector? assets) (seq assets))
+        (fail "agent machinery assets must be a non-empty array" {}))
+      (doseq [[index asset] (map-indexed vector assets)]
+        (let [context (str "agent machinery asset " index)]
+          (exact-fields! asset #{"id" "type" "path"} #{} context)
+          (when-not (and (re-matches unit-id-pattern (or (get asset "id") ""))
+                         (#{"instructions" "catalog" "generated-templates"
+                            "source-blocks"} (get asset "type")))
+            (fail (str context " is invalid") {:asset asset}))
+          (child-owner! manifest-owner (get asset "path") context)))
+      (unique-values! (mapv #(get % "id") assets)
+                      "agent machinery asset ids")
+      (when-not (and (vector? contracts) (seq contracts))
+        (fail "agent machinery contracts must be a non-empty array" {}))
+      (doseq [[index contract] (map-indexed vector contracts)]
+        (let [context (str "agent machinery contract " index)]
+          (exact-fields! contract
+                         #{"id" "schema" "schemaScope" "fixtures" "validator"}
+                         #{} context)
+          (when-not (re-matches unit-id-pattern (or (get contract "id") ""))
+            (fail (str context " has an invalid id") {:contract contract}))
+          (when-not (= "structural" (get contract "schemaScope"))
+            (fail (str context " has an invalid schema scope")
+                  {:contract contract}))
+          (when-not (= "validateContract" (get contract "validator"))
+            (fail (str context " has an invalid validator")
+                  {:contract contract}))
+          (child-owner! manifest-owner (get contract "schema")
+                        (str context " schema"))
+          (child-owner! manifest-owner (get contract "fixtures")
+                        (str context " fixtures"))))
+      (unique-values! (mapv #(get % "id") contracts)
+                      "agent machinery contract ids")
+      {:units prepared :package package :assets assets :contracts contracts})))
+
+(defn- validate-registration! [id registration]
+  (let [context (str "operator registration " id)]
+    (when-not (re-matches unit-id-pattern (or id ""))
+      (fail (str context " has an invalid id") {:id id}))
+    (exact-fields! registration #{"kind" "owner"} #{"category"} context)
+    (when-not (#{"skill" "hook"} (get registration "kind"))
+      (fail (str context " has an invalid kind") {:registration registration}))
+    (when (and (contains? registration "category")
+               (str/blank? (get registration "category")))
+      (fail (str context " has an invalid category") {:registration registration}))
+    (owner-path (get registration "owner") context)
+    (assoc registration "id" id)))
+
+(defn- validate-operator-config! [document]
+  (exact-fields! document
+                 #{"$schema" "schema" "role" "rootOrder" "baselines"
+                   "providerSupport" "registrations" "activation"}
+                 #{} "operator catalog")
+  (when-not (and (= catalog-config-schema (get document "schema"))
+                 (= "operator" (get document "role")))
+    (fail "unsupported operator catalog"
+          {:schema (get document "schema") :role (get document "role")}))
+  (let [registrations (get document "registrations")
+        activation (get document "activation")]
+    (when-not (map? registrations)
+      (fail "operator registrations must be an object" {}))
+    (when-not (map? activation)
+      (fail "operator activation must be an object" {}))
+    (doseq [[id overlay] activation]
+      (let [context (str "operator activation " id)]
+        (when-not (re-matches unit-id-pattern (or id ""))
+          (fail (str context " has an invalid id") {:id id}))
+        (exact-fields! overlay #{} #{"supports" "distributions"} context)
+        (when (contains? overlay "supports")
+          (let [supports (get overlay "supports")]
+            (when-not (and (vector? supports)
+                           (= (count supports) (count (distinct supports)))
+                           (every? #(re-matches unit-id-pattern (or % "")) supports))
+              (fail (str context " has invalid or duplicate supports")
+                    {:supports supports}))))
+        (when (contains? overlay "distributions")
+          (when-not (and (vector? (get overlay "distributions"))
+                         (seq (get overlay "distributions")))
+            (fail (str context " has invalid distributions")
+                  {:distributions (get overlay "distributions")})))))
+    {:registrations (mapv (fn [[id registration]]
+                            (validate-registration! id registration))
+                          (sort-by key registrations))
+     :activation activation
+     :root-order (get document "rootOrder")
+     :baselines (get document "baselines")
+     :provider-support (get document "providerSupport")}))
+
+(defn- load-effective-catalog! []
+  (let [path (catalog-path)
+        sources (read-json! path "agent catalog sources")]
+    (exact-fields! sources #{"$schema" "schema" "sources"} #{}
+                   "agent catalog sources")
+    (when-not (= catalog-sources-schema (get sources "schema"))
+      (fail "unsupported agent catalog sources schema"
+            {:schema (get sources "schema")}))
+    (let [entries (get sources "sources")]
+      (when-not (and (vector? entries) (= 3 (count entries)))
+        (fail "agent catalog sources must name exactly three owners" {}))
+      (doseq [[index entry] (map-indexed vector entries)]
+        (let [context (str "agent catalog source " index)]
+          (exact-fields! entry #{"id" "role" "owner"} #{} context)
+          (when-not (and (re-matches unit-id-pattern (or (get entry "id") ""))
+                         (#{"source" "package" "operator"} (get entry "role")))
+            (fail (str context " is invalid") {:entry entry}))
+          (owner-path (get entry "owner") context)))
+      (unique-values! (mapv #(get % "id") entries) "agent catalog source ids")
+      (unique-values! (mapv #(str (get-in % ["owner" "repo"]) ":"
+                                  (get-in % ["owner" "path"])) entries)
+                      "agent catalog owner sources")
+      (when-not (= #{"source" "package" "operator"}
+                   (set (map #(get % "role") entries)))
+        (fail "agent catalog sources must name source, package, and operator once"
+              {:roles (mapv #(get % "role") entries)}))
+      (let [by-role (into {} (map (juxt #(get % "role") identity)) entries)]
+        (doseq [[role expected] exact-catalog-sources]
+          (let [actual (get by-role role)]
+            (when-not (and (= (get expected "id") (get actual "id"))
+                           (= (get expected "owner") (get actual "owner")))
+              (fail (str "agent catalog " role " source identity is not exact")
+                    {:expected expected :actual actual}))))
+        (let [
+            source-entry (get by-role "source")
+            package-entry (get by-role "package")
+            operator-entry (get by-role "operator")
+            source-document (read-json! (owner-path (get source-entry "owner")
+                                                    "North source catalog")
+                                        "North source catalog")
+            package-document (read-json! (owner-path (get package-entry "owner")
+                                                     "agent machinery catalog")
+                                         "agent machinery catalog")
+            operator-document (read-json! (owner-path (get operator-entry "owner")
+                                                      "operator catalog")
+                                          "operator catalog")
+            source-units (validate-source-config! source-document)
+            package-result (validate-package-catalog!
+                            (get package-entry "owner") package-document)
+            operator-result (validate-operator-config! operator-document)
+            declarations (vec (concat source-units (:units package-result)
+                                      (:registrations operator-result)))
+            groups (group-by #(get % "id") declarations)
+            conflicts (->> groups
+                           (keep (fn [[id values]]
+                                   (when (> (count values) 1) id)))
+                           sort vec)]
+        (when (seq conflicts)
+          (fail (str "competing catalog declarations: "
+                     (str/join ", " conflicts))
+                {:ids conflicts}))
+        (let [declared-ids (set (keys groups))
+              activation-ids (set (keys (:activation operator-result)))
+              missing (sort (remove activation-ids declared-ids))
+              unknown (sort (remove declared-ids activation-ids))]
+          (when (seq missing)
+            (fail (str "operator activation omits units: "
+                       (str/join ", " missing)) {:ids missing}))
+          (when (seq unknown)
+            (fail (str "operator activation names unknown units: "
+                       (str/join ", " unknown)) {:ids unknown})))
+        {"schema" catalog-schema
+         "baselines" (:baselines operator-result)
+         "providerSupport" (:provider-support operator-result)
+         "rootOrder" (:root-order operator-result)
+         "units"
+         (mapv
+          (fn [unit]
+            (let [overlay (get (:activation operator-result) (get unit "id"))]
+              (-> unit
+                  (dissoc "source")
+                  (assoc "supports" (get overlay "supports" [])
+                         "distributions" (get overlay "distributions" [])))))
+                  declarations)})))))
+
 (defn load-catalog []
   (reset! revision-cache {})
   (let [path (catalog-path)
-        catalog (try (json/parse-string (slurp path))
-                     (catch Exception error
-                       (fail (str "cannot read agent catalog: " (.getMessage error))
-                             {:path path})))
+        catalog (load-effective-catalog!)
         units (get catalog "units")
         baselines (get catalog "baselines")
         provider-support (get catalog "providerSupport")]
@@ -324,6 +642,7 @@
     (doseq [[index baseline] (map-indexed vector baselines)]
       (let [context (str "baseline " index)
             targets (get baseline "targets")]
+        (exact-fields! baseline #{"id" "owner" "targets"} #{} context)
         (when-not (and (re-matches unit-id-pattern (or (get baseline "id") ""))
                        (vector? targets) (seq targets)
                        (= (count targets) (count (distinct targets)))
@@ -332,10 +651,14 @@
         (owner-path (get baseline "owner") context)))
     (doseq [[index support] (map-indexed vector provider-support)]
       (let [context (str "provider support " index)]
+        (exact-fields! support #{"id" "owner" "path"} #{} context)
         (when-not (re-matches unit-id-pattern (or (get support "id") ""))
           (fail (str context " has an invalid id") {:support support}))
         (relative-projection-path! (get support "path") context)
         (owner-path (get support "owner") context)))
+    (unique-values! (mapv #(get % "id") baselines) "baseline ids")
+    (unique-values! (mapv #(get % "id") provider-support) "provider support ids")
+    (unique-values! (mapv #(get % "path") provider-support) "provider support paths")
     (doseq [unit units] (validate-unit-shape! unit))
     (let [ids (mapv #(get % "id") units)
           duplicates (->> ids frequencies (keep (fn [[id n]] (when (> n 1) id))) sort vec)]
@@ -394,7 +717,8 @@
                      declared-category (not-empty (get metadata "category"))
                      title (or (not-empty (get unit "title")) (human-title id))
                      trigger (or (not-empty (get unit "triggerDescription"))
-                                 (not-empty (get metadata "description")))]
+                                 (not-empty (get metadata "description"))
+                                 (str "Activate " title "."))]
                  (when (and metadata (not= id declared-name))
                    (fail (str "skill " id " source declares name " (pr-str declared-name))
                          {:id id :declaredName declared-name}))

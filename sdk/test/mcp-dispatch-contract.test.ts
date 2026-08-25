@@ -7,7 +7,8 @@ import { presetRequest } from "./routing-fixtures";
 import type { RoutingRequest } from "../src/routing-metadata";
 
 const temporary: string[] = [];
-const ORCHESTRATION_ROOT = resolve(import.meta.dir, "../..", "orchestration");
+const AGENT_MACHINERY_ROOT = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const AGENT_RUNTIME_ROOT = process.env.NORTH_AGENT_RUNTIME_HOME ?? resolve(import.meta.dir, "../..", "agent-runtime/orchestration");
 // These cases cross the bb/MCP process boundary, whose coordinator reads may
 // legitimately consume the 30s server budget. Keep Bun's ceiling above that
 // boundary, matching the client-side rationale in src/north-client.ts.
@@ -84,7 +85,8 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
     NORTH_MCP_BUN: fakeBun,
     NORTH_MCP_CAPTURE: capture,
     NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
-    NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+    AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
     NO_COLOR: "1",
     BEAGLE_STORE_HOME: join(directory, "store"),
     BEAGLE_STORE_BIN: join(directory, "store/bin"),
@@ -289,7 +291,8 @@ test("managed parent copied selectors without pin evidence are rejected before S
       AGENT_PROVIDER: copiedSelectors.provider,
       AGENT_TARGET: copiedSelectors.target,
       AGENT_MODEL: copiedSelectors.model,
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_POLICY_BUN: fakeBun,
     },
@@ -322,7 +325,8 @@ test("MCP rejects an invalid detector override before SDK launch", () => {
     encoding: "utf8",
     env: {
       ...process.env,
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_POLICY_BUN: process.execPath,
       STRUGGLE_STALL_TURNS: "0",
@@ -366,7 +370,8 @@ test("MCP launch fails closed when the inherited Store RPC environment is incomp
     ...(process.env as Record<string, string>),
     HOME: directory,
     NORTH_MCP_BUN: fakeBun,
-    NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+    AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
     BEAGLE_STORE_HOME: join(directory, "store"),
     BEAGLE_STORE_BIN: join(directory, "store/bin"),
     BEAGLE_STORE_OUT: join(directory, "store/out"),
@@ -464,7 +469,8 @@ printf '%s\n' '[{"predicate":"kind","value":"lane"},{"predicate":"role","value":
       NORTH_MCP_EVENTS: events,
       NORTH_BIN: fakeNorth,
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "1000",
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       BEAGLE_STORE_HOME: join(directory, "store"),
       BEAGLE_STORE_BIN: join(directory, "store/bin"),
       BEAGLE_STORE_OUT: join(directory, "store/out"),
@@ -547,7 +553,8 @@ test("canonical assessment preflight rejects tampering before driver claim or SD
     env: {
       ...process.env,
       NORTH_POLICY_BUN: process.execPath,
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_MCP_BUN: fakeBun,
       NORTH_MCP_BB: fakeBb,
     },
@@ -585,7 +592,8 @@ test("MCP rejects a new unassessed max request before SDK launch", () => {
     env: {
       ...process.env,
       NORTH_POLICY_BUN: process.execPath,
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_MCP_BUN: fakeBun,
     },
   });
@@ -620,7 +628,8 @@ test("MCP spawn reports pre-identity construction failure instead of fabricating
       ...process.env,
       ...storeRpcEnvironment(directory),
       HOME: directory,
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_BIN: fakeNorth,
       NORTH_MCP_BUN: "/bin/false",
       NORTH_SPAWN_STARTUP_TIMEOUT_MS: "500",
@@ -662,7 +671,8 @@ exit 3
       } } })}\n`,
     encoding: "utf8",
     env: { ...process.env, ...storeRpcEnvironment(directory),
-      NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+      AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
       NORTH_MCP_BUN: fakeBun, NORTH_MCP_BB: fakeBb, NORTH_MCP_MARKER: marker },
   });
   expect(result.status).toBe(0);
@@ -729,7 +739,8 @@ test("MCP effective-authority closure rejects open shell capability sets", () =>
         encoding: "utf8",
         env: {
           ...process.env,
-          NORTH_ORCHESTRATION_HOME: ORCHESTRATION_ROOT,
+          AGENT_MACHINERY_HOME: AGENT_MACHINERY_ROOT,
+      NORTH_AGENT_RUNTIME_HOME: AGENT_RUNTIME_ROOT,
           NORTH_MCP_BUN: "/bin/false",
         },
       });

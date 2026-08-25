@@ -359,7 +359,7 @@ describe("Anthropic public wire adapter", () => {
 		expect(executionActivity?.snapshot()).toMatchObject({
 			lastProvider: {
 				origin: "provider",
-				kind: "provider.anthropic.message.accepted",
+				kind: "provider.anthropic.event.accepted",
 			},
 		});
 		expect(executionActivity?.snapshot().sequence).toBeGreaterThan(0);

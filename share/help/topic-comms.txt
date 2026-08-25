@@ -2,6 +2,7 @@ north help comms — attention between people and agents
 
   north inbox [--as <recipient>]        durable messages waiting on you
                                         --as <recipient> — inspect another recipient's inbox
+  north ack <actor> <message-id>        acknowledge one addressed message through the configured communications protocol
   north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
                                         --about <thread> — attach the request to a thread
   north interrupt <recipient> "<body>"  urgent sender-driven request; live recipient required

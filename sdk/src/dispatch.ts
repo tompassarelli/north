@@ -40,7 +40,8 @@ import { BESPOKE_FINGERPRINT_DOMAIN, BESPOKE_FINGERPRINT_VERSION } from "./bespo
 import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
   selectProviderForExecution, providerRetrySafeTerminalDetail, ProviderRetrySafeError,
-  type ProviderAuthoritySurface, type ProviderPreference, type RoutedQueryArguments,
+  type ExecutionRoutingDecision, type ProviderAuthoritySurface,
+  type ProviderPreference, type RoutedQueryArguments,
 } from "./providers";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
@@ -61,6 +62,7 @@ import { assertCoordinationAuthority } from "./topology-authority";
 import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
+import { deliveryDispatchClassForRouting } from "./delivery-liveness";
 import {
   classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
@@ -373,7 +375,7 @@ async function runDispatch(
   }
   const routingContext = { tier: requestedTier, reasoning: requestedReasoning,
     model: requestedModel, stableKey: agentId, capabilities, signal: termination.signal };
-  let routing;
+  let routing: ExecutionRoutingDecision;
   if (queryFn) {
     routing = selectProvider(routingRequest, undefined, routingContext);
   } else {
@@ -1406,10 +1408,7 @@ export async function dispatch(
   dependencies: DispatchDependencies,
 ): Promise<DispatchResult> {
   const injected = takeDispatchTestRuntime<DispatchRuntime>(dependencies) ?? {};
-  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedDispatchDependencies(dependencies);
-  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
-  managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) {
     assertCoordinationAuthority("dispatch", callerTopology);
@@ -1430,6 +1429,16 @@ export async function dispatch(
     model: process.env.AGENT_MODEL,
     surface: "managed North dispatch routing economics",
   });
+  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)(
+    process.env,
+    deliveryDispatchClassForRouting(routingEconomics.pinEvidence, {
+      provider: process.env.AGENT_PROVIDER,
+      target: process.env.AGENT_TARGET,
+      model: process.env.AGENT_MODEL,
+    }),
+  );
+  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
+  managedRunTokenTarget(admitted.tokenTarget);
   // The detector policy is an admission input: reject malformed overrides before
   // any graph claim, clock, resource envelope, or provider-selection side effect.
   const strugglePolicy = resolveStrugglePolicy(routingMetadata.topology!);

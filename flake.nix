@@ -15,10 +15,17 @@
       url = "github:tompassarelli/beagle/7b045f26024b99c58bfdcc203dce868f148f388b";
       flake = false;
     };
+
+    agent-machinery-source = {
+      url = "github:tompassarelli/agent-machinery/a609762bbd723c8906468b80b2c07675d3271766";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, beagle-engine-source }:
+  outputs = { self, nixpkgs, nixpkgs-master, flake-utils, beagle-engine-source,
+    agent-machinery-source }:
     assert builtins.pathExists (beagle-engine-source + "/store/out/store/rpc.clj");
+    assert builtins.pathExists (agent-machinery-source + "/catalog.json");
     # nixpkgs' current Babashka no longer supports x86_64-darwin. Publish only
     # the three systems whose complete North runtime closure is evaluable.
     flake-utils.lib.eachSystem [
@@ -426,9 +433,11 @@ PY
             ./out
             ./share/help
             (lib.fileset.difference ./cli ./cli/tests)
+            ./agent-catalog
+            ./agent-runtime
             ./sdk/src
             ./contracts/agent-run-ledger-v2.json
-            ./profiles/tom/hooks/lib/harness-dial.sh
+            ./agent-runtime/hooks/lib/harness-dial.sh
             ./bin/north
             ./bin/north-comms
             ./bin/north-mcp
@@ -444,26 +453,18 @@ PY
             ./bin/ensure-private-docs
           ];
         };
-        # Runtime-only Orchestration contract. Generated adapters, authoring scripts,
-        # skills, and private docs stay out of North's closure.
-        orchestrationContract = pkgs.stdenvNoCC.mkDerivation {
-          pname = "orchestration-runtime-contract";
+        # North-owned provider catalogs, calibrated deltas, and runtime payload
+        # scripts. Portable templates and selection contracts come from the exact
+        # agent-machinery source input instead.
+        northAgentRuntimeContract = pkgs.stdenvNoCC.mkDerivation {
+          pname = "north-agent-runtime-contract";
           version = builtins.substring 0 12 (self.rev or self.dirtyRev or "local");
-          src = ./orchestration;
+          src = ./agent-runtime/orchestration;
           dontConfigure = true;
           dontBuild = true;
           installPhase = ''
             runHook preInstall
-            mkdir -p $out/staffing $out/providers $out/docs/deltas $out/scripts
-            cp staffing/catalog.json $out/staffing/
-            cp providers/anthropic.json providers/openai.json $out/providers/
-            cp docs/roles.md docs/task-grades.md docs/topologies.md docs/postures.md docs/comms.md $out/docs/
-            cp -r docs/deltas/. $out/docs/deltas/
-            # Canonical assessment validator + its only import. North's runtime
-            # (routing-economics.ts) resolves selection-assessment.mjs under
-            # NORTH_ORCHESTRATION_HOME/scripts; provider-catalog.mjs reads the provider JSON
-            # already installed above. No authoring or private material.
-            cp scripts/selection-assessment.mjs scripts/provider-catalog.mjs $out/scripts/
+            cp -r . $out
             runHook postInstall
           '';
         };
@@ -504,7 +505,8 @@ PY
         # Keep the contract data-only here so neither can drift from the other.
         storeRpcEnvironment = "/home/tom/.local/state/north/beagle-store.env";
         northRuntimeVariables = {
-          NORTH_ORCHESTRATION_HOME = orchestrationContract;
+          AGENT_MACHINERY_HOME = agent-machinery-source;
+          NORTH_AGENT_RUNTIME_HOME = northAgentRuntimeContract;
           NORTH_BB = "${pkgs.babashka}/bin/bb";
           NORTH_BUN = "${pkgs.bun}/bin/bun";
           NORTH_GIT_BIN = "${pkgs.git}/bin/git";
@@ -577,14 +579,14 @@ EOF
           installPhase = ''
             runHook preInstall
             mkdir -p $out/bin $out/contracts $out/out $out/sdk \
-              $out/profiles/tom/hooks/lib $out/share
+              $out/agent-runtime $out/share
             cp -r out/. $out/out/
             # bin/north resolves its card + topic pages under $NORTH/share/help;
             # unshipped, the packaged CLI exits 1 on every `north help`.
             cp -r share/help $out/share/help
             cp contracts/agent-run-ledger-v2.json $out/contracts/
-            cp profiles/tom/hooks/lib/harness-dial.sh \
-              $out/profiles/tom/hooks/lib/
+            cp -r agent-catalog $out/agent-catalog
+            cp -r agent-runtime/. $out/agent-runtime/
             # bb-verb CLIs (agents/watch/trace/health/dashboard/config/...)
             # route through $root/cli — without this every non-engine verb dies
             # on the packaged binary with "File does not exist: .../cli/*.clj".
@@ -622,7 +624,8 @@ EOF
             wrapProgram $out/bin/north-mcp \
               --prefix PATH : ${runtimePath} \
               --run ${lib.escapeShellArg "source ${storeRpcEnvironment}"} \
-              --set NORTH_ORCHESTRATION_HOME ${orchestrationContract} \
+              --set AGENT_MACHINERY_HOME ${agent-machinery-source} \
+              --set NORTH_AGENT_RUNTIME_HOME ${northAgentRuntimeContract} \
               --set NORTH_HOME $out \
               --set NORTH_BIN $out/bin/north \
               --set NORTH_BB ${pkgs.babashka}/bin/bb \
@@ -832,7 +835,8 @@ EOF
               "$now" "$reset" > "$smoke/openai-pin-evidence.json"
             HOME="$smoke/home" NORTH_CLAUDE_BIN="$smoke/bin/claude" NORTH_CODEX_BIN="$smoke/bin/codex" \
               NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              NORTH_HOME="$out" AGENT_MACHINERY_HOME=${agent-machinery-source} \
+              NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/observations.json" \
               $out/bin/.north-wrapped providers --json > "$smoke/providers.json"
             ${pkgs.jq}/bin/jq -e \
@@ -841,27 +845,27 @@ EOF
                  .installed and .authenticated and .headroom == "plenty")' \
               "$smoke/providers.json" > /dev/null
             HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file \
-              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              NORTH_HOME="$out" AGENT_MACHINERY_HOME=${agent-machinery-source} \
+              NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               $out/bin/.north-wrapped spawn implementer probe \
               --provider openai --pin-evidence "@$smoke/openai-pin-evidence.json" \
               --ad-hoc --dry-run > "$smoke/spawn.out"
             grep -q 'grade=mid tier=standard' "$smoke/spawn.out"
             grep -q 'AGENT_ROLE=implementer' "$smoke/spawn.out"
-            # Assessed dispatch must resolve Orchestration's canonical selection
-            # validator from the packaged contract alone. The sandbox has no
-            # external sibling Orchestration checkout, and the wrapper forces
-            # NORTH_ORCHESTRATION_HOME at the runtime contract, so this exercises
-            # the exact shape (stock verifier
+            # Assessed dispatch must resolve agent-machinery's canonical selection
+            # validator from the exact package input. The sandbox has no mutable
+            # sibling checkout, and the wrapper forces AGENT_MACHINERY_HOME to that
+            # source, so this exercises the exact shape (stock verifier
             # composition + assessment sidecar, dry-run) that failed before
-            # scripts/selection-assessment.mjs + provider-catalog.mjs were
-            # packaged. The dry-run resolves the composition, admits the
+            # the portable assessment validator was packaged. The dry-run
+            # resolves the composition, admits the
             # assessment through the canonical validator, and stops — it makes
             # no worker, no provider turn, and no lane.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["oracle-strength:judgment-only","reasoning-shape:multi-hypothesis"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment.json"
-            NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
-              NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
-              NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+            AGENT_MACHINERY_HOME=${agent-machinery-source} \
+              NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
+              HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
               $out/bin/.north-wrapped spawn verifier probe \
               --assessment "@$smoke/verifier-assessment.json" --ad-hoc --dry-run \
               > "$smoke/assessed-spawn.out"
@@ -872,9 +876,9 @@ EOF
             # the packaged canonical validator, never silently admitted.
             printf '%s\n' '{"version":"minimum-sufficient-v1","signals":{"decisionOwnership":"none","seamScope":"none","errorExposure":"contained-reversible","oracleStrength":"judgment-only","foundationalImpact":"none","dependencyShape":"atomic-cohesive","reasoningShape":"multi-hypothesis"},"derived":{"minimumTier":"senior","minimumReasoning":"high","ruleCodes":["forged"]},"selected":{"tier":"senior","reasoning":"high"}}' \
               > "$smoke/verifier-assessment-forged.json"
-            if NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" NO_COLOR=1 \
-                 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
-                 NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+            if AGENT_MACHINERY_HOME=${agent-machinery-source} \
+                 NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
+                 HOME="$smoke/home" NO_COLOR=1 NORTH_STAFFING_SOURCE=file NORTH_HOME="$out" \
                  $out/bin/.north-wrapped spawn verifier probe \
                  --assessment "@$smoke/verifier-assessment-forged.json" --ad-hoc --dry-run \
                  > "$smoke/assessed-forged.out" 2>&1; then
@@ -883,11 +887,11 @@ EOF
               exit 1
             fi
             grep -q 'canonical Orchestration validation' "$smoke/assessed-forged.out"
-            # Runtime Orchestration reads must be hermetic: exercise exact provider/model
-            # resolution against the packaged contract, with no sibling checkout.
+            # North runtime reads must be hermetic: exercise exact provider/model
+            # resolution against North's packaged contract, with no sibling checkout.
             # File staffing source: the graph default needs a live coordinator,
             # which a sandboxed build never has.
-            NORTH_ORCHESTRATION_HOME=${orchestrationContract} HOME="$smoke/home" \
+            NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} HOME="$smoke/home" \
               NORTH_STAFFING_SOURCE=file ${pkgs.bun}/bin/bun -e \
               'import { readFileSync } from "node:fs";
                import { resolveModelAlias, resolveModelDelta, resolveTier } from "'$out'/sdk/src/providers/catalog.ts";
@@ -909,9 +913,9 @@ EOF
                    : delta.kind === "none" && Boolean(delta.reason?.trim()));
                if (route.model !== "gpt-5.6-sol" || terra !== "gpt-5.6-terra"
                  || !validTerraDelta || opus !== "claude-opus-5" || !validDelta) process.exit(1);'
-            grep -q '^## distinguished$' ${orchestrationContract}/docs/task-grades.md
-            grep -q '^## worker$' ${orchestrationContract}/docs/topologies.md
-            grep -q '^## universal$' ${orchestrationContract}/docs/comms.md
+            grep -q '^## distinguished$' ${agent-machinery-source}/docs/task-grades.md
+            grep -q '^## worker$' ${agent-machinery-source}/docs/topologies.md
+            grep -q '^## universal$' ${agent-machinery-source}/docs/comms.md
             printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' | \
               ${pkgs.coreutils}/bin/env -i HOME="$smoke/home" PATH= NORTH_HOME="$out" \
               BEAGLE_STORE_HOME="$BEAGLE_STORE_HOME" BEAGLE_STORE_BIN="$BEAGLE_STORE_BIN" \
@@ -928,7 +932,7 @@ EOF
               HOME="$smoke/home" \
               CLAUDE_CONFIG_DIR="$smoke/home/.local/state/north/accounts/anthropic/claude-smoke" \
               NORTH_PROVIDER_OBSERVATIONS="$smoke/ingested.json" \
-              NORTH_HOME="$out" NORTH_ORCHESTRATION_HOME=${orchestrationContract} \
+              NORTH_HOME="$out" NORTH_AGENT_RUNTIME_HOME=${northAgentRuntimeContract} \
               $out/bin/.north-wrapped provider-observe claude-statusline
             test -s "$smoke/ingested.json"
             runHook postInstall
@@ -983,7 +987,9 @@ EOF
           buildInputs = with pkgs; [
             # North CLI + MCP. Archived web sources are not part of the shell.
             babashka
+            bun
           ];
+          AGENT_MACHINERY_HOME = agent-machinery-source;
         };
       });
 }

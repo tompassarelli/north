@@ -111,11 +111,11 @@ coordination fact, and neither is exempt from rule-checking once it becomes one.
 ## Routing: who versus where
 
 `north spawn` and `north delegate` read the staffing catalog at
-[`orchestration/staffing/catalog.json`](../orchestration/staffing/catalog.json)
-to answer *who* does the work — role, tier, reasoning, posture. North answers
-*where* it runs and *how* you see it: provider account, subscription pressure,
-dashboard. The staffing layer is account-blind; North resolves the semantic tier
-through the chosen provider's catalog. See
+`agent-machinery:staffing/catalog.json`
+to resolve the requested behavior contract — role, tier, reasoning, posture.
+North deterministically resolves *where* it runs and hosts its projections:
+provider account, subscription pressure, dashboard. The staffing layer is
+account-blind; the selected provider's catalog resolves the semantic tier. See
 [provider-architecture.md](provider-architecture.md).
 
 ## Emergency recovery

@@ -117,9 +117,16 @@ const savedHome = process.env.HOME;
 const savedAgentLawsPath = process.env.AGENT_LAWS_PATH;
 const savedPort = process.env.NORTH_PORT;
 const savedLaws = process.env.AGENT_LAWS;
-const savedOrchestration = process.env.NORTH_ORCHESTRATION_HOME;
+const savedAgentMachinery = process.env.AGENT_MACHINERY_HOME;
+const savedAgentRuntime = process.env.NORTH_AGENT_RUNTIME_HOME;
 const savedModelObservations = process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
 const northRoot = realpathSync(join(import.meta.dir, "../.."));
+const agentMachineryRoot = realpathSync(
+  savedAgentMachinery ?? "/home/tom/code/agent-machinery/main",
+);
+const agentRuntimeRoot = realpathSync(
+  savedAgentRuntime ?? join(northRoot, "agent-runtime/orchestration"),
+);
 const temporary: string[] = [];
 beforeEach(() => {
   restoreGraphEnv = scrubAmbientGraphEnv();
@@ -222,8 +229,10 @@ afterEach(() => {
   else process.env.NORTH_PORT = savedPort;
   if (savedLaws === undefined) delete process.env.AGENT_LAWS;
   else process.env.AGENT_LAWS = savedLaws;
-  if (savedOrchestration === undefined) delete process.env.NORTH_ORCHESTRATION_HOME;
-  else process.env.NORTH_ORCHESTRATION_HOME = savedOrchestration;
+  if (savedAgentMachinery === undefined) delete process.env.AGENT_MACHINERY_HOME;
+  else process.env.AGENT_MACHINERY_HOME = savedAgentMachinery;
+  if (savedAgentRuntime === undefined) delete process.env.NORTH_AGENT_RUNTIME_HOME;
+  else process.env.NORTH_AGENT_RUNTIME_HOME = savedAgentRuntime;
   if (savedModelObservations === undefined) delete process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS;
   else process.env.NORTH_PROVIDER_MODEL_OBSERVATIONS = savedModelObservations;
   for (const path of liveProcessPidFiles) killRecordedProcess(path);
@@ -1184,9 +1193,8 @@ test("managed events cross the commit barrier before publication or iterator rej
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(
-    savedOrchestration ?? join(northRoot, "orchestration"),
-  );
+  process.env.AGENT_MACHINERY_HOME = agentMachineryRoot;
+  process.env.NORTH_AGENT_RUNTIME_HOME = agentRuntimeRoot;
 
   const canonicalAgents = join(home, ".agents", "AGENTS.md");
   mkdirSync(join(home, ".agents"), { recursive: true });
@@ -1288,7 +1296,8 @@ test("managed executable resolution fails retry-safe before onRoute or query con
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
+  process.env.AGENT_MACHINERY_HOME = agentMachineryRoot;
+  process.env.NORTH_AGENT_RUNTIME_HOME = agentRuntimeRoot;
   process.env.NORTH_PORT = "65534";
   const codexHome = join(home, ".codex");
   mkdirSync(codexHome);
@@ -1362,9 +1371,8 @@ test("managed Codex admission revalidates an exact-model receipt after target-sc
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(
-    savedOrchestration ?? join(northRoot, "orchestration"),
-  );
+  process.env.AGENT_MACHINERY_HOME = agentMachineryRoot;
+  process.env.NORTH_AGENT_RUNTIME_HOME = agentRuntimeRoot;
   process.env.NORTH_PORT = "65534";
   const canonicalAgents = join(home, ".agents", "AGENTS.md");
   mkdirSync(join(home, ".agents"), { recursive: true });
@@ -1464,7 +1472,8 @@ gatedTest("loopback-bind", "selected Codex account bootstrap fails during admiss
   temporary.push(home);
   process.env.HOME = home;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = realpathSync(savedOrchestration ?? join(northRoot, "orchestration"));
+  process.env.AGENT_MACHINERY_HOME = agentMachineryRoot;
+  process.env.NORTH_AGENT_RUNTIME_HOME = agentRuntimeRoot;
   process.env.NORTH_PORT = String((server.address() as AddressInfo).port);
   process.env.BEAGLE_STORE_SERVER_PORT = process.env.NORTH_PORT;
   process.env.BEAGLE_STORE_SPACE_ID = "north-coordination";

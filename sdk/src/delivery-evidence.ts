@@ -776,6 +776,9 @@ function parsedAttemptReservation(
     parsed.accountLease,
     `codex-account:${route.accountId}:slot:0`,
   );
+  const provider = parsed.provider === "anthropic" || parsed.provider === "openai"
+    ? parsed.provider
+    : undefined;
   const predecessor = parsed.predecessorReceiptSha256;
   if (Object.keys(parsed).sort().join("\0") !== expectedKeys.sort().join("\0")
     || parsed.ok !== true
@@ -788,7 +791,7 @@ function parsedAttemptReservation(
     || !SHA256_PATTERN.test(String(parsed.manifestSha256 ?? ""))
     || (predecessor !== null && !SHA256_PATTERN.test(String(predecessor ?? "")))
     || (parsed.attemptOrdinal === 1 ? predecessor !== null : predecessor === null)
-    || parsed.provider !== route.provider
+    || provider !== route.provider
     || parsed.accountId !== route.accountId
     || parsed.model !== route.model
     || parsed.accountAuthorityReceiptSha256 !== route.accountAuthorityReceiptSha256
@@ -812,7 +815,7 @@ function parsedAttemptReservation(
       predecessorReceiptSha256: predecessor as string,
     }),
     manifestSha256: parsed.manifestSha256 as string,
-    provider: parsed.provider,
+    provider,
     accountId: parsed.accountId as string,
     model: parsed.model as string,
     accountAuthorityReceiptSha256: parsed.accountAuthorityReceiptSha256 as string,

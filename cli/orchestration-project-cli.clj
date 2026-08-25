@@ -220,8 +220,8 @@
 (def ^:private this-root (.getParent (io/file CLI-DIR)))
 
 (defn orchestration-root []
-  (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
+  (or (System/getenv "AGENT_MACHINERY_HOME")
+      (str (System/getenv "HOME") "/code/agent-machinery/main")))
 
 (def MAX-POLICY-RULES 128)
 (def MAX-POLICY-RULE-FACTS 4096)

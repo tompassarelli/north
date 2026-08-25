@@ -158,9 +158,4 @@ test("bridge dashboard renders fleet from journal and receipt plus queue from wo
   expect(result.stdout).toContain("QUEUE");
   expect(result.stdout).toContain("Queue fixture title");
   expect(result.stdout).not.toContain("\u001b");
-
-  const alias = run("dashboard", "--once");
-  expect(alias.status).toBe(0);
-  expect(alias.stdout).toContain("Journal fixture title");
-  expect(alias.stdout).toContain("Queue fixture title");
 });

@@ -10,6 +10,7 @@ import {
   managedNorthMcpEnvironment,
   ManagedDispatchAuthorityError,
 } from "../src/execution-admission";
+import { deliveryDispatchClassForRouting } from "../src/delivery-liveness";
 import { dispatch } from "../src/dispatch";
 import { spawn } from "../src/spawn";
 
@@ -199,6 +200,27 @@ describe("managed dispatch authority", () => {
   test("an explicitly classified repair remains available when feature authority is false", () => {
     writeLiveness({ buildable: false, failing_check: "firn build" });
     expect(() => admitManagedDispatchAuthority(environment("managed"), "repair")).not.toThrow();
+    expect(() => admitManagedDispatchAuthority(environment("managed")))
+      .toThrow(DeliveryLivenessDispatchError);
+  });
+
+  test("only fully pinned explicit-human routing bypasses false feature authority", () => {
+    writeLiveness({ buildable: false, failing_check: "firn build" });
+    const evidence = {
+      reasonCode: "explicit-human-request",
+      pins: [
+        { kind: "provider", value: "openai" },
+        { kind: "account", value: "codex-work" },
+        { kind: "model", value: "gpt-5.6-sol" },
+      ],
+    };
+    const route = { provider: "openai", target: "codex-work", model: "gpt-5.6-sol" };
+    const dispatchClass = deliveryDispatchClassForRouting(evidence, route, environment("managed"));
+    expect(dispatchClass).toBe("explicit-human");
+    expect(() => admitManagedDispatchAuthority(environment("managed"), dispatchClass)).not.toThrow();
+    expect(deliveryDispatchClassForRouting(
+      { ...evidence, pins: evidence.pins.slice(0, 2) }, route, environment("managed"),
+    )).toBe("feature");
     expect(() => admitManagedDispatchAuthority(environment("managed")))
       .toThrow(DeliveryLivenessDispatchError);
   });

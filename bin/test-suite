@@ -5,8 +5,9 @@ usage() {
   cat >&2 <<'EOF'
 usage: bin/test-suite [--sandbox-home] -- COMMAND [ARG ...]
 
-Runs COMMAND unchanged by default. --sandbox-home gives it a newly created,
-empty HOME and removes ambient XDG home overrides for the duration of the run.
+Runs COMMAND unchanged by default. --sandbox-home gives it a newly created
+HOME, projects an explicit AGENT_MACHINERY_HOME into its dependency area, and
+removes ambient XDG home overrides for the duration of the run.
 
 The invocation is the sole authority on the mode: NORTH_TEST_SANDBOX_HOME
 reports this run's mode to COMMAND and is never read back in as input, so a
@@ -34,10 +35,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
+agent_machinery_env=()
+if [[ -n "${AGENT_MACHINERY_HOME:-}" ]]; then
+  if [[ "$AGENT_MACHINERY_HOME" != /* || ! -d "$AGENT_MACHINERY_HOME" ]]; then
+    echo "sandbox-home requires AGENT_MACHINERY_HOME to name an absolute directory" >&2
+    exit 2
+  fi
+  projected_agent_machinery="$scratch/.north-test-dependencies/agent-machinery"
+  mkdir -p "$scratch/.north-test-dependencies"
+  ln -s "$AGENT_MACHINERY_HOME" "$projected_agent_machinery"
+  agent_machinery_env+=("AGENT_MACHINERY_HOME=$projected_agent_machinery")
+fi
+
 printf 'sandbox-home: HOME=%s\n' "$scratch"
 HOME="$scratch" \
 NORTH_TEST_SANDBOX_HOME=1 \
 env \
+  -u AGENT_MACHINERY_HOME \
   -u CLAUDE_CONFIG_DIR \
   -u CODEX_HOME \
   -u BEAGLE_STORE_LOG \
@@ -52,4 +66,5 @@ env \
   -u XDG_CONFIG_HOME \
   -u XDG_DATA_HOME \
   -u XDG_STATE_HOME \
+  "${agent_machinery_env[@]}" \
   "$@"
