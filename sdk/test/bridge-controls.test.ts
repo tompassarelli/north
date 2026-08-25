@@ -22,7 +22,9 @@ import {
   type BridgeProviderOpenContext,
   type BridgeProviderSession,
 } from "../src/bridge/provider";
-import type { BridgeServerMessage } from "../src/bridge/protocol";
+import type {
+  BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import {
   decodeWireEvent,
   WireEventWriter,

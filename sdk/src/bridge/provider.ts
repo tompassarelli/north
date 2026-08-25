@@ -18,7 +18,7 @@ import directorPrompt from "./director-prompt.md" with { type: "text" };
 import implementerPrompt from "./implementer-prompt.md" with { type: "text" };
 import type {
   BridgeLaunchProvider, BridgeLaunchRole, BridgeLaunchSelection,
-} from "./protocol";
+} from "./generated/north/bridge/protocol.js";
 import type { BridgeAttemptRouteAuthority } from "./command-receipts";
 
 export interface BridgeSessionPresentation {

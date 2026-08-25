@@ -626,11 +626,12 @@
                                             (try
                                               (do
                                                 (when (.-onDurableWireEvent hooks)
-                                                  (await ((.-onDurableWireEvent hooks)
-                                                          (.-event message))))
+                                                  (await (: ((.-onDurableWireEvent hooks)
+                                                             (.-event message))
+                                                            (Promise Any))))
                                                 (set! (.-cursor state)
                                                       (Math/max (.-cursor state)
-                                                                (+ (.-sequence (.-event message))
+                                                                (+ (: (.-sequence (.-event message)) Int)
                                                                    1))))
                                               (catch Error error
                                                 (do
@@ -682,7 +683,8 @@
   (defn ^:async settle-managed-app-launch-refusal! [managed Any] (Promise Nil)
     (when (and (not (.-providerEffectObserved managed))
                (not (.-settled managed)))
-      (await (.proveUnsent managed "daemon-launch-refused")))))
+      (await (: (.proveUnsent managed "daemon-launch-refused")
+                (Promise Any))))))
 
 (defn ^:async terminate-managed-app-launch! [execution-id String] (Promise Nil)
   (let [connection Any (await (verified-socket! (bridge-socket-path)))]
@@ -708,17 +710,18 @@
           monitored! Any (fn
                            [socket Any
                             request Any] Any
-                           (let [client Any (run-client! socket request hooks)]
+                           (let [client (Promise Any) (run-client! socket request hooks)]
               (if (.-leaseFailed state)
                 client
                 (let [winner Any (await
-                                   (Promise/race
-                                     [(.then client
-                                             (fn [outcome Any] Any
-                                               {:kind "client" :outcome outcome}))
-                                      (.then (.-leaseFailure managed)
-                                             (fn [error Any] Any
-                                               {:kind "lease" :error error}))]))]
+                                   (: (Promise/race
+                                        [(.then client
+                                                (fn [outcome Any] Any
+                                                  {:kind "client" :outcome outcome}))
+                                         (.then (.-leaseFailure managed)
+                                                (fn [error Any] Any
+                                                  {:kind "lease" :error error}))])
+                                      (Promise Any)))]
                   (if (identical? (.-kind winner) "client")
                     (.-outcome winner)
                     (do
@@ -735,21 +738,23 @@
         (set! (.-socket state) (.-socket (await (verified-socket! (bridge-socket-path)))))
         (catch Error error
           (do
-            (await (.proveUnsent managed "daemon-not-contacted"))
+            (await (: (.proveUnsent managed "daemon-not-contacted")
+                      (Promise Any)))
             (throw error))))
       (set! (.-outcome state)
-            (await (monitored!
-                     (.-socket state)
-                     {:op "launch"
-                      :executionId (.-executionId managed)
-                      :attemptId (.-attemptId managed)
-                      :prompt prompt
-                      :cwd (.cwd process)
-                      :role (.-role launch)
-                      :provider (.-provider managed)
-                      :model (.-model managed)
-                      :tier (.-tier launch)
-                      :effort (.-effort launch)})))
+            (await (: (monitored!
+                        (.-socket state)
+                        {:op "launch"
+                         :executionId (.-executionId managed)
+                         :attemptId (.-attemptId managed)
+                         :prompt prompt
+                         :cwd (.cwd process)
+                         :role (.-role launch)
+                         :provider (.-provider managed)
+                         :model (.-model managed)
+                         :tier (.-tier launch)
+                         :effort (.-effort launch)})
+                      (Promise Any))))
       (if (identical? (bridge-app-launch-recovery-action
                         "launch" (.-outcome state) managed)
                       "prove-unsent")
@@ -771,11 +776,12 @@
                 (catch Error _
                   (do (await (sleep! 250)) (recur))))
               (set! (.-outcome state)
-                    (await (monitored!
-                             (.-socket state)
-                             {:op "attach"
-                              :executionId (.-executionId managed)
-                              :cursor (.-cursor state)})))
+                    (await (: (monitored!
+                                (.-socket state)
+                                {:op "attach"
+                                 :executionId (.-executionId managed)
+                                 :cursor (.-cursor state)})
+                              (Promise Any))))
               (set! (.-cursor state)
                     (Math/max (.-cursor state) (.-cursor (.-outcome state))))
               (when (identical? (bridge-app-launch-recovery-action

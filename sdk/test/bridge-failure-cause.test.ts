@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { Northd } from "../src/bridge/host";
 import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import type { BridgeProviderExecution } from "../src/bridge/provider";
-import type { BridgeServerMessage } from "../src/bridge/protocol";
+import type {
+  BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import { ProviderRetrySafeError } from "../src/providers/types";
 
 const FAILURE_DIAGNOSTIC_DETAIL_BYTES = 4_096;

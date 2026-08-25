@@ -2,15 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { Socket } from "node:net";
 import * as path from "node:path";
 import * as acp from "@agentclientprotocol/sdk";
-import { verifiedSocket, type BridgeConnectionOutput } from "../bridge/cli";
+import {
+  "verified-socket!" as verifiedSocket,
+  type BridgeConnectionOutput,
+} from "../bridge/generated/north/bridge/cli.js";
 import type { JournalRecord } from "../bridge/journal";
 import {
-  parseBridgeLaunchExecutionId,
-  parseBridgeLaunchAttemptId,
-  bridgeSocketPath,
+  "parse-bridge-launch-execution-id!" as parseBridgeLaunchExecutionId,
+  "parse-bridge-launch-attempt-id!" as parseBridgeLaunchAttemptId,
+  "bridge-socket-path" as bridgeSocketPath,
   type BridgeRequest,
   type BridgeServerMessage,
-} from "../bridge/protocol";
+} from "../bridge/generated/north/bridge/protocol.js";
 import { wireRunId, type WireEvent, type WireRunTerminatedEvent } from "../wire";
 import { projectWireEvent } from "./wire";
 

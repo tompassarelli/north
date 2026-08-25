@@ -8,8 +8,13 @@ import {
   MemoryBridgeCommandReceipts,
   type BridgeAttemptRouteAuthority,
 } from "../src/bridge/command-receipts";
-import { parseBridgeLaunchArguments } from "../src/bridge/cli";
-import { parseBridgeRequest, type BridgeServerMessage } from "../src/bridge/protocol";
+import {
+  "parse-bridge-launch-arguments!" as parseBridgeLaunchArguments,
+} from "../src/bridge/generated/north/bridge/cli.js";
+import {
+  "parse-bridge-request!" as parseBridgeRequest,
+  type BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import {
   bridgeProviderWithDependenciesForTest, bridgeRoute,
   resolveBridgeLaunchSelection, selectBridgeProvider,

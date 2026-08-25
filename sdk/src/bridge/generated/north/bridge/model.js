@@ -145,6 +145,9 @@ function snapshot(model) {
 export { Agent as "->Agent" };
 export { BridgeSnapshot as "->BridgeSnapshot" };
 export { WorkItem as "->WorkItem" };
+export { Agent as "Agent" };
+export { BridgeSnapshot as "BridgeSnapshot" };
+export { WorkItem as "WorkItem" };
 export { agent_effort as "agent-effort" };
 export { agent_goal as "agent-goal" };
 export { agent_id as "agent-id" };

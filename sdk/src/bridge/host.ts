@@ -38,15 +38,15 @@ import {
   type BridgeCommandReceipts,
 } from "./command-receipts";
 import {
-  bridgeJournalRoot,
-  bridgeSocketPath,
-  bridgeSourceIdentity,
-  parseBridgeLaunchRole,
-  parseBridgeRequest,
+  "bridge-journal-root" as bridgeJournalRoot,
+  "bridge-socket-path" as bridgeSocketPath,
+  "bridge-source-identity" as bridgeSourceIdentity,
+  "parse-bridge-launch-role!" as parseBridgeLaunchRole,
+  "parse-bridge-request!" as parseBridgeRequest,
   type BridgeLaunchRole,
   type BridgeRequest,
   type BridgeServerMessage,
-} from "./protocol";
+} from "./generated/north/bridge/protocol.js";
 import type { WireEventStorePublisher } from "../run-ledger";
 import {
   encodeWireJsonlLine,

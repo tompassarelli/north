@@ -20,7 +20,9 @@ import {
   type WireRunLedgerIdentity,
 } from "../run-ledger";
 import { wireRunId, type WireRunId } from "../wire";
-import type { BridgeLaunchProvider } from "./protocol";
+import type {
+  BridgeLaunchProvider,
+} from "./generated/north/bridge/protocol.js";
 
 export interface BridgeAttemptRouteRequest {
   provider?: BridgeLaunchProvider;

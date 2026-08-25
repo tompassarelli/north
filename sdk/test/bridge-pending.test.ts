@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "../src/bridge/journal";
-import { parseBridgeLaunchArguments } from "../src/bridge/cli";
+import {
+  "parse-bridge-launch-arguments!" as parseBridgeLaunchArguments,
+} from "../src/bridge/generated/north/bridge/cli.js";
 
 const roots: string[] = [];
 const ATTEMPT_ID = `@attempt:${"a".repeat(64)}`;
@@ -47,7 +49,7 @@ test("bridge pending is a restart-safe terminal lane queue", () => {
   });
   journal.close();
 
-  const cli = resolve(import.meta.dir, "../src/bridge/cli.ts");
+  const cli = resolve(import.meta.dir, "../src/bridge/generated/north/bridge/cli.js");
   const run = (...args: string[]) => spawnSync(process.execPath, ["run", cli, "pending", ...args], {
     encoding: "utf8",
     env: { ...process.env, NORTH_BRIDGE_STATE_DIR: state },

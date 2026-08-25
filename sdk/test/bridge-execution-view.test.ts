@@ -4,7 +4,9 @@ import {
   "parse-bridge-stream!" as parseBridgeStream,
   "project-conversation" as projectConversation,
 } from "../src/bridge/generated/north/bridge/app.js";
-import { renderWireEvent } from "../src/bridge/cli";
+import {
+  "render-wire-event" as renderWireEvent,
+} from "../src/bridge/generated/north/bridge/cli.js";
 import {
   WireEventWriter,
   wireMessageId,

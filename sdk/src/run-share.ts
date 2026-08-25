@@ -1,8 +1,8 @@
 import { readBridgeWireJournal } from "./bridge/journal";
 import {
-	bridgeJournalRoot,
-	parseBridgeLaunchExecutionId,
-} from "./bridge/protocol";
+	"bridge-journal-root" as bridgeJournalRoot,
+	"parse-bridge-launch-execution-id!" as parseBridgeLaunchExecutionId,
+} from "./bridge/generated/north/bridge/protocol.js";
 import { RUN_ARTIFACT_MAX_COUNT } from "./run-artifacts";
 import {
 	RUN_SHARE_AES_GCM_AAD,

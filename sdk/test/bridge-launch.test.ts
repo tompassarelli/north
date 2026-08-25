@@ -6,7 +6,11 @@ import {
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readHello, runBridgeRestart, verifiedSocket } from "../src/bridge/cli";
+import {
+  "read-hello!" as readHello,
+  "run-bridge-restart!" as runBridgeRestart,
+  "verified-socket!" as verifiedSocket,
+} from "../src/bridge/generated/north/bridge/cli.js";
 import {
   "handle-local-command!" as handleLocalCommand,
   "palette-options" as paletteOptions,
@@ -20,12 +24,16 @@ import {
 import { Northd } from "../src/bridge/host";
 import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
-  bridgeJournalRoot, bridgeSocketPath, bridgeSourceIdentity,
-} from "../src/bridge/protocol";
+  "bridge-journal-root" as bridgeJournalRoot,
+  "bridge-socket-path" as bridgeSocketPath,
+  "bridge-source-identity" as bridgeSourceIdentity,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import type {
   BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
 } from "../src/bridge/provider";
-import type { BridgeServerMessage } from "../src/bridge/protocol";
+import type {
+  BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 // The whole daemon lifecycle, through the entrypoints an operator reaches: the

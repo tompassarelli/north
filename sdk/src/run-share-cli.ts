@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { bridgeJournalRoot } from "./bridge/protocol";
+import {
+	"bridge-journal-root" as bridgeJournalRoot,
+} from "./bridge/generated/north/bridge/protocol.js";
 import { RUN_SHARE_MAX_VIEWER_BYTES } from "./run-share-contract";
 import { renderRunShareViewer } from "./run-share-viewer";
 import {

@@ -2,6 +2,7 @@ const keywordValues = new Map();
 const listValues = new WeakSet();
 const eagerSeqValues = new WeakSet();
 const recordTypeValues = new WeakMap();
+const transientVectorStates = new WeakMap();
 const NOT_FOUND = Symbol("beagle/not-found");
 
 function protocolIdentity(kind, value) {
@@ -26,6 +27,13 @@ export function record_type(value) {
     : undefined;
   if (type === undefined) throw new TypeError("value has no Beagle record identity");
   return type;
+}
+
+export function record_instance_p(typeValue, value) {
+  const type = protocolIdentity("record type", typeValue);
+  return value !== null
+    && typeof value === "object"
+    && recordTypeValues.get(value) === type;
 }
 
 export function protocol_registry(entries) {
@@ -117,6 +125,70 @@ export function name(x) {
 
 export function str(...xs) {
   return xs.map(x => x == null ? "" : String(x)).join("");
+}
+
+function requireScalarString(text, operation) {
+  if (typeof text !== "string") {
+    throw new TypeError(`${operation} requires a String`);
+  }
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index);
+    if (unit >= 0xD800 && unit <= 0xDBFF) {
+      const next = index + 1 < text.length ? text.charCodeAt(index + 1) : -1;
+      if (next < 0xDC00 || next > 0xDFFF) {
+        throw new TypeError(`${operation} requires Unicode scalar values`);
+      }
+      index += 1;
+    } else if (unit >= 0xDC00 && unit <= 0xDFFF) {
+      throw new TypeError(`${operation} requires Unicode scalar values`);
+    }
+  }
+}
+
+function requireByteVector(values, operation) {
+  if (!Array.isArray(values)) {
+    throw new TypeError(`${operation} requires a Vec Int`);
+  }
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      throw new TypeError(`${operation} requires byte values from 0 through 255`);
+    }
+  }
+  return Uint8Array.from(values);
+}
+
+export function utf8_encode(text) {
+  requireScalarString(text, "utf8-encode");
+  return Array.from(new TextEncoder().encode(text));
+}
+
+export function utf8_decode(values) {
+  const bytes = requireByteVector(values, "utf8-decode");
+  let text;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch (_error) {
+    throw new TypeError("utf8-decode requires strict UTF-8 bytes");
+  }
+  const encoded = utf8_encode(text);
+  if (encoded.length !== values.length
+      || encoded.some((value, index) => value !== values[index])) {
+    throw new TypeError("utf8-decode requires canonical UTF-8 bytes");
+  }
+  return text;
+}
+
+export function sha256_bytes(values) {
+  const bytes = requireByteVector(values, "sha256-bytes");
+  return new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+}
+
+export function sha256_utf8(text) {
+  requireScalarString(text, "bgl/sha256-utf8");
+  return new Bun.CryptoHasher("sha256")
+    .update(new TextEncoder().encode(text))
+    .digest("hex");
 }
 
 export function print_str(...xs) {
@@ -796,6 +868,39 @@ export function conj_value(coll, ...items) {
     throw new TypeError("conj on a HAMT requires the emitter-selected HAMT operation");
   }
   throw new TypeError("conj expects a collection");
+}
+
+function transientVectorState(owner, operation) {
+  const state = transientVectorStates.get(owner);
+  if (state === undefined) {
+    throw new TypeError(`${operation} requires a TransientVec`);
+  }
+  if (!state.live) {
+    throw new TypeError(`${operation} cannot use a consumed TransientVec`);
+  }
+  return state;
+}
+
+export function transient_vec(source) {
+  if (!Array.isArray(source)
+      || listValues.has(source)
+      || eagerSeqValues.has(source)) {
+    throw new TypeError("transient requires a Vec");
+  }
+  const owner = Object.freeze({});
+  transientVectorStates.set(owner, { values: source.slice(), live: true });
+  return owner;
+}
+
+export function transient_vec_push(owner, value) {
+  transientVectorState(owner, "conj!").values.push(value);
+  return owner;
+}
+
+export function transient_vec_freeze(owner) {
+  const state = transientVectorState(owner, "persistent!");
+  state.live = false;
+  return state.values;
 }
 
 export function into_value(target, source) {
