@@ -102,6 +102,7 @@ const promotedHooks = {
   "launch-critical-worktree-guard.sh":
     "north/profiles/tom/hooks/launch-critical-worktree-guard.sh",
   "logcompress-hook.py": "north/profiles/tom/hooks/logcompress-hook.py",
+  "logcompress.py": "north/profiles/tom/hooks/logcompress.py",
   "tripwire-guard.sh": "north/profiles/tom/hooks/tripwire-guard.sh",
 } as const;
 
@@ -312,6 +313,12 @@ test("remote-control denial is root-only, present, and type-exact", () => {
 test("managed Codex hook installation accepts one exact captured sealed promotion", () => {
   const fixture = setupHookFixture();
   expect(() => validateManagedCodexHookInstallation(fixture.installation)).not.toThrow();
+});
+
+test("managed Codex hook installation requires the logcompress companion module", () => {
+  const fixture = setupHookFixture();
+  unlinkSync(join(fixture.managedDir, "logcompress.py"));
+  expect(() => validateManagedCodexHookInstallation(fixture.installation)).toThrow();
 });
 
 test("managed Codex hook installation rejects forged deployment paths and hashes", () => {

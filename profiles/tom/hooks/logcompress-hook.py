@@ -22,7 +22,18 @@ INNER_TIMEOUT_SECONDS = 2.0
 
 
 def emit(payload: object) -> None:
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    sys.stdout.write(
+        json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
+
+
+def reject_nonfinite_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
 
 
 def read_bounded_input() -> bytes | None:
@@ -107,7 +118,7 @@ def inner() -> None:
 
         from logcompress import compress
 
-        payload = json.load(sys.stdin)
+        payload = json.load(sys.stdin, parse_constant=reject_nonfinite_constant)
         if (payload.get("tool_name") or payload.get("toolName")) != "Bash":
             return
         response = payload.get("tool_response")
