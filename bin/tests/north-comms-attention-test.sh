@@ -151,6 +151,13 @@ boundary_case() {
 semantics_case() {
   local output error message mention_id interrupt_id
 
+  write_state
+  : >"$bb_log"
+  output="$(run_comms mention sender default-reviewer body)"
+  assert_contains "missing comms config falls back to DB" \
+    "$output" "-> default-reviewer"
+  grep -Fq -- "msg-cli.clj 7977 mention sender default-reviewer body" "$bb_log"
+
   write_state "comms=off" "comms.enforcement=forced"
   : >"$bb_log"
   if error="$(run_comms mention sender absent body 2>&1)"; then
@@ -261,16 +268,60 @@ semantics_case() {
   printf 'north Attention transport semantics: PASS\n'
 }
 
+parser_case() {
+  local store classpath expression parsed error
+  store="${BEAGLE_STORE_TEST_CHECKOUT:-/home/tom/code/beagle/main/store}"
+  classpath="$root/out:$store/out"
+  expression='(System/setProperty "north.msg-cli.lib" "1")
+(System/setProperty "babashka.file" (System/getenv "NORTH_MSG_CLI"))
+(load-file (System/getenv "NORTH_MSG_CLI"))
+(prn (parse-directed-attention! "mention" *command-line-args*))'
+
+  parsed="$(
+    NORTH_MSG_CLI="$root/cli/msg-cli.clj" \
+      bb -cp "$classpath" -e "$expression" -- \
+      sender reviewer --about @thread:x body
+  )"
+  assert_contains "mention parser accepts options before its body" \
+    "$parsed" ':about "@thread:x"'
+  assert_contains "mention parser preserves the single body" \
+    "$parsed" ':body "body"'
+
+  if error="$(
+    NORTH_MSG_CLI="$root/cli/msg-cli.clj" \
+      bb -cp "$classpath" -e "$expression" -- sender reviewer 2>&1
+  )"; then
+    printf 'FAIL mention parser accepted no body\n' >&2
+    exit 1
+  fi
+  assert_contains "mention parser rejects no body" \
+    "$error" "requires exactly one non-option body argument"
+
+  if error="$(
+    NORTH_MSG_CLI="$root/cli/msg-cli.clj" \
+      bb -cp "$classpath" -e "$expression" -- sender reviewer body extra 2>&1
+  )"; then
+    printf 'FAIL mention parser accepted multiple bodies\n' >&2
+    exit 1
+  fi
+  assert_contains "mention parser rejects multiple bodies" \
+    "$error" "requires exactly one body argument after options"
+
+  printf 'north mention parser contract: PASS\n'
+}
+
 case "${1:-all}" in
   boundary) boundary_case ;;
   semantics) semantics_case ;;
+  parser) parser_case ;;
   all)
     boundary_case
     rm -rf -- "${file_root:?}"
     semantics_case
+    parser_case
     ;;
   *)
-    printf 'usage: %s [boundary|semantics|all]\n' "$0" >&2
+    printf 'usage: %s [boundary|semantics|parser|all]\n' "$0" >&2
     exit 2
     ;;
 esac
