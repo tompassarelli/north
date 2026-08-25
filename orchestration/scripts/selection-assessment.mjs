@@ -24,32 +24,32 @@ export const REASONING_LEVELS = Object.freeze(["low", "medium", "high", "xhigh",
 
 const TIER_MINIMUM_REASONING = Object.freeze({
   economy: "low",
-  standard: "low",
-  senior: "medium",
+  standard: "medium",
+  senior: "high",
   frontier: "xhigh",
 });
 
 const DECISION_ROUTE = Object.freeze({
-  bounded: ["standard", "low"],
-  "cross-boundary": ["senior", "medium"],
+  bounded: ["standard", "medium"],
+  "cross-boundary": ["senior", "high"],
   "system-shaping": ["frontier", "xhigh"],
   "open-solution-class": ["frontier", "xhigh"],
 });
 const SEAM_ROUTE = Object.freeze({
-  established: ["standard", "low"],
-  consequential: ["senior", "medium"],
+  established: ["standard", "medium"],
+  consequential: ["senior", "high"],
   "system-wide": ["frontier", "xhigh"],
 });
 const ERROR_ROUTE = Object.freeze({
-  "material-recoverable": ["standard", "low"],
-  "high-or-hard-to-reverse": ["senior", "medium"],
+  "material-recoverable": ["standard", "medium"],
+  "high-or-hard-to-reverse": ["senior", "high"],
 });
 const ORACLE_ROUTE = Object.freeze({
-  partial: ["standard", "medium"],
+  partial: ["senior", "high"],
   "judgment-only": ["senior", "high"],
 });
 const FOUNDATIONAL_ROUTE = Object.freeze({
-  "invariant-decision-owned": ["senior", "medium"],
+  "invariant-decision-owned": ["senior", "high"],
 });
 const DEPENDENCY_ROUTE = Object.freeze({
   "parallel-breadth": ["standard", "medium"],
@@ -57,7 +57,6 @@ const DEPENDENCY_ROUTE = Object.freeze({
   "tightly-coupled-sequential": ["senior", "high"],
 });
 const REASONING_ROUTE = Object.freeze({
-  deterministic: ["economy", "low"],
   "bounded-branching": ["standard", "medium"],
   "multi-hypothesis": ["senior", "high"],
   "system-synthesis": ["frontier", "xhigh"],
@@ -117,7 +116,17 @@ export function deriveSelectionAssessment(signalsValue) {
   applyRoute(state, `oracle-strength:${signals.oracleStrength}`, ORACLE_ROUTE[signals.oracleStrength]);
   applyRoute(state, `foundational-impact:${signals.foundationalImpact}`, FOUNDATIONAL_ROUTE[signals.foundationalImpact]);
   applyRoute(state, `dependency-shape:${signals.dependencyShape}`, DEPENDENCY_ROUTE[signals.dependencyShape]);
-  applyRoute(state, `reasoning-shape:${signals.reasoningShape}`, REASONING_ROUTE[signals.reasoningShape]);
+  if (signals.reasoningShape === "deterministic") {
+    const tightStrongOracle = signals.decisionOwnership === "none" && signals.seamScope === "none" &&
+      signals.errorExposure === "contained-reversible" && signals.oracleStrength === "objective-end-to-end" &&
+      signals.dependencyShape === "atomic-cohesive";
+    applyRoute(state,
+      tightStrongOracle ? "reasoning-shape:deterministic-tight-strong-oracle" : "reasoning-shape:deterministic-without-tight-strong-oracle",
+      tightStrongOracle ? ["economy", "low"] : ["standard", "medium"],
+    );
+  } else {
+    applyRoute(state, `reasoning-shape:${signals.reasoningShape}`, REASONING_ROUTE[signals.reasoningShape]);
+  }
 
   const compatibleMinimum = TIER_MINIMUM_REASONING[state.minimumTier];
   if (rank(REASONING_LEVELS, state.minimumReasoning) < rank(REASONING_LEVELS, compatibleMinimum)) {

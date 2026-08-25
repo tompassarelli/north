@@ -312,7 +312,8 @@ function renderProviderMatrix() {
       const routes = Object.entries(descriptor.routes)
         .map(([tier, levels]) => `${tier}: ${levels.join(", ")}`)
         .join("<br>");
-      exactCompatibility.push(`| ${provider} | \`${model}\` | ${aliasesFor(catalog, model)} | ${vocabulary} | ${supported.join(", ")} | ${routes} | ${unrouted.join(", ") || "—"} |`);
+      const pinnedDefault = descriptor.pinnedDefault ?? "—";
+      exactCompatibility.push(`| ${provider} | \`${model}\` | ${aliasesFor(catalog, model)} | ${vocabulary} | ${supported.join(", ")} | ${routes} | ${pinnedDefault} | ${unrouted.join(", ") || "—"} |`);
       const cw = descriptor.contextWindow;
       contextWindows.push(`| ${provider} | \`${model}\` | ${aliasesFor(catalog, model)} | ${groupThousands(cw.tokens)} | ${cw.effectiveFrom} |`);
     }
@@ -335,15 +336,16 @@ function renderProviderMatrix() {
     "not make an omitted shingle routable. Supported-but-unrouted levels remain",
     "future calibration inputs, not dispatchable routes. Unpinned requests use the",
     "canonical semantic-resolution table above; this table is consulted only when",
-    "the execution envelope explicitly pins an exact model or alias.",
+    "the execution envelope explicitly pins an exact model or alias. A pinned",
+    "default is catalog-owned and applies only to that deliberate exact-model route.",
     "",
     "Static compatibility is only one preflight. Account entitlement and current",
     "target availability are independent North facts; North must prove an",
     "available authenticated target for the exact provider/model before dispatch.",
     "No catalog support or route entry establishes either runtime fact.",
     "",
-    "| Provider | Exact model | Aliases | Control | Provider-supported levels in Orchestration vocabulary | Calibrated exact routes | Supported but unrouted |",
-    "|---|---|---|---|---|---|---|",
+    "| Provider | Exact model | Aliases | Control | Provider-supported levels in Orchestration vocabulary | Calibrated exact routes | Pinned default | Supported but unrouted |",
+    "|---|---|---|---|---|---|---|---|",
     ...exactCompatibility,
   );
   lines.push(

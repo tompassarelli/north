@@ -100,7 +100,8 @@
         "routes": { "$ref": "#/$defs/modelRoutes" },
         "contextWindow": { "$ref": "#/$defs/contextWindow" },
         "efforts": { "$ref": "#/$defs/reasoning" },
-        "reasoning": { "$ref": "#/$defs/reasoning" }
+        "reasoning": { "$ref": "#/$defs/reasoning" },
+        "pinnedDefault": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] }
       },
       "oneOf": [
         { "required": ["efforts"] },

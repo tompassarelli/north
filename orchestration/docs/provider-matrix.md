@@ -32,9 +32,9 @@ delta lookup; unversioned calibration is never inherited.
 | anthropic | standard | `claude-sonnet-5` | `sonnet` | medium | medium | none — the existing unversioned Sonnet self-report does not establish an exact Sonnet 5 calibration |
 | anthropic | senior | `claude-opus-5` | `opus` | medium, high | high | none — adopted as senior+director default 2026-07-25 on benchmark grounding; exact Opus 5 delta pending a orchestration:elicit calibration pass |
 | anthropic | frontier | `claude-fable-5` | `fable` | high, xhigh | xhigh | [calibrated](deltas/claude-fable-5.md) |
-| openai | economy | `gpt-5.6-luna` | `luna` | low, medium | medium | [calibrated](deltas/gpt-5.6-luna.md) |
-| openai | standard | `gpt-5.6-terra` | `terra` | low, medium | medium | [calibrated](deltas/gpt-5.6-terra.md) |
-| openai | senior | `gpt-5.6-sol` | `sol` | medium, high | high | [calibrated](deltas/gpt-5.6-sol.md) |
+| openai | economy | `gpt-5.6-sol` | `sol` | low | low | [calibrated](deltas/gpt-5.6-sol.md) |
+| openai | standard | `gpt-5.6-sol` | `sol` | medium | medium | [calibrated](deltas/gpt-5.6-sol.md) |
+| openai | senior | `gpt-5.6-sol` | `sol` | high | high | [calibrated](deltas/gpt-5.6-sol.md) |
 | openai | frontier | `gpt-5.6-sol` | `sol` | xhigh, max | xhigh | [calibrated](deltas/gpt-5.6-sol.md) |
 
 ## Exact-model pin compatibility
@@ -46,22 +46,23 @@ model×tier×deliberation shingles, never a cross-product. Raw support does
 not make an omitted shingle routable. Supported-but-unrouted levels remain
 future calibration inputs, not dispatchable routes. Unpinned requests use the
 canonical semantic-resolution table above; this table is consulted only when
-the execution envelope explicitly pins an exact model or alias.
+the execution envelope explicitly pins an exact model or alias. A pinned
+default is catalog-owned and applies only to that deliberate exact-model route.
 
 Static compatibility is only one preflight. Account entitlement and current
 target availability are independent North facts; North must prove an
 available authenticated target for the exact provider/model before dispatch.
 No catalog support or route entry establishes either runtime fact.
 
-| Provider | Exact model | Aliases | Control | Provider-supported levels in Orchestration vocabulary | Calibrated exact routes | Supported but unrouted |
-|---|---|---|---|---|---|---|
-| anthropic | `claude-opus-5` | `opus` | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh | low, max |
-| anthropic | `claude-sonnet-5` | `sonnet` | effort | low, medium, high, xhigh, max | economy: low<br>standard: medium | high, xhigh, max |
-| anthropic | `claude-opus-4-8` | — | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
-| anthropic | `claude-fable-5` | `fable` | effort | low, medium, high, xhigh, max | frontier: high, xhigh | low, medium, max |
-| openai | `gpt-5.6-luna` | `luna` | reasoning | low, medium, high, xhigh, max | economy: low, medium | high, xhigh, max |
-| openai | `gpt-5.6-terra` | `terra` | reasoning | low, medium, high, xhigh, max | standard: low, medium | high, xhigh, max |
-| openai | `gpt-5.6-sol` | `sol` | reasoning | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | low |
+| Provider | Exact model | Aliases | Control | Provider-supported levels in Orchestration vocabulary | Calibrated exact routes | Pinned default | Supported but unrouted |
+|---|---|---|---|---|---|---|---|
+| anthropic | `claude-opus-5` | `opus` | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh | — | low, max |
+| anthropic | `claude-sonnet-5` | `sonnet` | effort | low, medium, high, xhigh, max | economy: low<br>standard: medium | — | high, xhigh, max |
+| anthropic | `claude-opus-4-8` | — | effort | low, medium, high, xhigh, max | senior: medium, high<br>frontier: xhigh, max | — | low |
+| anthropic | `claude-fable-5` | `fable` | effort | low, medium, high, xhigh, max | frontier: high, xhigh | — | low, medium, max |
+| openai | `gpt-5.6-luna` | `luna` | reasoning | low, medium, high, xhigh, max | economy: low, medium, high, xhigh | xhigh | max |
+| openai | `gpt-5.6-terra` | `terra` | reasoning | low, medium, high, xhigh, max | standard: low, medium, high, xhigh | high | max |
+| openai | `gpt-5.6-sol` | `sol` | reasoning | low, medium, high, xhigh, max | economy: low<br>standard: medium<br>senior: high<br>frontier: xhigh, max | — | — |
 
 ## Context window (provider limit)
 
@@ -94,3 +95,5 @@ then prevents calibration inheritance from the default tier model.
 | Provider | Exact model | Aliases | Model delta |
 |---|---|---|---|
 | anthropic | `claude-opus-4-8` | — | none — the existing unversioned Opus self-report does not establish an exact Opus 4.8 calibration |
+| openai | `gpt-5.6-luna` | `luna` | [calibrated](deltas/gpt-5.6-luna.md) |
+| openai | `gpt-5.6-terra` | `terra` | [calibrated](deltas/gpt-5.6-terra.md) |

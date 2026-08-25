@@ -26,18 +26,22 @@
   "models": {
     "gpt-5.6-luna": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
-      "routes": { "economy": ["low", "medium"] },
+      "routes": { "economy": ["low", "medium", "high", "xhigh"] },
+      "pinnedDefault": "xhigh",
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
     },
     "gpt-5.6-terra": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
-      "routes": { "standard": ["low", "medium"] },
+      "routes": { "standard": ["low", "medium", "high", "xhigh"] },
+      "pinnedDefault": "high",
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
     },
     "gpt-5.6-sol": {
       "reasoning": ["low", "medium", "high", "xhigh", "max"],
       "routes": {
-        "senior": ["medium", "high"],
+        "economy": ["low"],
+        "standard": ["medium"],
+        "senior": ["high"],
         "frontier": ["xhigh", "max"]
       },
       "contextWindow": { "tokens": 1050000, "effectiveFrom": "2026-07-16" }
@@ -49,9 +53,9 @@
     "gpt-5.6-sol": { "kind": "calibrated", "path": "docs/deltas/gpt-5.6-sol.md" }
   },
   "tiers": {
-    "economy": { "model": "gpt-5.6-luna", "reasoning": ["low", "medium"], "defaultReasoning": "medium" },
-    "standard": { "model": "gpt-5.6-terra", "reasoning": ["low", "medium"], "defaultReasoning": "medium" },
-    "senior": { "model": "gpt-5.6-sol", "reasoning": ["medium", "high"], "defaultReasoning": "high" },
+    "economy": { "model": "gpt-5.6-sol", "reasoning": ["low"], "defaultReasoning": "low" },
+    "standard": { "model": "gpt-5.6-sol", "reasoning": ["medium"], "defaultReasoning": "medium" },
+    "senior": { "model": "gpt-5.6-sol", "reasoning": ["high"], "defaultReasoning": "high" },
     "frontier": { "model": "gpt-5.6-sol", "reasoning": ["xhigh", "max"], "defaultReasoning": "xhigh" }
   }
 }

@@ -62,16 +62,22 @@ export function resolveBridgeLaunchSelection(
   const base = applyOrchestrationStaffing({ role });
   const tier = selection.tier ?? base.tier;
   const automatic = resolveTier(provider, tier);
-  const effort = selection.effort ?? automatic.effort ?? base.reasoning;
-  const resolved = resolveTier(provider, tier, selection.model, effort);
+  const pinned = selection.model
+    ? resolveTier(provider, tier, selection.model, selection.effort)
+    : undefined;
+  const effort = pinned?.effort ?? selection.effort ?? automatic.effort ?? base.reasoning;
+  const resolved = pinned ?? resolveTier(provider, tier, undefined, effort);
+  // A concrete model pin may deliberately use reasoning outside the unpinned
+  // semantic ramp. Keep the staffing receipt provider-neutral.
+  const semanticEffort = pinned ? automatic.effort ?? base.reasoning : effort;
   const overrides = [
     ...(tier !== base.tier ? ["tier" as const] : []),
-    ...(effort !== base.reasoning ? ["reasoning" as const] : []),
+    ...(semanticEffort !== base.reasoning ? ["reasoning" as const] : []),
   ];
   const routingMetadata = overrides.length === 0 ? base : applyOrchestrationStaffing({
     role,
     tier,
-    reasoning: effort,
+    reasoning: semanticEffort,
     composition: {
       kind: "template", id: base.role, overrides,
       overrideReason: "Bridge launch selection",

@@ -200,7 +200,7 @@ for (const preset of staffing.presets)
 // `reasoning`.
 const modelCompatibilitySchema = providerSchema.$defs?.modelCompatibility;
 function modelCompatibilitySchemaAccepts(value) {
-  const allowed = ["routes", "contextWindow", "efforts", "reasoning"];
+  const allowed = ["routes", "contextWindow", "efforts", "reasoning", "pinnedDefault"];
   const routesSchema = providerSchema.$defs?.modelRoutes;
   const reasoningSchema = providerSchema.$defs?.reasoning;
   const contextWindowSchema = providerSchema.$defs?.contextWindow;
@@ -232,13 +232,17 @@ function modelCompatibilitySchemaAccepts(value) {
   const vocabularies = ["efforts", "reasoning"].filter((key) => Object.hasOwn(value, key));
   if (vocabularies.length !== 1) return false;
   const levels = value[vocabularies[0]];
+  const pinnedDefault = value.pinnedDefault;
   return Array.isArray(levels) && levels.length >= reasoningSchema.minItems &&
     new Set(levels).size === levels.length &&
-    levels.every((level) => reasoningSchema.items.enum.includes(level));
+    levels.every((level) => reasoningSchema.items.enum.includes(level)) &&
+    (pinnedDefault === undefined || reasoningSchema.items.enum.includes(pinnedDefault));
 }
 const okContextWindow = { contextWindow: { tokens: 1000000, effectiveFrom: "2026-07-16" } };
 for (const [value, expected] of [
   [{ efforts: ["low", "xhigh", "max"], routes: { frontier: ["xhigh", "max"] }, ...okContextWindow }, true],
+  [{ reasoning: ["low", "xhigh"], routes: { economy: ["low", "xhigh"] }, pinnedDefault: "xhigh", ...okContextWindow }, true],
+  [{ reasoning: ["low", "xhigh"], routes: { economy: ["low", "xhigh"] }, pinnedDefault: "none", ...okContextWindow }, false],
   [{ reasoning: ["low", "xhigh", "max"], routes: { frontier: ["xhigh", "max"] }, ...okContextWindow }, true],
   [{ efforts: [], routes: { frontier: ["xhigh"] }, ...okContextWindow }, false],
   [{ efforts: ["xhigh"], routes: {}, ...okContextWindow }, false],
@@ -359,6 +363,31 @@ for (const catalog of Object.values(providerCatalogs)) {
   }
 }
 const fableModel = providerCatalogs.anthropic.modelAliases.fable;
+// OpenAI's unpinned semantic ramp uses Sol; Luna and Terra retain their
+// catalog-owned defaults only when the exact auxiliary model is deliberate.
+for (const { tier, reasoning } of [
+  { tier: "economy", reasoning: "low" },
+  { tier: "standard", reasoning: "medium" },
+  { tier: "senior", reasoning: "high" },
+]) {
+  const row = providerCatalogs.openai.tiers[tier];
+  if (row.model !== "gpt-5.6-sol" || row.defaultReasoning !== reasoning ||
+      JSON.stringify(row.reasoning) !== JSON.stringify([reasoning]))
+    throw new Error(`OpenAI ${tier} must resolve its unpinned Sol rung exactly`);
+}
+for (const { tier, alias, model, pinnedDefault } of [
+  { tier: "economy", alias: "luna", model: "gpt-5.6-luna", pinnedDefault: "xhigh" },
+  { tier: "standard", alias: "terra", model: "gpt-5.6-terra", pinnedDefault: "high" },
+]) {
+  const descriptor = providerCatalogs.openai.models[model];
+  if (descriptor.pinnedDefault !== pinnedDefault)
+    throw new Error(`OpenAI ${alias} pinned default drifted`);
+  for (const reasoning of descriptor.routes[tier]) {
+    const route = resolvePinnedModelRoute(providerCatalogs.openai, { model: alias, tier, reasoning });
+    if (JSON.stringify(route) !== JSON.stringify({ provider: "openai", model, tier, reasoning }))
+      throw new Error(`OpenAI ${alias}/${tier}/${reasoning} explicit pin did not resolve exactly`);
+  }
+}
 // frontier/high is now deliberately reachable via the calibrated Fable route.
 if (!resolvableDeliberations("frontier").has("high"))
   throw new Error("frontier/high should be reachable through the calibrated Fable frontier tier route");
@@ -578,7 +607,7 @@ for (const [label, invalid, errorContains] of [
     economy: { ...openaiFixture.tiers.economy, price: 1 },
   } }],
   ["unsupported default", { ...openaiFixture, tiers: { ...openaiFixture.tiers,
-    economy: { ...openaiFixture.tiers.economy, defaultReasoning: "high" },
+    economy: { ...openaiFixture.tiers.economy, defaultReasoning: "none" },
   } }],
   ["duplicate concrete rung", { ...openaiFixture, tiers: { ...openaiFixture.tiers,
     frontier: {
@@ -604,9 +633,12 @@ for (const [label, invalid, errorContains] of [
   ["cross-tier model rung duplicate", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiFrontierModel].routes.frontier.push("high");
   }), `exact route ${openaiFrontierModel}/high appears in both senior and frontier`],
-  ["default-model planted extra rung", mutateCatalog(openaiFixture, (catalog) => {
-    catalog.models[openaiEconomyModel].routes.economy.push("high");
+  ["default-model dropped canonical rung", mutateCatalog(openaiFixture, (catalog) => {
+    catalog.tiers.economy.reasoning.push("medium");
   }), `models.${openaiEconomyModel}.routes.economy must exactly match the canonical default tier rung order`],
+  ["pinned default outside calibrated route", mutateCatalog(openaiFixture, (catalog) => {
+    catalog.models["gpt-5.6-luna"].pinnedDefault = "max";
+  }), "pinnedDefault must be a calibrated exact route"],
   ["provider vocabulary mismatch", mutateCatalog(openaiFixture, (catalog) => {
     catalog.models[openaiEconomyModel].efforts = catalog.models[openaiEconomyModel].reasoning;
     delete catalog.models[openaiEconomyModel].reasoning;
@@ -1122,9 +1154,9 @@ for (const [role, flag, value, field] of [
 // The versioned assessment is a sidecar: it can select tier/reasoning, but it
 // never adds a ninth request field or mutate any orthogonal routing axis.
 for (const [fixtureName, role, expectedTier, expectedReasoning, overrideReason] of [
-  ["foundational mechanical implementation remains economy", "executor", "economy", "low", null],
+  ["unusually deterministic strong-oracle implementation remains economy", "executor", "economy", "low", null],
   ["foundational known-pattern implementation remains standard", "implementer", "standard", "medium", null],
-  ["foundational invariant decision routes senior", "implementer", "senior", "medium", "owns a foundational invariant decision"],
+  ["cross-boundary weak-oracle engineering routes senior", "implementer", "senior", "high", "owns a cross-boundary weak-oracle invariant"],
   ["system synthesis routes frontier", "designer", "frontier", "xhigh", null],
 ]) {
   const base = compose([role]).payload;
@@ -1323,8 +1355,8 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
     throw new Error("layer floor must raise capability without renaming the task function");
   const selectionPolicyText = `${readme}\n${doctrine}\n${method}\n${routing}\n${composeSkill}\n${JSON.stringify(staffing.presets)}`;
   if (/foundational(?:\s*\/\s*library)?(?:\s*\/\s*architecture)?[\s\S]{0,100}never routes? below[\s\S]{0,30}senior|foundational targets? raises? (?:the )?(?:semantic )?tier/i.test(selectionPolicyText))
-    throw new Error("blanket foundational senior floor returned; implementation-only work must remain eligible for economy/standard");
-  for (const phrase of ["minimum-sufficient-v1", "implementation-only", "invariant decision", "exactly eight fields"])
+    throw new Error("blanket foundational senior floor returned; the deterministic strong-oracle exception must remain eligible for economy");
+  for (const phrase of ["minimum-sufficient-v1", "objective end-to-end oracle", "ordinary meaningful", "weak-oracle", "exactly eight fields"])
     if (!selectionPolicyText.includes(phrase))
       throw new Error(`minimum-sufficient policy documentation lost required boundary: ${phrase}`);
   if (/root CLAUDE\.md/.test(roles)) throw new Error("role blocks must route to canonical AGENTS.md");
@@ -1438,7 +1470,7 @@ for (const unsupported of ["--leverage", "--quality-floor", "--dependency-shape"
       throw new Error(`generated provider matrix lost exact-model fact separation: ${phrase}`);
   const fableMatrixRow = providerMatrix.split("\n")
     .find((line) => line.startsWith(`| anthropic | \`${fableModel}\` |`));
-  if (!fableMatrixRow?.includes("| frontier: high, xhigh | low, medium, max |"))
+  if (!fableMatrixRow?.includes("| frontier: high, xhigh | — | low, medium, max |"))
     throw new Error("Fable matrix must expose max as provider-supported but unrouted calibration input");
   if (!routing.includes("support never implies a tier cross-product") ||
       !routing.includes("Static catalog compatibility establishes neither account") ||

@@ -14,12 +14,13 @@ importance alone never does.
 Two empirical laws sharpen the routing:
 
 - **Minimum-sufficient floor.** Repository or stack layer is not a capability
-  proxy. Foundational implementation-only work may remain `economy` or
-  `standard` when it owns no invariant decision and has a bounded seam plus an
-  objective oracle. Foundational invariant-decision ownership routes at least
-  `senior`; system-shaping/open-solution ownership or system synthesis routes
-  `frontier`. The selection assessment makes that boundary explicit instead of
-  promoting every foundational edit.
+  proxy. `economy`/`low` is reserved for unusually deterministic, tightly
+  bounded work with an objective end-to-end oracle. Ordinary meaningful
+  engineering routes at least `standard`/`medium`; cross-boundary,
+  architectural, or weak-oracle work routes at least `senior`/`high`.
+  System-shaping/open-solution ownership or system synthesis routes `frontier`.
+  The selection assessment makes that boundary explicit instead of promoting
+  every foundational edit.
 - **Shingle law.** A provider catalog exposes only useful
   model×deliberation rungs and assigns each exact rung to only one semantic
   tier. When an upper rung is dominated by the next route's lower rung, the

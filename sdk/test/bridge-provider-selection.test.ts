@@ -115,7 +115,7 @@ test("automatic effort follows the selected provider and tier", () => {
 
   const exact = resolveBridgeLaunchSelection("openai", "implementer", { model: "terra" });
   expect(exact.resolved).toEqual({
-    tier: "standard", model: "gpt-5.6-terra", effort: "medium",
+    tier: "standard", model: "gpt-5.6-terra", effort: "high",
   });
   expect(exact.routingMetadata).toMatchObject({
     role: "implementer", tier: "standard", reasoning: "medium",
@@ -332,7 +332,7 @@ test("automatic provider choice filters route compatibility before headroom", as
 
   expect(await selectBridgeProvider({ role: "implementer", model: "terra" }))
     .toBe("openai");
-  expect(await selectBridgeProvider({ role: "implementer", model: "sonnet" }))
+  expect(await selectBridgeProvider({ role: "implementer", model: "sonnet", effort: "medium" }))
     .toBe("anthropic");
   expect(await selectBridgeProvider({ role: "director", effort: "max" }))
     .toBe("openai");

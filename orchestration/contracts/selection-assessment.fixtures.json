@@ -2,16 +2,16 @@
   "version": 1,
   "valid": [
     {
-      "name": "foundational mechanical implementation remains economy",
+      "name": "unusually deterministic strong-oracle implementation remains economy",
       "assessment": {
         "version": "minimum-sufficient-v1",
         "signals": {
           "decisionOwnership": "none", "seamScope": "none",
-          "errorExposure": "contained-reversible", "oracleStrength": "objective-local",
+          "errorExposure": "contained-reversible", "oracleStrength": "objective-end-to-end",
           "foundationalImpact": "implementation-only", "dependencyShape": "atomic-cohesive",
           "reasoningShape": "deterministic"
         },
-        "derived": { "minimumTier": "economy", "minimumReasoning": "low", "ruleCodes": ["reasoning-shape:deterministic"] },
+        "derived": { "minimumTier": "economy", "minimumReasoning": "low", "ruleCodes": ["reasoning-shape:deterministic-tight-strong-oracle"] },
         "selected": { "tier": "economy", "reasoning": "low" }
       }
     },
@@ -33,7 +33,7 @@
       }
     },
     {
-      "name": "foundational invariant decision routes senior",
+      "name": "cross-boundary weak-oracle engineering routes senior",
       "assessment": {
         "version": "minimum-sufficient-v1",
         "signals": {
@@ -43,10 +43,10 @@
           "reasoningShape": "bounded-branching"
         },
         "derived": {
-          "minimumTier": "senior", "minimumReasoning": "medium",
+          "minimumTier": "senior", "minimumReasoning": "high",
           "ruleCodes": ["decision-ownership:cross-boundary", "seam-scope:established", "error-exposure:material-recoverable", "oracle-strength:partial", "foundational-impact:invariant-decision-owned", "reasoning-shape:bounded-branching"]
         },
-        "selected": { "tier": "senior", "reasoning": "medium" }
+        "selected": { "tier": "senior", "reasoning": "high" }
       }
     },
     {
@@ -149,8 +149,8 @@
           "foundationalImpact": "none", "dependencyShape": "atomic-cohesive",
           "reasoningShape": "deterministic"
         },
-        "derived": { "minimumTier": "economy", "minimumReasoning": "low", "ruleCodes": ["reasoning-shape:deterministic"] },
-        "selected": { "tier": "standard", "reasoning": "medium" }
+        "derived": { "minimumTier": "standard", "minimumReasoning": "medium", "ruleCodes": ["reasoning-shape:deterministic-without-tight-strong-oracle"] },
+        "selected": { "tier": "senior", "reasoning": "high" }
       }
     },
     {

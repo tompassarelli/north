@@ -77,7 +77,7 @@
             ["usage_total_status" "exact"] ["duration_ms" "800"]
             ["provider_turn_units" "2"] ["provider_tool_items" "5"]
             ["provider_turn_metric_comparable" "false"]
-            ["provider" "openai"] ["model_tier" "senior"] ["effort" "medium"]
+            ["provider" "openai"] ["model_tier" "standard"] ["effort" "medium"]
             ["at" "2026-07-16T00:01:00Z"]]
            "@run-exact-zero"
            [["kind" "run"] ["agent" "worker-zero"] ["tokens" "0"]
@@ -95,7 +95,7 @@
             ["lifetime_reasoning_tokens" "7"] ["model_call_count" "1"]
             ["usage_terminal_count" "0"] ["usage_scope" "wire_run_cumulative"]
             ["usage_total_status" "partial"] ["provider" "openai"]
-            ["model_tier" "senior"] ["effort" "medium"]
+            ["model_tier" "standard"] ["effort" "medium"]
             ["at" "2026-07-16T00:03:00Z"]]
            "@run-incomplete-terminal"
            [["kind" "run"] ["agent" "worker-incomplete"]
@@ -104,7 +104,7 @@
             ["lifetime_reasoning_tokens" "0"] ["model_call_count" "1"]
             ["usage_terminal_count" "1"] ["usage_scope" "wire_run_cumulative"]
             ["usage_total_status" "unknown_incomplete_terminal"] ["provider" "openai"]
-            ["model_tier" "senior"] ["effort" "medium"]
+            ["model_tier" "standard"] ["effort" "medium"]
             ["at" "2026-07-16T00:04:00Z"]]
            "@run-no-terminal"
            [["kind" "run"] ["agent" "worker-no-terminal"]
@@ -160,7 +160,7 @@
                       "2pt/5it"]))
       (check "report groups by semantic tier, keeps cache/reasoning subsets non-additive, and ignores dollar row"
              (and (str/includes? (:out full) "MODEL_TIER")
-                  (str/includes? (:out recent) "openai/senior/medium")
+                  (str/includes? (:out recent) "openai/standard/medium")
                   (str/includes? (:out recent) "1:anthropic -> openai")
                   (str/includes? (:out recent) "@run-exact-openai")
                   (not (str/includes? (:out recent) "@run-historical"))
