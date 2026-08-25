@@ -4,6 +4,7 @@
 (ns north.learning-compare
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 (def cli-dir
@@ -11,7 +12,7 @@
 (load-file (str cli-dir "/coord.clj"))
 (load-file (str cli-dir "/terminal-projection.clj"))
 
-(def schema-version "north-learning-comparison:v1")
+(def schema-version "north-learning-comparison:v2")
 (def max-comparison-facts 262144)
 (def max-safe-integer 9007199254740991)
 (def identifier-pattern #"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$")
@@ -55,7 +56,10 @@
    "done_bar_evidence_incomplete"
    "retry_chain_invalid"
    "retry_chain_cohort_mismatch"
-   "retry_superseded"])
+   "retry_superseded"
+   "execution_observation_invalid"
+   "execution_mode_unknown"
+   "execution_mode_mixed"])
 
 (def exclusion-rank (zipmap exclusion-order (range)))
 
@@ -99,6 +103,101 @@
 
 (defn- exact-identifier? [value]
   (boolean (and (string? value) (re-matches identifier-pattern value))))
+
+(def execution-observation-version "agent-execution-observation/v1")
+(def execution-modes #{"standard" "fast"})
+(def observation-token-pattern #"^[a-z0-9][a-z0-9._:/-]*$")
+
+(defn- exact-fields? [value expected]
+  (and (map? value) (= expected (set (keys value)))))
+
+(defn- safe-count? [value]
+  (and (integer? value) (<= 0 value max-safe-integer)))
+
+(defn- exact-observation-token? [value]
+  (boolean (and (string? value) (re-matches observation-token-pattern value))))
+
+(defn- execution-observation [facts]
+  (let [raw (one facts "execution_observation")
+        parsed (when (string? raw)
+                 (try (json/parse-string raw)
+                      (catch Exception _ nil)))
+        coverage (get parsed "coverage")
+        segments (get parsed "segments")
+        evidence (get parsed "evidence")
+        source (get parsed "source")]
+    (cond
+      (not (and (= execution-observation-version (get parsed "version"))
+                (exact-observation-token? source)))
+      {:status "invalid"}
+
+      (= "unknown" coverage)
+      (if (and (exact-fields? parsed #{"version" "coverage" "source" "turn_unit"
+                                      "tool_call_unit" "evidence" "segments"})
+               (= "unknown" (get parsed "turn_unit"))
+               (= "unknown" (get parsed "tool_call_unit"))
+               (map? evidence) (empty? evidence)
+               (sequential? segments) (empty? segments))
+        {:status "unknown" :coverage coverage :source source}
+        {:status "invalid"})
+
+      (= "exact" coverage)
+      (if-not (and (exact-fields? parsed
+                                  #{"version" "coverage" "source" "turn_unit"
+                                    "tool_call_unit" "evidence" "segments"})
+                   (= "assistant-turn" (get parsed "turn_unit"))
+                   (= "admitted-tool-call" (get parsed "tool_call_unit"))
+                   (exact-fields? evidence #{"provider" "attempt_sha256" "session_sha256"})
+                   (exact-observation-token? (get evidence "provider"))
+                   (exact-digest? (get evidence "attempt_sha256"))
+                   (exact-digest? (get evidence "session_sha256"))
+                   (sequential? segments) (seq segments))
+        {:status "invalid"}
+        (loop [remaining segments preceding nil turns 0 tools 0 modes #{} seen-turns #{}]
+          (if-let [segment (first remaining)]
+            (let [mode (get segment "mode")
+                  segment-turns (get segment "turn_count")
+                  segment-tools (get segment "tool_call_count")
+                  turn-keys (get segment "turn_sha256")
+                  next-turns (+ turns (if (integer? segment-turns) segment-turns 0))
+                  next-tools (+ tools (if (integer? segment-tools) segment-tools 0))]
+              (if-not (and (exact-fields? segment
+                                          #{"mode" "turn_count" "tool_call_count"
+                                            "turn_sha256"})
+                           (execution-modes mode)
+                           (not= preceding mode)
+                           (safe-count? segment-turns) (pos? segment-turns)
+                           (safe-count? segment-tools)
+                           (safe-count? next-turns)
+                           (safe-count? next-tools)
+                           (sequential? turn-keys)
+                           (= segment-turns (count turn-keys))
+                           (= (count turn-keys) (count (set turn-keys)))
+                           (empty? (set/intersection seen-turns (set turn-keys)))
+                           (every? exact-digest? turn-keys))
+                {:status "invalid"}
+                (recur (next remaining) mode next-turns next-tools
+                       (conj modes mode) (into seen-turns turn-keys))))
+            (let [mode (when (= 1 (count modes)) (first modes))]
+              {:status (or mode "mixed")
+               :coverage coverage
+               :source source
+               :evidence evidence
+               :mode mode
+               :turn-unit (get parsed "turn_unit")
+               :tool-call-unit (get parsed "tool_call_unit")
+               :turn-count turns
+               :tool-call-count tools
+               :segments (vec segments)}))))
+
+      :else {:status "invalid"})))
+
+(defn- execution-exclusion-reasons [execution]
+  (case (:status execution)
+    "invalid" ["execution_observation_invalid"]
+    "unknown" ["execution_mode_unknown"]
+    "mixed" ["execution_mode_mixed"]
+    []))
 
 (defn- exact-versioned-receipt?
   [facts version-predicate expected-version coverage-predicate digest-predicates]
@@ -239,7 +338,7 @@
       ["routing_receipt_not_exact"])
     (done-bar-reasons run facts))))
 
-(defn- exact-cohort [facts]
+(defn- exact-cohort [facts execution-mode]
   (let [task (one facts "learning_task_signature_sha256")
         axis (one facts "learning_axis")
         arm (one facts "learning_arm_id")
@@ -251,18 +350,21 @@
                (= "exact" (one facts "learning_task_signature_coverage"))
                (#{"control" "model-tier" "effort" "prompt" "authoring" "history"}
                 axis)
-               (exact-identifier? arm))
-      [task axis arm baseline options])))
+               (exact-identifier? arm)
+               (execution-modes execution-mode))
+      [task axis arm execution-mode baseline options])))
 
 (defn- observation [run facts]
   (let [retry-of (one facts "retry_of_run")
         retry-link-present? (present? facts "retry_of_run")
+        execution (execution-observation facts)
         token-status (or (one facts "usage_total_status") "unknown")
         reviewer-token-status
         (or (one facts "shadow_reviewer_usage_status") "unknown")]
     {:run run
      :facts facts
-     :cohort (exact-cohort facts)
+     :cohort (exact-cohort facts (:mode execution))
+     :execution execution
      :episode-id (one facts "learning_episode_id")
      :assignment-id (one facts "learning_assignment_sha256")
      :retry-of retry-of
@@ -286,7 +388,8 @@
      :propensity (parse-probability (one facts "learning_propensity"))
      :explore-propensity
      (parse-probability (one facts "learning_explore_propensity"))
-     :base-reasons (eligibility-reasons run facts)}))
+     :base-reasons (concat (eligibility-reasons run facts)
+                           (execution-exclusion-reasons execution))}))
 
 (defn- trace-chain-root [by-run observation]
   (loop [run (:run observation) seen #{}]
@@ -391,17 +494,26 @@
    "reviewerDurationMs" (:reviewer-duration-ms item)
    "reviewerTokens" (:reviewer-tokens item)
    "reviewerUsageStatus" (:reviewer-token-status item)
+   "executionMode" (get-in item [:execution :mode])
+   "executionCoverage" (get-in item [:execution :coverage])
+   "executionSource" (get-in item [:execution :source])
+   "executionEvidence" (get-in item [:execution :evidence])
+   "turnUnit" (get-in item [:execution :turn-unit])
+   "toolCallUnit" (get-in item [:execution :tool-call-unit])
+   "turnCount" (get-in item [:execution :turn-count])
+   "toolCallCount" (get-in item [:execution :tool-call-count])
+   "modeSegments" (get-in item [:execution :segments])
    "propensity" (public-propensity item)))
 
 (defn- exclusion-counts [observations]
   (into (sorted-map)
         (frequencies (mapcat :exclusion-reasons observations))))
 
-(defn- cohort-sort-key [[task axis arm baseline options]]
+(defn- cohort-sort-key [[task axis arm execution-mode baseline options]]
   [task (if (= axis "control") 0 1) axis
-   (if (= arm "control") 0 1) arm baseline options])
+   (if (= arm "control") 0 1) arm execution-mode baseline options])
 
-(defn- cohort-document [[task axis arm baseline options] observations]
+(defn- cohort-document [[task axis arm execution-mode baseline options] observations]
   (let [observations (vec (sort-by (juxt :chain-id :run) observations))
         included (filterv :included observations)
         outcomes (frequencies (map #(or (:outcome %) "unknown") included))]
@@ -409,6 +521,7 @@
      "taskSignature" task
      "axis" axis
      "armId" arm
+     "executionMode" execution-mode
      "baselineSha256" baseline
      "optionsSha256" options
      "population" (array-map
@@ -531,6 +644,7 @@
               [(str "\nTASK " (get cohort "taskSignature"))
                (str "  AXIS " (get cohort "axis") " · ARM "
                     (get cohort "armId"))
+               (str "  EXECUTION MODE " (get cohort "executionMode"))
                (str "  BASELINE " (get cohort "baselineSha256"))
                (str "  OPTIONS " (get cohort "optionsSha256"))
                (str "    population: " (get cohort-population "included")

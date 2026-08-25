@@ -20,6 +20,25 @@
   (swap! checks conj [label (boolean value)]))
 (defn sha [value] (north.terminal-projection/sha256 value))
 
+(defn execution-observation
+  ([mode] (execution-observation mode 1 0))
+  ([mode turns tools]
+   (json/generate-string
+    (array-map
+     "version" "agent-execution-observation/v1"
+     "coverage" "exact"
+     "source" "fixture"
+     "turn_unit" "assistant-turn"
+     "tool_call_unit" "admitted-tool-call"
+     "evidence" (array-map "provider" "openai"
+                           "attempt_sha256" (sha (str mode "-attempt"))
+                           "session_sha256" (sha (str mode "-session")))
+     "segments" [(array-map "mode" mode
+                            "turn_count" turns
+                            "tool_call_count" tools
+                            "turn_sha256" (mapv #(sha (str mode "-turn-" %))
+                                                (range turns)))]))))
+
 (defn assignment-facts
   [{:keys [axis arm-id assignment-id episode-id evidence-mode
            propensity explore-propensity baseline-sha256 options-sha256]
@@ -134,7 +153,9 @@
           exact-receipts
           (proof-facts run)
           {"duration_ms" duration
-           "usage_total_status" token-status})
+           "usage_total_status" token-status
+           "execution_observation" (execution-observation
+                                    (or (:execution-mode options) "standard"))})
     tokens (assoc "tokens" tokens)
     reviewer-duration
     (assoc "shadow_reviewer_duration_ms" reviewer-duration)
@@ -233,18 +254,20 @@
               (= "Observed cohorts only; no causal estimate is produced."
                  (get document "notice"))))
   (check "cohorts are exact task/axis/arm/baseline/options and control sorts first"
-         (and (= [(sha "exact-task") "control" "control"
+         (and (= [(sha "exact-task") "control" "control" "standard"
                   (sha "baseline") (sha "options")]
                  [(get control "taskSignature")
                   (get control "axis")
                   (get control "armId")
+                  (get control "executionMode")
                   (get control "baselineSha256")
                   (get control "optionsSha256")])
-              (= [(sha "exact-task") "prompt" "variant-a"
+              (= [(sha "exact-task") "prompt" "variant-a" "standard"
                   (sha "baseline") (sha "options")]
                  [(get prompt "taskSignature")
                   (get prompt "axis")
                   (get prompt "armId")
+                  (get prompt "executionMode")
                   (get prompt "baselineSha256")
                   (get prompt "optionsSha256")])))
   (check "valid maximum-safe counts aggregate without integer overflow"
@@ -440,6 +463,91 @@
          (every? #(pos? (get-in document ["exclusionCounts" %] 0))
                  ["not_evaluation" "retry_chain_invalid"
                   "retry_chain_cohort_mismatch" "assignment_invalid"])))
+
+(let [standard "@run:execution-standard"
+      fast "@run:execution-fast"
+      mixed "@run:execution-mixed"
+      unknown "@run:execution-unknown"
+      missing-observation "@run:execution-missing"
+      mixed-observation
+      (json/generate-string
+       (array-map
+        "version" "agent-execution-observation/v1"
+        "coverage" "exact"
+        "source" "fixture"
+        "turn_unit" "assistant-turn"
+        "tool_call_unit" "admitted-tool-call"
+        "evidence" (array-map "provider" "openai"
+                              "attempt_sha256" (sha "mixed-attempt")
+                              "session_sha256" (sha "mixed-session"))
+        "segments" [(array-map "mode" "standard" "turn_count" 2 "tool_call_count" 3
+                               "turn_sha256" [(sha "mixed-turn-1") (sha "mixed-turn-2")])
+                    (array-map "mode" "fast" "turn_count" 1 "tool_call_count" 4
+                               "turn_sha256" [(sha "mixed-turn-3")])
+                    (array-map "mode" "standard" "turn_count" 5 "tool_call_count" 6
+                               "turn_sha256" (mapv #(sha (str "mixed-turn-" %)) (range 4 9)))]))
+      unknown-observation
+      (json/generate-string
+       (array-map "version" "agent-execution-observation/v1"
+                  "coverage" "unknown"
+                  "source" "initial_mode_unavailable"
+                  "turn_unit" "unknown"
+                  "tool_call_unit" "unknown"
+                  "evidence" {}
+                  "segments" []))
+      rows (vec
+            (concat
+             (rows-for standard
+                       (complete-run standard
+                                     {:assignment-id (sha "execution-standard")
+                                      :episode-id "episode-execution-standard"}))
+             (rows-for fast
+                       (complete-run fast
+                                     {:assignment-id (sha "execution-fast")
+                                      :episode-id "episode-execution-fast"
+                                      :execution-mode "fast"}))
+             (rows-for mixed
+                       (assoc (complete-run mixed
+                                            {:assignment-id (sha "execution-mixed")
+                                             :episode-id "episode-execution-mixed"})
+                              "execution_observation" mixed-observation))
+             (rows-for unknown
+                       (assoc (complete-run unknown
+                                            {:assignment-id (sha "execution-unknown")
+                                             :episode-id "episode-execution-unknown"})
+                              "execution_observation" unknown-observation))
+             (rows-for missing-observation
+                       (dissoc (complete-run missing-observation
+                                             {:assignment-id (sha "execution-missing")
+                                              :episode-id "episode-execution-missing"})
+                               "execution_observation"))))
+      document (north.learning-compare/comparison-document "exp-fixture" 44 rows)
+      cohorts (get document "cohorts")
+      mixed-public (observation-of document mixed)
+      unknown-public (observation-of document unknown)
+      missing-public (observation-of document missing-observation)]
+  (check "otherwise identical standard and fast work enters separate cohorts"
+         (= #{"standard" "fast"}
+            (set (map #(get % "executionMode") cohorts))))
+  (check "mixed mode remains ordered, derives totals, and is excluded"
+         (and (= ["standard" "fast" "standard"]
+                 (mapv #(get % "mode") (get mixed-public "modeSegments")))
+              (= 8 (get mixed-public "turnCount"))
+              (= 13 (get mixed-public "toolCallCount"))
+              (= ["execution_mode_mixed"]
+                 (get mixed-public "exclusionReasons"))))
+  (check "unknown mode remains count-unknown and excluded"
+         (and (= "unknown" (get unknown-public "executionCoverage"))
+              (nil? (get unknown-public "turnCount"))
+              (nil? (get unknown-public "toolCallCount"))
+              (= ["execution_mode_unknown"]
+                 (get unknown-public "exclusionReasons"))))
+  (check "missing observation is invalid rather than inferred standard or zero"
+         (and (= ["execution_observation_invalid"]
+                 (get missing-public "exclusionReasons"))
+              (nil? (get missing-public "executionMode"))
+              (nil? (get missing-public "turnCount"))
+              (nil? (get missing-public "toolCallCount")))))
 
 (doseq [[label ok?] @checks]
   (println (format "  [%s] %s" (if ok? "PASS" "FAIL") label)))

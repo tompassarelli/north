@@ -24,6 +24,7 @@ import type {
 import type { RoutingRequest } from "./routing-metadata";
 import type { McpActivityObservation } from "./tool-activity";
 import type { WireExecutionTransport } from "./wire/query";
+import type { ExecutionObservation } from "./execution-observation";
 import type { WireRunId } from "./wire/ids";
 import {
 	managedRunTokenBudgetHandoff,
@@ -109,6 +110,7 @@ export interface WireRunProvenance {
 	readonly retryAttempt?: number;
 	readonly executionSource?: "north-managed" | "provider-native";
 	readonly executionTransport?: WireExecutionTransport;
+	readonly executionObservation?: ExecutionObservation;
 	readonly runEstimate?: RunEstimateSnapshot;
 	readonly judgmentGrade?: JudgmentGradeSnapshot;
 	readonly struggleObservation?: StruggleObservation;

@@ -19,6 +19,11 @@ import {
 	type WireRunProvenance,
 } from "./run-provenance";
 import { tokenTotalLiteral } from "./usage";
+import {
+	executionObservationJson,
+	normalizeExecutionObservation,
+	unknownExecutionObservation,
+} from "./execution-observation";
 import { foldProviderJoinEvidence } from "./providers/provider-join";
 import {
 	WIRE_PROVIDER_JOIN_VERSION,
@@ -191,6 +196,20 @@ function wireWatchdogFacts(
 	];
 }
 
+function unavailableExecutionObservationSource(
+	snapshot: WireRunSnapshot,
+	provenance: WireRunProvenance,
+): string {
+	if (provenance.executionSource === "provider-native"
+		&& provenance.provider === "openai") {
+		return "codex_rollout_initial_mode_or_join_unavailable";
+	}
+	const provider = snapshot.model?.provider ?? provenance.provider;
+	if (provider === "openai") return "codex_app_server_mode_unavailable";
+	if (provider === "anthropic") return "anthropic_execution_mode_unsupported";
+	return "execution_mode_telemetry_unavailable";
+}
+
 function sha256(value: string): string {
 	return new Bun.CryptoHasher("sha256").update(value).digest("hex");
 }
@@ -268,6 +287,12 @@ export function wireRunTelemetryFacts(
 		["tool_failed_count", String(countTools(snapshot, "failed"))],
 		["tool_cancelled_count", String(countTools(snapshot, "cancelled"))],
 		["tool_synthetic_failure_count", String(countTools(snapshot, "synthetic_failure"))],
+		[
+			"execution_observation",
+			executionObservationJson(provenance.executionObservation === undefined
+				? unknownExecutionObservation(unavailableExecutionObservationSource(snapshot, provenance))
+				: normalizeExecutionObservation(provenance.executionObservation)),
+		],
 		...wireCompletionEvidenceFacts(snapshot),
 		...wireWatchdogFacts(snapshot),
 	];

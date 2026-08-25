@@ -2,6 +2,7 @@ import {
 	wireLedgerSummary,
 	type WireRunLedgerIdentity,
 } from "./run-ledger";
+import { normalizeExecutionObservation } from "./execution-observation";
 import { wireRunTelemetryFacts } from "./telemetry";
 import { decodeWireJsonl } from "./wire/jsonl";
 
@@ -66,6 +67,11 @@ try {
 	const replay = decodeWireJsonl(request.wireJsonl);
 	if (replay.snapshot === undefined) throw new TypeError("wire telemetry has no reduced snapshot");
 	const submitted = new Map(request.facts);
+	const executionObservations = values(request.facts, "execution_observation");
+	if (executionObservations.length !== 1) {
+		throw new TypeError("wire telemetry requires one execution observation");
+	}
+	normalizeExecutionObservation(JSON.parse(executionObservations[0]!));
 	const identity: WireRunLedgerIdentity = {
 		thread: submitted.get("thread") ?? "",
 		agent: submitted.get("agent") ?? "",
@@ -92,7 +98,7 @@ try {
 		}
 	}
 	for (const [predicate, value] of expected.facts) {
-		if (predicate === "provider_turn_key") continue;
+		if (predicate === "provider_turn_key" || predicate === "execution_observation") continue;
 		if (submitted.get(predicate) !== value) {
 			throw new TypeError("wire telemetry core fact " + predicate + " differs from the reducer");
 		}
