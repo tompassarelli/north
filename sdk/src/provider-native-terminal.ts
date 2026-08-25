@@ -20,12 +20,9 @@ import {
 	type WireRunTelemetryWriter,
 } from "./telemetry";
 import {
-	reduceCodexExecutionObservation,
-	type CodexExecutionObservationEvent,
 	type ExecutionObservation,
 	unknownExecutionObservation,
 } from "./execution-observation";
-import { providerSessionKey, providerTurnKey } from "./providers/provider-join";
 import type { WireTerminationInput } from "./wire/writer";
 import { wireEventId, wireRunId } from "./wire/ids";
 import { WireEventWriter } from "./wire/writer";
@@ -37,6 +34,10 @@ const MAX_HOOK_BYTES = 64 * 1024;
 const MAX_TRANSCRIPT_EDGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_PUBLICATION_TIMEOUT_MS = 800;
 const INTERRUPTED_REASONS = new Set(["cancelled", "interrupted", "user_cancelled"]);
+// Codex rollout response items distinguish call requests from their output
+// records. A call_id on an output is not itself admission evidence.
+const CODEX_CALL_REQUEST_ITEMS = new Set(["custom_tool_call", "function_call"]);
+const CODEX_CALL_OUTPUT_ITEMS = new Set(["custom_tool_call_output", "function_call_output"]);
 
 type JsonRecord = Readonly<Record<string, unknown>>;
 
@@ -159,14 +160,14 @@ function transcriptLines(path: string): {
 	}
 }
 
-function providerToolCallKey(raw: unknown): string | undefined {
-	const id = boundedOpaqueId(raw);
-	return id === undefined ? undefined
-		: sha256(["north-provider-tool-call-key-v1\0openai\0", id]);
+function copiedForkMetadata(payload: JsonRecord): boolean {
+	return payload.forked_from_id !== null && payload.forked_from_id !== undefined
+		|| payload.parent_thread_id !== null && payload.parent_thread_id !== undefined
+		|| payload.thread_source === "subagent"
+		|| record(payload.source)?.subagent !== undefined;
 }
 
 function transcriptExecutionObservation(
-	input: CodexSubagentStopInput,
 	lines: ReturnType<typeof transcriptLines>,
 	exactSessionJoin: boolean,
 ): ExecutionObservation {
@@ -176,70 +177,73 @@ function transcriptExecutionObservation(
 	if (!exactSessionJoin) {
 		return unknownExecutionObservation("codex_rollout_attempt_session_join_unavailable");
 	}
-	const attemptSha256 = providerNativeAgentKey(input.agentId);
-	let sessionSha256: string;
-	try {
-		sessionSha256 = providerSessionKey(input.sessionId);
-	} catch {
-		return unknownExecutionObservation("codex_rollout_attempt_session_join_unavailable");
-	}
-	const events: CodexExecutionObservationEvent[] = [];
-	let activeTurnKey: string | undefined;
-	const observedCalls = new Map<string, string>();
+	let sessionMetaCount = 0;
+	let copiedFork = false;
+	let activeTurnId: string | undefined;
+	let retryAfterNoncompleteTerminal = false;
+	let sawNoncompleteTerminal = false;
+	const requestCalls = new Map<string, string>();
+	const completedCalls = new Set<string>();
 	for (const line of lines.tail) {
 		const entry = parseJsonLine(line);
 		const payload = record(entry?.payload);
-		if (entry?.type === "event_msg" && payload?.type === "thread_settings_applied") {
-			const settings = record(payload.thread_settings);
-			const tier = settings?.service_tier;
-			if (tier !== "default" && tier !== "priority") {
-				return unknownExecutionObservation("codex_rollout_service_tier_unsupported");
-			}
-			events.push({
-				kind: "thread_settings_applied",
-				attempt_sha256: attemptSha256,
-				session_sha256: sessionSha256,
-				service_tier: tier,
-			});
+		if (entry?.type === "session_meta" && payload !== undefined) {
+			sessionMetaCount += 1;
+			copiedFork ||= copiedForkMetadata(payload);
 			continue;
 		}
 		if (entry?.type === "event_msg" && payload?.type === "task_started") {
 			const turnId = boundedOpaqueId(payload.turn_id);
-			if (turnId === undefined) {
+			if (turnId === undefined || activeTurnId !== undefined) {
 				return unknownExecutionObservation("codex_rollout_turn_evidence_invalid");
 			}
-			activeTurnKey = providerTurnKey("openai", turnId);
-			events.push({
-				kind: "task_started",
-				attempt_sha256: attemptSha256,
-				session_sha256: sessionSha256,
-				turn_sha256: activeTurnKey,
-			});
+			if (sawNoncompleteTerminal) retryAfterNoncompleteTerminal = true;
+			activeTurnId = turnId;
+			continue;
+		}
+		if (entry?.type === "event_msg" && payload !== undefined
+			&& ["task_complete", "task_failed", "turn_aborted"].includes(String(payload.type))) {
+			if (boundedOpaqueId(payload.turn_id) !== activeTurnId) {
+				return unknownExecutionObservation("codex_rollout_turn_evidence_invalid");
+			}
+			if (payload.type !== "task_complete") sawNoncompleteTerminal = true;
+			activeTurnId = undefined;
 			continue;
 		}
 		if (entry?.type !== "response_item" || payload === undefined
 			|| payload.call_id === undefined) continue;
-		const callKey = providerToolCallKey(payload.call_id);
-		if (callKey === undefined || activeTurnKey === undefined) {
-			return unknownExecutionObservation("codex_rollout_tool_turn_join_unavailable");
+		const callId = boundedOpaqueId(payload.call_id);
+		const itemType = payload.type;
+		if (callId === undefined || activeTurnId === undefined || typeof itemType !== "string") {
+			return unknownExecutionObservation("codex_rollout_call_admission_unavailable");
 		}
-		const priorTurn = observedCalls.get(callKey);
-		if (priorTurn !== undefined) {
-			if (priorTurn !== activeTurnKey) {
-				return unknownExecutionObservation("codex_rollout_tool_turn_join_unavailable");
+		if (CODEX_CALL_REQUEST_ITEMS.has(itemType)) {
+			if (requestCalls.has(callId)) {
+				return unknownExecutionObservation("codex_rollout_call_admission_unavailable");
 			}
+			requestCalls.set(callId, activeTurnId);
 			continue;
 		}
-		observedCalls.set(callKey, activeTurnKey);
-		events.push({
-			kind: "tool_call_admitted",
-			attempt_sha256: attemptSha256,
-			session_sha256: sessionSha256,
-			turn_sha256: activeTurnKey,
-			tool_call_sha256: callKey,
-		});
+		if (!CODEX_CALL_OUTPUT_ITEMS.has(itemType)
+			|| requestCalls.get(callId) !== activeTurnId
+			|| completedCalls.has(callId)) {
+			return unknownExecutionObservation("codex_rollout_call_admission_unavailable");
+		}
+		completedCalls.add(callId);
 	}
-	return reduceCodexExecutionObservation(events);
+	if (sessionMetaCount !== 1) {
+		return unknownExecutionObservation("codex_rollout_child_boundary_contaminated");
+	}
+	if (copiedFork) {
+		return unknownExecutionObservation("codex_rollout_child_boundary_unavailable");
+	}
+	if (retryAfterNoncompleteTerminal) {
+		return unknownExecutionObservation("codex_rollout_turn_retry_join_unavailable");
+	}
+	// The hook joins one Codex agent and session, but carries no authoritative
+	// settlement-attempt identity. The observation is attached to the Wire run;
+	// it cannot claim the contract's attempt evidence without that producer join.
+	return unknownExecutionObservation("codex_rollout_settlement_attempt_join_unavailable");
 }
 
 function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | undefined {
@@ -256,7 +260,7 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 	if (startedAt === undefined || !matchingMeta) return undefined;
 	const matchingMetaPayload = record(matchingMeta.payload)!;
 	const exactSessionJoin = matchingMetaPayload.session_id === input.sessionId;
-	const executionObservation = transcriptExecutionObservation(input, lines, exactSessionJoin);
+	const executionObservation = transcriptExecutionObservation(lines, exactSessionJoin);
 
 	let boundary: JsonRecord | undefined;
 	for (const line of lines.tail) {
