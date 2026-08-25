@@ -8,6 +8,6 @@ if source "${BASH_SOURCE[0]%/*}/lib/harness-dial.sh" 2>/dev/null; then
   north_hook_enabled firn-system-policy || exit 0
 fi
 
-policy="${FIRN_SYSTEM_POLICY:-/run/current-system/sw/bin/firn-system-policy}"
+policy="${FIRN_SYSTEM_POLICY:-/home/tom/.local/lib/firn/policy/current/bin/firn-system-policy}"
 [[ -x "$policy" ]] || exit 0
 printf '%s' "$payload" | exec "$policy" "$@"

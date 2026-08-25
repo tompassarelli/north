@@ -47,6 +47,8 @@ capture_hook_stdin() {
 capture_hook_stdin
 
 [ "$payload_oversized" -eq 0 ] || exit 0
+NORTH_AGENT_PYTHON="${BASH_SOURCE[0]%/*}/runtime/python3"
+[ -x "$NORTH_AGENT_PYTHON" ] || exit 0
 
 # A missing resolver leaves this deny-capable guard live. Only an affirmative
 # off verdict may silence it.
@@ -863,4 +865,4 @@ print(json.dumps(out))
 sys.exit(0)
 PYEOF
 
-printf '%s' "$payload" | python3 -c "$PY"
+printf '%s' "$payload" | "$NORTH_AGENT_PYTHON" -c "$PY"

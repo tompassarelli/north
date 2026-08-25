@@ -8,7 +8,7 @@ import { providerPreacceptError } from "./types";
 
 export const CODEX_MANAGED_REQUIREMENTS = "/etc/codex/requirements.toml";
 export const CODEX_MANAGED_HOOKS_DIR = "/etc/codex/hooks";
-export const FIRN_SYSTEM_POLICY = "/run/current-system/sw/bin/firn-system-policy";
+export const FIRN_SYSTEM_POLICY = "/home/tom/.local/lib/firn/policy/current/bin/firn-system-policy";
 const MAX_REQUIREMENTS_BYTES = 128 * 1024;
 const NORTH_ENFORCEMENT_ROOT = "/var/lib/north-enforcement";
 const NIX_STORE_ROOT = "/nix/store";
