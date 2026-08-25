@@ -7,14 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NORTH_HOME="${NORTH_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 export NORTH_HOME
 
-DIAL_LIB="$NORTH_HOME/profiles/tom/hooks/lib/harness-dial.sh"
-if [ ! -r "$DIAL_LIB" ]; then
-  printf 'north-comms: shared dial resolver is missing: %s\n' "$DIAL_LIB" >&2
-  exit 2
-fi
-# shellcheck source=/dev/null
-source "$DIAL_LIB"
-
 BB="${NORTH_BB:-bb}"
 PORT="${NORTH_PORT:-7977}"
 PRESENCE_TTL_S="${NORTH_COMMS_PRESENCE_TTL_S:-1800}"
@@ -27,8 +19,13 @@ die() {
 }
 
 raw_or() {
-  local key="$1" fallback="$2" value
-  north_config_raw value "$key"
+  local key="$1" fallback="$2" value='' line
+  local state="${NORTH_HARNESS_STATE:-${HOME:?}/.local/state/north/harness.conf}"
+  if [[ -r $state ]]; then
+    while IFS= builtin read -r line || [[ -n $line ]]; do
+      [[ $line == "$key="* ]] && value="${line#*=}"
+    done <"$state"
+  fi
   builtin printf '%s\n' "${value:-$fallback}"
 }
 
