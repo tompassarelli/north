@@ -101,7 +101,7 @@ const promotedHooks = {
   "beagle-session-start.sh": "beagle/integrations/north/hooks/beagle-session-start.sh",
   "launch-critical-worktree-guard.sh":
     "north/profiles/tom/hooks/launch-critical-worktree-guard.sh",
-  "logcompress-hook.js": "north/profiles/tom/hooks/logcompress-hook.js",
+  "logcompress-hook.py": "north/profiles/tom/hooks/logcompress-hook.py",
   "tripwire-guard.sh": "north/profiles/tom/hooks/tripwire-guard.sh",
 } as const;
 
@@ -141,7 +141,7 @@ function setupHookFixture(): HookFixture {
   mkdirSync(deploymentRoot, { recursive: true });
   mkdirSync(generationRoot, { recursive: true });
 
-  for (const runtime of ["env", "bash", "node"]) {
+  for (const runtime of ["env", "bash", "python3"]) {
     const target = join(nixPackage, "runtime", runtime);
     write(target, "#!/bin/sh\nexit 0\n", 0o555);
     symlinkSync(target, join(managedDir, "runtime", runtime));
@@ -390,7 +390,7 @@ test("managed Codex hook report resolves every path the preflight verifies", () 
   const report = reportManagedCodexHookInstallation(fixture.installation);
   expect(report.requirements.ok).toBe(true);
   expect(report.runtime.map(({ hook }) => hook).sort())
-    .toEqual(["runtime/bash", "runtime/env", "runtime/node"]);
+    .toEqual(["runtime/bash", "runtime/env", "runtime/python3"]);
   expect(report.hooks.every(({ supply }) => supply === "nix" || supply === "sealed")).toBe(true);
   expect(report.hooks.some(({ hook }) => hook === "beagle-session-start.sh")).toBe(true);
 });

@@ -22,7 +22,7 @@ hooks=(
   git-blind-stage-guard.sh
   tripwire-guard.sh
   beagle-session-start.sh
-  logcompress-hook.js
+  logcompress-hook.py
 )
 sizes=(524288 1048576)
 modes=(disabled fast-allow)
@@ -78,7 +78,7 @@ envelopes = {
         "source": "startup",
         "cwd": plain,
     },
-    "logcompress-hook.js": {
+    "logcompress-hook.py": {
         "hook_event_name": "PostToolUse",
         "tool_name": "Bash",
         "tool_input": {"command": "true"},
@@ -134,8 +134,9 @@ env.update({
 if mode != "disabled":
     env["AGENT_NO_AUTHORING_HOOKS"] = "0"
 
+command = [sys.executable, hook] if hook.endswith(".py") else [hook]
 process = subprocess.Popen(
-    [hook],
+    command,
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
