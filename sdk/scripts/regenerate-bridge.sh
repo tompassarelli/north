@@ -39,11 +39,15 @@ direnv exec "$beagle" "$beagle/bin/beagle-fmt" --check \
 mkdir -p \
   "$source_stage/north/bridge" \
   "$output_stage/beagle" \
-  "$output_stage/north/bridge"
+  "$output_stage/north/bridge" \
+  "$output_stage/node_modules"
+ln -s "$root/node_modules"/* "$output_stage/node_modules/"
+ln -s "$root" "$output_stage/node_modules/north-sdk"
 
 for bridge_source in model app protocol app-launch-reservation cli; do
+  source_stem="${bridge_source//-/_}"
   install -m 0644 "$root/src/bridge/$bridge_source.bjs" \
-    "$source_stage/north/bridge/$bridge_source.bjs"
+    "$source_stage/north/bridge/$source_stem.bjs"
 done
 
 for runtime_file in core.js exception-dispatch.js exception-info.js hamt.js host.js; do
@@ -52,10 +56,11 @@ done
 install -m 0644 "$beagle/LICENSE-MIT" "$output_stage/beagle/LICENSE-MIT"
 
 for bridge_source in model app protocol app-launch-reservation cli; do
+  source_stem="${bridge_source//-/_}"
   BEAGLE_EMIT_SRCLOC=0 BEAGLE_JS_RUNTIME_PREFIX='../../beagle/' \
     direnv exec "$beagle" "$beagle/bin/beagle-build" \
       --module-root "north-bridge=$source_stage" \
-      "$source_stage/north/bridge/$bridge_source.bjs" \
+      "$source_stage/north/bridge/$source_stem.bjs" \
       "$output_stage/north/bridge/$bridge_source.js"
   if [[ "$bridge_source" != model ]]; then
     direnv exec "$beagle" bun run "$root/scripts/generate-bridge-declarations.ts" \

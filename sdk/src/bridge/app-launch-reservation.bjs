@@ -5,7 +5,7 @@
             [|north-sdk/internal/delivery-evidence|
              :refer [acquireDeliveryAttemptLeases commitDeliveryAttemptProviderStart
                      commitDeliveryAttemptProvedUnsent commitDeliveryAttemptTerminal
-                     DELIVERY_ATTEMPT_LEASE_TTL_MS newDeliveryRunContext reserveDeliveryRun
+                     DELIVERY-ATTEMPT-LEASE-TTL-MS newDeliveryRunContext reserveDeliveryRun
                      reserveDeliveryRunWithRecovery writeDeliveryAttemptLaunchIntent]]
             [|north-sdk/internal/north-client| :refer [getThreadFacts normalizeNorthEntityId]]
             [|north-sdk/internal/provider-routing| :refer [selectProviderForExecution]]
@@ -191,7 +191,7 @@
                                         1
                                         (or (.-leaseRenewIntervalMs dependencies)
                                             (Math/floor
-                                              (/ (: DELIVERY_ATTEMPT_LEASE_TTL_MS Int) 3))))
+                                              (/ (: DELIVERY-ATTEMPT-LEASE-TTL-MS Int) 3))))
                  release! Any (fn [] Any
                    (when (not (.-released state))
                      (set! (.-released state) true)
