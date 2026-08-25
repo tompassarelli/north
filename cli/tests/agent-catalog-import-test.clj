@@ -156,9 +156,9 @@
                     [(distribution "instructions" ["firn"]
                                    (package-owner "docs/method.md"))]
 
-                    (= id "staffing")
+                    (= id "staffing-distilled")
                     [(distribution "skill" ["shared"]
-                                   (package-owner "staffing"))
+                                   (package-owner "skills/staffing-distilled"))
                      (distribution "agentTemplates" ["north" "claude"]
                                    (package-owner "agents"))]
 
@@ -185,7 +185,7 @@
                        (north-owner (str (.getParent (io/file (get owner "path")))))
                        owner))]}
                    (= id "agent-spawn-guard")
-                   (assoc "supports" ["staffing"])
+                   (assoc "supports" ["staffing-distilled"])
                    (#{"north-on-spawn" "north-on-tooluse" "north-on-stop"
                       "north-on-terminal" "north-mark-delegated"} id)
                    (assoc "supports" ["coordination"]))]))]
@@ -270,7 +270,7 @@
                      (set (keys package-catalog)))
                   (= ["orchestration" "agent-practice"]
                      (get-in package-by-id ["agent-machinery" "members"]))
-                  (= ["staffing" "compose"]
+                  (= ["staffing-distilled" "compose-distilled"]
                      (get-in package-by-id ["orchestration" "members"]))
                   (every? #(empty? (select-keys % ["supports" "distributions"
                                                    "providerAdapter" "active"]))
@@ -278,10 +278,20 @@
 
       (check "the imported portable UnitId inventory is exact"
              (= #{"agent-machinery" "orchestration" "agent-practice"
-                  "staffing" "compose" "build-vs-reuse" "external-code"
-                  "greenfield" "planning" "prior-art" "production-hardening"
-                  "program-craftsmanship" "program-stewardship"
-                  "rust-development" "skill-maintenance" "terse" "verification"}
+                  "staffing-distilled" "staffing-reference"
+                  "compose-distilled" "compose-reference"
+                  "build-vs-reuse-distilled" "build-vs-reuse-reference"
+                  "external-code-distilled" "external-code-reference"
+                  "greenfield-distilled" "greenfield-reference"
+                  "planning-distilled" "planning-reference"
+                  "prior-art-distilled" "prior-art-reference"
+                  "production-hardening-distilled" "production-hardening-reference"
+                  "program-craftsmanship-distilled" "program-craftsmanship-reference"
+                  "program-stewardship-distilled" "program-stewardship-reference"
+                  "rust-development-distilled" "rust-development-reference"
+                  "skill-maintenance-distilled" "skill-maintenance-reference"
+                  "terse-distilled" "terse-reference"
+                  "verification-distilled" "verification-reference"}
                 portable-ids))
 
       (let [original-repo-root north.agent-catalog/repo-root
@@ -375,7 +385,7 @@
                 "kind-collision"
                 #(update % "units" conj
                          {"id" "coordination" "kind" "skill"
-                          "source" "skills/compose/SKILL.md"})
+                          "source" "skills/compose-distilled/SKILL.md"})
                 "competing catalog declarations: coordination"))
         (check "cycles in imported module membership are rejected"
                (run-package-case
@@ -400,12 +410,14 @@
              effective
              (reduce #(assoc %1 %2 "on")
                      (north.agent-catalog/default-permissions effective)
-                     ["agent-machinery" "orchestration" "staffing" "compose"]))
+                     ["agent-machinery" "orchestration"
+                      "staffing-distilled" "compose-distilled"]))
             active (set (for [unit (get portable-activation "units")
                               :when (get unit "active")]
                           (get unit "id")))]
         (check "portable orchestration activates without North coordination or hooks"
-               (and (= #{"agent-machinery" "orchestration" "staffing" "compose"}
+               (and (= #{"agent-machinery" "orchestration"
+                         "staffing-distilled" "compose-distilled"}
                        active)
                     (not (active "coordination"))
                     (not-any? #(and (= "hook" (get % "kind"))

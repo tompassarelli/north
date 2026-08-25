@@ -27,7 +27,7 @@ test("North resources do not claim intentional actor decisions", () => {
     "cli/message-routing.clj",
     "cli/north-listen.clj",
     "coordination/README.md",
-    "coordination/assignments/SKILL.md",
+    "coordination/assignments-distilled/SKILL.md",
     "coordination/guide.md",
     "docs/INFLUENCES.md",
     "docs/architecture.md",
