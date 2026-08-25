@@ -58,6 +58,7 @@ AGENTS — delegate work, drive and observe agents
 COMMS — attention between people and agents
   north inbox [--as <recipient>]        durable messages waiting on you
                                         --as <recipient> — inspect another recipient's inbox
+  north ack <actor> <message-id>        acknowledge one addressed message through the configured communications protocol
   north mention <recipient> "<body>"    durable sender-driven request; offline recipient allowed
                                         --about <thread> — attach the request to a thread
   north interrupt <recipient> "<body>"  urgent sender-driven request; live recipient required
@@ -95,10 +96,10 @@ STORE — the fact corpus and its schema
   supported unregistered verbs pass through to the Beagle Store engine (ask, watch, …)
 
 OPS — daemons, health, deployment
-  north dashboard [--once]                      live fleet, health, board, and accounts snapshots
+  north dashboard [--once]                      live fleet, health, board, and accounts snapshots  (alias: cockpit)
   north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>
                                                 dashboard, launch, attach, or control a journaled local Codex session
-                                                dashboard — render the Bridge operator cockpit (north dashboard remains an alias)
+                                                dashboard — render the Bridge operator cockpit (`north dashboard` renders the Store cockpit)
                                                 pending [--consume <id>] — list or consume durable terminal lane completions
                                                 accept — run the two-session reconnect/control/journal acceptance demo
                                                 msg <id> <text> — queue input for the next turn on the same provider thread

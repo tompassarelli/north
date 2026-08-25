@@ -801,7 +801,8 @@ function assertCanonicalGlobalAgentsExactlyOnce(
 }
 
 function orchestrationHome(env: NodeJS.ProcessEnv = process.env): string {
-  return resolve(env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"));
+  return resolve(env.AGENT_MACHINERY_HOME ??
+    resolve(env.HOME ?? "", "code/agent-machinery/main"));
 }
 
 function orchestrationDocs(env: NodeJS.ProcessEnv = process.env): string {

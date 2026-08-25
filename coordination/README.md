@@ -11,15 +11,15 @@ surface. It is a nested module with three members:
 
 The module instructions are in `guide.md`; each member's consumer entry
 point is its `SKILL.md`. The switchboard definition lives in
-`north:agent-catalog/catalog.json`, and the outer
-`orchestration` module contains this module. That containment is deliberate:
-the member switches remember their state, while an inactive outer module
+`north:agent-catalog/north.json`, and the operator composes it as a separate
+root beside the imported `agent-machinery` package. The member switches
+remember their state, while an inactive coordination root
 prevents any coordination instructions or skills from reaching a session.
 Provider adapters that require static hook manifests consult the resolved North
 generation at `~/.local/state/north/agents/current`, so the same containment
 also suppresses
 North lifecycle hooks without re-resolving activity.
 
-Coordination does not choose roles or models. Orchestration makes the routing
-decision, staffing instantiates a role profile, and assignments record who owns
-the resulting concrete work.
+Coordination does not resolve roles or models. Orchestration supplies the
+routing contract, staffing resolves a role profile, and assignments record
+which actor owns the resulting concrete work.

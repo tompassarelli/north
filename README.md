@@ -52,10 +52,11 @@ rules.
 
 ## Routing work to models and accounts
 
-Orchestration asks for a provider-neutral role, capability tier, deliberation
-level, posture, and topology. North then filters authenticated accounts by
-Store authority, provider capability, subscription pressure, resource policy,
-and any explicit pin before an adapter resolves a concrete model.
+A human or agent requests a provider-neutral role, capability tier,
+deliberation level, posture, and topology. North then deterministically filters
+authenticated accounts by Store authority, provider capability, subscription
+pressure, resource policy, and any explicit pin before an adapter resolves a
+concrete model.
 
 An OpenAI account is admitted by exact singleton Store facts. Its role is
 either `execution` with `execution_eligible=true`, or `oversight` with
@@ -83,8 +84,8 @@ way:
 The catalog is policy data, so callers request the semantic tier and reasoning
 they need instead of embedding that table in work. Current mappings and their
 calibrated model notes live under
-[`orchestration/providers/`](orchestration/providers/) and
-[`orchestration/docs/deltas/`](orchestration/docs/deltas/).
+`north:agent-runtime/orchestration/providers/` and
+`north:agent-runtime/orchestration/docs/deltas/`.
 
 ## Quick start
 

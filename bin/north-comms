@@ -689,6 +689,7 @@ case "$verb" in
     ;;
   ack)
     (($# == 2)) || die "usage: north-comms ack <me> <message-id>"
+    valid_message_id "$2" || die "message id is malformed or too large"
     case "$selected_protocol" in
       off) die "communications are disabled by comms=off" ;;
       db) db_ack "$1" "$2" ;;

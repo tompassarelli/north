@@ -258,7 +258,7 @@ test("/help opens the docked panel and escape closes it", async () => {
   // the cursor, exactly as it does when the agent strip takes focus.
   expect(runtime.panelFocused).toBe(true);
 
-  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 110, height: 20,
   });
   const panel = new BoxRenderable(renderer, { id: "detail-panel", flexGrow: 1 });
@@ -267,7 +267,7 @@ test("/help opens the docked panel and escape closes it", async () => {
   renderer.root.add(panel);
   body.content = renderDetailPanel(runtime);
   await renderOnce();
-  const snapshot = captureCharSnapshot();
+  const snapshot = captureCharFrame();
   renderer.destroy();
 
   expect(snapshot).toContain("Northbridge keys");
@@ -381,7 +381,7 @@ test("the view-list switch hint names both directions", () => {
 // composer, view bar, agent strip. The rows come back so the order is an
 // assertion and not a reading of the source.
 async function renderView(view: string, viewId = "list") {
-  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
     width: 90, height: 10,
   });
   const root = new BoxRenderable(renderer, {
@@ -420,7 +420,7 @@ async function renderView(view: string, viewId = "list") {
   applyViewVisibility(runtime, { agentsPane, workPane });
   tabs.content = renderViewTabs(view, state(viewId), viewId, SESSION);
   await renderOnce();
-  const captured = captureCharSnapshot();
+  const captured = captureCharFrame();
   const lines = captured.split("\n");
   const rowOf = (needle: string) => lines.findIndex((line) => line.includes(needle));
   const rows = {

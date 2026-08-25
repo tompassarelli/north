@@ -7,8 +7,9 @@ description: >-
 
 # Importing skills
 
-Import third-party skills into North's global unit catalog. A provider-local
-copy is an incomplete import.
+Import third-party skills into the portable agent-machinery package and compose
+them into North's global unit catalog. A provider-local copy is an incomplete
+import.
 
 ## Gate the source before reading it
 
@@ -49,19 +50,19 @@ Inventory directories containing `SKILL.md`. For each selected skill:
 
 ## Register with the catalog authority
 
-Use `repo-safety`. Create one North worktree.
+Use `repo-safety`. Create one agent-machinery worktree.
 
 - Put each tracked skill at
-  `north:profiles/tom/skills/<slug>/`.
-- Add one `skill` unit per slug to `north:agent-catalog/catalog.json`. Its
-  owner names the tracked `SKILL.md`, and its skill distribution targets
-  `shared`. Use a module only when several skills, hooks, or nested modules
-  must activate as one compositional unit.
+  `agent-machinery:skills/<slug>/`.
+- Add one `skill` unit per slug to `agent-machinery:catalog.json`. Its source
+  names the tracked `SKILL.md`. North's operator catalog owns distribution
+  targets and activation. Use a module only when several skills, hooks, or
+  nested modules must activate as one compositional unit.
 
 The resulting discovery paths are:
 
 ```text
-North catalog -> immutable shared generation -> provider adapters
+agent-machinery package -> North catalog composition -> immutable shared generation -> provider adapters
 ```
 
 ## Verify, land, and activate
@@ -71,7 +72,8 @@ Run North's `cli/tests/agent-catalog-test.clj`, plus the nearest checks for any
 imported scripts.
 
 Commit enumerated paths and land with `safe-push --to main`; fast-forward the
-clean North `main`. Then run:
+clean agent-machinery `main`. After the package and operator catalog revisions
+have landed and North consumes those exact revisions, run:
 
 ```text
 north config agents sync

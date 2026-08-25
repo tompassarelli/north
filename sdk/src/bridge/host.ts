@@ -533,7 +533,7 @@ export class Northd {
         throw new Error("bridge wire replay belongs to another run");
       }
       const wirePublisher = this.#commandReceipts.createWirePublisher(attemptRoute);
-      if (events.length > 0) await wirePublisher.publish(Object.freeze(events));
+      if (events.length > 0) await wirePublisher.publish(Object.freeze([...events]));
       // Store decides command eligibility. Local journals remain payload and UI
       // projections; in particular, an intent lacking a receipt is observed but
       // never rebuilt into pendingInputs or sent again after daemon restart.
@@ -541,6 +541,7 @@ export class Northd {
       const runtime: ExecutionRuntime = {
         executionId,
         attemptId,
+        attemptRoute,
         role,
         journal,
         wireJournal,

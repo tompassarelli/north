@@ -2,13 +2,35 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mergeProviderUsageObservations, writeProviderUsageObservations } from "../src/provider-observation-store";
+import {
+  mergeProviderUsageObservations,
+  writeProviderUsageObservations as writeProviderUsageObservationsProduction,
+} from "../src/provider-observation-store";
 import type { ProviderUsageObservation } from "../src/providers/types";
+import type { StoreObservationClient } from "../src/store-observation-adapter";
+import { storeObservationClient } from "./support/store-observation-client";
 
 const temporary: string[] = [];
+const storeClients = new Map<string, StoreObservationClient>();
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+  storeClients.clear();
 });
+
+const writeProviderUsageObservations: typeof writeProviderUsageObservationsProduction = (
+  incoming, path, options = {},
+) => {
+  const key = path ?? "<default>";
+  let client = storeClients.get(key);
+  if (!client) {
+    client = storeObservationClient();
+    storeClients.set(key, client);
+  }
+  return writeProviderUsageObservationsProduction(incoming, path, {
+    ...options,
+    client: options.client ?? client,
+  });
+};
 
 function destination(): string {
   const directory = mkdtempSync(join(tmpdir(), "north-observation-writer-"));

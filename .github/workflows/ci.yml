@@ -26,7 +26,7 @@ jobs:
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
-          mapfile -d '' candidates < <(find bin cli/tests -type f -print0)
+          mapfile -d '' candidates < <(find bin cli/tests agent-runtime/hooks -type f -print0)
           scripts=()
           for file in "${candidates[@]}"; do
             IFS= read -r first < "$file" || true
@@ -50,16 +50,20 @@ jobs:
       - name: Expose hermetic test runner
         run: echo "$GITHUB_WORKSPACE/north/bin" >> "$GITHUB_PATH"
 
-      # Resolve the exact Beagle source that provides the Beagle Store engine used by CI.
+      # Resolve the exact source inputs used by CI and the packaged runtime.
       - name: Resolve locked source inputs
         id: sources
         run: |
           set -euo pipefail
           beagle_repository="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source repository)"
           beagle_ref="$(north/bin/github-flake-input-pin north/flake.lock beagle-engine-source revision)"
+          agent_machinery_repository="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source repository)"
+          agent_machinery_ref="$(north/bin/github-flake-input-pin north/flake.lock agent-machinery-source revision)"
           {
             echo "beagle_repository=$beagle_repository"
             echo "beagle_ref=$beagle_ref"
+            echo "agent_machinery_repository=$agent_machinery_repository"
+            echo "agent_machinery_ref=$agent_machinery_ref"
           } >> "$GITHUB_OUTPUT"
       - name: Checkout Beagle engine source (pinned)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -67,6 +71,13 @@ jobs:
           repository: ${{ steps.sources.outputs.beagle_repository }}
           ref: ${{ steps.sources.outputs.beagle_ref }}
           path: beagle
+
+      - name: Checkout agent-machinery source (pinned)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          repository: ${{ steps.sources.outputs.agent_machinery_repository }}
+          ref: ${{ steps.sources.outputs.agent_machinery_ref }}
+          path: agent-machinery
 
       - name: Resolve Beagle native compiler source
         id: compiler
@@ -78,9 +89,11 @@ jobs:
           ref: ${{ steps.compiler.outputs.beagle_compiler_ref }}
           path: beagle-compiler
 
-      - name: Bind tests to Beagle store
+      - name: Bind tests to exact source owners
         run: |
           {
+            echo "AGENT_MACHINERY_HOME=$GITHUB_WORKSPACE/agent-machinery"
+            echo "NORTH_AGENT_RUNTIME_HOME=$GITHUB_WORKSPACE/north/agent-runtime/orchestration"
             echo "BEAGLE_STORE_HOME=$GITHUB_WORKSPACE/beagle/store"
             echo "BEAGLE_STORE_BIN=$GITHUB_WORKSPACE/beagle/store/bin"
             echo "BEAGLE_STORE_OUT=$GITHUB_WORKSPACE/beagle/store/out"
@@ -177,6 +190,11 @@ jobs:
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         run: |
           set -euo pipefail
+          bash agent-runtime/hooks/agent-spawn-guard.test.sh
+          BEAGLE_HOME="$GITHUB_WORKSPACE/beagle" \
+            bash agent-runtime/hooks/beagle-session-start.test.sh
+          bash agent-runtime/hooks/harness-dial.test.sh
+          python3 agent-runtime/hooks/logcompress.test.py
           timeout --foreground 120s bash bin/tests/north-on-spawn-stress-test.sh
           timeout --foreground 120s bash bin/tests/north-on-tooluse-stress-test.sh
           timeout --foreground 120s bash bin/tests/session-role-alias-test.sh
@@ -190,14 +208,13 @@ jobs:
       - name: Agent projection boundaries
         working-directory: north
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
-        env:
-          ORCHESTRATION_HOME: ${{ github.workspace }}/north/orchestration
         run: |
           set -euo pipefail
           timeout --foreground 120s bb cli/tests/spawn-thread-title-validation-test.clj
           timeout --foreground 120s bb cli/tests/spawn-notify-listener-warning-test.clj
           timeout --foreground 180s bb cli/tests/spawn-doctor-test.clj  # every dispatch-invariant row class, fixture-driven
           timeout --foreground 180s bb cli/tests/delegate-intake-e2e-test.clj
+          timeout --foreground 120s bb cli/tests/agent-catalog-import-test.clj
           timeout --foreground 120s bb cli/tests/agents-cli-test.clj
           timeout --foreground 120s bb cli/tests/delegate-handoff-adoption-test.clj
           timeout --foreground 120s bb cli/tests/map-contract-test.clj
@@ -279,7 +296,6 @@ jobs:
         working-directory: north/sdk
         shell: test-suite --sandbox-home -- bash -euo pipefail {0}
         env:
-          NORTH_TEST_AGENT_PROVIDER_HOOKS: ${{ github.workspace }}/north/profiles/tom/hooks
           BEAGLE_STORE_TEST_CHECKOUT: ${{ github.workspace }}/beagle/store
         run: |
           set -euo pipefail

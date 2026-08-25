@@ -1,12 +1,12 @@
 ---
 name: assignments
-description: Bind concrete North threads to agents or people, inspect assignment state, and release ownership. Use after staffing decides the role; assignment records who owns this particular work.
+description: Bind concrete North threads to agents or people, inspect assignment state, and release ownership. Use after staffing resolves the role; assignment records who owns this particular work.
 ---
 
 # Coordination assignments
 
-Staffing answers “what profile should do this?” Assignment answers “who owns
-this thread now?” Keep those decisions separate.
+Staffing resolves the requested behavior profile. Assignment records who owns
+this thread now. Keep those decisions separate.
 
 Prefer `north delegate "<task>" --thread <thread>` for managed work because the
 dispatch lifecycle records and releases its driver claim. For an explicit

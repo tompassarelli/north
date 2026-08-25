@@ -45,7 +45,8 @@ const envKeys = [
   "NORTH_STORE_HOST", "NORTH_TELEMETRY_PARTITION",
   "NORTH_TELEMETRY_PORT", "NORTH_TELEMETRY_SPACE_ID",
   "BEAGLE_STORE_BIN", "BEAGLE_STORE_HOME", "BEAGLE_STORE_OUT", "BEAGLE_STORE_SERVER_PORT", "BEAGLE_STORE_SPACE_ID",
-  "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY", "NORTH_ORCHESTRATION_HOME", "NORTH_MANAGED_LANE",
+  "BEAGLE_STORE_THREADS", "UNRELATED_SECRET_CANARY", "AGENT_MACHINERY_HOME",
+  "NORTH_AGENT_RUNTIME_HOME", "NORTH_MANAGED_LANE",
   "NORTH_CODEX_BIN", "NORTH_MANAGED_CODEX_BIN",
   "NORTH_BIN", "PATH",
   "NORTH_RUN_ARTIFACT_DIR",
@@ -739,7 +740,10 @@ test("project AGENTS composition includes ancestor policy, stays bounded, and is
   process.env.HOME = home;
   delete process.env.AGENT_LAWS_PATH;
   process.env.AGENT_LAWS = "on";
-  process.env.NORTH_ORCHESTRATION_HOME = inheritedEnv.NORTH_ORCHESTRATION_HOME ?? join(north, "orchestration");
+  process.env.AGENT_MACHINERY_HOME = inheritedEnv.AGENT_MACHINERY_HOME
+    ?? "/home/tom/code/agent-machinery/main";
+  process.env.NORTH_AGENT_RUNTIME_HOME = inheritedEnv.NORTH_AGENT_RUNTIME_HOME
+    ?? join(north, "agent-runtime/orchestration");
 
   const appendix = projectAgentsAppendix(nested);
   expect(appendix.indexOf("ANCESTOR_POLICY_CANARY")).toBeLessThan(appendix.indexOf("ROOT_PROJECT_CANARY"));

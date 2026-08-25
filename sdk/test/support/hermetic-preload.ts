@@ -20,43 +20,23 @@ import { join } from "node:path";
 // AGENT_*) BEFORE any test file's own module-load snapshot, so `bun run test`
 // is env-independent and no `env -u ...` prefix is ever required again.
 const explicitTestHooksDir = process.env.NORTH_TEST_AGENT_PROVIDER_HOOKS;
+const explicitAgentMachineryHome = process.env.AGENT_MACHINERY_HOME;
+const explicitNorthAgentRuntimeHome = process.env.NORTH_AGENT_RUNTIME_HOME;
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("AGENT_") || key.startsWith("NORTH_ROUTING_"))
     delete process.env[key];
 }
 delete process.env.NORTH_SHADOW_REVIEWER;
 if (explicitTestHooksDir) process.env.NORTH_AGENT_PROVIDER_HOOKS = explicitTestHooksDir;
+if (explicitAgentMachineryHome)
+  process.env.AGENT_MACHINERY_HOME = explicitAgentMachineryHome;
+if (explicitNorthAgentRuntimeHome)
+  process.env.NORTH_AGENT_RUNTIME_HOME = explicitNorthAgentRuntimeHome;
 
-// Same leak, orchestration side: an installed `north` wrapper (or a managed
-// lane launched from one) exports NORTH_ORCHESTRATION_HOME pinned at the
-// packaged runtime contract (flake.nix orchestrationContract) — a Nix store
-// path that deliberately ships only the runtime-needed selection-assessment.mjs
-// + provider-catalog.mjs and omits authoring scripts like compose-routing.mjs
-// (flake.nix: "Generated adapters, authoring scripts, skills, and private
-// docs stay out of North's closure"). Every call site in src/ and test/ falls
-// back to `process.env.NORTH_ORCHESTRATION_HOME ?? <repo>/orchestration` only
-// when the var is ABSENT, so this ambient pin silently substitutes the
-// trimmed package tree for the full source checkout in every hermetic test —
-// observed 2026-07-26: orchestration-spawn-contract.test.ts fails closed with
-// "Module not found .../scripts/compose-routing.mjs" against the packaged
-// path while the same file is green against the repo's orchestration/ tree.
-// Delete it up front, same as the leaks above; tests that need a specific
-// orchestration home set it explicitly in their own fixture.
-delete process.env.NORTH_ORCHESTRATION_HOME;
-
-// NORTH_HOME carries the identical leak one layer up: orchestration-staffing.clj's
-// own orchestration-root fallback is `NORTH_ORCHESTRATION_HOME ?? (NORTH_HOME ??
-// this-root) + "/orchestration"` (cli/orchestration-staffing.clj), so scrubbing only
-// NORTH_ORCHESTRATION_HOME above still leaves an installed `north` wrapper's ambient
-// NORTH_HOME (the same trimmed Nix package root) pointing every `bb bin/north-mcp`
-// child process this suite spawns at `<package>/orchestration`, which does not exist
-// inside that package at all — observed 2026-07-26: mcp-dispatch-contract.test.ts's
-// two recursive-orchestrator-shape assertions fail closed with "resolves through no
-// provider catalog" against the packaged NORTH_HOME while green with it unset (the
-// clj fallback then walks to `this-root`, the compiled-in repo path, which is
-// correct and hermetic). Delete it; tests that need a specific NORTH_HOME (worktree
-// executable resolution, agents-cli-routing) already pass their own literal env
-// objects rather than relying on this ambient value.
+// Portable package source and North runtime additions are separate explicit
+// dependencies. The test command supplies AGENT_MACHINERY_HOME and
+// NORTH_AGENT_RUNTIME_HOME, so preserve both while scrubbing NORTH_HOME below.
+// Individual fault fixtures replace only the owner root whose failure they test.
 delete process.env.NORTH_HOME;
 
 // Same leak class again, Codex selector side: an installed `north` wrapper exports

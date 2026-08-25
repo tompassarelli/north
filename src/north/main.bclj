@@ -651,7 +651,7 @@
                                " fact(s) committed (Store RPC publication failure). Re-run — nothing is stranded in files."))))))))])))
 
 ;; Resolve a thread ref (@id OR @handle) to its canonical @id and print it. The
-;; bin/north wrapper calls this before routing tell/untell to Beagle Store, so a
+;; bin/north wrapper calls this before routing tell/retract to Beagle Store, so a
 ;; handle ref (`north tell @perf ...`) lands on the right thread — Store itself
 ;; is handle-blind and only ever sees the canonical id.
 ;; FAIL-CLOSED: a ref that LOOKS like an id (hex/date chars + dashes only) but
