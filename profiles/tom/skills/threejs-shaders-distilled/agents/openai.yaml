@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Shaders — Distilled"
+  short_description: "Default Three.js shaders workflow"
+  default_prompt: "Use $threejs-shaders-distilled for a focused Three.js shaders implementation."

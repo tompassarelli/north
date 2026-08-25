@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Animation — Distilled"
+  short_description: "Default Three.js animation workflow"
+  default_prompt: "Use $threejs-animation-distilled for a focused Three.js animation implementation."

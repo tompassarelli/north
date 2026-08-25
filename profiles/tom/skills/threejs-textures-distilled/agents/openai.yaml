@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Textures — Distilled"
+  short_description: "Default Three.js textures workflow"
+  default_prompt: "Use $threejs-textures-distilled for a focused Three.js textures implementation."

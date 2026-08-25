@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Fundamentals — Reference"
+  short_description: "Detailed Three.js fundamentals reference"
+  default_prompt: "Use $threejs-fundamentals-reference to look up detailed Three.js fundamentals patterns."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Post-Processing — Distilled"
+  short_description: "Default Three.js postprocessing workflow"
+  default_prompt: "Use $threejs-postprocessing-distilled for a focused Three.js postprocessing implementation."

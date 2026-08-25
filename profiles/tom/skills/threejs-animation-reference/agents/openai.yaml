@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Animation — Reference"
+  short_description: "Detailed Three.js animation reference"
+  default_prompt: "Use $threejs-animation-reference to look up detailed Three.js animation patterns."

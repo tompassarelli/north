@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Interaction — Distilled"
+  short_description: "Default Three.js interaction workflow"
+  default_prompt: "Use $threejs-interaction-distilled for a focused Three.js interaction implementation."

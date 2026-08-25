@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Geometry — Reference"
+  short_description: "Detailed Three.js geometry reference"
+  default_prompt: "Use $threejs-geometry-reference to look up detailed Three.js geometry patterns."
