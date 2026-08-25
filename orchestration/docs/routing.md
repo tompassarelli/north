@@ -157,10 +157,13 @@ conceptually independent. Current stock templates nevertheless ship fixed,
 enforceable topology/capability pairings. A stock template's topology cannot
 be overridden. Choose a compatible stock template or a bespoke composition
 with explicit capabilities for a different topology. Foundational
-implementation-only work may remain `economy` or `standard`; owning a
-foundational invariant decision raises the minimum to `senior`. System-shaping
-ownership or system synthesis raises it to `frontier`. A repository or path
-never raises the route by itself, and importance alone does not.
+implementation-only work uses `economy` only when it is unusually deterministic,
+tightly bounded, and has an objective end-to-end oracle; otherwise ordinary
+meaningful engineering starts at `standard`/`medium`. Cross-boundary,
+architectural, or weak-oracle work raises the minimum to `senior`/`high`.
+System-shaping ownership or system synthesis raises it to `frontier`. A
+repository or path never raises the route by itself, and importance alone does
+not.
 
 Reviewer is the multi-criterion evaluation of one supplied artifact or change:
 prioritized evidence-backed findings plus `accept`, `changes-required`, or

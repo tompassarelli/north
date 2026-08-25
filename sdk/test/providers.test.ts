@@ -620,6 +620,26 @@ test("semantic tiers resolve independently per provider", () => {
   expect(resolveTier("openai", "frontier")).toEqual({ tier: "frontier", model: "gpt-5.6-sol", effort: "xhigh" });
 });
 
+test("OpenAI routes the unpinned semantic ramp through Sol and preserves deliberate auxiliary pins", () => {
+  for (const { tier, defaultEffort } of [
+    { tier: "economy" as const, defaultEffort: "low" as const },
+    { tier: "standard" as const, defaultEffort: "medium" as const },
+    { tier: "senior" as const, defaultEffort: "high" as const },
+  ])
+    expect(resolveTier("openai", tier)).toEqual({ tier, model: "gpt-5.6-sol", effort: defaultEffort });
+
+  for (const { tier, model, defaultEffort } of [
+    { tier: "economy" as const, model: "gpt-5.6-luna", defaultEffort: "xhigh" as const },
+    { tier: "standard" as const, model: "gpt-5.6-terra", defaultEffort: "high" as const },
+  ]) {
+    expect(resolveTier("openai", tier, model)).toEqual({ tier, model, effort: defaultEffort });
+    for (const effort of ["low", "medium", "high", "xhigh"] as const)
+      expect(resolveTier("openai", tier, model, effort)).toEqual({ tier, model, effort });
+    expect(() => resolveTier("openai", tier, model, "max"))
+      .toThrow(`model ${model} does not support reasoning max at semantic tier ${tier}`);
+  }
+});
+
 test("provider selection honors each catalog's explicit tier reasoning routes", () => {
   expect(resolveTier("anthropic", "senior", undefined, "medium"))
     .toEqual({ tier: "senior", model: "claude-opus-5", effort: "medium" });
@@ -632,7 +652,7 @@ test("provider selection honors each catalog's explicit tier reasoning routes", 
     "medium",
   );
   expect(decision.provider).toBe("anthropic");
-  expect(decision.fallbackProviders).toEqual(["openai"]);
+  expect(decision.fallbackProviders).toEqual([]);
   expect(decision.selectionReason).toContain("route=senior/medium");
   expect(selectProviderFromAvailability(
     "anthropic", available, policy(), "senior", "exact-compatible", "medium",
@@ -640,18 +660,18 @@ test("provider selection honors each catalog's explicit tier reasoning routes", 
 });
 
 test("provider selection filters incompatible tier reasoning before allocation", () => {
-  expect(() => resolveTier("anthropic", "standard", undefined, "low"))
-    .toThrow("provider anthropic cannot resolve semantic tier standard with reasoning low");
+  expect(() => resolveTier("anthropic", "frontier", undefined, "max"))
+    .toThrow("provider anthropic cannot resolve semantic tier frontier with reasoning max");
   const decision = selectProviderFromAvailability(
     "auto", available, policy({ providerOrder: ["anthropic", "openai"] }),
-    "standard", "asymmetric-incompatible-route", "low",
+    "frontier", "asymmetric-incompatible-route", "max",
   );
   expect(decision.provider).toBe("openai");
   expect(decision.fallbackProviders).toEqual([]);
-  expect(decision.selectionReason).toContain("route=standard/low");
+  expect(decision.selectionReason).toContain("route=frontier/max");
   try {
     selectProviderFromAvailability(
-      "anthropic", available, policy(), "standard", "exact-incompatible", "low",
+      "anthropic", available, policy(), "frontier", "exact-incompatible", "max",
     );
     throw new Error("expected route incompatibility");
   } catch (error) {

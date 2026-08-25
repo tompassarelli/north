@@ -71,11 +71,13 @@ pass it through the selected adapter's documented spawn surface.
    seam scope, error exposure, oracle strength, foundational impact, dependency
    shape, and reasoning shape in a `minimum-sufficient-v1` assessment. Recompute
    its minimum tier/reasoning and rule codes; never trust caller-supplied
-   derived values. Foundational implementation-only work may remain
-   economy/standard; invariant-decision ownership routes at least senior, and
-   system synthesis routes frontier. A route below the derived minimum is
-   invalid; one above it needs a coded detailed exception. `max` additionally
-   requires exceptional reasoning shape and concrete `exceptionalDeliberation`.
+   derived values. Economy/low is only for unusually deterministic, tightly
+   bounded work with an objective end-to-end oracle; ordinary meaningful work
+   starts at standard/medium, and cross-boundary, architectural, or weak-oracle
+   work routes at least senior/high. System synthesis routes frontier. A route
+   below the derived minimum is invalid; one above it needs a coded detailed
+   exception. `max` additionally requires exceptional reasoning shape and
+   concrete `exceptionalDeliberation`.
    Semantic tier and deliberation are explicit. Provider/account selection is a separate harness-envelope concern;
    North defaults that envelope to `provider: auto`. The selected adapter
    resolves the concrete model and effort/reasoning. Pass the assessment to

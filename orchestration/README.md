@@ -38,9 +38,10 @@ Install it and your sessions gain:
    topology, model capability, deliberation, and posture stay independent,
    governed by three routing laws:
    - **Minimum-sufficient floor** — repository layer never raises cost by
-     itself. Foundational implementation-only work can remain economy/standard;
-     owning invariant, cross-boundary, or system-shaping decisions raises the
-     floor mechanically.
+     itself. Economy/low is reserved for unusually deterministic, tightly
+     bounded work with an objective end-to-end oracle; ordinary meaningful
+     engineering starts at standard/medium, while cross-boundary, architectural,
+     or weak-oracle work raises the floor to senior/high.
    - **Shingle law** — each semantic step exposes only useful
      model×deliberation rungs; the same concrete rung never masquerades as two
      tiers, and dominated overlaps are omitted. Harder ⇒ climb the semantic

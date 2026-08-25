@@ -33,6 +33,7 @@ interface ProviderModel {
   efforts?: Effort[];
   reasoning?: Effort[];
   routes?: Partial<Record<SemanticTier, Effort[]>>;
+  pinnedDefault?: Effort;
   contextWindow?: { tokens: number; effectiveFrom: string };
 }
 
@@ -335,13 +336,15 @@ export function resolveTier(provider: ProviderId, tier?: SemanticTier, model?: s
     throw new Error(`provider ${provider} does not declare model ${model}`);
   if (model) {
     const resolvedModel = resolveModelAlias(provider, model)!;
-    if (tier && !effort) {
+    const declaration = providerCatalog(provider).models[resolvedModel];
+    const resolvedEffort = effort ?? declaration?.pinnedDefault;
+    if (tier && !resolvedEffort) {
       throw new Error(
         `provider ${provider} exact model ${resolvedModel} requires explicit reasoning at semantic tier ${tier}`,
       );
     }
-    assertModelEffortPair(provider, resolvedModel, effort, tier);
-    return { ...(tier ? { tier } : {}), model: resolvedModel, effort };
+    assertModelEffortPair(provider, resolvedModel, resolvedEffort, tier);
+    return { ...(tier ? { tier } : {}), model: resolvedModel, effort: resolvedEffort };
   }
   if (!tier) {
     return { effort };

@@ -194,7 +194,7 @@ export function validateProviderCatalog(catalog, expectedProvider, root = ROOT) 
       throw new Error(`${expectedProvider}: models must use non-empty exact IDs that do not collide with aliases: ${JSON.stringify(model)}`);
     if (descriptor == null || typeof descriptor !== "object" || Array.isArray(descriptor))
       throw new Error(`${expectedProvider}.models.${model} must be an object`);
-    keysOnly(descriptor, ["routes", "contextWindow", "efforts", "reasoning"], `${expectedProvider}.models.${model}`);
+    keysOnly(descriptor, ["routes", "contextWindow", "efforts", "reasoning", "pinnedDefault"], `${expectedProvider}.models.${model}`);
     const vocabularies = ["efforts", "reasoning"].filter((key) => Object.hasOwn(descriptor, key));
     if (vocabularies.length !== 1)
       throw new Error(`${expectedProvider}.models.${model} must use exactly one provider deliberation vocabulary`);
@@ -224,6 +224,12 @@ export function validateProviderCatalog(catalog, expectedProvider, root = ROOT) 
           throw new Error(`${expectedProvider}: exact route ${model}/${level} appears in both ${priorTier} and ${tier}`);
         assignedRungs.set(level, tier);
       }
+    }
+    if (descriptor.pinnedDefault !== undefined) {
+      if (!REASONING.includes(descriptor.pinnedDefault) || !levels.includes(descriptor.pinnedDefault))
+        throw new Error(`${expectedProvider}.models.${model}.pinnedDefault must be provider-supported`);
+      if (![...assignedRungs].some(([level]) => level === descriptor.pinnedDefault))
+        throw new Error(`${expectedProvider}.models.${model}.pinnedDefault must be a calibrated exact route`);
     }
     // Provider context-window ceiling: a model-level fact recorded only on the
     // exact model. tokens is the provider limit, never the usable harness

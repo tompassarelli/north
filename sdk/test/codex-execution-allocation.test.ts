@@ -72,10 +72,10 @@ test("allocates supported Luna, Terra, and Sol work only from Store-admitted exe
   };
 
   await expect(allocateCodexExecutionAccount(targets, runtime, "economy", "low", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-luna", effort: "low",
+    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-sol", effort: "low",
       receipt: { accountAuthority: { subject: "@account:codex-gmail" } } });
   await expect(allocateCodexExecutionAccount(targets, runtime, "standard", "medium", dependencies))
-    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-terra", effort: "medium" });
+    .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-sol", effort: "medium" });
   await expect(allocateCodexExecutionAccount(targets, runtime, "senior", "high", dependencies))
     .resolves.toMatchObject({ target: { id: "codex-gmail" }, model: "gpt-5.6-sol", effort: "high" });
 });

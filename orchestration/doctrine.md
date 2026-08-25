@@ -5,6 +5,11 @@ FUNCTION by TASK SHAPE. Do not use importance or felt difficulty as a proxy for
 role; the minimum-sufficient selection signals independently set the capability
 floor and deliberation.
 
+Reserve economy/low for unusually deterministic, tightly bounded work with an
+objective end-to-end oracle. Ordinary meaningful engineering starts at
+standard/medium; cross-boundary, architectural, or weak-oracle work requires at
+least senior/high. Model selection remains a provider-adapter concern.
+
 The templates are a STANDARD LIBRARY, not a roster limit — shape triage
 proposes a template, while the routing decision keeps its axes explicit:
 FUNCTION/ROLE,

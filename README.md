@@ -75,10 +75,10 @@ way:
 
 | Requested tier | Current OpenAI resolution |
 | --- | --- |
-| `economy` | Luna at low or medium reasoning |
-| `standard` | Terra at low or medium reasoning |
-| `senior` | Sol at medium or high reasoning |
-| `frontier` | Sol at xhigh or max reasoning |
+| `economy` | Sol at low reasoning |
+| `standard` | Sol at medium reasoning |
+| `senior` | Sol at high reasoning |
+| `frontier` | Sol at xhigh reasoning (`max` only by exception) |
 
 The catalog is policy data, so callers request the semantic tier and reasoning
 they need instead of embedding that table in work. Current mappings and their
