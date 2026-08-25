@@ -1,0 +1,4 @@
+interface:
+  display_name: "Importing Skills Distilled"
+  short_description: "Import skills across every local harness"
+  default_prompt: "Use $importing-skills-distilled to import skills from this GitHub repository into my shared North environment."

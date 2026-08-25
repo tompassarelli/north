@@ -1,0 +1,4 @@
+interface:
+  display_name: "Importing Skills Reference"
+  short_description: "Detailed shared skill-import guidance"
+  default_prompt: "Use $importing-skills-reference for detailed skill import, validation, and projection procedures."
