@@ -190,10 +190,10 @@
                     catalog (initial-permissions catalog))
         by-id (into {} (map (juxt #(get % "id") identity)) (get activation "units"))]
     (check "catalog inventories every audited module, skill, and hook"
-           (and (= 65 (count (:units catalog)))
+           (and (= 66 (count (:units catalog)))
                 (every? (:by-id catalog)
                         (concat ["coordination" "orchestration" "compose" "elicit"
-                                 "store-modeling" "code-as-facts"
+                                 "settle-work" "store-modeling" "code-as-facts"
                                  "code-upstream-guard"]
                                 lifecycle-hook-ids))))
     (check "generation exposes the stable root contract"
