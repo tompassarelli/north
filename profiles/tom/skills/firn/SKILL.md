@@ -1,1 +1,0 @@
-../../../../../../nixos-config/main/modules/north-profile/firn/skills/firn/SKILL.md

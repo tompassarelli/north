@@ -1,1 +1,0 @@
-../../../../../../nixos-config/main/dotfiles/agents/skills/skill-maintenance/SKILL.md
