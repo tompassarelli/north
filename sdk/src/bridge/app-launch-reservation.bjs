@@ -1,0 +1,285 @@
+#lang beagle/js
+
+(ns north.bridge.app-launch-reservation
+  (:require [crypto :refer [createHash randomUUID]]
+            [|north-sdk/internal/delivery-evidence|
+             :refer [acquireDeliveryAttemptLeases commitDeliveryAttemptProviderStart
+                     commitDeliveryAttemptProvedUnsent commitDeliveryAttemptTerminal
+                     DELIVERY_ATTEMPT_LEASE_TTL_MS newDeliveryRunContext reserveDeliveryRun
+                     reserveDeliveryRunWithRecovery writeDeliveryAttemptLaunchIntent]]
+            [|north-sdk/internal/north-client| :refer [getThreadFacts normalizeNorthEntityId]]
+            [|north-sdk/internal/provider-routing| :refer [selectProviderForExecution]]
+            [|north-sdk/internal/providers-catalog| :refer [resolveTier]]
+            [|north-sdk/internal/telemetry| :refer [newRunId]]
+            [|north-sdk/internal/wire| :refer [encodeWireJsonlLine]]
+            [|north-sdk/internal/bridge-command-receipts| :refer [StoreBridgeCommandReceipts]]
+            [|north-sdk/internal/bridge-provider| :refer [resolveBridgeLaunchSelection]]))
+
+;; Store and provider APIs are foreign object boundaries. The lifecycle state
+;; remains local and every externally visible transition updates the returned
+;; managed-launch object before the promise resolves.
+
+(declare-extern
+  [process Math
+   Promise Error
+   AggregateError Object
+   setTimeout clearTimeout] Any)
+
+(defn sha256 [value String] String
+  (.digest (.update (createHash "sha256") value "utf8") "hex"))
+
+(defn exact-registered-thread!
+  [selected-thread-id Any
+   env Any
+   load-thread-facts Any] String
+  (let [selected String (if (identical? (js/typeof selected-thread-id) "string")
+                          (.trim selected-thread-id)
+                          "")
+        bridge-thread Any (.-NORTH_BRIDGE_CONTROL_THREAD env)
+        north-thread Any (.-NORTH_THREAD_ID env)
+        agent-thread Any (.-AGENT_THREAD env)
+        control String (cond
+                         (and (identical? (js/typeof bridge-thread) "string")
+                              (not (identical? (.trim bridge-thread) "")))
+                         (.trim bridge-thread)
+                         (and (identical? (js/typeof north-thread) "string")
+                              (not (identical? (.trim north-thread) "")))
+                         (.trim north-thread)
+                         (identical? (js/typeof agent-thread) "string")
+                         (.trim agent-thread)
+                         :else "")
+        candidate String (if (identical? selected "") control selected)]
+    (when (identical? candidate "")
+      (throw (new Error
+                  "Bridge app launch requires an exact selected or managed control thread")))
+    (let [thread-id String (normalizeNorthEntityId candidate)
+          titles Any (.map
+                       (.filter (load-thread-facts thread-id)
+                                (fn [fact Any] Bool
+                                  (identical? (.-predicate fact) "title")))
+                       (fn [fact Any] Any (.-value fact)))]
+      (when (or (not (identical? (.-length titles) 1))
+                (not (identical? (js/typeof (nth titles 0 nil)) "string"))
+                (identical? (.trim (nth titles 0)) ""))
+        (throw (new Error
+                    (str "Bridge app launch thread @" thread-id
+                         " is not registered in Store"))))
+      thread-id)))
+
+(defn reporter-agent-id
+  [env Any
+   execution-id String] String
+  (let [agent Any (.-AGENT_ID env)
+        managed String (if (identical? (js/typeof agent) "string")
+                         (.replace (.trim agent) (new RegExp "^@?agent:" "u") "")
+                         "")]
+    (if (identical? managed "") (str "bridge-app-" execution-id) managed)))
+
+(defn unsent-receipt
+  [execution-id String
+   attempt-id String
+   reason String] String
+  (sha256 (str "north:bridge-app-launch-unsent:v1\0"
+               execution-id "\0" attempt-id "\0" reason)))
+
+(defn optional-close! [receipts Any] Any
+  (when (.-close receipts) (.close receipts)))
+
+(js/export
+  (defn ^:async prepare-managed-bridge-app-launch!
+    ([request Any] (Promise Any)
+     (await (prepare-managed-bridge-app-launch! request {})))
+    ([request Any
+      dependencies Any] (Promise Any)
+      (when (identical? (.trim (or (.-prompt request) "")) "")
+       (throw (new Error "Bridge app launch requires a prompt")))
+     (when (identical? (.trim (or (.-cwd request) "")) "")
+       (throw (new Error "Bridge app launch requires a working directory")))
+     (when (and (.-provider request)
+                (not (identical? (.-provider request) "openai")))
+       (throw (new Error
+                   "Bridge app launch requires a Store-authorized OpenAI execution route")))
+     (let [env Any (or (.-env dependencies) (.-env process))
+           load-thread-facts Any (or (.-loadThreadFacts dependencies) getThreadFacts)
+           thread-id String (exact-registered-thread! (.-selectedThreadId request)
+                                                       env load-thread-facts)
+           execution-id String (or (.-executionId dependencies) (randomUUID))
+           reporter String (reporter-agent-id env execution-id)
+           selection Any (resolveBridgeLaunchSelection "openai" (.-role request) request)
+           routing Any (await (: ((or (.-selectProvider dependencies)
+                                      selectProviderForExecution)
+                                  {:provider "openai"}
+                                  nil
+                                  {:tier (.-tier (.-resolved selection))
+                                   :reasoning (.-effort (.-resolved selection))
+                                   :model (.-model request)
+                                   :stableKey reporter})
+                                (Promise Any)))
+           account-receipt Any (.-executionAccountReceipt routing)]
+       (when (or (not (identical? (.-provider routing) "openai"))
+                 (not account-receipt))
+         (throw (new Error
+                     "Bridge app launch has no Store-authorized OpenAI execution route")))
+       (let [resolved Any (resolveTier (.-provider routing)
+                                       (.-tier (.-resolved selection))
+                                       (.-model request)
+                                       (.-effort (.-resolved selection)))]
+         (when (not (.-model resolved))
+           (throw (new Error
+                       "Bridge app launch could not resolve an execution model")))
+         (let [context Any (newDeliveryRunContext (newRunId reporter) thread-id reporter)
+               leases Any (await (: ((or (.-acquireLeases dependencies)
+                                         acquireDeliveryAttemptLeases)
+                                     context (.-target routing))
+                                   (Promise Any)))
+               reserve Any (or (.-reserve dependencies) reserveDeliveryRun)
+               launch-intent Any (or (.-launchIntent dependencies)
+                                     writeDeliveryAttemptLaunchIntent)
+               proved-unsent Any (or (.-provedUnsent dependencies)
+                                     commitDeliveryAttemptProvedUnsent)
+               command-receipts Any (or (.-commandReceipts dependencies)
+                                        (new StoreBridgeCommandReceipts))
+               setup Any {:reservation nil :intent nil}]
+           (try
+             (do
+               (set! (.-reservation setup)
+                     (reserveDeliveryRunWithRecovery
+                       context
+                       {:provider (.-provider routing)
+                        :accountId (.-target routing)
+                        :model (.-model resolved)
+                        :accountAuthorityReceiptSha256
+                        (.-digest (.-accountAuthority account-receipt))
+                        :routeObservationReceiptSha256
+                        (.-digest (.-receipt (.-usage account-receipt)))
+                        :threadLease (.-threadLease leases)
+                        :accountLease (.-accountLease leases)}
+                       reserve))
+               (set! (.-intent setup)
+                     (launch-intent context (.-reservation setup)))
+               (await (: (.bindExecution command-receipts execution-id
+                                         (.-attemptId (.-reservation setup))
+                                         {:provider (.-provider routing)
+                                          :model (.-model resolved)})
+                         (Promise Any))))
+             (catch Error error
+               (do
+                 (when (and (.-reservation setup) (.-intent setup))
+                   (try
+                     (proved-unsent
+                       context (.-reservation setup) (.-intent setup)
+                       (unsent-receipt execution-id
+                                       (.-attemptId (.-reservation setup))
+                                       "attempt-binding-refused"))
+                     (catch Error settlement-error
+                       (do
+                         (await (: (.release leases) (Promise Any)))
+                         (optional-close! command-receipts)
+                         (throw (new AggregateError
+                                     [error settlement-error]
+                                     (str "Bridge app attempt binding and proved-unsent "
+                                          "settlement both failed")))))))
+                 (await (: (.release leases) (Promise Any)))
+                 (optional-close! command-receipts)
+                 (throw error))))
+           (optional-close! command-receipts)
+           (let [state Any {:effectObserved false :providerStart nil :settled false
+                            :released false :renewalTimer nil :renewing nil
+                            :managed nil}
+                 lease-failure Any (Promise/withResolvers)
+                 renewal-interval Int (Math/max
+                                        1
+                                        (or (.-leaseRenewIntervalMs dependencies)
+                                            (Math/floor
+                                              (/ (: DELIVERY_ATTEMPT_LEASE_TTL_MS Int) 3))))
+                 release! Any (fn [] Any
+                   (when (not (.-released state))
+                     (set! (.-released state) true)
+                     (when (.-renewalTimer state)
+                       (clearTimeout (.-renewalTimer state)))
+                     (set! (.-renewalTimer state) nil)
+                     (when (.-renewing state)
+                       (await (: (.catch (.-renewing state) (fn [_ Any] Any nil))
+                                 (Promise Any))))
+                     (await (: (.release leases) (Promise Any)))))
+                 commit-unsent! Any (fn [receipt String] Any
+                   (when (not (.-settled state))
+                     (when (.-effectObserved state)
+                       (throw (new Error
+                                   (str "Bridge app launch observed a provider effect "
+                                        "and cannot be proved unsent"))))
+                     (proved-unsent context (.-reservation setup) (.-intent setup) receipt)
+                     (set! (.-settled state) true)
+                     (set! (.-settled (.-managed state)) true)
+                     (await (: (release!) (Promise Any)))))]
+             (letfn [(schedule! [] Any
+                       (when (and (not (.-released state))
+                                  (not (.-settled state)))
+                         (set! (.-renewalTimer state)
+                               (setTimeout
+                                 (fn [] Any
+                                   (set! (.-renewalTimer state) nil)
+                                   (when (and (not (.-released state))
+                                              (not (.-settled state)))
+                                     (set! (.-renewing state) (.renew leases))
+                                     (.then (.-renewing state)
+                                            (fn [] Any
+                                              (set! (.-renewing state) nil)
+                                              (schedule!))
+                                            (fn [error Any] Any
+                                              (set! (.-renewing state) nil)
+                                              ((.-resolve lease-failure)
+                                               (if (instance? Error error)
+                                                 error
+                                                 (new Error
+                                                      (str "Bridge app launch lease "
+                                                           "renewal failed")))))))
+                                 renewal-interval)))))]
+               (let [managed Any {:attemptId (.-attemptId (.-reservation setup))
+                    :executionId execution-id
+                    :threadId thread-id
+                    :provider "openai"
+                    :model (.-model resolved)
+                    :providerEffectObserved false
+                    :settled false
+                    :leaseFailure (.-promise lease-failure)
+                    :observeDurableWireEvent
+                    (fn [event Any] Any
+                      (when (and (identical? (.-kind event) "model-call.started")
+                                 (not (.-providerStart state)))
+                        (set! (.-effectObserved state) true)
+                        (set! (.-providerEffectObserved (.-managed state)) true)
+                        (set! (.-providerStart state)
+                              ((or (.-providerStart dependencies)
+                                   commitDeliveryAttemptProviderStart)
+                               context (.-reservation setup) (.-intent setup)
+                               (sha256 (encodeWireJsonlLine event)))))
+                      (when (and (identical? (.-kind event) "run.terminated")
+                                 (not (.-settled state)))
+                        (if (not (.-effectObserved state))
+                          (await (: (commit-unsent! (sha256 (encodeWireJsonlLine event)))
+                                    (Promise Any)))
+                          (do
+                            (when (not (.-providerStart state))
+                              (throw (new Error
+                                          (str "Bridge app provider-start settlement "
+                                               "is unavailable at terminal"))))
+                            ((or (.-terminal dependencies)
+                                 commitDeliveryAttemptTerminal)
+                             context (.-reservation setup) (.-intent setup)
+                             (.-providerStart state)
+                             (sha256 (encodeWireJsonlLine event)))
+                            (set! (.-settled state) true)
+                            (set! (.-settled (.-managed state)) true)
+                            (await (: (release!) (Promise Any))))))
+                      nil)
+                    :proveUnsent
+                    (fn [reason String] Any
+                      (await (: (commit-unsent!
+                                  (unsent-receipt execution-id
+                                                  (.-attemptId (.-reservation setup))
+                                                  reason))
+                                (Promise Any))))}]
+                 (set! (.-managed state) managed)
+                 (schedule!)
+                 managed)))))))))
