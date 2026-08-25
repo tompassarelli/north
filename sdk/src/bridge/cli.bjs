@@ -34,11 +34,12 @@
 
 (declare-extern
   [process Bun
-   console JSON
-   Number Date
-   Array Set
-   RegExp Error
-   setTimeout clearTimeout] Any)
+   undefined console
+   JSON Number
+   Date Array
+   Set RegExp
+   Error setTimeout
+   clearTimeout] Any)
 
 (def USAGE String
   (str "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
@@ -592,7 +593,7 @@
     hooks Any] (Promise Any)
     (let [result Any (Promise/withResolvers)
           state Any {:buffer "" :exitCode 0 :launched false :refused false
-                   :errors [] :cursor 0 :observationTail (Promise/resolve)
+                   :errors [] :cursor 0 :observationTail (Promise/resolve undefined)
                    :observationFailed false}]
       (.setEncoding socket "utf8")
     (.on socket "data"
