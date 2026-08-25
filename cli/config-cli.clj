@@ -948,7 +948,8 @@
    permission is durable until its next explicit UnitId change.
 
  6 SKILLS — resolved shared skill discovery.
-   North reads `north:agent-catalog/catalog.json`; it never scans projects.
+   North composes only the owners named by `north:agent-catalog/sources.json`;
+   it never scans projects.
      north config skills
      north config agents on|off <skill-id>
      north config agents sync

@@ -41,7 +41,7 @@ function defaultUsage(target: RoutingTarget): Promise<StoreObservationSnapshot<P
 function quotaUsagePercent(observation: ProviderUsageObservation, now = Date.now()): number | undefined {
   if (observation.provider !== "openai" || observation.source !== "codex-app-server:account-rate-limits") return undefined;
   const primary = observation.windows?.find((window) => window.limitId === "codex:primary");
-  if (!primary || !("resetsAt" in primary) || !Number.isFinite(primary.usedPercent)
+  if (!primary || typeof primary.resetsAt !== "string" || !Number.isFinite(primary.usedPercent)
       || primary.usedPercent < 0 || primary.usedPercent >= 100 || Date.parse(primary.resetsAt) <= now) return undefined;
   return primary.usedPercent;
 }
@@ -74,7 +74,8 @@ export async function allocateCodexExecutionAccount(
 
   const ranked = await Promise.all(candidates.map(async ({ target, authority }, order) => {
     const usage = await (dependencies.loadUsage ?? defaultUsage)(target);
-    const usedPercent = usage && quotaUsagePercent(usage.observation);
+    if (!usage) return undefined;
+    const usedPercent = quotaUsagePercent(usage.observation);
     if (usedPercent === undefined) return undefined;
     return { target, authority, usage, order, pressure: usedPercent };
   }));

@@ -120,7 +120,8 @@ export class ProviderCatalogFileCache<T> {
 const providerCatalogCache = new ProviderCatalogFileCache<ProviderCatalog>();
 
 function orchestrationHome(): string {
-  return resolve(process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "..", "orchestration"));
+  return resolve(process.env.NORTH_AGENT_RUNTIME_HOME ??
+    resolve(import.meta.dir, "..", "..", "..", "agent-runtime/orchestration"));
 }
 
 function validateProviderCatalog(

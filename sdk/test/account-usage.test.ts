@@ -3,19 +3,80 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  ACCOUNT_USAGE_TTL_MS, accountUsageLeaseOptions, refreshAccountUsages,
+  ACCOUNT_USAGE_TTL_MS, accountUsageLeaseOptions,
+  refreshAccountUsages as refreshAccountUsagesProduction,
+  type RefreshAccountUsageOptions,
 } from "../src/account-usage";
 import type { ProviderAccount } from "../src/accounts";
 import { AnthropicUsageUnavailableError } from "../src/providers/anthropic-usage";
-import { writeProviderUsageObservations } from "../src/provider-observation-store";
+import {
+  writeProviderUsageObservations as writeProviderUsageObservationsProduction,
+} from "../src/provider-observation-store";
 import { refreshCodexEntitlementIfStale } from "../src/codex-entitlement";
 import { automatedPressure, loadProviderUsageObservations } from "../src/resource-policy";
 import { ProviderRefreshCancelledError } from "../src/provider-cancellation";
+import { StoreTriple, type BatchAction, type Term } from "../src/store-rpc-codec";
+import type { StoreObservationClient } from "../src/store-observation-adapter";
 
 const temporary: string[] = [];
+const storeClients = new Map<string, StoreObservationClient>();
 afterEach(() => {
   for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
+  storeClients.clear();
 });
+
+function observationClient(path: string): StoreObservationClient {
+  const existing = storeClients.get(path);
+  if (existing) return existing;
+  const rows: Term[] = [];
+  const versions = new Map<Term, number>();
+  const client: StoreObservationClient = {
+    async scanAll(t1, t2, t3) {
+      return {
+        rows: rows.filter((row) => row instanceof StoreTriple
+          && (t1 === null || row.t1 === t1)
+          && (t2 === null || row.t2 === t2)
+          && (t3 === null || row.t3 === t3)),
+        servedVersion: t1 === null ? 0 : versions.get(t1) ?? 0,
+      };
+    },
+    async batch(actions: readonly BatchAction[], { expectedVersion }) {
+      const subjects = new Set(actions.map(({ proposition }) => {
+        if (!(proposition instanceof StoreTriple)) throw new Error("test Store requires triples");
+        return proposition.t1;
+      }));
+      if (subjects.size !== 1) throw new Error("test Store batch must target one subject");
+      const subject = [...subjects][0]!;
+      if ((versions.get(subject) ?? 0) !== expectedVersion) throw new Error("rpc/conflict");
+      for (const action of actions) {
+        if (action.op === "retract") {
+          const index = rows.indexOf(action.proposition);
+          if (index >= 0) rows.splice(index, 1);
+        } else rows.push(action.proposition);
+      }
+      const servedVersion = expectedVersion + 1;
+      versions.set(subject, servedVersion);
+      return { results: actions.map((_, inputIndex) => ({ inputIndex })), servedVersion };
+    },
+    close() {},
+  };
+  storeClients.set(path, client);
+  return client;
+}
+
+const writeProviderUsageObservations: typeof writeProviderUsageObservationsProduction = (
+  incoming, path, options = {},
+) => writeProviderUsageObservationsProduction(incoming, path, {
+  ...options,
+  client: options.client ?? observationClient(path ?? "<default>"),
+});
+
+function refreshAccountUsages(options: RefreshAccountUsageOptions = {}) {
+  return refreshAccountUsagesProduction({
+    writeUsageObservations: writeProviderUsageObservations,
+    ...options,
+  });
+}
 
 function accounts(root: string): ProviderAccount[] {
   return [

@@ -33,7 +33,7 @@ function agent(id: string, name: string, status = "working", task = "") {
 }
 
 async function snapshotOf(content: unknown, width: number, height: number) {
-  const { renderer, renderOnce, captureCharSnapshot } = await createTestRenderer({ width, height });
+  const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({ width, height });
   const root = new BoxRenderable(renderer, { width: "100%", height: "100%" });
   const text = new TextRenderable(renderer, {
     width: "100%", height: "100%", wrapMode: "none", truncate: true,
@@ -42,7 +42,7 @@ async function snapshotOf(content: unknown, width: number, height: number) {
   renderer.root.add(root);
   text.content = content;
   await renderOnce();
-  const snapshot = captureCharSnapshot();
+  const snapshot = captureCharFrame();
   renderer.destroy();
   return snapshot;
 }

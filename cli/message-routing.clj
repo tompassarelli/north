@@ -94,7 +94,7 @@
               (armed-route-live? port control))))))
 
 (defn role-holders
-  "All graph holders of ROLE-SLUG. Ordering is deterministic; liveness decides
+  "All graph holders of ROLE-SLUG. Ordering is deterministic; liveness determines
    which holder may receive new mail."
   [port role-slug]
   (let [response

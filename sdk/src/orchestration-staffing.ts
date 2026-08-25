@@ -36,7 +36,6 @@ interface StaffingCatalog {
   vocabulary: { capabilities: OrchestrationCapability[] };
   defaults: StaffingDefaults;
   presets: StaffingPreset[];
-  aliases: Array<{ name: string; target: string }>;
 }
 
 export const ORCHESTRATION_STOCK_ROLE_IDS = [
@@ -47,10 +46,11 @@ export const ORCHESTRATION_STOCK_ROLE_IDS = [
 const STOCK_AUTHORING_ROLES = new Set(["executor", "curator", "implementer", "integrator"]);
 
 export const DEFAULT_ORCHESTRATION_STAFFING_PATH = resolve(
-  process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "..", "..", "orchestration"), "staffing/catalog.json",
+  process.env.AGENT_MACHINERY_HOME ?? resolve(process.env.HOME ?? "", "code/agent-machinery/main"),
+  "staffing/catalog.json",
 );
 
-const TOP_LEVEL_FIELDS = ["$schema", "version", "vocabulary", "defaults", "presets", "aliases"];
+const TOP_LEVEL_FIELDS = ["$schema", "version", "vocabulary", "defaults", "presets"];
 const VOCABULARY_FIELDS = [
   "taskGrades", "semanticTiers", "deliberations", "topologies", "postures", "capabilities",
 ];
@@ -128,8 +128,6 @@ export function loadOrchestrationStaffing(
   const presets = value.presets;
   if (!Array.isArray(presets) || presets.length === 0)
     throw new Error("staffing catalog: presets must be non-empty");
-  if (!Array.isArray(value.aliases))
-    throw new Error("staffing catalog: aliases must be an array");
   const vocabulary = requireOrchestrationCapabilities(
     value.vocabulary?.capabilities, "staffing catalog vocabulary.capabilities",
   );
@@ -173,8 +171,6 @@ export function loadOrchestrationStaffing(
     throw new Error(
       `Orchestration stock topology drift at ${path}: orchestrator topology is the director plus the scope ladder`,
     );
-  if (value.aliases.length !== 0)
-    throw new Error(`Orchestration stock alias drift at ${path}: canonical release has no aliases`);
   for (const preset of presets) {
     const capabilities = new Set(preset.capabilities);
     if (!capabilities.has("filesystem.read") || !capabilities.has("filesystem.search"))
@@ -190,19 +186,12 @@ export function loadOrchestrationStaffing(
     if (ORCHESTRATOR_LADDER.has(preset.name) !== capabilities.has("coordination"))
       throw new Error("Orchestration stock coordination authority belongs to the orchestrator ladder");
   }
-  for (const alias of value.aliases) {
-    requireOrchestrationRoleId(alias.name, "staffing catalog alias");
-    requireOrchestrationRoleId(alias.target, "staffing catalog alias target");
-    if (!presetNames.has(alias.target)) throw new Error(`Orchestration alias target is missing: ${alias.target}`);
-  }
-  return { sourceVersion, vocabulary: value.vocabulary, defaults: value.defaults, presets, aliases: value.aliases };
+  return { sourceVersion, vocabulary: value.vocabulary, defaults: value.defaults, presets };
 }
 
 export function canonicalStaffingRole(role: string | undefined, catalog = loadOrchestrationStaffing()): string | undefined {
   if (role === undefined) return undefined;
   requireOrchestrationRoleId(role);
-  const alias = catalog.aliases.find(({ name }) => name === role);
-  if (alias) throw new Error(`role must use canonical stock-template name ${alias.target}`);
   return role;
 }
 

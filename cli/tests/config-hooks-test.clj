@@ -10,9 +10,16 @@
                    "north-config-hooks-" (make-array java.nio.file.attribute.FileAttribute 0))))
 (def home (str tmp "/home"))
 (def state (str tmp "/agents"))
-(def roots (json/generate-string
-            {"north" root "beagle" "/home/tom/code/beagle/main"
-             "nixos-config" "/home/tom/code/nixos-config/main"}))
+(def configured-roots
+  (some-> (System/getenv "NORTH_REPO_ROOTS") json/parse-string))
+(def roots
+  (json/generate-string
+   (merge {"north" root
+           "beagle" "/home/tom/code/beagle/main"
+           "agent-machinery" "/home/tom/code/agent-machinery/main"
+           "nixos-config" "/home/tom/code/nixos-config/main"}
+          configured-roots
+          {"north" root})))
 (def env {"HOME" home "NORTH_HOME" root "NORTH_AGENT_STATE_ROOT" state
           "NORTH_REPO_ROOTS" roots})
 (def checks (atom []))

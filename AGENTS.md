@@ -11,7 +11,7 @@ is canonical; `threads/` is a projection.
 
 - Coordination, posture, telemetry, concerns, and supervision belong to North.
 - Provider SDK/CLI code belongs only under `sdk/src/providers/`.
-- Orchestration owns semantic task routing; provider adapters resolve semantic tiers to models.
+- Semantic task-routing contracts belong to Orchestration; provider adapters resolve semantic tiers to models.
 - MCP is the shared data/tool boundary for interactive provider sessions.
 - Never add a provider model ID to provider-neutral orchestration code.
 - Keep consumer behavior out of repository `AGENTS.md` files. Put optional

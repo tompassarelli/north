@@ -1,4 +1,0 @@
-interface:
-  display_name: "Prior Art"
-  short_description: "Synchronize precedent before invention"
-  default_prompt: "Use $prior-art to research precedent that can change this engineering decision."

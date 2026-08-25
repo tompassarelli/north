@@ -1,21 +1,20 @@
 ;; orchestration-root-cwd-test.clj — pins the invariant behind thread
 ;; 019f9ac4-f49e-7912-8181-486449386ce5: the checkout north CLI must resolve
-;; its orchestration root from the CLI's own checkout location, never the
+;; its portable package root from its explicit owner location, never the
 ;; caller's inherited process cwd.
 ;;
 ;; Regression: orchestration-project-cli.clj's orchestration-root() fell back
-;; to (System/getProperty "user.dir") when neither NORTH_ORCHESTRATION_HOME
-;; nor NORTH_HOME was set. A `bb` subprocess spawned by execFileSync (e.g.
+;; to (System/getProperty "user.dir") when no owner root was set. A `bb`
+;; subprocess spawned by execFileSync (e.g.
 ;; sdk/src/orchestration-policy-pin.ts) inherits the CALLER's cwd, so
 ;; dispatching `north delegate` from any directory other than the north
-;; checkout (e.g. ~/code/beagle/main/store) walked to <caller-cwd>/orchestration/scripts/
+;; checkout (e.g. ~/code/beagle/main/store) walked to a caller-owned scripts/
 ;; selection-assessment.mjs, which does not exist, and died at admission with
 ;; ERR_MODULE_NOT_FOUND before any provider call.
 ;;
 ;; Daemon-free: spawns a child `bb` process with :dir set to an UNRELATED cwd
-;; (a fresh /tmp dir, never a north checkout ancestor) and NORTH_HOME /
-;; NORTH_ORCHESTRATION_HOME stripped from its env, then asserts the printed
-;; orchestration-root() still resolves inside THIS checkout.
+;; (a fresh /tmp dir, never a checkout ancestor) and AGENT_MACHINERY_HOME
+;; stripped from its env, then asserts the printed root resolves from HOME.
 ;;
 ;; Scoped to the main-guarded CLI libraries that are safe to load without a
 ;; coordinator. Other entry points execute their verb dispatch at load time.
@@ -28,8 +27,8 @@
 
 (def tests-dir (.getParentFile (io/file (System/getProperty "babashka.file"))))
 (def cli-dir (.getParentFile tests-dir))
-(def repo-root (.getParentFile cli-dir))
-(def expected-orchestration (str (io/file repo-root "orchestration")))
+(def expected-orchestration
+  (str (io/file (System/getenv "HOME") "code/agent-machinery/main")))
 
 (def results (atom []))
 (defn check [label pass?]
@@ -46,7 +45,7 @@
   (let [script (str "(load-file \"" target-file "\")"
                      "(println (" root-form "))")
         env (-> (into {} (System/getenv))
-                (dissoc "NORTH_HOME" "NORTH_ORCHESTRATION_HOME"))
+                (dissoc "NORTH_HOME" "AGENT_MACHINERY_HOME"))
         {:keys [exit out err]}
         (p/sh {:dir unrelated-cwd :env env :out :string :err :string}
               "bb" "--eval" script)]
@@ -57,7 +56,7 @@
                                     "orchestration-root")]
   (check (str "orchestration-project-cli.clj: exits 0 from unrelated cwd (stderr: " err ")")
          (zero? exit))
-  (check (str "orchestration-project-cli.clj: resolves inside the checkout, not " unrelated-cwd
+  (check (str "orchestration-project-cli.clj: resolves from the package owner, not " unrelated-cwd
               " (got " out ")")
          (= expected-orchestration out)))
 

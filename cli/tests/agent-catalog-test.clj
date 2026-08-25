@@ -26,8 +26,8 @@
     "north-agent-catalog-test-"
     (make-array java.nio.file.attribute.FileAttribute 0))))
 
-(def catalog-path (str root "/agent-catalog/catalog.json"))
-(def base (json/parse-string (slurp catalog-path)))
+(def base-catalog (north.agent-catalog/load-catalog))
+(def base (:catalog base-catalog))
 (def catalog-schema-value
   (json/parse-string (slurp (str root "/agent-catalog/catalog.schema.json"))))
 (def activation-schema-value
@@ -82,10 +82,9 @@
   (:permissions (north.agent-catalog/load-initialization catalog initialization-path)))
 
 (defn load-value [value]
-  (let [path (str tmp "/fixture-" (java.util.UUID/randomUUID) ".json")]
-    (spit path (json/generate-string value))
-    (with-redefs [north.agent-catalog/catalog-path (constantly path)]
-      (north.agent-catalog/load-catalog))))
+  (with-redefs-fn
+    {(ns-resolve 'north.agent-catalog 'load-effective-catalog!) (constantly value)}
+    north.agent-catalog/load-catalog))
 
 (defn loads? [value]
   (try
@@ -127,11 +126,11 @@
    "kind" "module"
    "title" "Beagle Tools"
    "triggerDescription" "Project-packaged Beagle authoring behavior."
-   "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}
+   "owner" {"repo" "north" "path" "agent-catalog/north.json"}
    "members" ["code-as-facts" "code-upstream-guard"]
    "distributions" [{"type" "projectPackage"
                      "targets" ["project:beagle"]
-                     "owner" {"repo" "north" "path" "agent-catalog/catalog.json"}}]})
+                     "owner" {"repo" "north" "path" "agent-catalog/north.json"}}]})
 
 (defn resolved-link-target [path]
   (when (java.nio.file.Files/isSymbolicLink path)
@@ -190,7 +189,7 @@
                     catalog (initial-permissions catalog))
         by-id (into {} (map (juxt #(get % "id") identity)) (get activation "units"))]
     (check "catalog inventories every audited module, skill, and hook"
-           (and (= 66 (count (:units catalog)))
+           (and (= 68 (count (:units catalog)))
                 (every? (:by-id catalog)
                         (concat ["coordination" "orchestration" "compose" "elicit"
                                  "settle-work" "store-modeling" "code-as-facts"
@@ -231,12 +230,12 @@
                       "activationPaths"])
             (get activation "units")))
     (check "modules expand permitted members depth-first in declared order"
-           (= ["orchestration" "staffing" "agent-spawn-guard"
-               "compose" "elicit" "coordination"
-               "messages" "threads" "assignments"]
+           (= ["agent-machinery" "orchestration" "staffing"
+               "agent-spawn-guard" "compose" "session-kill-guard"
+               "agent-practice" "build-vs-reuse" "external-code"]
               (mapv #(get % "id") (take 9 (get activation "units")))))
     (check "supported hooks retain every activation path after unit dedupe"
-           (= [["orchestration" "session-kill-guard"]
+           (= [["agent-machinery" "orchestration" "session-kill-guard"]
                ["repo-safety" "session-kill-guard"]]
               (get-in by-id ["session-kill-guard" "activationPaths"])))
     (check "Codex lifecycle hooks have five exact independent projection outputs"
@@ -357,7 +356,7 @@
          (throws-containing?
           "catalog module cycle"
           #(load-value (mutate-unit base "coordination"
-                                    (fn [unit] (update unit "members" conj "orchestration"))))))
+                                    (fn [unit] (update unit "members" conj "coordination"))))))
 
   (let [catalog (load-value (-> base
                                 (update "units" conj project-module-fixture)
@@ -369,7 +368,7 @@
         by-id (into {} (map (juxt #(get % "id") identity))
                     (get activation "units"))]
     (check "modules compose direct skill and hook members alongside nested modules"
-           (and (some #(= ["orchestration" "coordination"] %)
+           (and (some #(= ["coordination"] %)
                       (get-in by-id ["coordination" "activationPaths"]))
                 (some #(= ["beagle-tools" "code-as-facts"] %)
                       (get-in by-id ["code-as-facts" "activationPaths"]))
@@ -396,7 +395,7 @@
          "category" "authoring"
          "title" "Future Hook"
          "triggerDescription" "A catalog-upgrade permission fixture."
-         "owner" {"repo" "north" "path" "profiles/tom/hooks/tripwire-guard.sh"}
+         "owner" {"repo" "north" "path" "agent-runtime/hooks/agent-spawn-guard.sh"}
          "distributions" [{"type" "hook" "targets" ["codex"]}]}
         upgraded (load-value (update base "units" conj future-unit))]
     (with-redefs [north.agent-catalog/current-activation
@@ -566,6 +565,7 @@
                                  json/parse-string)
         roots (merge {"north" root
                       "beagle" "/home/tom/code/beagle/main"
+                      "agent-machinery" "/home/tom/code/agent-machinery/main"
                       "nixos-config" "/home/tom/code/nixos-config/main"}
                      configured-roots
                      {"north" root})
@@ -842,11 +842,14 @@
         different-path (str tmp "/different-initialization.json")
         crash-runner (str tmp "/initialization-crash-runner.clj")
         cli (str root "/cli/config-cli.clj")
-        repo-roots (or (not-empty (System/getenv "NORTH_REPO_ROOTS"))
-                       (json/generate-string
-                        {"north" root
-                         "beagle" "/home/tom/code/beagle/main"
-                         "nixos-config" "/home/tom/code/nixos-config/main"}))
+        repo-roots
+        (json/generate-string
+         (merge {"north" root
+                 "beagle" "/home/tom/code/beagle/main"
+                 "agent-machinery" "/home/tom/code/agent-machinery/main"
+                 "nixos-config" "/home/tom/code/nixos-config/main"}
+                (some-> (System/getenv "NORTH_REPO_ROOTS") json/parse-string)
+                {"north" root}))
         final-artifacts (atom nil)]
     (spit different-path
           (json/generate-string
@@ -911,6 +914,11 @@
               different-state [(shallow-snapshot (.toPath (io/file state-root)))
                                (shallow-snapshot codex-skills)]
               replayed (run-sync initialization-path)
+              _replayed (when-not (zero? (:exit replayed))
+                          (throw (ex-info "initialization replay failed"
+                                          {:stage stage
+                                           :out (:out replayed)
+                                           :err (:err replayed)})))
               receipt (json/parse-string (slurp receipt-file))
               manifest (slurp manifest-file)
               artifacts [(get receipt "generationId")

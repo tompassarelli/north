@@ -126,8 +126,8 @@ North seam rather than as an imported framework.
   ([session types](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/types/session.ts#L89-L127),
   [versioning](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/session/session-versioning-service.ts#L134-L325),
   [workspace transaction](https://github.com/cline/cline/blob/16875140fbc7bae51aad79c203837b4f51e54aa5/sdk/packages/core/src/session/checkpoint-restore.ts#L42-L154)).
-  North owns lineage and restore decisions as typed session facts and pure
-  projections; Git mutation remains a thin host adapter.
+  North records lineage and restore policy outcomes as typed session facts and
+  pure projections; Git mutation remains a thin host adapter.
 - **Ordered replay and provenance.** oh-my-pi preserves an append-only stable
   prefix and explicit divergence
   ([context](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/agent/src/append-only-context.ts#L25-L89));

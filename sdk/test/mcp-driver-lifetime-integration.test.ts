@@ -24,7 +24,8 @@ import { safeNext } from "../src/store-kernel";
 import { presetRequest } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
-const orchestration = resolve(north, "orchestration");
+const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const agentRuntime = process.env.NORTH_AGENT_RUNTIME_HOME ?? resolve(north, "agent-runtime/orchestration");
 const acquireCli = resolve(north, "cli/acquire-cli.clj");
 const thread = "019fa4ec-d2e6-7f8f-b375-a4f2ea407a0c";
 const frozenStoreHome = process.env.BEAGLE_STORE_TEST_CHECKOUT
@@ -152,7 +153,8 @@ exec "$NORTH_TEST_REAL_BUN" "$NORTH_TEST_CHILD_FIXTURE" "$thread"
         NORTH_BIN: fakeNorth,
         NORTH_MCP_BUN: fakeBun,
         NORTH_POLICY_BUN: process.execPath,
-        NORTH_ORCHESTRATION_HOME: orchestration,
+        AGENT_MACHINERY_HOME: agentMachinery,
+        NORTH_AGENT_RUNTIME_HOME: agentRuntime,
         NORTH_SPAWN_STARTUP_TIMEOUT_MS: "2000",
         NORTH_TEST_REAL_BUN: process.execPath,
         NORTH_TEST_CHILD_FIXTURE: childFixture,

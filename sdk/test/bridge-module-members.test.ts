@@ -101,11 +101,11 @@ test("activation path honors the configured North agent state root", () => {
 test("owner formatting is safe at the dynamic activation boundary", () => {
   const payload = JSON.parse(resolved());
   payload.units = [
-    { ...payload.units[0], owner: "north:agent-catalog/catalog.json" },
+    { ...payload.units[0], owner: "north:agent-catalog/north.json" },
     { ...payload.units[1], owner: { repo: "north", path: "" } },
     { ...payload.units[2], owner: null },
   ];
   expect(activationOfJson(JSON.stringify(payload)).units.map(
     (unit: { owner: string }) => unit.owner,
-  )).toEqual(["north:agent-catalog/catalog.json", "north", ""]);
+  )).toEqual(["north:agent-catalog/north.json", "north", ""]);
 });

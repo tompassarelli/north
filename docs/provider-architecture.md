@@ -1,10 +1,10 @@
 # Provider accounts, routing, and usage truth
 
-North owns durable coordination, account selection, and run evidence. Provider
-surfaces execute a prepared run. Orchestration remains account-blind: it chooses the
-role, composition, semantic tier, reasoning, and posture; North chooses an
-eligible provider target and resolves that semantic tier through the selected
-provider's model catalog.
+North owns deterministic durable coordination, account selection, and run evidence. Provider
+surfaces execute a prepared run. Orchestration contracts remain account-blind:
+they declare the role, composition, semantic tier, reasoning, and posture. North
+deterministically filters eligible provider targets, and the selected provider's
+model catalog resolves that semantic tier.
 
 ## Subscription accounts
 
@@ -299,7 +299,7 @@ only surface evidence for review; they never mutate Orchestration's library or p
 a composition without an explicit source-control change.
 
 This division keeps Orchestration reusable across account layouts. Orchestration's canonical
-staffing catalog at `~/code/north/main/orchestration/staffing/catalog.json` names roles and semantic
+staffing catalog at `agent-machinery:staffing/catalog.json` names roles and semantic
 tiers; it contains no personal account IDs or subscription state.
 
 ## Token truth
@@ -383,7 +383,7 @@ Orchestration supplies static model/tier/reasoning compatibility. North intersec
 that contract with fresh authenticated, target-scoped model availability before
 admitting a concrete route. Missing, stale, malformed, or cross-account model
 evidence never proves availability, and usage pressure never substitutes for
-model entitlement. AUTO may choose another eligible target before side effects;
+model entitlement. AUTO may resolve to another eligible target before side effects;
 an exact provider/target/model pin fails closed instead of silently mapping to a
 different model. After acceptance, any change requires a new dispatch with the
 desired semantic tier or exact model.

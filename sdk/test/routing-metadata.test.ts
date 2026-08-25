@@ -164,7 +164,8 @@ test("North validates Orchestration's shared cross-harness routing fixtures", ()
 
   // Orchestration is canonical when present in a development workspace, but North's
   // packaged acceptance test never requires a sibling checkout.
-  const orchestrationHome = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(import.meta.dir, "../../orchestration");
+  const orchestrationHome = process.env.AGENT_MACHINERY_HOME
+    ?? "/home/tom/code/agent-machinery/main";
   const canonicalPath = resolve(orchestrationHome, "contracts/routing-request.fixtures.json");
   if (existsSync(canonicalPath))
     expect(JSON.parse(readFileSync(canonicalPath, "utf8"))).toEqual(fixtures);

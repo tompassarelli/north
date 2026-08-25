@@ -2,7 +2,7 @@
 
 **Status:** normative. **Version:** `north-dispatch-interface:v1`.
 
-This is the contract between *what North decides* and *what actually runs a
+This is the contract between *an admitted dispatch* and *the backend that runs a
 lane*. It exists so that replacing the execution backend — native subagents
 today, a North-owned harness later — is a **backend swap, not a rewrite**.
 

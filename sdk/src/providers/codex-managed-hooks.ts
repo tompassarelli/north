@@ -15,7 +15,7 @@ const NIX_STORE_ROOT = "/nix/store";
 const MAX_PROMOTION_RECORD_BYTES = 128 * 1024;
 const MAX_PROMOTION_FILES = 1024;
 
-type PromotedRepository = "north" | "beagle";
+type PromotedRepository = "nixos-config" | "north" | "beagle";
 
 interface PromotedHookSource {
   repository: PromotedRepository;
@@ -25,35 +25,35 @@ interface PromotedHookSource {
 const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
   "agent-spawn-guard.sh": {
     repository: "north",
-    path: "profiles/tom/hooks/agent-spawn-guard.sh",
+    path: "agent-runtime/hooks/agent-spawn-guard.sh",
   },
   "beagle-session-start.sh": {
     repository: "beagle",
     path: "integrations/north/hooks/beagle-session-start.sh",
   },
   "corpus-scan-guard.sh": {
-    repository: "north",
-    path: "profiles/tom/hooks/corpus-scan-guard.sh",
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/corpus-scan-guard.sh",
   },
   "launch-critical-worktree-guard.sh": {
-    repository: "north",
-    path: "profiles/tom/hooks/launch-critical-worktree-guard.sh",
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/launch-critical-worktree-guard.sh",
   },
   "logcompress-hook.py": {
     repository: "north",
-    path: "profiles/tom/hooks/logcompress-hook.py",
+    path: "agent-runtime/hooks/logcompress-hook.py",
   },
   "logcompress.py": {
     repository: "north",
-    path: "profiles/tom/hooks/logcompress.py",
+    path: "agent-runtime/hooks/logcompress.py",
   },
   "session-kill-guard.sh": {
-    repository: "north",
-    path: "profiles/tom/hooks/session-kill-guard.sh",
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/session-kill-guard.sh",
   },
   "tripwire-guard.sh": {
-    repository: "north",
-    path: "profiles/tom/hooks/tripwire-guard.sh",
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/tripwire-guard.sh",
   },
 };
 
@@ -63,6 +63,7 @@ const PROMOTED_HOOK_DEPENDENCIES: Readonly<Record<string, readonly string[]>> = 
 
 interface PromotionRecord {
   id: string;
+  nixosRevision: string;
   northRevision: string;
   beagleRevision: string;
   files: ReadonlyMap<string, string>;
@@ -326,19 +327,21 @@ function parsePromotionRecord(source: string, deploymentName: string): Promotion
   };
   if (lines[0] !== "FORMAT north-enforcement-promote/v1")
     throw new Error("managed Codex promotion record format is invalid");
-  const id = exactHeader(1, "ID", /^ID (north-[0-9a-f]{40}\.beagle-[0-9a-f]{40})$/);
-  const northRevision = exactHeader(2, "NORTH_REV", /^NORTH_REV ([0-9a-f]{40})$/);
-  const beagleRevision = exactHeader(3, "BEAGLE_REV", /^BEAGLE_REV ([0-9a-f]{40})$/);
-  exactHeader(4, "PREVIOUS", /^PREVIOUS (north-[0-9a-f]{40}\.beagle-[0-9a-f]{40})$/);
-  exactHeader(5, "WHO", /^WHO ([A-Za-z_][A-Za-z0-9_.-]{0,127})$/);
-  exactHeader(6, "WHEN", /^WHEN (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$/);
-  const why = exactHeader(7, "WHY", /^WHY (.{1,4096})$/);
+  const deploymentPattern = "nixos-[0-9a-f]{40}\\.north-[0-9a-f]{40}\\.beagle-[0-9a-f]{40}";
+  const id = exactHeader(1, "ID", new RegExp(`^ID (${deploymentPattern})$`));
+  const nixosRevision = exactHeader(2, "NIXOS_REV", /^NIXOS_REV ([0-9a-f]{40})$/);
+  const northRevision = exactHeader(3, "NORTH_REV", /^NORTH_REV ([0-9a-f]{40})$/);
+  const beagleRevision = exactHeader(4, "BEAGLE_REV", /^BEAGLE_REV ([0-9a-f]{40})$/);
+  exactHeader(5, "PREVIOUS", new RegExp(`^PREVIOUS (${deploymentPattern})$`));
+  exactHeader(6, "WHO", /^WHO ([A-Za-z_][A-Za-z0-9_.-]{0,127})$/);
+  exactHeader(7, "WHEN", /^WHEN (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)$/);
+  const why = exactHeader(8, "WHY", /^WHY (.{1,4096})$/);
   if (why.includes("\0")) throw new Error("managed Codex promotion record WHY is invalid");
-  const expectedId = `north-${northRevision}.beagle-${beagleRevision}`;
+  const expectedId = `nixos-${nixosRevision}.north-${northRevision}.beagle-${beagleRevision}`;
   if (id !== expectedId || id !== deploymentName)
     throw new Error("managed Codex promotion record revision mapping is invalid");
 
-  const manifestLines = lines.slice(8);
+  const manifestLines = lines.slice(9);
   if (manifestLines.length < 1 || manifestLines.length > MAX_PROMOTION_FILES)
     throw new Error("managed Codex promotion manifest size is invalid");
   const files = new Map<string, string>();
@@ -347,7 +350,8 @@ function parsePromotionRecord(source: string, deploymentName: string): Promotion
     if (!match?.[1] || !match[2])
       throw new Error("managed Codex promotion manifest entry is invalid");
     const [, digest, path] = match;
-    if ((path !== `north/${posix.normalize(path.slice("north/".length))}`
+    if ((path !== `nixos-config/${posix.normalize(path.slice("nixos-config/".length))}`
+        && path !== `north/${posix.normalize(path.slice("north/".length))}`
         && path !== `beagle/${posix.normalize(path.slice("beagle/".length))}`)
         || path.includes("/../") || path.endsWith("/..") || path.includes("/./")
         || files.has(path)) {
@@ -355,7 +359,7 @@ function parsePromotionRecord(source: string, deploymentName: string): Promotion
     }
     files.set(path, digest);
   }
-  return { id, northRevision, beagleRevision, files };
+  return { id, nixosRevision, northRevision, beagleRevision, files };
 }
 
 function captureActivePromotion(
@@ -404,9 +408,11 @@ function assertSealedPromotedHook(
   if (!source)
     throw new Error(`${livePath} has no allowed sealed promotion mapping`);
   const manifestPath = `${source.repository}/${source.path}`;
-  const revision = source.repository === "north"
-    ? promotion.record.northRevision
-    : promotion.record.beagleRevision;
+  const revision = source.repository === "nixos-config"
+    ? promotion.record.nixosRevision
+    : source.repository === "north"
+      ? promotion.record.northRevision
+      : promotion.record.beagleRevision;
   const expectedPath = resolve(promotion.deploymentRoot, ...manifestPath.split("/"));
   if (dirname(expectedPath) === promotion.deploymentRoot
       || !expectedPath.startsWith(`${promotion.deploymentRoot}${sep}`)) {
@@ -432,7 +438,9 @@ function managedCommandPaths(
   value: string,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
   systemPolicyPath = FIRN_SYSTEM_POLICY,
-): { env: string; interpreter?: string; executable: string; script?: string } {
+): { env?: string; interpreter?: string; executable: string; script?: string } {
+  if (value === systemPolicyPath)
+    return { executable: systemPolicyPath };
   const env = resolve(managedDir, "runtime/env");
   const prefix = `${env} -u BASH_ENV -u ENV `;
   if (!value.startsWith(prefix))
@@ -440,8 +448,6 @@ function managedCommandPaths(
   const tokens = value.slice(prefix.length).split(" ");
   if (tokens.some((token) => !token))
     throw new Error("managed Codex hook command token sequence is not exact");
-  if (tokens.length === 1 && tokens[0] === systemPolicyPath)
-    return { env, executable: systemPolicyPath };
   if (tokens.length !== 2)
     throw new Error("managed Codex hook command token sequence is not exact");
   const [interpreter, script] = tokens as [string, string];
@@ -492,7 +498,7 @@ export function validateManagedCodexHookInstallation(
   let promotion: CapturedPromotion | undefined;
   for (const commandLine of commands) {
     const paths = managedCommandPaths(commandLine, installation.managedDir, systemPolicyPath);
-    assertNixManagedFile(paths.env, true, installation.nixStoreRoot);
+    if (paths.env) assertNixManagedFile(paths.env, true, installation.nixStoreRoot);
     if (!paths.script) {
       assertNixManagedFile(paths.executable, true, installation.nixStoreRoot);
       continue;
@@ -620,7 +626,7 @@ export function reportManagedCodexHookInstallation(
       });
       continue;
     }
-    record(runtime, paths.env, true);
+    if (paths.env) record(runtime, paths.env, true);
     if (paths.interpreter) record(runtime, paths.interpreter, true);
     record(hooks, paths.executable, paths.script === undefined);
     if (paths.script) {

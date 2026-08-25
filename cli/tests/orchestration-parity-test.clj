@@ -9,7 +9,7 @@
 ;; delta, and provenance survived the round-trip; a genuine content divergence
 ;; fails it. Requires a live coordinator with @catalog:current already imported.
 ;;
-;;   bb cli/tests/orchestration-parity-test.clj [port] [orchestration-home]
+;;   bb cli/tests/orchestration-parity-test.clj [port] [agent-machinery-home] [agent-runtime-home]
 (require '[clojure.java.io :as io]
          '[clojure.string :as str]
          '[cheshire.core :as json]
@@ -17,8 +17,12 @@
 
 (def port (or (some-> (first *command-line-args*) Integer/parseInt) 7977))
 (def root (or (second *command-line-args*)
-              (System/getenv "NORTH_ORCHESTRATION_HOME")
-              (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir")) "/orchestration")))
+              (System/getenv "AGENT_MACHINERY_HOME")
+              (str (System/getenv "HOME") "/code/agent-machinery/main")))
+(def runtime (or (nth *command-line-args* 2 nil)
+                 (System/getenv "NORTH_AGENT_RUNTIME_HOME")
+                 (str (or (System/getenv "NORTH_HOME") (System/getProperty "user.dir"))
+                      "/agent-runtime/orchestration")))
 (def cli-dir (.getParent (io/file (System/getProperty "babashka.file"))))
 (def project-cli (str (io/file (.getParentFile (io/file cli-dir)) "orchestration-project-cli.clj")))
 
@@ -61,7 +65,7 @@
 (doseq [prov ["anthropic" "openai"]]
   (check (str "providers/" prov ".json")
          (project "provider" prov)
-         (json/parse-string (slurp (io/file root "providers" (str prov ".json"))))))
+         (json/parse-string (slurp (io/file runtime "providers" (str prov ".json"))))))
 
 (let [rs @results]
   (println (format "\n%d/%d parity checks passed" (count (filter true? rs)) (count rs)))

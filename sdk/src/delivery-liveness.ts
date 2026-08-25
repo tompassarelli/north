@@ -13,7 +13,7 @@ export const MAX_DELIVERY_LIVENESS_FRESHNESS_SECONDS = 3_600;
 export const DEFAULT_DELIVERY_LIVENESS_ACTIVATION_PATH =
   "/etc/north/delivery-liveness-required";
 
-export type DeliveryDispatchClass = "feature" | "repair";
+export type DeliveryDispatchClass = "feature" | "repair" | "explicit-human";
 
 export interface DeliveryLivenessFact {
   version: 1;
@@ -209,6 +209,26 @@ export function deliveryDispatchClassFromEnvironment(
   const value = environment.NORTH_DELIVERY_DISPATCH_CLASS ?? "feature";
   if (value === "feature" || value === "repair") return value;
   authorityError("delivery_liveness_dispatch_class_invalid");
+}
+
+/** Validated human routing evidence is direct control, not automated feature work. */
+export function deliveryDispatchClassForRouting(
+  pinEvidence: {
+    reasonCode: string;
+    pins: readonly { kind: string; value: string }[];
+  } | undefined,
+  route: { provider?: string; target?: string; model?: string },
+  environment: NodeJS.ProcessEnv = process.env,
+): DeliveryDispatchClass {
+  const pins = new Map(pinEvidence?.pins.map((pin) => [pin.kind, pin.value]));
+  const direct = pinEvidence?.reasonCode === "explicit-human-request"
+    && route.provider !== undefined && route.provider !== "auto"
+    && route.target !== undefined && route.model !== undefined
+    && pins.size === 3
+    && pins.get("provider") === route.provider
+    && pins.get("account") === route.target
+    && pins.get("model") === route.model;
+  return direct ? "explicit-human" : deliveryDispatchClassFromEnvironment(environment);
 }
 
 /** Source may land before Firn's guarded system switch enables this floor. */

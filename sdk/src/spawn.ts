@@ -113,7 +113,8 @@ import {
   formatProviderAuthoritySurface, providerLiveInput, routedQuery, selectProvider,
   selectProviderForExecution,
   providerRetrySafeTerminalDetail, ProviderRetrySafeError,
-  type ProviderAuthoritySurface, type ProviderPreference, type RoutedQueryArguments,
+  type ExecutionRoutingDecision, type ProviderAuthoritySurface,
+  type ProviderPreference, type RoutedQueryArguments,
 } from "./providers";
 import { resolveTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
@@ -133,6 +134,7 @@ import { assertCoordinationAuthority } from "./topology-authority";
 import {
   admitManagedDispatchAuthority, admitPinnedProvider,
 } from "./execution-admission";
+import { deliveryDispatchClassForRouting } from "./delivery-liveness";
 import {
   classifyExecutionTerminal,
   EMPTY_RESULT_OUTCOME,
@@ -499,7 +501,7 @@ async function runSpawn(
     stableKey: agentId, capabilities, signal: termination.signal,
     pinEvidence: opts.routingEconomics.pinEvidence,
   };
-  let routing;
+  let routing: ExecutionRoutingDecision;
   if (injected.queryFn && !injected.executionSelection) {
     routing = selectProvider(routingRequest, undefined, routingContext);
   } else {
@@ -1797,13 +1799,20 @@ function assertRecursiveChildBinding(
 
 export async function spawn(opts: SpawnOptions): Promise<string> {
   const injected = takeSpawnTestRuntime<SpawnRuntime>(opts) ?? {};
-  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)();
   const admitted = allowlistedSpawnOptions(opts);
-  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
-  managedRunTokenTarget(admitted.tokenTarget);
   const callerTopology = process.env.AGENT_TOPOLOGY;
   if (!bootstrapAuthorityGranted) assertCoordinationAuthority("spawn", callerTopology);
   const composed = composeSpawnOptions(admitted);
+  (injected.admitDispatchAuthority ?? admitManagedDispatchAuthority)(
+    process.env,
+    deliveryDispatchClassForRouting(composed.routingEconomics.pinEvidence, {
+      provider: composed.provider,
+      target: composed.target,
+      model: composed.model,
+    }),
+  );
+  const shadowConfig = (injected.loadShadowReviewerConfig ?? shadowReviewerConfig)();
+  managedRunTokenTarget(admitted.tokenTarget);
   let parentRunId: WireRunId | undefined;
   if (!bootstrapAuthorityGranted) {
     parentRunId = assertRecursiveChildBinding(

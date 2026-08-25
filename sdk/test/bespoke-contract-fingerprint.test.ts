@@ -13,7 +13,8 @@ import { agentIdentityFacts } from "../src/identity";
 import { validateRoutingMetadata } from "../src/routing-metadata";
 
 const north = resolve(import.meta.dir, "../..");
-const orchestration = process.env.NORTH_ORCHESTRATION_HOME ?? resolve(north, "orchestration");
+const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const agentRuntime = process.env.NORTH_AGENT_RUNTIME_HOME ?? resolve(north, "agent-runtime/orchestration");
 const cli = resolve(north, "cli/agents-cli.clj");
 const pinIssuedAt = new Date();
 const openaiPinEvidence = JSON.stringify({
@@ -139,8 +140,8 @@ test("Clojure dry-run fingerprint is byte-identical and its UI is contract-redac
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
     },
   });
   expect(result.status).toBe(0);
@@ -178,8 +179,8 @@ test("CLI forwards the canonical contract to the child behind the redacted displ
       ...process.env,
       NORTH_AGENTS_LIB: "1",
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
     },
   });
   expect(result.status).toBe(0);

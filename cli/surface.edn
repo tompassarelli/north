@@ -132,6 +132,8 @@
    :details ["--as <recipient> — inspect another recipient's inbox"]
    :card {:section :now :rank 3 :form "north inbox"
           :text "messages waiting on you"}}
+  {:verb "ack" :form "north ack <actor> <message-id>" :topic :comms
+   :summary "acknowledge one addressed message through the configured communications protocol"}
   {:verb "mention" :form "north mention <recipient> \"<body>\"" :topic :comms
    :summary "durable sender-driven request; offline recipient allowed"
    :details ["--about <thread> — attach the request to a thread"]}
@@ -188,13 +190,14 @@
   {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :store
    :summary "regenerate threads/ from the log — never during concurrent work"}
   ;; ----------------------------------------------------------------- ops
-  {:verb "dashboard" :form "north dashboard [--once]" :topic :ops
+  {:verb "dashboard" :aliases ["cockpit"]
+   :form "north dashboard [--once]" :topic :ops
    :summary "live fleet, health, board, and accounts snapshots"
    :card {:section :now :rank 1 :form "north dashboard"
           :text "fleet, health, board, accounts — one screen"}}
   {:verb "bridge" :form "north bridge <prompt>|dashboard|pending|accept|attach|msg|interrupt <execution-id>" :topic :ops
    :summary "dashboard, launch, attach, or control a journaled local Codex session"
-   :details ["dashboard — render the Bridge operator cockpit (north dashboard remains an alias)"
+   :details ["dashboard — render the Bridge operator cockpit (`north dashboard` renders the Store cockpit)"
              "pending [--consume <id>] — list or consume durable terminal lane completions"
              "accept — run the two-session reconnect/control/journal acceptance demo"
              "msg <id> <text> — queue input for the next turn on the same provider thread"

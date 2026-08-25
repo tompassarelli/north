@@ -28,19 +28,24 @@
 (def ^:private this-root
   (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile .getPath))
 
-(defn- orchestration-root []
-  (or (System/getenv "NORTH_ORCHESTRATION_HOME")
-      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir")) "/orchestration")))
+(defn- agent-machinery-root []
+  (or (System/getenv "AGENT_MACHINERY_HOME")
+      (str (System/getenv "HOME") "/code/agent-machinery/main")))
+
+(defn- agent-runtime-root []
+  (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
+      (str (or (System/getenv "NORTH_HOME") this-root (System/getProperty "user.dir"))
+           "/agent-runtime/orchestration")))
 
 (defn catalog-path []
   (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-      (str (orchestration-root) "/staffing/catalog.json")))
+      (str (agent-machinery-root) "/staffing/catalog.json")))
 
 
 (defn- provider-supports-route? [provider tier reasoning]
   (try
     (let [catalog (json/parse-string
-                   (slurp (io/file (orchestration-root) "providers" (str provider ".json")))
+                   (slurp (io/file (agent-runtime-root) "providers" (str provider ".json")))
                    false)
           entry (get-in catalog ["tiers" tier])
           levels (or (get entry "efforts") (get entry "reasoning"))]
@@ -91,8 +96,8 @@
 
 (defn normalize-catalog [catalog path]
   (let [version (get catalog "version")
-        top-fields #{"$schema" "version" "vocabulary" "defaults" "presets" "aliases"}
-        required-top #{"version" "vocabulary" "defaults" "presets" "aliases"}
+        top-fields #{"$schema" "version" "vocabulary" "defaults" "presets"}
+        required-top #{"version" "vocabulary" "defaults" "presets"}
         vocab-fields #{"taskGrades" "semanticTiers" "deliberations" "topologies" "postures" "capabilities"}
         default-fields #{"taskGrade" "tier" "deliberation" "topology" "posture"}
         preset-fields #{"name" "taskGrade" "tier" "deliberation" "topology" "posture"
@@ -117,7 +122,7 @@
         (throw (ex-info (str "staffing catalog: invalid defaults." field)
                         {:path path :field field}))))
     (let [presets (get catalog "presets")]
-      (when-not (and (vector? presets) (seq presets) (vector? (get catalog "aliases")))
+      (when-not (and (vector? presets) (seq presets))
         (throw (ex-info (str "invalid Orchestration staffing catalog at " path)
                         {:path path :version version})))
       (doseq [preset presets]
@@ -154,10 +159,6 @@
           (throw (ex-info (str "Orchestration stock topology drift at " path
                                ": orchestrator topology is the director plus the scope ladder")
                           {:path path :orchestrators orchestrators}))))
-      (when (seq (get catalog "aliases"))
-        (throw (ex-info (str "Orchestration stock alias drift at " path
-                             ": canonical release has no aliases")
-                        {:path path :aliases (get catalog "aliases")})))
       (doseq [preset presets]
         (let [name (get preset "name")
               capabilities (set (get preset "capabilities"))]
@@ -187,11 +188,6 @@
                             {:path path :preset name})))
           (when-let [problem (posture-capability-problem (get preset "posture") capabilities)]
             (throw (ex-info (str name ": " problem) {:path path :preset name})))))
-      (doseq [alias (get catalog "aliases")]
-        (when-not (and (string? (get alias "name"))
-                       (contains? known (get alias "target")))
-          (throw (ex-info (str "invalid Orchestration staffing alias at " path)
-                          {:path path :alias alias}))))
       catalog))))
 
 (defn load-catalog

@@ -17,12 +17,17 @@
 (def NORTH (or (System/getenv "NORTH_HOME")
                (some-> *file* io/file .getCanonicalFile .getParentFile .getParentFile str)))
 (def NORTH-CLI (or (System/getenv "NORTH_BIN") (str NORTH "/bin/north")))
-(def ORCHESTRATION (or (System/getenv "NORTH_ORCHESTRATION_HOME") (str NORTH "/orchestration")))
+(def AGENT-MACHINERY
+  (or (System/getenv "AGENT_MACHINERY_HOME")
+      (str HOME "/code/agent-machinery/main")))
+(def AGENT-RUNTIME
+  (or (System/getenv "NORTH_AGENT_RUNTIME_HOME")
+      (str NORTH "/agent-runtime/orchestration")))
 (def AGENT-LOGDIR (str HOME "/.local/state/north/agents"))
 (def AGENT-STREAMDIR (or (System/getenv "NORTH_STREAM_DIR")
                          (str HOME "/code/agent-data")))
 (def ORCHESTRATION-STAFFING (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-                         (str ORCHESTRATION "/staffing/catalog.json")))
+                         (str AGENT-MACHINERY "/staffing/catalog.json")))
 (def PORT (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION "north:agent-roster:v1")
 (def CODEX-CENSUS-CLI (str NORTH "/sdk/src/codex-census-cli.ts"))
@@ -206,7 +211,7 @@
   (when (and provider (not= provider "auto"))
     (try
       (let [entry (get-in (json/parse-string
-                           (slurp (io/file ORCHESTRATION "providers" (str provider ".json"))) true)
+                           (slurp (io/file AGENT-RUNTIME "providers" (str provider ".json"))) true)
                           [:tiers (keyword tier)])]
         {:provider provider
          :model (or explicit-model (:model entry))

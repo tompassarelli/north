@@ -13,7 +13,8 @@ import { admitPinnedProvider } from "../src/execution-admission";
 
 const north = resolve(import.meta.dir, "../..");
 const cli = resolve(north, "cli/agents-cli.clj");
-const orchestration = resolve(north, "orchestration");
+const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
+const agentRuntime = process.env.NORTH_AGENT_RUNTIME_HOME ?? resolve(north, "agent-runtime/orchestration");
 const CLI_PROCESS_TEST_TIMEOUT_MS = 45_000;
 const bespokeContract = JSON.stringify({
   responsibility: "reconstruct migration provenance", deliverable: "evidence-linked timeline",
@@ -53,8 +54,8 @@ function dry(role: string, provider: string, ...extra: string[]): string {
     cli, "spawn", role, "probe", "--provider", provider, ...providerPin(provider),
     "--ad-hoc", "--dry-run", ...extra,
   ], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
   expect(result.status).toBe(0);
   return result.stdout;
@@ -68,8 +69,8 @@ test("director is the canonical orchestrator role and topology names fail pedago
   expect(director).not.toContain("AGENT_MODEL=");
   for (const topology of ["orchestrator", "worker"]) {
     const result = spawnSync("bb", [cli, "spawn", topology, "probe", "--ad-hoc", "--dry-run"], {
-      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+      encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`${topology} is a topology, not a role`);
@@ -92,8 +93,8 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
       STRUGGLE_ERROR_STREAK: "5",
       STRUGGLE_LOOP_REPEAT: "4",
       STRUGGLE_LOOP_WINDOW: "30",
@@ -116,8 +117,8 @@ test("CLI dry preview uses the exact topology policy selected for execution", ()
     env: {
       ...process.env,
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
       STRUGGLE_STALL_TURNS: "0",
     },
   });
@@ -134,8 +135,8 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
       AGENT_TOPOLOGY: "orchestrator",
       AGENT_ID: "parent-director",
       NO_COLOR: "1",
-      NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+      AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
     },
   });
   const refused = [
@@ -163,8 +164,8 @@ test("a managed CLI orchestrator without an exact parent reservation fails safe 
 
 test("ambiguous researcher role fails with the three explicit research functions", () => {
   const result = spawnSync("bb", [cli, "spawn", "researcher", "probe", "--ad-hoc", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
   expect(result.stdout).toContain("researcher is retired because it was ambiguous");
@@ -172,8 +173,8 @@ test("ambiguous researcher role fails with the three explicit research functions
 });
 
 const delegate = (...args: string[]) => spawnSync("bb", [cli, "delegate", ...args], {
-  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-    ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+  encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+    ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
 });
 
 test("composite preview and execution share pinned-provider admission before side effects", () => {
@@ -218,8 +219,8 @@ test("composite preview and execution share pinned-provider admission before sid
     NORTH_THREAD_ID: "",
     NORTH_RUN_CAPABILITY: "",
     NO_COLOR: "1",
-    NORTH_ORCHESTRATION_HOME: orchestration,
-    ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+    AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+    ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
   };
   try {
     const requests = [
@@ -581,8 +582,8 @@ test("delegate explicit binding reuses its thread while a managed parent receive
         ...process.env,
         NORTH_BIN: fake.command,
         NO_COLOR: "1",
-        NORTH_ORCHESTRATION_HOME: orchestration,
-        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+        AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
       },
     });
     expect(dryCli.status).toBe(0);
@@ -644,8 +645,8 @@ test("a partial structured capture fails closed before any provider process star
         NORTH_THREAD_ID: "",
         NORTH_RUN_CAPABILITY: "",
         NO_COLOR: "1",
-        NORTH_ORCHESTRATION_HOME: orchestration,
-        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+        AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
       },
     });
     expect(result.status).toBe(1);
@@ -658,8 +659,8 @@ test("a partial structured capture fails closed before any provider process star
 
 test("legacy unclassified delegate no longer silently buys a director", () => {
   const result = spawnSync("bb", [cli, "delegate", "coordinate this", "--dry-run"], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
   expect(result.status).toBe(1);
   expect(result.stdout).not.toContain("# orchestration dials for role director");
@@ -733,8 +734,8 @@ test("CLI effective-authority closure rejects open shell capability sets", () =>
       env: {
         ...process.env,
         NO_COLOR: "1",
-        NORTH_ORCHESTRATION_HOME: orchestration,
-        ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json"),
+        AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+        ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
       },
     });
     expect(result.status).toBe(1);
@@ -744,8 +745,8 @@ test("CLI effective-authority closure rejects open shell capability sets", () =>
 
 test("a managed spawn must declare its thread attribution or explicit ad-hoc intent", () => {
   const spawn = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
 
   // Naming neither is REFUSED. An unattributed run's wall time and tokens can
@@ -768,8 +769,8 @@ test("a managed spawn must declare its thread attribution or explicit ad-hoc int
 
 test("bespoke help is discoverable and invalid bespoke inputs exit nonzero", () => {
   const run = (...args: string[]) => spawnSync("bb", [cli, "spawn", ...args], {
-    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", NORTH_ORCHESTRATION_HOME: orchestration,
-      ORCHESTRATION_STAFFING_CATALOG: resolve(orchestration, "staffing/catalog.json") },
+    encoding: "utf8", env: { ...process.env, NO_COLOR: "1", AGENT_MACHINERY_HOME: agentMachinery, NORTH_AGENT_RUNTIME_HOME: agentRuntime,
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
   });
   const help = run();
   expect(help.stdout).toContain("--nearest PRESET");
