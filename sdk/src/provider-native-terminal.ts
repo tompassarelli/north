@@ -19,6 +19,13 @@ import {
 	recordWireRunTelemetryProjection,
 	type WireRunTelemetryWriter,
 } from "./telemetry";
+import {
+	reduceCodexExecutionObservation,
+	type CodexExecutionObservationEvent,
+	type ExecutionObservation,
+	unknownExecutionObservation,
+} from "./execution-observation";
+import { providerSessionKey, providerTurnKey } from "./providers/provider-join";
 import type { WireTerminationInput } from "./wire/writer";
 import { wireEventId, wireRunId } from "./wire/ids";
 import { WireEventWriter } from "./wire/writer";
@@ -50,6 +57,7 @@ export interface ProviderNativeTerminalDependencies {
 
 interface CodexSubagentStopInput {
 	readonly agentId: string;
+	readonly sessionId: string;
 	readonly transcriptPath: string;
 }
 
@@ -58,6 +66,7 @@ interface TerminalEvidence {
 	readonly terminatedAt: string;
 	readonly termination: WireTerminationInput;
 	readonly processOutcome: "ran" | "aborted" | "provider_error";
+	readonly executionObservation: ExecutionObservation;
 }
 
 function record(value: unknown): JsonRecord | undefined {
@@ -106,7 +115,7 @@ function parseHookInput(value: unknown): CodexSubagentStopInput | undefined {
 		return undefined;
 	}
 	const agentId = boundedOpaqueId(input.agent_id);
-	return agentId === undefined ? undefined : { agentId, transcriptPath };
+	return agentId === undefined ? undefined : { agentId, sessionId, transcriptPath };
 }
 
 function managedLane(env: NodeJS.ProcessEnv): boolean {
@@ -123,7 +132,11 @@ function parseJsonLine(line: string): JsonRecord | undefined {
 	}
 }
 
-function transcriptLines(path: string): { readonly first: readonly string[]; readonly tail: readonly string[] } {
+function transcriptLines(path: string): {
+	readonly first: readonly string[];
+	readonly tail: readonly string[];
+	readonly complete: boolean;
+} {
 	const info = lstatSync(path);
 	if (!info.isFile() || info.isSymbolicLink()) throw new Error("transcript is not a regular file");
 	const fd = openSync(path, "r");
@@ -140,10 +153,93 @@ function transcriptLines(path: string): { readonly first: readonly string[]; rea
 		const first = firstBuffer.toString("utf8").split("\n").slice(0, 32);
 		const tail = tailBuffer.toString("utf8").split("\n");
 		if (tailOffset > 0) tail.shift();
-		return { first, tail };
+		return { first, tail, complete: tailOffset === 0 };
 	} finally {
 		closeSync(fd);
 	}
+}
+
+function providerToolCallKey(raw: unknown): string | undefined {
+	const id = boundedOpaqueId(raw);
+	return id === undefined ? undefined
+		: sha256(["north-provider-tool-call-key-v1\0openai\0", id]);
+}
+
+function transcriptExecutionObservation(
+	input: CodexSubagentStopInput,
+	lines: ReturnType<typeof transcriptLines>,
+	exactSessionJoin: boolean,
+): ExecutionObservation {
+	if (!lines.complete) {
+		return unknownExecutionObservation("codex_rollout_transcript_incomplete");
+	}
+	if (!exactSessionJoin) {
+		return unknownExecutionObservation("codex_rollout_attempt_session_join_unavailable");
+	}
+	const attemptSha256 = providerNativeAgentKey(input.agentId);
+	let sessionSha256: string;
+	try {
+		sessionSha256 = providerSessionKey(input.sessionId);
+	} catch {
+		return unknownExecutionObservation("codex_rollout_attempt_session_join_unavailable");
+	}
+	const events: CodexExecutionObservationEvent[] = [];
+	let activeTurnKey: string | undefined;
+	const observedCalls = new Map<string, string>();
+	for (const line of lines.tail) {
+		const entry = parseJsonLine(line);
+		const payload = record(entry?.payload);
+		if (entry?.type === "event_msg" && payload?.type === "thread_settings_applied") {
+			const settings = record(payload.thread_settings);
+			const tier = settings?.service_tier;
+			if (tier !== "default" && tier !== "priority") {
+				return unknownExecutionObservation("codex_rollout_service_tier_unsupported");
+			}
+			events.push({
+				kind: "thread_settings_applied",
+				attempt_sha256: attemptSha256,
+				session_sha256: sessionSha256,
+				service_tier: tier,
+			});
+			continue;
+		}
+		if (entry?.type === "event_msg" && payload?.type === "task_started") {
+			const turnId = boundedOpaqueId(payload.turn_id);
+			if (turnId === undefined) {
+				return unknownExecutionObservation("codex_rollout_turn_evidence_invalid");
+			}
+			activeTurnKey = providerTurnKey("openai", turnId);
+			events.push({
+				kind: "task_started",
+				attempt_sha256: attemptSha256,
+				session_sha256: sessionSha256,
+				turn_sha256: activeTurnKey,
+			});
+			continue;
+		}
+		if (entry?.type !== "response_item" || payload === undefined
+			|| payload.call_id === undefined) continue;
+		const callKey = providerToolCallKey(payload.call_id);
+		if (callKey === undefined || activeTurnKey === undefined) {
+			return unknownExecutionObservation("codex_rollout_tool_turn_join_unavailable");
+		}
+		const priorTurn = observedCalls.get(callKey);
+		if (priorTurn !== undefined) {
+			if (priorTurn !== activeTurnKey) {
+				return unknownExecutionObservation("codex_rollout_tool_turn_join_unavailable");
+			}
+			continue;
+		}
+		observedCalls.set(callKey, activeTurnKey);
+		events.push({
+			kind: "tool_call_admitted",
+			attempt_sha256: attemptSha256,
+			session_sha256: sessionSha256,
+			turn_sha256: activeTurnKey,
+			tool_call_sha256: callKey,
+		});
+	}
+	return reduceCodexExecutionObservation(events);
 }
 
 function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | undefined {
@@ -152,12 +248,15 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 	const startedAt = firstRecords.map((entry) => instant(entry.timestamp)).find(
 		(value): value is string => value !== undefined,
 	);
-	const matchingMeta = firstRecords.some((entry) => {
+	const matchingMeta = firstRecords.find((entry) => {
 		if (entry.type !== "session_meta") return false;
 		const payload = record(entry.payload);
 		return payload?.id === input.agentId;
 	});
 	if (startedAt === undefined || !matchingMeta) return undefined;
+	const matchingMetaPayload = record(matchingMeta.payload)!;
+	const exactSessionJoin = matchingMetaPayload.session_id === input.sessionId;
+	const executionObservation = transcriptExecutionObservation(input, lines, exactSessionJoin);
 
 	let boundary: JsonRecord | undefined;
 	for (const line of lines.tail) {
@@ -181,6 +280,7 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 			terminatedAt,
 			termination: { lifecycle: "completed", reason: { code: "completed" } },
 			processOutcome: "ran",
+			executionObservation,
 		};
 	}
 	if (kind === "turn_aborted") {
@@ -199,6 +299,7 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 					},
 				},
 				processOutcome: "aborted",
+				executionObservation,
 			};
 		}
 		return {
@@ -206,6 +307,7 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 			terminatedAt,
 			termination: { lifecycle: "failed", reason: { code: "provider_error" } },
 			processOutcome: "provider_error",
+			executionObservation,
 		};
 	}
 	if (kind === "task_failed") {
@@ -214,6 +316,7 @@ function transcriptEvidence(input: CodexSubagentStopInput): TerminalEvidence | u
 			terminatedAt,
 			termination: { lifecycle: "failed", reason: { code: "provider_error" } },
 			processOutcome: "provider_error",
+			executionObservation,
 		};
 	}
 	return undefined;
@@ -281,6 +384,7 @@ export async function recordCodexProviderNativeTerminal(
 				provider: "openai",
 				processOutcome: evidence.processOutcome,
 				executionSource: "provider-native",
+				executionObservation: evidence.executionObservation,
 			},
 			positiveTimeout(dependencies.telemetryTimeoutMs),
 			dependencies.telemetryWriter ?? recordWireRunTelemetryProjection,

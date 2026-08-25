@@ -100,6 +100,15 @@ test("run telemetry is derived only from a recorded terminal wire snapshot", () 
 	expect(facts.get("parent_run")).toBe("@run:telemetry-parent");
 	expect(facts.get("provider_session_persistence")).toBe("unknown");
 	expect(facts.get("turn_provenance")).toBe("unknown");
+	expect(JSON.parse(facts.get("execution_observation")!)).toEqual({
+		version: "agent-execution-observation/v1",
+		coverage: "unknown",
+		source: "codex_app_server_mode_unavailable",
+		turn_unit: "unknown",
+		tool_call_unit: "unknown",
+		evidence: {},
+		segments: [],
+	});
 
 	const encoded = JSON.stringify(projection);
 	expect(encoded).not.toContain("provider_target");

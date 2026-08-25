@@ -53,6 +53,7 @@
     "provider_join_coverage" "provider_session_key" "provider_turn_key"
     "provider_duration_ms" "turn_provenance" "num_turns"
     "provider_turn_units" "provider_tool_items" "provider_turn_metric_comparable"
+    "execution_observation"
     "watchdog_reason" "watchdog_silence_ms"
     "watchdog_last_outer_activity" "watchdog_last_provider_activity"
     "effective_authority_provider" "effective_native_multi_agent"
@@ -149,7 +150,8 @@
     "wire_event_last_sequence" "wire_terminal_event_id" "wire_ledger_sha256"
     "wire_run_lifecycle" "wire_termination_code" "outcome" "at" "started_at"
     "duration_ms" "thread_provenance" "provider_session_persistence"
-    "turn_provenance" "lifetime_input_tokens" "lifetime_output_tokens"
+    "turn_provenance" "execution_observation"
+    "lifetime_input_tokens" "lifetime_output_tokens"
     "lifetime_cache_read_tokens" "lifetime_cache_write_tokens"
     "lifetime_reasoning_tokens" "model_call_count" "usage_terminal_count"
     "usage_scope" "usage_total_status" "context_tokens"
@@ -779,6 +781,9 @@
 (def turn-evidence-predicates
   #{"num_turns" "provider_turn_units"
     "provider_tool_items" "provider_turn_metric_comparable"})
+(def execution-observation-version "agent-execution-observation/v1")
+(def execution-modes #{"standard" "fast"})
+(def execution-observation-token-pattern #"^[a-z0-9][a-z0-9._:/-]*$")
 (def watchdog-predicates
   #{"watchdog_reason" "watchdog_silence_ms"
     "watchdog_last_outer_activity" "watchdog_last_provider_activity"})
@@ -907,6 +912,76 @@
         "unknown"
         (when (seq turn-fields)
           (fail! "unknown turn provenance cannot carry terminal turn evidence" {}))))
+    (let [observation (parse-operation-json!
+                       "execution observation"
+                       (get scalar "execution_observation"))
+          coverage (get observation "coverage")
+          segments (get observation "segments")
+          evidence (get observation "evidence")]
+      (when-not (= execution-observation-version (get observation "version"))
+        (fail! "execution observation version is unsupported" {}))
+      (when-not (and (string? (get observation "source"))
+                     (re-matches execution-observation-token-pattern
+                                 (get observation "source")))
+        (fail! "execution observation source is invalid" {}))
+      (case coverage
+        "unknown"
+        (do
+          (exact-json-fields! "unknown execution observation" observation
+                              #{"version" "coverage" "source" "turn_unit"
+                                "tool_call_unit" "evidence" "segments"})
+          (when-not (and (= "unknown" (get observation "turn_unit"))
+                         (= "unknown" (get observation "tool_call_unit"))
+                         (map? evidence) (empty? evidence)
+                         (sequential? segments) (empty? segments))
+            (fail! "unknown execution observation cannot contain units, evidence, or segments" {})))
+
+        "exact"
+        (do
+          (exact-json-fields! "exact execution observation" observation
+                              #{"version" "coverage" "source" "turn_unit"
+                                "tool_call_unit" "evidence" "segments"})
+          (when-not (and (= "assistant-turn" (get observation "turn_unit"))
+                         (= "admitted-tool-call" (get observation "tool_call_unit")))
+            (fail! "exact execution observation units are not comparable" {}))
+          (exact-json-fields! "execution observation evidence" evidence
+                              #{"provider" "attempt_sha256" "session_sha256"})
+          (when-not (and (string? (get evidence "provider"))
+                         (re-matches execution-observation-token-pattern
+                                     (get evidence "provider"))
+                         (re-matches digest-pattern (or (get evidence "attempt_sha256") ""))
+                         (re-matches digest-pattern (or (get evidence "session_sha256") "")))
+            (fail! "execution observation evidence is invalid" {}))
+          (when-not (and (sequential? segments) (seq segments))
+            (fail! "exact execution observation requires segments" {}))
+          (loop [remaining segments preceding-mode nil turns 0 tools 0 seen-turns #{}]
+            (when-let [segment (first remaining)]
+              (exact-json-fields! "execution observation segment" segment
+                                  #{"mode" "turn_count" "tool_call_count" "turn_sha256"})
+              (let [mode (get segment "mode")
+                    segment-turns (get segment "turn_count")
+                    segment-tools (get segment "tool_call_count")
+                    turn-keys (get segment "turn_sha256")]
+                (when-not (execution-modes mode)
+                  (fail! "execution observation segment mode is invalid" {}))
+                (when (= preceding-mode mode)
+                  (fail! "execution observation contains adjacent equal modes" {}))
+                (when-not (and (integer? segment-turns) (<= 1 segment-turns 9007199254740991)
+                               (integer? segment-tools) (<= 0 segment-tools 9007199254740991)
+                               (<= (+ turns segment-turns) 9007199254740991)
+                               (<= (+ tools segment-tools) 9007199254740991)
+                               (sequential? turn-keys)
+                               (= segment-turns (count turn-keys))
+                               (= (count turn-keys) (count (set turn-keys)))
+                               (empty? (set/intersection seen-turns (set turn-keys)))
+                               (every? #(and (string? %)
+                                             (re-matches digest-pattern %)) turn-keys))
+                  (fail! "execution observation counts exceed the safe range" {}))
+                (recur (next remaining) mode
+                       (+ turns segment-turns) (+ tools segment-tools)
+                       (into seen-turns turn-keys))))))
+
+        (fail! "execution observation coverage is invalid" {})))
     (let [present (set/intersection fields watchdog-predicates)]
       (when (seq present)
         (when-not (= watchdog-predicates present)

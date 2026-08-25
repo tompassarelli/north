@@ -8,7 +8,9 @@
 ;;   bb north-reconcile.clj <port> drift               — estimate vs actual, sorted by overshoot
 ;;   bb north-reconcile.clj <port> recent [N]           — last N runs (default 20)
 ;;   bb north-reconcile.clj <port> agent <uuid>         — runs for one agent
-(require '[clojure.java.io :as io]
+(require '[cheshire.core :as json]
+         '[clojure.java.io :as io]
+         '[clojure.set :as set]
          '[clojure.string :as str])
 
 ;; Shared Store RPC coordination facade.
@@ -30,6 +32,7 @@
    "usage_terminal_count" "usage_scope" "usage_total_status"
    "duration_ms" "provider_duration_ms" "num_turns" "provider_turn_units"
    "provider_tool_items" "provider_turn_metric_comparable"
+   "execution_observation"
    "provider" "model_tier" "effort"
    "estimate_hours" "estimate_delta_ms" "estimate_ratio" "estimate_classification"
    "fallback_count" "fallback_path" "outcome" "at"])
@@ -59,6 +62,21 @@
 
 (defn parse-num [s] (when s (try (parse-double s) (catch Exception _ nil))))
 (defn parse-count [s] (when s (try (bigint s) (catch Exception _ nil))))
+
+(defn execution-mode [run]
+  (let [observation (when-let [raw (:execution_observation run)]
+                      (try (json/parse-string raw) (catch Exception _ nil)))
+        modes (when (and (= "agent-execution-observation/v1"
+                            (get observation "version"))
+                         (= "exact" (get observation "coverage"))
+                         (sequential? (get observation "segments"))
+                         (seq (get observation "segments")))
+                (set (map #(get % "mode") (get observation "segments"))))]
+    (cond
+      (= #{"standard"} modes) "standard"
+      (= #{"fast"} modes) "fast"
+      (and (set? modes) (set/subset? modes #{"standard" "fast"})) "mixed"
+      :else "unknown")))
 
 (defn usage-status [run]
   ;; Historical rows with an already exact aggregate remain readable. No old
@@ -150,16 +168,17 @@
 (defn print-by-model [runs]
   ;; TURNS here is num_turns only. Opaque provider-turn units are a separate,
   ;; non-comparable measurement and never enter this aggregate.
-  (let [groups (group-by #(or (:model_tier %) "unknown") runs)]
-    (println (format "%-16s %5s %26s %12s %8s %9s %10s"
-                     "MODEL_TIER" "RUNS" "USAGE" "DURATION_MS" "TURNS*" "FALLBACKS" "AVG_DRIFT"))
-    (doseq [[model-tier rs] (sort groups)]
+  (let [groups (group-by #(vector (or (:model_tier %) "unknown")
+                                      (execution-mode %)) runs)]
+    (println (format "%-16s %-9s %5s %26s %12s %8s %9s %10s"
+                     "MODEL_TIER" "MODE" "RUNS" "USAGE" "DURATION_MS" "TURNS*" "FALLBACKS" "AVG_DRIFT"))
+    (doseq [[[model-tier mode] rs] (sort groups)]
       (let [durations (keep #(parse-num (:duration_ms %)) rs)
             turns (keep #(parse-num (:num_turns %)) rs)
             fallbacks (keep #(parse-num (:fallback_count %)) rs)
             drifts (keep #(parse-num (:estimate_ratio %)) rs)]
-        (println (format "%-16s %5d %26s %12d %8d %9d %10s"
-                         model-tier (count rs)
+        (println (format "%-16s %-9s %5d %26s %12d %8d %9d %10s"
+                         model-tier mode (count rs)
                          (usage-group-cell rs)
                          (long (reduce + 0 durations))
                          (long (reduce + 0 turns))

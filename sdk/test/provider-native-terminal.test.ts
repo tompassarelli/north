@@ -26,7 +26,12 @@ interface Fixture {
 
 function fixture(
 	terminal: Readonly<Record<string, unknown>>,
-	options: { readonly identity?: boolean } = {},
+	options: {
+		readonly identity?: boolean;
+		readonly metaSessionId?: string;
+		readonly paddingBytes?: number;
+		readonly executionRecords?: readonly Readonly<Record<string, unknown>>[];
+	} = {},
 ): Fixture {
 	const root = mkdtempSync(join(tmpdir(), "north-native-terminal-"));
 	roots.push(root);
@@ -37,13 +42,18 @@ function fixture(
 		{
 			type: "session_meta",
 			timestamp: "2026-08-21T00:00:00.000Z",
-			payload: { id: agentId, session_id: sessionId },
+			payload: { id: agentId, session_id: options.metaSessionId ?? sessionId },
 		},
-		{
+		...(options.paddingBytes === undefined ? [] : [{
+			type: "world_state",
+			timestamp: "2026-08-21T00:00:00.001Z",
+			payload: { padding: "x".repeat(options.paddingBytes) },
+		}]),
+		...(options.executionRecords ?? [{
 			type: "event_msg",
 			timestamp: "2026-08-21T00:00:00.100Z",
 			payload: { type: "task_started", turn_id: "turn-1" },
-		},
+		}]),
 		terminal,
 	];
 	writeFileSync(transcriptPath, `${records.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
@@ -108,6 +118,84 @@ test("native Codex subagent success publishes one attributable duration-bearing 
 	expect(run.get("process_outcome")).toBe("ran");
 	expect(run.get("duration_ms")).toBe("2500");
 	expect(run.get("execution_source")).toBe("provider-native");
+	expect(JSON.parse(run.get("execution_observation")!)).toEqual({
+		version: "agent-execution-observation/v1",
+		coverage: "unknown",
+		source: "codex_rollout_initial_settings_unavailable",
+		turn_unit: "unknown",
+		tool_call_unit: "unknown",
+		evidence: {},
+		segments: [],
+	});
+});
+
+test("native Codex publishes exact ordered mode segments only from joined durable events", async () => {
+	const event = (timestamp: string, payload: Readonly<Record<string, unknown>>) => ({
+		type: "event_msg", timestamp, payload,
+	});
+	const item = (timestamp: string, callId: string) => ({
+		type: "response_item",
+		timestamp,
+		payload: { type: "function_call", call_id: callId, name: "opaque", arguments: "{}" },
+	});
+	const state = fixture(terminal("task_complete"), {
+		executionRecords: [
+			event("2026-08-21T00:00:00.010Z", {
+				type: "thread_settings_applied", thread_settings: { service_tier: "default" },
+			}),
+			event("2026-08-21T00:00:00.100Z", { type: "task_started", turn_id: "turn-1" }),
+			item("2026-08-21T00:00:00.200Z", "call-1"),
+			event("2026-08-21T00:00:00.300Z", {
+				type: "thread_settings_applied", thread_settings: { service_tier: "priority" },
+			}),
+			event("2026-08-21T00:00:00.400Z", { type: "task_started", turn_id: "turn-2" }),
+			item("2026-08-21T00:00:00.500Z", "call-2"),
+			item("2026-08-21T00:00:00.600Z", "call-2"),
+			event("2026-08-21T00:00:00.700Z", {
+				type: "thread_settings_applied", thread_settings: { service_tier: "default" },
+			}),
+			event("2026-08-21T00:00:00.800Z", { type: "task_started", turn_id: "turn-3" }),
+		],
+	});
+	expect((await recordCodexProviderNativeTerminal(state.input, state.dependencies)).status)
+		.toBe("recorded");
+	const observation = JSON.parse(facts(state.telemetry[0]!).get("execution_observation")!);
+	expect(observation).toMatchObject({
+		version: "agent-execution-observation/v1",
+		coverage: "exact",
+		source: "codex_rollout",
+		turn_unit: "assistant-turn",
+		tool_call_unit: "admitted-tool-call",
+		evidence: { provider: "openai" },
+	});
+	expect(observation.segments.map((segment: any) => ({
+		mode: segment.mode,
+		turn_count: segment.turn_count,
+		tool_call_count: segment.tool_call_count,
+	}))).toEqual([
+		{ mode: "standard", turn_count: 1, tool_call_count: 1 },
+		{ mode: "fast", turn_count: 1, tool_call_count: 1 },
+		{ mode: "standard", turn_count: 1, tool_call_count: 0 },
+	]);
+	expect(observation.evidence.attempt_sha256).toMatch(/^[a-f0-9]{64}$/);
+	expect(observation.evidence.session_sha256).toMatch(/^[a-f0-9]{64}$/);
+	expect(JSON.stringify(observation)).not.toContain("turn-1");
+	expect(JSON.stringify(observation)).not.toContain("call-1");
+	for (const [serviceTier, mode] of [["default", "standard"], ["priority", "fast"]] as const) {
+		const pure = fixture(terminal("task_complete"), {
+			executionRecords: [
+				event("2026-08-21T00:00:00.010Z", {
+					type: "thread_settings_applied",
+					thread_settings: { service_tier: serviceTier },
+				}),
+				event("2026-08-21T00:00:00.100Z", { type: "task_started", turn_id: "turn-pure" }),
+			],
+		});
+		expect((await recordCodexProviderNativeTerminal(pure.input, pure.dependencies)).status)
+			.toBe("recorded");
+		const pureObservation = JSON.parse(facts(pure.telemetry[0]!).get("execution_observation")!);
+		expect(pureObservation.segments.map((segment: any) => segment.mode)).toEqual([mode]);
+	}
 });
 
 test("native Codex subagent provider failure preserves the failed/provider_error vocabulary", async () => {
@@ -205,4 +293,59 @@ test("missing identity and incomplete terminals remain typed unknown and publish
 		incomplete.dependencies,
 	)).toEqual({ status: "unknown", reason: "terminal" });
 	expect(incomplete.ledger).toHaveLength(0);
+});
+
+test("an inexact attempt-session join publishes an explicit unknown observation", async () => {
+	const state = fixture(terminal("task_complete"), {
+		metaSessionId: "different-session",
+		executionRecords: [
+			{
+				type: "event_msg",
+				timestamp: "2026-08-21T00:00:00.010Z",
+				payload: { type: "thread_settings_applied", thread_settings: { service_tier: "default" } },
+			},
+			{
+				type: "event_msg",
+				timestamp: "2026-08-21T00:00:00.100Z",
+				payload: { type: "task_started", turn_id: "turn-1" },
+			},
+		],
+	});
+	expect((await recordCodexProviderNativeTerminal(state.input, state.dependencies)).status)
+		.toBe("recorded");
+	expect(JSON.parse(facts(state.telemetry[0]!).get("execution_observation")!)).toEqual({
+		version: "agent-execution-observation/v1",
+		coverage: "unknown",
+		source: "codex_rollout_attempt_session_join_unavailable",
+		turn_unit: "unknown",
+		tool_call_unit: "unknown",
+		evidence: {},
+		segments: [],
+	});
+});
+
+test("a truncated transcript edge cannot claim exact execution coverage", async () => {
+	const state = fixture(terminal("task_complete"), {
+		paddingBytes: 8 * 1024 * 1024 + 1024,
+		executionRecords: [
+			{
+				type: "event_msg", timestamp: "2026-08-21T00:00:00.010Z",
+				payload: { type: "thread_settings_applied", thread_settings: { service_tier: "default" } },
+			},
+			{
+				type: "event_msg", timestamp: "2026-08-21T00:00:00.100Z",
+				payload: { type: "task_started", turn_id: "turn-1" },
+			},
+		],
+	});
+	expect((await recordCodexProviderNativeTerminal(state.input, state.dependencies)).status)
+		.toBe("recorded");
+	expect(JSON.parse(facts(state.telemetry[0]!).get("execution_observation")!)).toMatchObject({
+		coverage: "unknown",
+		source: "codex_rollout_transcript_incomplete",
+		turn_unit: "unknown",
+		tool_call_unit: "unknown",
+		evidence: {},
+		segments: [],
+	});
 });
