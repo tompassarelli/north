@@ -9,7 +9,18 @@
     "./spawn": "./src/spawn.ts",
     "./dispatch": "./src/dispatch.ts",
     "./providers": "./src/providers/index.ts",
-    "./wire": "./src/wire/index.ts"
+    "./wire": "./src/wire/index.ts",
+    "./internal/file-lease": "./src/file-lease.ts",
+    "./internal/bridge-accept": "./src/bridge/accept.ts",
+    "./internal/bridge-pending": "./src/bridge/pending.ts",
+    "./internal/delivery-evidence": "./src/delivery-evidence.ts",
+    "./internal/north-client": "./src/north-client.ts",
+    "./internal/provider-routing": "./src/provider-routing.ts",
+    "./internal/providers-catalog": "./src/providers/catalog.ts",
+    "./internal/telemetry": "./src/telemetry.ts",
+    "./internal/wire": "./src/wire/index.ts",
+    "./internal/bridge-command-receipts": "./src/bridge/command-receipts.ts",
+    "./internal/bridge-provider": "./src/bridge/provider.ts"
   },
   "scripts": {
     "dispatch": "bun run src/dispatch.ts",

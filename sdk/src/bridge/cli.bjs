@@ -1,0 +1,886 @@
+#lang beagle/js
+
+(ns north.bridge.cli
+  (:require [child_process :refer [spawn]]
+            [net :refer [Socket]]
+            [path :refer [resolve]]
+            [north.bridge.app :refer [run-northbridge-app!]]
+            [north.bridge.app-launch-reservation
+             :refer [prepare-managed-bridge-app-launch!]]
+            [north.bridge.protocol :refer [bridge-journal-root bridge-socket-path
+                                            bridge-source-identity parse-bridge-launch-attempt-id!
+                                            parse-bridge-launch-effort!
+                                            parse-bridge-launch-model!
+                                            parse-bridge-launch-provider!
+                                            parse-bridge-launch-role!
+                                            parse-bridge-launch-tier!
+                                            pinning-executions]]
+            [|north-sdk/internal/file-lease| :refer [acquireFileLease]]
+            [|north-sdk/internal/bridge-accept| :refer [runBridgeAcceptance]]
+            [|north-sdk/internal/bridge-pending| :refer [markLaneConsumed pendingLanes]]))
+
+;; Dynamic values in this module are confined to Node/Bun handles, parsed wire
+;; JSON, and the three named TypeScript leaves above while those seams remain.
+;; CLI arguments and outbound protocol values are modeled before projection.
+
+(defrecord LaunchArgumentsModel
+  [role String
+   attemptId (U String Nil)
+   provider (U String Nil)
+   tier (U String Nil)
+   model (U String Nil)
+   effort (U String Nil)
+   promptArguments (Vec String)])
+
+(declare-extern
+  [process Bun
+   console JSON
+   Number Date
+   Array Set
+   RegExp Error
+   setTimeout clearTimeout] Any)
+
+(def USAGE String
+  (str "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
+       " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
+       " | north bridge dashboard [--once] [--ids]"
+       " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>"
+       " | north bridge restart  (retire the control daemon now)"
+       " | north bridge pending [--json | --consume <execution-id>]"
+       " | north bridge attach <execution-id> [--cursor N]"
+       " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>"
+       "\nroute flags: --provider anthropic|openai | --claude | --openai"
+       " --tier economy|standard|senior|frontier --model ID"
+       " --effort low|medium|high|xhigh|max"
+       "\napp launches support Store-authorized OpenAI routes only"
+       "\nlaunch requires a reserved attempt id; role defaults to implementer"))
+
+(defn usage! [] Any
+  (.error console USAGE)
+  (.exit process 2))
+
+(defn sleep! [milliseconds Int] (Promise Nil)
+  (Bun/sleep milliseconds))
+
+(defn acquire-launch-lease! [path String] (Promise Any)
+  (acquireFileLease path))
+
+(defn release-launch-lease! [lease Any] (Promise Nil)
+  (.release lease))
+
+(defn run-acceptance! [options Any] (Promise Any)
+  (runBridgeAcceptance options))
+
+(defn stdin-text! [] (Promise String)
+  (.text (.-stdin Bun)))
+
+(defn optional-string-field!
+  [target Any
+   key String
+   value (U String Nil)] Any
+  (when value (aset target key value))
+  target)
+
+(defn launch-arguments-wire! [launch LaunchArgumentsModel] Any
+  (let [wire Any #js {:role (launchargumentsmodel-role launch)
+                      :promptArguments (launchargumentsmodel-promptArguments launch)}]
+    (optional-string-field! wire "attemptId" (launchargumentsmodel-attemptId launch))
+    (optional-string-field! wire "provider" (launchargumentsmodel-provider launch))
+    (optional-string-field! wire "tier" (launchargumentsmodel-tier launch))
+    (optional-string-field! wire "model" (launchargumentsmodel-model launch))
+    (optional-string-field! wire "effort" (launchargumentsmodel-effort launch))
+    wire))
+
+(defn parse-bridge-route-arguments!
+  [args (Vec String)
+   attempt-mode String] Any
+  (let [state Any {:role "implementer" :provider nil :tier nil :model nil
+                     :effort nil :attemptId nil :index 0 :done false}]
+      (loop []
+        (let [index Int (.-index state)]
+          (when (and (< index (.-length args)) (not (.-done state)))
+            (let [argument Any (nth args index)]
+              (cond
+                (identical? argument "--role")
+                (do
+                  (when (>= (+ index 1) (.-length args))
+                    (throw (new Error "bridge --role requires director or implementer")))
+                  (set! (.-role state) (parse-bridge-launch-role! (nth args (+ index 1))))
+                  (set! (.-index state) (+ index 2)))
+                (identical? argument "--attempt")
+                (do
+                  (when (identical? attempt-mode "forbidden")
+                    (throw (new Error "bridge app-launch reserves its own attempt")))
+                  (when (>= (+ index 1) (.-length args))
+                    (throw (new Error "bridge --attempt requires a canonical reserved attempt id")))
+                  (set! (.-attemptId state)
+                        (parse-bridge-launch-attempt-id! (nth args (+ index 1))))
+                  (set! (.-index state) (+ index 2)))
+                (or (identical? argument "--claude")
+                    (identical? argument "--anthropic"))
+                (do (set! (.-provider state) "anthropic")
+                    (set! (.-index state) (+ index 1)))
+                (or (identical? argument "--openai")
+                    (identical? argument "--codex"))
+                (do (set! (.-provider state) "openai")
+                    (set! (.-index state) (+ index 1)))
+                (.includes ["--provider" "--tier" "--model" "--effort"] argument)
+                (do
+                  (when (>= (+ index 1) (.-length args))
+                    (throw (new Error (str "bridge " argument " requires a value"))))
+                  (let [value String (nth args (+ index 1))]
+                    (cond
+                      (identical? argument "--provider")
+                      (set! (.-provider state) (parse-bridge-launch-provider! value))
+                      (identical? argument "--tier")
+                      (set! (.-tier state) (parse-bridge-launch-tier! value))
+                      (identical? argument "--model")
+                      (set! (.-model state) (parse-bridge-launch-model! value))
+                      :else
+                      (set! (.-effort state) (parse-bridge-launch-effort! value))))
+                  (set! (.-index state) (+ index 2)))
+                :else (set! (.-done state) true)))
+            (when (not (.-done state)) (recur)))))
+      (when (and (identical? attempt-mode "required")
+                 (nil? (.-attemptId state)))
+        (throw (new Error "bridge launch requires --attempt with a reserved attempt id")))
+      (launch-arguments-wire!
+        (->LaunchArgumentsModel (.-role state)
+                                (.-attemptId state)
+                                (.-provider state)
+                                (.-tier state)
+                                (.-model state)
+                                (.-effort state)
+                                (.slice args (.-index state))))))
+
+(js/export
+  (defn parse-bridge-launch-arguments! [args (Vec String)] Any
+    (let [parsed Any (parse-bridge-route-arguments! args "required")]
+      (when (nil? (.-attemptId parsed))
+        (throw (new Error "bridge launch requires --attempt with a reserved attempt id")))
+      parsed)))
+
+(js/export
+  (defn parse-bridge-app-launch-arguments! [args (Vec String)] Any
+    (let [state Any {:selectedThreadId nil :launchArguments [] :index 0 :done false}
+          valued-flags Any (new Set ["--role" "--provider" "--tier" "--model" "--effort"])]
+      (loop []
+        (let [index Int (.-index state)]
+          (when (and (< index (.-length args)) (not (.-done state)))
+            (let [argument String (nth args index)]
+              (cond
+                (identical? argument "--attempt")
+                (throw (new Error "bridge app-launch reserves its own attempt"))
+                (identical? argument "--thread")
+                (let [value Any (nth args (+ index 1) nil)]
+                  (when (not value)
+                    (throw (new Error
+                                "bridge app-launch --thread requires an exact thread id")))
+                  (when (.-selectedThreadId state)
+                    (throw (new Error "bridge app-launch accepts exactly one --thread")))
+                  (set! (.-selectedThreadId state) value)
+                  (set! (.-index state) (+ index 2)))
+                (or (identical? argument "--claude")
+                    (identical? argument "--anthropic"))
+                (throw (new Error
+                            "bridge app-launch requires a Store-authorized OpenAI route"))
+                (or (identical? argument "--openai")
+                    (identical? argument "--codex"))
+                (do
+                  (.push (.-launchArguments state) argument)
+                  (set! (.-index state) (+ index 1)))
+                (.has valued-flags argument)
+                (let [value Any (nth args (+ index 1) nil)]
+                  (when (not value)
+                    (throw (new Error
+                                (str "bridge app-launch " argument " requires a value"))))
+                  (.push (.-launchArguments state) argument value)
+                  (set! (.-index state) (+ index 2)))
+                :else
+                (do
+                  (.forEach (.slice args index)
+                            (fn [value String] Any
+                              (.push (.-launchArguments state) value)))
+                  (set! (.-done state) true)))
+              (when (not (.-done state)) (recur))))))
+      (when (not (.-selectedThreadId state))
+        (throw (new Error
+                    "bridge app-launch requires --thread with an exact Store thread id")))
+      (let [parsed Any (parse-bridge-route-arguments! (.-launchArguments state) "forbidden")]
+        (when (identical? (.-length (.-promptArguments parsed)) 0)
+          (throw (new Error "bridge app-launch requires a prompt")))
+        (set! (.-selectedThreadId parsed) (.-selectedThreadId state))
+        parsed))))
+
+(defn set-route-environment!
+  [argument String
+   value String] Any
+  (cond
+    (identical? argument "--provider")
+    (set! (.-NORTH_BRIDGE_PROVIDER (.-env process)) (parse-bridge-launch-provider! value))
+    (identical? argument "--tier")
+    (set! (.-NORTH_BRIDGE_TIER (.-env process)) (parse-bridge-launch-tier! value))
+    (identical? argument "--model")
+    (set! (.-NORTH_BRIDGE_MODEL (.-env process)) (parse-bridge-launch-model! value))
+    :else
+    (set! (.-NORTH_BRIDGE_EFFORT (.-env process)) (parse-bridge-launch-effort! value))))
+
+(defn ^:async run-app! [args (Vec String)] (Promise Int)
+  (let [state Any {:rest [] :index 0 :refused false}]
+    (loop []
+      (let [index Int (.-index state)]
+        (when (< index (.-length args))
+          (let [argument String (nth args index)]
+            (cond
+              (or (identical? argument "--claude")
+                  (identical? argument "--anthropic"))
+              (do (set! (.-refused state) true)
+                  (set! (.-index state) (+ index 1)))
+              (or (identical? argument "--openai")
+                  (identical? argument "--codex"))
+              (do (set! (.-NORTH_BRIDGE_PROVIDER (.-env process)) "openai")
+                  (set! (.-index state) (+ index 1)))
+              (.includes ["--provider" "--tier" "--model" "--effort"] argument)
+              (let [value Any (nth args (+ index 1) nil)]
+                (when (not value) (usage!))
+                (if (and (identical? argument "--provider")
+                         (not (identical? (parse-bridge-launch-provider! value) "openai")))
+                  (set! (.-refused state) true)
+                  (set-route-environment! argument value))
+                (set! (.-index state) (+ index 2)))
+              :else
+              (do (.push (.-rest state) argument)
+                  (set! (.-index state) (+ index 1)))))
+          (recur))))
+    (if (or (.-refused state)
+            (identical? (.trim (or (.-NORTH_BRIDGE_PROVIDER (.-env process)) ""))
+                        "anthropic"))
+      (do
+        (.error console "north bridge: the app requires a Store-authorized OpenAI route")
+        1)
+      (let [rest Any (.-rest state)
+            view-id (U String Nil) (if (identical? (.-length rest) 0)
+                                     nil
+                                     (do
+                                       (when (or (not (identical? (.-length rest) 2))
+                                                 (not (identical? (nth rest 0) "--view-id"))
+                                                 (not (nth rest 1 nil)))
+                                         (usage!))
+                                       (nth rest 1)))]
+        (when (nil? (.-NORTH_BIN (.-env process)))
+          (set! (.-NORTH_BIN (.-env process))
+                (resolve (.-dir (js/import-meta)) "../../../../../../bin/north")))
+        (let [connection Any (await (verified-socket!
+                                      (bridge-socket-path)
+                                      CONSOLE-CONNECTION-OUTPUT
+                                      {:replacePinned true}))]
+          (.destroy (.-socket connection)))
+        (await (run-northbridge-app! {:viewId view-id
+                                      :sourceIdentity (bridge-source-identity)}))
+        0))))
+
+(defn pending-value [value Any] (U String Nil)
+  (if (and (identical? (js/typeof value) "string") (not (identical? value "")))
+    value
+    nil))
+
+(defn render-pending-lane [lane Any] String
+  (let [terminal-data Any (.-data (.-terminal lane))
+        harvest-data Any (if (.-harvest lane) (.-data (.-harvest lane)) nil)
+        process-outcome String (or (pending-value (.-processOutcome terminal-data)) "unknown")
+        delivery-outcome String (or (pending-value (.-deliveryOutcome terminal-data)) "unknown")
+        branch (U String Nil) (pending-value (if harvest-data (.-branch harvest-data) nil))
+        sha (U String Nil) (pending-value (if harvest-data (.-sha harvest-data) nil))
+        parts Any [(.-executionId lane)
+                   (str "process=" process-outcome)
+                   (str "delivery=" delivery-outcome)]]
+    (when branch (.push parts (str "branch=" branch)))
+    (when sha (.push parts (str "sha=" sha)))
+    (.join parts " ")))
+
+(defn run-pending! [args (Vec String)] Int
+  (cond
+    (identical? (.-length args) 0)
+    (do (.forEach (pendingLanes)
+                  (fn [lane Any] Any (.log console (render-pending-lane lane))))
+        0)
+    (and (identical? (.-length args) 1) (identical? (nth args 0) "--json"))
+    (do (.log console (JSON/stringify (pendingLanes))) 0)
+    (and (identical? (.-length args) 2)
+         (or (identical? (nth args 0) "--consume")
+             (identical? (nth args 0) "consume")))
+    (let [execution-id String (nth args 1)
+          created Any (markLaneConsumed execution-id)]
+      (.log console (str (if created "consumed" "already consumed") " " execution-id))
+      0)
+    :else (usage!)))
+
+(defn ^:async run-dashboard! [args (Vec String)] (Promise Int)
+  (let [dashboard String (resolve (.-dir (js/import-meta))
+                                  "../../../../../../cli/dashboard-cli.clj")
+        child Any (spawn (or (.-NORTH_BB (.-env process)) "bb")
+                         (.concat [dashboard "dashboard"] args)
+                         {:stdio "inherit" :env (.-env process)})
+        result Any (Promise/withResolvers)
+        exited (Promise Int) (.-promise result)]
+    (.once child "error" (.-reject result))
+    (.once child "exit"
+           (fn [code Any] Any
+             ((.-resolve result) (if (identical? (js/typeof code) "number") code 1))))
+    (await exited)))
+
+(defn open-socket! [path String] (Promise Any)
+  (let [result Any (Promise/withResolvers)
+        socket Any (new Socket)
+        on-error (Fn [Any] Any) (fn [error Any] Any
+          (.destroy socket)
+          ((.-reject result) error))]
+    (.once socket "error" on-error)
+    (.once socket "connect"
+           (fn [] Any
+             (.off socket "error" on-error)
+             ((.-resolve result) socket)))
+    (.connect socket path)
+    (.-promise result)))
+
+(defn ^:async wait-for-socket!
+  [path String
+   attempt Int
+   last-error Any] (Promise Any)
+  (if (>= attempt 100)
+    (throw (new Error (str "northd did not open " path) {:cause last-error}))
+    (try
+      (await (open-socket! path))
+      (catch Error error
+        (await (sleep! 20))
+        (await (wait-for-socket! path (+ attempt 1) error))))))
+
+(defn ^:async connected-socket! [path String] (Promise Any)
+  (try
+    (await (open-socket! path))
+    (catch Error _
+      (let [lease Any (await (acquire-launch-lease! (str path ".launch.lock")))]
+        (try
+          (try
+            (await (open-socket! path))
+            (catch Error _
+              (let [northd String (resolve (.-dir (js/import-meta)) "../../../northd.ts")
+                    child Any (spawn (.-execPath process) [northd]
+                                     {:detached true :stdio "ignore" :env (.-env process)})]
+                (.unref child)
+                (await (wait-for-socket! path 0 nil)))))
+          (finally (await (release-launch-lease! lease))))))))
+
+(js/export
+  (defn read-hello!
+    [socket Any
+     timeout-ms Int] (Promise Any)
+    (let [result Any (Promise/withResolvers)
+          state Any {:buffer "" :finished false :timer nil
+                     :onData nil :onClose nil :onError nil}
+          finish (Fn [Any] Any) (fn [value Any] Any
+            (when (not (.-finished state))
+              (set! (.-finished state) true)
+              (clearTimeout (.-timer state))
+              (.off socket "data" (.-onData state))
+              (.off socket "close" (.-onClose state))
+              (.off socket "error" (.-onError state))
+              ((.-resolve result) value)))
+          on-close (Fn [] Any) (fn [] Any (finish nil))
+          on-error (Fn [] Any) (fn [] Any (finish nil))
+          on-data (Fn [String] Any) (fn [chunk String] Any
+            (set! (.-buffer state) (str (.-buffer state) chunk))
+            (let [newline Int (.indexOf (.-buffer state) "\n")]
+              (when (>= newline 0)
+                (try
+                  (let [message Any (JSON/parse (.slice (.-buffer state) 0 newline))]
+                    (finish (if (identical? (.-type message) "hello") message nil)))
+                  (catch Error _ (finish nil))))))]
+      (set! (.-onData state) on-data)
+      (set! (.-onClose state) on-close)
+      (set! (.-onError state) on-error)
+      (set! (.-timer state) (setTimeout (fn [] Any (finish nil)) timeout-ms))
+      (.setEncoding socket "utf8")
+      (.on socket "data" on-data)
+      (.once socket "close" on-close)
+      (.once socket "error" on-error)
+      (when (or (.-destroyed socket) (.-readableEnded socket)) (finish nil))
+      (.-promise result))))
+
+(defn socket-closed! [socket Any] (Promise Nil)
+  (let [result Any (Promise/withResolvers)]
+    (.once socket "close" (fn [] Any ((.-resolve result))))
+    (.-promise result)))
+
+(def CONSOLE-CONNECTION-OUTPUT Any
+  {:info (fn [message String] Any (.log console message))
+   :error (fn [message String] Any (.error console message))})
+
+(defn short-identity [identity (U String Nil)] String
+  (if identity (.slice identity 0 8) "unknown"))
+
+(def DAEMON-RETIRE-TIMEOUT-MS Int 5000)
+
+(defn process-alive? [pid Int] Bool
+  (try
+    (do (.kill process pid 0) true)
+    (catch Error error (identical? (.-code error) "EPERM"))))
+
+(defn ^:async retirement-poll!
+  [path String
+   retiring-pid Int
+   deadline Int] (Promise Bool)
+  (if (>= (Date/now) deadline)
+    false
+    (if (and (not (identical? retiring-pid (.-pid process)))
+             (not (process-alive? retiring-pid)))
+      true
+      (let [socket Any (try
+                         (await (open-socket! path))
+                         (catch Error _ nil))]
+        (if (nil? socket)
+          (if (identical? retiring-pid (.-pid process))
+            true
+            (do (await (sleep! 20))
+                (await (retirement-poll! path retiring-pid deadline))))
+          (let [hello Any (await (read-hello! socket 100))]
+            (.destroy socket)
+            (if (and hello
+                     (not (identical? (.-pid hello) retiring-pid))
+                     (or (identical? retiring-pid (.-pid process))
+                         (not (process-alive? retiring-pid))))
+              true
+              (do (await (sleep! 20))
+                  (await (retirement-poll! path retiring-pid deadline))))))))))
+
+(defn daemon-retired!
+  [path String
+   retiring-pid Int] (Promise Bool)
+  (retirement-poll! path retiring-pid (+ (Date/now) DAEMON-RETIRE-TIMEOUT-MS)))
+
+(defn ^:async verified-attempt!
+  [path String
+   output Any
+   options Any
+   attempt Int
+   replaced-from (U String Nil)
+   replaced Bool] (Promise Any)
+  (if (>= attempt 3)
+    (throw (new Error "northd did not present a fresh identity after replacement"))
+    (let [socket Any (await (connected-socket! path))
+          hello Any (await (read-hello! socket 750))
+          disk (U String Nil) (bridge-source-identity)
+          fresh Any (and hello
+                         (or (nil? (.-identity hello))
+                             (nil? disk)
+                             (identical? (.-identity hello) disk)))]
+      (if fresh
+        (do
+          (when replaced
+            (.info output
+                   (str "northd: control daemon was stale — replaced ("
+                        (short-identity replaced-from) " → "
+                        (short-identity (.-identity hello)) "); starting fresh")))
+          {:socket socket :hello hello})
+        (let [pinning Int (if hello (pinning-executions hello) 0)]
+          (if (and (> pinning 0) (not (identical? (.-replacePinned options) true)))
+            (do
+              (.error output
+                      (str "north bridge: northd is stale with " pinning " live session(s);"
+                           " run 'north bridge restart' to replace it now, or new launches are refused"
+                           " until it drains"))
+              {:socket socket :hello hello})
+            (do
+              (if hello
+                (let [closed (Promise Nil) (socket-closed! socket)
+                      retiring-pid Int (.-pid hello)]
+                  (.write socket (str (JSON/stringify {:op "retire"}) "\n"))
+                  (await closed)
+                  (when (not (await (daemon-retired! path retiring-pid)))
+                    (throw (new Error (str "northd " retiring-pid " did not finish retirement")))))
+                (do
+                  (.destroy socket)
+                  (when (identical? attempt 2)
+                    (.error output
+                            (str "north bridge: northd did not present the identity handshake;"
+                                 " reap the orphan with: pkill -f bridge/northd")))
+                  (await (sleep! 50))))
+              (await (verified-attempt! path output options (+ attempt 1)
+                                        (if hello (.-identity hello) replaced-from)
+                                        (or replaced (not (nil? hello))))))))))))
+
+(js/export
+  (defn ^:async verified-socket!
+    ([path String] (Promise Any)
+     (await (verified-attempt! path CONSOLE-CONNECTION-OUTPUT {} 0 nil false)))
+    ([path String
+      output Any] (Promise Any)
+      (await (verified-attempt! path output {} 0 nil false)))
+    ([path String
+      output Any
+      options Any] (Promise Any)
+      (await (verified-attempt! path output options 0 nil false)))))
+
+(js/export
+  (defn ^:async run-bridge-restart! [path String] (Promise Int)
+    (let [socket Any (try (await (open-socket! path)) (catch Error _ nil))
+          state Any {:retiredFrom nil :failed false}]
+      (when socket
+        (let [hello Any (await (read-hello! socket 750))]
+          (if (nil? hello)
+            (do
+              (.destroy socket)
+              (.error console
+                      (str "north bridge: northd predates the identity handshake;"
+                           " reap the orphan with: pkill -f bridge/northd"))
+              (set! (.-failed state) true))
+            (do
+              (set! (.-retiredFrom state) (.-identity hello))
+              (let [closed (Promise Nil) (socket-closed! socket)]
+                (.write socket (str (JSON/stringify {:op "retire"}) "\n"))
+                (await closed))
+              (when (not (await (daemon-retired! path (.-pid hello))))
+                (.error console
+                        (str "north bridge: the control daemon is still listening at " path))
+                (set! (.-failed state) true))))))
+      (if (.-failed state)
+        1
+        (let [successor Any (await (verified-socket! path))
+              now String (short-identity (.-identity (.-hello successor)))]
+          (.destroy (.-socket successor))
+          (.log console
+                (if (nil? (.-retiredFrom state))
+                  (str "control daemon started (" now ")")
+                  (str "control daemon replaced (" (short-identity (.-retiredFrom state))
+                       " → " now ")")))
+          0)))))
+
+(defn render-record [record Any] String
+  (let [data String (str " " (JSON/stringify
+                               (Object/assign {} (.-data record)
+                                              {:bridgeRecordAt (.-at record)})))]
+    (str "[" (.-seq record) "] " (.-kind record) data)))
+
+(js/export
+  (defn render-wire-event [event Any] String
+    (let [sequence Int (.-sequence event)]
+      (str "[" (+ sequence 1) "] " (.-kind event) " " (JSON/stringify event)))))
+
+(js/export
+  (defn bridge-app-launch-recovery-action
+    [phase String
+     outcome Any
+     managed Any] String
+    (cond
+      (.-settled managed) "complete"
+      (.-providerEffectObserved managed) "reconnect"
+      (and (identical? phase "launch") (.-refused outcome)) "prove-unsent"
+      (and (identical? phase "attach")
+           (.-refused outcome)
+           (.some (.-errors outcome)
+                  (fn [message String] Bool
+                    (.startsWith message "unknown bridge execution "))))
+      "prove-unsent"
+      :else "reconnect")))
+
+(defn run-client!
+  ([socket Any
+    request Any] (Promise Any)
+    (run-client! socket request {}))
+  ([socket Any
+    request Any
+    hooks Any] (Promise Any)
+    (let [result Any (Promise/withResolvers)
+          state Any {:buffer "" :exitCode 0 :launched false :refused false
+                   :errors [] :cursor 0 :observationTail (Promise/resolve)
+                   :observationFailed false}]
+      (.setEncoding socket "utf8")
+    (.on socket "data"
+         (fn [chunk String] Any
+           (set! (.-buffer state) (str (.-buffer state) chunk))
+           (loop []
+             (let [newline Int (.indexOf (.-buffer state) "\n")]
+               (when (>= newline 0)
+                 (let [line String (.slice (.-buffer state) 0 newline)]
+                   (set! (.-buffer state) (.slice (.-buffer state) (+ newline 1)))
+                   (when (not (identical? line ""))
+                     (let [message Any (JSON/parse line)]
+                       (cond
+                         (identical? (.-type message) "hello") nil
+                         (identical? (.-type message) "launched")
+                         (do
+                           (set! (.-launched state) true)
+                           (.log console (str "execution " (.-executionId message))))
+                         (identical? (.-type message) "controlled")
+                         (.log console (str (.-executionId message) " " (.-delivery message)))
+                         (identical? (.-type message) "event")
+                         (.log console (render-record (.-record message)))
+                         (identical? (.-type message) "wire")
+                         (do
+                           (.log console (render-wire-event (.-event message)))
+                           (set! (.-observationTail state)
+                                 (.then (.-observationTail state)
+                                        (fn [] Any
+                                          (when (not (.-observationFailed state))
+                                            (try
+                                              (do
+                                                (when (.-onDurableWireEvent hooks)
+                                                  (await ((.-onDurableWireEvent hooks)
+                                                          (.-event message))))
+                                                (set! (.-cursor state)
+                                                      (Math/max (.-cursor state)
+                                                                (+ (.-sequence (.-event message))
+                                                                   1))))
+                                              (catch Error error
+                                                (do
+                                                  (set! (.-observationFailed state) true)
+                                                  (.error console
+                                                          (str "north bridge: "
+                                                               (or (.-message error)
+                                                                   "wire settlement failed")))
+                                                  (set! (.-exitCode state) 1)))))))))
+                         (identical? (.-type message) "barrier")
+                         (do
+                           (when (not (.-onDurableWireEvent hooks))
+                             (set! (.-cursor state)
+                                   (Math/max (.-cursor state) (.-cursor message))))
+                           (.log console (str "attached " (.-executionId message)
+                                              " at " (.-cursor message)))
+                           (when (.-tornTail message)
+                             (.error console
+                                     (str "torn journal tail at byte "
+                                          (.-offset (.-tornTail message)) ": "
+                                          (.-availableBytes (.-tornTail message)) "/"
+                                          (.-requiredBytes (.-tornTail message)) " bytes"))
+                             (set! (.-exitCode state) 1)))
+                         :else
+                         (do
+                             (set! (.-refused state) (not (.-launched state)))
+                             (.push (.-errors state) (.-message message))
+                             (.error console (str "north bridge: " (.-message message)))
+                             (set! (.-exitCode state) 1)))))
+                   (recur)))))))
+    (.once socket "error"
+           (fn [error Any] Any
+             (.error console (str "north bridge: " (.-message error)))
+             (set! (.-exitCode state) 1)))
+    (.once socket "close"
+           (fn [] Any
+             (.then (.-observationTail state)
+                    (fn [] Any
+                      ((.-resolve result)
+                       {:code (.-exitCode state)
+                        :launched (.-launched state)
+                        :refused (.-refused state)
+                        :errors (.-errors state)
+                        :cursor (.-cursor state)})))))
+    (.write socket (str (JSON/stringify request) "\n"))
+    (.-promise result))))
+
+(js/export
+  (defn ^:async settle-managed-app-launch-refusal! [managed Any] (Promise Nil)
+    (when (and (not (.-providerEffectObserved managed))
+               (not (.-settled managed)))
+      (await (.proveUnsent managed "daemon-launch-refused")))))
+
+(defn ^:async terminate-managed-app-launch! [execution-id String] (Promise Nil)
+  (let [connection Any (await (verified-socket! (bridge-socket-path)))]
+    (await (run-client! (.-socket connection)
+                        {:op "terminateSession" :executionId execution-id}))
+    nil))
+
+(defn ^:async run-managed-app-launch! [launch Any] (Promise Int)
+  (try
+    (let [prompt String (.trim (.join (.-promptArguments launch) " "))
+          managed Any (await (prepare-managed-bridge-app-launch!
+                               {:role (.-role launch)
+                                :prompt prompt
+                                :cwd (.cwd process)
+                                :selectedThreadId (.-selectedThreadId launch)
+                                :provider (.-provider launch)
+                                :tier (.-tier launch)
+                                :model (.-model launch)
+                                :effort (.-effort launch)}))
+          state Any {:socket nil :leaseFailed false :cursor 0 :outcome nil}
+          hooks Any {:onDurableWireEvent
+                     (fn [event Any] Any (.observeDurableWireEvent managed event))}
+          monitored! Any (fn
+                           [socket Any
+                            request Any] Any
+                           (let [client Any (run-client! socket request hooks)]
+              (if (.-leaseFailed state)
+                client
+                (let [winner Any (await
+                                   (Promise/race
+                                     [(.then client
+                                             (fn [outcome Any] Any
+                                               {:kind "client" :outcome outcome}))
+                                      (.then (.-leaseFailure managed)
+                                             (fn [error Any] Any
+                                               {:kind "lease" :error error}))]))]
+                  (if (identical? (.-kind winner) "client")
+                    (.-outcome winner)
+                    (do
+                      (set! (.-leaseFailed state) true)
+                      (.error console
+                              (str "north bridge: delivery lease renewal failed: "
+                                   (.-message (.-error winner))))
+                      (.destroy socket)
+                      (try
+                        (await (terminate-managed-app-launch! (.-executionId managed)))
+                        (catch Error _ nil))
+                      (await client)))))))]
+      (try
+        (set! (.-socket state) (.-socket (await (verified-socket! (bridge-socket-path)))))
+        (catch Error error
+          (do
+            (await (.proveUnsent managed "daemon-not-contacted"))
+            (throw error))))
+      (set! (.-outcome state)
+            (await (monitored!
+                     (.-socket state)
+                     {:op "launch"
+                      :executionId (.-executionId managed)
+                      :attemptId (.-attemptId managed)
+                      :prompt prompt
+                      :cwd (.cwd process)
+                      :role (.-role launch)
+                      :provider (.-provider managed)
+                      :model (.-model managed)
+                      :tier (.-tier launch)
+                      :effort (.-effort launch)})))
+      (if (identical? (bridge-app-launch-recovery-action
+                        "launch" (.-outcome state) managed)
+                      "prove-unsent")
+        (do
+          (await (settle-managed-app-launch-refusal! managed))
+          (.-code (.-outcome state)))
+        (do
+          (set! (.-cursor state) (.-cursor (.-outcome state)))
+          (loop []
+            (when (not (.-settled managed))
+              (when (.-leaseFailed state)
+                (try
+                  (await (terminate-managed-app-launch! (.-executionId managed)))
+                  (catch Error _
+                    (do (await (sleep! 250)) (recur)))))
+              (try
+                (set! (.-socket state)
+                      (.-socket (await (verified-socket! (bridge-socket-path)))))
+                (catch Error _
+                  (do (await (sleep! 250)) (recur))))
+              (set! (.-outcome state)
+                    (await (monitored!
+                             (.-socket state)
+                             {:op "attach"
+                              :executionId (.-executionId managed)
+                              :cursor (.-cursor state)})))
+              (set! (.-cursor state)
+                    (Math/max (.-cursor state) (.-cursor (.-outcome state))))
+              (when (identical? (bridge-app-launch-recovery-action
+                                  "attach" (.-outcome state) managed)
+                                "prove-unsent")
+                (await (settle-managed-app-launch-refusal! managed)))
+              (when (not (.-settled managed))
+                (await (sleep! 250))
+                (recur))))
+          (if (.-leaseFailed state) 1 (.-code (.-outcome state))))))
+    (catch Error error
+      (do
+        (.error console (str "north bridge: " (or (.-message error) "app launch failed")))
+        1))))
+
+(defn app-arguments? [args (Vec String)] Bool
+  (let [app-flags Any (new Set ["--claude" "--anthropic" "--openai" "--codex" "--view-id"
+                                "--provider" "--tier" "--model" "--effort"])
+        valued Any (new Set ["--view-id" "--provider" "--tier" "--model" "--effort"])]
+    (.every args
+            (fn
+              [argument String
+               index Int] Bool
+              (or (.has app-flags argument)
+                  (and (> index 0) (.has valued (nth args (- index 1)))))))))
+
+(defn ^:async main! [args (Vec String)] (Promise Int)
+  (cond
+    (or (identical? (.-length args) 0)
+        (identical? (nth args 0 nil) "app")
+        (identical? (nth args 0 nil) "tui"))
+    (await (run-app! (if (or (identical? (nth args 0 nil) "app")
+                             (identical? (nth args 0 nil) "tui"))
+                       (.slice args 1)
+                       args)))
+    (app-arguments? args) (await (run-app! args))
+    (identical? (nth args 0) "dashboard") (await (run-dashboard! (.slice args 1)))
+    (identical? (nth args 0) "pending") (run-pending! (.slice args 1))
+    (identical? (nth args 0) "restart")
+    (do (when (not (identical? (.-length args) 1)) (usage!))
+        (await (run-bridge-restart! (bridge-socket-path))))
+    (identical? (nth args 0) "accept")
+    (do
+      (when (not (identical? (.-length args) 3)) (usage!))
+      (try
+        (do
+          (await (run-acceptance!
+                   {:attemptIds [(parse-bridge-launch-attempt-id! (nth args 1))
+                                 (parse-bridge-launch-attempt-id! (nth args 2))]}))
+          0)
+        (catch Error _ 1)))
+    (identical? (nth args 0) "app-launch")
+    (try
+      (await (run-managed-app-launch!
+               (parse-bridge-app-launch-arguments! (.slice args 1))))
+      (catch Error error
+        (do
+          (.error console
+                  (str "north bridge: " (or (.-message error) "app launch failed")))
+          1)))
+    :else
+    (let [request Any (cond
+            (identical? (nth args 0) "attach")
+            (let [execution-id Any (nth args 1 nil)]
+              (when (or (not execution-id)
+                        (and (not (identical? (.-length args) 2))
+                             (not (identical? (.-length args) 4))))
+                (usage!))
+              (let [cursor Any (if (identical? (.-length args) 4)
+                                 (do
+                                   (when (or (not (identical? (nth args 2) "--cursor"))
+                                             (not (.test (new RegExp "^[0-9]+$") (nth args 3))))
+                                     (usage!))
+                                   (let [parsed Any (Number (nth args 3))]
+                                     (when (not (Number/isSafeInteger parsed)) (usage!))
+                                     parsed))
+                                 0)]
+                {:op "attach" :executionId execution-id :cursor cursor}))
+            (identical? (nth args 0) "msg")
+            (let [execution-id Any (nth args 1 nil)
+                  input String (.trim (.join (.slice args 2) " "))]
+              (when (or (not execution-id) (identical? input "")) (usage!))
+              {:op "submitInput" :executionId execution-id :input input})
+            (identical? (nth args 0) "interrupt")
+            (let [execution-id Any (nth args 1 nil)]
+              (when (or (not execution-id) (not (identical? (.-length args) 2))) (usage!))
+              {:op "interruptTurn" :executionId execution-id})
+            :else
+            (let [launch Any (try (parse-bridge-launch-arguments! args)
+                                  (catch Error _ (usage!)))
+                  prompt-state Any {:prompt (.trim (.join (.-promptArguments launch) " "))}]
+              (when (and (identical? (.-prompt prompt-state) "")
+                         (not (.-isTTY (.-stdin process))))
+                (set! (.-prompt prompt-state) (.trim (await (stdin-text!)))))
+              (when (identical? (.-prompt prompt-state) "") (usage!))
+              (let [wire Any #js {:op "launch" :prompt (.-prompt prompt-state)
+                                  :cwd (.cwd process) :role (.-role launch)
+                                  :attemptId (.-attemptId launch)}]
+                (optional-string-field! wire "provider" (.-provider launch))
+                (optional-string-field! wire "tier" (.-tier launch))
+                (optional-string-field! wire "model" (.-model launch))
+                (optional-string-field! wire "effort" (.-effort launch))
+                wire)))
+          connection Any (await (verified-socket! (bridge-socket-path)))]
+      (.-code (await (run-client! (.-socket connection) request))))))
+
+(when (.-main (js/import-meta))
+  (.then (main! (.slice (.-argv process) 2))
+         (fn [code Int] Any (set! (.-exitCode process) code))))

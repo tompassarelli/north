@@ -1,0 +1,246 @@
+#lang beagle/js
+
+(ns north.bridge.protocol
+  (:require [child_process :refer [spawnSync]]
+            [os :refer [homedir]]
+            [path :refer [join resolve]]))
+
+;; Protocol values are modeled here before they cross into ordinary JavaScript
+;; objects. The dynamic Any values are the two real foreign boundaries: parsed
+;; JSON and Node's host APIs.
+(defunion BridgeRequestModel
+  (LaunchRequest
+    [prompt String
+     cwd String
+     role String
+     attemptId String
+     executionId (U String Nil)
+     provider (U String Nil)
+     tier (U String Nil)
+     model (U String Nil)
+     effort (U String Nil)])
+  (AttachRequest
+    [executionId String
+     cursor Int])
+  (SubmitInputRequest
+    [executionId String
+     input String])
+  (InterruptTurnRequest [executionId String])
+  (RedirectNowRequest
+    [executionId String
+     input String])
+  (TerminateSessionRequest [executionId String])
+  (RetireRequest [op String]))
+
+(defrecord BridgeHelloModel
+  [identity (U String Nil)
+   liveExecutions Int
+   pinningExecutions (U Int Nil)
+   pid Int])
+
+(declare-extern [process RegExp Error] Any)
+
+(def SEMANTIC-TIERS (Vec String) ["economy" "standard" "senior" "frontier"])
+(def REASONING-LEVELS (Vec String) ["low" "medium" "high" "xhigh" "max"])
+
+(defn error! [message String] Any
+  (throw (new Error message)))
+
+(defn matches?
+  [pattern String
+   value String] Bool
+  (.test (new RegExp pattern "i") value))
+
+(js/export
+  (defn bridge-source-identity [] (U String Nil)
+    (let [repo Any (resolve (.-dir (js/import-meta)) "../../../../../..")
+          configured Any (.-NORTH_GIT_BIN (.-env process))
+          git String (if (and (identical? (js/typeof configured) "string")
+                              (not (identical? configured "")))
+                       configured
+                       "git")
+          result Any (spawnSync git ["-C" repo "rev-parse" "HEAD"] {:encoding "utf8"})
+          stdout Any (.-stdout result)]
+      (if (and (identical? (.-status result) 0)
+               (identical? (js/typeof stdout) "string"))
+        (let [revision String (.trim stdout)]
+          (if (matches? "^[0-9a-f]{40}([0-9a-f]{24})?$" revision) revision nil))
+        nil))))
+
+(js/export
+  (defn pinning-executions [hello Any] Int
+    (let [pinning Any (.-pinningExecutions hello)]
+      (if (identical? (js/typeof pinning) "number")
+        pinning
+        (.-liveExecutions hello)))))
+
+(js/export
+  (defn parse-bridge-launch-provider! [value Any] (U String Nil)
+    (cond
+      (nil? value) nil
+      (or (identical? value "anthropic") (identical? value "openai")) value
+      :else (error! "bridge launch provider must be anthropic or openai"))))
+
+(js/export
+  (defn parse-bridge-launch-tier! [value Any] (U String Nil)
+    (cond
+      (nil? value) nil
+      (and (identical? (js/typeof value) "string") (.includes SEMANTIC-TIERS value)) value
+      :else (error! (str "bridge launch tier must be one of: " (.join SEMANTIC-TIERS ", "))))))
+
+(js/export
+  (defn parse-bridge-launch-model! [value Any] (U String Nil)
+    (cond
+      (nil? value) nil
+      (and (identical? (js/typeof value) "string")
+           (matches? "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$" value)) value
+      :else (error! "bridge launch model must be a model id without whitespace"))))
+
+(js/export
+  (defn parse-bridge-launch-effort! [value Any] (U String Nil)
+    (cond
+      (nil? value) nil
+      (and (identical? (js/typeof value) "string") (.includes REASONING-LEVELS value)) value
+      :else (error! (str "bridge launch effort must be one of: "
+                         (.join REASONING-LEVELS ", "))))))
+
+(js/export
+  (defn parse-bridge-launch-role! [value Any] String
+    (cond
+      (nil? value) "implementer"
+      (or (identical? value "director") (identical? value "implementer")) value
+      :else (error! "bridge launch role must be director or implementer"))))
+
+(defn resolve-bridge-state-directory [env Any] String
+  (let [configured Any (.-NORTH_BRIDGE_STATE_DIR env)
+        trimmed String (if (identical? (js/typeof configured) "string")
+                         (.trim configured)
+                         "")]
+    (if (identical? trimmed "")
+      (join (homedir) ".local/state/north/bridge")
+      (resolve trimmed))))
+
+(js/export
+  (defn bridge-state-directory
+    ([] String (resolve-bridge-state-directory (.-env process)))
+    ([env Any] String (resolve-bridge-state-directory env))))
+
+(js/export
+  (defn bridge-socket-path
+    ([] String (join (resolve-bridge-state-directory (.-env process)) "northd.sock"))
+    ([env Any] String (join (resolve-bridge-state-directory env) "northd.sock"))))
+
+(js/export
+  (defn bridge-journal-root
+    ([] String (join (resolve-bridge-state-directory (.-env process)) "journal"))
+    ([env Any] String (join (resolve-bridge-state-directory env) "journal"))))
+
+(defn parse-execution-id!
+  [value Any
+   operation String] String
+  (if (and (identical? (js/typeof value) "string")
+           (matches? "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" value)
+           (not (identical? value "."))
+           (not (identical? value "..")))
+    value
+    (error! (str "bridge " operation " requires a safe execution id"))))
+
+(js/export
+  (defn parse-bridge-launch-attempt-id! [value Any] String
+    (if (and (identical? (js/typeof value) "string")
+             (matches? "^@attempt:[0-9a-f]{64}$" value))
+      value
+      (error! "bridge launch requires a canonical reserved attempt id"))))
+
+(js/export
+  (defn parse-bridge-launch-execution-id! [value Any] String
+    (if (and (identical? (js/typeof value) "string")
+             (matches? "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                       value))
+      (.toLowerCase value)
+      (error! "bridge launch execution id must be a UUIDv4"))))
+
+(defn launch-request! [request Any] BridgeRequestModel
+  (let [prompt Any (.-prompt request)
+        cwd Any (.-cwd request)]
+    (when (or (not (identical? (js/typeof prompt) "string"))
+              (identical? (.trim prompt) ""))
+      (error! "bridge launch requires a non-empty prompt"))
+    (when (or (not (identical? (js/typeof cwd) "string"))
+              (identical? cwd ""))
+      (error! "bridge launch requires cwd"))
+    (let [provider (U String Nil) (parse-bridge-launch-provider! (.-provider request))
+          tier (U String Nil) (parse-bridge-launch-tier! (.-tier request))
+          model (U String Nil) (parse-bridge-launch-model! (.-model request))
+          effort (U String Nil) (parse-bridge-launch-effort! (.-effort request))
+          execution-id (U String Nil) (if (nil? (.-executionId request))
+                                        nil
+                                        (parse-bridge-launch-execution-id! (.-executionId request)))
+          role String (parse-bridge-launch-role! (.-role request))
+          attempt-id String (parse-bridge-launch-attempt-id! (.-attemptId request))]
+      (->LaunchRequest prompt cwd role attempt-id execution-id provider tier model effort))))
+
+(defn request-model! [request Any] BridgeRequestModel
+  (let [op Any (.-op request)]
+    (cond
+      (identical? op "launch") (launch-request! request)
+      (identical? op "retire") (->RetireRequest "retire")
+      (identical? op "attach")
+      (let [cursor Any (.-cursor request)]
+        (when (or (not (Number/isSafeInteger cursor)) (< cursor 0))
+          (error! "bridge attach cursor must be a non-negative integer"))
+        (->AttachRequest (parse-execution-id! (.-executionId request) "attach") cursor))
+      (identical? op "submitInput")
+      (let [input Any (.-input request)]
+        (when (or (not (identical? (js/typeof input) "string"))
+                  (identical? (.trim input) ""))
+          (error! "bridge submitInput requires non-empty input"))
+        (->SubmitInputRequest (parse-execution-id! (.-executionId request) "submitInput") input))
+      (identical? op "redirectNow")
+      (let [input Any (.-input request)]
+        (when (or (not (identical? (js/typeof input) "string"))
+                  (identical? (.trim input) ""))
+          (error! "bridge redirectNow requires non-empty input"))
+        (->RedirectNowRequest (parse-execution-id! (.-executionId request) "redirectNow") input))
+      (identical? op "interruptTurn")
+      (->InterruptTurnRequest (parse-execution-id! (.-executionId request) "interruptTurn"))
+      (identical? op "terminateSession")
+      (->TerminateSessionRequest (parse-execution-id! (.-executionId request) "terminateSession"))
+      :else (error! "unknown bridge request"))))
+
+(defn optional-field!
+  [target Any
+   key String
+   value (U String Nil)] Any
+  (when value (aset target key value))
+  target)
+
+(defn request-wire! [request BridgeRequestModel] Any
+  (match request
+    [(LaunchRequest prompt cwd role attemptId executionId provider tier model effort)
+     (let [wire Any #js {:op "launch" :prompt prompt :cwd cwd :role role :attemptId attemptId}]
+       (optional-field! wire "executionId" executionId)
+       (optional-field! wire "provider" provider)
+       (optional-field! wire "tier" tier)
+       (optional-field! wire "model" model)
+       (optional-field! wire "effort" effort)
+       wire)]
+    [(AttachRequest executionId cursor)
+     {:op "attach" :executionId executionId :cursor cursor}]
+    [(SubmitInputRequest executionId input)
+     {:op "submitInput" :executionId executionId :input input}]
+    [(InterruptTurnRequest executionId)
+     {:op "interruptTurn" :executionId executionId}]
+    [(RedirectNowRequest executionId input)
+     {:op "redirectNow" :executionId executionId :input input}]
+    [(TerminateSessionRequest executionId)
+     {:op "terminateSession" :executionId executionId}]
+    [(RetireRequest _op) {:op "retire"}]))
+
+(js/export
+  (defn parse-bridge-request! [value Any] Any
+    (when (or (not value)
+              (not (identical? (js/typeof value) "object"))
+              (Array/isArray value))
+      (error! "bridge request must be an object"))
+    (request-wire! (request-model! value))))
