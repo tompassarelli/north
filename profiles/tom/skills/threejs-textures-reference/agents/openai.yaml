@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Textures — Reference"
+  short_description: "Detailed Three.js textures reference"
+  default_prompt: "Use $threejs-textures-reference to look up detailed Three.js textures patterns."

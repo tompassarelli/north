@@ -1,0 +1,4 @@
+interface:
+  display_name: "Three.js Loaders — Distilled"
+  short_description: "Default Three.js loaders workflow"
+  default_prompt: "Use $threejs-loaders-distilled for a focused Three.js loaders implementation."
