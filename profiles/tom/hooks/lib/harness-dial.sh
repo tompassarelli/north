@@ -2,10 +2,11 @@
 # Hook activity has one authority: North's immutable activation generation.
 
 north_hook_enabled() {
-  local hook_id="$1"
+  local hook_id="$1" python_bin
   local activation="${NORTH_AGENT_ACTIVATION:-${NORTH_AGENT_STATE_ROOT:-$HOME/.local/state/north/agents}/current/activation.json}"
+  python_bin="${NORTH_AGENT_PYTHON:-python3}"
   [[ -r "$activation" ]] || return 0
-  python3 - "$hook_id" "$activation" <<'PY'
+  "$python_bin" - "$hook_id" "$activation" <<'PY'
 import json
 import os
 import sys

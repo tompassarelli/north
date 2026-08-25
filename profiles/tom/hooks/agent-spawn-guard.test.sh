@@ -6,9 +6,13 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-HOOK="$HERE/agent-spawn-guard.sh"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/agent-spawn-guard-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
+HOOK="$SCRATCH/provider-hooks/agent-spawn-guard.sh"
+mkdir -p "$SCRATCH/provider-hooks/lib" "$SCRATCH/provider-hooks/runtime"
+ln -s "$HERE/agent-spawn-guard.sh" "$HOOK"
+ln -s "$HERE/lib/harness-dial.sh" "$SCRATCH/provider-hooks/lib/harness-dial.sh"
+ln -s /etc/codex/hooks/runtime/python3 "$SCRATCH/provider-hooks/runtime/python3"
 mkdir -p "$SCRATCH/home/.claude" "$SCRATCH/home/.local/state/north"
 mkdir -p "$SCRATCH/home/code/north/main/orchestration/agents"
 mkdir -p "$SCRATCH/north/bin"
@@ -281,7 +285,7 @@ routing_out="$(printf '%s' "$routing_input" | env \
   HOME="$SCRATCH/home" \
   "$HOOK" 2>&1)"
 routing_reason="$(jq -r '.hookSpecificOutput.permissionDecisionReason // ""' <<<"$routing_out")"
-routing_json="$(printf '%s' "$routing_reason" | python3 -c '
+routing_json="$(printf '%s' "$routing_reason" | /etc/codex/hooks/runtime/python3 -c '
 import json, sys
 text = sys.stdin.read()
 marker = "mcp__north__spawn "

@@ -221,6 +221,8 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
 });
 
 test("managed Codex authoring entrances invoke the native Firn system policy", () => {
+  expect(FIRN_SYSTEM_POLICY)
+    .toBe("/home/tom/.local/lib/firn/policy/current/bin/firn-system-policy");
   const expected = expectedManagedCodexHooks();
   const preToolUse = expected.PreToolUse;
   for (const matcher of ["^(Edit|Write|MultiEdit)$", "^Bash$"]) {

@@ -3,9 +3,14 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-HOOK="$HERE/session-kill-guard.sh"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/session-kill-guard-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
+HOOK="$SCRATCH/provider-hooks/session-kill-guard.sh"
+mkdir -p "$SCRATCH/provider-hooks/lib" "$SCRATCH/provider-hooks/runtime"
+ln -s "$HERE/session-kill-guard.sh" "$HOOK"
+ln -s "$HERE/lib/authoring-killswitch.sh" "$SCRATCH/provider-hooks/lib/authoring-killswitch.sh"
+ln -s "$HERE/lib/harness-dial.sh" "$SCRATCH/provider-hooks/lib/harness-dial.sh"
+ln -s /etc/codex/hooks/runtime/python3 "$SCRATCH/provider-hooks/runtime/python3"
 mkdir -p "$SCRATCH/home/.local/state/north"
 ACTIVATION="$SCRATCH/activation.json"
 
@@ -19,11 +24,11 @@ set_active true
 run() {
   local expect="$1" desc="$2" cmd="$3"; shift 3
   local input out decision ok=0
-  input="$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")"
+  input="$(/etc/codex/hooks/runtime/python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","tool_input":{"command":sys.argv[1]}}))' "$cmd")"
   out="$(printf '%s' "$input" | env -u AGENT_NO_AUTHORING_HOOKS \
     HOME="$SCRATCH/home" NORTH_AGENT_ACTIVATION="$ACTIVATION" "$@" "$HOOK" 2>&1)"
   LAST_OUT="$out"
-  decision="$(python3 -c 'import json,sys
+  decision="$(/etc/codex/hooks/runtime/python3 -c 'import json,sys
 try:
     d = json.loads(sys.argv[1] or "null")
 except Exception:

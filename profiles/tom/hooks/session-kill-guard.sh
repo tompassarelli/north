@@ -42,6 +42,8 @@ capture_hook_stdin() {
   done
 }
 capture_hook_stdin
+NORTH_AGENT_PYTHON="${BASH_SOURCE[0]%/*}/runtime/python3"
+[ -x "$NORTH_AGENT_PYTHON" ] || exit 0
 
 # shellcheck disable=SC1090,SC1091
 . "$(dirname "$0")/lib/authoring-killswitch.sh" 2>/dev/null || true
@@ -372,4 +374,4 @@ print(json.dumps({
 sys.exit(0)
 PYEOF
 
-printf '%s' "$payload" | python3 -c "$PY"
+printf '%s' "$payload" | "$NORTH_AGENT_PYTHON" -c "$PY"
