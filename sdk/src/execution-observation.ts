@@ -240,6 +240,7 @@ export function reduceCodexExecutionObservation(
 	let activeMode: ExecutionMode | undefined;
 	const turns: Array<{ mode: ExecutionMode; key: string }> = [];
 	const turnKeys = new Set<string>();
+	const callKeys = new Set<string>();
 	const callsByTurn = new Map<string, Set<string>>();
 	for (const event of events) {
 		if (event.kind === "thread_settings_applied") {
@@ -270,7 +271,8 @@ export function reduceCodexExecutionObservation(
 		} catch {
 			return unknownCodexObservation("tool_evidence_invalid");
 		}
-		if (calls.has(callKey)) return unknownCodexObservation("tool_evidence_invalid");
+		if (callKeys.has(callKey)) return unknownCodexObservation("tool_evidence_invalid");
+		callKeys.add(callKey);
 		calls.add(callKey);
 	}
 	if (turns.length === 0) return unknownCodexObservation("turn_evidence_unavailable");

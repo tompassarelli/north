@@ -93,6 +93,25 @@ test("missing initial settings or exact joins remain unknown", () => {
 	});
 });
 
+test("one admitted call identity cannot be counted again under a later turn", () => {
+	const joined = { attempt_sha256: attempt, session_sha256: session };
+	const observation = reduceCodexExecutionObservation([
+		{ kind: "thread_settings_applied", ...joined, service_tier: "default" },
+		{ kind: "task_started", ...joined, turn_sha256: turns[0]! },
+		{ kind: "tool_call_admitted", ...joined, turn_sha256: turns[0]!,
+			tool_call_sha256: calls[0]! },
+		{ kind: "task_started", ...joined, turn_sha256: turns[1]! },
+		{ kind: "tool_call_admitted", ...joined, turn_sha256: turns[1]!,
+			tool_call_sha256: calls[0]! },
+	]);
+	expect(observation).toMatchObject({
+		coverage: "unknown",
+		source: "codex_rollout_tool_evidence_invalid",
+		evidence: {},
+		segments: [],
+	});
+});
+
 test("provider-turn and provider-item units cannot masquerade as comparable observations", () => {
 	expect(() => normalizeExecutionObservation({
 		...exact,
