@@ -39,9 +39,9 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "profiles/tom/hooks/launch-critical-worktree-guard.sh",
   },
-  "logcompress-hook.js": {
+  "logcompress-hook.py": {
     repository: "north",
-    path: "profiles/tom/hooks/logcompress-hook.js",
+    path: "profiles/tom/hooks/logcompress-hook.py",
   },
   "session-kill-guard.sh": {
     repository: "north",
@@ -91,7 +91,7 @@ const command = (
   name: string,
   timeout = 10,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
-  interpreter: "bash" | "node" = "bash",
+  interpreter: "bash" | "python3" = "bash",
 ): ManagedCommandHook => ({
   type: "command",
   command: [
@@ -179,7 +179,7 @@ export function expectedManagedCodexHooks(
       {
         matcher: "^Bash$",
         hooks: [
-          command("logcompress-hook.js", 10, managedDir, "node"),
+          command("logcompress-hook.py", 10, managedDir, "python3"),
           command("north-on-tooluse-codex", 10, managedDir),
         ],
       },
@@ -439,7 +439,7 @@ function managedCommandPaths(
   const [interpreter, script] = tokens as [string, string];
   const allowedInterpreters = new Set([
     resolve(managedDir, "runtime/bash"),
-    resolve(managedDir, "runtime/node"),
+    resolve(managedDir, "runtime/python3"),
   ]);
   if (!allowedInterpreters.has(interpreter)
       || !script.startsWith(`${resolve(managedDir)}/`)

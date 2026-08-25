@@ -483,7 +483,7 @@
                         "instructions/north/AGENTS.md"
                         "instructions/bridge/AGENTS.md"
                         "provider-hooks/lib/harness-dial.sh"
-                        "provider-hooks/logcompress.js"]))
+                        "provider-hooks/logcompress.py"]))
         (check "every declared agent-template target is materialized by UnitId"
                (every? #(.isFile (io/file current %))
                        ["agent-templates/north/staffing/integrator.md"
