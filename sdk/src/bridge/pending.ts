@@ -4,7 +4,9 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { bridgeJournalRoot } from "./protocol";
+import {
+  "bridge-journal-root" as bridgeJournalRoot,
+} from "./generated/north/bridge/protocol.js";
 import {
   LANE_LIFECYCLE_KINDS, scanJournalFile, type JournalRecord,
 } from "./journal";

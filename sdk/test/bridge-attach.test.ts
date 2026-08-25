@@ -12,7 +12,9 @@ import {
   readBridgeWireJournal,
 } from "../src/bridge/journal";
 import type { BridgeProviderExecution } from "../src/bridge/provider";
-import type { BridgeServerMessage } from "../src/bridge/protocol";
+import type {
+  BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import { wireRunId } from "../src/wire";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 

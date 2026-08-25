@@ -1,7 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname } from "node:path";
-import { bridgeSocketPath } from "../../src/bridge/protocol";
+import {
+  "bridge-socket-path" as bridgeSocketPath,
+} from "../../src/bridge/generated/north/bridge/protocol.js";
 
 const socketPath = bridgeSocketPath();
 const retireDelayMs = Number(process.env.NORTH_BRIDGE_RETIRE_DELAY_MS ?? "0");

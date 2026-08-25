@@ -9,7 +9,9 @@ import { bridgeWirePath, ExecutionJournal } from "../src/bridge/journal";
 import type {
   BridgeProviderExecution, BridgeProviderOpenContext, BridgeProviderSession,
 } from "../src/bridge/provider";
-import type { BridgeServerMessage } from "../src/bridge/protocol";
+import type {
+  BridgeServerMessage,
+} from "../src/bridge/generated/north/bridge/protocol.js";
 import { BridgeWireTestSession } from "./support/bridge-wire-session";
 
 interface Client {

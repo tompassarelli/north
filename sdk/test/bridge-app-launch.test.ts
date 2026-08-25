@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import {
-  prepareManagedBridgeAppLaunch,
-} from "../src/bridge/app-launch-reservation";
+  "prepare-managed-bridge-app-launch!" as prepareManagedBridgeAppLaunch,
+} from "../src/bridge/generated/north/bridge/app-launch-reservation.js";
 import {
-  bridgeAppLaunchRecoveryAction,
-  parseBridgeAppLaunchArguments,
-  settleManagedAppLaunchRefusal,
-} from "../src/bridge/cli";
+  "bridge-app-launch-recovery-action" as bridgeAppLaunchRecoveryAction,
+  "parse-bridge-app-launch-arguments!" as parseBridgeAppLaunchArguments,
+  "settle-managed-app-launch-refusal!" as settleManagedAppLaunchRefusal,
+} from "../src/bridge/generated/north/bridge/cli.js";
 import { MemoryBridgeCommandReceipts } from "../src/bridge/command-receipts";
 import {
   "boot!" as boot,

@@ -68,7 +68,8 @@ for bridge_source in model app protocol app-launch-reservation cli; do
       "$output_stage/north/bridge/$bridge_source.js" \
       "$output_stage/north/bridge/$bridge_source.d.ts"
   fi
-  direnv exec "$beagle" bun --check "$output_stage/north/bridge/$bridge_source.js"
+  direnv exec "$beagle" bun build \
+    "$output_stage/north/bridge/$bridge_source.js" --no-bundle > /dev/null
 done
 
 # Generation is complete before the live tree changes. A compiler failure can

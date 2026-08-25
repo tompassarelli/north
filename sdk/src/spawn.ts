@@ -220,7 +220,9 @@ import {
   wireModelAvailabilityReceipt,
   type WireRunProvenance,
 } from "./run-provenance";
-import { bridgeJournalRoot } from "./bridge/protocol";
+import {
+  "bridge-journal-root" as bridgeJournalRoot,
+} from "./bridge/generated/north/bridge/protocol.js";
 import { ExecutionJournal, LANE_LIFECYCLE_KINDS } from "./bridge/journal";
 
 export interface SpawnOptions {

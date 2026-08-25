@@ -73,6 +73,26 @@ export function host_object(...keyvals) {
   return markHostObject(value);
 }
 
+export function admit_host_array(value) {
+  if (!Array.isArray(value)) {
+    throw new TypeError("expected a JavaScript host array");
+  }
+  return markHostArray(value);
+}
+
+export function admit_host_object(value) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("expected a JavaScript host object");
+  }
+  return markHostObject(value);
+}
+
+export function admit_host_container(value) {
+  if (Array.isArray(value)) return markHostArray(value);
+  if (value != null && typeof value === "object") return markHostObject(value);
+  throw new TypeError("expected a JavaScript host array or object");
+}
+
 export function array(...items) {
   return host_array(...items);
 }

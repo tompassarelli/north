@@ -501,7 +501,7 @@ case "${1:-}" in
   bridge)
     # Durable local execution host. It does not read or write the coordinator;
     # replay remains available when Beagle Store is down.
-    exec "$BUN" run "$NORTH/sdk/src/bridge/cli.ts" "${@:2}" ;;
+    exec "$BUN" run "$NORTH/sdk/src/bridge/generated/north/bridge/cli.js" "${@:2}" ;;
   queue)
     # Ready-lane ordering is a coordinator CAS over one single-valued thread
     # receipt; the queue never owns or mutates lifecycle condition.

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { renderWireEvent } from "../src/bridge/cli";
+import {
+  "render-wire-event" as renderWireEvent,
+} from "../src/bridge/generated/north/bridge/cli.js";
 import {
   "parse-bridge-stream!" as parseBridgeStream,
 } from "../src/bridge/generated/north/bridge/app.js";

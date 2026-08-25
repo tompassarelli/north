@@ -19,9 +19,9 @@ import {
 } from "./journal";
 import type { BridgeProviderExecution, BridgeProviderSession } from "./provider";
 import {
-  parseBridgeLaunchAttemptId,
+  "parse-bridge-launch-attempt-id!" as parseBridgeLaunchAttemptId,
   type BridgeServerMessage,
-} from "./protocol";
+} from "./generated/north/bridge/protocol.js";
 
 interface Client {
   socket: Socket;
