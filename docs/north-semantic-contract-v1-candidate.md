@@ -29,6 +29,11 @@ mutation. Thread is strictly conversation/continuity and may be `about` any refe
 not own work or imply completion. Attempt is the existing `runId`, immutable and belonging to
 one Objective and Assignment; provider sessions and turns are scoped occurrences.
 
+Current code exposes both a content-addressed `@attempt:<manifest>` wrapper and `runId`/
+`execution_attempt_run`; this is an unresolved implementation seam. Phase 0 must choose one
+canonical Attempt identity, provide an explicit one-to-one mapping if retaining both temporarily,
+and prove multiple successor Attempts under one Objective before any claim of completion.
+
 Create a distinct referent only when independently addressable, owned, authorized, related,
 discussed, revised, or recovered. Equal content never merges referents or occurrences.
 
@@ -80,7 +85,7 @@ excluded from ordinary experiments. Use one bounded maintenance executable, not 
 | Thread as continuity carrier | Current title-bearing thread fallback and thread-targeted consumers | Accept/reject overload | Thread remains conversation only; compatibility read projection is temporary and non-authoritative. |
 | Explicit kind and roles | Current code has `entity_kind`/`kind` precedence plus docs denying tags | Amend | Collapse to one canonical stable base-kind predicate; roles separate. |
 | Assertions/judgments/effects distinct | Operator ruling requires authorization, attempt, receipt | Accept | Typed occurrences and authority table retained. |
-| Compatibility projection for section 19 | Forward-only rule rejects hypothetical compatibility | Amend | Permit only bounded read projection for real consumers, with removal gate; no inferred writes. |
+| Compatibility projection for section 19 | Root policy requires current-main-only migration and forbids hypothetical legacy readers | Amend/hold | Prefer atomic current-main cutover; legacy projection requires explicit operator exception, census of real consumers, automation ineligibility, and removal predicates. |
 | Clause identifier split | Clause is prior art; JVM Store is production | Accept/amend | Independently define North contract and fixtures; no Native/Clause dependency. |
 | Independent learning workers | Proposal decomposes projector/analyzer/etc. | Amend | Functions in one bounded maintenance host; no daemon swarm. |
 | Store scheduling mechanics | Store architecture owns leases/claims; North owns readiness meaning | Accept | Keep mechanical schedule in Store, semantic eligibility in North. |
@@ -95,4 +100,3 @@ excluded from ordinary experiments. Use one bounded maintenance executable, not 
 6. Experiment assignment precedes provider execution and is evaluated at Objective level.
 7. Unknown evidence never becomes false, zero, or failure.
 8. Projection rebuild is deterministic; runtime-owned telemetry is not agent-authored.
-
