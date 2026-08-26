@@ -7,7 +7,7 @@ import { newRunId } from 'north-sdk/internal/telemetry';
 import { encodeWireJsonlLine } from 'north-sdk/internal/wire';
 import { StoreBridgeCommandReceipts } from 'north-sdk/internal/bridge-command-receipts';
 import { resolveBridgeLaunchSelection } from 'north-sdk/internal/bridge-provider';
-import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_instance_p as $$bc$record_instance_p, str as $$bc$str } from '../../beagle/core.js';
+import { keyword as $$bc$keyword, property_key as $$bc$property_key, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
 
 function sha256(value) {
@@ -145,7 +145,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy
   (state.renewing = leases.renew());
   state.renewing.then(() => { (state.renewing = null);
 return schedule_bang(); }, (error) => { (state.renewing = null);
-return (lease_failure.resolve)(($$bc$record_instance_p("north.bridge.app-launch-reservation/Error", error) ? error : new Error($$bc$str("Bridge app launch lease ", "renewal failed")))); });
+return (lease_failure.resolve)(((error instanceof Error) ? error : new Error($$bc$str("Bridge app launch lease ", "renewal failed")))); });
 }
 return renewal_interval; }));
 } } const managed = {[$$bc$property_key($$bc$keyword("attemptId"))]: setup.reservation.attemptId, [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("threadId"))]: thread_id, [$$bc$property_key($$bc$keyword("provider"))]: "openai", [$$bc$property_key($$bc$keyword("model"))]: resolved.model, [$$bc$property_key($$bc$keyword("providerEffectObserved"))]: false, [$$bc$property_key($$bc$keyword("settled"))]: false, [$$bc$property_key($$bc$keyword("leaseFailure"))]: lease_failure.promise, [$$bc$property_key($$bc$keyword("observeDurableWireEvent"))]: async (event) => { if (((_truthy) => _truthy !== false && _truthy != null)(((event.kind === "model-call.started") && (!((_truthy) => _truthy !== false && _truthy != null)(state.providerStart))))) {
