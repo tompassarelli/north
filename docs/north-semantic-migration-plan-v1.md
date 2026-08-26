@@ -5,14 +5,13 @@ is published and verified. This plan permits archaeology, contract review, fixtu
 
 ## Phases and gates
 
-0. **Authority and identity preflight.** Retire or demote Native/TypeScript/handwritten semantic routes; prove typed North `.bclj` generation for readiness, authorization, attempts, replay, safe-next, and scheduling. Interim is one JVM Store sidecar; target one generated North JVM embedding one Store, with RPC only at real boundaries. Then add typed commands/events for Objective,
-Assignment, Attempt joins; forecast/budget; turns/tests; handoff; terminal judgment; delivery and
+0. **Authority and identity preflight.** Freeze run-scoped learning. Retire or demote Native/TypeScript/handwritten semantic routes; prove typed North `.bclj` generation. Interim is one JVM Store sidecar; target one generated North JVM embedding one Store. Define `admit-objective-run` across explicit coordination/telemetry snapshots, with Run as semantic Attempt and DeliveryAttempt as provider reservation. Then add typed commands/events for Objective,
+Assignment, Attempt joins; forecast/budget; turns/tests reusing Wire IDs; handoff; terminal judgment; delivery and
 coverage projections; proving query. Gate: exact joins, deterministic replay, unknown coverage visible.
 1. **Semantic cutover.** Preflight census and fixtures; shadow projection parity; writer-fenced
 atomic current-main cutover with all new writers explicit and no dual writes; dispatch, leases/recovery,
 projections, messages/about, streams/adapters, docs/UI migrated in that order. A legacy read projection
-is permitted only by an explicit operator exception for enumerated live consumers, tags inferred rows,
-and makes them ineligible for automation. Gate: active-record worksheet, crash/restart evidence, and
+is not shipped on main: classify only by proven producer provenance; ambiguous rows remain inert and ineligible. Gate: active-record worksheet, crash/restart evidence, and
 exact removal predicates (`census=0` plus source/test search).
 2. **Todo parity.** Link continuity records to canonical IDs; compare projections; repair coverage;
 retain manual settlement until Store parity, crash/replay parity, and owning policy/validator close together. Gate: no systemic missing joins.
