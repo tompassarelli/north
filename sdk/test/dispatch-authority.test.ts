@@ -160,7 +160,7 @@ describe("managed dispatch authority", () => {
     const path = join(scratch, ".local/state/firn/delivery-liveness.json");
     writeFileSync(`${path}.sha256`, `${"0".repeat(64)}  delivery-liveness.json\n`);
     expect(() => admitManagedDispatchAuthority(environment("managed")))
-      .toThrow("delivery_liveness_authority_content_mismatch");
+      .toThrow("delivery_liveness_authority_input_changed");
 
     rmSync(`${path}.sha256`);
     expect(() => admitManagedDispatchAuthority(environment("managed")))
