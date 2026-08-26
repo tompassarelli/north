@@ -43,6 +43,12 @@ pins ObjectiveSpec, acceptance contract, actor/delegator, route, policy, forecas
 optional experiment arm. Every effect is `intent → authorization → attempt → receipt`; missing
 receipt is unknown and requires reconciliation, never guessed success/failure.
 
+Orchestration defines the provider-neutral route contract. North records the immutable route and
+selects eligible target/account; the provider adapter resolves semantic tier to concrete model and
+emits DeliveryAttempt receipts. Host/systemd owns wakeup, process lifecycle, resource enforcement,
+and external effect execution. Store supplies transaction, fence-epoch, idempotency, snapshot, and
+durability mechanics only.
+
 Statuses (`ready`, `blocked`, `active`, `done`) are projections over facts, not mutable fields.
 Unknown/partial evidence is preserved. No join may use title, timestamp proximity, filename,
 or filesystem location.
