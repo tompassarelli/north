@@ -29,7 +29,7 @@ function launchargumentsmodel_effort(r) { return r.effort; }
 
 function launchargumentsmodel_promptArguments(r) { return r.promptArguments; }
 
-const USAGE = $$bc$str("usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)", " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north bridge dashboard [--once] [--ids]", " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>", " | north bridge restart  (retire the control daemon now)", " | north bridge pending [--json | --consume <execution-id>]", " | north bridge attach <execution-id> [--cursor N]", " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
+const USAGE = $$bc$str("usage: north bridge [route flags] [--view-id ID]  (opens the app)", " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>", " | north bridge dashboard [--once] [--ids]", " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>", " | north bridge restart  (retire the control daemon now)", " | north bridge pending [--json | --consume <execution-id>]", " | north bridge attach <execution-id> [--cursor N]", " | north bridge msg <execution-id> <text> | north bridge interrupt <execution-id>", "\nroute flags: --provider anthropic|openai | --claude | --openai", " --tier economy|standard|senior|frontier --model ID", " --effort low|medium|high|xhigh|max", "\napp launches support Store-authorized OpenAI routes only", "\nlaunch requires a reserved attempt id; role defaults to implementer");
 
 function usage_bang() {
   console.error(USAGE);
@@ -669,8 +669,12 @@ function app_arguments_p(args) {
   return args.every((argument, index) => ((_logical) => (_logical !== false && _logical != null ? _logical : ((index > 0) && valued.has(args[(index - 1)]))))(app_flags.has(argument)));
 }
 
+function launch_arguments_p(args) {
+  return args.includes("--attempt");
+}
+
 async function main_bang(args) {
-  return ((((_truthy) => _truthy !== false && _truthy != null)(((args.length === 0) || (((() => { const _x = args, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "app") || ((() => { const _x = args, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "tui"))))) ? await run_app_bang((((_truthy) => _truthy !== false && _truthy != null)((((() => { const _x = args, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "app") || ((() => { const _x = args, _i = 0; return _x[_i] != null ? _x[_i] : null; })() === "tui"))) ? args.slice(1) : args)) : (app_arguments_p(args)) ? await run_app_bang(args) : ((args[0] === "dashboard")) ? await run_dashboard_bang(args.slice(1)) : ((args[0] === "pending")) ? run_pending_bang(args.slice(1)) : ((args[0] === "restart")) ? (async () => { if ((!(args.length === 1))) {
+  return (((args.length === 0)) ? await run_app_bang(args) : (app_arguments_p(args)) ? await run_app_bang(args) : ((args[0] === "dashboard")) ? await run_dashboard_bang(args.slice(1)) : ((args[0] === "pending")) ? run_pending_bang(args.slice(1)) : ((args[0] === "restart")) ? (async () => { if ((!(args.length === 1))) {
   usage_bang();
 }
 return await run_bridge_restart_bang(bridge_socket_path()); })() : ((args[0] === "accept")) ? (async () => { if ((!(args.length === 3))) {
@@ -713,7 +717,7 @@ return {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$
 return {[$$bc$property_key($$bc$keyword("op"))]: "submitInput", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id, [$$bc$property_key($$bc$keyword("input"))]: input}; })() : ((args[0] === "interrupt")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || (!(args.length === 2))))) {
   usage_bang();
 }
-return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (async () => { const launch = (() => { try {
+return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property_key($$bc$keyword("executionId"))]: execution_id}; })() : (launch_arguments_p(args)) ? (async () => { const launch = (() => { try {
     return parse_bridge_launch_arguments_bang(args);
   } catch (_catch_16) {
     switch ($$bd$catch_dispatch(_catch_16, [Error])) {
@@ -733,7 +737,7 @@ optional_string_field_bang(wire, "provider", launch.provider);
 optional_string_field_bang(wire, "tier", launch.tier);
 optional_string_field_bang(wire, "model", launch.model);
 optional_string_field_bang(wire, "effort", launch.effort);
-return wire; })()); const connection = await verified_socket_bang(bridge_socket_path()); return (await run_client_bang(connection.socket, request)).code; })());
+return wire; })() : usage_bang()); const connection = await verified_socket_bang(bridge_socket_path()); return (await run_client_bang(connection.socket, request)).code; })());
 }
 
 if (((_truthy) => _truthy !== false && _truthy != null)(import.meta.main)) {

@@ -42,7 +42,7 @@
    clearTimeout] Any)
 
 (def USAGE String
-  (str "usage: north bridge [app|tui] [route flags] [--view-id ID]  (opens the app)"
+  (str "usage: north bridge [route flags] [--view-id ID]  (opens the app)"
        " | north bridge --attempt @attempt:<sha256> [--role director|implementer] [route flags] <prompt>"
        " | north bridge dashboard [--once] [--ids]"
        " | north bridge accept <messaged-attempt-id> <interrupted-attempt-id>"
@@ -812,15 +812,12 @@
               (or (.has app-flags argument)
                   (and (> index 0) (.has valued (nth args (- index 1)))))))))
 
+(defn launch-arguments? [args (Vec String)] Bool
+  (.includes args "--attempt"))
+
 (defn ^:async main! [args (Vec String)] (Promise Int)
   (cond
-    (or (identical? (.-length args) 0)
-        (identical? (nth args 0 nil) "app")
-        (identical? (nth args 0 nil) "tui"))
-    (await (run-app! (if (or (identical? (nth args 0 nil) "app")
-                             (identical? (nth args 0 nil) "tui"))
-                       (.slice args 1)
-                       args)))
+    (identical? (.-length args) 0) (await (run-app! args))
     (app-arguments? args) (await (run-app! args))
     (identical? (nth args 0) "dashboard") (await (run-dashboard! (.slice args 1)))
     (identical? (nth args 0) "pending") (run-pending! (.slice args 1))
@@ -873,7 +870,7 @@
             (let [execution-id Any (nth args 1 nil)]
               (when (or (not execution-id) (not (identical? (.-length args) 2))) (usage!))
               {:op "interruptTurn" :executionId execution-id})
-            :else
+            (launch-arguments? args)
             (let [launch Any (try (parse-bridge-launch-arguments! args)
                                   (catch Error _ (usage!)))
                   prompt-state Any {:prompt (.trim (.join (.-promptArguments launch) " "))}]
@@ -888,7 +885,8 @@
                 (optional-string-field! wire "tier" (.-tier launch))
                 (optional-string-field! wire "model" (.-model launch))
                 (optional-string-field! wire "effort" (.-effort launch))
-                wire)))
+                wire))
+            :else (usage!))
           connection Any (await (verified-socket! (bridge-socket-path)))]
       (.-code (await (run-client! (.-socket connection) request))))))
 

@@ -2817,7 +2817,7 @@ function popout_bang(runtime, view_id) {
   const wezterm = Bun.which("wezterm");
   const foot = Bun.which("foot");
   const xterm = Bun.which("xterm");
-  const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(wezterm)) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, north_bin(), "bridge", "app", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", north_bin(), "bridge", "app", "--view-id", view_id] : null);
+  const argv = ((((_truthy) => _truthy !== false && _truthy != null)(ghostty)) ? [ghostty, "-e", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(kitty)) ? [kitty, "--detach", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(wezterm)) ? [wezterm, "start", "--always-new-process", "--", north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(foot)) ? [foot, north_bin(), "bridge", "--view-id", view_id] : (((_truthy) => _truthy !== false && _truthy != null)(xterm)) ? [xterm, "-e", north_bin(), "bridge", "--view-id", view_id] : null);
   if ((argv == null)) {
     (() => { throw new Error("no supported terminal found for pop-out"); })();
   }

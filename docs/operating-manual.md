@@ -655,7 +655,7 @@ markdown under `agent-machinery:agents/` remains portable generated output,
 never North's metadata source.
 
 `north bridge` is the other operator face: a durable local execution host with a
-terminal app (`north bridge app`) carrying its own slash commands — `/config`
+terminal app (`north bridge`) carrying its own slash commands — `/config`
 toggles a context switchboard over hooks, skills, and `AGENTS.md`, and
 `/help` and `/config` keep working while the coordinator is offline. It also
 serves `north bridge dashboard|pending|attach|msg|interrupt` and is what `north

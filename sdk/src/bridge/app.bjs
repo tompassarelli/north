@@ -4562,11 +4562,11 @@
         foot Any (.which Bun "foot")
         xterm Any (.which Bun "xterm")
         argv (U (Vec Any) Nil) (cond
-               ghostty [ghostty "-e" (north-bin) "bridge" "app" "--view-id" view-id]
-               kitty [kitty "--detach" (north-bin) "bridge" "app" "--view-id" view-id]
-               wezterm [wezterm "start" "--always-new-process" "--" (north-bin) "bridge" "app" "--view-id" view-id]
-               foot [foot (north-bin) "bridge" "app" "--view-id" view-id]
-               xterm [xterm "-e" (north-bin) "bridge" "app" "--view-id" view-id]
+               ghostty [ghostty "-e" (north-bin) "bridge" "--view-id" view-id]
+               kitty [kitty "--detach" (north-bin) "bridge" "--view-id" view-id]
+               wezterm [wezterm "start" "--always-new-process" "--" (north-bin) "bridge" "--view-id" view-id]
+               foot [foot (north-bin) "bridge" "--view-id" view-id]
+               xterm [xterm "-e" (north-bin) "bridge" "--view-id" view-id]
                :else nil)]
     (when (nil? argv)
       (throw (new Error "no supported terminal found for pop-out")))
