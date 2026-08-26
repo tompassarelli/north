@@ -447,7 +447,7 @@ async function verified_socket_bang(...$beagle$args) {
     const path = $beagle$args[0];
     const output = $beagle$args[1];
     const options = $beagle$args[2];
-    return await verified_attempt_bang(path, output, options, 0, null, false);
+    return await verified_attempt_bang(path, ((output === undefined) ? CONSOLE_CONNECTION_OUTPUT : output), options, 0, null, false);
   }
   throw new Error('No matching arity: ' + $beagle$args.length);
 }
