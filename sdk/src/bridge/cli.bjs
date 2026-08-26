@@ -520,7 +520,11 @@
     ([path String
       output Any
       options Any] (Promise Any)
-      (await (verified-attempt! path output options 0 nil false)))))
+      (await (verified-attempt! path
+                                (if (identical? output undefined)
+                                  CONSOLE-CONNECTION-OUTPUT
+                                  output)
+                                options 0 nil false)))))
 
 (js/export
   (defn ^:async run-bridge-restart! [path String] (Promise Int)
