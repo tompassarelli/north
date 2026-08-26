@@ -171,7 +171,18 @@ else
   echo "north: cannot find babashka — tried \$NORTH_BB, PATH, /run/current-system/sw/bin/bb" >&2
   exit 127
 fi
-BUN="${NORTH_BUN:-bun}"
+# Resolve Bun once at the checkout boundary and propagate the exact executable
+# to Babashka children.  `north delegate` is bb-backed, but its admission
+# preflights run TypeScript; relying on the child's ambient PATH made a direct
+# checkout fail when Bun was available only through direnv/Nix.
+if [ -z "${NORTH_BUN:-}" ] && ! command -v bun >/dev/null 2>&1 \
+  && command -v direnv >/dev/null 2>&1 && [ -f "$NORTH/.envrc" ]; then
+  _north_bun_environment="$(cd "$NORTH" && direnv export bash 2>/dev/null)" || true
+  [ -n "$_north_bun_environment" ] && eval "$_north_bun_environment"
+  unset _north_bun_environment
+fi
+BUN="${NORTH_BUN:-$(command -v bun 2>/dev/null || printf '%s' bun)}"
+export NORTH_BUN="$BUN" NORTH_POLICY_BUN="${NORTH_POLICY_BUN:-$BUN}"
 
 north_bridge_exec() {
   local environment
