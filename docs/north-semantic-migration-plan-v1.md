@@ -11,7 +11,7 @@ coverage projections; proving query. Gate: exact joins, deterministic replay, un
 1. **Semantic cutover.** Preflight census and fixtures; shadow projection parity; writer-fenced
 atomic current-main cutover with all new writers explicit and no dual writes; dispatch, leases/recovery,
 projections, messages/about, streams/adapters, docs/UI migrated in that order. A legacy read projection
-is not shipped on main: classify only by proven producer provenance; ambiguous rows remain inert and ineligible. Gate: active-record worksheet, crash/restart evidence, and
+is not shipped on main: classify only by proven producer provenance; active ambiguous rows require explicit operator re-admission as new referents; inert rows are excluded from parity. Gate: active-record worksheet, crash/restart evidence, and
 exact removal predicates (`census=0` plus source/test search).
 2. **Todo parity.** Link continuity records to canonical IDs; compare projections; repair coverage;
 retain manual settlement until Store parity, crash/replay parity, and owning policy/validator close together. Gate: no systemic missing joins.
