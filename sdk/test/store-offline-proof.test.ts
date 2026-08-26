@@ -53,7 +53,7 @@ test("offline proof binds one exact release across two launches and fully reaps"
     reserveListener: async () => ({ fd: 3, port: 49000 + launches.length, release: async () => { releases.push(1); } }),
     launch: async (launch) => { launches.push(launch); const child = fakeChild(); children.push(child); return child.child; },
     createClient: (options) => ({
-      status: async () => { calls.push(`status:${options.maxAttempts}`); return { attempts: 1, servedVersion: 7, state: { name: "ready" }, engine: { name: "rpc/native" } }; },
+      status: async () => { calls.push(`status:${options.maxAttempts}`); return { attempts: 1, servedVersion: 7, state: { name: "ready" }, engine: { name: "native" } }; },
       scan: async () => { calls.push(`scan:${options.maxAttempts}`); return { attempts: 1, servedVersion: 7, page: null, rows: [] }; },
       close: () => { calls.push("close"); },
     }) as any,

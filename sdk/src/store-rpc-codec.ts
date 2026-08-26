@@ -56,7 +56,7 @@ export const RPC_V2_MAX_STRING_BYTES = 1048576;
 export const RPC_V2_MAX_SPACE_BYTES = 4096;
 export const RPC_V2_MAX_TERM_NODES = 65536;
 export const RPC_V2_MAX_TERM_DEPTH = 256;
-export const RPC_V2_MAGIC = Uint8Array.from([0x53, 0x54, 0x4f, 0x52, 0x45, 0x52, 0x50, 0x43]);
+export const RPC_V2_MAGIC = Uint8Array.from([0x46, 0x52, 0x41, 0x4d, 0x52, 0x50, 0x43, 0x00]);
 
 export type RpcPacketKind = "request" | "response" | "cancel" | "event";
 

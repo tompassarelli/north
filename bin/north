@@ -172,6 +172,24 @@ else
   exit 127
 fi
 BUN="${NORTH_BUN:-bun}"
+
+north_bridge_exec() {
+  local environment
+  if ! command -v "$BUN" >/dev/null 2>&1 \
+    && [ "$BUN" = bun ] \
+    && command -v direnv >/dev/null 2>&1 \
+    && [ -f "$NORTH/.envrc" ]; then
+    environment="$(cd "$NORTH" && direnv export bash 2>/dev/null)" || true
+    if [ -n "$environment" ]; then
+      eval "$environment"
+    fi
+  fi
+  if ! command -v "$BUN" >/dev/null 2>&1; then
+    echo "north bridge: cannot find the Bun runtime declared by the North checkout" >&2
+    exit 127
+  fi
+  exec "$BUN" run "$NORTH/sdk/src/bridge/generated/north/bridge/cli.js" "$@"
+}
 # Every North data path speaks canonical Store RPC through the one façade.
 NORTH_BARS=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" "$NORTH/cli/bars-cli.clj")
 NORTH_MAIN=("$BB" -cp "$NORTH_RUNTIME_CLASSPATH" --init "$NORTH/cli/coord.clj" -m north.main)
@@ -501,7 +519,7 @@ case "${1:-}" in
   bridge)
     # Durable local execution host. It does not read or write the coordinator;
     # replay remains available when Beagle Store is down.
-    exec "$BUN" run "$NORTH/sdk/src/bridge/generated/north/bridge/cli.js" "${@:2}" ;;
+    north_bridge_exec "${@:2}" ;;
   queue)
     # Ready-lane ordering is a coordinator CAS over one single-valued thread
     # receipt; the queue never owns or mutates lifecycle condition.

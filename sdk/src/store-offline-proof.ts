@@ -174,7 +174,7 @@ function checkInitial(
 ): void {
   if (status.attempts !== 1 || scan.attempts !== 1)
     throw new Error("offline Store proof retried an RPC");
-  if (status.state.name !== "ready" || status.engine.name !== "rpc/native")
+  if (status.state.name !== "ready" || status.engine.name !== "native")
     throw new Error("offline Store proof did not reach a ready native Store");
   if (status.servedVersion !== scan.servedVersion || scan.page !== null || scan.rows.length !== 0)
     throw new Error("offline Store proof initial snapshot is not an empty unpaged read");

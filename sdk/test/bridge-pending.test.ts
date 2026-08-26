@@ -36,6 +36,18 @@ test("bridge launch CLI requires an attempt, defaults to implementer, and accept
     .toThrow("bridge launch role must be director or implementer");
 });
 
+test("bridge app and tui are not command aliases", () => {
+  const cli = resolve(import.meta.dir, "../src/bridge/generated/north/bridge/cli.js");
+  for (const alias of ["app", "tui"]) {
+    const result = spawnSync(process.execPath, ["run", cli, alias], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage: north bridge [route flags]");
+  }
+});
+
 test("bridge pending is a restart-safe terminal lane queue", () => {
   const state = mkdtempSync(join(tmpdir(), "north-bridge-pending-"));
   roots.push(state);
