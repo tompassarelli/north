@@ -9,6 +9,13 @@
 
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
+
+;; Delegate launches must honor the resolved NORTH_POLICY_BUN executable.  A
+;; literal `bun` here regresses direct-checkout launches when PATH is minimal.
+(let [source (slurp (str root "/cli/agents-cli.clj"))]
+  (check "delegate launch uses policy Bun, not ambient PATH"
+         (and (str/includes? source "[POLICY-BUN \"run\" spawn-ts effective-prompt]")
+              (not (str/includes? source "[\"bun\" \"run\" spawn-ts effective-prompt]")))))
 (defn pin-evidence-json [pins]
   (let [issued (java.time.Instant/now)]
     (json/generate-string

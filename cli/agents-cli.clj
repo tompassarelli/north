@@ -1680,7 +1680,7 @@
                         " sha256=" contract-sha256
                         " capabilities=" (str/join "," (:capabilities canonical-contract))
                         " reason=recorded")))
-        (echo-cmd envs "bun run" spawn-ts (str "\"" effective-prompt "\""))
+        (echo-cmd envs POLICY-BUN "run" spawn-ts (str "\"" effective-prompt "\""))
         (if dry?
           (do
             (println (ylw "[dry-run]") "not executed. semantic handle would be"
@@ -1691,7 +1691,7 @@
           (let [log (io/file AGENT-LOGDIR (str aid ".log"))]
             (.mkdirs (.getParentFile log))
             (let [process (north.spawn-process/launch-detached!
-                           ["bun" "run" spawn-ts effective-prompt] child-env log)
+                           [POLICY-BUN "run" spawn-ts effective-prompt] child-env log)
                   startup (north.spawn-process/await-startup
                            process aid log agent-facts-one agent-online?
                            :timeout-ms
