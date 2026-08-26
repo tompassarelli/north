@@ -36,6 +36,6 @@ Compatibility fallback is removed only after census=0 and source/test search pro
 
 ## Immediate next action
 
-Complete the four independent reviews against the contract candidate, reconcile their findings,
-then commit this candidate and matrix in the owned North lane. Hold publication and product code
+Complete the independent reviews against the contract candidate, reconcile their findings,
+then commit the reviewed successor in the owned North lane. Hold publication and product code
 changes until the Beagle source-authority dependency closes and `/root` accepts the reconciled gate.
