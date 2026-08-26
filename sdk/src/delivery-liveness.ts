@@ -174,17 +174,30 @@ export function admitDeliveryLivenessFact(
   options: { path?: string; now?: Date; expectedNixosConfigRevision?: string } = {},
 ): DeliveryLivenessFact {
   const path = options.path ?? DEFAULT_DELIVERY_LIVENESS_PATH;
-  const expectedDigest = expectedContentDigest(path);
-  let source: string;
-  try { source = readFileSync(path, "utf8"); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
-      authorityError("delivery_liveness_authority_missing");
-    authorityError("delivery_liveness_authority_unreadable");
+  // The fact and its sidecar are published as two files. Read both twice and
+  // require a stable pair so a writer racing admission cannot present a digest
+  // from one generation with content from another. Three bounded attempts keep
+  // this fail-closed without turning a busy publisher into an unbounded wait.
+  let source = "";
+  let stable = false;
+  for (let attempt = 0; attempt < 3 && !stable; attempt++) {
+    const expectedDigest = expectedContentDigest(path);
+    try { source = readFileSync(path, "utf8"); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        authorityError("delivery_liveness_authority_missing");
+      authorityError("delivery_liveness_authority_unreadable");
+    }
+    const actualDigest = createHash("sha256").update(source).digest("hex");
+    if (actualDigest !== expectedDigest)
+      continue;
+    const confirmDigest = expectedContentDigest(path);
+    let confirmSource: string;
+    try { confirmSource = readFileSync(path, "utf8"); }
+    catch { authorityError("delivery_liveness_authority_unreadable"); }
+    stable = confirmDigest === expectedDigest && confirmSource === source;
   }
-  const actualDigest = createHash("sha256").update(source).digest("hex");
-  if (actualDigest !== expectedDigest)
-    authorityError("delivery_liveness_authority_content_mismatch");
+  if (!stable) authorityError("delivery_liveness_authority_input_changed");
   let fact: DeliveryLivenessFact;
   try { fact = parseDeliveryLivenessFact(parseStrictJson(source, "Firn delivery liveness fact")); }
   catch (error) {
