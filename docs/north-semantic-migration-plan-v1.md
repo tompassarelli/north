@@ -5,7 +5,7 @@ is published and verified. This plan permits archaeology, contract review, fixtu
 
 ## Phases and gates
 
-0. **Authority and identity preflight.** Freeze run-scoped learning. Retire or demote Native/TypeScript/handwritten semantic routes; prove typed North `.bclj` generation. Interim is one JVM Store sidecar; target one generated North JVM embedding one Store. Define `admit-objective-run` across explicit coordination/telemetry snapshots, with Run as semantic Attempt and DeliveryAttempt as provider reservation. Then add typed commands/events for Objective,
+0. **Authority and identity preflight.** Freeze run-scoped learning. Retire or demote Native/TypeScript/handwritten semantic routes; prove typed North `.bclj` generation. Interim is one JVM Store sidecar; target one generated North JVM embedding one Store. Define `admit-objective-run` as coordination-only atomic admission, then separately perform idempotent telemetry propagation and provider reservation keyed to the committed coordination snapshot; mismatch is unknown and reconciled. Run is semantic Attempt and DeliveryAttempt is provider reservation. Then add typed commands/events for Objective,
 Assignment, Attempt joins; forecast/budget; turns/tests reusing Wire IDs; handoff; terminal judgment; delivery and
 coverage projections; proving query. Gate: exact joins, deterministic replay, unknown coverage visible.
 1. **Semantic cutover.** Preflight census and fixtures; shadow projection parity; writer-fenced
