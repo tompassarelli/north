@@ -24,14 +24,13 @@ The five core coordination referent classes are `work_item`, `objective`, `attem
 `actor`; the global `entity_kind` taxonomy remains open. Roles (`project`, `goal`, `incident`, `experiment`, `maintenance`, …) are plural
 and evolvable; title and namespace are labels/origin, never type. Plan and Goal are immutable
 values (`PlanSpec`, `GoalSpec`); an independently managed Plan/Goal is a WorkItem pointing to that value. Project is a WorkItem role;
-Task is one assigned Plan action; Objective is the bounded desired outcome. Plan→Project is adoption of a value, not identity
-mutation. Thread is a conversation and continuity ledger for intentions, facts, dependencies, and outcomes, and may be `about` any referent; it does
+Task is delegated realizing work: a proposed action/outcome obligation carried by a TaskSpec and assignment occurrence. Objective is the bounded desired condition. Plan→Project is adoption of a value, not identity
+mutation. Thread is the continuity ledger for messages, intentions, facts, dependencies, and outcomes (conversation is optional), and may be `about` any referent; it does
 not own work or imply completion. Attempt is the existing `runId`, immutable and belonging to
 one Objective and Assignment; provider sessions and turns are scoped occurrences.
 
 Current code exposes both a content-addressed `@attempt:<manifest>` wrapper and `runId`/
-`execution_attempt_run`; canonical identity is `Objective → Run (semantic Attempt) → DeliveryAttempt (concrete provider reservation)`. `runId` is Attempt ID; `@attempt:<manifest>` is DeliveryAttempt ID linked one-to-one per reservation. Each Attempt names exactly one `assignment_occurrence_id`. Phase 0 must prove multiple successors under one Objective.
-and prove multiple successor Attempts under one Objective before any claim of completion.
+`execution_attempt_run`; canonical identity is `Objective → Run (semantic Attempt) → DeliveryAttempt (opaque referent for one concrete reservation)`. `runId` is Attempt ID; the manifest hash is reservation content, never identity. Attempt is created at admission with exactly one Assignment and may have zero or more DeliveryAttempts; replacement retries create successive DeliveryAttempts under the same Attempt, while scope change creates a successor Attempt. Failed reservation is reconciled by idempotency key and does not create a second semantic Attempt. Phase 0 proves these cardinalities and the zero-reservation state.
 
 Create a distinct referent only when independently addressable, owned, authorized, related,
 discussed, revised, or recovered. Equal content never merges referents or occurrences.
@@ -50,17 +49,17 @@ or filesystem location.
 
 ## Phase 0 contract
 
-The first writer is typed `admit-objective-run`: atomically admit Objective + Assignment in coordination, copy immutable IDs into telemetry, and reserve a DeliveryAttempt across explicit snapshots. Implement only exact Objective/Assignment/Attempt joins, separate forecast and budget, turn and
+The first writer is typed `admit-objective-run`: one Store transaction admits Objective, Task obligation, Assignment, and semantic Attempt in coordination only. Telemetry propagation and provider reservation occur afterward, idempotently keyed to the committed snapshot; the host executes reservation as intent→authorization→attempt→receipt. Coordination and telemetry snapshots are explicit and mismatches are unknown. Implement only exact Objective/Assignment/Attempt joins, separate forecast and budget, turn and
 test occurrences with Wire sequence and artifact revision coverage, handoff predecessor/successor,
 terminal Objective judgment, objective-delivery and coverage projections, and the proving handoff
 query. Do not activate autonomous experiments. The proving query must reconstruct predecessor and
 successor wall/tokens/turns/tools/tests/artifacts, final accepted revision, and acceptance result
-from Store facts alone. Reuse Wire event IDs/sequences for turn/test occurrences; add no second ledger. Check in positive and negative proving fixtures; ambiguous joins yield unknown/exclusion.
+from Store facts alone. Reuse Wire event IDs/sequences for turn/test occurrences; add no second ledger. Non-Objective Wire producers remain observations until admitted. Check in positive and negative proving fixtures; ambiguous joins yield unknown/exclusion.
 
 ## Migration and recovery
 
 Forward-only current-main migration. New writes require explicit base kind and canonical targets.
-Ambiguous history is `legacy_unclassified` and inert; classify only where producer provenance proves type. Migrate consumers in
+Ambiguous history is `legacy_unclassified` and inert; classify only where producer provenance proves type. Active/recovery-relevant ambiguous rows require explicit operator re-admission as new canonical referents. Migrate consumers in
 order: dispatch/assignment; attempts/leases/recovery; objective projections; messages/about;
 streams/adapters; docs/UI; then remove fallback after parity. No bulk rewrite, dual writer, second
 store, broker, scheduler platform, or compatibility forest. Store recovery reopens the newest valid
@@ -68,7 +67,7 @@ generation/checkpoint and replays suffix; North replays semantic facts and rebui
 
 ## Learning and controls
 
-Freeze existing run-scoped learning before Phase 0. Learning is report-only until coverage and proving query pass. Randomize at Objective level, one
+Freeze existing run-scoped learning before Phase 0: reject or force-control new non-Objective exposures, prove no post-cutoff exploratory assignments, then resume report-only evaluation only after Objective admission and coverage gates pass. Randomize at Objective level, one
 axis per experiment, fixed horizon, intent-to-treat, explicit guardrails, and human promotion;
 automatic promotion is limited to reversible low-risk configuration. Maintenance objectives are
 excluded from ordinary experiments. Use one bounded maintenance executable, not a daemon swarm.
