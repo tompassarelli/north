@@ -274,7 +274,15 @@ export function admitManagedDispatchAuthority(
   // automated feature dispatch consumes the deterministic Firn floor fact.
   try {
     if (dispatchClass !== "feature") return;
-    if (!deliveryLivenessRequiredFromEnvironment(environment, activationPath)) return;
+    // Activation is an external authority file.  Read it again immediately
+    // before consuming the floor fact so an enable/disable switch racing this
+    // admission cannot silently turn a required check into an optional one.
+    const required = deliveryLivenessRequiredFromEnvironment(environment, activationPath);
+    const confirmed = deliveryLivenessRequiredFromEnvironment(environment, activationPath);
+    if (required !== confirmed) {
+      throw new DeliveryLivenessDispatchError("delivery_liveness_activation_changed");
+    }
+    if (!required) return;
     admitDeliveryLivenessFact({
       path: deliveryLivenessPath(environment),
       expectedNixosConfigRevision: deliveryLivenessInputRevision(environment),
