@@ -1837,7 +1837,15 @@ function harnessEnvironmentReceipt(args: {
 // but does NOT halt the agent (`continue` stays default-true) — the worker sees the
 // reason and can correct the command, exactly like the interactive deny.
 async function guardHook(self: string, scripts: string[], input: unknown, topology?: Topology) {
-  const env = topology ? { ...process.env, AGENT_TOPOLOGY: topology } : process.env;
+  // Generated hook packages carry policy code, while Firn owns the sealed
+  // interpreter runtime shared with interactive Codex hooks.
+  const managedRuntime = "/etc/codex/hooks/runtime";
+  const env = {
+    ...process.env,
+    PATH: [managedRuntime, process.env.PATH].filter(Boolean).join(delimiter),
+    NORTH_AGENT_PYTHON: resolve(managedRuntime, "python3"),
+    ...(topology ? { AGENT_TOPOLOGY: topology } : {}),
+  };
   const deny = (reason: string) => {
     recordDenial(self, reason, input);
     return {
