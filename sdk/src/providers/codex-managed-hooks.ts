@@ -35,6 +35,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "nixos-config",
     path: "dotfiles/agents/hooks/corpus-scan-guard.sh",
   },
+  "concrete-model-identity-guard.sh": {
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/concrete-model-identity-guard.sh",
+  },
   "launch-critical-worktree-guard.sh": {
     repository: "nixos-config",
     path: "dotfiles/agents/hooks/launch-critical-worktree-guard.sh",
@@ -166,7 +170,10 @@ export function expectedManagedCodexHooks(
       },
       {
         matcher: "^(Edit|Write|MultiEdit|apply_patch)$",
-        hooks: [command("launch-critical-worktree-guard.sh", 10, managedDir)],
+        hooks: [
+          command("launch-critical-worktree-guard.sh", 10, managedDir),
+          command("concrete-model-identity-guard.sh", 10, managedDir),
+        ],
       },
       {
         matcher: "^(Edit|Write|MultiEdit)$",
@@ -181,6 +188,7 @@ export function expectedManagedCodexHooks(
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
+          command("concrete-model-identity-guard.sh", 10, managedDir),
         ],
       },
     ],

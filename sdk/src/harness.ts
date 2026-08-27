@@ -1734,8 +1734,9 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // SDK workers execute the catalog-owned adapters from the current immutable
 // activation generation. Every adapter applies its own UnitId gate before owner
 // behavior, so the activation document is the only hook authority.
-//   Edit|Write|MultiEdit -> worktree, firn
-//   Bash                 -> worktree, blind-stage, tripwire, firn, corpus-scan
+//   Edit|Write|MultiEdit -> worktree, concrete-model identity, firn
+//   Bash                 -> worktree, blind-stage, tripwire, firn, corpus-scan,
+//                           session-kill, concrete-model identity
 // The worktree guard is on BOTH entrances because a write into a protected `main`
 // checkout arrives as an Edit or as a shell command, and enforcement on one entrance
 // is not enforcement. The blind-stage and corpus-scan guards read only
@@ -1744,18 +1745,19 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
 // (agent-spawn-guard): repository layout and staging discipline bind every lane.
 const EDIT_GUARDS = resolveManagedGuardChain([
-  "launch-critical-worktree-guard.sh", "firn-system-policy",
+  "launch-critical-worktree-guard.sh", "concrete-model-identity-guard.sh",
+  "firn-system-policy",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
   "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
-  "session-kill-guard.sh",
+  "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
   "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
-  "session-kill-guard.sh",
+  "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 
 function receiptFileArtifact(id: string, path: string): EnvironmentArtifact {

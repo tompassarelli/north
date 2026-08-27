@@ -5,7 +5,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$HERE/../../.." && pwd)"
+REPO="$(cd "$HERE/../.." && pwd)"
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/agent-spawn-guard-test.XXXXXX")"
 trap 'rm -rf "${SCRATCH:?}"' EXIT
 HOOK="$SCRATCH/provider-hooks/agent-spawn-guard.sh"
@@ -18,6 +18,9 @@ mkdir -p "$SCRATCH/agent-machinery/agents"
 export AGENT_MACHINERY_HOME="$SCRATCH/agent-machinery"
 mkdir -p "$SCRATCH/north/bin"
 export NORTH_HOME="$SCRATCH/north"
+mkdir -p "$NORTH_HOME/agent-runtime/orchestration"
+ln -s "$REPO/agent-runtime/orchestration/providers" \
+  "$NORTH_HOME/agent-runtime/orchestration/providers"
 export NORTH_DISPATCH_TEST_ACTION_FILE="$SCRATCH/dispatch-action"
 export NORTH_DISPATCH_TEST_ADMISSION_FILE="$SCRATCH/dispatch-admission"
 printf '%s\n' \
@@ -61,13 +64,18 @@ set_state managed
 # EXPECT: allow | deny | silent. TOPOLOGY: worker | orchestrator | unset.
 run() {
   local expect="$1" desc="$2" topology="$3" tool="$4" payload="$5" extra="${6:-}"
-  local input out decision ok=0
+  local model="${7:-gpt-5.6-sol}" input out decision ok=0
   if [[ "$tool" =~ ^(Bash|shell|exec_command)$ ]]; then
     input="$(jq -nc --arg t "$tool" --arg c "$payload" --arg d "$REPO" \
       '{tool_name:$t,tool_input:{command:$c},cwd:$d}')"
   else
-    input="$(jq -nc --arg t "$tool" --arg p "$payload" \
-      '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p}}')"
+    if [ "$model" = __missing__ ]; then
+      input="$(jq -nc --arg t "$tool" --arg p "$payload" \
+        '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p}}')"
+    else
+      input="$(jq -nc --arg t "$tool" --arg p "$payload" --arg m "$model" \
+        '{tool_name:$t,tool_input:{subagent_type:"general-purpose",prompt:$p,model:$m}}')"
+    fi
   fi
 
   set -- env -u AGENT_TOPOLOGY -u AGENT_NO_AUTHORING_HOOKS \
@@ -254,6 +262,25 @@ run allow 'non-Bash tool is not topology shell surface' worker Read 'north spawn
 
 echo '== canonical dispatch surfaces =='
 set_state native
+run deny 'native Agent requires an explicit concrete model' unset Agent 'native work' '' __missing__
+run deny 'native Task rejects model placeholder' unset Task 'native work' '' inherited-parent-model
+run deny 'native Agent rejects self placeholder' unset Agent 'native work' '' self
+run deny 'native Agent rejects parent placeholder' unset Agent 'native work' '' parent
+run deny 'native Agent rejects default placeholder' unset Agent 'native work' '' default
+run deny 'native Agent rejects automatic-selection placeholder' unset Agent 'native work' '' auto
+run deny 'native Agent rejects ambient lineage marker' unset Agent 'native work' '' ambient
+run deny 'native Agent rejects provider family alias' unset Agent 'native work' '' sol
+run deny 'native Agent rejects plausible unknown model' unset Agent 'native work' '' future-provider-model-9
+while IFS= read -r exact_model; do
+  run silent "native Agent admits exact catalog model $exact_model" \
+    unset Agent 'native work' '' "$exact_model"
+done < <(jq -r '.models | keys[]' "$REPO"/agent-runtime/orchestration/providers/{openai,anthropic}.json)
+mv "$NORTH_HOME/agent-runtime/orchestration/providers" \
+  "$NORTH_HOME/agent-runtime/orchestration/providers.off"
+run deny 'native Agent fails closed without provider model catalog' \
+  unset Agent 'native work'
+mv "$NORTH_HOME/agent-runtime/orchestration/providers.off" \
+  "$NORTH_HOME/agent-runtime/orchestration/providers"
 run deny 'dispatch=native does not waive worker topology' worker Bash 'north spawn implementer work'
 run deny 'dispatch=native denies North lane creation' orchestrator Bash 'north spawn implementer work'
 run silent 'dispatch=native admits provider-native Agent' unset Agent 'native work'
@@ -274,12 +301,13 @@ run silent 'dispatch=auto admits system-selected provider-native Agent' unset Ag
 run allow 'dispatch=auto admits system-selected provider-native shell turn' orchestrator Bash 'codex exec work'
 
 run silent 'dispatch=auto admits system-selected Task without nudge' unset Task 'native work'
+run silent 'dispatch=auto admits Workflow with concrete model' unset Workflow 'native work'
 
 echo '== native Orchestration redirect preserves the complete routing contract =='
 set_state managed
 routing_input="$(jq -nc --arg d "$REPO" '{
   tool_name:"Agent",
-  tool_input:{subagent_type:"orchestration:integrator",prompt:"integrate the seam"},
+  tool_input:{subagent_type:"orchestration:integrator",prompt:"integrate the seam",model:"gpt-5.6-sol"},
   cwd:$d
 }')"
 routing_out="$(printf '%s' "$routing_input" | env \
@@ -310,7 +338,7 @@ fi
 invalid_routes_ok=1
 for invalid_role in role-mismatch missing-reasoning researcher ../integrator; do
   invalid_input="$(jq -nc --arg d "$REPO" --arg r "orchestration:$invalid_role" '{
-    tool_name:"Agent", tool_input:{subagent_type:$r,prompt:"probe"}, cwd:$d
+    tool_name:"Agent", tool_input:{subagent_type:$r,prompt:"probe",model:"gpt-5.6-sol"}, cwd:$d
   }')"
   invalid_out="$(printf '%s' "$invalid_input" | env HOME="$SCRATCH/home" "$HOOK" 2>&1)"
   invalid_reason="$(jq -r '.hookSpecificOutput.permissionDecisionReason // ""' <<<"$invalid_out")"
@@ -332,7 +360,7 @@ set_state managed
 
 echo '== shared dispatch action contract fails loud =='
 printf '%s\n' invalid >"$NORTH_DISPATCH_TEST_ACTION_FILE"
-invalid_contract_input="$(jq -nc '{tool_name:"Agent",tool_input:{subagent_type:"general-purpose",prompt:"probe"}}')"
+invalid_contract_input="$(jq -nc '{tool_name:"Agent",tool_input:{subagent_type:"general-purpose",prompt:"probe",model:"gpt-5.6-sol"}}')"
 invalid_contract_out="$(printf '%s' "$invalid_contract_input" | env HOME="$SCRATCH/home" "$HOOK" 2>&1)"
 invalid_contract_status=$?
 if [ "$invalid_contract_status" -ne 0 ] &&

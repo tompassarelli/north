@@ -26,13 +26,22 @@ process.env.NORTH_HOME = north;
 const { HOOKS_DIR } = await import("../src/authoring-guards");
 const { harnessOptions } = await import("../src/harness");
 
-const REQUIRED = ["launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh"];
-const installed = REQUIRED.every((name) => existsSync(resolve(HOOKS_DIR, name)));
+const REQUIRED = [
+  "launch-critical-worktree-guard.sh",
+  "concrete-model-identity-guard.sh",
+  "git-blind-stage-guard.sh",
+];
+const missing = REQUIRED.filter((name) => !existsSync(resolve(HOOKS_DIR, name)));
+if (process.env.NORTH_TEST_AGENT_PROVIDER_HOOKS && missing.length > 0) {
+  throw new Error(`explicit provider-hook fixture is incomplete: ${missing.join(", ")}`);
+}
+const installed = missing.length === 0;
 const PIN_OID = "0123456789abcdef0123456789abcdef01234567";
 const NEXT_PIN_OID = "89abcdef0123456789abcdef0123456789abcdef";
 
 let root: string;
 let savedRoot: string | undefined;
+let savedTodoRoot: string | undefined;
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "north-guard-chain-"));
@@ -46,12 +55,17 @@ beforeAll(() => {
   writeFileSync(join(root, "north", "pins", `${PIN_OID}.pin`),
     "Vendored upstream checkout. Consumers: the docs build.\n");
   savedRoot = process.env.LAUNCH_CRITICAL_CODE_ROOT;
+  savedTodoRoot = process.env.TODO_ROOT;
   process.env.LAUNCH_CRITICAL_CODE_ROOT = root;
+  process.env.TODO_ROOT = join(root, "todo");
+  mkdirSync(process.env.TODO_ROOT, { recursive: true });
 });
 
 afterAll(() => {
   if (savedRoot === undefined) delete process.env.LAUNCH_CRITICAL_CODE_ROOT;
   else process.env.LAUNCH_CRITICAL_CODE_ROOT = savedRoot;
+  if (savedTodoRoot === undefined) delete process.env.TODO_ROOT;
+  else process.env.TODO_ROOT = savedTodoRoot;
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -103,9 +117,9 @@ async function decide(hook: Hook, input: unknown) {
   };
 }
 
-const edit = (path: string) => ({
+const edit = (path: string, newString = "b") => ({
   tool_name: "Edit", session_id: "probe", cwd: root,
-  tool_input: { file_path: path, old_string: "a", new_string: "b" },
+  tool_input: { file_path: path, old_string: "a", new_string: newString },
 });
 const bash = (command: string) => ({
   tool_name: "Bash", session_id: "probe", cwd: root, tool_input: { command },
@@ -133,6 +147,18 @@ test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and p
   expect(pin.reason).toContain("worktree add --detach");
   expect(pin.reason).toContain("pin-retire");
   expect(pin.reason).not.toContain("checkout REF");
+}, CASE_TIMEOUT_MS);
+
+test.skipIf(!installed)("EDIT_GUARDS requires a concrete model identity in todo records", async () => {
+  const { edit: hook } = lane();
+  const todoFile = join(root, "todo", "task.md");
+  const denied = await decide(hook, edit(todoFile, 'model = "inherited"'));
+  expect(denied.decision).toBe("deny");
+  expect(denied.reason).toContain("exact concrete model");
+  expect((await decide(hook, edit(todoFile, 'model = "gpt-5.6-sol"'))).decision)
+    .toBe("allow");
+  expect((await decide(hook, edit(todoFile, 'reasoning = "inherited"'))).decision)
+    .toBe("allow");
 }, CASE_TIMEOUT_MS);
 
 // Both Bash chains: they differ only by orchestration permission (agent-spawn-guard),
@@ -172,6 +198,18 @@ for (const [name, route] of [
     expect((await decide(hook, bash("node /tmp/wake-cljs-migrate.mjs"))).decision).toBe("deny");
     expect((await decide(hook, bash("run-bounded 30m -- command &"))).decision).toBe("allow");
     expect((await decide(hook, bash("bun task > /tmp/task.log 2>&1"))).decision).toBe("allow");
+  }, CASE_TIMEOUT_MS);
+
+  test.skipIf(!installed)(`${name} requires concrete model identities in Bash todo writes`, async () => {
+    const hook = lane(route).bash;
+    const todo = join(root, "todo", "task.md");
+    expect((await decide(hook, bash(`printf 'model = "self"' &> ${todo}`))).decision)
+      .toBe("deny");
+    expect((await decide(hook, bash(`printf 'model = "default"' >| ${todo}`))).decision)
+      .toBe("deny");
+    expect((await decide(hook, bash(
+      `echo 'model = "parent"'; printf 'model = "gpt-5.6-sol"' > ${todo}`,
+    ))).decision).toBe("allow");
   }, CASE_TIMEOUT_MS);
 
   test.skipIf(!installed)(`${name} never traps a lane`, async () => {

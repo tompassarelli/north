@@ -86,6 +86,7 @@ case "$NORTH_ADMISSION" in
 esac
 export AGENT_SPAWN_GUARD_ACTION="$DISPATCH_ACTION"
 export AGENT_SPAWN_GUARD_NORTH_ADMISSION="$NORTH_ADMISSION"
+export AGENT_SPAWN_GUARD_MODEL_CATALOG_DIR="$NORTH_HOME/agent-runtime/orchestration/providers"
 
 read -r -d '' PY <<'PYEOF' || true
 import sys, json, os, re, shlex
@@ -99,6 +100,60 @@ tool = data.get("tool_name", "")
 action = os.environ.get("AGENT_SPAWN_GUARD_ACTION", "deny")
 north_admission = os.environ.get("AGENT_SPAWN_GUARD_NORTH_ADMISSION", "deny")
 ti = data.get("tool_input", {}) or {}
+
+def deny(reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": reason,
+    }}))
+    raise SystemExit(0)
+
+
+def admitted_dispatch_models():
+    root = os.environ.get("AGENT_SPAWN_GUARD_MODEL_CATALOG_DIR", "")
+    try:
+        names = sorted(
+            name for name in os.listdir(root)
+            if name.endswith(".json") and name != "catalog.schema.json"
+        )
+        admitted = set()
+        for name in names:
+            with open(os.path.join(root, name), encoding="utf-8") as handle:
+                catalog = json.load(handle)
+            if not isinstance(catalog.get("provider"), str):
+                raise ValueError("provider missing")
+            models = catalog.get("models")
+            if not isinstance(models, dict) or not models:
+                raise ValueError("models missing")
+            if not all(isinstance(model, str) and model for model in models):
+                raise ValueError("model identity invalid")
+            admitted.update(models)
+        if not admitted:
+            raise ValueError("no provider catalogs")
+        return admitted
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+if tool in ("Agent", "Task", "Workflow"):
+    model = ti.get("model")
+    admitted_models = admitted_dispatch_models()
+    if admitted_models is None:
+        deny(
+            "DENIED by concrete model identity policy: the authoritative "
+            "provider model catalog is unavailable, so this native agent "
+            "dispatch cannot prove an exact concrete model identity."
+        )
+    if not isinstance(model, str) or model not in admitted_models:
+        deny(
+            "DENIED by concrete model identity policy: every native agent "
+            "dispatch must explicitly name an exact current model from the "
+            "provider catalog; omitted, aliased, or placeholder selection is "
+            "not an identity. Recover the "
+            "current concrete model from runtime evidence and re-issue the "
+            "same dispatch with that exact model; never guess."
+        )
 
 CONTROL = {";", "&&", "||", "|", "|&", "&", "\n", "(", ")"}
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.S)
