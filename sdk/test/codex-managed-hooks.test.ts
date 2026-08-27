@@ -100,6 +100,8 @@ const promotedHooks = {
   "agent-spawn-guard.sh": "north/agent-runtime/hooks/agent-spawn-guard.sh",
   "beagle-session-start.sh": "beagle/integrations/north/hooks/beagle-session-start.sh",
   "corpus-scan-guard.sh": "nixos-config/dotfiles/agents/hooks/corpus-scan-guard.sh",
+  "concrete-model-identity-guard.sh":
+    "nixos-config/dotfiles/agents/hooks/concrete-model-identity-guard.sh",
   "launch-critical-worktree-guard.sh":
     "nixos-config/dotfiles/agents/hooks/launch-critical-worktree-guard.sh",
   "logcompress-hook.py": "north/agent-runtime/hooks/logcompress-hook.py",
