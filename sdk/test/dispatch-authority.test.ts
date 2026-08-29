@@ -54,7 +54,7 @@ function writeLiveness(overrides: Record<string, unknown> = {}): void {
     failing_check: null,
     inputs: { nixos_config: firnRevision },
     firn: {
-      current: `/nix/store/${"a".repeat(32)}-current/bin/firn`,
+      current: "/home/tom/code/nixos-config/main/dotfiles/bin/firn",
       candidate: `/nix/store/${"b".repeat(32)}-candidate/bin/firn`,
     },
     ...overrides,
@@ -110,6 +110,15 @@ describe("managed dispatch authority", () => {
   test("managed and auto allow North-managed admission", () => {
     expect(() => admitManagedDispatchAuthority(environment("managed"))).not.toThrow();
     expect(() => admitManagedDispatchAuthority(environment("auto"))).not.toThrow();
+  });
+
+  test("a live absolute Firn path admits while a relative path fails closed", () => {
+    expect(() => admitManagedDispatchAuthority(environment("managed"))).not.toThrow();
+    writeLiveness({
+      firn: { current: "dotfiles/bin/firn", candidate: null },
+    });
+    expect(() => admitManagedDispatchAuthority(environment("managed")))
+      .toThrow("delivery_liveness_authority_malformed:firn.current");
   });
 
   test("native denies North-managed admission", () => {
