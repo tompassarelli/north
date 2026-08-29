@@ -246,6 +246,7 @@ async function wait_for_socket_bang(path, attempt, last_error) {
         const error = _catch_0;
         await sleep_bang(20);
         return await wait_for_socket_bang(path, (attempt + 1), error);
+        break;
       }
     }
   } })());
@@ -270,12 +271,14 @@ async function connected_socket_bang(path) {
         const child = spawn(process.execPath, [northd], {[$$bc$property_key($$bc$keyword("detached"))]: true, [$$bc$property_key($$bc$keyword("stdio"))]: "ignore", [$$bc$property_key($$bc$keyword("env"))]: process.env});
         child.unref();
         return await wait_for_socket_bang(path, 0, null);
+        break;
       }
     }
   } })();
   } finally {
     await release_launch_lease_bang(lease);
   } })();
+        break;
       }
     }
   } })();
@@ -305,6 +308,7 @@ if ((newline >= 0)) {
       case 0: {
         const __ = _catch_3;
         return finish(null);
+        break;
       }
     }
   } })();
@@ -346,6 +350,7 @@ function process_alive_p(pid) {
       case 0: {
         const error = _catch_4;
         return (error.code === "EPERM");
+        break;
       }
     }
   } })();
@@ -365,6 +370,7 @@ async function retirement_poll_bang(path, retiring_pid, deadline) {
       case 0: {
         const __ = _catch_5;
         return null;
+        break;
       }
     }
   } })();
@@ -460,6 +466,7 @@ async function run_bridge_restart_bang(path) {
       case 0: {
         const __ = _catch_6;
         return null;
+        break;
       }
     }
   } })();
@@ -537,6 +544,7 @@ return (state.observationTail = state.observationTail.then(async () => { if ((!(
         (state.observationFailed = true);
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "wire settlement failed"))(error.message)));
         return (state.exitCode = 1);
+        break;
       }
     }
   } })();
@@ -597,6 +605,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
       case 0: {
         const __ = _catch_8;
         return null;
+        break;
       }
     }
   } })();
@@ -611,6 +620,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
         const error = _catch_9;
         await managed.proveUnsent("daemon-not-contacted");
         return (() => { throw error; })();
+        break;
       }
     }
   } })();
@@ -621,34 +631,37 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
   } else {
     (state.cursor = state.outcome.cursor);
     await (async () => {  while (true) {
-    if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) { try {
-    await terminate_managed_app_launch_bang(managed.executionId); try {
-    (state.socket = (await verified_socket_bang(bridge_socket_path())).socket); (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; }
+    if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) { { let _loop_try_result_0; try {
+    _loop_try_result_0 = await terminate_managed_app_launch_bang(managed.executionId);
   } catch (_catch_10) {
     switch ($$bd$catch_dispatch(_catch_10, [Error])) {
       case 0: {
         const __ = _catch_10;
         await sleep_bang(250);  continue;
+        break;
       }
     }
-  }
+  } _loop_try_result_0; { let _loop_try_result_1; try {
+    _loop_try_result_1 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_11) {
     switch ($$bd$catch_dispatch(_catch_11, [Error])) {
       case 0: {
         const __ = _catch_11;
         await sleep_bang(250);  continue;
+        break;
       }
     }
-  } } else { null; try {
-    (state.socket = (await verified_socket_bang(bridge_socket_path())).socket); (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; }
+  } _loop_try_result_1; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { null; { let _loop_try_result_2; try {
+    _loop_try_result_2 = (state.socket = (await verified_socket_bang(bridge_socket_path())).socket);
   } catch (_catch_12) {
     switch ($$bd$catch_dispatch(_catch_12, [Error])) {
       case 0: {
         const __ = _catch_12;
         await sleep_bang(250);  continue;
+        break;
       }
     }
-  } } } else { return null; }
+  } _loop_try_result_2; (state.outcome = await monitored_bang(state.socket, {[$$bc$property_key($$bc$keyword("op"))]: "attach", [$$bc$property_key($$bc$keyword("executionId"))]: managed.executionId, [$$bc$property_key($$bc$keyword("cursor"))]: state.cursor})); (state.cursor = Math.max(state.cursor, state.outcome.cursor)); ((bridge_app_launch_recovery_action("attach", state.outcome, managed) === "prove-unsent") ? (async () => { return await settle_managed_app_launch_refusal_bang(managed); })() : null); if ((!((_truthy) => _truthy !== false && _truthy != null)(managed.settled))) { await sleep_bang(250);  continue; } else { return null; } } } } else { return null; }
   } })();
     return (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed) ? 1 : state.outcome.code);
   }
@@ -658,6 +671,7 @@ if (((_truthy) => _truthy !== false && _truthy != null)(state.leaseFailed)) {
         const error = _catch_13;
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
+        break;
       }
     }
   } })();
@@ -688,6 +702,7 @@ return (async () => { try {
       case 0: {
         const __ = _catch_14;
         return 1;
+        break;
       }
     }
   } })(); })() : ((args[0] === "app-launch")) ? (async () => { try {
@@ -698,6 +713,7 @@ return (async () => { try {
         const error = _catch_15;
         console.error($$bc$str("north bridge: ", ((_logical) => (_logical !== false && _logical != null ? _logical : "app launch failed"))(error.message)));
         return 1;
+        break;
       }
     }
   } })() : (async () => { const request = (((args[0] === "attach")) ? (() => { const execution_id = (() => { const _x = args, _i = 1; return _x[_i] != null ? _x[_i] : null; })(); if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(execution_id)) || ((!(args.length === 2)) && (!(args.length === 4)))))) {
@@ -724,6 +740,7 @@ return {[$$bc$property_key($$bc$keyword("op"))]: "interruptTurn", [$$bc$property
       case 0: {
         const __ = _catch_16;
         return usage_bang();
+        break;
       }
     }
   } })(); const prompt_state = {[$$bc$property_key($$bc$keyword("prompt"))]: launch.promptArguments.join(" ").trim()}; if (((_truthy) => _truthy !== false && _truthy != null)(((prompt_state.prompt === "") && (!((_truthy) => _truthy !== false && _truthy != null)(process.stdin.isTTY))))) {
