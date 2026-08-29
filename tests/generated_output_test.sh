@@ -5,7 +5,7 @@ beagle="${BEAGLE_HOME:-$HOME/code/beagle/main}"
 store="${BEAGLE_STORE_HOME:-$beagle/store}"
 tmp="$(mktemp -d)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
-for module in projections validate staleness audit worker_policy main; do
+for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \
     --module-root "store/src=$store/src" \
