@@ -415,7 +415,7 @@
     :schema {:type "object"
              :properties (array-map
                           :id {:type "string" :minLength 1 :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
-                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Orchestration's staffing catalog, or a reasoned bespoke role."}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility identity, independent of composition kind and id; catalogued and novel roles may use template or bespoke compositions."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
@@ -441,7 +441,7 @@
     :schema {:type "object"
              :properties (array-map
                           :prompt {:type "string" :minLength 1 :description "The task prompt"}
-                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility from Orchestration's staffing catalog, or a reasoned bespoke role."}
+                          :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility identity, independent of composition kind and id; catalogued and novel roles may use template or bespoke compositions."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
                           :topology (:topology routing-properties)
@@ -784,7 +784,7 @@
            (str/join ", " missing-routing)
            " (recover the valid payload shape: north show @contract:dispatch)")
       (and (#{"dispatch" "spawn"} nm) (not (non-empty-string? role)))
-      (str "North " nm " requires role selecting a canonical Orchestration preset or a complete bespoke composition")
+      (str "North " nm " requires a functional role identity independent of the separately required composition")
       (and (some? model) (not (non-empty-string? model))) "model must be a non-empty string"
       (and (some? coordinator) (not (non-empty-string? coordinator))) "coordinator must be a non-empty string"
       (and (some? token-target)
