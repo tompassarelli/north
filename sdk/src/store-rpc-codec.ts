@@ -220,7 +220,7 @@ class ByteReader {
     const value = this.u8(context);
     if (value === 0) return false;
     if (value === 1) return true;
-    return fail("rpc-invalid-presence", `${context} must be the strict byte 0 or 1`);
+    return fail("rpc-invalid-marker", `${context} must be the strict byte 0 or 1`);
   }
 
   bool(context: string): boolean {
@@ -576,16 +576,16 @@ function readStringTerm(
 function readRequestBody(reader: ByteReader, budget: NodeBudget): RpcRequest {
   const space = readSpaceTerm(reader, budget);
   const op = readKeywordTerm(reader, budget, "request op");
-  const expectedVersion = reader.presence("expected-version presence")
+  const expectedVersion = reader.presence("expected-version marker")
     ? reader.i64("expected-version") : null;
   let page: RpcPageRequest | null = null;
-  if (reader.presence("request page presence")) {
+  if (reader.presence("request page marker")) {
     const limit = reader.u32("page limit");
-    const cursor = reader.presence("page cursor presence")
+    const cursor = reader.presence("page cursor marker")
       ? readTerm(reader, 0, budget) : null;
     page = { limit, cursor };
   }
-  const timeoutMs = reader.presence("timeout-ms presence")
+  const timeoutMs = reader.presence("timeout-ms marker")
     ? reader.u32("timeout-ms") : null;
   const payload = readTerm(reader, 0, budget);
   return { space, op, expectedVersion, page, timeoutMs, payload };
@@ -596,23 +596,23 @@ function readResponseBody(reader: ByteReader, budget: NodeBudget): RpcResponse {
   const op = readKeywordTerm(reader, budget, "response op");
   const servedVersion = reader.i64("served-version");
   let page: RpcPageResponse | null = null;
-  if (reader.presence("response page presence")) {
+  if (reader.presence("response page marker")) {
     const ordinal = reader.u32("page ordinal");
-    const cursor = reader.presence("next cursor presence")
+    const cursor = reader.presence("next cursor marker")
       ? readTerm(reader, 0, budget) : null;
     const done = reader.bool("page done");
     page = { ordinal, cursor, done };
   }
   let error: RpcErrorTerm | null = null;
-  if (reader.presence("response error presence")) {
+  if (reader.presence("response error marker")) {
     const code = readKeywordTerm(reader, budget, "error code");
     const retryable = reader.bool("error retryable");
     const message = readStringTerm(reader, budget, "error message");
-    const detail = reader.presence("error detail presence")
+    const detail = reader.presence("error detail marker")
       ? readTerm(reader, 0, budget) : null;
     error = { code, retryable, message, detail };
   }
-  const payload = reader.presence("response payload presence")
+  const payload = reader.presence("response payload marker")
     ? readTerm(reader, 0, budget) : null;
   return { space, op, servedVersion, page, error, payload };
 }

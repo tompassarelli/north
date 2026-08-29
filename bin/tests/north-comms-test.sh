@@ -107,9 +107,17 @@ assert_contains() {
   fi
 }
 
+assert_public_output_clean() {
+  local label="$1" output="$2"
+  if LC_ALL=C grep -Eiq '(^|[^[:alnum:]_])presence([^[:alnum:]_]|$)' <<<"$output"; then
+    printf 'FAIL %s: retired online-language token in %q\n' "$label" "$output" >&2
+    exit 1
+  fi
+}
+
 db_case() {
   write_state "comms=db" "comms.enforcement=forced"
-  local sent polled acked top_level_acked invalid_ack_error ack_log_before
+  local sent polled acked top_level_acked invalid_ack_error ack_log_before retired_verb_error
   local present watched
   sent="$(run_comms send sender target subject body)"
   polled="$(
@@ -122,8 +130,12 @@ db_case() {
     printf 'FAIL north ack accepted a command id on the DB route\n' >&2
     exit 1
   fi
-  present="$(run_comms presence target)"
+  present="$(run_comms lease target)"
   watched="$(run_comms watch target --once)"
+  if retired_verb_error="$(run_comms presence target 2>&1)"; then
+    printf 'FAIL retired north-comms online verb remained accepted\n' >&2
+    exit 1
+  fi
 
   assert_eq "db send stdout is forwarded byte-for-byte" \
     "sent @msg:20260730-000000-00000000-0000-4000-8000-000000000001 -> target" \
@@ -140,15 +152,24 @@ db_case() {
     "$ack_log_before" "$(<"$ack_log")"
   assert_eq "db presence" "reachable db-recipient" "$present"
   assert_eq "db watch" "WATCH" "$watched"
+  assert_public_output_clean "DB rendered output" \
+    "$sent
+$polled
+$acked
+$top_level_acked
+$invalid_ack_error
+$retired_verb_error
+$present
+$watched"
   printf 'north-comms db seam: PASS\n'
 }
 
 announce() {
   local handle="$1" alias="${2:-}"
   if [ -n "$alias" ]; then
-    NORTH_COMMS_ALIAS="$alias" run_comms presence "$handle" --announce >/dev/null
+    NORTH_COMMS_ALIAS="$alias" run_comms lease "$handle" --announce >/dev/null
   else
-    run_comms presence "$handle" --announce >/dev/null
+    run_comms lease "$handle" --announce >/dev/null
   fi
 }
 
@@ -218,6 +239,18 @@ file_case() {
     $'✉ from sender — broadcast\n  body' "$b1"
   assert_eq "broadcast reaches second snapshotted peer" "$b1" "$b2"
   assert_eq "broadcast excludes sender" "" "$self"
+  assert_public_output_clean "file rendered output" \
+    "$sent
+$first
+$second
+$ack1
+$ack2
+$absent_err
+$dead
+$broadcast
+$b1
+$b2
+$self"
 
   local too_large_subject too_large_body cap_body cap_sent cap_id cap_poll
   announce cap-target
@@ -238,7 +271,7 @@ file_case() {
     printf 'FAIL oversized body was accepted\n' >&2
     exit 1
   fi
-  if run_comms presence '../bad' --announce >/dev/null 2>&1; then
+  if run_comms lease '../bad' --announce >/dev/null 2>&1; then
     printf 'FAIL invalid handle was accepted\n' >&2
     exit 1
   fi
@@ -249,7 +282,7 @@ file_case() {
     "comms.file.root=$file_root" \
     "comms.file.poll=hook" \
     "comms.file.retain-hours=1"
-  run_comms presence recipient --announce >/dev/null
+  run_comms lease recipient --announce >/dev/null
   [ ! -e "$file_root/recipient/cur/${id#@msg:}.msg" ]
   [ ! -e "$file_root/audit" ]
   printf 'north-comms file invariants: PASS\n'
@@ -314,6 +347,11 @@ policy_case() {
     combined="$(run_comms poll recipient)"
   assert_contains "biased reads the file backend" "$combined" "both"
   assert_contains "biased reads the DB backend" "$combined" "db-only"
+  assert_public_output_clean "selection rendered output" \
+    "$file_sent
+$combined
+$rejected
+$both_sent"
   printf 'north-comms selection policy: PASS\n'
 }
 
@@ -346,9 +384,9 @@ burst_case() {
 }
 
 callsites_case() {
-  grep -Fq "\"\$NORTH_HOME/bin/north-comms\" presence" "$root/bin/north-on-tooluse"
+  grep -Fq "\"\$NORTH_HOME/bin/north-comms\" lease" "$root/bin/north-on-tooluse"
   grep -Fq "\"\$NORTH_HOME/bin/north-comms\" poll" "$root/bin/north-on-tooluse"
-  grep -Fq 'bin/north-comms send' "$root/bin/north-on-spawn"
+  grep -Fq 'NORTH_COMMS_BIN="$(stable_bin north-comms)"' "$root/bin/north-on-spawn"
   # shellcheck disable=SC2016
   grep -Fq 'exec "$NORTH/bin/north-comms"' "$root/bin/north"
   grep -Fq './bin/north-comms' "$root/flake.nix"

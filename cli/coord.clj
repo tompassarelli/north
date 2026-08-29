@@ -441,6 +441,68 @@
      port lower-exclusive upper-inclusive #(vswap! events conj %))
     {:version upper-inclusive :events @events}))
 
+(def proposition-occurrence-result-limit 2)
+(def proposition-occurrence-page-limit
+  (inc proposition-occurrence-result-limit))
+
+(defn- proposition-occurrences-request! [subject predicate value]
+  (let [coordinate (wire/rpc-query-variable! "coordinate")
+        action (wire/rpc-query-variable! "action")
+        proposition (wire/rpc-query-constant!
+                     (proposition! subject predicate value))]
+    (wire/rpc-query-request!
+     (wire/rpc-query-plan!
+      (wire/rpc-query-find-relation! "north_proposition_occurrence")
+      [(wire/rpc-query-stratum!
+        [(wire/rpc-query-rule!
+          (wire/rpc-query-head!
+           "north_proposition_occurrence" [coordinate action])
+          [(wire/rpc-query-relation!
+            "occurrence" [coordinate action proposition] false)])])])
+     wire/query-current)))
+
+(defn proposition-occurrences
+  "Bounded exact occurrence history for one proposition. Coordinates remain
+   the Store ordering authority; callers receive only their validated logical
+   transaction version and in-transaction ordinal. More than two matching
+   operations is already contradictory for every North singleton receipt and
+   therefore fails closed without draining unrelated history."
+  [port subject predicate value]
+  (with-client!
+   port (domain-for-subject subject)
+   (fn [client]
+     (let [response
+           (rpc/query!
+            client (proposition-occurrences-request! subject predicate value)
+            {:page (wire/rpc-page-request!
+                    proposition-occurrence-page-limit nil)})
+           page (:page response)
+           rows (:rows response)]
+       (when-not (and page (:done? page)
+                      (<= (count rows) proposition-occurrence-result-limit))
+         (throw
+          (ex-info "proposition occurrence history exceeds its exact bound"
+                   {:type :proposition-occurrence-history-ambiguous
+                    :subject subject :predicate predicate})))
+       (mapv
+        (fn [[coordinate action :as row]]
+          (when-not (and (= 2 (count row))
+                         (t/occurrence-coordinate? coordinate)
+                         (contains? #{t/assert-action t/retract-action} action))
+            (throw
+             (ex-info "proposition occurrence query returned a malformed row"
+                      {:type :malformed-proposition-occurrence :row row})))
+          (let [transaction (t/triple-t1 coordinate)]
+            (when-not (t/transaction-coordinate? transaction)
+              (throw
+               (ex-info "proposition occurrence has an invalid transaction"
+                        {:type :malformed-proposition-occurrence
+                         :coordinate coordinate})))
+            {:operation (if (= action t/assert-action) :assert :retract)
+             :version (t/triple-t3 transaction)
+             :ordinal (t/triple-t3 coordinate)}))
+        rows)))))
+
 (defn- subject-query [subjects]
   {:find "north_subject_fact"
    :rules

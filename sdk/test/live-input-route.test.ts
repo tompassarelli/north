@@ -4,6 +4,7 @@ import {
   LiveFeedReapTimeoutError,
   LiveFeedStartupTimeoutError,
   type FeedSubscription,
+  type FeedMail,
   type InputAdmission,
 } from "../src/coordination";
 import {
@@ -61,15 +62,28 @@ const inputAdmission = {
   cancel: () => {},
 };
 
+const wakeAttempt = `wake:${"a".repeat(64)}`;
+const wakeMail = (summary: string, id = "@msg:wake-one"): FeedMail => ({
+  id,
+  wakeAttempt,
+  summary,
+});
+const idleEvent = (suffix: string) => ({
+  id: `event:idle-${suffix}`,
+  kind: "model-call.completed" as const,
+  modelCallId: `model-call:idle-${suffix}`,
+});
+
 test("turn-messages terminal replay delivers one late follow-up and keeps ownership until dequeue", async () => {
   const replayStarted = deferred();
   const replayCaughtUp = deferred();
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
-  let deliver: ((message: string) => InputAdmission) | undefined;
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
   let feeds = 0;
   const writes: string[] = [];
+  const receipts: string[] = [];
   const route = new ManagedLiveInputRoute(
     "lane-turn-messages-follow-up",
     { kind: "lane" },
@@ -91,6 +105,11 @@ test("turn-messages terminal replay delivers one late follow-up and keeps owners
       );
     },
     (_agentId, facts) => { writes.push(facts.liveInputState!); },
+    undefined,
+    (_context, phase, event, kind) => {
+      receipts.push([phase, event, kind].filter(Boolean).join(":"));
+      return "created";
+    },
   );
 
   expect(route.initialProjection().liveInputState).toBe("pending");
@@ -100,14 +119,17 @@ test("turn-messages terminal replay delivers one late follow-up and keeps owners
   expect(feeds).toBe(1);
   expect(writes).toEqual(["armed"]);
 
-  const terminal = route.prepareTerminalFollowUp(new AbortController().signal);
+  route.observeCommittedEvent(idleEvent("follow-up"));
+  const terminal = route.prepareTerminalFollowUp(
+    new AbortController().signal,
+  );
   await replayStarted.promise;
   let terminalSettled = false;
   void terminal.then(() => { terminalSettled = true; });
   await Promise.resolve();
   expect(terminalSettled).toBe(false);
 
-  const first = deliver!("late follow-up");
+  const first = deliver!(wakeMail("late follow-up"));
   expect(await terminal).toBe(true);
   expect(channel.pending()).toBe(1);
   let acknowledged = false;
@@ -115,10 +137,34 @@ test("turn-messages terminal replay delivers one late follow-up and keeps owners
   await Promise.resolve();
   expect(acknowledged).toBe(false);
 
-  const second = deliver!("must remain replayable");
+  const second = deliver!(wakeMail("must remain replayable", "@msg:wake-two"));
   expect(await second.consumed).toBe(false);
   expect((await stream.next()).value?.text).toBe("late follow-up");
+  await Promise.resolve();
+  expect(acknowledged).toBe(false);
+  route.observeCommittedEvent({
+    id: "event:turn",
+    kind: "model-call.started",
+    modelCallId: "model-call:wake",
+  });
   expect(await first.consumed).toBe(true);
+  route.observeCommittedEvent({
+    id: "event:action",
+    kind: "message.recorded",
+    role: "assistant",
+    stage: "started",
+    modelCallId: "model-call:wake",
+  });
+  expect(receipts).toEqual([
+    "idle:event:idle-follow-up",
+    "turn:event:turn",
+    "action:event:action:assistant.message.recorded",
+  ]);
+  route.observeCommittedEvent({
+    id: "event:turn-complete",
+    kind: "model-call.completed",
+    modelCallId: "model-call:wake",
+  });
   expect(channel.liveMessagesReceived()).toBe(1);
   const durableAck = route.prepareTerminalFollowUp(new AbortController().signal);
   let durableAckSettled = false;
@@ -131,13 +177,163 @@ test("turn-messages terminal replay delivers one late follow-up and keeps owners
   expect(writes).toEqual(["armed", "frozen"]);
 });
 
+test("restart duplicates join one durable attempt without replaying an unknown turn", async () => {
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
+  let intent: "unknown" | "accepted" = "unknown";
+  let pushes = 0;
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-messages-restart",
+    { kind: "lane" },
+    turnMessagesRoute,
+    (message) => {
+      pushes++;
+      return channel.push(message);
+    },
+    (_agentId, onMessage) => {
+      deliver = onMessage;
+      return subscription(Promise.resolve(), () => channel.end());
+    },
+    () => {},
+    undefined,
+    () => intent,
+  );
+  await route.activate(turnMessagesRoute, true);
+  const unknown = deliver!(wakeMail("post-intent unknown"));
+  expect(await unknown.consumed).toBe(false);
+  expect(pushes).toBe(0);
+
+  intent = "accepted";
+  const accepted = deliver!(wakeMail("already accepted"));
+  expect(await accepted.consumed).toBe(true);
+  expect(pushes).toBe(0);
+  await route.freezeAndUnbind();
+});
+
+test("provider dequeue without canonical turn acceptance remains unacknowledged", async () => {
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
+  const receipts: string[] = [];
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-messages-rejected-turn",
+    { kind: "lane" },
+    turnMessagesRoute,
+    (message) => channel.push(message),
+    (_agentId, onMessage) => {
+      deliver = onMessage;
+      return subscription(Promise.resolve(), () => channel.end());
+    },
+    () => {},
+    undefined,
+    (_context, phase, event) => {
+      receipts.push(`${phase}:${event}`);
+      return "created";
+    },
+  );
+  await route.activate(turnMessagesRoute, true);
+  route.observeCommittedEvent(idleEvent("rejected-turn"));
+  void route.prepareTerminalFollowUp(new AbortController().signal);
+
+  const admission = deliver!(wakeMail("turn/start will reject"));
+  expect((await stream.next()).value?.text).toBe("turn/start will reject");
+  let settled = false;
+  void admission.consumed.then(() => { settled = true; });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  admission.cancel();
+  expect(await admission.consumed).toBe(false);
+  expect(receipts).toEqual(["idle:event:idle-rejected-turn"]);
+  await route.freezeAndUnbind();
+});
+
+test("turn receipt exceptions and non-commits nack and retry only the exact first turn", async () => {
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
+  const writes: string[] = [];
+  let turnAvailable = false;
+  let failedTurnWrites = 0;
+  const route = new ManagedLiveInputRoute(
+    "lane-turn-messages-receipt-failure",
+    { kind: "lane" },
+    turnMessagesRoute,
+    (message) => channel.push(message),
+    (_agentId, onMessage) => {
+      deliver = onMessage;
+      return subscription(Promise.resolve(), () => channel.end());
+    },
+    () => {},
+    undefined,
+    (_context, phase, event) => {
+      writes.push(`${phase}:${event}`);
+      if (phase === "turn" && !turnAvailable) {
+        failedTurnWrites++;
+        if (failedTurnWrites === 1) return "unknown";
+        throw new Error(`${phase} unavailable`);
+      }
+      return "created";
+    },
+  );
+  await route.activate(turnMessagesRoute, true);
+  route.observeCommittedEvent(idleEvent("receipt-failure"));
+  void route.prepareTerminalFollowUp(new AbortController().signal);
+  const admission = deliver!(wakeMail("one durable attempt"));
+  await stream.next();
+
+  route.observeCommittedEvent({
+    id: "event:reused-id",
+    kind: "model-call.started",
+    modelCallId: "model-call:idle-receipt-failure",
+  });
+  route.observeCommittedEvent({
+    id: "event:first-turn",
+    kind: "model-call.started",
+    modelCallId: "model-call:first-turn",
+  });
+  expect(await admission.consumed).toBe(false);
+  route.observeCommittedEvent({
+    id: "event:later-turn",
+    kind: "model-call.started",
+    modelCallId: "model-call:later-turn",
+  });
+  route.observeCommittedEvent({
+    id: "event:first-action",
+    kind: "message.recorded",
+    role: "assistant",
+    modelCallId: "model-call:first-turn",
+  });
+  route.observeCommittedEvent({
+    id: "event:later-action",
+    kind: "tool.admitted",
+    modelCallId: "model-call:first-turn",
+  });
+  const unavailableReplay = deliver!(wakeMail("one durable attempt"));
+  expect(await unavailableReplay.consumed).toBe(false);
+  turnAvailable = true;
+  const replay = deliver!(wakeMail("one durable attempt"));
+  expect(await replay.consumed).toBe(true);
+  expect(channel.liveMessagesReceived()).toBe(1);
+  expect(writes).toEqual([
+    "idle:event:idle-receipt-failure",
+    "turn:event:first-turn",
+    "turn:event:first-turn",
+    "turn:event:first-turn",
+  ]);
+  await route.freezeAndUnbind();
+});
+
 test("turn-messages terminal replay leaves a claimed follow-up unconsumed on abort", async () => {
   const replayStarted = deferred();
   const replayCaughtUp = deferred();
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
-  let deliver: ((message: string) => InputAdmission) | undefined;
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
   const route = new ManagedLiveInputRoute(
     "lane-turn-messages-abort",
     { kind: "lane" },
@@ -157,15 +353,18 @@ test("turn-messages terminal replay leaves a claimed follow-up unconsumed on abo
       );
     },
     () => {},
+    undefined,
+    () => "created",
   );
   await route.activate(turnMessagesRoute, true);
 
   const abort = new AbortController();
+  route.observeCommittedEvent(idleEvent("abort"));
   const terminal = route.prepareTerminalFollowUp(abort.signal);
   await replayStarted.promise;
   abort.abort();
   expect(await terminal).toBe(false);
-  const admission = deliver!("retain after abort");
+  const admission = deliver!(wakeMail("retain after abort", "@msg:wake-abort"));
   await route.freezeAndUnbind();
   expect(await admission.consumed).toBe(false);
   expect(channel.liveMessagesReceived()).toBe(0);
@@ -210,7 +409,7 @@ test("a hard deadline crossing terminal replay preserves provider queue ownershi
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
-  let deliver: ((message: string) => InputAdmission) | undefined;
+  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
   const route = new ManagedLiveInputRoute(
     "lane-turn-messages-deadline-gate",
     { kind: "lane" },
@@ -230,8 +429,11 @@ test("a hard deadline crossing terminal replay preserves provider queue ownershi
       );
     },
     () => {},
+    undefined,
+    () => "created",
   );
   await route.activate(turnMessagesRoute, true);
+  route.observeCommittedEvent(idleEvent("deadline"));
 
   let gateChecks = 0;
   const terminal = prepareManagedTerminalFollowUp(route, {
@@ -242,7 +444,7 @@ test("a hard deadline crossing terminal replay preserves provider queue ownershi
     },
   });
   await replayStarted.promise;
-  const admission = deliver!("deadline-owned follow-up");
+  const admission = deliver!(wakeMail("deadline-owned follow-up", "@msg:wake-deadline"));
   const error = await terminal.catch((cause) => cause);
 
   expect((error as Error).message).toBe("managed hard deadline crossed");

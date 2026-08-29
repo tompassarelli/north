@@ -22,6 +22,8 @@
 
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
+(def forbidden-online-token
+  #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)")
 
 (def result
   (proc/shell {:out :string :err :string :continue true
@@ -33,6 +35,8 @@
               (str/includes? output "Beagle Store server :59999 unreachable")))
 
 (check "trace CLI loads before its unavailable-Beagle Store-server boundary" ok?)
+(check "trace CLI boundary uses only current online vocabulary"
+       (not (re-find forbidden-online-token output)))
 (when-not ok?
   (println output))
 (check "identity rendering keeps model and effort as separate exact fields"
@@ -244,7 +248,7 @@
          (= (str "execution succeeded; process=ran · delivery=reported "
                  "(complete_run_scoped_done_bar_evidence_self_reported). "
                  "Delivery is evidence-backed same-UID self-report, not independent "
-                 "verification; presence is inactive as expected.")
+                 "verification; the liveness lease is inactive as expected.")
             reported-verdict))
   (check "unverified delivery is yellow-class incomplete proof, not a done claim"
          (and (= :incomplete
@@ -253,12 +257,12 @@
               (= (str "execution succeeded but delivery proof is incomplete; "
                       "process=ran · delivery=unverified "
                       "(provider_terminal_success_without_external_verification). "
-                      "This is not a done claim; presence is inactive as expected.")
+                      "This is not a done claim; the liveness lease is inactive as expected.")
                  unverified-verdict)))
   (check "unrecorded delivery is incomplete proof, not success"
          (= (str "execution succeeded but delivery proof is incomplete; "
                  "process=ran · delivery=unrecorded. "
-                 "This is not a done claim; presence is inactive as expected.")
+                 "This is not a done claim; the liveness lease is inactive as expected.")
             unrecorded-verdict))
   (check "ran plus blocked delivery is a red-class terminal inconsistency"
          (and (= :blocked (delivery-proof-class {:outcome "blocked"}))
@@ -281,6 +285,12 @@
               (str/includes? blocked-verdict "process=blocked_preflight")
               (str/includes? blocked-verdict "delivery=blocked")
               (not (str/includes? blocked-verdict "healthy —"))))
+  (check "rendered lifecycle verdicts use only current online vocabulary"
+         (not (re-find forbidden-online-token
+                       (str reported-verdict "\n" unverified-verdict "\n"
+                            unrecorded-verdict "\n" blocked-ran-verdict "\n"
+                            online-active-verdict "\n" online-inconsistent-verdict
+                            "\n" blocked-verdict))))
   (check "death notification alone is diagnostic and never terminal"
          (= {:outcome nil :source nil :terminal? false :kind nil
              :death-notifications 1}

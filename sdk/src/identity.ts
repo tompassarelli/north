@@ -621,7 +621,7 @@ export function writeAgentTerminal(
     }, timeoutMs, runtime);
     session.terminalCommitted = true;
     if (!removePresenceFence(agentId, presenceFence))
-      console.error(`[terminal] @agent:${agentId} committed but its exact presence fence file was not removed`);
+      console.error(`[terminal] @agent:${agentId} committed but its exact liveness fence file was not removed`);
     return "recorded";
   } catch (error) {
     // Finalization continues to the independently committed run trail, but a

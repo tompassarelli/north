@@ -1,13 +1,18 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import {
   LiveFeedStoppedBeforeReadyError,
   LiveFeedStartupTimeoutError,
   subscribeFeed,
   subscribeSettlementFeed,
   type FeedSubscription,
+  type FeedMail,
   type InputAdmission,
   type SubscriptionRuntime,
 } from "./coordination";
+import { beagleStoreBabashkaArguments, beagleStoreEnvironment } from "./beagle-store";
+import { trustedNorthBabashkaExecutable } from "./trusted-runtime";
 import {
   updateAgentRoute,
   type AgentIdentity,
@@ -46,7 +51,7 @@ type ManagedRouteIdentityBase = Omit<
 
 type FeedSubscriber = (
   recipient: string,
-  onMessage: (message: string) => InputAdmission,
+  onMessage: (message: FeedMail) => InputAdmission,
   runtime?: SubscriptionRuntime,
 ) => FeedSubscription;
 
@@ -54,6 +59,57 @@ type RouteWriter = (
   agentId: string,
   identity: AgentIdentity,
 ) => ManagedWriteResult | void;
+
+export interface WakeReceiptContext {
+  readonly messageId: string;
+  readonly attemptId: string;
+  readonly target: string;
+  readonly routeEpoch: string;
+}
+
+type WakeReceiptPhase = "idle" | "turn" | "action" | "failure";
+type WakeReceiptWriteResult = "created" | "existing" | "accepted" | "unknown";
+interface WakeObservedEvent {
+  readonly id: string;
+  readonly kind: string;
+  readonly modelCallId?: string;
+  readonly role?: string;
+  readonly stage?: string;
+}
+interface WakeIdleEvent {
+  readonly id: string;
+  readonly kind: "model-call.completed";
+  readonly modelCallId: string;
+}
+type WakeReceiptWriter = (
+  context: WakeReceiptContext,
+  phase: WakeReceiptPhase,
+  eventOrReason: string,
+  kind?: string,
+) => WakeReceiptWriteResult;
+
+const WAKE_RECEIPT = resolve(import.meta.dir, "..", "..", "cli", "wake-receipt-internal.clj");
+
+const writeWakeReceipt: WakeReceiptWriter = (context, phase, eventOrReason, kind) => {
+  const port = process.env.NORTH_PORT ?? "7977";
+  const result = execFileSync(
+    trustedNorthBabashkaExecutable(),
+    beagleStoreBabashkaArguments([
+      WAKE_RECEIPT, port, phase, context.messageId, context.attemptId,
+      context.target, context.routeEpoch, eventOrReason,
+      ...(kind === undefined ? [] : [kind]),
+    ]),
+    {
+      encoding: "utf8",
+      env: beagleStoreEnvironment(),
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 10_000,
+    },
+  ).trim();
+  if (!["created", "existing", "accepted", "unknown"].includes(result))
+    throw new Error("wake receipt writer returned an invalid result");
+  return result as WakeReceiptWriteResult;
+};
 
 interface PublishedRoute extends ManagedRouteAxes {
   liveInputState: LiveInputState;
@@ -67,6 +123,13 @@ function initialState(capability: LiveInputCapability): LiveInputState {
 function rejectedAdmission(): InputAdmission {
   return {
     consumed: Promise.resolve(false),
+    cancel: () => {},
+  };
+}
+
+function acceptedAdmission(): InputAdmission {
+  return {
+    consumed: Promise.resolve(true),
     cancel: () => {},
   };
 }
@@ -126,20 +189,79 @@ export class ManagedLiveInputRoute {
   #followUpState: "open" | "queued" | "consumed" = "open";
   #followUpOwner: object | undefined;
   #followUpQueued = Promise.withResolvers<void>();
+  #idleEvent: WakeIdleEvent | undefined;
+  #wake: (WakeReceiptContext & {
+    idleModelCallId: string;
+    turnEventId?: string;
+    modelCallId?: string;
+    actionEventId?: string;
+    hostAccepted: PromiseWithResolvers<boolean>;
+  }) | undefined;
+  #failedTurn: (WakeReceiptContext & {
+    idleModelCallId: string;
+    turnEventId: string;
+    modelCallId: string;
+  }) | undefined;
 
-  #resetFollowUpSlot(owner: object): void {
-    if (this.#followUpOwner !== owner || this.#followUpState !== "queued") return;
+  #openFollowUpSlot(): void {
     this.#followUpOwner = undefined;
     this.#followUpState = "open";
     this.#followUpQueued = Promise.withResolvers<void>();
   }
 
-  #admitMessage = (message: string): InputAdmission => {
-    if (this.published.liveInput !== "turn-messages") return this.pushMessage(message);
+  #resetFollowUpSlot(owner: object): void {
+    if (this.#followUpOwner !== owner || this.#followUpState !== "queued") return;
+    this.#openFollowUpSlot();
+  }
+
+  #admitMessage = (message: FeedMail): InputAdmission => {
+    if (this.published.liveInput !== "turn-messages") return this.pushMessage(message.summary);
     if (this.#followUpState !== "open") return rejectedAdmission();
+    if (!message.wakeAttempt) return rejectedAdmission();
+
+    const wake: WakeReceiptContext = {
+      messageId: message.id,
+      attemptId: message.wakeAttempt,
+      target: this.agentId,
+      routeEpoch: this.published.liveInputEpoch,
+    };
+    const failedTurn = this.#failedTurn;
+    if (failedTurn) {
+      if (
+        failedTurn.messageId !== wake.messageId
+        || failedTurn.attemptId !== wake.attemptId
+        || failedTurn.target !== wake.target
+        || failedTurn.routeEpoch !== wake.routeEpoch
+      ) return rejectedAdmission();
+      try {
+        const retry = this.wakeReceiptWriter(
+          wake,
+          "turn",
+          failedTurn.turnEventId,
+        );
+        if (retry !== "created" && retry !== "existing") return rejectedAdmission();
+        this.#failedTurn = undefined;
+        return acceptedAdmission();
+      } catch {
+        return rejectedAdmission();
+      }
+    }
+    const idleEvent = this.#idleEvent;
+    // This write is part of admission. If exact listener/message identity or
+    // the Store readback fails, the feed nacks and leaves the message replayable.
+    // An exact existing receipt is revalidated even after restart, when this
+    // route has no in-memory completion candidate. A new attempt still requires
+    // a completion observed through the canonical committed-event seam.
+    const intent = this.wakeReceiptWriter(wake, "idle", idleEvent?.id ?? "");
+    // A restarted listener never replays a post-intent turn. It may acknowledge
+    // only when the typed receipt authority resolves an exact durable host
+    // acceptance; an intent without that receipt remains unknown and replayable.
+    if (intent === "accepted") return acceptedAdmission();
+    if (intent !== "created" || !idleEvent) return rejectedAdmission();
 
     const owner = {};
-    const admission = this.pushMessage(message);
+    const admission = this.pushMessage(message.summary);
+    const hostAccepted = Promise.withResolvers<boolean>();
     this.#followUpOwner = owner;
     this.#followUpState = "queued";
     this.#followUpQueued.resolve();
@@ -149,8 +271,13 @@ export class ManagedLiveInputRoute {
           if (this.#followUpOwner === owner) {
             this.#followUpOwner = undefined;
             this.#followUpState = "consumed";
+            this.#wake = {
+              ...wake,
+              idleModelCallId: idleEvent.modelCallId,
+              hostAccepted,
+            };
           }
-          return true;
+          return hostAccepted.promise;
         }
         this.#resetFollowUpSlot(owner);
         return false;
@@ -162,7 +289,10 @@ export class ManagedLiveInputRoute {
     );
     return {
       consumed,
-      cancel: () => admission.cancel(),
+      cancel: () => {
+        admission.cancel();
+        hostAccepted.resolve(false);
+      },
     };
   };
 
@@ -174,6 +304,7 @@ export class ManagedLiveInputRoute {
     private readonly feedSubscriber: FeedSubscriber = subscribeFeed,
     private readonly routeWriter: RouteWriter = updateAgentRoute,
     settlementFeedSubscriber?: FeedSubscriber,
+    private readonly wakeReceiptWriter: WakeReceiptWriter = writeWakeReceipt,
   ) {
     this.settlementFeedSubscriber = settlementFeedSubscriber
       ?? (feedSubscriber === subscribeFeed
@@ -280,7 +411,7 @@ export class ManagedLiveInputRoute {
       try {
         subscription = this.settlementFeedSubscriber(
           this.agentId,
-          this.pushMessage,
+          (mail) => this.pushMessage(mail.summary),
         );
         await readinessProof(subscription);
         this.subscription = subscription;
@@ -379,12 +510,15 @@ export class ManagedLiveInputRoute {
    * claimed no graph mail until this boundary. The provider cannot acknowledge the
    * admitted message until its retained session asks the channel for a later turn.
    */
-  async prepareTerminalFollowUp(signal: AbortSignal): Promise<boolean> {
+  async prepareTerminalFollowUp(
+    signal: AbortSignal,
+  ): Promise<boolean> {
     if (
       this.published.liveInput !== "turn-messages"
       || this.published.liveInputState !== "armed"
       || signal.aborted
     ) return false;
+    if (!this.#idleEvent) return false;
     if (this.#followUpState === "queued") return true;
     const subscription = this.subscription;
     if (!subscription) return false;
@@ -409,6 +543,86 @@ export class ManagedLiveInputRoute {
       return false;
     } finally {
       replayAbort.detach();
+    }
+  }
+
+  /** Append causal milestones only after their Wire events are durable. */
+  observeCommittedEvent(event: WakeObservedEvent): void {
+    const wake = this.#wake;
+    if (!wake) {
+      if (
+        event.kind === "model-call.completed"
+        && event.modelCallId !== undefined
+      ) this.#idleEvent = event as WakeIdleEvent;
+      return;
+    }
+    if (wake.modelCallId !== undefined
+        && event.kind === "model-call.completed"
+        && event.modelCallId === wake.modelCallId) {
+      this.#idleEvent = event as WakeIdleEvent;
+      this.#wake = undefined;
+      this.#openFollowUpSlot();
+      return;
+    }
+    if (!wake.turnEventId) {
+      if (event.kind !== "model-call.started"
+          || event.modelCallId === undefined
+          || event.modelCallId === wake.idleModelCallId) return;
+      // Latch the canonical host boundary before publication. A failed receipt
+      // remains unknown and must never be replaced by a later model call.
+      wake.turnEventId = event.id;
+      wake.modelCallId = event.modelCallId;
+      try {
+        const result = this.wakeReceiptWriter(wake, "turn", event.id);
+        if (result !== "created" && result !== "existing") {
+          throw new Error("wake turn receipt did not commit");
+        }
+        wake.hostAccepted.resolve(true);
+      } catch (error) {
+        console.error(
+          `[wake-receipt] ${wake.attemptId} turn publication failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        this.#failedTurn = {
+          messageId: wake.messageId,
+          attemptId: wake.attemptId,
+          target: wake.target,
+          routeEpoch: wake.routeEpoch,
+          idleModelCallId: wake.idleModelCallId,
+          turnEventId: event.id,
+          modelCallId: event.modelCallId,
+        };
+        wake.hostAccepted.resolve(false);
+        this.#wake = undefined;
+        this.#openFollowUpSlot();
+      }
+      return;
+    }
+    if (wake.actionEventId) return;
+    const actionKind = event.kind === "message.recorded"
+      && event.role === "assistant"
+      && event.modelCallId === wake.modelCallId
+      ? "assistant.message.recorded"
+      : event.kind === "tool.admitted"
+        && event.modelCallId === wake.modelCallId
+        ? "tool.admitted"
+        : undefined;
+    if (!actionKind) return;
+    // The first qualifying event is the only candidate. Latch before I/O so a
+    // publication failure cannot silently substitute a later assistant/tool.
+    wake.actionEventId = event.id;
+    try {
+      const result = this.wakeReceiptWriter(wake, "action", event.id, actionKind);
+      if (result !== "created" && result !== "existing") {
+        throw new Error("wake action receipt did not commit");
+      }
+    } catch (error) {
+      console.error(
+        `[wake-receipt] ${wake.attemptId} action publication failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

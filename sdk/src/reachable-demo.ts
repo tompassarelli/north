@@ -28,9 +28,9 @@ const ch = inputChannel(
 );
 
 let results = 0;
-const stop = subscribeFeed(self, (m) => {
-  console.log(`\n>>> peer ping arriving — injecting into the RUNNING agent:\n${m}\n`);
-  ch.push(m);
+const stop = subscribeFeed(self, (mail) => {
+  console.log(`\n>>> peer ping arriving — injecting into the RUNNING agent:\n${mail.summary}\n`);
+  ch.push(mail.summary);
 });
 
 const writer = new WireEventWriter({ runId: wireRunId(newRunId(self)) });

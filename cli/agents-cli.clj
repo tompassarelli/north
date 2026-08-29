@@ -301,7 +301,7 @@
 
       (or (> (count ids) max-live-controls)
           (not-every? valid-control-id? ids))
-      {:err "presence returned an invalid or over-broad control set"}
+      {:err "liveness lease query returned an invalid or over-broad control set"}
 
       :else
       (let [subjects (mapv #(str "@agent:" %) ids)
@@ -708,14 +708,14 @@
                        sessions)
                (= (count sessions) (count (set (map :handle sessions)))))]
       (if-not valid?
-        {:err "presence projection was malformed"}
+        {:err "liveness lease projection was malformed"}
         {:agents
          (mapv (fn [{:keys [handle exp]}]
                  (let [expires-s (quot (- exp now) 1000)]
                    {:id handle :online true :expires-s expires-s
                     :expires (str expires-s "s")}))
                sessions)}))
-    (catch Exception _ {:err "presence unavailable"})))
+    (catch Exception _ {:err "liveness lease projection unavailable"})))
 
 (defn agent-online? [id]
   (try
@@ -814,8 +814,8 @@
                                           (census-fact facts "spawned_at") "")
                        "freshness" (if (:online row) "fresh" "stale")
                        "freshness_evidence" (if (:online row)
-                                              "Store presence lease"
-                                              "Store presence lease absent")}))))
+                                              "Store liveness lease"
+                                              "Store liveness lease absent")}))))
           (sort-by #(get % "control_id")) vec)}))
 
 (def comparable-roster-fields
@@ -866,7 +866,7 @@
     (if help
       (agents-usage)
       (do
-        (when verbose (println (dim (str "Store RPC presence projection :" PORT))))
+        (when verbose (println (dim (str "Store RPC liveness lease projection :" PORT))))
         (let [loaded (read-roster-snapshot)]
           (if (:err loaded)
             (if (= mode :human)
@@ -912,14 +912,14 @@
                       (render-section "active agents" nil active-agents)
                       (render-section "native sessions"
                                       "(active provider CLI sessions)" native-sessions)
-                      (render-section "unclassified presence"
+                      (render-section "unclassified lease"
                                       "(missing identity facts)" unclassified)
                       (render-section "inconsistent lifecycle"
                                       "(terminal/run projection is incomplete, conflicting, or unavailable)"
                                       inconsistent)
                   (render-section
                    "recently finished"
-                   "(process is terminal; delivery evidence is shown separately; presence lease has not lapsed)"
+                   "(process is terminal; delivery evidence is shown separately; liveness lease has not lapsed)"
                    finished)
                   ;; ORPHANS: live processes the roster does not know about.
                   ;; Roster membership is derived from the presence LEASE, so a
@@ -2565,8 +2565,8 @@
             (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))]
       (str (.decode decoder (java.nio.ByteBuffer/wrap bytes))))
     (catch java.nio.charset.CharacterCodingException error
-      (throw (ex-info "saved presence fence is not valid UTF-8"
-                      {:type :invalid-saved-presence-fence :path path}
+      (throw (ex-info "saved liveness fence is not valid UTF-8"
+                      {:type :invalid-saved-liveness-fence :path path}
                       error)))))
 
 (defn- saved-presence-fence-json!
@@ -2578,16 +2578,16 @@
   ([bare directory]
    (when-not (valid-control-id? bare)
      (throw (ex-info "north goal requires a safe agent id"
-                     {:type :invalid-saved-presence-fence :agent bare})))
+                     {:type :invalid-saved-liveness-fence :agent bare})))
    (let [directory-file (.getCanonicalFile (io/file directory))
-        file (io/file directory-file (str bare ".presence-fence.json"))
+        file (io/file directory-file (str bare ".liveness-fence.json"))
         path (.toPath file)
         no-follow (into-array java.nio.file.LinkOption
                               [java.nio.file.LinkOption/NOFOLLOW_LINKS])]
     (when (or (java.nio.file.Files/isSymbolicLink path)
               (not (java.nio.file.Files/isRegularFile path no-follow)))
-      (throw (ex-info "north goal requires a regular saved presence fence"
-                      {:type :invalid-saved-presence-fence
+      (throw (ex-info "north goal requires a regular saved liveness fence"
+                      {:type :invalid-saved-liveness-fence
                        :path (.getPath file)})))
     (let [permissions
           (java.nio.file.Files/getPosixFilePermissions path no-follow)
@@ -2595,21 +2595,21 @@
           #{java.nio.file.attribute.PosixFilePermission/OWNER_READ
             java.nio.file.attribute.PosixFilePermission/OWNER_WRITE}]
       (when-not (= expected-permissions (set permissions))
-        (throw (ex-info "saved presence fence must have mode 0600"
-                        {:type :invalid-saved-presence-fence
+        (throw (ex-info "saved liveness fence must have mode 0600"
+                        {:type :invalid-saved-liveness-fence
                          :path (.getPath file)}))))
     (let [bytes (java.nio.file.Files/readAllBytes path)]
       (when-not (<= 1 (alength bytes) 512)
-        (throw (ex-info "saved presence fence has an invalid size"
-                        {:type :invalid-saved-presence-fence
+        (throw (ex-info "saved liveness fence has an invalid size"
+                        {:type :invalid-saved-liveness-fence
                          :path (.getPath file)})))
       (let [raw (decode-fence-utf8! bytes (.getPath file))
             parsed
             (try
               (json/parse-string raw)
               (catch Exception error
-                (throw (ex-info "saved presence fence is not valid JSON"
-                                {:type :invalid-saved-presence-fence
+                (throw (ex-info "saved liveness fence is not valid JSON"
+                                {:type :invalid-saved-liveness-fence
                                  :path (.getPath file)}
                                 error))))
             epoch (get parsed "epoch")
@@ -2626,8 +2626,8 @@
               (integer? epoch)
               (<= 1 epoch max-safe-fence-epoch)
               (= (str (json/generate-string expected) "\n") raw))
-          (throw (ex-info "saved presence fence does not exactly match the agent"
-                          {:type :invalid-saved-presence-fence
+          (throw (ex-info "saved liveness fence does not exactly match the agent"
+                          {:type :invalid-saved-liveness-fence
                            :path (.getPath file)
                            :agent bare})))
         (json/generate-string expected))))))

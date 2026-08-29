@@ -71,6 +71,8 @@
     (System/exit (if healthy 0 1))))
 
 (def checks (atom []))
+(def forbidden-online-token
+  #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)")
 (defn check [label ok]
   (swap! checks conj [label ok])
   (println (if ok (str "PASS " label) (str "FAIL " label))))
@@ -151,10 +153,11 @@
   (check "coordination health is green when the hook path registers and reads back"
          (and healthy
               (str/includes? output "coordination health")
-              (str/includes? output "STORE RPC SpaceId fence north-coordination")
-              (str/includes? output "presence write + readback")
-              (str/includes? output "presence 3 live lease(s)")
-              (str/includes? output "roster projection north:agent-roster:v1"))))
+              (str/includes? output "Store RPC SpaceId fence north-coordination")
+              (str/includes? output "liveness lease write + readback")
+              (str/includes? output "liveness 3 live lease(s)")
+              (str/includes? output "roster projection north:agent-roster:v1")
+              (not (re-find forbidden-online-token output)))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -165,7 +168,7 @@
   (check "missing STORE RPC SpaceId fails doctor" (false? healthy))
   (check "missing STORE RPC SpaceId is diagnosed directly"
          (and (str/includes? output "[ERR]")
-              (str/includes? output "STORE RPC status did not return a SpaceId"))))
+              (str/includes? output "Store RPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -177,7 +180,7 @@
                 :error "coordinator returned a malformed resolved response"}})]
   (check "a missing SpaceId is diagnosed before a downstream exception"
          (and (false? healthy)
-              (str/includes? output "STORE RPC status did not return a SpaceId"))))
+              (str/includes? output "Store RPC status did not return a SpaceId"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor
@@ -195,7 +198,7 @@
                       :lineage_registrations_in_ttl 7)})]
   (check "zero live leases while sessions registered inside the TTL fails doctor"
          (and (false? healthy)
-              (str/includes? output "presence is DARK")
+              (str/includes? output "liveness leases are DARK")
               (str/includes? output "7 session registration(s)"))))
 
 (let [{:keys [healthy output]}
@@ -205,7 +208,7 @@
                       :live_session_leases 0
                       :lineage_registrations_in_ttl 0)})]
   (check "an honestly idle machine (no leases, no registrations) stays green"
-         (and healthy (str/includes? output "presence 0 live lease(s)"))))
+         (and healthy (str/includes? output "liveness 0 live lease(s)"))))
 
 (let [{:keys [healthy output]}
       (exercise-doctor

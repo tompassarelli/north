@@ -60,8 +60,8 @@
         (try
           (json/parse-string (str raw))
           (catch Exception error
-            (throw (ex-info "presence fence must be valid JSON"
-                            {:type :invalid-presence-fence}
+            (throw (ex-info "liveness fence must be valid JSON"
+                            {:type :invalid-liveness-fence}
                             error))))
         expected-resource (str "session:" handle)]
     (when-not (and (map? parsed)
@@ -71,8 +71,8 @@
                    (integer? (get parsed "epoch"))
                    (pos? (get parsed "epoch"))
                    (<= (get parsed "epoch") max-safe-integer))
-      (throw (ex-info "presence fence does not match its session"
-                      {:type :invalid-presence-fence :handle handle})))
+      (throw (ex-info "liveness fence does not match its session"
+                      {:type :invalid-liveness-fence :handle handle})))
     {:resource expected-resource
      :holder handle
      :epoch (get parsed "epoch")}))
@@ -114,8 +114,8 @@
       (cond
         (nil? (:reject result)) result
         (and (= :conflict (:reject result)) (> remaining 1)) (recur (dec remaining))
-        :else (throw (ex-info "presence projection transaction failed"
-                              {:type :presence-write-rejected
+        :else (throw (ex-info "liveness lease projection transaction failed"
+                              {:type :lease-write-rejected
                                :subject subject :reject (:reject result)}))))))
 
 (defn remove-subject-facts! [port subject predicates]
@@ -132,8 +132,8 @@
       (cond
         (nil? (:reject result)) result
         (and (= :conflict (:reject result)) (> remaining 1)) (recur (dec remaining))
-        :else (throw (ex-info "presence removal transaction failed"
-                              {:type :presence-write-rejected
+        :else (throw (ex-info "liveness lease removal transaction failed"
+                              {:type :lease-write-rejected
                                :subject subject :reject (:reject result)}))))))
 
 (defn session-grant! [handle grant]
@@ -144,7 +144,7 @@
                  (integer? (:exp grant)) (pos? (:exp grant))
                  (<= (:exp grant) max-safe-integer))
     (throw (ex-info "Beagle Store returned an invalid session lease grant"
-                    {:type :invalid-presence-grant :handle handle})))
+                    {:type :invalid-liveness-grant :handle handle})))
   (canonical-fence grant))
 
 (defn presence-registrations
@@ -164,14 +164,14 @@
              (mapv (fn [[entity handle]]
                      (when-not (and (valid-control? handle)
                                     (= entity (presence-entity handle)))
-                       (throw (ex-info "presence descriptor does not match its control"
-                                       {:type :malformed-presence-control
+                       (throw (ex-info "lease descriptor does not match its control"
+                                       {:type :malformed-lease-control
                                         :entity entity})))
                      [entity handle])))]
     (when-not (= (count registrations)
                  (count (set (map second registrations))))
-      (throw (ex-info "coordinator returned duplicate presence descriptors"
-                      {:type :duplicate-presence-descriptor})))
+      (throw (ex-info "coordinator returned duplicate lease descriptors"
+                      {:type :duplicate-lease-descriptor})))
     registrations))
 
 (defn online-sessions
@@ -188,7 +188,7 @@
                                 (integer? exp) (pos? exp)
                                 (<= exp max-safe-integer))
                    (throw (ex-info "malformed canonical session lease"
-                                   {:type :malformed-presence-lease
+                                   {:type :malformed-liveness-lease
                                     :lease lease})))
                  (when (contains? registered handle)
                    {:entity (presence-entity handle)
@@ -223,7 +223,7 @@
   [now session-rows]
   (println
    (json/generate-string
-    {"version" "north:presence-online:v1"
+    {"version" "north:live-leases:v1"
      "sessions"
      (mapv (fn [{:keys [handle lease]}]
              {"control_id" handle
@@ -234,7 +234,7 @@
 ;; ---- coordination health probe ----------------------------------------------
 ;; MUST be invoked the way the hooks are (direct bb, unwrapped env) or it cannot
 ;; observe a hook-path fence fault.
-(def probe-lease-resource "doctor-probe:presence")   ; not session:* — never joins the roster
+(def probe-lease-resource "doctor-probe:liveness")   ; not session:* — never joins the roster
 (def probe-lease-ttl-ms 5000)
 (def max-lineage-rows 4096)
 
@@ -319,10 +319,11 @@
     (print-fence! next-fence)
     next-fence))
 
-(let [[port verb & args] *command-line-args*
-      port (Integer/parseInt port)
-      now  (System/currentTimeMillis)]      ; same machine as coord -> agent-now ~ coord-now
-  (case verb
+(try
+  (let [[port verb & args] *command-line-args*
+        port (Integer/parseInt port)
+        now  (System/currentTimeMillis)]      ; same machine as coord -> agent-now ~ coord-now
+    (case verb
     "register"
     (let [[h dir sid] args
           se (presence-entity h)
@@ -361,7 +362,7 @@
       (north.topology-authority/require-self-agent! "identify peer agent" h)
       (when (and (resolved port ae "identity_manifest_sha256")
                  (or (and model (seq model)) (and effort (seq effort))))
-        (throw (ex-info "managed lane route identity is publisher-owned; presence identify may not rewrite model/effort"
+        (throw (ex-info "managed lane route identity is publisher-owned; lease identify may not rewrite model/effort"
                         {:north/authority-denied true :agent h})))
       (when (and model  (seq model))  (put! port ae "model" model))           ; single
       (when (and effort (seq effort)) (put! port ae "effort" effort))         ; single
@@ -434,14 +435,14 @@
       (when wf (put! port se "active_workflow" wf))  ; single
       (prn {:focus se :current_thread ct :active_workflow wf}))
 
-    "presence"                              ; THE PROJECTION — agents + held roles + focus. Pinned first, then online, then rest.
+    "roster"                                ; agents + held roles + focus. Pinned first, then online, then rest.
     (print-presence! port now (mapv (fn [[entity handle]] {:entity entity :handle handle})
                                     (presence-registrations port)))
 
-    "presence-online"                       ; bounded projection used by live-only UIs
+    "live-leases"                           ; bounded projection used by live-only UIs
     (print-presence! port now (online-sessions port now))
 
-    "presence-online-json"                  ; stable bounded machine projection
+    "live-leases-json"                      ; stable bounded machine projection
     (print-presence-json! now (online-sessions port now))
 
     "coordination-probe-json"               ; doctor's honest health signal; exits 1 when broken
@@ -545,8 +546,8 @@
           fence (fence-json! h raw-fence)
           released (north.coord/release-lease! port fence)]
       (when-not (:released? released)
-        (throw (ex-info "presence lease was not released"
-                        {:type :presence-release-failed :handle h})))
+        (throw (ex-info "liveness lease was not released"
+                        {:type :lease-release-failed :handle h})))
       (remove-subject-facts!
        port (presence-entity h)
        ["agent" "dir" "session_id" "started_at" "task"
@@ -585,9 +586,13 @@
                     (str/join ", " (map #(subs % 6) (sort rs))) ", *}  (uuid ∪ held-roles)"))
       (doseq [t (sort ws)] (println (str "  watches " t))))
 
-    (do (println "usage: presence-cli.clj <port> {register|renew|task|focus|forget|runmeta  (session/run)")
-        (println "                                |identify|card  (agent card)")
-        (println "                                |define-role|assign|unassign|roles|holders  (roles)")
-        (println "                                |watch|unwatch|subscriptions  (thread subs)")
-        (println "                                |presence|presence-online|presence-online-json}  (projections)")
+    (do (println "usage: north lease-internal <port> {register|renew|task|focus|forget|runmeta  (session/run)")
+        (println "                                      |identify|card  (agent card)")
+        (println "                                      |define-role|assign|unassign|roles|holders  (roles)")
+        (println "                                      |watch|unwatch|subscriptions  (thread subs)")
+        (println "                                      |roster|live-leases|live-leases-json}  (projections)")
         (System/exit 2))))
+  (catch Exception error
+    (binding [*out* *err*]
+      (println (str "north lease-internal: " (.getMessage error))))
+    (System/exit 2)))

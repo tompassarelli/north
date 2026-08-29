@@ -558,9 +558,9 @@ doctor() (
     NORTH_HARNESS_STATE="$state" NORTH_BB="$BB"
   )
   mkdir -p "$scratch/home"
-  "${env_args[@]}" "$0" presence alice --announce >/dev/null
+  "${env_args[@]}" "$0" lease alice --announce >/dev/null
   NORTH_COMMS_ALIAS=team-worker "${env_args[@]}" \
-    "$0" presence bob --announce >/dev/null
+    "$0" lease bob --announce >/dev/null
   alias_send="$("${env_args[@]}" "$0" send alice team-worker hello world)"
   direct_poll="$("${env_args[@]}" "$0" poll bob)"
   [[ $direct_poll == $'✉ from alice — hello\n  world' ]] ||
@@ -576,7 +576,7 @@ doctor() (
   broadcast="$("${env_args[@]}" "$0" send alice '*' broadcast body --broadcast)"
   [[ $broadcast == *'snapshotted recipients'* ]] ||
     die "doctor broadcast snapshot failed"
-  builtin printf 'north-comms doctor: PASS protocol=file presence=reachable dead-drop=guarded broadcast=snapshot-v1 dedupe=id ack=idempotent\n'
+  builtin printf 'north-comms doctor: PASS protocol=file lease=reachable dead-drop=guarded broadcast=snapshot-v1 dedupe=id ack=idempotent\n'
 )
 
 verb="${1:-}"
@@ -700,14 +700,14 @@ case "$verb" in
         ;;
     esac
     ;;
-  presence)
+  lease)
     (($# >= 1 && $# <= 2)) ||
-      die "usage: north-comms presence <me> [--announce]"
+      die "usage: north-comms lease <me> [--announce]"
     handle="$1"
     announce=0
     [[ ${2:-} != --announce ]] || announce=1
     [[ $# == 1 || ${2:-} == --announce ]] ||
-      die "usage: north-comms presence <me> [--announce]"
+      die "usage: north-comms lease <me> [--announce]"
     if [[ $announce == 1 ]]; then
       case "$selected_protocol" in
         off) exit 0 ;;
@@ -759,6 +759,6 @@ case "$verb" in
     doctor
     ;;
   *)
-    die "usage: north-comms {send|mention|interrupt|poll|ack|presence|watch|doctor}"
+    die "usage: north-comms {send|mention|interrupt|poll|ack|lease|watch|doctor}"
     ;;
 esac

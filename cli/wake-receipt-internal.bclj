@@ -1,0 +1,658 @@
+#lang beagle/clj
+
+(ns north.wake-receipt-internal
+  "Typed authority for one message-bound retained-session wake receipt.")
+
+(require [cheshire.core :as json])
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+
+(declare-extern load-file (Fn [String] Any))
+
+(def script-file Any (.getCanonicalPath (io/file *file*)))
+(def cli-dir Any (.getParent (io/file script-file)))
+(load-file (str cli-dir "/coord.clj"))
+(load-file (str cli-dir "/run-ledger.clj"))
+
+(def attempt-pattern Any #"^wake:[0-9a-f]{64}$")
+(def message-pattern Any #"^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$")
+(def target-pattern Any #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+(def wire-id-pattern Any #"^[A-Za-z0-9@][A-Za-z0-9@_.:/-]{0,255}$")
+(def epoch-pattern Any
+  #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+
+(def idle-predicates (Vec String)
+  ["wake_message_admission_version" "wake_message_admission_ordinal"
+   "wake_idle_event" "wake_idle_run_id" "wake_idle_sequence"
+   "wake_idle_commit_version" "wake_idle_model_call_id"])
+(def turn-predicates (Vec String)
+  ["wake_turn_event" "wake_turn_run_id" "wake_turn_sequence"
+   "wake_turn_commit_version" "wake_turn_model_call_id"])
+(def action-predicates (Vec String)
+  ["wake_first_action_event" "wake_first_action_kind"
+   "wake_first_action_sequence"])
+
+(defn- fail! [message String] Any
+  (do
+    (binding [*out* *err*]
+      (println (str "wake receipt rejected: " message)))
+    (throw (ex-info message {}))))
+
+(defn- coord-invoke!
+  [operation String
+   args (Vec Any)] Any
+  (let [callable Any (clojure.core/ns-resolve (symbol "north.coord") (symbol operation))]
+    (if (some? callable)
+      (apply callable args)
+      (fail! (str "north.coord/" operation " is unavailable")))))
+
+(defn- ledger-invoke!
+  [operation String
+   args (Vec Any)] Any
+  (let [callable Any (clojure.core/ns-resolve (symbol "north.run-ledger")
+                                              (symbol operation))]
+    (if (some? callable)
+      (apply callable args)
+      (fail! (str "north.run-ledger/" operation " is unavailable")))))
+
+(defn- exact-singleton?
+  [envelope Any
+   expected String] Bool
+  (and (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [expected] (:values envelope))
+       (= expected (:value envelope))))
+
+(defn- exact-envelope? [envelope Any] Bool
+  (and (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= 1 (count (:values envelope)))
+       (string? (:value envelope))
+       (= [(:value envelope)] (:values envelope))))
+
+(defn- absent? [envelope Any] Bool
+  (and (= 0 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (empty? (:values envelope))
+       (nil? (:value envelope))))
+
+(defn- envelope!
+  [port Int
+   subject String
+   predicate String] Any
+  (coord-invoke! "resolved-envelope" [port subject predicate]))
+
+(defn- require-exact!
+  [port Int
+   subject String
+   predicate String
+   expected String] String
+  (if (exact-singleton? (envelope! port subject predicate) expected)
+    expected
+    (fail! (str predicate " does not match the committed wake identity"))))
+
+(defn- exact-value!
+  [port Int
+   subject String
+   predicate String] String
+  (let [envelope Any (envelope! port subject predicate)]
+    (if (exact-envelope? envelope)
+      (:value envelope)
+      (fail! (str predicate " is not an exact singleton")))))
+
+(defn- historic-message-context!
+  [port Int
+   message String] Any
+  (let [attempt String (exact-value! port message "wake_attempt_id")
+        target String (exact-value! port message "to")
+        epoch String (exact-value! port message "wake_listener_epoch")
+        manifest String (exact-value! port message "wake_listener_manifest_sha256")]
+    (if-not (and (some? (re-matches message-pattern message))
+                 (some? (re-matches attempt-pattern attempt))
+                 (some? (re-matches target-pattern target))
+                 (some? (re-matches epoch-pattern epoch)))
+      (fail! "wake identity is malformed")
+      (do
+        (require-exact! port message "target_identity_manifest_sha256" manifest)
+        {:message message
+         :attempt attempt
+         :target target
+         :epoch epoch
+         :manifest manifest}))))
+
+(defn- current-message-context!
+  [port Int
+   message String
+   attempt String
+   target String
+   epoch String] Any
+  (let [context Any (historic-message-context! port message)
+        agent String (str "@agent:" target)]
+    (do
+      (when-not (and (= attempt (:attempt context))
+                     (= target (:target context))
+                     (= epoch (:epoch context)))
+        (fail! "caller identity does not match the committed wake identity"))
+      (require-exact! port agent "live_input" "turn-messages")
+      (require-exact! port agent "live_input_state" "armed")
+      (require-exact! port agent "live_input_epoch" epoch)
+      (require-exact! port agent "identity_manifest_sha256" (:manifest context))
+      context)))
+
+(defn- query-rows!
+  [port Int
+   query Any] Any
+  (coord-invoke! "query-rows" [port query]))
+
+(defn- exact-assertion-boundary!
+  [port Int
+   subject String
+   predicate String
+   value String] Any
+  (let [occurrences Any (coord-invoke!
+                         "proposition-occurrences"
+                         [port subject predicate value])
+        occurrence Any (first occurrences)]
+    (if (and (= 1 (count occurrences))
+             (= :assert (:operation occurrence))
+             (integer? (:version occurrence))
+             (pos? (:version occurrence))
+             (integer? (:ordinal occurrence))
+             (not (neg? (:ordinal occurrence))))
+      occurrence
+      (fail! (str predicate " does not have one exact assertion occurrence")))))
+
+(defn- message-boundary!
+  [port Int
+   context Any] Any
+  (exact-assertion-boundary!
+   port (:message context) "to" (:target context)))
+
+(defn- event-subjects!
+  [port Int
+   event-id String] Any
+  (->> (query-rows!
+        port
+        {:find "wake_wire_event_subject"
+         :rules [{:head {:rel "wake_wire_event_subject" :args [{:var "subject"}]}
+                  :body [{:rel "triple"
+                          :args [{:var "subject"} "wire_event_id" event-id]}]}]})
+       (map first)
+       distinct
+       sort
+       vec))
+
+(defn- event-facts!
+  [port Int
+   subject String] Any
+  (query-rows!
+   port
+   {:find "wake_wire_event_fact"
+    :rules [{:head {:rel "wake_wire_event_fact"
+                    :args [{:var "predicate"} {:var "value"}]}
+             :body [{:rel "triple"
+                     :args [subject {:var "predicate"} {:var "value"}]}]}]}))
+
+(defn- durable-event-subject!
+  [port Int
+   target String
+   subject String
+   event-id String] Any
+  (let [event Any (ledger-invoke! "validate-event-facts!"
+                                  [subject (event-facts! port subject)])
+        commit Any (exact-assertion-boundary!
+                    port subject "wire_event_id" event-id)]
+    (when-not (and (= event-id (get event "id"))
+                   (= target (get event "agent")))
+      (fail! "Wire event does not belong to the exact wake target"))
+    (assoc event :commit-version (:version commit))))
+
+(defn- durable-event!
+  [port Int
+   target String
+   event-id String] Any
+  (when-not (and (string? event-id) (re-matches wire-id-pattern event-id))
+    (fail! "Wire event id is malformed"))
+  (let [subjects Any (event-subjects! port event-id)]
+    (when-not (= 1 (count subjects))
+      (fail! "Wire event id is absent or ambiguous"))
+    (durable-event-subject! port target (first subjects) event-id)))
+
+(defn- run-events!
+  [port Int
+   target String
+   run String] Any
+  (let [subjects Any (->> (query-rows!
+              port
+              {:find "wake_wire_run_subject"
+               :rules [{:head {:rel "wake_wire_run_subject"
+                               :args [{:var "subject"}]}
+                        :body [{:rel "triple"
+                                :args [{:var "subject"} "wire_run_id" run]}
+                               {:rel "triple"
+                                :args [{:var "subject"} "agent" target]}]}]})
+             (map first)
+             distinct
+             sort
+             vec)
+        events Any (mapv (fn [subject Any] Any
+                (let [facts Any (event-facts! port subject)
+                      event Any (ledger-invoke! "validate-event-facts!"
+                                                [subject facts])]
+                  (durable-event-subject!
+                   port target subject (get event "id"))))
+              subjects)
+        ordered Any (vec (sort-by (fn [event Any] Any (get event "sequence")) events))]
+    (when-not (= (count ordered)
+                 (count (set (map (fn [event Any] Any (get event "sequence"))
+                                  ordered))))
+      (fail! "Wire run contains an ambiguous event sequence"))
+    ordered))
+
+(defn- payload [event Any] Any (get event "event"))
+(defn- model-call-id [event Any] Any (get (payload event) "modelCallId"))
+
+(defn- idle-evidence!
+  [port Int
+   target String
+   boundary Any
+   event-id String] Any
+  (let [event Any (durable-event! port target event-id)
+        run String (get event "run")
+        candidates Any (->> (run-events! port target run)
+             (filter (fn [candidate Any] Bool
+                       (and (= "model-call.completed" (get candidate "kind"))
+                            (< (:commit-version candidate) (:version boundary)))))
+             (sort-by (fn [candidate Any] Any
+                        [(:commit-version candidate) (get candidate "sequence")]))
+             vec)
+        latest Any (last candidates)
+        model-call Any (model-call-id event)]
+    (when-not (and latest
+                   (= event-id (get latest "id"))
+                   (= "model-call.completed" (get event "kind"))
+                   (< (:commit-version event) (:version boundary))
+                   (string? model-call)
+                   (re-matches wire-id-pattern model-call))
+      (fail! "idle evidence is not the latest exact completion before message admission"))
+    {:event event-id
+     :run run
+     :sequence (get event "sequence")
+     :commit-version (:commit-version event)
+     :model-call model-call}))
+
+(defn- first-turn-after-idle!
+  [port Int
+   target String
+   boundary Any
+   idle Any
+   event-id String] Any
+  (let [event Any (durable-event! port target event-id)
+        candidates Any (->> (run-events! port target (:run idle))
+             (filter (fn [candidate Any] Bool
+                       (and (= "model-call.started" (get candidate "kind"))
+                            (> (get candidate "sequence") (:sequence idle))
+                            (>= (:commit-version candidate)
+                                (:version boundary)))))
+             (sort-by (fn [candidate Any] Any (get candidate "sequence")))
+             vec)
+        first-event Any (first candidates)
+        model-call Any (model-call-id event)]
+    (when-not (and first-event
+                   (= event-id (get first-event "id"))
+                   (= event-id (get event "id"))
+                   (= (:run idle) (get event "run"))
+                   (> (get event "sequence") (:sequence idle))
+                   (>= (:commit-version event) (:version boundary))
+                   (string? model-call)
+                   (not= model-call (:model-call idle)))
+      (fail! "turn evidence is not the distinct first model call admitted after the message"))
+    {:event event-id
+     :run (get event "run")
+     :sequence (get event "sequence")
+     :commit-version (:commit-version event)
+     :model-call model-call}))
+
+(defn- action-kind [event Any] Any
+  (let [body Any (payload event)]
+    (cond
+      (and (= "message.recorded" (get event "kind"))
+           (= "assistant" (get body "role")))
+      "assistant.message.recorded"
+
+      (= "tool.admitted" (get event "kind"))
+      "tool.admitted"
+
+      :else nil)))
+
+(defn- first-action-for-turn!
+  [port Int
+   target String
+   turn Any
+   event-id String
+   expected-kind String] Any
+  (let [event Any (durable-event! port target event-id)
+        candidates Any (->> (run-events! port target (:run turn))
+             (filter (fn [candidate Any] Bool
+                       (and (> (get candidate "sequence") (:sequence turn))
+                            (= (:model-call turn) (model-call-id candidate))
+                            (string? (action-kind candidate)))))
+             (sort-by (fn [candidate Any] Any (get candidate "sequence")))
+             vec)
+        first-event Any (first candidates)
+        actual-kind Any (action-kind event)]
+    (when-not (and first-event
+                   (= event-id (get first-event "id"))
+                   (= event-id (get event "id"))
+                   (= (:run turn) (get event "run"))
+                   (= (:model-call turn) (model-call-id event))
+                   (= expected-kind actual-kind))
+      (fail! "action evidence is not the first assistant/tool event for the wake turn"))
+    {:event event-id
+     :kind actual-kind
+     :sequence (get event "sequence")}))
+
+(defn- idle-facts
+  [boundary Any
+   idle Any] Any
+  [["wake_message_admission_version" (str (:version boundary))]
+   ["wake_message_admission_ordinal" (str (:ordinal boundary))]
+   ["wake_idle_event" (:event idle)]
+   ["wake_idle_run_id" (:run idle)]
+   ["wake_idle_sequence" (str (:sequence idle))]
+   ["wake_idle_commit_version" (str (:commit-version idle))]
+   ["wake_idle_model_call_id" (:model-call idle)]])
+
+(defn- turn-facts [turn Any] Any
+  [["wake_turn_event" (:event turn)]
+   ["wake_turn_run_id" (:run turn)]
+   ["wake_turn_sequence" (str (:sequence turn))]
+   ["wake_turn_commit_version" (str (:commit-version turn))]
+   ["wake_turn_model_call_id" (:model-call turn)]])
+
+(defn- action-facts [action Any] Any
+  [["wake_first_action_event" (:event action)]
+   ["wake_first_action_kind" (:kind action)]
+   ["wake_first_action_sequence" (str (:sequence action))]])
+
+(defn- group-state!
+  [port Int
+   message String
+   predicates (Vec String)] Any
+  (let [envelopes Any (mapv (fn [predicate String] Any
+                              (envelope! port message predicate))
+                            predicates)
+        states Any (mapv (fn [envelope Any] Keyword
+                           (cond
+                             (absent? envelope) :absent
+                             (exact-envelope? envelope) :exact
+                             :else :contradictory))
+                         envelopes)]
+    (cond
+      (every? (fn [state Keyword] Bool (= :absent state)) states) {:state :absent}
+      (every? (fn [state Keyword] Bool (= :exact state)) states)
+      {:state :exact
+       :values (zipmap predicates
+                       (mapv (fn [envelope Any] Any (:value envelope)) envelopes))}
+      :else {:state :contradictory})))
+
+(defn- require-group-exact!
+  [port Int
+   message String
+   predicates (Vec String)] Any
+  (let [group Any (group-state! port message predicates)]
+    (if (= :exact (:state group))
+      (:values group)
+      (fail! "wake milestone is absent, partial, or ambiguous"))))
+
+(defn- compare-facts!
+  [values Any
+   facts Any] Nil
+  (doseq [fact facts]
+    (when-not (= (get values (first fact)) (second fact))
+      (fail! "wake milestone differs from exact durable Wire evidence"))))
+
+(defn- resolved-idle!
+  [port Int
+   context Any] Any
+  (let [values Any (require-group-exact! port (:message context) idle-predicates)
+        boundary Any (message-boundary! port context)
+        idle Any (idle-evidence! port (:target context) boundary
+                                 (get values "wake_idle_event"))]
+    (compare-facts! values (idle-facts boundary idle))
+    (assoc idle :boundary boundary)))
+
+(defn- resolved-turn!
+  [port Int
+   context Any
+   idle Any] Any
+  (let [values Any (require-group-exact! port (:message context) turn-predicates)
+        turn Any (first-turn-after-idle! port (:target context) (:boundary idle) idle
+                                         (get values "wake_turn_event"))]
+    (compare-facts! values (turn-facts turn))
+    turn))
+
+(defn- resolved-action!
+  [port Int
+   context Any
+   turn Any] Any
+  (let [values Any (require-group-exact! port (:message context) action-predicates)
+        action Any (first-action-for-turn!
+                    port (:target context) turn
+                    (get values "wake_first_action_event")
+                    (get values "wake_first_action_kind"))]
+    (compare-facts! values (action-facts action))
+    action))
+
+(defn- milestone-state!
+  [port Int
+   message String
+   facts Any] Keyword
+  (let [states (Vec Keyword) (mapv
+         (fn [fact Any] Keyword
+           (let [predicate String (first fact)
+                 expected String (second fact)
+                 current Any (envelope! port message predicate)]
+             (cond
+               (absent? current) :absent
+               (exact-singleton? current expected) :exact
+               :else :contradictory)))
+         facts)]
+    (cond
+      (every? (fn [state Keyword] Bool (= state :absent)) states) :absent
+      (every? (fn [state Keyword] Bool (= state :exact)) states) :exact
+      :else :contradictory)))
+
+(defn- publish-exact!
+  [port Int
+   message String
+   facts Any] Keyword
+  (let [state Keyword (milestone-state! port message facts)]
+    (cond
+      (= state :exact) :existing
+      (= state :contradictory) (fail! "wake milestone contradicts committed evidence")
+      :else
+      (let [result Any (coord-invoke!
+             "publish!"
+             [port
+              (mapv
+               (fn [fact Any] Any
+                 {:op :assert
+                  :subject message
+                  :predicate (first fact)
+                  :value (second fact)
+                  :cardinality :one})
+               facts)])]
+        (if (:reject result)
+          (fail! (str "coordinator rejected milestone: " (:reject result)))
+          (if (= :exact (milestone-state! port message facts))
+            :created
+            (fail! "wake milestone readback is not exact")))))))
+
+(defn wake-status!
+  [port Int
+   message String] Any
+  (let [attempt-envelope Any (envelope! port message "wake_attempt_id")]
+    (if (absent? attempt-envelope)
+      {:status "not-applicable" :missing [] :failures []}
+      (try
+        (let [context Any (historic-message-context! port message)
+              failure-envelope Any (envelope! port message "wake_failure")
+              idle-group Any (group-state! port message idle-predicates)
+              turn-group Any (group-state! port message turn-predicates)
+              action-group Any (group-state! port message action-predicates)]
+          (cond
+            (exact-envelope? failure-envelope)
+            {:status "failure" :missing [] :failures [(:value failure-envelope)]}
+
+            (not (absent? failure-envelope))
+            {:status "unknown" :missing ["ambiguous-failure"] :failures []}
+
+            (= :contradictory (:state idle-group))
+            {:status "unknown" :missing ["invalid-idle-proof"] :failures []}
+
+            (= :absent (:state idle-group))
+            {:status "unknown"
+             :missing ["idle-proof" "target-turn" "first-action"]
+             :failures []}
+
+            :else
+            (let [idle Any (resolved-idle! port context)]
+              (cond
+                (= :contradictory (:state turn-group))
+                {:status "unknown" :missing ["invalid-target-turn"] :failures []}
+
+                (= :absent (:state turn-group))
+                {:status "unknown" :missing ["target-turn" "first-action"] :failures []}
+
+                :else
+                (let [turn Any (resolved-turn! port context idle)]
+                  (cond
+                    (= :contradictory (:state action-group))
+                    {:status "unknown" :missing ["invalid-first-action"] :failures []}
+
+                    (= :absent (:state action-group))
+                    {:status "unknown" :missing ["first-action"] :failures []}
+
+                    :else
+                    (do
+                      (resolved-action! port context turn)
+                      {:status "complete" :missing [] :failures []})))))))
+        (catch Exception _
+          {:status "unknown" :missing ["invalid-durable-evidence"] :failures []})))))
+
+(defn- idle-phase!
+  [port Int
+   context Any
+   event String] Keyword
+  (let [idle-group Any (group-state! port (:message context) idle-predicates)]
+    (cond
+      (= :absent (:state idle-group))
+      (let [boundary Any (message-boundary! port context)
+            idle Any (idle-evidence! port (:target context) boundary event)]
+        (publish-exact! port (:message context) (idle-facts boundary idle)))
+
+      (= :exact (:state idle-group))
+      (let [idle Any (resolved-idle! port context)
+            turn-group Any (group-state! port (:message context) turn-predicates)]
+        (cond
+          (= :absent (:state turn-group)) :unknown
+          (= :exact (:state turn-group))
+          (do (resolved-turn! port context idle) :accepted)
+          :else (fail! "existing wake attempt has ambiguous turn evidence")))
+
+      :else (fail! "existing wake attempt has ambiguous idle evidence"))))
+
+(defn- turn-phase!
+  [port Int
+   context Any
+   event String] Keyword
+  (let [idle Any (resolved-idle! port context)
+        turn Any (first-turn-after-idle! port (:target context) (:boundary idle)
+                                         idle event)]
+    (publish-exact! port (:message context) (turn-facts turn))))
+
+(defn- action-phase!
+  [port Int
+   context Any
+   event String
+   kind Any] Keyword
+  (when-not (and (string? kind)
+                 (#{"assistant.message.recorded" "tool.admitted"} kind))
+    (fail! "action kind is invalid"))
+  (let [idle Any (resolved-idle! port context)
+        turn Any (resolved-turn! port context idle)
+        action Any (first-action-for-turn! port (:target context) turn event kind)]
+    (publish-exact! port (:message context) (action-facts action))))
+
+(defn- failure-phase!
+  [port Int
+   context Any
+   reason String] Keyword
+  (if (and (not (str/blank? reason))
+           (<= (count reason) 256))
+    (publish-exact! port (:message context) [["wake_failure" reason]])
+    (fail! "failure reason is invalid")))
+
+(defn- print-result! [result Keyword] Nil
+  (println (name result)))
+
+(defn- required-arg
+  [args (Vec String)
+   index Int] String
+  (if (< index (count args)) (nth args index) ""))
+
+(defn- optional-arg
+  [args (Vec String)
+   index Int] (U String Nil)
+  (if (< index (count args)) (nth args index) nil))
+
+(defn- parse-port! [raw String] Int
+  (let [parsed (U Int Nil) (parse-long raw)]
+    (if (some? parsed) parsed (fail! "port is malformed"))))
+
+(defn- run-cli! [args (Vec String)] Nil
+  (let [port Int (parse-port! (required-arg args 0))
+        phase String (required-arg args 1)
+        message String (required-arg args 2)]
+    (if (= phase "status")
+      (if (= 3 (count args))
+        (println (json/generate-string (wake-status! port message)))
+        (fail! "status usage is <port> status <message>"))
+      (let [attempt String (required-arg args 3)
+            target String (required-arg args 4)
+            epoch String (required-arg args 5)
+            event String (required-arg args 6)
+            kind (U String Nil) (optional-arg args 7)]
+        (when (> (count args) 8)
+          (fail! "usage: <port> <idle|turn|action|failure> <message> <attempt> <target> <epoch> <event-or-reason> [kind]"))
+        (let [context Any (current-message-context! port message attempt target epoch)]
+          (match phase
+            ["idle"
+             (if (nil? kind)
+               (print-result! (idle-phase! port context event))
+               (fail! "idle accepts no action kind"))]
+
+            ["turn"
+             (if (nil? kind)
+               (print-result! (turn-phase! port context event))
+               (fail! "turn accepts no action kind"))]
+
+            ["action"
+             (print-result! (action-phase! port context event kind))]
+
+            ["failure"
+             (if (nil? kind)
+               (print-result! (failure-phase! port context event))
+               (fail! "failure accepts no action kind"))]
+
+            [_ (fail! "phase must be idle, turn, action, failure, or status")]))))))
+
+(defn- direct-invocation? [] Bool
+  (= script-file
+     (.getCanonicalPath (io/file (System/getProperty "babashka.file")))))
+
+(when (direct-invocation?)
+  (try
+    (run-cli! (vec *command-line-args*))
+    (catch Exception _ (System/exit 2))))

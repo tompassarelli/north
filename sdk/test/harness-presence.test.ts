@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
 } from "node:fs";
@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { harnessOptions } from "../src/harness";
 import { beagleStoreSelection } from "../src/beagle-store";
-import { presenceFencePath } from "../src/presence-fence";
+import {
+  canonicalPresenceFence, parsePresenceFence, presenceFencePath,
+} from "../src/presence-fence";
+
+const forbiddenOnlineToken = /(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)/i;
 
 async function capturedLines(path: string, count: number): Promise<string[]> {
   for (let attempt = 0; attempt < 200; attempt++) {
@@ -137,6 +141,78 @@ test("suppressed or injected registration never leaks a real PostToolUse renew",
     ]);
     expect(renewed).toEqual(["presence-fully-injected"]);
   } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("liveness fence paths and rendered validation errors use current vocabulary", () => {
+  expect(presenceFencePath("liveness-path-probe", {
+    NORTH_AGENT_LOGS_DIR: "/tmp/north-liveness-path-probe",
+  })).toEndWith("/liveness-path-probe.liveness-fence.json");
+  const rendered: string[] = [];
+  for (const invoke of [
+    () => canonicalPresenceFence(null),
+    () => parsePresenceFence("not-json", "liveness-path-probe"),
+    () => canonicalPresenceFence(
+      { resource: "session:other", holder: "other", epoch: 1 },
+      "liveness-path-probe",
+    ),
+  ]) {
+    try {
+      invoke();
+    } catch (error) {
+      rendered.push(String(error));
+    }
+  }
+  expect(rendered).toHaveLength(3);
+  expect(rendered.join("\n")).not.toMatch(forbiddenOnlineToken);
+});
+
+test("failed renewal renders a sanitized liveness diagnostic", async () => {
+  const keys = [
+    "PATH", "NORTH_PORT", "NORTH_AGENT_LOGS_DIR", "HARNESS_PRESENCE_LOG",
+    "AGENT_LAWS", "AGENT_PRAXIS", "NORTH_PEER_BB",
+  ];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  const dir = mkdtempSync(join(tmpdir(), "north-harness-liveness-error-"));
+  const fakeBb = join(dir, "bb");
+  writeFileSync(fakeBb, `#!/usr/bin/env bash
+if [ "\${1-}" = "-cp" ]; then shift 2; fi
+verb="\${3-}"
+handle="\${4-}"
+if [ "$verb" = "register" ]; then
+  printf '{"resource":"session:%s","holder":"%s","epoch":7}\\n' "$handle" "$handle"
+  exit 0
+fi
+printf 'north lease-internal: liveness renewal rejected\\n' >&2
+exit 2
+`);
+  chmodSync(fakeBb, 0o755);
+  const rendered: string[] = [];
+  const errorSpy = spyOn(console, "error").mockImplementation((...args) => {
+    rendered.push(args.map(String).join(" "));
+  });
+  try {
+    process.env.PATH = `${dir}:${saved.PATH ?? ""}`;
+    process.env.NORTH_PORT = "64126";
+    process.env.NORTH_AGENT_LOGS_DIR = join(dir, "agents");
+    process.env.AGENT_LAWS = "off";
+    process.env.AGENT_PRAXIS = "off";
+    delete process.env.NORTH_PEER_BB;
+    const options = harnessOptions({ self: "liveness-failure-probe" });
+    const renew = (options.hooks as any).PostToolUse[0].hooks[0];
+    expect(await renew()).toEqual({ continue: true });
+    for (let attempt = 0; attempt < 200 && rendered.length === 0; attempt++)
+      await Bun.sleep(5);
+    expect(rendered.join("\n")).toContain("[liveness]");
+    expect(rendered.join("\n")).toContain("north lease-internal: liveness renewal rejected");
+    expect(rendered.join("\n")).not.toMatch(forbiddenOnlineToken);
+  } finally {
+    errorSpy.mockRestore();
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

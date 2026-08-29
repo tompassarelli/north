@@ -155,6 +155,13 @@ interface MailMessage {
   from: string;
   subject: string;
   body: string;
+  wakeAttempt: string | null;
+}
+
+export interface FeedMail {
+  readonly id: string;
+  readonly wakeAttempt?: string;
+  readonly summary: string;
 }
 
 interface DrainedMessage {
@@ -393,11 +400,13 @@ function feedMessage(line: string, maxMessageBytes: number): FeedMessage {
   }
 
   if (message.type === "mail") {
-    if (!exactKeys(message, ["protocol", "type", "id", "from", "subject", "body"])
+    if (!exactKeys(message, ["protocol", "type", "id", "from", "subject", "body", "wakeAttempt"])
         || !boundedString(message.id, MAX_ID_BYTES, /^@msg:[A-Za-z0-9][A-Za-z0-9._:-]*$/)
         || !boundedString(message.from, MAX_SENDER_BYTES)
         || !boundedString(message.subject, MAX_SUBJECT_BYTES)
-        || !boundedString(message.body, MAX_BODY_BYTES))
+        || !boundedString(message.body, MAX_BODY_BYTES)
+        || (message.wakeAttempt !== null
+            && !boundedString(message.wakeAttempt, 69, /^wake:[0-9a-f]{64}$/)))
       throw new Error("North live-feed mail message is malformed");
     return message as unknown as MailMessage;
   }
@@ -549,7 +558,7 @@ function awaitAdmission(
 // crash-between-dequeue-and-graph-ack replay is acked without a second push.
 function subscribeFeedMode(
   self: string,
-  onMail: (summary: string) => FeedAdmission,
+  onMail: (mail: FeedMail) => FeedAdmission,
   runtime: SubscriptionRuntime,
   settlementOnly: boolean,
 ): FeedSubscription {
@@ -840,9 +849,12 @@ function subscribeFeedMode(
         return;
       }
 
-      if (admittedIds.has(message.id)) {
+      if (admittedIds.has(message.id) && message.wakeAttempt === null) {
         // A prior feed died after provider dequeue but before durable graph ack.
-        // Complete the new claim without injecting the user turn twice.
+        // Ordinary streaming input has no message-bound receipt authority, so
+        // its remembered dequeue remains the only duplicate fence. A retained-
+        // session wake must re-enter onMail: the typed receipt writer alone may
+        // prove that its exact turn receipt still exists before graph ack.
         if (!writeControl(child, controlMessage("ack", message.id)))
           throw new Error("North live-feed replay acknowledgement failed");
         return;
@@ -850,9 +862,11 @@ function subscribeFeedMode(
 
       let rawAdmission: FeedAdmission;
       try {
-        rawAdmission = onMail(
-          `[north real-time ping from ${message.from} — ${message.subject}]\n${message.body}`,
-        );
+        rawAdmission = onMail({
+          id: message.id,
+          ...(message.wakeAttempt === null ? {} : { wakeAttempt: message.wakeAttempt }),
+          summary: `[north real-time ping from ${message.from} — ${message.subject}]\n${message.body}`,
+        });
       } catch {
         if (!writeControl(child, controlMessage("nack", message.id)))
           throw new Error("North live-feed rejection acknowledgement failed");
@@ -1052,7 +1066,7 @@ function subscribeFeedMode(
 
 export function subscribeFeed(
   self: string,
-  onMail: (summary: string) => FeedAdmission,
+  onMail: (mail: FeedMail) => FeedAdmission,
   runtime: SubscriptionRuntime = {},
 ): FeedSubscription {
   return subscribeFeedMode(self, onMail, runtime, false);

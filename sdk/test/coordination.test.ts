@@ -188,6 +188,7 @@ function mail(
   id = "@msg:one",
   subject = "update",
   body = "done",
+  wakeAttempt: string | null = null,
 ) {
   emitLine(child, {
     protocol,
@@ -196,6 +197,7 @@ function mail(
     from: "peer",
     subject,
     body,
+    wakeAttempt,
   });
 }
 
@@ -265,8 +267,8 @@ test("input channel proves a live turn only when the provider dequeues it", asyn
 test("subscription separates readiness, admits once, and acks the exact message ID", async () => {
   const h = harness();
   const admitted: string[] = [];
-  const subscription = subscribeFeed("agent-test", (summary) => {
-    admitted.push(summary);
+  const subscription = subscribeFeed("agent-test", (mail) => {
+    admitted.push(mail.summary);
     return true;
   }, h.runtime);
   const child = h.children[0]!;
@@ -295,7 +297,7 @@ test("deferred replay claims no follow-up before terminal and catches up after p
   await stream.next();
   const subscription = subscribeFeed(
     "agent-test",
-    (summary) => channel.push(summary),
+    (mail) => channel.push(mail.summary),
     h.runtime,
   );
   const child = h.children[0]!;
@@ -485,7 +487,7 @@ test("subscription acks only after the provider dequeues the queued turn", async
   expect((await stream.next()).value?.text).toBe("initial");
   const stop = subscribeFeed(
     "agent-test",
-    (summary) => channel.push(summary),
+    (mail) => channel.push(mail.summary),
     h.runtime,
   );
   const child = h.children[0]!;
@@ -516,9 +518,9 @@ test("channel end before dequeue nacks and the same message remains retryable", 
   let stream = channel.stream();
   await stream.next();
   let admissions = 0;
-  const stop = subscribeFeed("agent-test", (summary) => {
+  const stop = subscribeFeed("agent-test", (mail) => {
     admissions++;
-    return channel.push(summary);
+    return channel.push(mail.summary);
   }, h.runtime);
   const child = h.children[0]!;
 
@@ -557,7 +559,7 @@ test("admission timeout withdraws a queued turn and nacks its claim", async () =
   await stream.next();
   const stop = subscribeFeed(
     "agent-test",
-    (summary) => channel.push(summary),
+    (mail) => channel.push(mail.summary),
     h.runtime,
   );
   const child = h.children[0]!;
@@ -599,10 +601,10 @@ test("async admission is serialized and may resolve to a dequeue proof", async (
   await stream.next();
   const gate = deferred<void>();
   const admissions: string[] = [];
-  const stop = subscribeFeed("agent-test", (summary) => {
-    admissions.push(summary);
+  const stop = subscribeFeed("agent-test", (mail) => {
+    admissions.push(mail.summary);
     if (admissions.length === 1) {
-      return gate.promise.then(() => channel.push(summary));
+      return gate.promise.then(() => channel.push(mail.summary));
     }
     return true;
   }, h.runtime);
@@ -676,9 +678,9 @@ test("crash after dequeue but before graph ack replays without a second provider
   const stream = channel.stream();
   await stream.next();
   let admissions = 0;
-  const stop = subscribeFeed("agent-test", (summary) => {
+  const stop = subscribeFeed("agent-test", (mail) => {
     admissions++;
-    return channel.push(summary);
+    return channel.push(mail.summary);
   }, h.runtime);
   const first = h.children[0]!;
   ready(first);
@@ -727,6 +729,29 @@ test("duplicate messages never duplicate channel admission and every replayed cl
   expect(child.stdin.writes.filter(
     (line) => line === '{"type":"ack","id":"@msg:duplicate"}\n',
   )).toHaveLength(2);
+  stop();
+});
+
+test("remembered wake messages revalidate their receipt before replay acknowledgement", async () => {
+  const h = harness();
+  let admissions = 0;
+  const stop = subscribeFeed("agent-test", () => {
+    admissions++;
+    return admissions === 1;
+  }, h.runtime);
+  const child = h.children[0]!;
+  const attempt = `wake:${"a".repeat(64)}`;
+  ready(child);
+  mail(child, "@msg:wake-duplicate", "msg", "follow up", attempt);
+  mail(child, "@msg:wake-duplicate", "msg", "follow up", attempt);
+  await settle();
+  expect(admissions).toBe(2);
+  expect(child.stdin.writes.filter(
+    (line) => line === '{"type":"ack","id":"@msg:wake-duplicate"}\n',
+  )).toHaveLength(1);
+  expect(child.stdin.writes.filter(
+    (line) => line === '{"type":"nack","id":"@msg:wake-duplicate"}\n',
+  )).toHaveLength(1);
   stop();
 });
 

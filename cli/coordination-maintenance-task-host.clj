@@ -373,7 +373,7 @@
                 "bb" (str (.getParent (io/file (System/getProperty "babashka.file"))) "/msg-cli.clj")
                 (str port) "send" "north-lane-lifecycle-janitor" coord "URGENT"
                 (str "lane " h
-                     " died unreported (presence lapsed >30min, no committed terminal) — reaped by the lane lifecycle janitor"))
+                     " died unreported (liveness lease lapsed >30min, no committed terminal) — reaped by the lane lifecycle janitor"))
     (catch Throwable _ nil)))
 
 ;; ---- impure GATHER for the reap verdict (pure logic lives in north.reap) ------------
@@ -584,7 +584,7 @@
                  {"outcome" "died-unreported"
                   "process_outcome" "died-unreported"
                   "delivery_outcome" "blocked"
-                  "delivery_reason" "presence_lapsed_without_committed_terminal"})
+                  "delivery_reason" "liveness_lease_lapsed_without_committed_terminal"})
         result (proc/shell {:out :string :err :string :continue true}
                            "bb" agent-fact-writer (str port) "terminal" subject payload)]
     (when-not (zero? (:exit result))

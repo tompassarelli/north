@@ -9,6 +9,10 @@
 
 (def checks (atom []))
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
+(def forbidden-online-token
+  #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)")
+(defn public-output-clean? [output]
+  (not (re-find forbidden-online-token (str output))))
 
 ;; Delegate launches must honor the resolved NORTH_POLICY_BUN executable.  A
 ;; literal `bun` here regresses direct-checkout launches when PATH is minimal.
@@ -699,13 +703,15 @@
   (check "native live sessions never depend on run telemetry for roster identity"
          (= ["lane-active" "lane-done"] @run-ids))
   (check "ordinary roster output hides the internal presence probe"
-         (not (str/includes? out "presence-cli.clj"))))
+         (and (not (str/includes? out "presence-cli.clj"))
+              (public-output-clean? out))))
 
 (let [out (with-redefs [presence-rows (fn [] {:agents []})
                         roster-facts (fn [_] {:agents {} :sessions {}})]
             (with-out-str (cmd-agents ["--verbose"])))]
   (check "verbose roster output names the STORE RPC presence projection"
-         (str/includes? out "STORE RPC presence projection :7977")))
+         (and (str/includes? out "Store RPC liveness lease projection :7977")
+              (public-output-clean? out))))
 
 (let [exp (+ (System/currentTimeMillis) 8000)
       calls (atom [])
@@ -728,7 +734,7 @@
                 (:online row)
                 (<= 6 (:expires-s row) 8))))
   (check "missing batched lease status fails closed"
-         (= "presence projection was malformed" (:err malformed))))
+         (= "liveness lease projection was malformed" (:err malformed))))
 
 (let [help (proc/shell {:out :string :err :string :continue true
                         :extra-env {"NO_COLOR" "1"}}
@@ -743,7 +749,9 @@
          (and (= 1 (:exit unknown))
               (str/includes? (:err unknown) "unknown option --bogus")
               (not (str/includes? (str (:out unknown) (:err unknown))
-                                  "presence-cli.clj")))))
+                                  "presence-cli.clj"))
+              (public-output-clean? (str (:out help) (:err help)
+                                         (:out unknown) (:err unknown))))))
 
 (let [msg (proc/shell {:out :string :err :string :continue true
                          :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
@@ -889,7 +897,7 @@
                   "north-goal-fence-"
                   (make-array java.nio.file.attribute.FileAttribute 0)))
       bare "lane-fence"
-      fence-file (io/file directory (str bare ".presence-fence.json"))
+      fence-file (io/file directory (str bare ".liveness-fence.json"))
       valid (str "{\"resource\":\"session:" bare
                  "\",\"holder\":\"" bare "\",\"epoch\":7}\n")
       owner-only

@@ -43,7 +43,7 @@
       server
       (proc/process
        {:dir store :out :string :err :string
-                    "BEAGLE_STORE_SERVER_QUIET" "1"
+        :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1"
                     "BEAGLE_STORE_SERVER_XMX" "1g"}}
        (str store "/bin/beagle-store-server") "serve" (str port) log space)]
   (try
@@ -85,8 +85,10 @@
           output (str (:out retired) (:err retired))]
       (check! "presence compact stays absent"
               (and (= 2 (:exit retired))
-                   (str/includes? output "usage: presence-cli.clj")
-                   (not (str/includes? output "|compact")))))
+                   (str/includes? output "usage: north lease-internal")
+                   (not (str/includes? output "|compact"))
+                   (not (re-find #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)"
+                                 output)))))
 
     (check! "runtime sources contain no compact helper reference"
             (not-any?
