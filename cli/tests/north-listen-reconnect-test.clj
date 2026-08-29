@@ -35,6 +35,29 @@
   (swap! checks conj [label (boolean value)])
   (println (if value (str "PASS " label) (str "FAIL " label))))
 
+(let [coordinate (store.types/occurrence-coordinate
+                  (store.types/transaction-coordinate "listener-test" 7) 0)
+      lease (store.types/triple "@holder:test" :kernel/expires-at 1234)
+      proposition (store.types/triple "@resource:test" :kernel/lease lease)
+      occurrence-event! (ns-resolve 'north.coord 'occurrence-event!)
+      malformed-error
+      (try
+        (occurrence-event!
+         [coordinate store.types/assert-action "not-a-triple"])
+        nil
+        (catch clojure.lang.ExceptionInfo error error))]
+  (check "typed lease occurrence decodes without changing its proposition terms"
+         (= {:operation :assert
+             :subject "@resource:test"
+             :predicate :kernel/lease
+             :value lease
+             :version 7}
+            (occurrence-event!
+             [coordinate store.types/assert-action proposition])))
+  (check "malformed occurrence outer rows still reject"
+         (= :malformed-occurrence-window
+            (:type (ex-data malformed-error)))))
+
 (let [events (atom [])]
   (with-redefs [fenced-listener-state!
                 (fn [_ state] (swap! events conj state))]
