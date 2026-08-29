@@ -299,7 +299,7 @@
 (def orchestration-presets-by-name
   (north.orchestration-staffing/presets-by-name orchestration-staffing))
 
-(def task-grade-values ["novice" "junior" "mid" "senior" "staff" "principal" "research-grade"])
+(def task-grade-values ["novice" "junior" "mid" "senior" "staff" "principal" "distinguished"])
 (def topology-values ["worker" "orchestrator"])
 (def tier-values ["economy" "standard" "senior" "frontier"])
 (def reasoning-values ["low" "medium" "high" "xhigh" "max"])

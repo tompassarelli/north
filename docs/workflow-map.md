@@ -273,7 +273,8 @@ done criteria, report shape, and fixed topology/capability boundary fit; only
 task grade, domains, tier, reasoning, or posture may be explicitly overridden
 while those properties remain unchanged. Any topology/authority change — or a
 different responsibility, deliverable, done criteria, report shape, or
-capability boundary — requires a bespoke role, and that composition decision
+capability boundary — requires a bespoke composition independent of role
+identity, and that composition decision
 is recorded.
 **Lineage:** SDK-lane via `spawn.ts`.
 

@@ -93,14 +93,14 @@
    :card {:section :agents :form "north lanes"
           :text "postmortem lane liveness from durable receipts"}}
   {:verb "spawn" :form "north spawn <role> \"<prompt>\"" :topic :agents
-   :summary "compose a worker from Orchestration's staffing catalog"
+   :summary "compose an independent role identity with a template or bespoke composition"
    :details ["--provider auto|anthropic|openai — select or auto-route the provider"
              "--taskGrade/--domain — independently override stock staffing axes"
              "--topology — bespoke compositions only; stock topology is fixed"
              "--tier/--reasoning/--posture — capability, deliberation, posture"
              "--assessment JSON|@file — selection sidecar (required for max)"
              "--pin-evidence JSON|@file — typed reason + <=24h expiry for exact pins"
-             "--rationale \"why\" — required for a bespoke role"
+             "--rationale \"why\" — required for a bespoke composition"
              "--doctor [--deep|--canary|--json] — test every dispatch invariant at once"
              "in-harness agents dispatch via MCP: mcp__north__dispatch / spawn"]}
   {:verb "templates" :form "north templates" :topic :agents
