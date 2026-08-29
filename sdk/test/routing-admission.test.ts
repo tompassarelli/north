@@ -16,8 +16,11 @@ afterEach(() => {
   else process.env.AGENT_TOPOLOGY = inheritedTopology;
 });
 
-const invalidProfile = projectProfileFixtures.invalid[0]!.profile;
-const invalidProfileError = projectProfileFixtures.invalid[0]!.errorContains;
+const invalidProfileFixture = projectProfileFixtures.invalid.find(({ name }) =>
+  name === "core claim correctness cannot admit generalized assurance");
+if (!invalidProfileFixture) throw new Error("missing release-only lifecycle negative fixture");
+const invalidProfile = invalidProfileFixture.profile;
+const invalidProfileError = invalidProfileFixture.errorContains;
 
 function expectDefaultResearchProfile(projectProfile: ResolvedProjectExposureProfile): void {
   expect(projectProfile.facts).toEqual({
@@ -27,7 +30,7 @@ function expectDefaultResearchProfile(projectProfile: ResolvedProjectExposurePro
     correctness: "exact-bounded-claim",
     boundaries: [],
     stage: "exploratory",
-    explicitLifecycleEscalation: false,
+    explicitLifecycleActions: [],
   });
   expect(projectProfile.engineeringContext).toBe("volatile-owner-controlled-research");
   expect(projectProfile.lifecycleBudget).toEqual([]);

@@ -3,17 +3,17 @@
     "agent-machinery-source": {
       "flake": false,
       "locked": {
-        "lastModified": 1788026200,
-        "narHash": "sha256-DqGj27fiUfjUy0QsqMl1HSUZ9CYRUWUxHhlVHlWFRMc=",
+        "lastModified": 1788041839,
+        "narHash": "sha256-mndvkCTcNVS0UcvkuUe2mbjycVml59AVC2bpIhtduPc=",
         "owner": "tompassarelli",
         "repo": "agent-machinery",
-        "rev": "fb5b211db297021b6f78ffe1bbbc2947fb5cbcab",
+        "rev": "8a3f1cdbd1d6797d5db34477211f8b8ab03c1953",
         "type": "github"
       },
       "original": {
         "owner": "tompassarelli",
         "repo": "agent-machinery",
-        "rev": "fb5b211db297021b6f78ffe1bbbc2947fb5cbcab",
+        "rev": "8a3f1cdbd1d6797d5db34477211f8b8ab03c1953",
         "type": "github"
       }
     },
