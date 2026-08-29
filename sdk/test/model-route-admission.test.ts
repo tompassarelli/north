@@ -29,6 +29,7 @@ import {
 import { agentRouteFacts } from "../src/identity";
 import { normalizeAnthropicSupportedModels } from "../src/providers/anthropic-models";
 import { normalizeCodexSupportedModels } from "../src/providers/codex-models";
+import type { CodexAccountAuthority } from "../src/accounts";
 import { anthropicProvider } from "../src/providers/anthropic";
 import {
   canonicalHarnessModelAvailability,
@@ -39,6 +40,7 @@ import { ProviderRetrySafeError } from "../src/providers/types";
 import type { StartAnthropicControl } from "../src/providers/anthropic-control";
 import type {
   ProviderAvailability,
+  ProviderUsageObservation,
   ResourcePolicy,
   RoutingTarget,
 } from "../src/providers/types";
@@ -54,7 +56,7 @@ const isolated: RoutingTarget = {
   id: "claude-work", provider: "anthropic", authMode: "isolated", profile: "work",
 };
 const openai: RoutingTarget = {
-  id: "codex-personal", provider: "openai", authMode: "ambient",
+  id: "codex-personal", provider: "openai", authMode: "isolated", profile: "personal",
 };
 const openaiWork: RoutingTarget = {
   id: "codex-work", provider: "openai", authMode: "isolated", profile: "work",
@@ -79,6 +81,65 @@ function observed(target: RoutingTarget, values: string[]) {
   return target.provider === "anthropic"
     ? normalizeAnthropicSupportedModels(values.map((value) => ({ value })), target, now)
     : normalizeCodexSupportedModels(values, target, now);
+}
+
+function codexAuthority(
+  target: RoutingTarget,
+  role: "execution" | "oversight" = "execution",
+): CodexAccountAuthority {
+  const executionEligible = role === "execution";
+  return Object.freeze({
+    role,
+    executionEligible,
+    receipt: Object.freeze({
+      version: "north:codex-account-authority:v1" as const,
+      subject: `@account:${target.id}`,
+      servedVersion: 41,
+      facts: Object.freeze([
+        { predicate: "kind" as const, value: "provider_account" },
+        { predicate: "account_id" as const, value: target.id },
+        { predicate: "provider" as const, value: "openai" },
+        { predicate: "provider_profile" as const, value: target.profile! },
+        { predicate: "account_role" as const, value: role },
+        { predicate: "execution_eligible" as const, value: executionEligible ? "true" : "false" },
+      ]),
+      digest: "a".repeat(64),
+    }),
+  });
+}
+
+function codexUsage(target: RoutingTarget): StoreObservationSnapshot<ProviderUsageObservation> {
+  return Object.freeze({
+    observation: Object.freeze({
+      targetId: target.id,
+      provider: "openai" as const,
+      source: "codex-app-server:account-rate-limits" as const,
+      observedAt: new Date().toISOString(),
+      windows: Object.freeze([Object.freeze({
+        limitId: "codex:primary",
+        usedPercent: 12,
+        resetsAt: "2099-01-01T00:00:00.000Z",
+      })]),
+    }),
+    receipt: Object.freeze({
+      version: "north:provider-observation:v1" as const,
+      subject: `@provider-observation:usage:${target.id}`,
+      digest: "b".repeat(64),
+      servedVersion: 42,
+    }),
+  });
+}
+
+function modelSnapshot(observation: ProviderModelObservation): StoreObservationSnapshot<ProviderModelObservation> {
+  return Object.freeze({
+    observation,
+    receipt: Object.freeze({
+      version: "north:provider-observation:v1" as const,
+      subject: `@provider-observation:model:${observation.targetId}`,
+      digest: "c".repeat(64),
+      servedVersion: 43,
+    }),
+  });
 }
 
 function usageResponse() {
@@ -612,6 +673,8 @@ test("execution selector owns exactly one OpenAI account refresh", async () => {
       probeOpenAI: () => ({
         targetId: openai.id, provider: "openai", available: true, reason: "ready",
       }),
+      readCodexAccountAuthority: async (target) => codexAuthority(target),
+      loadCodexUsage: async (target) => codexUsage(target),
       refreshAccountUsages: async (options) => {
         refreshes++;
         refreshedAccounts = options.accounts;
@@ -684,6 +747,8 @@ test("partial explicit pins keep Store-backed execution selection fail-closed", 
 
 test("execution selector collects exact-model evidence only for the selected OpenAI target", async () => {
   let refreshOptions: Parameters<typeof refreshAccountUsages>[0] | undefined;
+  let modelListObservations = 0;
+  let selectedObservation: ProviderModelObservation | undefined;
   const decision = await selectProviderForExecution(
     "openai",
     policy([openai, openaiWork]),
@@ -698,12 +763,16 @@ test("execution selector collects exact-model evidence only for the selected Ope
         available: true,
         reason: "ready",
       }),
+      readCodexAccountAuthority: async (target) => codexAuthority(target),
+      loadCodexUsage: async (target) => codexUsage(target),
       refreshAccountUsages: async (options) => {
         refreshOptions = options;
+        modelListObservations++;
         const observedAt = new Date();
         const modelObservation = normalizeCodexSupportedModels(
           ["gpt-5.6-sol"], openai, observedAt,
         );
+        selectedObservation = modelObservation;
         return [{
           accountId: openai.id,
           provider: "openai",
@@ -722,6 +791,10 @@ test("execution selector collects exact-model evidence only for the selected Ope
           modelAvailabilityAttempt: { status: "persisted", observation: modelObservation },
         }];
       },
+      loadProviderModelObservation: async (target) =>
+        target.id === openai.id && selectedObservation
+          ? modelSnapshot(selectedObservation)
+          : undefined,
     },
   );
   expect(refreshOptions).toMatchObject({
@@ -738,6 +811,79 @@ test("execution selector collects exact-model evidence only for the selected Ope
       [openai.id]: { model: "gpt-5.6-sol" },
     },
   });
+  expect(modelListObservations).toBe(1);
+});
+
+test("selected OpenAI exact-model admission stays blocked on missing, stale, or failed evidence", async () => {
+  const targetPolicy = policy([openai]);
+  const context = {
+    tier: "frontier" as const,
+    reasoning: "xhigh" as const,
+    model: "gpt-5.6-sol",
+    stableKey: "codex-model-fail-closed",
+  };
+  const dependencies = {
+    readCodexAccountAuthority: async (target: RoutingTarget) => codexAuthority(target),
+    loadCodexUsage: async (target: RoutingTarget) => codexUsage(target),
+  };
+  const blocked = { kind: "blocked_preflight", preSideEffect: true, processOutcome: "blocked_preflight" };
+
+  await expect(selectProviderForExecution(
+    { target: openai.id }, targetPolicy, context,
+    { ...dependencies, refreshAccountUsages: async () => [], loadProviderModelObservation: async () => undefined },
+  )).rejects.toMatchObject(blocked);
+
+  const stale = normalizeCodexSupportedModels(
+    ["gpt-5.6-sol"], openai,
+    new Date(Date.now() - PROVIDER_MODEL_OBSERVATION_TTL_MS - 1),
+  );
+  await expect(selectProviderForExecution(
+    { target: openai.id }, targetPolicy, context,
+    {
+      ...dependencies,
+      refreshAccountUsages: async () => [],
+      loadProviderModelObservation: async () => modelSnapshot(stale),
+    },
+  )).rejects.toMatchObject(blocked);
+
+  const positive = normalizeCodexSupportedModels(["gpt-5.6-sol"], openai, new Date());
+  await expect(selectProviderForExecution(
+    { target: openai.id }, targetPolicy, context,
+    {
+      ...dependencies,
+      refreshAccountUsages: async () => [{
+        accountId: openai.id,
+        provider: "openai",
+        source: "codex-app-server:account-rate-limits",
+        observedAt: new Date().toISOString(),
+        status: "unavailable",
+        cached: false,
+        observation: codexUsage(openai).observation,
+        unavailableComponents: [],
+        modelAvailabilityAttempt: {
+          status: "unavailable",
+          targetId: openai.id,
+          attemptedAt: new Date().toISOString(),
+          reason: "codex_models_refresh_unavailable",
+        },
+      }],
+      loadProviderModelObservation: async () => modelSnapshot(positive),
+    },
+  )).rejects.toMatchObject(blocked);
+});
+
+test("Store oversight role never enters OpenAI preliminary execution eligibility", async () => {
+  let refreshes = 0;
+  await expect(selectProviderForExecution(
+    { target: openai.id }, policy([openai]),
+    { tier: "standard", reasoning: "medium", stableKey: "oversight-exclusion" },
+    {
+      readCodexAccountAuthority: async (target) => codexAuthority(target, "oversight"),
+      loadCodexUsage: async (target) => codexUsage(target),
+      refreshAccountUsages: async () => { refreshes++; return []; },
+    },
+  )).rejects.toMatchObject({ kind: "provider_unavailable", preSideEffect: true });
+  expect(refreshes).toBe(0);
 });
 
 test("selector cancellation is pre-side-effect and cannot return a fallback route", async () => {
@@ -761,6 +907,8 @@ test("selector cancellation is pre-side-effect and cannot return a fallback rout
     { tier: "standard", reasoning: "medium", signal: during.signal },
     {
       probeOpenAI: () => ({ provider: "openai", available: true, reason: "ready" }),
+      readCodexAccountAuthority: async (target) => codexAuthority(target),
+      loadCodexUsage: async (target) => codexUsage(target),
       refreshAccountUsages: async () => {
         during.abort(new Error("PRIVATE POST-REFRESH ABORT"));
         return [];

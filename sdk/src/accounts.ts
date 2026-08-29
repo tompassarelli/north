@@ -110,6 +110,17 @@ function authorityDigest(subject: string, servedVersion: number, facts: readonly
   })).digest("hex");
 }
 
+function codexAccountAuthorityFacts(target: RoutingTarget, role: CodexAccountRole): StoreAccountAuthorityFact[] {
+  return [
+    { predicate: "kind", value: "provider_account" },
+    { predicate: "account_id", value: target.id },
+    { predicate: "provider", value: "openai" },
+    { predicate: "provider_profile", value: target.profile! },
+    { predicate: "account_role", value: role },
+    { predicate: "execution_eligible", value: role === "execution" ? "true" : "false" },
+  ];
+}
+
 /**
  * Reads the only semantic admission facts for an isolated Codex account.
  * Configuration locates credentials; a missing, duplicate, or contradictory
@@ -192,14 +203,7 @@ export async function publishCodexAccountAuthority(
         throw new Error(`Store account authority already exists and does not exactly admit ${target.id} as ${role}`);
       return authority.receipt;
     }
-    const facts: StoreAccountAuthorityFact[] = [
-      { predicate: "kind", value: "provider_account" },
-      { predicate: "account_id", value: target.id },
-      { predicate: "provider", value: "openai" },
-      { predicate: "provider_profile", value: target.profile },
-      { predicate: "account_role", value: role },
-      { predicate: "execution_eligible", value: role === "execution" ? "true" : "false" },
-    ];
+    const facts = codexAccountAuthorityFacts(target, role);
     await client.batch(facts.map(({ predicate, value }) => ({
       op: "assert" as const,
       proposition: triple(subject, predicate, value),
@@ -209,6 +213,68 @@ export async function publishCodexAccountAuthority(
     if (!authority || authority.role !== role)
       throw new Error(`Store account authority publication could not be verified for ${target.id}`);
     return authority.receipt;
+  } finally {
+    if (ownedClient) client.close();
+  }
+}
+
+/**
+ * Set Store execution authority for an already-configured isolated Codex
+ * account. Repeating the same role is a read-only verification; changing a
+ * valid existing role atomically replaces only North's exact authority facts.
+ */
+export async function setCodexAccountRole(
+  id: string,
+  role: CodexAccountRole,
+  context: AccountContext = {},
+  dependencies: CodexAccountAuthorityPublisherDependencies = {},
+): Promise<StoreAccountAuthorityReceipt> {
+  if (role !== "execution" && role !== "oversight")
+    throw new Error("Codex account role must be execution or oversight");
+  const account = requireProviderAccount(id, context);
+  if (account.provider !== "openai")
+    throw new Error(`isolated account ${id} belongs to ${account.provider}, not openai`);
+  const target: RoutingTarget = {
+    id: account.id,
+    provider: "openai",
+    profile: account.profile,
+    authMode: "isolated",
+  };
+  const subject = codexAccountAuthoritySubject(id);
+  const ownedClient = dependencies.client === undefined;
+  const client = dependencies.client ?? await StoreRpcClient.connect({ maxAttempts: 1, retryDelayMs: 0, jitterMs: 0 });
+  try {
+    const existing = await client.scanAll(subject, null, null);
+    if (!existing.rows.length)
+      return publishCodexAccountAuthority(target, role, { client });
+    const authority = await readCodexAccountAuthority(target, { client });
+    const exactRows = existing.rows.every((row) => row instanceof StoreTriple
+      && row.t1 === subject
+      && typeof row.t2 === "string"
+      && typeof row.t3 === "string"
+      && CODEX_ACCOUNT_AUTHORITY_PREDICATES.includes(
+        row.t2 as typeof CODEX_ACCOUNT_AUTHORITY_PREDICATES[number],
+      ));
+    if (!authority || !exactRows || existing.rows.length !== CODEX_ACCOUNT_AUTHORITY_PREDICATES.length)
+      throw new Error(`Store account authority for ${id} is malformed or contains unowned facts`);
+    if (authority.role === role) return authority.receipt;
+    const facts = codexAccountAuthorityFacts(target, role);
+    await client.batch([
+      ...existing.rows.map((row) => ({
+        op: "retract" as const,
+        proposition: row as StoreTriple,
+        policy: RPC_SUBJECT_ANY,
+      })),
+      ...facts.map(({ predicate, value }) => ({
+        op: "assert" as const,
+        proposition: triple(subject, predicate, value),
+        policy: RPC_SUBJECT_ANY,
+      })),
+    ], { expectedVersion: existing.servedVersion });
+    const updated = await readCodexAccountAuthority(target, { client });
+    if (!updated || updated.role !== role)
+      throw new Error(`Store account authority update could not be verified for ${id}`);
+    return updated.receipt;
   } finally {
     if (ownedClient) client.close();
   }
