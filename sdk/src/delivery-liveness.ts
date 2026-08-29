@@ -93,10 +93,10 @@ function nonEmptyString(value: unknown, label: string): string {
   return value;
 }
 
-function storePathOrNull(value: unknown, label: string): string | null {
+function absolutePathOrNull(value: unknown, label: string): string | null {
   if (value === null) return null;
   const path = nonEmptyString(value, label);
-  if (!path.startsWith("/nix/store/") || path.includes("\0"))
+  if (!isAbsolute(path) || path.includes("\0"))
     authorityError(`delivery_liveness_authority_malformed:${label}`);
   return path;
 }
@@ -164,8 +164,8 @@ export function parseDeliveryLivenessFact(value: unknown): DeliveryLivenessFact 
     failingCheck: fact.failing_check as string | null,
     inputs: { nixosConfig },
     firn: {
-      current: storePathOrNull(firn.current, "firn.current"),
-      candidate: storePathOrNull(firn.candidate, "firn.candidate"),
+      current: absolutePathOrNull(firn.current, "firn.current"),
+      candidate: absolutePathOrNull(firn.candidate, "firn.candidate"),
     },
   };
 }
