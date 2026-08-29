@@ -119,7 +119,8 @@ import {
 import { resolveTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import {
-  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+  admitResolvedRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+  type ResolvedProjectExposureProfile,
 } from "./routing-admission";
 import {
   orchestrationCapabilities,
@@ -400,12 +401,14 @@ interface RetryContext {
 
 function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
   routingMetadata: RoutingRequest;
+  projectProfile: ResolvedProjectExposureProfile;
   routingEconomics: AdmittedRoutingEconomics;
 } {
-  const routingMetadata = admitRoutingRequest(
+  const admission = admitResolvedRoutingRequest(
     opts.routingMetadata ?? {}, "managed North spawn",
     { projectProfile: opts.projectProfile },
   );
+  const routingMetadata = admission.routingRequest;
   const routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
     routingAssessment: opts.routingAssessment,
@@ -421,7 +424,7 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
   return {
     ...opts,
     routingMetadata,
-    projectProfile: opts.projectProfile,
+    projectProfile: admission.projectProfile,
     routingAssessment: routingEconomics.assessment,
     pinEvidence: routingEconomics.pinEvidence,
     routingEconomics,
@@ -432,6 +435,7 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
 async function runSpawn(
   opts: SpawnOptions & {
     routingMetadata: RoutingRequest;
+    projectProfile: ResolvedProjectExposureProfile;
     routingEconomics: AdmittedRoutingEconomics;
   },
   judgmentGrade: JudgmentGradeSnapshot,
@@ -907,6 +911,7 @@ async function runSpawn(
       receipt: routing.modelAvailabilityReceipts?.[routing.target],
     },
     routingMetadata,
+    projectProfile: opts.projectProfile,
     // Worktree lane: run tools IN the worktree (cwd) and append the
     // isolation+landing+verify protocol to the prompt. Composed HERE so
     // harness.ts stays a thin cwd knob.

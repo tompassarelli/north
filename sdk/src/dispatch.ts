@@ -46,7 +46,8 @@ import {
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
 import {
-  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+  admitResolvedRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+  type ResolvedProjectExposureProfile,
 } from "./routing-admission";
 import {
   orchestrationCapabilities,
@@ -277,7 +278,7 @@ async function runDispatch(
   runEstimate: RunEstimateSnapshot | undefined,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: RoutingRequest,
-  projectProfile?: unknown,
+  projectProfile?: ResolvedProjectExposureProfile,
   routingEconomics?: AdmittedRoutingEconomics,
   hydratedWorkingDirectory?: string,
   hydratedAgentId?: string,
@@ -1423,10 +1424,12 @@ export async function dispatch(
   // Routing admission is the first request-dependent boundary. Even a
   // completed thread must not make an incomplete/hostile managed envelope look
   // accepted, and a preclaimed fast path must not touch driver state first.
-  let routingMetadata = admitRoutingRequest(
+  const routingAdmission = admitResolvedRoutingRequest(
     admitted.routingMetadata ?? {}, "managed North dispatch",
     { projectProfile: admitted.projectProfile },
   );
+  let routingMetadata = routingAdmission.routingRequest;
+  const projectProfile = routingAdmission.projectProfile;
   let routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
     routingAssessment: admitted.routingAssessment,
@@ -1538,7 +1541,7 @@ export async function dispatch(
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     result = await runDispatch(
       threadId, judgmentGrade, strugglePolicy, runEstimate,
-      admission, routingMetadata, admitted.projectProfile, routingEconomics,
+      admission, routingMetadata, projectProfile, routingEconomics,
       workingDirectory, agentId, injected.queryFn,
       facts, children, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,
