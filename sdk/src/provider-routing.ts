@@ -1398,9 +1398,9 @@ export async function selectProviderForExecution(
     { enforceModelObservations: false },
   );
   const requiredRefreshTargets = staticallyRequiredTargets.filter((target) =>
-    target.provider === "anthropic" && target.id === preliminary.target);
+    target.id === preliminary.target);
   const attempts = await collectExecutionModelRefreshAttempts(
-    probeTargets.filter((target) => target.provider === "anthropic"), requiredRefreshTargets, preference,
+    probeTargets.filter((target) => target.provider === preliminary.provider), requiredRefreshTargets, preference,
     dependencies.refreshAccountUsages ?? refreshAccountUsages,
     context.signal,
   );

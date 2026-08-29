@@ -231,6 +231,54 @@ test("add preserves routing fields, isolates roots, and links only allowlisted c
   ]) expect(() => lstatSync(forbidden)).toThrow();
 }, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
 
+test("an existing Codex target can publish, verify, and change its Store role without touching account state", async () => {
+  const { home, policy, run } = fixture();
+  const id = "codex-existing-role";
+  const target = {
+    id, provider: "openai" as const, profile: id, authMode: "isolated" as const,
+  };
+  const document = JSON.parse(readFileSync(policy, "utf8"));
+  document.targets.push(target);
+  document.targetOrder.push(id);
+  writeFileSync(policy, `${JSON.stringify(document, null, 2)}\n`);
+  const policyBefore = readFileSync(policy, "utf8");
+  const accountRoot = join(home, ".local/state/north/accounts/openai", id);
+  expect(existsSync(accountRoot)).toBe(false);
+
+  const first = run("role", id, "execution");
+  expect(first.status).toBe(0);
+  expect(first.stdout).toContain(`set Store role execution for ${id}`);
+  const execution = await readCodexAccountAuthority(target);
+  expect(execution).toMatchObject({
+    role: "execution",
+    executionEligible: true,
+    receipt: {
+      version: "north:codex-account-authority:v1",
+      subject: `@account:${id}`,
+      facts: [
+        { predicate: "kind", value: "provider_account" },
+        { predicate: "account_id", value: id },
+        { predicate: "provider", value: "openai" },
+        { predicate: "provider_profile", value: id },
+        { predicate: "account_role", value: "execution" },
+        { predicate: "execution_eligible", value: "true" },
+      ],
+    },
+  });
+
+  const repeated = run("role", id, "execution");
+  expect(repeated.status).toBe(0);
+  expect(repeated.stdout).toContain(execution!.receipt.digest);
+
+  const oversightResult = run("role", id, "oversight");
+  expect(oversightResult.status).toBe(0);
+  expect(await readCodexAccountAuthority(target)).toMatchObject({
+    role: "oversight", executionEligible: false,
+  });
+  expect(readFileSync(policy, "utf8")).toBe(policyBefore);
+  expect(existsSync(accountRoot)).toBe(false);
+}, ACCOUNT_PROCESS_TEST_TIMEOUT_MS);
+
 test("remove drops the target, every reference to it, and its storage root", () => {
   const { home, policy, run } = fixture();
   expect(run("add", "claude-work", "anthropic").status).toBe(0);
@@ -591,6 +639,7 @@ test("account help advertises the grouped list and verbose diagnostics", () => {
   const help = run("--help");
   expect(help.status).toBe(0);
   expect(help.stdout).toContain("north account list [--verbose]   grouped accounts + live login state");
+  expect(help.stdout).toContain("north account role <id> <execution|oversight>");
   expect(help.stdout).toContain("north account usage [id] [--refresh] [--hours N]  subscription windows + live session activity");
   expect(help.stdout).toContain("north account availability [--model M] [--json]  cached account headroom verdicts");
   expect(help.stdout).toContain("--model M  restrict usability to one cached model-scoped rung");

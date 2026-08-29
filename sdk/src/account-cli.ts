@@ -5,6 +5,7 @@ import {
   loginProviderAccount,
   removeProviderAccount,
   requireProviderAccount,
+  setCodexAccountRole,
   statusProviderAccount,
   type AccountAuthState,
   type ProviderAccount,
@@ -36,6 +37,7 @@ import {
 const USAGE = `usage: north account <command>
 
   north account add <safe-id> <anthropic|openai> [--role execution|oversight]
+  north account role <id> <execution|oversight>
   north account remove <id> [--keep-data]
   north account login <id>
   north account status [id]
@@ -47,7 +49,7 @@ const USAGE = `usage: north account <command>
 
 Options:
   --keep-data  drop the routing target but leave the account's storage root on disk
-  --role  required for Codex accounts; explicit Store execution or oversight admission
+  --role  required when adding Codex accounts; explicit Store execution or oversight admission
   --model M  restrict usability to one cached model-scoped rung
   --json     emit the stable account availability row array
   --refresh  bypass the five-minute authoritative usage cache
@@ -467,6 +469,15 @@ export async function runAccountCli(args: string[]): Promise<number> {
         console.log(`removed routing target ${account.id} (${account.provider})`);
         if (removedRoot) console.log(`deleted ${removedRoot}`);
         else console.log(`kept ${account.root}`);
+        return 0;
+      }
+      case "role": {
+        const [id, role] = rest;
+        if (!id || rest.length !== 2 || (role !== "execution" && role !== "oversight"))
+          throw new Error(USAGE);
+        const receipt = await setCodexAccountRole(id, role);
+        console.log(`set Store role ${role} for ${id}`);
+        console.log(`authority ${receipt.subject} ${receipt.digest} (Store version ${receipt.servedVersion})`);
         return 0;
       }
       case "login": {
