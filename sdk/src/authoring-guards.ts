@@ -25,7 +25,11 @@ import {
   closeSync, constants, existsSync, mkdtempSync, openSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
+import {
+  parseInvocationObservationReceipt,
+  type InvocationObservationReceipt,
+} from "./invocation-observation";
 import { parseStrictJson } from "./strict-json";
 
 // Provider workers consume the current immutable North generation. The exact
@@ -42,8 +46,8 @@ export function authoringHooksDir(env: NodeJS.ProcessEnv = process.env): string 
 export const HOOKS_DIR = authoringHooksDir();
 
 export type GuardDecision =
-  | { decision: "deny"; reason: string }
-  | { decision: "allow" }
+  | { decision: "deny"; reason: string; observation?: InvocationObservationReceipt }
+  | { decision: "allow"; observation?: InvocationObservationReceipt }
   | { decision: "unavailable"; reason: string };
 
 const ALLOW: GuardDecision = { decision: "allow" };
@@ -213,7 +217,7 @@ export function runGuardScript(
         });
       }
       // stdout-JSON deny (the majority of guards) takes precedence, then exit-2 deny.
-      const jsonDecision = parseJsonDecision(stdout);
+      const jsonDecision = parseJsonDecision(stdout, scriptPath);
       if (jsonDecision?.decision === "deny") return finish(jsonDecision);
       if (code === 2) {
         const reason = stderr.trim() || "blocked by authoring guard (exit 2)";
@@ -228,7 +232,7 @@ export function runGuardScript(
 
 // Extract a deny reason from a guard's stdout JSON, or null if it isn't a deny.
 // A guard may print non-JSON (nothing, additionalContext-only, log noise) — all null.
-function parseJsonDecision(stdout: string): GuardDecision | null {
+function parseJsonDecision(stdout: string, scriptPath: string): GuardDecision | null {
   const s = stdout.trim();
   if (!s) return null;
   let obj: any;
@@ -242,15 +246,22 @@ function parseJsonDecision(stdout: string): GuardDecision | null {
     return null; // non-JSON stdout -> no opinion
   }
   const hso = obj?.hookSpecificOutput;
+  const observation = basename(scriptPath) === "firn-system-policy"
+      && typeof hso?.additionalContext === "string"
+    ? parseInvocationObservationReceipt(hso.additionalContext)
+    : undefined;
   if (hso?.permissionDecision === "deny") {
     return {
       decision: "deny",
       reason: typeof hso.permissionDecisionReason === "string"
         ? hso.permissionDecisionReason
         : "blocked by authoring guard",
+      ...(observation?.observation.decision === "deny" ? { observation } : {}),
     };
   }
-  return null;
+  return observation?.observation.decision === "pass"
+    ? { decision: "allow", observation }
+    : null;
 }
 
 // Run a chain of guards in order; FIRST DENY WINS and short-circuits the rest
@@ -261,9 +272,12 @@ export async function evaluateGuards(
   timeoutMs = 10000,
   env?: NodeJS.ProcessEnv,
 ): Promise<GuardDecision> {
+  let observation: InvocationObservationReceipt | undefined;
   for (const p of scriptPaths) {
     const d = await runGuardScript(p, hookInput, timeoutMs, env);
     if (d.decision === "deny") return d;
+    if (d.decision === "allow" && d.observation && !observation)
+      observation = d.observation;
   }
-  return ALLOW;
+  return observation ? { decision: "allow", observation } : ALLOW;
 }

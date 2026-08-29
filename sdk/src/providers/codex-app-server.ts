@@ -31,6 +31,10 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { codexConfigArguments } from "../accounts";
 import { managedNorthMcpEnvironment } from "../execution-admission";
 import {
+  invocationObservationKey, parseInvocationObservationReceipt,
+  type InvocationObservation,
+} from "../invocation-observation";
+import {
   NativeCommandActivityAccumulator, NORTH_BINARY_PROBE_SCRIPT, unknownNativeCommandActivity,
   type NativeCommandActivityObservation, type NativeCommandStatus,
 } from "../native-command-activity";
@@ -309,6 +313,12 @@ export interface ManagedCodexResult {
    * count at all, because this path never counted them).
    */
   toolItems: number;
+  /** Bounded, value-free Firn observations grouped by normalized receipt. */
+  invocationObservations?: readonly ManagedCodexInvocationObservation[];
+}
+
+export interface ManagedCodexInvocationObservation extends InvocationObservation {
+  count: number;
 }
 
 // A later North input message for the same provider thread, or `undefined` to
@@ -395,6 +405,7 @@ export interface ManagedCodexHarvest {
   /** Privacy-safe normalized groups; bounded independently from pendingItemCount. */
   pendingItems?: readonly ManagedCodexPendingItemSummary[];
   usage?: ManagedCodexResult["usage"];
+  invocationObservations?: readonly ManagedCodexInvocationObservation[];
   mcp: McpActivityObservation;
   nativeCommands: NativeCommandActivityObservation;
   unsupportedNotifications: Record<string, number>;
@@ -1727,6 +1738,7 @@ interface RuntimeNotificationState {
   terminalSeen: boolean;
   /** Completed non-message, non-reasoning items observed in the LIVE turn. */
   toolItems: number;
+  invocationObservations: Map<string, ManagedCodexInvocationObservation>;
   /** Provider items observed started but not yet completed, by lifecycle id. */
   openItems: Map<string, {
     kind: string;
@@ -1741,6 +1753,28 @@ interface RuntimeNotificationState {
   nativeCommands: NativeCommandActivityAccumulator;
   /** Names of the MCP servers this session's sealed authority actually grants. */
   mcpServerNames: readonly string[];
+}
+
+function recordInvocationObservation(
+  state: RuntimeNotificationState,
+  observation: InvocationObservation,
+): void {
+  const key = invocationObservationKey(observation);
+  const current = state.invocationObservations.get(key);
+  if (current) {
+    if (current.count < Number.MAX_SAFE_INTEGER)
+      state.invocationObservations.set(key, Object.freeze({ ...current, count: current.count + 1 }));
+    return;
+  }
+  state.invocationObservations.set(key, Object.freeze({ ...observation, count: 1 }));
+}
+
+function invocationObservationInventory(
+  state: RuntimeNotificationState,
+): readonly ManagedCodexInvocationObservation[] | undefined {
+  if (state.invocationObservations.size === 0) return undefined;
+  return Object.freeze([...state.invocationObservations.values()].sort((left, right) =>
+    invocationObservationKey(left).localeCompare(invocationObservationKey(right))));
 }
 
 function pendingItemSnapshot(state: RuntimeNotificationState): {
@@ -2116,6 +2150,7 @@ function validateHookNotification(
       || !Array.isArray(run.entries) || run.entries.length > 64)
     throw new Error("Codex hook run provenance is invalid");
   let hasNonemptyFeedback = false;
+  const observations: InvocationObservation[] = [];
   for (const raw of run.entries) {
     const entry = record(raw, "Codex hook output entry");
     onlyKeys(entry, ["kind", "text"], "Codex hook output entry");
@@ -2125,6 +2160,10 @@ function validateHookNotification(
       throw new Error("Codex hook output is invalid");
     if (entry.kind === "feedback" && String(entry.text).trim())
       hasNonemptyFeedback = true;
+    if (entry.kind === "context") {
+      const receipt = parseInvocationObservationReceipt(entry.text);
+      if (receipt) observations.push(receipt.observation);
+    }
   }
   if (method === "hook/started") {
     if (run.status !== "running" || run.statusMessage !== null || run.completedAt !== null
@@ -2148,6 +2187,14 @@ function validateHookNotification(
       || (run.completedAt as number) < (run.startedAt as number)
       || (run.durationMs as number) < 0 || run.statusMessage !== null)
     throw new Error("Codex managed hook did not complete successfully");
+  // Context from any other guard remains advisory and is deliberately ignored.
+  // Firn emits exactly one receipt; inconsistent transport/decision pairs are
+  // not inventory facts and must not become a mismatch inference.
+  if (eventName === "preToolUse" && observations.length === 1) {
+    const observation = observations[0]!;
+    if ((observation.decision === "deny") === (run.status === "blocked"))
+      recordInvocationObservation(state, observation);
+  }
 }
 
 function validateProgressNotification(
@@ -3434,6 +3481,7 @@ export class ManagedCodexAppServerRun {
         text: "",
         terminalSeen: false,
         toolItems: 0,
+        invocationObservations: new Map(),
         openItems: new Map(),
         mcpActivity: this.mcp,
         nativeCommands: this.nativeCommands,
@@ -3468,6 +3516,7 @@ export class ManagedCodexAppServerRun {
         runtimeState.turnId = undefined;
         runtimeState.terminalSeen = false;
         runtimeState.toolItems = 0;
+        runtimeState.invocationObservations.clear();
         runtimeState.openItems.clear();
         interruptEvidence = undefined;
         turnStartedAt = 0;
@@ -3533,11 +3582,13 @@ export class ManagedCodexAppServerRun {
         this.mcp.complete();
         if (!this.nativeCommands.complete())
           throw new Error("Codex turn completed with unfinished native commands");
+        const invocationObservations = invocationObservationInventory(runtimeState);
         yield {
           text: runtimeState.text,
           usage: runtimeState.usage,
           providerDurationMs: runtimeState.providerDurationMs,
           toolItems: runtimeState.toolItems,
+          ...(invocationObservations ? { invocationObservations } : {}),
           providerJoin: providerJoinEvidence("openai", {
             sessionId: threadId,
             turnIds: [turnId],
@@ -3562,6 +3613,9 @@ export class ManagedCodexAppServerRun {
       }
     } catch (error) {
       primaryFailed = true;
+      const failedInvocationObservations = runtimeState
+        ? invocationObservationInventory(runtimeState)
+        : undefined;
       failure = this.threadStarted
         ? new ManagedCodexHarvestError(this.harvest({
           threadId,
@@ -3571,6 +3625,9 @@ export class ManagedCodexAppServerRun {
           completedTurns,
           text: runtimeState?.text ?? "",
           ...(runtimeState ? { toolItems: runtimeState.toolItems } : {}),
+          ...(failedInvocationObservations
+            ? { invocationObservations: failedInvocationObservations }
+            : {}),
           ...(runtimeState ? pendingItemSnapshot(runtimeState) : {}),
           usage: runtimeState?.usage,
           unsupportedNotifications: rpc.unsupportedNotifications(),

@@ -20,6 +20,7 @@ import { basename, delimiter, dirname, relative, resolve, sep } from "node:path"
 import {
   evaluateGuards, resolveManagedGuardChain,
 } from "./authoring-guards";
+import type { InvocationObservationReceipt } from "./invocation-observation";
 import { recordDenial } from "./guard-log";
 import {
   observeProviderContextWindow, resolveModelAlias, resolveModelDelta, resolveTier,
@@ -1734,8 +1735,9 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // SDK workers execute the catalog-owned adapters from the current immutable
 // activation generation. Every adapter applies its own UnitId gate before owner
 // behavior, so the activation document is the only hook authority.
-//   Edit|Write|MultiEdit -> worktree, concrete-model identity, firn
-//   Bash                 -> worktree, blind-stage, tripwire, firn, corpus-scan,
+//   all hookable tools    -> firn observation/system policy
+//   Edit|Write|MultiEdit -> worktree, concrete-model identity
+//   Bash                 -> worktree, blind-stage, tripwire, corpus-scan,
 //                           session-kill, concrete-model identity
 // The worktree guard is on BOTH entrances because a write into a protected `main`
 // checkout arrives as an Edit or as a shell command, and enforcement on one entrance
@@ -1744,19 +1746,19 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 // by construction.
 // BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
 // (agent-spawn-guard): repository layout and staging discipline bind every lane.
+const FIRN_GUARDS = resolveManagedGuardChain(["firn-system-policy"]);
 const EDIT_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "concrete-model-identity-guard.sh",
-  "firn-system-policy",
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "corpus-scan-guard.sh",
   "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "firn-system-policy", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "corpus-scan-guard.sh",
   "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 
@@ -1797,7 +1799,7 @@ function harnessEnvironmentReceipt(args: {
       { id: "activated-resource-observation", coverage: "unknown" },
     ],
     tools,
-    hooks: [...EDIT_GUARDS, ...WORKER_BASH_GUARDS]
+    hooks: [...FIRN_GUARDS, ...EDIT_GUARDS, ...WORKER_BASH_GUARDS]
       .filter((path, index, values) => values.indexOf(path) === index)
       .map((path, index) => receiptFileArtifact(`hook-${index}`, path)),
     configs: [
@@ -1846,13 +1848,17 @@ async function guardHook(self: string, scripts: string[], input: unknown, topolo
     NORTH_AGENT_PYTHON: resolve(managedRuntime, "python3"),
     ...(topology ? { AGENT_TOPOLOGY: topology } : {}),
   };
-  const deny = (reason: string) => {
+  const deny = (
+    reason: string,
+    observation?: InvocationObservationReceipt,
+  ) => {
     recordDenial(self, reason, input);
     return {
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
         permissionDecision: "deny" as const,
         permissionDecisionReason: reason,
+        ...(observation ? { additionalContext: observation.raw } : {}),
       },
     };
   };
@@ -1862,8 +1868,15 @@ async function guardHook(self: string, scripts: string[], input: unknown, topolo
       // Durable trail: record the denial as a `kind guard_denial` fact so a worker
       // block is learnable after the fact (which agent, which guard, what target).
       // Fire-and-forget — never delay or break the tool call the guard decided.
-      return deny(d.reason);
+      return deny(d.reason, d.observation);
     }
+    if (d.decision === "allow" && d.observation) return {
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        additionalContext: d.observation.raw,
+      },
+    };
   } catch { return deny("authoring_guard_unavailable"); }
   return { continue: true };
 }
@@ -2091,6 +2104,7 @@ export function harnessOptions(o: HarnessOpts): Options {
       // ZERO guards. Matchers +
       // guard chains mirror settings.json; first deny in a chain blocks the tool.
       PreToolUse: [
+        { hooks: [async (input: unknown) => guardHook(o.self, FIRN_GUARDS, input)] },
         { matcher: "Edit|Write|MultiEdit", hooks: [async (input: unknown) => guardHook(o.self, EDIT_GUARDS, input)] },
         { matcher: "Bash", hooks: [async (input: unknown) => guardHook(
           o.self, orchestrationAllowed ? BASH_GUARDS : WORKER_BASH_GUARDS, input, enforcementTopology,

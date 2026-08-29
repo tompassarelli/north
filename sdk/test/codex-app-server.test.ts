@@ -450,6 +450,16 @@ function setup(mode = "ok") {
       if (mode === "hook-missing-completion" && event === "preToolUse") return;
       const completion = hookRun(id, mode === "hook-completion-event-drift" && event === "preToolUse"
         ? "postToolUse" : event, terminalStatus, { scope });
+      if (mode === "hook-invocation-observation" && event === "preToolUse") {
+        completion.entries = [
+          {
+            kind: "context",
+            text: '{"schema":"InvocationObservation/v1","hook":"firn-system-policy",'
+              + '"operation":"functions.get_goal","classification":"empty-object","decision":"pass"}',
+          },
+          { kind: "context", text: '{"tool_input":{"message":"raw secret"}}' },
+        ];
+      }
       if (mode === "hook-completion-summary-drift" && event === "sessionStart") {
         completion.displayOrder = 99;
         completion.startedAt = 99;
@@ -2211,6 +2221,20 @@ test("a PreToolUse policy block is not a managed-lane failure", async () => {
   const { options } = setup("hook-pretool-blocked");
   await expect(new ManagedCodexAppServerRun(options).execute())
     .resolves.toMatchObject({ text: "managed answer" });
+});
+
+test("app-server retains only bounded normalized Firn receipt observations", async () => {
+  const { options } = setup("hook-invocation-observation");
+  const result = await new ManagedCodexAppServerRun(options).execute();
+  expect(result.invocationObservations).toEqual([{
+    schema: "InvocationObservation/v1",
+    hook: "firn-system-policy",
+    operation: "functions.get_goal",
+    classification: "empty-object",
+    decision: "pass",
+    count: 1,
+  }]);
+  expect(JSON.stringify(result.invocationObservations)).not.toContain("raw secret");
 });
 
 test("post-thread drift, rejection, malformed traffic, and hook failures are never retry-safe", async () => {
