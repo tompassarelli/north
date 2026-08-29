@@ -1,4 +1,4 @@
-;; One fail-closed boundary for Orchestration's canonical v2 staffing catalog.
+;; One fail-closed North boundary for Agent Machinery's canonical v2 catalog.
 (ns north.orchestration-staffing
   (:require [cheshire.core :as json]
             [clojure.java.io :as io]
@@ -111,7 +111,7 @@
                        (str "vocabulary." axis) path)
       (when-not (= (get exact-wire-vocabulary axis)
                    (set (get-in catalog ["vocabulary" axis])))
-        (throw (ex-info (str "Orchestration wire vocabulary drift at " path ": " axis)
+        (throw (ex-info (str "Agent Machinery wire vocabulary drift at " path ": " axis)
                         {:path path :axis axis}))))
     (exact-keys! (get catalog "defaults") default-fields default-fields "defaults" path)
     (doseq [[field axis] [["taskGrade" "taskGrades"] ["tier" "semanticTiers"]
@@ -123,7 +123,7 @@
                         {:path path :field field}))))
     (let [presets (get catalog "presets")]
       (when-not (and (vector? presets) (seq presets))
-        (throw (ex-info (str "invalid Orchestration staffing catalog at " path)
+        (throw (ex-info (str "invalid Agent Machinery staffing catalog at " path)
                         {:path path :version version})))
       (doseq [preset presets]
         (exact-keys! preset preset-fields preset-fields
@@ -147,16 +147,16 @@
     (let [names (mapv #(get % "name") presets)
           known (set names)]
       (when (or (some nil? names) (not= (count names) (count known)))
-        (throw (ex-info (str "invalid or duplicate Orchestration preset name at " path)
+        (throw (ex-info (str "invalid or duplicate Agent Machinery template name at " path)
                         {:path path :names names})))
       (when-not (= stock-preset-names known)
-        (throw (ex-info (str "Orchestration stock preset set drift at " path)
+        (throw (ex-info (str "Agent Machinery stock template set drift at " path)
                         {:path path :expected stock-preset-names :actual known})))
       (let [orchestrators (->> presets
                                (filter #(= "orchestrator" (get % "topology")))
                                (mapv #(get % "name")))]
         (when-not (= #{"director" "team-lead" "program" "portfolio"} (set orchestrators))
-          (throw (ex-info (str "Orchestration stock topology drift at " path
+          (throw (ex-info (str "Agent Machinery stock topology drift at " path
                                ": orchestrator topology is the director plus the scope ladder")
                           {:path path :orchestrators orchestrators}))))
       (doseq [preset presets]
@@ -164,24 +164,24 @@
               capabilities (set (get preset "capabilities"))]
           (when-not (and (capabilities "filesystem.read")
                          (capabilities "filesystem.search"))
-            (throw (ex-info (str "Orchestration stock role " name
+            (throw (ex-info (str "Agent Machinery stock template " name
                                  " must retain read and search authority")
                             {:path path :preset name})))
           (if (stock-authoring-roles name)
             (when-not (and (capabilities "filesystem.write")
                            (capabilities "shell"))
-              (throw (ex-info (str "Orchestration stock authoring role " name
+              (throw (ex-info (str "Agent Machinery stock authoring template " name
                                    " must retain write and shell authority")
                               {:path path :preset name})))
             (when (or (capabilities "filesystem.write")
                       (capabilities "shell")
                       (not (capabilities "shell.readonly")))
-              (throw (ex-info (str "Orchestration stock nonauthoring role " name
+              (throw (ex-info (str "Agent Machinery stock nonauthoring template " name
                                    " must remain read-only")
                               {:path path :preset name}))))
           (when-not (= (contains? #{"director" "team-lead" "program" "portfolio"} name)
                        (boolean (capabilities "coordination")))
-            (throw (ex-info "Orchestration stock coordination authority belongs to the orchestrator ladder"
+            (throw (ex-info "Agent Machinery stock coordination authority belongs to the orchestrator ladder"
                             {:path path :preset name})))
           (when (and (capabilities "shell") (capabilities "shell.readonly"))
             (throw (ex-info (str name ": shell and shell.readonly are mutually exclusive")

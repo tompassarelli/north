@@ -252,7 +252,7 @@ export function orchestrationProvenance(f: AgentIdentity): string {
   const role = f.role?.trim();
   const compositionId = f.compositionId?.trim();
   if (!role || !compositionId || !SAFE_ROLE_ID.test(role)
-      || !SAFE_ROLE_ID.test(compositionId) || role !== compositionId)
+      || !SAFE_ROLE_ID.test(compositionId))
     return "orchestration:legacy-debt";
   if (f.compositionKind === "template") {
     const overrides = validPresetOverrides(f);

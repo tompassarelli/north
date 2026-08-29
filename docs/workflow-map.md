@@ -18,8 +18,9 @@ doubling as the pipeline-debug spec.*
 
 > **Naming.** The stack as a whole has no settled name yet; a naming pass is
 > pending. Today the parts carry their own names and this doc uses them as
-> found in source: **store** (triple engine), **north** (coordination substrate),
-> **orchestration** (staffing doctrine). The cockpit/dashboard folded into north
+> found in source: **store** (triple engine), **north** (coordination and
+> concrete run lifecycle), and **Agent Machinery** (acknowledged work ownership
+> and portable run design). The cockpit/dashboard folded into north
 > (2026-07-10): `north dashboard` / `north doctor` / bare `north` (the card). Any of
 > these names may change. Where this doc says "the stack" it means the whole;
 > where it names a part it means that part's code as it exists on 2026-07-09.
@@ -45,7 +46,7 @@ what could not be verified from source.
 | **concern** | a declared work footprint (files + intent); a coordination signal, **not a lock** — declaring never blocks |
 | **presence / lease** | a heartbeat registration on the `:7977` coordinator with a **30-min TTL**; renewed (in session agents) on tool use |
 | **posture** | how a lane works (`explore` / `deliver` / `evaluate` / `preserve`); `evaluate` orders evidence quality, decision correctness, coverage, speed, then polish; derived from thread facts by `dispatch`, or passed on `spawn` |
-| **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"template"`; never a mandatory worker identity |
+| **template** | reusable defaults for a common input-to-deliverable shape, encoded as `composition.kind:"template"`; `composition.id` is provenance independent of `role`, never a worker identity or grant of authority |
 | **function / role** | responsibility and deliverable; independent of task grade, domain requirements, topology, semantic tier, and deliberation |
 | **task grade** | prior for the work's scope, autonomy, novelty, and integration responsibility — `novice` → `junior` → `mid` → `senior` (capability), then `staff` → `principal` → `distinguished` (scope/influence) (`agent-machinery:docs/task-grades.md`); not a model identity |
 | **semantic tier** | provider-neutral model capability floor (`economy` / `standard` / `senior` / `frontier`) |
@@ -91,8 +92,8 @@ tells you which facts to expect:
 `mcp__north__spawn` and `mcp__north__dispatch` are the MCP tool faces of the SDK
 lineage (the tool surface is assembled in `harness.ts`; the old `NATIVE_TOOLS`
 symbol is gone). The CLI faces are
-`north spawn` / `north delegate` (in `cli/agents-cli.clj`), which resolve orchestration
-dials and then `bun run sdk/src/spawn.ts`.
+`north spawn` / `north delegate` (in `cli/agents-cli.clj`), which accept the
+Agent Machinery run design and then `bun run sdk/src/spawn.ts`.
 
 ```mermaid
 flowchart TD
@@ -161,7 +162,7 @@ activity.
 **Lineage:** the slash command is an intelligent adapter over `north delegate`.
 It classifies dependency shape once: atomic work selects an exact stock
 template, an explicit template override, or a bespoke composition for its
-terminal Orchestration worker; composite work alone selects the director.
+terminal worker design; composite work alone selects the director.
 North then filters eligible provider accounts and resolves the concrete model
 and runtime control.
 Carrying context is BINARY (y/n), a trailing flag not a separate verb: bare =
@@ -180,10 +181,10 @@ sequenceDiagram
     R->>R: CLASSIFY dependency shape + terminal role/composition if atomic
     alt atomic
         R->>CLI: X --role worker [overrides or bespoke contract]<br/>+ context brief (default) or clean X (--new)
-        CLI->>SP: one complete worker-topology Orchestration request
+        CLI->>SP: one complete worker-topology Agent Machinery request
     else composite
         R->>CLI: X --composite<br/>+ context brief (default) or clean X (--new)
-        CLI->>SP: canonical director Orchestration request
+        CLI->>SP: canonical director Agent Machinery request
     end
     SP->>SP: FILTER capabilities/auth/usage → resolve provider/account/model
     SP->>SP: ID MINT — collision-safe lane id
@@ -280,7 +281,7 @@ is recorded.
 sequenceDiagram
     actor CA as caller
     participant CS as cmd-spawn
-    participant G as Orchestration catalog
+    participant G as Agent Machinery catalog
     participant R as North resolver
     participant SP as spawn.ts
     participant T as north :7977
@@ -303,9 +304,9 @@ sequenceDiagram
     Note over T: REAPING — TTL lapse
 ```
 
-Notes: this is the surface orchestration's doctrine actually routes to under
-`dispatch=managed`. Template resolution consumes Orchestration's canonical provider-neutral
-contract in `agent-machinery:docs/routing.md`; this workflow map does not redefine
+Notes: this is the surface Agent Machinery's run design routes to under
+`dispatch=managed`. Template resolution consumes Agent Machinery's canonical
+provider-neutral contract in `agent-machinery:docs/routing.md`; this workflow map does not redefine
 the axes or infer one from another. `north templates` renders the stock catalog
 and its resolved routing defaults. Source gathering uses the `scout` template
 (junior grade, economy tier); novel hypothesis/experiment work uses the
@@ -621,8 +622,8 @@ below are its rule set.
 | presence/lease | `north:cli/presence-cli.clj` | 30-min TTL, `presence` projection, `slackers`, `pin` |
 | mail/commands | `north:cli/msg-cli.clj` | `send`/`inbox`/`ack`/`send-cmd` (@cmd facts), derived inbox |
 | listener | `north:cli/north-listen.clj` | dormant-until-pinged pub/sub; role-addressing |
-| cockpit | `north:cli/dashboard-cli.clj` (`north dashboard`/`doctor`; bare `north` card in `bin/north`) | dashboard/doctor/profile; parse-don't-fork orchestration; ownership rule (folded from convoy 2026-07-10) |
-| staffing | `agent-machinery:doctrine.md` + `agent-machinery:agents/` | shapes→squad, laws, canonical dial table |
+| cockpit | `north:cli/dashboard-cli.clj` (`north dashboard`/`doctor`; bare `north` card in `bin/north`) | dashboard/doctor/profile; parse-don't-fork run design; ownership rule (folded from convoy 2026-07-10) |
+| run design | `agent-machinery:doctrine.md` + `agent-machinery:agents/` | acknowledged ownership, portable eight-field requests, laws, canonical templates |
 | delegate intake | `nixos-config:dotfiles/codex/prompts/delegate.md` | `/delegate` intelligent atomic/composite classifier (context is orthogonal) |
 | coordination-v2 | thread `019f4418-bed5-7625-b2ad-41abb6518269` | census, failure receipts, the specced reaping fix plan |
 ```

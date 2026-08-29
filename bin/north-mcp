@@ -707,8 +707,8 @@
         (fn [surface required]
           (let [missing (remove caps required)]
             (when (and (caps surface) (seq missing))
-              (str surface " requires " (str/join ", " missing) " "
-                   (if (= 1 (count missing)) "capability" "capabilities")))))]
+              (str "composition.contract.capabilities: capability list is not closed; missing implied "
+                   (str/join ", " missing)))))]
     (cond
       (and (caps "shell") (caps "shell.readonly"))
       "shell and shell.readonly are mutually exclusive"
@@ -754,8 +754,9 @@
                            (seq (sort (remove bespoke-contract-fields (keys contract)))))
         canonical-role role
         known-role? (contains? orchestration-role-names canonical-role)
-        preset (get orchestration-presets-by-name canonical-role)
-        effective-capabilities (if known-role? (get preset "capabilities") contract-capabilities)
+        template-id (when (= kind "template") (get composition "id"))
+        preset (when template-id (get orchestration-presets-by-name template-id))
+        effective-capabilities (if (= kind "template") (get preset "capabilities") contract-capabilities)
         effective-topology topology
         capability-problem (when (and effective-topology (sequential? effective-capabilities))
                              (topology-capability-problem effective-topology effective-capabilities))
@@ -824,8 +825,10 @@
       (and composition (nil? role)) "composition requires role"
       (and role (not known-role?) (= kind "template"))
       (str "unknown role " role " requires a bespoke composition")
+      (and (= kind "template") (nil? preset))
+      (str "unknown template composition.id " template-id)
       (and role known-role? (= kind "bespoke"))
-      (str "known role " canonical-role " requires template composition id " canonical-role)
+      (str "known role " canonical-role " requires a template composition")
 
       (and (= kind "template") (not (valid-string-list? declared-overrides false)))
       "template composition.overrides must be an array of unique routing-axis names"
@@ -842,10 +845,6 @@
       (and role known-role? (seq actual-overrides) (nil? composition))
       (str "known role " canonical-role " overrides " (str/join ", " (sort actual-overrides))
            "; supply template composition.overrides and composition.overrideReason")
-      (and role known-role? composition
-           (or (not= "template" kind) (not= canonical-role (get composition "id"))))
-      (str "known role " canonical-role " requires template composition id " canonical-role)
-
       (and (= kind "bespoke") (contains? composition "nearestTemplate")
            (let [v (get composition "nearestTemplate")] (or (not (string? v)) (str/blank? v))))
       "bespoke composition.nearestTemplate must be a non-empty string when supplied"
@@ -873,7 +872,7 @@
       "bespoke composition.contract capabilities must be non-empty, unique, and canonical"
       capability-problem capability-problem
       (and role (not known-role?)
-           (or (not= "bespoke" kind) (not= role (get composition "id")) missing-bespoke-axes))
+           (or (not= "bespoke" kind) missing-bespoke-axes))
       (str "unknown role " role " requires complete bespoke composition"
            (when missing-bespoke-axes (str "; missing: " (str/join ", " missing-bespoke-axes))))
       :else nil))))

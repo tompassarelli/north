@@ -52,7 +52,7 @@ export interface BespokeComposition {
 }
 export type AgentComposition = TemplateComposition | BespokeComposition;
 
-/** The executable routing contract carried by every managed North boundary. */
+/** The executable Agent Machinery run design carried by every managed North boundary. */
 export interface RoutingRequest {
   role: string;
   taskGrade: TaskGrade;
@@ -86,7 +86,12 @@ const CONTRACT_FIELDS = new Set([
 
 function rejectUnknownFields(value: object, allowed: Set<string>, label: string): void {
   const unknown = Object.keys(value).filter((key) => !allowed.has(key));
-  if (unknown.length) throw new Error(`${label} has unknown field(s): ${unknown.join(", ")}`);
+  if (unknown.length) {
+    const prefix = label === "routing metadata"
+      ? "routing metadata is structurally invalid; it has"
+      : `${label} has`;
+    throw new Error(`${prefix} unknown field(s): ${unknown.join(", ")}`);
+  }
 }
 
 function member<T extends readonly string[]>(values: T, value: unknown, field: string): T[number] | undefined {
@@ -137,10 +142,7 @@ export function validateRoutingMetadata(value: RoutingDraft): RoutingDraft {
     const kind = member(COMPOSITION_KINDS, rawComposition.kind, "composition.kind");
     if (!kind) throw new Error("composition.kind is required");
     if (!role) throw new Error("composition requires role");
-    const normalizedRole = canonicalRole(role)!;
-    const compositionId = nonEmptyString(rawComposition.id, "composition.id");
-    if (compositionId !== normalizedRole)
-      throw new Error(`composition.id must match canonical role ${normalizedRole}`);
+    const compositionId = requireOrchestrationRoleId(rawComposition.id, "composition.id");
     if (kind === "template") {
       rejectUnknownFields(rawComposition, TEMPLATE_COMPOSITION_FIELDS, "composition");
       const overrides = nonEmptyStrings(rawComposition.overrides, "composition.overrides") as RoutingOverrideField[];
@@ -214,7 +216,7 @@ export function parseCompleteRoutingRequest(
   const missing = ROUTING_REQUEST_FIELDS.filter((field) => normalized[field] === undefined);
   if (missing.length) {
     throw new Error(
-      `${surface} requires the complete eight-field Orchestration request; missing: ${missing.join(", ")}`
+      `${surface} requires the complete eight-field Agent Machinery run request; missing: ${missing.join(", ")}`
       + " (recover the valid payload shape: north show @contract:dispatch)",
     );
   }

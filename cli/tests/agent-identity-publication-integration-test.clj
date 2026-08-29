@@ -128,7 +128,7 @@
                 (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath log) "north-coordination"))
       subject "@agent:identity-publication-probe"
-      preset {"kind" "lane" "role" "integrator" "model" "claude-opus-4-8"
+      preset {"kind" "lane" "role" "north-lifecycle-writer" "model" "claude-opus-4-8"
               "provider" "anthropic" "provider_target" "claude-a" "effort" "high"
               "live_input" "streaming" "live_input_state" "armed"
               "live_input_epoch" "00000000-0000-4000-8000-000000000101"
@@ -166,6 +166,10 @@
     (let [first-result (run-writer port "publish" subject (json/generate-string preset))
           stored (scalar-facts (entity-facts port subject))]
       (check "preset publication returns a synchronous acknowledgement" (zero? (:exit first-result)))
+      (check "role and template provenance remain independent"
+             (and (= "north-lifecycle-writer" (get stored "role"))
+                  (= "integrator" (get stored "composition_id"))
+                  (north.agent-provenance/managed-valid? stored)))
       (check "commit marker matches the exact current canonical projection"
              (= (north.agent-provenance/manifest-sha256 stored)
                 (get stored "identity_manifest_sha256"))))

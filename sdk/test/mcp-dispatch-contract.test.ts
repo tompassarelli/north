@@ -359,6 +359,15 @@ test("MCP SDK launches forward the inherited canonical Store RPC instance exactl
   });
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
+test("MCP preserves role independently of template provenance", () => {
+  const route = { ...presetRequest("scout"), role: "integrator" };
+  const launched = mcpSpawnEnvironment(() => {}, route);
+  expect(launched.childEnv.AGENT_ROLE).toBe("integrator");
+  expect(JSON.parse(launched.childEnv.AGENT_COMPOSITION)).toMatchObject({
+    kind: "template", id: "scout",
+  });
+}, MCP_PROCESS_TEST_TIMEOUT_MS);
+
 test("MCP launch fails closed when the inherited Store RPC environment is incomplete", () => {
   const directory = mkdtempSync(join(tmpdir(), "north-mcp-missing-store-rpc-"));
   temporary.push(directory);
@@ -696,19 +705,19 @@ test("MCP effective-authority closure rejects open shell capability sets", () =>
   for (const [capabilities, diagnostic] of [
     [
       ["filesystem.search", "filesystem.write", "shell"],
-      "shell requires filesystem.read capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
     ],
     [
       ["filesystem.read", "filesystem.search", "shell"],
-      "shell requires filesystem.write capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.write",
     ],
     [
       ["filesystem.search", "shell.readonly"],
-      "shell.readonly requires filesystem.read capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
     ],
     [
       ["filesystem.read", "shell.readonly"],
-      "shell.readonly requires filesystem.search capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.search",
     ],
   ] as const) {
     const route = {
@@ -826,9 +835,6 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
       role: "special",
       composition: { kind: "template", id: "special", overrides: [] },
     }, "unknown role special requires a bespoke composition"],
-    [{ prompt: "probe", ...presetRequest("integrator"),
-      composition: { kind: "template", id: "scout", overrides: [] } },
-      "known role integrator requires template composition id integrator"],
     [{ prompt: "probe", ...presetRequest("scout"), role: "researcher",
       composition: { kind: "template", id: "researcher", overrides: [] } },
       "role researcher is retired because it was ambiguous"],

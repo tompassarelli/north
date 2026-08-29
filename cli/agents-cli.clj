@@ -1232,8 +1232,8 @@
         (fn [surface required]
           (let [missing (remove caps required)]
             (when (and (caps surface) (seq missing))
-              (str surface " requires " (str/join ", " missing) " "
-                   (if (= 1 (count missing)) "capability" "capabilities")))))]
+              (str "composition.contract.capabilities: capability list is not closed; missing implied "
+                   (str/join ", " missing)))))]
     (cond
       (and (caps "shell") (caps "shell.readonly"))
       "shell and shell.readonly are mutually exclusive"
@@ -1369,6 +1369,8 @@
                overrideReason
                (not (contains? raw-supplied-composition :overrideReason)))
           (assoc :overrideReason overrideReason))
+        supplied-template (when (= "template" (:kind supplied-composition))
+                            (get dt (:id supplied-composition)))
         supplied-contract (parse-json-input "--contract" contract)
         canonical (get dt invoked-role)
         bespoke? (and invoked-role (nil? canonical))
@@ -1383,14 +1385,15 @@
                                      (contains? supplied-composition :promotionCandidate))
                               (:promotionCandidate supplied-composition)
                               false))
-        base (or canonical nearest-template)
+        template-base (or supplied-template canonical)
+        base (or template-base nearest-template)
         preset-grade (:taskGrade base) preset-tier (:tier base)
-        preset-role (:role base) preset-posture (:posture base) preset-topology (:topology base)
+        preset-posture (:posture base) preset-topology (:topology base)
         preset-deliberation (:deliberation base)
         selected-grade (or taskGrade preset-grade)
         selected-tier (or tier preset-tier)
         selected-topology (or topology preset-topology)
-        selected-role (if bespoke? invoked-role (or preset-role invoked-role))
+        selected-role invoked-role
         selected-posture (or posture preset-posture (:posture (:defaults catalog)))
         selected-reasoning (or reasoning preset-deliberation)
         selected-domains (vec (distinct domains))
@@ -1406,11 +1409,11 @@
                        selected-tier selected-reasoning)
         actual-overrides (when canonical
                            (vec (keep (fn [[field selected preset]] (when (not= selected preset) field))
-                                      [["taskGrade" selected-grade (:taskGrade canonical)]
+                                      [["taskGrade" selected-grade (:taskGrade template-base)]
                                        ["domainRequirements" selected-domains []]
-                                       ["tier" selected-tier (:tier canonical)]
-                                       ["reasoning" selected-reasoning (:deliberation canonical)]
-                                       ["posture" selected-posture (:posture canonical)]])))
+                                       ["tier" selected-tier (:tier template-base)]
+                                       ["reasoning" selected-reasoning (:deliberation template-base)]
+                                       ["posture" selected-posture (:posture template-base)]])))
         generated-composition (if bespoke?
                                 (cond-> {:kind "bespoke" :id invoked-role
                                          :bespokeReason bespoke-reason :promotionCandidate promotion-value
@@ -1420,7 +1423,7 @@
                                          :overrides actual-overrides}
                                   (seq actual-overrides) (assoc :overrideReason overrideReason)))
         selected-composition (or supplied-composition generated-composition)
-        selected-capabilities (if canonical (:capabilities canonical)
+        selected-capabilities (if canonical (:capabilities template-base)
                                 (:capabilities contract-value))
         normalized-selected-capabilities
         (when (and (sequential? selected-capabilities) (every? string? selected-capabilities))
@@ -1505,8 +1508,10 @@
       (do (println (red "composition must be a JSON object")) (System/exit 1))
       unknown-composition-fields
       (do (println (red (str "composition contains unknown fields: " (str/join ", " (map name unknown-composition-fields))))) (System/exit 1))
-      (and canonical (or (not= "template" composition-kind) (not= selected-role (:id selected-composition))))
-      (do (println (red (str "known role " invoked-role " requires template composition id " selected-role))) (System/exit 1))
+      (and (= "template" composition-kind) (nil? (get dt (:id selected-composition))))
+      (do (println (red (str "unknown template composition.id " (:id selected-composition)))) (System/exit 1))
+      (and canonical (not= "template" composition-kind))
+      (do (println (red (str "known role " invoked-role " requires a template composition"))) (System/exit 1))
       (and canonical (not (valid-string-list? declared-overrides false)))
       (do (println (red "template composition.overrides must be an array of unique routing-axis names")) (System/exit 1))
       (and canonical (some #(not (routing-override-fields %)) declared-overrides))
@@ -1522,8 +1527,8 @@
                             (str/join ", " actual-overrides) ")"))) (System/exit 1))
       (and canonical (empty? actual-overrides) (contains? selected-composition :overrideReason))
       (do (println (red "unchanged preset must not carry --override-reason")) (System/exit 1))
-      (and bespoke? (or (not= "bespoke" composition-kind) (not= invoked-role (:id selected-composition))))
-      (do (println (red (str "bespoke role " invoked-role " requires bespoke composition id " invoked-role))) (System/exit 1))
+      (and bespoke? (not= "bespoke" composition-kind))
+      (do (println (red (str "bespoke role " invoked-role " requires a bespoke composition"))) (System/exit 1))
       (and bespoke? (not (boolean? (:promotionCandidate selected-composition))))
       (do (println (red "bespoke composition.promotionCandidate must be explicit boolean")) (System/exit 1))
       (and bespoke? (not= bespoke-contract-fields contract-fields))

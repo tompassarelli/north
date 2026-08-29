@@ -27,7 +27,7 @@ test("North resources do not claim intentional actor decisions", () => {
     "cli/message-routing.clj",
     "cli/north-listen.clj",
     "coordination/README.md",
-    "coordination/assignments-distilled/SKILL.md",
+    "coordination/agent-run-lifecycle-distilled/SKILL.md",
     "coordination/guide.md",
     "docs/INFLUENCES.md",
     "docs/architecture.md",
@@ -41,6 +41,6 @@ test("North resources do not claim intentional actor decisions", () => {
     .join("\n");
 
   expect(resources).not.toMatch(
-    /\b(?:North|Orchestration|Coordination|staffing|harness|system|AUTO)\s+(?:answers?|chooses?|decides?|decomposes?|orchestrates?|accepts?|makes the routing decision|owns (?:semantic task routing|reduction|(?:its )?children))\b/i,
+    /\b(?:North|Agent Machinery|Orchestration|Coordination|staffing|harness|system|AUTO)\s+(?:answers?|chooses?|decides?|decomposes?|orchestrates?|accepts?|makes the routing decision|owns (?:semantic task routing|reduction|(?:its )?children))\b/i,
   );
 });

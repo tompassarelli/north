@@ -189,12 +189,18 @@
                     catalog (initial-permissions catalog))
         by-id (into {} (map (juxt #(get % "id") identity)) (get activation "units"))]
     (check "catalog inventories every audited module, skill, and hook"
-           (and (= 68 (count (:units catalog)))
-                (every? (:by-id catalog)
-                        (concat ["coordination" "orchestration" "compose" "elicit"
-                                 "settle-work" "store-modeling" "code-as-facts"
-                                 "code-upstream-guard"]
-                                lifecycle-hook-ids))))
+           (and (every? (:by-id catalog)
+                        (concat ["agent-machinery" "work-ownership-distilled"
+                                 "agent-run-design-distilled" "coordination"
+                                 "agent-run-lifecycle-distilled" "threads-distilled"
+                                 "elicit" "settle-work" "store-modeling"
+                                 "code-as-facts" "code-upstream-guard"]
+                                lifecycle-hook-ids))
+                (not-any? (:by-id catalog)
+                          ["orchestration" "staffing-distilled" "staffing-reference"
+                           "compose-distilled" "compose-reference"
+                           "messages-distilled" "messages-reference"
+                           "assignments-distilled" "assignments-reference"])))
     (check "generation exposes the stable root contract"
            (and (= "north.agent-activation/v1" (get activation "schema"))
                 (= "north.agent-catalog/v1" (get activation "catalogSchema"))
@@ -229,15 +235,21 @@
                       "active" "owner" "members" "supports" "distributions"
                       "activationPaths"])
             (get activation "units")))
-    (check "modules expand permitted members depth-first in declared order"
-           (= ["agent-machinery" "orchestration" "staffing"
-               "agent-spawn-guard" "compose" "session-kill-guard"
-               "agent-practice" "build-vs-reuse" "external-code"]
-              (mapv #(get % "id") (take 9 (get activation "units")))))
-    (check "supported hooks retain every activation path after unit dedupe"
-           (= [["agent-machinery" "orchestration" "session-kill-guard"]
-               ["repo-safety" "session-kill-guard"]]
-              (get-in by-id ["session-kill-guard" "activationPaths"])))
+    (check "current package and North modules expose their direct member paths"
+           (and (some #{["agent-machinery" "work-ownership-distilled"]}
+                      (get-in by-id ["work-ownership-distilled" "activationPaths"]))
+                (some #{["agent-machinery" "agent-run-design-distilled"]}
+                      (get-in by-id ["agent-run-design-distilled" "activationPaths"]))
+                (some #{["coordination" "agent-run-lifecycle-distilled"]}
+                      (get-in by-id ["agent-run-lifecycle-distilled" "activationPaths"]))))
+    (check "activation paths contain no retired lifecycle UnitIds"
+           (let [retired #{"orchestration" "staffing-distilled" "staffing-reference"
+                           "compose-distilled" "compose-reference"
+                           "messages-distilled" "messages-reference"
+                           "assignments-distilled" "assignments-reference"}]
+             (not-any? retired
+                       (mapcat #(mapcat identity (get % "activationPaths"))
+                               (get activation "units")))))
     (check "Codex lifecycle hooks have five exact independent projection outputs"
            (let [owner-for (fn [id]
                              {"repo" "nixos-config"

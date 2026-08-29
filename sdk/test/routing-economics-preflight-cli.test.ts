@@ -95,7 +95,7 @@ test("a malformed envelope names the malformation instead of failing anonymously
 
   const incomplete = await preflight({ routingMetadata: { role: "executor" } });
   expect(incomplete.exitCode).not.toBe(0);
-  expect(incomplete.stderr).toContain("complete eight-field Orchestration request");
+  expect(incomplete.stderr).toContain("complete eight-field Agent Machinery run request");
 });
 
 // Fault injection for the swallow itself. A non-Error throw used to print the

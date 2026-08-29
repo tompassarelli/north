@@ -1,5 +1,5 @@
 (ns north.agent-provenance
-  "Canonical managed-agent identity and Orchestration provenance validation shared by
+  "Canonical managed-agent identity and composition provenance validation shared by
   startup acknowledgement, roster rendering, and lifecycle trace.")
 
 (require '[cheshire.core :as json]
@@ -181,9 +181,7 @@
                   (when (and (some? composition-kind)
                              (not (contains? #{"template" "bespoke"} composition-kind)))
                     ["composition_kind(template|bespoke)"])
-                  (when (and (known role) (known composition-id) (not= role composition-id))
-                    ["composition_id(matches role)"])
-                  (when (and (some? role) (not (safe-role-id? role))) ["role(safe Orchestration id)"])
+                  (when (and (some? role) (not (safe-role-id? role))) ["role(safe Agent Machinery id)"])
                   (when (and live-input
                              (not (contains? #{"streaming" "turn-messages" "unsupported"} live-input)))
                     ["live_input(streaming|turn-messages|unsupported)"])
@@ -200,7 +198,7 @@
                                    live-input-epoch)))
                     ["live_input_epoch(UUIDv4)"])
                   (when (and (some? composition-id) (not (safe-role-id? composition-id)))
-                    ["composition_id(safe Orchestration id)"])
+                    ["composition_id(safe Agent Machinery id)"])
                   (case composition-kind
                     "template" (preset-evidence-defects facts)
                     "bespoke" (bespoke-evidence-defects facts)
@@ -211,8 +209,8 @@
 (defn managed-valid? [facts] (empty? (identity-defects facts)))
 
 (defn orchestration-provenance
-  "Exact public provenance state. Native provider sessions are honest absence;
-  malformed or uncommitted managed lanes are migration/corruption debt."
+  "Exact public composition-provenance ABI. Native provider sessions are honest
+  absence; malformed or uncommitted lanes are migration/corruption debt."
   [{:strs [kind role composition_kind composition_id] :as facts}]
   (cond
     (= kind "session") "orchestration:not-selected"

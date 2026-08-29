@@ -640,14 +640,15 @@ north providers --json    # stable machine status; automation uses this, not pro
 north config dispatch     # native | managed | auto dispatch-surface selection
 north config routing      # allocation mode, configured order, reserve, pressure, envelopes
 north config learning     # frozen consistency vs bounded ordinary-operation exploration
-north templates           # Orchestration's reusable stock templates and routing defaults
+north templates           # Agent Machinery's reusable stock templates and routing defaults
 ```
 
 `north dashboard` and `north doctor` folded in from convoy (2026-07-10). The
-**division of labor** the fold preserves: **Orchestration describes the behavior
-contract** (role, composition, semantic tier, reasoning, and posture); **North
-deterministically resolves and hosts the run** (account target, subscription
-pressure, dashboard, spawn, watch, msg, profile). Orchestration is account-blind.
+**division of labor** the fold preserves: **Agent Machinery defines acknowledged
+work-ownership transitions and the portable eight-field run design**;
+**North deterministically resolves, hosts, controls, and settles the concrete
+run** (account target, subscription pressure, dashboard, spawn, watch, msg,
+profile). Agent Machinery is account- and runtime-blind.
 `north spawn` reads `agent-machinery:staffing/catalog.json`, then
 North filters eligible targets and the provider catalog resolves the semantic
 tier. Generated agent
@@ -662,11 +663,13 @@ serves `north bridge dashboard|pending|attach|msg|interrupt` and is what `north
 dashboard` execs through. This manual does not yet document the app; see
 [architecture.md](architecture.md) for where it lives.
 
-`north templates` is the human view of Orchestration's stock library. It deliberately
+`north templates` is the human view of Agent Machinery's stock library. It deliberately
 says **template** while the versioned machine contract retains `presets`,
 `composition.kind="template"`, and `nearestTemplate`. Templates are reusable
 starting points, not limits: select an exact template, justify an axis override,
-or author a complete bespoke composition. Empirical promotion remains paused
+or author a complete bespoke composition. The template ID is provenance inside
+`composition`, is independent of `role`, and grants no ownership or runtime
+authority. Empirical promotion remains paused
 until North has an independently enforceable verifier boundary. Recorded run
 metadata is evidence for later analysis, not a live causal verdict.
 
@@ -716,9 +719,9 @@ window.
 The final `north providers` route probe uses one fixed diagnostic key. It is a
 health check, not a provider preference and not the next route prediction.
 
-Explicit spawn axes override Orchestration defaults independently, so a staffing change
-in Orchestration requires no North edit and an account-policy change requires no Orchestration
-edit.
+Explicit spawn axes override Agent Machinery template defaults independently,
+so a portable template change requires no North edit and an account-policy
+change requires no Agent Machinery edit.
 
 Delegation intake makes dependency shape explicit without asking North to guess
 from prose. An intelligent chat adapter maps the single user-facing `/delegate`
@@ -739,6 +742,10 @@ each level passes through North admission again and receives a fresh child
 thread, run reservation, routing/economics receipt, immediate-parent
 `coordinator` edge, and local settlement/reduction gate. Context carriage
 remains orthogonal via `--context <file>`.
+
+The operational launch and graph bindings do not themselves move ownership.
+The child accepts the offer under Agent Machinery's `work-ownership-v1` before
+ownership moves; refusal or silence leaves ownership with the current actor.
 
 Every executed delegation has one durable, exact thread before a provider is
 invoked. `--thread` wins and must resolve to a title-bearing thread. Without it,
@@ -948,11 +955,11 @@ north worktrees north --json    # one repo, machine-readable
 
 #### Handoff — an explicit procedure
 
-A **handoff** is never inferred from liveness, decay, or a rendered state
+A **handoff** is never inferred from liveness, decay, a `driver` fact, or a rendered state
 label (§ "Concern liveness" above: owner-lapsed `likely-to-land` is
-**ORPHANED**, not a handoff). It is an explicit act performed over the
-existing thread and message substrate — no separate handoff subsystem exists
-or is needed:
+**ORPHANED**, not a handoff). Threads and messages carry the checkpoint;
+Agent Machinery's `work-ownership-v1` is the authority for the acknowledged
+ownership transition:
 
 1. **Checkpoint the state.** Distill an operable, self-contained context
    frame covering: verified state (what is actually true, checked — not
@@ -966,35 +973,28 @@ or is needed:
    `progress` or a dedicated handoff fact) on the exact thread id the work
    belongs to, so it is discoverable by id rather than living only in a
    transcript.
-3. **Offer it explicitly.** Name a recipient (a message or an explicit offer
-   fact — never a `driver`/`lead` assignment on the recipient's behalf: a
-   manufactured claim is indistinguishable from adoption) — handoff is a
-   transitive act between a giver and a receiver, not a broadcast into the
-   void.
-4. **Recipient reads, and either claims or declines.** The recipient reads the
-   indexed frame and records an explicit response. **Only a positive claim** —
-   adopting the work (e.g. taking `driver`) — completes the handoff. A
-   **decline** is a valid, recorded acknowledgment, but it merely **closes the
-   offer** and returns the work to orphaned; it transfers no responsibility.
-   Silence is not acknowledgment, and — like a decline — never completes a
-   transfer.
+3. **Offer it explicitly.** Record a `work-ownership-v1` offer to one concrete
+   recipient and deliver its checkpoint location. A message transports the
+   offer; it is not the ownership event. Do not write a `driver`/`lead` fact on
+   the recipient's behalf.
+4. **Recipient accepts or refuses.** Acceptance by the offered recipient moves
+   ownership and retains the previous owner as accountable parent. Refusal
+   clears only that offer; silence changes nothing. A direct transfer likewise
+   moves ownership only when the recipient acknowledges it and preserves the
+   existing accountable parent. North may then update graph driver state as an
+   operational binding, independently of the ownership transition.
 
-**Completion criterion.** A handoff is *complete* only when the recipient
-**positively adopts/claims** the work and that claim is recorded (e.g. takes
-`driver`/`lead`). Acknowledgment alone does not complete it: a **decline** is a
-valid acknowledgment that **closes the offer** and leaves the work exactly as
-**orphaned** as before — it never transfers responsibility and never completes a
-handoff. A distilled, indexed frame that has been offered but not yet adopted —
-whether still unanswered or explicitly declined — is **handoff-ready**, not
-handed off; a prepared frame with no adoption leaves the work orphaned, just
-better documented.
+**Completion criterion.** A handoff is complete only after the offered
+recipient accepts, or the recipient acknowledges a direct transfer, and the
+resulting `work-ownership-v1` state validates. Refusal or silence never moves
+ownership. A distilled, indexed frame without that acknowledged transition is
+handoff-ready, not handed off.
 
 This procedure is distinct from other legitimate uses of "handoff" elsewhere
 in this manual describing an explicit, structural transfer of control —
-e.g. the driver-claim handoff between MCP and the SDK, and delegation's
-atomic/composite handoff to a selected worker or director — which already
-satisfy the explicit-transfer-and-acceptance shape and are unaffected by
-this section.
+e.g. the operational driver-claim handoff between MCP and the SDK. Those
+control transfers remain North lifecycle state and must not be read as actor
+ownership transitions.
 
 ---
 
