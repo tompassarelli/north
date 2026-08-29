@@ -48,7 +48,7 @@
          (str "recipient " requested-to " liveness could not be read")))
       (when (false? (:live route))
         (reject-message!
-         (str "recipient " (:recipient route) " has no live presence"
+         (str "recipient " (:recipient route) " is offline"
               (when (not= requested-to (:recipient route))
                 (str " (addressed as alias " requested-to ")"))
               (when-let [alternative (:alternative route)]

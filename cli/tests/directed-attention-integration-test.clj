@@ -197,7 +197,7 @@
                     "Please stop and look.")]
        (check "interrupt rejects an absent recipient without message facts"
               (and (= 2 (:exit absent))
-                   (str/includes? (:err absent) "has no live presence")
+                   (str/includes? (:err absent) "is offline")
                    (= before (graph-message-ids port)))))
      (let [registered
            (run-cli presence-cli port log

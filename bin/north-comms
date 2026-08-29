@@ -299,7 +299,7 @@ file_send_with_id() {
   file_resolve_address "$requested_to"
   recipient="$FILE_RESOLVED"
   if [[ $dead_drop != 1 ]] && ! file_live "$recipient"; then
-    die "recipient $recipient has no live presence; pass --dead-drop only for deliberate delivery to an absent identity"
+    die "recipient $recipient is offline; pass --dead-drop only for deliberate delivery to an absent identity"
   fi
   file_publish_one "$recipient" "$id" "$from" "$recipient" "$subject" "$body" \
     "$sent_at" ""
