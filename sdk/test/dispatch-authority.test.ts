@@ -54,7 +54,7 @@ function writeLiveness(overrides: Record<string, unknown> = {}): void {
     failing_check: null,
     inputs: { nixos_config: firnRevision },
     firn: {
-      current: "/home/tom/code/nixos-config/main/dotfiles/bin/firn",
+      current: "/opt/firn/bin/firn",
       candidate: `/nix/store/${"b".repeat(32)}-candidate/bin/firn`,
     },
     ...overrides,
