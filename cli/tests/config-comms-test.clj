@@ -17,34 +17,47 @@
 (def state (str tmp-dir "/harness.conf"))
 (def mail-root (str tmp-dir "/mail"))
 (def doctor (str tmp-dir "/doctor"))
+(def runtime-bb
+  (.getCanonicalPath
+   (io/file (System/getenv "HOME") ".local/state/north/runtime-profile/bin/bb")))
 (def checks (atom []))
+(def captured-output (atom []))
+(def forbidden-online-token
+  #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)")
 
 (defn check [label value]
   (swap! checks conj [label (boolean value)]))
 
+(defn capture-result [result]
+  (swap! captured-output conj (str (:out result) (:err result)))
+  result)
+
 (defn run-config [& args]
-  (apply p/shell
-         {:out :string
-          :err :string
-          :continue true
-          :extra-env {"HOME" scratch-home
-                      "NORTH_HOME" root
-                      "NORTH_HARNESS_STATE" state
-                      "NORTH_COMMS_BIN" doctor}}
-         (into ["bb" cli "comms"] args)))
+  (capture-result
+   (apply p/shell
+          {:out :string
+           :err :string
+           :continue true
+           :extra-env {"HOME" scratch-home
+                       "NORTH_HOME" root
+                       "NORTH_HARNESS_STATE" state
+                       "NORTH_COMMS_BIN" doctor}}
+          (into [runtime-bb cli "comms"] args))))
 
 (defn run-status []
-  (p/shell
-   {:out :string
-    :err :string
-    :continue true
-    :extra-env {"HOME" scratch-home
-                "NORTH_HOME" root
-                "NORTH_HARNESS_STATE" state
-                "NORTH_REPO_ROOTS" (str "{\"north\":\"" root
-                                        "\",\"beagle\":\"/home/tom/code/beagle/main\","
-                                        "\"nixos-config\":\"/home/tom/code/nixos-config/main\"}")}}
-   "bb" cli "status"))
+  (capture-result
+   (p/shell
+    {:out :string
+     :err :string
+     :continue true
+     :extra-env {"HOME" scratch-home
+                 "NORTH_HOME" root
+                 "NORTH_HARNESS_STATE" state
+                 "NORTH_REPO_ROOTS" (str "{\"north\":\"" root
+                                         "\",\"beagle\":\"/home/tom/code/beagle/main\","
+                                         "\"agent-machinery\":\"/home/tom/code/agent-machinery/main\","
+                                         "\"nixos-config\":\"/home/tom/code/nixos-config/main\"}")}}
+    runtime-bb cli "status")))
 
 (defn stored [key]
   (let [prefix (str key "=")]
@@ -139,6 +152,9 @@
                 (str/includes? (:out status-result) "7  COMMS")
                 (str/includes? (:out status-result)
                                "configure → north config comms"))))
+
+  (check "rendered communication configuration uses only current online vocabulary"
+         (not (re-find forbidden-online-token (str/join "\n" @captured-output))))
 
   (finally
     (doseq [file (reverse (file-seq tmp-dir))]

@@ -337,28 +337,28 @@
            " The lease/telemetry missed the death; trust the lifecycle-janitor verdict.")
       (= terminal-kind :stopped)
       (str (red (str "terminal execution did not succeed; " summary "."))
-           (when online " The still-live lease is stale presence, not evidence of healthy execution."))
+           (when online " The still-live lease is stale liveness data, not evidence of healthy execution."))
       (and (seq deaths) (not terminal?))
       (str (red "F1/F3 — death notification received but execution remains unresolved.")
            " A notification is diagnostic only; require a committed lane terminal or committed run before treating the lane as finished.")
       (and on-roster (not terminal?) (not online))
       (str (red "F2/F3 — offline with NO completion signal.")
-           " Presence is inactive; the lane lifecycle janitor must resolve it as died-unreported (confirm: `north show @agent:"
+           " The liveness lease is inactive; the lane lifecycle janitor must resolve it as died-unreported (confirm: `north show @agent:"
            id "` for outcome=died-unreported).")
       (and (= lineage :sdk-lane) (not identity-complete))
       (red "F6 — SDK-lane missing identity facts: possible id-collision/aliasing, or writeAgentFacts failed. Check `north show @agent:<id>` for contradictory repos/goals.")
       (and (= terminal-kind :ran) (= delivery-class :reported))
       (grn (str "execution succeeded; " summary
                 ". Delivery is evidence-backed same-UID self-report, not independent verification"
-                (if online "; presence remains active." "; presence is inactive as expected.")))
+                (if online "; the liveness lease remains active." "; the liveness lease is inactive as expected.")))
       (and (= terminal-kind :ran) (= delivery-class :incomplete))
       (ylw (str "execution succeeded but delivery proof is incomplete; " summary
                 ". This is not a done claim"
-                (if online "; presence remains active." "; presence is inactive as expected.")))
+                (if online "; the liveness lease remains active." "; the liveness lease is inactive as expected.")))
       (= terminal-kind :ran)
       (red (str "terminal inconsistency; " summary
                 ". A ran process with blocked or inconsistent delivery is not a done claim"
-                (if online "; presence remains active." ".")))
+                (if online "; the liveness lease remains active." ".")))
       online
       (grn "healthy — online and advancing (no terminal signal yet). No failure.")
       :else (dim "no failing stage detected."))))
@@ -428,7 +428,7 @@
         ;; 1 ROSTER
         (println (stage 1 (if on-roster :ok :fail) "1 ROSTER"
                         (if on-roster (str "on roster (" id ")")
-                            (red "NOT on roster — no identity / session presence"))
+                            (red "NOT on roster — no identity / session lease"))
                         "north agents"))
         ;; 2 IDENTITY
         (let [mark (cond idfull :ok
@@ -464,7 +464,7 @@
               detail (cond online (grn "ONLINE")
                            terminal? "inactive (finished — expected)"
                            :else (red "no live session"))]
-          (println (stage 3 mark "3 PRESENCE" detail "north agents")))
+          (println (stage 3 mark "3 LIVENESS LEASE" detail "north agents")))
         ;; 4 WORK
         (let [mark (if (seq concerns) :ok :na)
               detail (if active-concern
@@ -517,8 +517,8 @@
         ;; 7 REAPING
         (let [stale-concern (first (filter #(and (= (:status %) "building")) concerns))
               detail (str (cond online "live — not reaped"
-                                terminal? (str "presence inactive" (when (= terminal-kind :died-unreported) " · lifecycle reaped"))
-                                :else "presence inactive — awaiting lifecycle-janitor verdict")
+                                terminal? (str "liveness lease inactive" (when (= terminal-kind :died-unreported) " · lifecycle reaped"))
+                                :else "liveness lease inactive — awaiting lifecycle-janitor verdict")
                           (when (and stale-concern (not online))
                             (ylw (str " · concern still " (:status stale-concern) " (STALE)"))))]
           (println (stage 7 :na "7 REAPING" detail "north agents / concern ls")))

@@ -952,12 +952,12 @@
 
 (defn presence-fence! [raw subject]
   (when (str/blank? raw)
-    (fail! "managed lifecycle operation requires its exact presence fence"
+    (fail! "managed lifecycle operation requires its exact liveness fence"
            {:subject subject}))
   (let [parsed
         (try (json/parse-string raw)
              (catch Throwable error
-               (fail! "managed presence fence must be valid JSON"
+               (fail! "managed liveness fence must be valid JSON"
                       {:subject subject :cause (.getMessage error)})))
         expected-holder (subs subject (count "@agent:"))
         expected-resource (str "session:" expected-holder)]
@@ -967,7 +967,7 @@
                    (= expected-holder (get parsed "holder"))
                    (integer? (get parsed "epoch"))
                    (pos? (get parsed "epoch")))
-      (fail! "managed presence fence does not exactly match its subject"
+      (fail! "managed liveness fence does not exactly match its subject"
              {:subject subject :fence parsed}))
     {:resource expected-resource
      :holder expected-holder
@@ -1305,7 +1305,7 @@
           (loop [conflicts 0]
             (if-not (native-presence-valid? client presence-fence)
               (unresolved-result "not_committed" operation-id
-                                 "presence_fence_mismatch")
+                                 "liveness_fence_mismatch")
               (let [{:keys [served-version occurrences]}
                     (native-rpc! 'subject-projection! client subject)
                     before (occurrence-snapshot occurrences)
@@ -1576,7 +1576,7 @@
                 (native-commit-terminal!
                  client subject operation-id desired expected thread fence deadline)
                 (unresolved-result "indeterminate" operation-id
-                                   "presence_fence_not_released"))))
+                                   "liveness_fence_not_released"))))
           (finally
             (try (native-rpc! 'lease-release! client fence)
                  (catch Throwable _ nil))))))))

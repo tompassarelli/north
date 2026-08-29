@@ -17,7 +17,7 @@ const FENCE_KEYS = ["epoch", "holder", "resource"] as const;
 function bareAgentId(agentId: string): string {
   const bare = agentId.replace(/^@?agent:/, "");
   if (!validAgentEntity(`@agent:${bare}`))
-    throw new Error("presence fence requires a valid bare agent id");
+    throw new Error("liveness fence requires a valid bare agent id");
   return bare;
 }
 
@@ -26,13 +26,13 @@ export function canonicalPresenceFence(
   expectedAgentId?: string,
 ): PresenceFence {
   if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new Error("presence fence must be an object");
+    throw new Error("liveness fence must be an object");
   const record = value as Record<string, unknown>;
   if (Object.keys(record).sort().join("\0") !== FENCE_KEYS.join("\0"))
-    throw new Error("presence fence must contain exactly resource, holder, and epoch");
+    throw new Error("liveness fence must contain exactly resource, holder, and epoch");
   if (typeof record.resource !== "string" || typeof record.holder !== "string"
       || !Number.isSafeInteger(record.epoch) || (record.epoch as number) <= 0)
-    throw new Error("presence fence fields are malformed");
+    throw new Error("liveness fence fields are malformed");
   const fence: PresenceFence = {
     resource: record.resource,
     holder: record.holder,
@@ -41,7 +41,7 @@ export function canonicalPresenceFence(
   if (expectedAgentId !== undefined) {
     const bare = bareAgentId(expectedAgentId);
     if (fence.resource !== `session:${bare}` || fence.holder !== bare)
-      throw new Error("presence fence does not belong to the managed agent");
+      throw new Error("liveness fence does not belong to the managed agent");
   }
   return fence;
 }
@@ -51,7 +51,7 @@ export function parsePresenceFence(raw: string, expectedAgentId?: string): Prese
   try {
     parsed = JSON.parse(raw.trim());
   } catch {
-    throw new Error("presence fence is not canonical JSON");
+    throw new Error("liveness fence is not canonical JSON");
   }
   return canonicalPresenceFence(parsed, expectedAgentId);
 }
@@ -69,7 +69,7 @@ export function presenceFencePath(
     ?? (env.NORTH_IDENTITY_TEST_REDIRECT === "1" && env.NORTH_STREAM_DIR
       ? env.NORTH_STREAM_DIR : undefined)
     ?? join(env.HOME || homedir(), ".local/state/north/agents");
-  return join(directory, `${bare}.presence-fence.json`);
+  return join(directory, `${bare}.liveness-fence.json`);
 }
 
 export function persistPresenceFence(

@@ -471,12 +471,12 @@ function renewPresence(self: string): void {
       ? fence
       : parsePresenceFence(output, self);
     if (process.env.NORTH_IDENTITY_TEST_REDIRECT !== "1" && renewed.epoch <= fence.epoch)
-      throw new Error("presence renewal did not advance the exact lease fence");
+      throw new Error("liveness renewal did not advance the exact lease fence");
     persistPresenceFence(self, renewed);
     // Throttle observability: a dispatched renewal is otherwise indistinguishable
     // from a throttled no-op, so the ≥60s rule has no field evidence. Off by default.
     if (process.env.NORTH_PRESENCE_DEBUG === "1")
-      console.error(`[presence] @agent:${self} lease renewed (activity heartbeat)`);
+      console.error(`[liveness] @agent:${self} lease renewed (activity heartbeat)`);
   } catch (err) {
     if (lastRenew.get(self) === now) lastRenew.set(self, prev);
     // Fail-soft must not mean fail-silent: presence-cli exits nonzero on a
@@ -486,10 +486,11 @@ function renewPresence(self: string): void {
     const lines = (typeof e.stderr === "string" ? e.stderr : e.stderr?.toString() ?? "")
       .split("\n").map((l) => l.trim()).filter(Boolean);
     // The reject reason, not the bb stack trace that carried it.
-    const detail = lines.find((l) => l.startsWith("presence:"))
-      ?? lines.find((l) => l.startsWith("Message:")) ?? e.message ?? String(err);
+    const detail = lines.find((l) => l.startsWith("north lease-internal:"))
+      ?? lines.find((l) => l.startsWith("Message:"))
+      ?? "lease helper failed without a diagnostic";
     console.error(
-      `[presence] @agent:${self} lease renewal FAILED — lane continues, roster may read lapsed: ${detail}`,
+      `[liveness] @agent:${self} lease renewal FAILED — lane continues, roster may read lapsed: ${detail}`,
     );
   }
 }

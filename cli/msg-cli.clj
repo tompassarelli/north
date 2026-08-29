@@ -20,11 +20,23 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/agent-provenance.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/wake-receipt-internal.clj"))
 (def one     north.coord/resolved)
 (def many    north.coord/many)
 
+(defn validated-wake-status [port message]
+  (try
+    ((or (ns-resolve 'north.wake-receipt-internal 'wake-status!)
+         (throw (ex-info "typed wake status authority is unavailable" {})))
+     port message)
+    (catch Exception _
+      {:status "unknown" :missing ["durable-evidence-unavailable"] :failures []})))
+
 (def msg-control-pattern #"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 (def target-identity-manifest-predicate "target_identity_manifest_sha256")
+(def wake-attempt-predicate "wake_attempt_id")
+(def wake-listener-epoch-predicate "wake_listener_epoch")
+(def wake-listener-manifest-predicate "wake_listener_manifest_sha256")
 (def max-msg-run-candidates 128)
 (defn reject-message! [message]
   (binding [*out* *err*] (println (str "REJECTED: message " message)))
@@ -151,6 +163,8 @@
             (when (string? live-input-state)
               (str " (state " live-input-state ")")))))
     {:identity-manifest (get facts "identity_manifest_sha256")
+     :live-input live-input
+     :live-input-epoch (get facts "live_input_epoch")
      :shadow-reviewer-capability
      (get facts "shadow_reviewer_note_capability_sha256")}))
 
@@ -293,6 +307,13 @@
                              "review capability does not match the exact source lane"))
                           admission))
         e (str "@msg:" (fresh-id from))
+        wake-attempt
+        (when (= "turn-messages" (:live-input msg-admission))
+          (str "wake:"
+               (north.terminal-projection/sha256
+                (str "north:wake-attempt:v1\u0000" e "\u0000" to "\u0000"
+                     (:identity-manifest msg-admission) "\u0000"
+                     (:live-input-epoch msg-admission)))))
         ;; Canonicalize the managed control type. Ordinary subjects retain their
         ;; original spelling; every producer-admitted control message is exactly "msg".
         ;; All message fields are write-once on a fresh @msg. `to` lands LAST
@@ -307,6 +328,12 @@
         (cond-> front-facts
           msg-admission
           (conj [target-identity-manifest-predicate
+                 (:identity-manifest msg-admission)])
+          wake-attempt
+          (conj [wake-attempt-predicate wake-attempt]
+                [wake-listener-epoch-predicate
+                 (:live-input-epoch msg-admission)]
+                [wake-listener-manifest-predicate
                  (:identity-manifest msg-admission)]))]
     ;; `north msg` labels its control message exactly `msg`. Ordinary
     ;; worker -> coordinator completion/death mail remains legal; peer control
@@ -350,6 +377,8 @@
         ;; all-or-none unit.
         (publish-facts! port e (conj complete-front-facts ["to" to])))
       (println (str (if msg? "queued for live injection " "sent ") e " -> " to
+                    (when wake-attempt
+                      (str " wake-attempt=" wake-attempt))
                     (when broadcast-audience
                       (str " (" (count broadcast-audience)
                            " snapshotted recipients; sender excluded)"))))
@@ -512,6 +541,19 @@
     "thread"      ; <msg-id>
     (let [[id] args, e (str "@msg:" id)]
       (doseq [p ["from" "to" "subject" "body" "sent_at"
+                 wake-attempt-predicate
+                 wake-listener-epoch-predicate
+                 wake-listener-manifest-predicate
+                 "wake_message_admission_version"
+                 "wake_message_admission_ordinal"
+                 "wake_idle_event" "wake_idle_run_id" "wake_idle_sequence"
+                 "wake_idle_commit_version"
+                 "wake_idle_model_call_id"
+                 "wake_turn_event" "wake_turn_run_id" "wake_turn_sequence"
+                 "wake_turn_commit_version"
+                 "wake_turn_model_call_id"
+                 "wake_first_action_event" "wake_first_action_kind"
+                 "wake_first_action_sequence"
                  north.message-audience/audience-version-predicate]]
         (println (format "%-9s %s" p (or (one port e p) "-"))))
       (println (str "broadcast_to: "
@@ -520,7 +562,13 @@
       (println (str "delivery_rejected_by: "
                     (str/join ", " (many port e "delivery_rejected_by"))))
       (doseq [rejection (many port e "delivery_rejection")]
-        (println (str "delivery_rejection: " rejection))))
+        (println (str "delivery_rejection: " rejection)))
+      (let [{:keys [status missing failures]} (validated-wake-status port e)]
+        (println (str "wake_status: " status))
+        (when (seq missing)
+          (println (str "wake_missing: " (str/join "," missing))))
+        (doseq [failure failures]
+          (println (str "wake_failure: " failure)))))
 
     "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
     (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]

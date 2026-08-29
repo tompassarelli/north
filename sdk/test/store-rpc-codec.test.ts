@@ -233,6 +233,26 @@ test("a decoded request exposes op, expected-version, page, and payload", () => 
   ], FENCE))).toBe(true);
 });
 
+test("an invalid optional-field marker uses the public marker diagnostic", () => {
+  const bytes = encodeRequestPacket(31, request({
+    op: kw("rpc/version"), payload: RPC_UNIT,
+  }));
+  const expectedVersionMarker = RPC_V2_HEADER_BYTES
+    + 1 + 4 + Buffer.byteLength(SPACE)
+    + 1 + 4 + Buffer.byteLength("rpc/version");
+  bytes[expectedVersionMarker] = 2;
+  let rendered = "";
+  try {
+    decodePacket(bytes);
+  } catch (error) {
+    expect(error).toBeInstanceOf(StoreRpcCodecError);
+    expect((error as StoreRpcCodecError).code).toBe("rpc-invalid-marker");
+    rendered = String(error);
+  }
+  expect(rendered).toContain("expected-version marker must be the strict byte 0 or 1");
+  expect(rendered).not.toMatch(/(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)/i);
+});
+
 test("served-version is extracted from every response", () => {
   expect(decodePacket(golden("version-response")).response!.servedVersion).toBe(42);
   expect(decodePacket(golden("batch-response")).response!.servedVersion).toBe(46);

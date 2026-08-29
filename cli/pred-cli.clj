@@ -98,7 +98,7 @@
    ;; --- agent / session / role (presence-cli, dispatch-guard) ---
    ["agent"          "single" "literal" "handle this session/run belongs to"]
    ["dir"            "single" "literal" "working directory of a session"]
-   ["session_id"     "single" "literal" "session id of a presence registration"]
+   ["session_id"     "single" "literal" "session id of a liveness lease registration"]
    ["started_at"     "single" "literal" "instant an observed session or run started"]
    ["task"           "single" "literal" "current task description"]
    ["role"           "single" "literal" "functional agent responsibility"]
@@ -110,6 +110,26 @@
    ["live_input_epoch" "single" "literal" "opaque UUIDv4 generation for one exact managed route publication"]
    ["shadow_reviewer_note_capability_sha256" "single" "literal" "SHA-256 of the unpersisted host-only shadow-reviewer note capability"]
    ["target_identity_manifest_sha256" "single" "literal" "exact committed managed-route manifest against which a msg was admitted"]
+   ["wake_attempt_id" "single" "literal" "deterministic message-bound retained-session wake attempt"]
+   ["wake_listener_epoch" "single" "literal" "exact managed route generation admitted for a wake attempt"]
+   ["wake_listener_manifest_sha256" "single" "literal" "exact managed identity manifest admitted for a wake attempt"]
+   ["wake_message_admission_version" "single" "literal" "Store transaction version of the exact message to-assertion admission boundary"]
+   ["wake_message_admission_ordinal" "single" "literal" "Store transaction ordinal of the exact message to-assertion admission boundary"]
+   ["wake_idle_event" "single" "literal" "durable Wire completion event proving the target idle boundary"]
+   ["wake_idle_run_id" "single" "literal" "durable Wire run containing the target idle boundary"]
+   ["wake_idle_sequence" "single" "literal" "durable Wire sequence of the target idle boundary"]
+   ["wake_idle_commit_version" "single" "literal" "Store transaction version committing the exact idle Wire event"]
+   ["wake_idle_model_call_id" "single" "literal" "model call completed at the target idle boundary"]
+   ["wake_turn_event" "single" "literal" "durable Wire start event proving canonical host turn acceptance"]
+   ["wake_turn_run_id" "single" "literal" "durable Wire run containing canonical host turn acceptance"]
+   ["wake_turn_sequence" "single" "literal" "durable Wire sequence of canonical host turn acceptance"]
+   ["wake_turn_commit_version" "single" "literal" "Store transaction version committing the exact accepted turn event"]
+   ["wake_turn_model_call_id" "single" "literal" "distinct model call accepted for the wake attempt"]
+   ["wake_first_action_event" "single" "literal" "first durable assistant or tool event for the accepted wake turn"]
+   ["wake_first_action_kind" "single" "literal" "typed kind of the first durable wake-turn action"]
+   ["wake_first_action_sequence" "single" "literal" "durable Wire sequence of the first wake-turn action"]
+   ["wake_failure" "single" "literal" "bounded explicit failure attached to a wake attempt"]
+   ["execution_attempt_run" "single" "literal" "exact Wire run owned by an immutable execution attempt"]
    ["delivery_rejection" "multi" "literal" "bounded canonical evidence for a permanently impossible recipient delivery"]
    ["delivery_rejected_by" "multi" "literal" "recipient whose permanently impossible delivery was terminally rejected, never acknowledged"]
    ["display_handle" "single" "literal" "stable human-facing semantic agent handle"]
@@ -279,7 +299,7 @@
    ["failed_at" "multi" "literal" "instant of a peer-command failure report"]
    ["failed_by" "multi"  "literal" "handles that reported a terminal command failure"]
    ;; --- concerns (concern-cli) ---
-   ["title"   "single" "literal" "human-readable title (presence ⇒ a thread)"]
+   ["title"   "single" "literal" "human-readable title (its existence makes the subject a thread)"]
    ["kind"    "single" "literal" "structural kind tag (e.g. concern)"]
    ["intent"  "single" "literal" "what a concern is building"]
    ["repo"    "multi"  "literal" "repository associated with an entity; threads may span repositories"]
@@ -669,8 +689,8 @@
     :reason "peer tell carries a caller-supplied predicate to a non-agent subject"}
    {:id "peer-command-args" :path "cli/msg-cli.clj"
     :reason "extensible peer command argument keys become fact predicates"}
-   {:id "presence-runmeta" :path "cli/presence-cli.clj"
-    :reason "presence runmeta accepts extension fields; fixed SDK run telemetry does not"}
+   {:id "lease-runmeta" :path "internal/session-lease-runmeta"
+    :reason "session lease runmeta accepts extension fields; fixed SDK run telemetry does not"}
    {:id "registry-define" :path "cli/pred-cli.clj"
     :reason "operators may explicitly define an additional executable predicate entity"}])
 

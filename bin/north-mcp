@@ -581,7 +581,7 @@
   (try
     (let [{:keys [out exit]} (proc/sh {:out :string :err :string}
                                       driver-bb (str root "/cli/presence-cli.clj")
-                                      north-port "presence-online")]
+                                      north-port "live-leases")]
       (and (zero? exit)
            (boolean
             (some (fn [line]

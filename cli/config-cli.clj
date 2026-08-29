@@ -971,7 +971,7 @@
    biased writes the selected protocol and
    reads both. both dual-writes one globally unique @msg id and dedupes reads.
    file uses an atomic scratch-to-new publication, new-to-cur acknowledgement,
-   finite broadcast snapshots, and renewable .live presence. It deliberately
+   finite broadcast snapshots, and renewable .live liveness leases. It deliberately
    has no durable audit trail; thread facts are unchanged.
 
  9 CODEX MCP / 10 CODEX PLUGINS — status prints each declaration it can read

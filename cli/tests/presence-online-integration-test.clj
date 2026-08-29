@@ -51,7 +51,7 @@
       daemon (do
                (proc/process
                 {:dir store :out :string :err :string
-                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                 :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
                 (str store "/bin/beagle-store-server") "serve" (str port)
                 log "north-coordination"))]
@@ -68,8 +68,12 @@
       (check "historical session registers" (zero? (:exit lapsed-registration)))
       (north.coord/release-lease!
        port (json/parse-string (str/trim (:out lapsed-registration)) true)))
-    (let [live (:out (run-presence port "presence-online"))
-          full (:out (run-presence port "presence"))]
+    (let [live-result (run-presence port "live-leases")
+          full-result (run-presence port "roster")
+          json-result (run-presence port "live-leases-json")
+          live (:out live-result)
+          full (:out full-result)
+          machine (json/parse-string (str/trim (:out json-result)))]
       (check "live-only projection includes the unexpired session"
              (str/includes? live "live-session"))
       (check "live-only projection excludes historical lapsed sessions"
@@ -77,7 +81,16 @@
       (check "full historical projection remains available"
              (and (str/includes? full "live-session")
                   (str/includes? full "lapsed-session")
-                  (str/includes? full "lapsed"))))
+                  (str/includes? full "lapsed")))
+      (check "machine projection exposes the current versioned contract"
+             (and (zero? (:exit json-result))
+                  (= "north:live-leases:v1" (get machine "version"))))
+      (check "captured roster projections contain no retired online-language token"
+             (not (re-find
+                   #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)"
+                   (str (:out live-result) (:err live-result)
+                        (:out full-result) (:err full-result)
+                        (:out json-result) (:err json-result))))))
     (finally
       (proc/destroy-tree daemon)
       (doseq [file (reverse (file-seq tmp))]

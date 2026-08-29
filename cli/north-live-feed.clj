@@ -209,13 +209,14 @@
                     "recipient" recipient
                     "epoch" epoch)))
 
-(defn emit-mail! [id from subject body]
+(defn emit-mail! [id from subject body wake-attempt]
   (emit! (array-map "protocol" protocol
                     "type" "mail"
                     "id" id
                     "from" from
                     "subject" subject
-                    "body" body)))
+                    "body" body
+                    "wakeAttempt" wake-attempt)))
 
 (defn emit-error! [code id]
   (emit! (cond-> (array-map "protocol" protocol
@@ -391,7 +392,11 @@
           (north.terminal-projection/singleton-value facts "live_input_state"))
         live-input-epoch
         (when (map? facts)
-          (north.terminal-projection/singleton-value facts "live_input_epoch"))]
+          (north.terminal-projection/singleton-value facts "live_input_epoch"))
+        wake-attempt (north.coord/resolved port message "wake_attempt_id")
+        wake-epoch (north.coord/resolved port message "wake_listener_epoch")
+        wake-manifest
+        (north.coord/resolved port message "wake_listener_manifest_sha256")]
     (if-not (or msg-shaped-subject? managed-msg?)
       {:valid? true}
       (cond
@@ -445,8 +450,18 @@
         {:valid? false :reason "msg_route_not_armed"
          :expected-manifest expected :observed-manifest observed}
 
+        (and (= "turn-messages" live-input)
+             (not (and (string? wake-attempt)
+                       (re-matches #"^wake:[0-9a-f]{64}$" wake-attempt)
+                       (= live-input-epoch wake-epoch)
+                       (= expected wake-manifest))))
+        {:valid? false :reason "wake_identity_invalid"
+         :expected-manifest expected :observed-manifest observed}
+
         :else
         {:valid? true
+         :live-input live-input
+         :live-input-epoch live-input-epoch
          :expected-manifest expected :observed-manifest observed}))))
 
 (defn msg-route-status [port message to subject]
@@ -457,9 +472,13 @@
 (defn current-msg-route? [port message to subject]
   (:valid? (msg-route-status port message to subject)))
 
-(defn message-problem [id from subject body]
+(defn message-problem [id from subject body wake-attempt]
   (or
    (when-not (safe-control-id? id) "invalid_message_id")
+   (when-not (or (nil? wake-attempt)
+                 (and (string? wake-attempt)
+                      (re-matches #"^wake:[0-9a-f]{64}$" wake-attempt)))
+     "invalid_wake_attempt")
    (north.message-contract/sender-problem from)
    (north.message-contract/subject-problem subject)
    (north.message-contract/body-problem body)
@@ -471,7 +490,8 @@
                        "id" id
                        "from" from
                        "subject" subject
-                       "body" body)))
+                       "body" body
+                       "wakeAttempt" wake-attempt)))
           max-output-message-bytes)
      "message_too_large")))
 
@@ -490,7 +510,8 @@
            from (north.coord/resolved port message "from")
            subject (north.coord/resolved port message "subject")
            body (north.coord/resolved port message "body")
-           problem (message-problem message from subject body)
+           wake-attempt (north.coord/resolved port message "wake_attempt_id")
+           problem (message-problem message from subject body wake-attempt)
            msg-status (route-status message to subject)]
        (cond
          (not (currently-deliverable? port recipient message to))
@@ -515,7 +536,7 @@
 
          :else
          (try
-           (emit-mail! message from subject body)
+           (emit-mail! message from subject body wake-attempt)
            (let [control (await-control!
                           control-queue nil message ack-timeout-ms)]
              (if (= "ack" (get control "type"))

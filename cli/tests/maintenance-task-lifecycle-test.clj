@@ -21,10 +21,18 @@
          '[store.types :as t])
 
 (def maintenance-host (str root "/cli/coordination-maintenance-task-host.clj"))
+(def runtime-bb
+  (.getCanonicalPath
+   (io/file (System/getenv "HOME") ".local/state/north/runtime-profile/bin/bb")))
+(def forbidden-online-token
+  #"(?i)(^|[^A-Za-z0-9_])presence([^A-Za-z0-9_]|$)")
 (def checks (atom []))
 
 (defn check [label value detail]
-  (swap! checks conj [label (boolean value) detail]))
+  (swap! checks conj
+         [label
+          (boolean (and value (not (re-find forbidden-online-token (str detail)))))
+          detail]))
 
 (defn free-port []
   (with-open [socket (java.net.ServerSocket. 0)] (.getLocalPort socket)))
@@ -44,7 +52,7 @@
 
 (defn common-env [tmp port log lock timeout-ms]
   {"HOME" (.getCanonicalPath (io/file tmp "home"))
-   "BEAGLE_STORE_PORT" (str port)
+   "NORTH_PORT" (str port)
    "BEAGLE_STORE_LOG" (.getCanonicalPath log)
    "NORTH_AGENT_LOGS_DIR" (.getCanonicalPath (io/file tmp "agent-logs"))
    "NORTH_WORKER_HEARTBEAT" (.getCanonicalPath (io/file tmp "heartbeat"))
@@ -59,14 +67,14 @@
   ([environment dry?]
    (apply proc/process
           {:dir root :out :string :err :string :extra-env environment}
-          "bb" maintenance-host "stale-concerns"
+          runtime-bb maintenance-host "stale-concerns"
           (when dry? ["--dry-run"]))))
 
 (defn start-default-lock-task [environment dry?]
   (apply proc/process
          {:dir root :out :string :err :string :extra-env environment}
          "env" "-u" "NORTH_MAINTENANCE_TASK_LOCK_PATH"
-         "bb" maintenance-host "stale-concerns"
+         runtime-bb maintenance-host "stale-concerns"
          (when dry? ["--dry-run"])))
 
 (defn read-exact! [input bytes offset length]

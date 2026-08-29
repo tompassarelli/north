@@ -144,10 +144,10 @@
 ;; brief contention on the shared coordinator. Only successful reads are cached.
 (defn presence-rows []
   (or (cache-get "presence.edn" 20000)
-      (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "presence-online"] :timeout 6000)]
+      (let [r (run ["bb" (str NORTH "/cli/presence-cli.clj") PORT "live-leases"] :timeout 6000)]
         (cond
-          (:timeout r) {:err "presence probe timed out"}
-          (not (:ok r)) {:err "presence unavailable"}
+          (:timeout r) {:err "liveness lease probe timed out"}
+          (not (:ok r)) {:err "liveness lease projection unavailable"}
           :else
           (let [lines (->> (str/split-lines (:out r))
                            (drop 1)                       ; header
@@ -697,8 +697,7 @@
 
 (defn render-coordination-health! []
   (println (bold "  coordination health"))
-  (echo-cmd "bb" (str NORTH "/cli/presence-cli.clj") PORT
-            "coordination-probe-json")
+  (println (dim "    $ north lease write-readback probe"))
   (let [probe (coordination-probe)
         fail! (fn [msg] (mark-doctor-failed!)
                 (println (str "    " (red "[ERR] ") " " msg)))
@@ -717,8 +716,8 @@
           :else (ok! (str "Store RPC SpaceId fence " space_id)))
         (when (some? space_fence_ok)
           (if lease_write_readback_ok
-            (ok! "presence write + readback through the hook path")
-            (fail! "presence lease did not survive write + readback through the hook path")))
+            (ok! "liveness lease write + readback through the hook path")
+            (fail! "liveness lease did not survive write + readback through the hook path")))
         (when (and space_fence_ok error)
           (fail! (str "coordination probe failed: " error)))
         (when (and space_fence_ok (not error))
@@ -729,9 +728,9 @@
             (if (and (integer? live_session_leases) (zero? live_session_leases)
                      (integer? lineage_registrations_in_ttl)
                      (pos? lineage_registrations_in_ttl))
-              (fail! (str "presence is DARK: " summary
+              (fail! (str "liveness leases are DARK: " summary
                           " — the roster cannot see sessions the lineage hooks registered"))
-              (ok! (str "presence " summary)))))))
+              (ok! (str "liveness " summary)))))))
     (let [roster (roster-projection-probe)]
       (if-let [e (:err roster)]
         (fail! e)

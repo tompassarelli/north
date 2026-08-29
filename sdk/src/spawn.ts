@@ -956,6 +956,7 @@ async function runSpawn(
   });
   for await (const event of watched) {
     const observation = await observeWireEvent(event);
+    liveInputRoute.observeCommittedEvent(event);
     if (observation.activityKind) {
       executionActivity.record("outer", observation.activityKind);
       renewHarnessPresence(agentOptions);

@@ -90,6 +90,14 @@ assert_contains() {
   fi
 }
 
+assert_public_output_clean() {
+  local label="$1" output="$2"
+  if LC_ALL=C grep -Eiq '(^|[^[:alnum:]_])presence([^[:alnum:]_]|$)' <<<"$output"; then
+    printf 'FAIL %s: retired online-language token in %q\n' "$label" "$output" >&2
+    exit 1
+  fi
+}
+
 assert_bb_quiet() {
   local label="$1"
   if [[ -s $bb_log ]]; then
@@ -133,7 +141,7 @@ boundary_case() {
     "comms.file.root=$file_root" \
     "comms.file.poll=hook"
   : >"$bb_log"
-  run_comms presence reviewer --announce >/dev/null
+  run_comms lease reviewer --announce >/dev/null
 
   local mention interrupt
   mention="$(run_north mention reviewer --about @thread:x body)"
@@ -143,6 +151,8 @@ boundary_case() {
     "$mention" "-> reviewer"
   assert_contains "north interrupt uses the selected file transport" \
     "$interrupt" "-> reviewer"
+  assert_public_output_clean "Attention entrypoint output" "$mention
+$interrupt"
   assert_bb_quiet "north Attention entrypoint bypassed north-comms"
   [[ $(find "$file_root/reviewer/new" -type f -name '*.msg' | wc -l) -eq 2 ]]
   printf 'north Attention entrypoint comms boundary: PASS\n'
@@ -166,6 +176,7 @@ semantics_case() {
   fi
   assert_contains "off mode explains the compliant state" \
     "$error" "disabled by comms=off"
+  assert_public_output_clean "disabled Attention diagnostic" "$error"
   assert_bb_quiet "off mode touched DB"
   [[ ! -e $file_root ]]
 
@@ -184,7 +195,7 @@ semantics_case() {
     "file mention" "$message" mention inbox @thread:review
   assert_bb_quiet "file mention touched DB"
 
-  run_comms presence live-reviewer --announce >/dev/null
+  run_comms lease live-reviewer --announce >/dev/null
   output="$(run_comms interrupt sender live-reviewer urgent)"
   interrupt_id="$(sed -n 's/^sent \(@msg:[^ ]*\) ->.*/\1/p' <<<"$output")"
   message="$file_root/live-reviewer/new/${interrupt_id#@msg:}.msg"
@@ -219,7 +230,7 @@ semantics_case() {
     "comms.enforcement=forced" \
     "comms.file.root=$file_root" \
     "comms.file.poll=hook"
-  run_comms presence dual-reviewer --announce >/dev/null
+  run_comms lease dual-reviewer --announce >/dev/null
   : >"$bb_log"
   output="$(
     DB_MESSAGE_ID="@msg:20260730-000000-00000000-0000-4000-8000-000000000202" \
@@ -242,6 +253,7 @@ semantics_case() {
     exit 1
   fi
   assert_contains "forced mismatch names the selected protocol" "$error" "file"
+  assert_public_output_clean "forced Attention diagnostic" "$error"
   assert_bb_quiet "forced mismatch touched DB"
   [[ ! -e "$file_root/denied" ]]
 
@@ -263,15 +275,16 @@ semantics_case() {
       run_comms mention sender managed-reviewer body
   )"
   assert_contains "managed override selects DB" "$output" "-> managed-reviewer"
+  assert_public_output_clean "Attention transport output" "$output"
   grep -Fq -- "msg-cli.clj 7977 mention sender managed-reviewer body" "$bb_log"
 
   printf 'north Attention transport semantics: PASS\n'
 }
 
 parser_case() {
-  local store classpath expression parsed error
-  store="${BEAGLE_STORE_TEST_CHECKOUT:-/home/tom/code/beagle/main/store}"
-  classpath="$root/out:$store/out"
+  local store_out classpath expression parsed error
+  store_out="${BEAGLE_STORE_OUT:-${BEAGLE_STORE_TEST_CHECKOUT:-/home/tom/code/beagle/main/store}/out}"
+  classpath="$root/out:$store_out"
   expression='(System/setProperty "north.msg-cli.lib" "1")
 (System/setProperty "babashka.file" (System/getenv "NORTH_MSG_CLI"))
 (load-file (System/getenv "NORTH_MSG_CLI"))
@@ -286,6 +299,7 @@ parser_case() {
     "$parsed" ':about "@thread:x"'
   assert_contains "mention parser preserves the single body" \
     "$parsed" ':body "body"'
+  assert_public_output_clean "mention parser output" "$parsed"
 
   if error="$(
     NORTH_MSG_CLI="$root/cli/msg-cli.clj" \
@@ -306,6 +320,7 @@ parser_case() {
   fi
   assert_contains "mention parser rejects multiple bodies" \
     "$error" "requires exactly one body argument after options"
+  assert_public_output_clean "mention parser diagnostic" "$error"
 
   printf 'north mention parser contract: PASS\n'
 }

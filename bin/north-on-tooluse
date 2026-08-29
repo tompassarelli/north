@@ -349,7 +349,7 @@ if [ "$now_s" -eq 0 ] || [ $(( now_s - last_s )) -ge 60 ]; then
             NORTH_COMMS_DIR="$REPO" \
             NORTH_COMMS_SESSION_ID="$ID" \
             NORTH_COMMS_ALIAS="$ROLE_ALIAS" \
-            "$NORTH_HOME/bin/north-comms" presence "$ID" --announce \
+            "$NORTH_HOME/bin/north-comms" lease "$ID" --announce \
             >/dev/null 2>&1
         then
           renew_tmp="${RENEW_MARK}.$$.${RANDOM}.tmp"
