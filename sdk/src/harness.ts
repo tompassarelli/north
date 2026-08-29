@@ -375,6 +375,8 @@ export interface HarnessOpts {
   abortController?: AbortController;
   provider?: ProviderId;
   routingMetadata?: RoutingRequest;
+  /** Already-admitted project-exposure-v1 sidecar propagated to managed children. */
+  projectProfile?: unknown;
   /** A live run may change models in-place, so no exact-model delta can remain valid. */
   omitModelDeltaReason?: string;
   /** Original route intent plus target evidence, sealed into provider authority. */
@@ -1947,6 +1949,7 @@ export function harnessOptions(o: HarnessOpts): Options {
     // tier-less import.meta.main bootstrap reads process.env.AGENT_MODEL, so an
     // inherited value would silently pin the child. Strip them at the boundary.
     AGENT_MODEL: _inheritedModel,
+    AGENT_PROJECT_PROFILE: _inheritedProjectProfile,
     AGENT_REASONING: _inheritedReasoning,
     AGENT_TIER: _inheritedTier,
     ...ambientEnv
@@ -1963,6 +1966,8 @@ export function harnessOptions(o: HarnessOpts): Options {
       : managedNorthBinDir,
     AGENT_ID: o.self,
     AGENT_TOPOLOGY: enforcementTopology,
+    ...(o.projectProfile === undefined
+      ? {} : { AGENT_PROJECT_PROFILE: JSON.stringify(o.projectProfile) }),
     ...(metadata?.reasoning ? { AGENT_REASONING: metadata.reasoning } : {}),
     ...(metadata?.role ? { NORTH_ORCHESTRATION_ROLE: metadata.role } : {}),
     // Sealed authority marker consumed by the system-managed Codex lifecycle

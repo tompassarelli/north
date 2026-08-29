@@ -10,13 +10,17 @@ import { applyOrchestrationStaffing, loadOrchestrationStaffing } from "../src/or
 import { bindSpawnTestRuntime } from "../src/internal/test-runtime";
 import { wireTurnQuery } from "./support/wire-query";
 import type { RoutedQueryArguments } from "../src/providers";
+import { researchProjectProfile } from "./routing-fixtures";
 
 const north = resolve(import.meta.dir, "../..");
 const agentMachinery = process.env.AGENT_MACHINERY_HOME ?? "/home/tom/code/agent-machinery/main";
 const compose = resolve(agentMachinery, "scripts/compose-routing.mjs");
+const researchProfileJson = JSON.stringify(researchProjectProfile());
 
 function composed(...args: string[]): any {
-  const result = spawnSync(process.execPath, [compose, ...args], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, [
+    compose, ...args, "--project-profile", researchProfileJson,
+  ], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -76,7 +80,7 @@ test("file-backed managed child bootstrap publishes identity before its hermetic
     "NORTH_STREAM_DIR", "NORTH_AGENT_LOGS_DIR", "NORTH_PORT", "NORTH_STORE_HOST",
     "AGENT_ID", "AGENT_ROLE", "AGENT_TASK_GRADE", "AGENT_DOMAIN_REQUIREMENTS",
     "AGENT_TOPOLOGY", "AGENT_TIER", "AGENT_REASONING", "AGENT_POSTURE",
-    "AGENT_COMPOSITION", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_COORDINATOR",
+    "AGENT_COMPOSITION", "AGENT_PROJECT_PROFILE", "AGENT_PROVIDER", "AGENT_TARGET", "AGENT_COORDINATOR",
     "AGENT_WORKTREE", "NORTH_ROUTING_POLICY", "NORTH_ROUTING_PIN_EVIDENCE", "NORTH_ENVELOPE_ACCOUNTING",
     "BEAGLE_STORE_HOME", "BEAGLE_STORE_BIN", "BEAGLE_STORE_OUT",
   ] as const;
@@ -116,6 +120,7 @@ printf '%s\\n' "$*" >> ${JSON.stringify(log)}
     process.env.AGENT_REASONING = route.reasoning;
     process.env.AGENT_POSTURE = route.posture;
     process.env.AGENT_COMPOSITION = JSON.stringify(route.composition);
+    process.env.AGENT_PROJECT_PROFILE = JSON.stringify(researchProjectProfile());
     process.env.AGENT_PROVIDER = "openai";
     process.env.AGENT_TARGET = "codex-explicit-fixture";
     process.env.AGENT_MODEL = "gpt-5.6-sol";
@@ -269,7 +274,12 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
     "--tier", "frontier", "--reasoning", "xhigh", "--posture", "prune",
     "--override-reason", "principal bounded retirement"], {
     encoding: "utf8",
-    env: { ...process.env, NO_COLOR: "1", ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json") },
+    env: {
+      ...process.env,
+      AGENT_PROJECT_PROFILE: researchProfileJson,
+      NO_COLOR: "1",
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
+    },
   });
   expect(result.status).toBe(0);
   expect(result.stdout).toContain("grade=principal tier=frontier reasoning=xhigh");

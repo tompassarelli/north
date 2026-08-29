@@ -6,6 +6,7 @@ import {
   type DispatchDependencies,
 } from "../../src/dispatch";
 import { bindDispatchTestRuntime } from "../../src/internal/test-runtime";
+import { researchProjectProfile } from "../routing-fixtures";
 
 const RUNTIME_FIELDS = new Set([
   "claimDriver", "driverOptions", "queryFn", "loadThreadFacts", "loadChildren",
@@ -23,7 +24,9 @@ const pinnedDispatchAuthority = () => {};
 function split(
   value: DispatchDependencies & Record<string, unknown>,
 ): DispatchDependencies {
-  const request: Record<string, unknown> = {};
+  const request: Record<string, unknown> = {
+    projectProfile: value.projectProfile ?? researchProjectProfile(),
+  };
   const runtime: Record<string, unknown> = {
     admitDispatchAuthority: pinnedDispatchAuthority,
   };

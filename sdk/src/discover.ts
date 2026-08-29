@@ -13,7 +13,9 @@ import { dispatch } from "./dispatch";
 import { ProviderSelectionError } from "./provider-routing";
 import { DispatchAlreadyActiveError } from "./dispatch-driver";
 import type { RoutingRequest } from "./routing-metadata";
-import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
+import {
+  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+} from "./routing-admission";
 
 export interface ReadyThread {
   id: string;
@@ -35,20 +37,29 @@ function readyThreads(): ReadyThread[] {
 
 export interface DiscoverOpts {
   routingRequest: RoutingRequest;
+  /** Binding project-exposure-v1 sidecar; required at managed admission. */
+  projectProfile?: unknown;
   maxTasks?: number; // stop after N completed (default: unbounded)
   maxEmptyRounds?: number; // stop after N consecutive unsuccessful rounds (default 5)
 }
 
 export interface DiscoverDependencies {
   readyThreads: () => ReadyThread[];
-  dispatch: (thread: string, routingRequest: RoutingRequest) => Promise<unknown>;
+  dispatch: (
+    thread: string,
+    routingRequest: RoutingRequest,
+    projectProfile: unknown,
+  ) => Promise<unknown>;
   sleep: (ms: number) => Promise<void>;
   random: () => number;
 }
 
 const defaultDependencies: DiscoverDependencies = {
   readyThreads,
-  dispatch: (thread, routingRequest) => dispatch(thread, { routingMetadata: routingRequest }),
+  dispatch: (thread, routingRequest, projectProfile) => dispatch(thread, {
+    routingMetadata: routingRequest,
+    projectProfile,
+  }),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   random: Math.random,
 };
@@ -74,6 +85,7 @@ export async function discover(
 ): Promise<string[]> {
   const routingRequest = admitRoutingRequest(
     opts.routingRequest ?? {}, "managed North discovery",
+    { projectProfile: opts.projectProfile },
   );
   const dependencies = { ...defaultDependencies, ...overrides };
   const maxTasks = opts.maxTasks ?? Infinity;
@@ -96,7 +108,7 @@ export async function discover(
       let failure: unknown;
       let failed = false;
       try {
-        await dependencies.dispatch(t.id, routingRequest);
+        await dependencies.dispatch(t.id, routingRequest, opts.projectProfile);
         attempted = true;
         done.push(t.id);
         unsuccessfulRounds = 0;
@@ -125,6 +137,7 @@ if (import.meta.main) {
   const maxTasks = process.env.DISCOVER_MAX ? Number(process.env.DISCOVER_MAX) : undefined;
   discover(self, {
     routingRequest: routingRequestFromEnv("managed North discovery bootstrap"),
+    projectProfile: projectProfileFromEnv(),
     maxTasks,
   }).catch((e) => {
     console.error(e);
