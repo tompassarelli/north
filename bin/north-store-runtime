@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+exec "${NORTH_BB:-bb}" -cp "$root/out" \
+  "$root/cli/store-runtime-generation.clj" "$@"
