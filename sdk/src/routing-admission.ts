@@ -19,6 +19,29 @@ export interface RoutingAdmissionContext {
   projectProfile: unknown;
 }
 
+export interface ResolvedProjectExposureProfile {
+  version: string;
+  scope: string;
+  facts: {
+    consumer: string;
+    state: string;
+    effect: string;
+    correctness: string;
+    boundaries: string[];
+    stage: string;
+    explicitLifecycleEscalation: boolean;
+  };
+  engineeringContext: string;
+  lifecycleBudget: Array<{ mechanism: string; evidence: string }>;
+  $schema?: string;
+}
+
+export interface ResolvedRoutingAdmission {
+  routingRequest: RoutingRequest;
+  /** Binding project-exposure-v1 sidecar; never part of the portable request. */
+  projectProfile: ResolvedProjectExposureProfile;
+}
+
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
@@ -34,7 +57,7 @@ function validateCanonicalRoutingAdmission(
   projectProfile: unknown,
   request: RoutingRequest,
   surface: string,
-): void {
+): ResolvedRoutingAdmission {
   const orchestrationRoot = resolve(
     process.env.AGENT_MACHINERY_HOME
       ?? resolve(process.env.HOME ?? "", "code/agent-machinery/main"),
@@ -42,7 +65,7 @@ function validateCanonicalRoutingAdmission(
   const entrypoint = resolve(orchestrationRoot, "index.mjs");
   const validation = spawnSync(process.execPath, [
     "--eval",
-    "import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);let s='';for await(const c of process.stdin)s+=c;const v=JSON.parse(s);process.stdout.write(JSON.stringify(m.validateRoutingAdmission(v.projectProfile,v.routingRequest)));",
+    "import {pathToFileURL} from 'node:url';const m=await import(pathToFileURL(process.argv[1]).href);let s='';for await(const c of process.stdin)s+=c;const v=JSON.parse(s);const p=m.resolveProjectExposureProfile(v.projectProfile);const r=m.validateRoutingAdmission(p,v.routingRequest);process.stdout.write(JSON.stringify({routingRequest:r,projectProfile:p}));",
     entrypoint,
   ], {
     input: JSON.stringify({ projectProfile, routingRequest: request }),
@@ -55,26 +78,20 @@ function validateCanonicalRoutingAdmission(
       || "canonical validator failed";
     throw new Error(`${surface} failed canonical Orchestration routing admission: ${detail}`);
   }
-  let canonicalRequest: unknown;
-  try { canonicalRequest = JSON.parse(validation.stdout); }
+  let canonicalAdmission: ResolvedRoutingAdmission;
+  try { canonicalAdmission = JSON.parse(validation.stdout) as ResolvedRoutingAdmission; }
   catch {
     throw new Error(`${surface} canonical Orchestration routing admission returned invalid JSON`);
   }
-  if (canonicalJson(canonicalRequest) !== canonicalJson(request)) {
+  if (canonicalJson(canonicalAdmission.routingRequest) !== canonicalJson(request)) {
     throw new Error(`${surface} canonical Orchestration routing admission changed the request`);
   }
-  deepFreeze(projectProfile);
+  return deepFreeze(canonicalAdmission);
 }
 
-/**
- * Strict managed-wire admission: prove both the complete structural request
- * and Orchestration's stock/bespoke catalog semantics without allowing this boundary
- * to hydrate or rewrite any caller-owned axis.
- */
-export function admitRoutingRequest(
+function admitCanonicalRoutingRequest(
   value: RoutingDraft,
-  surface = "managed North agent",
-  context?: RoutingAdmissionContext,
+  surface: string,
 ): RoutingRequest {
   const request = parseCompleteRoutingRequest(value, surface);
   const admitted = applyOrchestrationStaffing(request);
@@ -87,7 +104,31 @@ export function admitRoutingRequest(
       + " (recover the valid payload shape: north show @contract:dispatch)",
     );
   }
-  if (context) validateCanonicalRoutingAdmission(context.projectProfile, admitted, surface);
+  return admitted;
+}
+
+export function admitResolvedRoutingRequest(
+  value: RoutingDraft,
+  surface = "managed North agent",
+  context: RoutingAdmissionContext = { projectProfile: undefined },
+): ResolvedRoutingAdmission {
+  const admitted = admitCanonicalRoutingRequest(value, surface);
+  return validateCanonicalRoutingAdmission(context.projectProfile, admitted, surface);
+}
+
+/**
+ * Strict managed-wire admission: prove both the complete structural request
+ * and Orchestration's stock/bespoke catalog semantics without allowing this boundary
+ * to hydrate or rewrite any caller-owned axis.
+ */
+export function admitRoutingRequest(
+  value: RoutingDraft,
+  surface = "managed North agent",
+  context?: RoutingAdmissionContext,
+): RoutingRequest {
+  const admitted = admitCanonicalRoutingRequest(value, surface);
+  if (context)
+    return validateCanonicalRoutingAdmission(context.projectProfile, admitted, surface).routingRequest;
   return deepFreeze(JSON.parse(JSON.stringify(admitted)) as RoutingRequest);
 }
 

@@ -14,7 +14,7 @@ import { ProviderSelectionError } from "./provider-routing";
 import { DispatchAlreadyActiveError } from "./dispatch-driver";
 import type { RoutingRequest } from "./routing-metadata";
 import {
-  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+  admitResolvedRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
 } from "./routing-admission";
 
 export interface ReadyThread {
@@ -83,10 +83,12 @@ export async function discover(
   opts: DiscoverOpts,
   overrides: Partial<DiscoverDependencies> = {},
 ): Promise<string[]> {
-  const routingRequest = admitRoutingRequest(
+  const admission = admitResolvedRoutingRequest(
     opts.routingRequest ?? {}, "managed North discovery",
     { projectProfile: opts.projectProfile },
   );
+  const routingRequest = admission.routingRequest;
+  const projectProfile = admission.projectProfile;
   const dependencies = { ...defaultDependencies, ...overrides };
   const maxTasks = opts.maxTasks ?? Infinity;
   const maxEmpty = opts.maxEmptyRounds ?? 5;
@@ -108,7 +110,7 @@ export async function discover(
       let failure: unknown;
       let failed = false;
       try {
-        await dependencies.dispatch(t.id, routingRequest, opts.projectProfile);
+        await dependencies.dispatch(t.id, routingRequest, projectProfile);
         attempted = true;
         done.push(t.id);
         unsuccessfulRounds = 0;

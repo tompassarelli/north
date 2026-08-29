@@ -30,6 +30,7 @@ import {
   type RoutingDraft, type RoutingOverrideField, type RoutingRequest, type Topology,
 } from "./routing-metadata";
 import { admitRoutingRequest } from "./routing-admission";
+import type { ResolvedProjectExposureProfile } from "./routing-admission";
 import { orchestrationCapabilities } from "./orchestration-staffing";
 import {
   hasAuthoringCapability, type OrchestrationCapability,
@@ -50,7 +51,7 @@ import {
   type ProviderModelAdmissionReceipt,
 } from "./provider-model-observation-store";
 import {
-  buildEnvironmentReceipt, buildPromptReceipt, sha256Bytes,
+  buildEnvironmentReceipt, buildPromptReceipt, canonicalReceiptJson, sha256Bytes,
   type EnvironmentArtifact, type EnvironmentReceipt, type PromptReceipt,
 } from "./composition-receipt";
 import {
@@ -376,7 +377,7 @@ export interface HarnessOpts {
   provider?: ProviderId;
   routingMetadata?: RoutingRequest;
   /** Already-admitted project-exposure-v1 sidecar propagated to managed children. */
-  projectProfile?: unknown;
+  projectProfile?: ResolvedProjectExposureProfile;
   /** A live run may change models in-place, so no exact-model delta can remain valid. */
   omitModelDeltaReason?: string;
   /** Original route intent plus target evidence, sealed into provider authority. */
@@ -1907,7 +1908,13 @@ export function harnessOptions(o: HarnessOpts): Options {
   // Shared head: DEFAULT (or override) + ESO. The canonical bootstrap, skill
   // catalog, orchestration contracts, project instructions, and unique tail are
   // composed from the immutable state below.
+  const projectExposureContext = o.projectProfile === undefined ? "" : [
+    "\n\n## Resolved project exposure context\n",
+    "This lifecycle context is resolved at routing admission and remains outside the portable request.\n",
+    `${canonicalReceiptJson(o.projectProfile)}\n`,
+  ].join("");
   const basePrompt = (o.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
+    + projectExposureContext
     + (o.dataOnly ? "" : esoAppendix(composerEnvironment));
   // Orchestration is positive authority, never an ambient default. A lane with
   // no topology remains prompt-neutral but receives coordination-only tools.
