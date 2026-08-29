@@ -8,6 +8,7 @@ import { bindSpawnTestRuntime } from "../../src/internal/test-runtime";
 import { execFileSync } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { worktreePath } from "../../src/worktree";
+import { researchProjectProfile } from "../routing-fixtures";
 
 const RUNTIME_FIELDS = new Set([
   "queryFn", "deliveryRuntime", "loadThreadFacts", "threadFactsLoadOptions",
@@ -28,7 +29,9 @@ const RUNTIME_FIELDS = new Set([
 const pinnedDispatchAuthority = () => {};
 
 function prepared(value: SpawnOptions & Record<string, unknown>): SpawnOptions {
-  const request: Record<string, unknown> = {};
+  const request: Record<string, unknown> = {
+    projectProfile: value.projectProfile ?? researchProjectProfile(),
+  };
   const runtime: Record<string, unknown> = {
     admitDispatchAuthority: pinnedDispatchAuthority,
   };

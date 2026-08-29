@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { discover, type DiscoverDependencies } from "../src/discover";
 import { ProviderSelectionError } from "../src/provider-routing";
 import { DispatchAlreadyActiveError } from "../src/dispatch-driver";
-import { presetRequest } from "./routing-fixtures";
+import { presetRequest, researchProjectProfile } from "./routing-fixtures";
 
 function dependencies(dispatch: DiscoverDependencies["dispatch"]) {
   const observations = { dispatches: 0, sleeps: [] as number[] };
@@ -25,7 +25,8 @@ test("subscription exhaustion backs off and terminates instead of hot-looping", 
   });
 
   expect(await discover("test-discover", {
-    routingRequest: presetRequest("implementer"), maxEmptyRounds: 3,
+    routingRequest: presetRequest("implementer"), projectProfile: researchProjectProfile(),
+    maxEmptyRounds: 3,
   }, value)).toEqual([]);
   expect(observations).toEqual({ dispatches: 3, sleeps: [2_000, 4_000, 8_000] });
 });
@@ -34,7 +35,8 @@ test("repeated generic dispatch failures also consume maxEmptyRounds", async () 
   const { value, observations } = dependencies(async () => { throw new Error("broken thread"); });
 
   expect(await discover("test-discover", {
-    routingRequest: presetRequest("implementer"), maxEmptyRounds: 2,
+    routingRequest: presetRequest("implementer"), projectProfile: researchProjectProfile(),
+    maxEmptyRounds: 2,
   }, value)).toEqual([]);
   expect(observations).toEqual({ dispatches: 2, sleeps: [2_000, 4_000] });
 });
@@ -56,7 +58,8 @@ test("driver contention falls through to the next ready thread without a second 
   };
 
   expect(await discover("test-discover", {
-    routingRequest: presetRequest("implementer"), maxTasks: 1,
+    routingRequest: presetRequest("implementer"), projectProfile: researchProjectProfile(),
+    maxTasks: 1,
   }, value)).toEqual(["thread-free"]);
   expect(dispatched).toEqual(["thread-contended", "thread-free"]);
   expect(sleeps).toEqual([]);

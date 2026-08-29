@@ -118,7 +118,9 @@ import {
 } from "./providers";
 import { resolveTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
-import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
+import {
+  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+} from "./routing-admission";
 import {
   orchestrationCapabilities,
 } from "./orchestration-staffing";
@@ -237,6 +239,8 @@ export interface SpawnOptions {
   provider?: ProviderPreference;
   target?: string;
   routingMetadata: RoutingRequest;
+  /** Binding project-exposure-v1 sidecar; required at managed admission. */
+  projectProfile?: unknown;
   /** Orchestration-owned minimum-sufficient assessment; separate from the eight-field request. */
   routingAssessment?: RoutingAssessment;
   /** North-owned evidence for explicit provider/account/model pins. */
@@ -295,6 +299,7 @@ interface SpawnRuntime {
 const SPAWN_OPTION_FIELDS = new Set([
   "prompt", "agentId", "model", "tools", "systemPrompt", "maxTurns",
   "thread", "coordinator", "provider", "target", "routingMetadata",
+  "projectProfile",
   "project", "sessionId", "worktree", "setupCmd",
   "routingAssessment", "pinEvidence", "tokenTarget",
 ]);
@@ -399,6 +404,7 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
 } {
   const routingMetadata = admitRoutingRequest(
     opts.routingMetadata ?? {}, "managed North spawn",
+    { projectProfile: opts.projectProfile },
   );
   const routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
@@ -415,6 +421,7 @@ function composeSpawnOptions(opts: SpawnOptions): SpawnOptions & {
   return {
     ...opts,
     routingMetadata,
+    projectProfile: opts.projectProfile,
     routingAssessment: routingEconomics.assessment,
     pinEvidence: routingEconomics.pinEvidence,
     routingEconomics,
@@ -2097,6 +2104,7 @@ export function managedChildSpawnOptions(prompt: string): SpawnOptions {
     thread: delegateThread,
     coordinator: process.env.AGENT_COORDINATOR,
     routingMetadata: routingRequestFromEnv("managed North spawn bootstrap"),
+    projectProfile: projectProfileFromEnv(),
     routingAssessment: process.env.AGENT_ROUTING_ASSESSMENT
       ? JSON.parse(process.env.AGENT_ROUTING_ASSESSMENT) : undefined,
     pinEvidence: process.env.NORTH_ROUTING_PIN_EVIDENCE

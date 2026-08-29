@@ -45,7 +45,9 @@ import {
 } from "./providers";
 import { resolveTier, type SemanticTier } from "./providers/catalog";
 import type { RoutingRequest } from "./routing-metadata";
-import { admitRoutingRequest, routingRequestFromEnv } from "./routing-admission";
+import {
+  admitRoutingRequest, projectProfileFromEnv, routingRequestFromEnv,
+} from "./routing-admission";
 import {
   orchestrationCapabilities,
 } from "./orchestration-staffing";
@@ -171,6 +173,8 @@ interface DispatchResult {
 export interface DispatchDependencies {
   /** Complete per-subtask request; programmatic callers never inherit ambient routing. */
   routingMetadata: RoutingRequest;
+  /** Binding project-exposure-v1 sidecar; required at managed admission. */
+  projectProfile?: unknown;
   routingAssessment?: RoutingAssessment;
   pinEvidence?: RoutingPinEvidence;
   /** Explicit child identity for a programmatic handoff; never inferred from a parent. */
@@ -224,7 +228,7 @@ interface DispatchDriverClaim {
 }
 
 const DISPATCH_DEPENDENCY_FIELDS = new Set([
-  "routingMetadata", "routingAssessment", "pinEvidence", "agentId", "tokenTarget",
+  "routingMetadata", "projectProfile", "routingAssessment", "pinEvidence", "agentId", "tokenTarget",
 ]);
 
 function allowlistedDispatchDependencies(
@@ -273,6 +277,7 @@ async function runDispatch(
   runEstimate: RunEstimateSnapshot | undefined,
   envelopeAdmission?: EnvelopeAdmission,
   hydratedMetadata?: RoutingRequest,
+  projectProfile?: unknown,
   routingEconomics?: AdmittedRoutingEconomics,
   hydratedWorkingDirectory?: string,
   hydratedAgentId?: string,
@@ -660,6 +665,7 @@ async function runDispatch(
         receipt: routing.modelAvailabilityReceipts?.[routing.target],
       },
       routingMetadata,
+      projectProfile,
       cwd: workingDirectory,
       deliveryRun: deliveryReservationReady ? runContext : undefined,
       artifactDirectory: artifacts.directory,
@@ -1419,6 +1425,7 @@ export async function dispatch(
   // accepted, and a preclaimed fast path must not touch driver state first.
   let routingMetadata = admitRoutingRequest(
     admitted.routingMetadata ?? {}, "managed North dispatch",
+    { projectProfile: admitted.projectProfile },
   );
   let routingEconomics = admitRoutingEconomics({
     request: routingMetadata,
@@ -1531,7 +1538,7 @@ export async function dispatch(
     for (const advisory of admission?.advisories ?? []) console.warn(`[envelope] advisory: ${advisory}`);
     result = await runDispatch(
       threadId, judgmentGrade, strugglePolicy, runEstimate,
-      admission, routingMetadata, routingEconomics,
+      admission, routingMetadata, admitted.projectProfile, routingEconomics,
       workingDirectory, agentId, injected.queryFn,
       facts, children, injected.loadThreadFacts ?? getThreadFacts,
       injected.deliveryRuntime,
@@ -1591,6 +1598,7 @@ if (import.meta.main) {
   dispatch(threadId, {
     agentId: process.env.AGENT_ID,
     routingMetadata: routingRequestFromEnv("managed North dispatch bootstrap"),
+    projectProfile: projectProfileFromEnv(),
     routingAssessment: process.env.AGENT_ROUTING_ASSESSMENT
       ? JSON.parse(process.env.AGENT_ROUTING_ASSESSMENT) : undefined,
     pinEvidence: process.env.NORTH_ROUTING_PIN_EVIDENCE
