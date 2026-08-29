@@ -38,6 +38,8 @@ printf '%s\n' \
 chmod +x "$NORTH_HOME/bin/north"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
   >"$SCRATCH/agent-machinery/agents/integrator.md"
+printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"north-lifecycle-writer","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
+  >"$SCRATCH/agent-machinery/agents/north-lifecycle-writer.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"integrator","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","reasoning":"high","posture":"deliver","composition":{"kind":"template","id":"integrator","overrides":[]}} -->' \
   >"$SCRATCH/agent-machinery/agents/role-mismatch.md"
 printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"missing-reasoning","taskGrade":"senior","domainRequirements":[],"topology":"worker","tier":"senior","posture":"deliver","composition":{"kind":"template","id":"missing-reasoning","overrides":[]}} -->' \
@@ -333,6 +335,31 @@ if jq -e '
   pass=$((pass + 1)); echo 'PASS  route  generated Orchestration redirect carries all eight semantic fields'
 else
   fail=$((fail + 1)); printf 'FAIL  route  generated Orchestration redirect dropped or changed routing fields\n      out=%s\n' "$routing_out"
+fi
+
+independent_input="$(jq -nc --arg d "$REPO" '{
+  tool_name:"Agent",
+  tool_input:{subagent_type:"orchestration:north-lifecycle-writer",prompt:"own the lifecycle seam",model:"gpt-5.6-sol"},
+  cwd:$d
+}')"
+independent_out="$(printf '%s' "$independent_input" | env HOME="$SCRATCH/home" "$HOOK" 2>&1)"
+independent_reason="$(jq -r '.hookSpecificOutput.permissionDecisionReason // ""' <<<"$independent_out")"
+independent_json="$(printf '%s' "$independent_reason" | /etc/codex/hooks/runtime/python3 -c '
+import json, sys
+text = sys.stdin.read()
+marker = "mcp__north__spawn "
+start = text.index(marker) + len(marker)
+value, _ = json.JSONDecoder().raw_decode(text[start:])
+print(json.dumps(value, separators=(",", ":")))
+')"
+if jq -e '
+  keys == ["composition","domainRequirements","posture","prompt","provider","reasoning","role","taskGrade","tier","topology"] and
+  .role == "north-lifecycle-writer" and
+  .composition == {kind:"template",id:"integrator",overrides:[]}
+' <<<"$independent_json" >/dev/null; then
+  pass=$((pass + 1)); echo 'PASS  route  novel role retains independent stock-template provenance'
+else
+  fail=$((fail + 1)); printf 'FAIL  route  novel role was coupled to stock-template identity\n      out=%s\n' "$independent_out"
 fi
 
 invalid_routes_ok=1

@@ -34,11 +34,13 @@ move.
 ## The contract
 
 ```
-thread ──▶ composition ──▶ capability envelope ──▶ run + evidence
+thread ──▶ portable run request ──▶ capability envelope ──▶ run + evidence
 ```
 
-Four stages. North owns all four **as data**. A backend owns only the execution
-of stage 3, and reports stage 4 back.
+Four stages. Agent Machinery owns acknowledged work-ownership transitions and
+the portable run-design contract. North owns the thread graph, concrete run
+admission, execution lifecycle, and evidence. A backend owns only execution of
+stage 3 and reports stage 4 back.
 
 ### 1 · Thread (the intent)
 
@@ -55,24 +57,27 @@ The durable unit of work. Already fact-native; do not change it.
 **Invariant.** A thread is backend-agnostic. Nothing about *how* a lane executes
 may ever be recorded on a thread.
 
-### 2 · Composition (the staffing decision)
+### 2 · Portable run request (the staffing decision)
 
 Who should do this, expressed on independent axes. Resolved from the
 orchestration catalog; never inferred from the backend.
 
 | Axis | Values |
 |---|---|
-| `role` | template id, or a bespoke id with a contract |
+| `role` | functional responsibility and deliverable |
 | `taskGrade` | novice · junior · mid · senior · staff · principal · distinguished |
 | `topology` | `worker` · `orchestrator` |
 | `tier` | economy · standard · senior · frontier |
 | `reasoning` | low · medium · high · xhigh |
 | `posture` | explore · deliver · evaluate · preserve |
 | `domainRequirements` | expertise the brief must load |
+| `composition` | template provenance or a bespoke behavior contract, independent of `role` |
 
-**Invariant.** Composition is provider-neutral. `tier` is a *semantic* level;
+**Invariant.** The portable request is provider-neutral. `tier` is a *semantic* level;
 resolving it to a concrete model is the backend's job, via the catalog. A
-composition that names a vendor model is malformed.
+request that names a vendor model is malformed. A dispatch or graph binding
+does not transfer actor ownership; only the acknowledged Agent Machinery
+work-ownership transition does.
 
 ### 3 · Capability envelope (the authority boundary)
 
