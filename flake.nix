@@ -17,7 +17,7 @@
     };
 
     agent-machinery-source = {
-      url = "github:tompassarelli/agent-machinery/fb5b211db297021b6f78ffe1bbbc2947fb5cbcab";
+      url = "github:tompassarelli/agent-machinery/8a3f1cdbd1d6797d5db34477211f8b8ab03c1953";
       flake = false;
     };
   };

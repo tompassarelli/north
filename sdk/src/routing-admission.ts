@@ -29,7 +29,7 @@ export interface ResolvedProjectExposureProfile {
     correctness: string;
     boundaries: string[];
     stage: string;
-    explicitLifecycleEscalation: boolean;
+    explicitLifecycleActions: string[];
   };
   engineeringContext: string;
   lifecycleBudget: Array<{ mechanism: string; evidence: string }>;
