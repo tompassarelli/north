@@ -694,6 +694,26 @@ test("bespoke roles require a structured contract and explicit promotion decisio
   expect(nearest).not.toContain("timeline and gaps");
 }, CLI_PROCESS_TEST_TIMEOUT_MS);
 
+test("CLI admits role and composition independently at both catalog boundaries", () => {
+  const novelRoleTemplate = dry("migration-scout", "openai", "--composition", JSON.stringify({
+    kind: "template", id: "scout", overrides: [],
+  }));
+  expect(novelRoleTemplate).toContain("AGENT_ROLE=migration-scout");
+  expect(novelRoleTemplate).toContain('AGENT_COMPOSITION={"kind":"template","id":"scout","overrides":[]}');
+
+  const stockRoleBespoke = dry("reviewer", "openai", "--composition", JSON.stringify({
+    kind: "bespoke",
+    id: "migration-forensics",
+    nearestTemplate: "analyst",
+    bespokeReason: "one-off migration evidence review",
+    promotionCandidate: false,
+    contract: JSON.parse(bespokeContract),
+  }));
+  expect(stockRoleBespoke).toContain("AGENT_ROLE=reviewer");
+  expect(stockRoleBespoke).toContain("orchestration:bespoke:migration-forensics");
+  expect(stockRoleBespoke).toContain("AGENT_COMPOSITION=REDACTED_BESPOKE_CONTRACT");
+}, CLI_PROCESS_TEST_TIMEOUT_MS);
+
 test("CLI effective-authority closure rejects open shell capability sets", () => {
   const contract = (capabilities: string[]) => JSON.stringify({
     responsibility: "probe composition ingress",

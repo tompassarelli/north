@@ -359,13 +359,33 @@ test("MCP SDK launches forward the inherited canonical Store RPC instance exactl
   });
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
-test("MCP preserves role independently of template provenance", () => {
-  const route = { ...presetRequest("scout"), role: "integrator" };
-  const launched = mcpSpawnEnvironment(() => {}, route);
-  expect(launched.childEnv.AGENT_ROLE).toBe("integrator");
-  expect(JSON.parse(launched.childEnv.AGENT_COMPOSITION)).toMatchObject({
-    kind: "template", id: "scout",
-  });
+test("MCP admits role and composition independently at both catalog boundaries", () => {
+  const routes: RoutingRequest[] = [
+    { ...presetRequest("scout"), role: "migration-scout" },
+    {
+      ...presetRequest("reviewer"),
+      composition: {
+        kind: "bespoke",
+        id: "migration-forensics",
+        bespokeReason: "one-off migration evidence review",
+        promotionCandidate: false,
+        contract: {
+          responsibility: "review migration evidence",
+          deliverable: "evidence-backed review",
+          capabilities: ["filesystem.read", "filesystem.search", "shell.readonly"],
+          mayDecide: ["finding severity"],
+          mustEscalate: ["scope expansion"],
+          doneWhen: ["every finding is sourced"],
+          report: "findings and residual uncertainty",
+        },
+      },
+    },
+  ];
+  for (const route of routes) {
+    const launched = mcpSpawnEnvironment(() => {}, route);
+    expect(launched.childEnv.AGENT_ROLE).toBe(route.role);
+    expect(JSON.parse(launched.childEnv.AGENT_COMPOSITION)).toEqual(route.composition);
+  }
 }, MCP_PROCESS_TEST_TIMEOUT_MS);
 
 test("MCP launch fails closed when the inherited Store RPC environment is incomplete", () => {
@@ -834,7 +854,7 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
       ...presetRequest("verifier"),
       role: "special",
       composition: { kind: "template", id: "special", overrides: [] },
-    }, "unknown role special requires a bespoke composition"],
+    }, "unknown template composition.id special"],
     [{ prompt: "probe", ...presetRequest("scout"), role: "researcher",
       composition: { kind: "template", id: "researcher", overrides: [] } },
       "role researcher is retired because it was ambiguous"],

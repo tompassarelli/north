@@ -1373,7 +1373,11 @@
                             (get dt (:id supplied-composition)))
         supplied-contract (parse-json-input "--contract" contract)
         canonical (get dt invoked-role)
-        bespoke? (and invoked-role (nil? canonical))
+        default-bespoke? (and invoked-role (nil? canonical))
+        composition-kind (or (:kind supplied-composition)
+                             (if default-bespoke? "bespoke" "template"))
+        bespoke? (= "bespoke" composition-kind)
+        template? (= "template" composition-kind)
         bespoke-reason (or rationale (:bespokeReason supplied-composition))
         nearest-role (or nearest (:nearestTemplate supplied-composition))
         nearest-template (get dt nearest-role)
@@ -1385,7 +1389,7 @@
                                      (contains? supplied-composition :promotionCandidate))
                               (:promotionCandidate supplied-composition)
                               false))
-        template-base (or supplied-template canonical)
+        template-base (when template? (or supplied-template canonical))
         base (or template-base nearest-template)
         preset-grade (:taskGrade base) preset-tier (:tier base)
         preset-posture (:posture base) preset-topology (:topology base)
@@ -1407,14 +1411,14 @@
                       ["--posture" posture]])))
         route-problem (north.orchestration-staffing/unsupported-route-problem
                        selected-tier selected-reasoning)
-        actual-overrides (when canonical
+        actual-overrides (when template?
                            (vec (keep (fn [[field selected preset]] (when (not= selected preset) field))
                                       [["taskGrade" selected-grade (:taskGrade template-base)]
                                        ["domainRequirements" selected-domains []]
                                        ["tier" selected-tier (:tier template-base)]
                                        ["reasoning" selected-reasoning (:deliberation template-base)]
                                        ["posture" selected-posture (:posture template-base)]])))
-        generated-composition (if bespoke?
+        generated-composition (if default-bespoke?
                                 (cond-> {:kind "bespoke" :id invoked-role
                                          :bespokeReason bespoke-reason :promotionCandidate promotion-value
                                          :contract contract-value}
@@ -1423,7 +1427,7 @@
                                          :overrides actual-overrides}
                                   (seq actual-overrides) (assoc :overrideReason overrideReason)))
         selected-composition (or supplied-composition generated-composition)
-        selected-capabilities (if canonical (:capabilities template-base)
+        selected-capabilities (if template? (:capabilities template-base)
                                 (:capabilities contract-value))
         normalized-selected-capabilities
         (when (and (sequential? selected-capabilities) (every? string? selected-capabilities))
@@ -1432,7 +1436,6 @@
                              (or (topology-capability-problem selected-topology normalized-selected-capabilities)
                                  (north.orchestration-staffing/posture-capability-problem
                                   selected-posture normalized-selected-capabilities)))
-        composition-kind (when (map? selected-composition) (:kind selected-composition))
         allowed-composition-fields (case composition-kind
                                      "template" #{:kind :id :overrides :overrideReason}
                                      "bespoke" #{:kind :id :nearestTemplate :bespokeReason :promotionCandidate :contract}
@@ -1462,9 +1465,9 @@
       (not= canonical-orchestration-capabilities catalog-capability-order)
       (do (println (red "Orchestration capability vocabulary order disagrees with North's canonical fingerprint vocabulary"))
           (System/exit 1))
-      (and canonical (or rationale nearest contract promotion-specified?))
-      (do (println (red "--nearest, --rationale, --contract, and promotion decisions apply only to bespoke roles")) (System/exit 1))
-      (and canonical (some? topology))
+      (and template? (or rationale nearest contract promotion-specified?))
+      (do (println (red "--nearest, --rationale, --contract, and promotion decisions apply only to bespoke compositions")) (System/exit 1))
+      (and template? (some? topology))
       (do (println (red "--topology applies only to bespoke compositions; stock-template topology is fixed"))
           (System/exit 1))
       (and bespoke? overrideReason)
@@ -1510,25 +1513,21 @@
       (do (println (red (str "composition contains unknown fields: " (str/join ", " (map name unknown-composition-fields))))) (System/exit 1))
       (and (= "template" composition-kind) (nil? (get dt (:id selected-composition))))
       (do (println (red (str "unknown template composition.id " (:id selected-composition)))) (System/exit 1))
-      (and canonical (not= "template" composition-kind))
-      (do (println (red (str "known role " invoked-role " requires a template composition"))) (System/exit 1))
-      (and canonical (not (valid-string-list? declared-overrides false)))
+      (and template? (not (valid-string-list? declared-overrides false)))
       (do (println (red "template composition.overrides must be an array of unique routing-axis names")) (System/exit 1))
-      (and canonical (some #(not (routing-override-fields %)) declared-overrides))
+      (and template? (some #(not (routing-override-fields %)) declared-overrides))
       (do (println (red (str "composition.overrides may contain only: "
                             (str/join ", " (sort routing-override-fields)))))
           (System/exit 1))
-      (and canonical (not= (set actual-overrides) (set declared-overrides)))
+      (and template? (not= (set actual-overrides) (set declared-overrides)))
       (do (println (red (str "composition.overrides must exactly record changed template axes: "
                             (if (seq actual-overrides) (str/join ", " actual-overrides) "none"))))
           (System/exit 1))
-      (and canonical (seq actual-overrides) (not (non-empty-string? (:overrideReason selected-composition))))
+      (and template? (seq actual-overrides) (not (non-empty-string? (:overrideReason selected-composition))))
       (do (println (red (str "template axis override requires --override-reason (changed: "
                             (str/join ", " actual-overrides) ")"))) (System/exit 1))
-      (and canonical (empty? actual-overrides) (contains? selected-composition :overrideReason))
+      (and template? (empty? actual-overrides) (contains? selected-composition :overrideReason))
       (do (println (red "unchanged preset must not carry --override-reason")) (System/exit 1))
-      (and bespoke? (not= "bespoke" composition-kind))
-      (do (println (red (str "bespoke role " invoked-role " requires a bespoke composition"))) (System/exit 1))
       (and bespoke? (not (boolean? (:promotionCandidate selected-composition))))
       (do (println (red "bespoke composition.promotionCandidate must be explicit boolean")) (System/exit 1))
       (and bespoke? (not= bespoke-contract-fields contract-fields))
@@ -1591,7 +1590,7 @@
                          "NORTH_STRUGGLE_POLICY_EXPECTED" (:canonical struggle-policy)}
                   selected-role (assoc "AGENT_IDENTITY_ROLE" selected-role)
                   selected-grade (assoc "AGENT_TASK_GRADE" selected-grade)
-                  (or canonical bespoke?) (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string selected-domains))
+                  selected-role (assoc "AGENT_DOMAIN_REQUIREMENTS" (json/generate-string selected-domains))
                   selected-topology (assoc "AGENT_TOPOLOGY" selected-topology)
                   selected-tier (assoc "AGENT_TIER" selected-tier)
                   selected-role (assoc "AGENT_ROLE" selected-role)

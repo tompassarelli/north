@@ -287,7 +287,7 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
   expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"executor\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal bounded retirement\"}");
 
-  const provenance = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "integrator", "trace the boundary",
+  const provenance = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "migration-scout", "trace the boundary",
     "--dry-run", "--ad-hoc", "--composition", JSON.stringify({ kind: "template", id: "scout", overrides: [] })], {
     encoding: "utf8",
     env: {
@@ -298,18 +298,29 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
     },
   });
   expect(provenance.status).toBe(0);
-  expect(provenance.stdout).toContain("AGENT_ROLE=integrator");
+  expect(provenance.stdout).toContain("AGENT_ROLE=migration-scout");
   expect(provenance.stdout).toContain('AGENT_COMPOSITION={"kind":"template","id":"scout","overrides":[]}');
 });
 
-test("North rejects unlogged bespoke roles while preserving independent template provenance", () => {
+test("North SDK admits role and composition independently at both catalog boundaries", () => {
   const catalog = loadOrchestrationStaffing(resolve(agentMachinery, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
     .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
   expect(validateRoutingMetadata({
-    role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
+    role: "migration-scout", composition: { kind: "template", id: "scout", overrides: [] },
   })).toEqual({
-    role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
+    role: "migration-scout", composition: { kind: "template", id: "scout", overrides: [] },
+  });
+  expect(validateRoutingMetadata({
+    role: "reviewer",
+    composition: { kind: "bespoke", id: "migration-forensics",
+      bespokeReason: "one-off migration evidence review", promotionCandidate: false,
+      contract: JSON.parse(contract) },
+  })).toEqual({
+    role: "reviewer",
+    composition: { kind: "bespoke", id: "migration-forensics",
+      bespokeReason: "one-off migration evidence review", promotionCandidate: false,
+      contract: JSON.parse(contract) },
   });
   expect(() => applyOrchestrationStaffing({
     role: "special", taskGrade: "staff", domainRequirements: [], topology: "worker",
