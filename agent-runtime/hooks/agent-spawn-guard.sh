@@ -840,7 +840,7 @@ def routing_for(invoked_role):
             or not {"kind", "id", "overrides"}.issubset(composition)
             or not set(composition).issubset({"kind", "id", "overrides", "overrideReason"})
             or composition.get("kind") != "template"
-            or composition.get("id") != routing["role"]
+            or not SAFE_ROLE.fullmatch(str(composition.get("id", "")))
             or not isinstance(composition.get("overrides"), list)
             or not all(isinstance(item, str) for item in composition["overrides"])):
         return None
@@ -866,8 +866,9 @@ def north_call(d):
 subagent = ""
 if tool in ("Agent", "Task"):
     subagent = ti.get("subagent_type") or ti.get("subagentType") or ""
-# Templates now load as agent files under their plain role names (Claude Code
-# rejects ":" in an agent file's name), so a squad pick arrives bare. The legacy
+# Generated adapters load as agent files under their invoked role names while
+# routing metadata selects composition independently. Claude Code rejects ":"
+# in an agent file's name, so a squad pick arrives bare. The legacy
 # plugin-namespaced type stays recognized for older transcripts. Either way an
 # unknown name finds no generated contract and falls through to the generic
 # recipe — routing_for is the only authority on whether this was a squad pick.

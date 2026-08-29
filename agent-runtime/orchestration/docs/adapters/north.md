@@ -2,17 +2,18 @@ SPAWN SURFACES (adapter: north) — a squad member is the eight-field
 Orchestration request (role, taskGrade, domainRequirements, topology, tier, reasoning,
 posture, composition), delivered on the North substrate. Provider, account,
 and an optional exact-model pin are North execution-envelope controls. Native Agent/Task/Workflow are DENIED
-here (dispatch=managed) — the harness still advertises the orchestration templates
-under their plain role names (`reviewer`, `integrator`, ...) alongside other native
+here (dispatch=managed) — the harness still advertises generated adapter files
+under their invoked role names (`reviewer`, `integrator`, ...) alongside other native
 agent types, IGNORE that and go STRAIGHT to north; never let the advertised list bait
 a native call (that is the recurring misfire).
 - contract-v2 job → mcp__north__spawn {prompt, provider, model, tier, role, posture,
   taskGrade, domainRequirements, topology, reasoning, composition}
 - fan-out → one mcp__north__spawn per lane in the SAME turn; observe at web :8088
 - thread-driven → capture the thread, then mcp__north__dispatch (posture from claims)
-Every canonical role passes North's open `role` string so its block is loaded
-and the choice is observable. Bespoke role names are also allowed; their
-authority/deliverable contract and explicit canonical capabilities ride in the
+Every invoked role passes North's open `role` string so the functional identity
+is observable. Catalogued and novel roles may select a stock template through
+independent `composition.id` provenance; a bespoke composition instead carries
+its authority/deliverable contract and explicit canonical capabilities in the
 prompt. A nearest stock template may seed defaults but never grants capabilities.
 Stock-template overrides may change task grade, domains, tier, reasoning, or
 posture with one justification. Stock topology is fixed; a topology,
@@ -20,8 +21,9 @@ responsibility, deliverable, capability/authority boundary, done-criteria, or
 report-shape change requires a bespoke composition.
 Pin task grade+tier+posture.
 Use provider=auto unless policy or the caller explicitly overrides it. These
-fields form North's v2 staffing contract: North assembles the selected role,
-task-grade, topology, posture, communication, and exact-model calibration
+fields form North's v2 staffing contract: North assembles the selected
+composition's behavior with the independent role, task-grade, topology, posture,
+communication, and exact-model calibration
 blocks; North gates each named domain requirement on explicit brief context,
 relevant loaded repo docs/skills/capability, or escalation — metadata alone
 never confers expertise. A domain requirement is a context/prompt gate:
@@ -31,7 +33,7 @@ operations still require an authenticated execution surface established before
 dispatch. North intersects the stock template's provider-neutral capabilities
 with the selected adapter's concrete tool surface. Orchestrator topology is
 admitted only when the composition explicitly carries coordination capability
-and the adapter can enforce it; topology alone never loads the director role.
+and the adapter can enforce it; topology alone never grants coordination.
 Capability enforcement is fail-closed. `shell.readonly` means a shell whose
 working tree cannot be written, not merely a tool list without Edit/Write.
 For managed Anthropic lanes North denies native Bash and exposes
@@ -66,7 +68,7 @@ target for that exact provider/model before the turn. Both checks are required.
 Routing defaults
 (canonical stock templates — generated from the machine `presets` key, do not hand-edit):
 
-  orchestration role  task grade     tier      reasoning  topology      posture   capabilities
+  template            task grade     tier      reasoning  topology      posture   capabilities
   ------------------  -------------  --------  ---------  ------------  --------  -----------------------------------------------------------------
   executor            novice         economy   low        worker        deliver   filesystem.read,filesystem.search,filesystem.write,shell
   curator             junior         economy   low        worker        prune     filesystem.read,filesystem.search,filesystem.write,shell
@@ -109,6 +111,6 @@ distinct and disallowed under North until equivalent per-child admission,
 authority, metering, and settlement can be enforced.
 
 If a native call slips through, the agent-spawn-guard hook denies with the exact
-mcp__north__spawn call pre-resolved for that role and tier — one-paste recovery. A native
+mcp__north__spawn call preserving that role, composition provenance, and tier — one-paste recovery. A native
 denial is a routing instruction, never a wall: translate, never abandon the
 squad pick or drop to an unrouted spawn.

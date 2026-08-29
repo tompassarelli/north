@@ -275,10 +275,11 @@ telemetry records the requested and resolved route separately:
 - `fallback_count`, `fallback_path`, and `fallback_target_path` preserve every
   proof-authorized route change.
 
-Roster composition provenance has five deliberate states:
+Roster composition provenance has five deliberate states, independently of the
+lane's functional `role`:
 
-- `orchestration:<id>` — the named Orchestration preset was selected unchanged.
-- `orchestration:<id>+override(tier,reasoning)` — the named preset was selected with
+- `orchestration:<id>` — the named Orchestration stock template was selected unchanged.
+- `orchestration:<id>+override(tier,reasoning)` — the named stock template was selected with
   deliberate axis changes. The ordered axes and full rationale remain separate
   facts (`composition_overrides`, `composition_override_reason`); the display
   label is only their compact projection.
@@ -299,8 +300,9 @@ only surface evidence for review; they never mutate Orchestration's library or p
 a composition without an explicit source-control change.
 
 This division keeps Orchestration reusable across account layouts. Orchestration's canonical
-staffing catalog at `agent-machinery:staffing/catalog.json` names roles and semantic
-tiers; it contains no personal account IDs or subscription state.
+staffing catalog at `agent-machinery:staffing/catalog.json` names reusable templates
+and semantic tiers; the run request supplies role independently, and the catalog
+contains no personal account IDs or subscription state.
 
 ## Token truth
 

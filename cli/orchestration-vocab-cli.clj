@@ -23,7 +23,7 @@
 ;; This command owns the exact orchestration kind vocabulary it publishes.
 (def ORCHESTRATION-ENTITY-KINDS
   (sorted-map
-   "template" "A named role composition (axes + capabilities + prompt block) resolved by spawn."
+   "template" "Reusable behavior and routing defaults whose composition provenance is independent of role."
    "axis_value" "A first-class value of an orchestration axis (task_grade/tier/reasoning/posture/topology/capability/...)."
    "provider_catalog" "A provider's calibrated model/transport/provenance catalog vintage."
    "model" "One provider model with its calibrated routes, context window, and delta."
@@ -35,7 +35,7 @@
    "wire_contract" "A queryable subject documenting one coordinator wire contract (fields, example, error codes)."
    "staffing_catalog" "Catalog-level defaults for template axes (task_grade/tier/reasoning/posture/topology)."
    "doctrine_block" "A graph-resident prompt_block not attached to a template (e.g. comms doctrine)."
-   "task" "An accepted delegation subject: proposed_by (director) != delegate (child lane), position 3."))
+   "task" "A coordination subject recording proposed_by, delegate, and done_when; actor ownership moves only through Agent Machinery acknowledgement."))
 
 (defn exact-facts [port subject]
   (->> (north.coord/query-rows
