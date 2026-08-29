@@ -1,11 +1,14 @@
+import { EventEmitter } from "node:events";
 import { expect, test } from "bun:test";
 import {
   inputChannel,
   LiveFeedReapTimeoutError,
   LiveFeedStartupTimeoutError,
+  subscribeFeed,
   type FeedSubscription,
   type FeedMail,
   type InputAdmission,
+  type SubscriptionRuntime,
 } from "../src/coordination";
 import {
   ManagedLiveInputRoute,
@@ -39,6 +42,124 @@ function subscription(
     drain,
     isArmed: () => true,
   });
+}
+
+class RestartFeedStdin extends EventEmitter {
+  destroyed = false;
+  writable = true;
+  writes: string[] = [];
+
+  write(value: string | Buffer) {
+    if (!this.writable || this.destroyed) throw new Error("stdin unavailable");
+    this.writes.push(String(value));
+    return true;
+  }
+
+  end() { this.writable = false; }
+  destroy() { this.destroyed = true; this.writable = false; }
+}
+
+class RestartFeedStdout extends EventEmitter {
+  destroyed = false;
+  destroy() { this.destroyed = true; }
+}
+
+class RestartFeedChild extends EventEmitter {
+  stdout = new RestartFeedStdout();
+  stdin = new RestartFeedStdin();
+  stderr = null;
+  signals: Array<string | undefined> = [];
+
+  kill(signal?: string) { this.signals.push(signal); return true; }
+  unref() {}
+}
+
+interface RestartFeedTimer {
+  callback: () => void;
+  delayMs: number;
+  cancelled: boolean;
+}
+
+function restartFeedHarness() {
+  const children: RestartFeedChild[] = [];
+  const timers: RestartFeedTimer[] = [];
+  const runtime: SubscriptionRuntime = {
+    spawn: (() => {
+      const child = new RestartFeedChild();
+      children.push(child);
+      return child;
+    }) as unknown as NonNullable<SubscriptionRuntime["spawn"]>,
+    bbExecutable: "/nix/store/00000000000000000000000000000000-babashka-test/bin/bb",
+    port: "7977",
+    schedule: (callback, delayMs) => {
+      const timer: RestartFeedTimer = {
+        callback: () => {
+          if (timer.cancelled) return;
+          timer.cancelled = true;
+          callback();
+        },
+        delayMs,
+        cancelled: false,
+      };
+      timers.push(timer);
+      return timer;
+    },
+    cancel: (timer) => { (timer as RestartFeedTimer).cancelled = true; },
+    now: () => 0,
+    initialBackoffMs: 100,
+    maxBackoffMs: 1_000,
+    healthyResetMs: 30_000,
+    readyTimeoutMs: 5_000,
+    startupTimeoutMs: 20_000,
+    admissionTimeoutMs: 3_000,
+    drainTimeoutMs: 45_000,
+    stopKillMs: 250,
+    stopReapMs: 5_000,
+  };
+  return {
+    children,
+    runtime,
+    activeTimers: () => timers.filter(({ cancelled }) => !cancelled),
+  };
+}
+
+function emitFeedLine(child: RestartFeedChild, value: object) {
+  child.stdout.emit("data", Buffer.from(`${JSON.stringify(value)}\n`));
+}
+
+function readyFeed(child: RestartFeedChild, recipient: string) {
+  emitFeedLine(child, {
+    protocol: "north-live-feed-v1",
+    type: "ready",
+    recipient,
+    cursor: 17,
+  });
+}
+
+function caughtUpFeed(child: RestartFeedChild, recipient: string) {
+  emitFeedLine(child, {
+    protocol: "north-live-feed-v1",
+    type: "caught_up",
+    recipient,
+  });
+}
+
+function wakeFeed(child: RestartFeedChild) {
+  emitFeedLine(child, {
+    protocol: "north-live-feed-v1",
+    type: "mail",
+    id: "@msg:wake-one",
+    from: "peer",
+    subject: "update",
+    body: "continue once",
+    wakeAttempt,
+  });
+}
+
+async function settleFeed() {
+  const settled = Promise.withResolvers<void>();
+  setImmediate(settled.resolve);
+  await settled.promise;
 }
 
 const initialRoute: ManagedRouteAxes = {
@@ -177,39 +298,130 @@ test("turn-messages terminal replay delivers one late follow-up and keeps owners
   expect(writes).toEqual(["armed", "frozen"]);
 });
 
-test("restart duplicates join one durable attempt without replaying an unknown turn", async () => {
+test("pre-dequeue feed-child restart replays one retained wake and acks after one turn", async () => {
   const channel = inputChannel("initial");
   const stream = channel.stream();
   await stream.next();
-  let deliver: ((message: FeedMail) => InputAdmission) | undefined;
-  let intent: "unknown" | "accepted" = "unknown";
-  let pushes = 0;
+  const harness = restartFeedHarness();
+  const receiptWrites: string[] = [];
+  let idleWrites = 0;
+  const agentId = "lane-turn-messages-restart";
   const route = new ManagedLiveInputRoute(
-    "lane-turn-messages-restart",
+    agentId,
     { kind: "lane" },
     turnMessagesRoute,
-    (message) => {
-      pushes++;
-      return channel.push(message);
-    },
-    (_agentId, onMessage) => {
-      deliver = onMessage;
-      return subscription(Promise.resolve(), () => channel.end());
-    },
+    (message) => channel.push(message),
+    (recipient, onMessage, runtime) => subscribeFeed(
+      recipient,
+      onMessage,
+      { ...harness.runtime, ...runtime },
+    ),
     () => {},
     undefined,
-    () => intent,
+    (_context, phase, event) => {
+      receiptWrites.push(`${phase}:${event}`);
+      if (phase === "idle") return idleWrites++ === 0 ? "created" : "unknown";
+      return "created";
+    },
   );
-  await route.activate(turnMessagesRoute, true);
-  const unknown = deliver!(wakeMail("post-intent unknown"));
-  expect(await unknown.consumed).toBe(false);
-  expect(pushes).toBe(0);
+  const activation = route.activate(turnMessagesRoute, true);
+  const first = harness.children[0]!;
+  readyFeed(first, agentId);
+  await activation;
+  route.observeCommittedEvent(idleEvent("restart"));
+  const replay = route.prepareTerminalFollowUp(new AbortController().signal);
+  wakeFeed(first);
+  await settleFeed();
+  expect(await replay).toBe(true);
+  expect(channel.pending()).toBe(1);
+  expect(first.stdin.writes).not.toContain('{"type":"ack","id":"@msg:wake-one"}\n');
 
-  intent = "accepted";
-  const accepted = deliver!(wakeMail("already accepted"));
-  expect(await accepted.consumed).toBe(true);
-  expect(pushes).toBe(0);
-  await route.freezeAndUnbind();
+  first.stdin.writable = false;
+  first.emit("close", 1);
+  await settleFeed();
+  expect(channel.pending()).toBe(0);
+  expect(channel.liveMessagesReceived()).toBe(0);
+  const retry = harness.activeTimers().find(({ delayMs }) => delayMs === 100);
+  expect(retry).toBeDefined();
+  retry!.callback();
+
+  const replacement = harness.children[1]!;
+  readyFeed(replacement, agentId);
+  wakeFeed(replacement);
+  await settleFeed();
+  expect(channel.pending()).toBe(1);
+  expect(replacement.stdin.writes).not.toContain(
+    '{"type":"ack","id":"@msg:wake-one"}\n',
+  );
+
+  expect((await stream.next()).value?.text).toContain("continue once");
+  await settleFeed();
+  expect(channel.liveMessagesReceived()).toBe(1);
+  expect(replacement.stdin.writes).not.toContain(
+    '{"type":"ack","id":"@msg:wake-one"}\n',
+  );
+  route.observeCommittedEvent({
+    id: "event:turn-after-restart",
+    kind: "model-call.started",
+    modelCallId: "model-call:turn-after-restart",
+  });
+  await settleFeed();
+  expect(replacement.stdin.writes.filter(
+    (line) => line === '{"type":"ack","id":"@msg:wake-one"}\n',
+  )).toHaveLength(1);
+  expect(receiptWrites).toEqual([
+    "idle:event:idle-restart",
+    "idle:event:idle-restart",
+    "turn:event:turn-after-restart",
+  ]);
+
+  const frozen = route.freezeAndUnbind();
+  await Promise.resolve();
+  replacement.emit("close", 0);
+  await frozen;
+  channel.end();
+});
+
+test("fresh route nacks an idle-only wake without retained pre-dequeue proof", async () => {
+  const channel = inputChannel("initial");
+  const stream = channel.stream();
+  await stream.next();
+  const harness = restartFeedHarness();
+  const agentId = "lane-turn-messages-ambiguous-restart";
+  const route = new ManagedLiveInputRoute(
+    agentId,
+    { kind: "lane" },
+    turnMessagesRoute,
+    (message) => channel.push(message),
+    (recipient, onMessage, runtime) => subscribeFeed(
+      recipient,
+      onMessage,
+      { ...harness.runtime, ...runtime },
+    ),
+    () => {},
+    undefined,
+    () => "unknown",
+  );
+  const activation = route.activate(turnMessagesRoute, true);
+  const child = harness.children[0]!;
+  readyFeed(child, agentId);
+  await activation;
+  route.observeCommittedEvent(idleEvent("ambiguous-restart"));
+  const replay = route.prepareTerminalFollowUp(new AbortController().signal);
+  wakeFeed(child);
+  await settleFeed();
+  expect(channel.pending()).toBe(0);
+  expect(channel.liveMessagesReceived()).toBe(0);
+  expect(child.stdin.writes).toContain('{"type":"nack","id":"@msg:wake-one"}\n');
+  expect(child.stdin.writes).not.toContain('{"type":"ack","id":"@msg:wake-one"}\n');
+  caughtUpFeed(child, agentId);
+  expect(await replay).toBe(false);
+
+  const frozen = route.freezeAndUnbind();
+  await Promise.resolve();
+  child.emit("close", 0);
+  await frozen;
+  channel.end();
 });
 
 test("provider dequeue without canonical turn acceptance remains unacknowledged", async () => {

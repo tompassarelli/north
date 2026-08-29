@@ -81,6 +81,10 @@ interface WakeIdleEvent {
   readonly kind: "model-call.completed";
   readonly modelCallId: string;
 }
+interface RetryableWake extends WakeReceiptContext {
+  readonly idleEventId: string;
+  readonly idleModelCallId: string;
+}
 type WakeReceiptWriter = (
   context: WakeReceiptContext,
   phase: WakeReceiptPhase,
@@ -190,6 +194,7 @@ export class ManagedLiveInputRoute {
   #followUpOwner: object | undefined;
   #followUpQueued = Promise.withResolvers<void>();
   #idleEvent: WakeIdleEvent | undefined;
+  #retryableWake: RetryableWake | undefined;
   #wake: (WakeReceiptContext & {
     idleModelCallId: string;
     turnEventId?: string;
@@ -257,7 +262,19 @@ export class ManagedLiveInputRoute {
     // only when the typed receipt authority resolves an exact durable host
     // acceptance; an intent without that receipt remains unknown and replayable.
     if (intent === "accepted") return acceptedAdmission();
-    if (intent !== "created" || !idleEvent) return rejectedAdmission();
+    const retryable = this.#retryableWake;
+    const retryingPreDequeue = intent === "unknown"
+      && idleEvent !== undefined
+      && retryable !== undefined
+      && retryable.messageId === wake.messageId
+      && retryable.attemptId === wake.attemptId
+      && retryable.target === wake.target
+      && retryable.routeEpoch === wake.routeEpoch
+      && retryable.idleEventId === idleEvent.id
+      && retryable.idleModelCallId === idleEvent.modelCallId;
+    if ((intent !== "created" && !retryingPreDequeue) || !idleEvent)
+      return rejectedAdmission();
+    if (retryingPreDequeue) this.#retryableWake = undefined;
 
     const owner = {};
     const admission = this.pushMessage(message.summary);
@@ -278,6 +295,13 @@ export class ManagedLiveInputRoute {
             };
           }
           return hostAccepted.promise;
+        }
+        if (this.#followUpOwner === owner) {
+          this.#retryableWake = {
+            ...wake,
+            idleEventId: idleEvent.id,
+            idleModelCallId: idleEvent.modelCallId,
+          };
         }
         this.#resetFollowUpSlot(owner);
         return false;
