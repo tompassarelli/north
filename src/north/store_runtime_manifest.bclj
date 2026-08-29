@@ -16,6 +16,9 @@
 (def manifest-readiness String "restore+listen+usable-rpc")
 (def manifest-stopping String "before-drain")
 (def manifest-relative-path String "libexec/store/runtime.manifest")
+(def north-user-state-root String (str "/" "home" "/tom/code/north-data"))
+(def store-artifacts-root String (str north-user-state-root "/store-artifacts"))
+(def store-releases-root String (str north-user-state-root "/beagle-store-releases"))
 
 (defrecord StoreRuntimeManifest
   [format String
@@ -33,13 +36,35 @@
 ;; A binding is an expected immutable package and its concrete producer facts.
 ;; It is not evidence that a process started or served a request.
 (defrecord StoreRuntimeBinding
-  [package-root String
+  [beagle-tree String
+   package-root String
+   package-nar-sha256 String
    manifest-path String
+   manifest-bytes Int
+   manifest-sha256 String
+   receipt-path String
+   receipt-sha256 String
    expected StoreRuntimeManifest])
 
+;; The previous member is the exact retained runtime that makes rollback
+;; possible. Its legacy Native shape does not satisfy the current JVM manifest.
+(defrecord StorePreviousRuntimeIdentity
+  [release-root String
+   beagle-revision String
+   beagle-tree String
+   native-artifact-root String
+   native-closure-sha256 String
+   server-artifact String
+   server-artifact-sha256 String])
+
+;; This is the Store artifact's project/user-runtime pair. Selection is an
+;; operational effect outside this identity module.
+(defrecord StoreRuntimeGeneration
+  [current StoreRuntimeBinding
+   previous StorePreviousRuntimeIdentity])
+
 (defrecord StoreRuntimeAttestation
-  [package-root String
-   manifest-path String
+  [generation StoreRuntimeGeneration
    manifest StoreRuntimeManifest])
 
 (defn- fail
@@ -51,6 +76,12 @@
 (defn- exact-lower-oid? [value String] Bool
   (some? (re-matches #"[0-9a-f]{40}" value)))
 
+(defn- exact-sha256? [value String] Bool
+  (some? (re-matches #"[0-9a-f]{64}" value)))
+
+(defn- exact-nar-sha256? [value String] Bool
+  (some? (re-matches #"sha256-[A-Za-z0-9+/]{43}=" value)))
+
 (defn canonical-package-root? [value String] Bool
   (some? (re-matches
           #"/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9][A-Za-z0-9+._?=-]*"
@@ -58,6 +89,18 @@
 
 (defn manifest-path-for [package-root String] String
   (str package-root "/" manifest-relative-path))
+
+(defn receipt-path-for [receipt-sha256 String] String
+  (str store-artifacts-root "/" receipt-sha256 ".json"))
+
+(defn release-path-for [beagle-revision String] String
+  (str store-releases-root "/" beagle-revision))
+
+(defn native-artifact-path-for [closure-sha256 String] String
+  (str store-artifacts-root "/" closure-sha256))
+
+(defn native-server-path-for [artifact-root String] String
+  (str artifact-root "/bin/beagle-store-server-native"))
 
 (defn- require-text!
   [field String
@@ -112,6 +155,52 @@
          "readiness=" (:readiness checked) "\n"
          "stopping=" (:stopping checked) "\n")))
 
+(def accepted-current-runtime-manifest StoreRuntimeManifest
+  (->StoreRuntimeManifest
+   manifest-format
+   "11db5dc955c75cbc28baa9c42490e40b554c143e"
+   "170aab59fdce52869f0e1feda6b29e891524c242"
+   manifest-engine
+   manifest-native-backend
+   manifest-heap-policy
+   manifest-heap-max-bytes
+   manifest-protocol
+   manifest-protocol-version
+   manifest-readiness
+   manifest-stopping))
+
+(def accepted-current-runtime StoreRuntimeBinding
+  (->StoreRuntimeBinding
+   "eea49f32085c266e5f396fbe2d3b64bcb574af33"
+   "/nix/store/kglv2v4fcrrdnslx9qsfq46iyy0psdi9-beagle-store-0-unstable-2026-08-29-11db5dc"
+   "sha256-qBekOj7929oDuXh682GtKBEpvMTRDh+SexvHoQqQJHI="
+   "/nix/store/kglv2v4fcrrdnslx9qsfq46iyy0psdi9-beagle-store-0-unstable-2026-08-29-11db5dc/libexec/store/runtime.manifest"
+   349
+   "39f7e3617bc3f34426e22ee092f4da3e4d1f2da9219028fa41ace6a818921f17"
+   (receipt-path-for
+    "8d1d337eb28001af6315b328890ab5fe31dc06dec7efa467ae3e0b76fce9c267")
+   "8d1d337eb28001af6315b328890ab5fe31dc06dec7efa467ae3e0b76fce9c267"
+   accepted-current-runtime-manifest))
+
+(def accepted-previous-runtime StorePreviousRuntimeIdentity
+  (->StorePreviousRuntimeIdentity
+   (release-path-for "48f38823e42694578587f5624d8be5db9f962a77")
+   "48f38823e42694578587f5624d8be5db9f962a77"
+   "7d4dd724e1ba4c107162a24d47aea0849be119a5"
+   (native-artifact-path-for
+    "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554")
+   "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554"
+   (native-server-path-for
+    (native-artifact-path-for
+     "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554"))
+   "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
+
+(def accepted-runtime-generation StoreRuntimeGeneration
+  (->StoreRuntimeGeneration accepted-current-runtime accepted-previous-runtime))
+
+(def accepted-runtime-manifest-text String
+  (canonical-manifest-text! accepted-current-runtime-manifest))
+
 (defn- line-value
   [line String
    field String] String
@@ -159,24 +248,107 @@
                    (line-value (nth lines 10) "stopping"))]
               (validate-manifest-facts! facts))))))))
 
-(defn attest-runtime-manifest!
-  [text String
-   binding StoreRuntimeBinding] StoreRuntimeAttestation
-  (let [package-root String (:package-root binding)
-        manifest-path String (:manifest-path binding)
-        expected StoreRuntimeManifest (validate-manifest-facts! (:expected binding))]
-    (if (not (canonical-package-root? package-root))
+(defn- validate-current-runtime! [binding StoreRuntimeBinding] StoreRuntimeBinding
+  (do
+    (if (exact-lower-oid? (:beagle-tree binding))
+      (:beagle-tree binding)
+      (fail "Store runtime binding beagle tree must be exactly 40 lowercase hexadecimal characters"
+            :north.store-runtime-manifest/invalid-beagle-tree
+            {:actual (:beagle-tree binding)}))
+    (if (canonical-package-root? (:package-root binding))
+      (:package-root binding)
       (fail "Store runtime binding package root is not a canonical immutable /nix/store package root"
             :north.store-runtime-manifest/invalid-package-root
-            {:actual package-root})
-      (let [derived-path String (manifest-path-for package-root)]
-        (if (not (= manifest-path derived-path))
-          (fail "Store runtime binding manifest path does not derive from its package root"
-                :north.store-runtime-manifest/manifest-path-substitution
-                {:expected derived-path :actual manifest-path})
-          (let [actual StoreRuntimeManifest (parse-runtime-manifest! text)]
-            (if (= actual expected)
-              (->StoreRuntimeAttestation package-root manifest-path actual)
-              (fail "Store runtime manifest facts do not equal the expected immutable binding"
-                    :north.store-runtime-manifest/binding-mismatch
-                    {:expected expected :actual actual}))))))))
+            {:actual (:package-root binding)}))
+    (if (exact-nar-sha256? (:package-nar-sha256 binding))
+      (:package-nar-sha256 binding)
+      (fail "Store runtime binding package NAR hash is not a canonical SHA-256 SRI"
+            :north.store-runtime-manifest/invalid-package-nar
+            {:actual (:package-nar-sha256 binding)}))
+    (require-text! "manifest_path"
+                   (:manifest-path binding)
+                   (manifest-path-for (:package-root binding)))
+    (if (> (:manifest-bytes binding) 0)
+      (:manifest-bytes binding)
+      (fail "Store runtime binding manifest byte count must be positive"
+            :north.store-runtime-manifest/invalid-manifest-size
+            {:actual (:manifest-bytes binding)}))
+    (if (exact-sha256? (:manifest-sha256 binding))
+      (:manifest-sha256 binding)
+      (fail "Store runtime binding manifest SHA-256 is not canonical"
+            :north.store-runtime-manifest/invalid-manifest-sha256
+            {:actual (:manifest-sha256 binding)}))
+    (if (exact-sha256? (:receipt-sha256 binding))
+      (:receipt-sha256 binding)
+      (fail "Store runtime binding receipt SHA-256 is not canonical"
+            :north.store-runtime-manifest/invalid-receipt-sha256
+            {:actual (:receipt-sha256 binding)}))
+    (require-text! "receipt_path"
+                   (:receipt-path binding)
+                   (receipt-path-for (:receipt-sha256 binding)))
+    (validate-manifest-facts! (:expected binding))
+    binding))
+
+(defn- validate-previous-runtime! [identity StorePreviousRuntimeIdentity] StorePreviousRuntimeIdentity
+  (do
+    (if (exact-lower-oid? (:beagle-revision identity))
+      (:beagle-revision identity)
+      (fail "Previous Store runtime revision must be exactly 40 lowercase hexadecimal characters"
+            :north.store-runtime-manifest/invalid-previous-revision
+            {:actual (:beagle-revision identity)}))
+    (if (exact-lower-oid? (:beagle-tree identity))
+      (:beagle-tree identity)
+      (fail "Previous Store runtime tree must be exactly 40 lowercase hexadecimal characters"
+            :north.store-runtime-manifest/invalid-previous-tree
+            {:actual (:beagle-tree identity)}))
+    (require-text! "previous_release_root"
+                   (:release-root identity)
+                   (release-path-for (:beagle-revision identity)))
+    (if (exact-sha256? (:native-closure-sha256 identity))
+      (:native-closure-sha256 identity)
+      (fail "Previous Store runtime Native closure SHA-256 is not canonical"
+            :north.store-runtime-manifest/invalid-previous-closure
+            {:actual (:native-closure-sha256 identity)}))
+    (require-text! "previous_native_artifact_root"
+                   (:native-artifact-root identity)
+                   (native-artifact-path-for (:native-closure-sha256 identity)))
+    (require-text! "previous_server_artifact"
+                   (:server-artifact identity)
+                   (native-server-path-for (:native-artifact-root identity)))
+    (if (exact-sha256? (:server-artifact-sha256 identity))
+      (:server-artifact-sha256 identity)
+      (fail "Previous Store runtime server SHA-256 is not canonical"
+            :north.store-runtime-manifest/invalid-previous-server
+            {:actual (:server-artifact-sha256 identity)}))
+    identity))
+
+(defn- validate-runtime-generation! [generation StoreRuntimeGeneration] StoreRuntimeGeneration
+  (let [current StoreRuntimeBinding (validate-current-runtime! (:current generation))
+        previous StorePreviousRuntimeIdentity (validate-previous-runtime! (:previous generation))]
+    (if (= (->StoreRuntimeGeneration current previous)
+           accepted-runtime-generation)
+      generation
+      (fail "Store project runtime generation does not equal the accepted current and previous identities"
+            :north.store-runtime-manifest/generation-mismatch
+            {:expected accepted-runtime-generation :actual generation}))))
+
+(defn attest-runtime-manifest!
+  [text String
+   generation StoreRuntimeGeneration] StoreRuntimeAttestation
+  (let [checked StoreRuntimeGeneration (validate-runtime-generation! generation)
+        current StoreRuntimeBinding (:current checked)
+        expected StoreRuntimeManifest (:expected current)]
+    (if (not (= (count text) (:manifest-bytes current)))
+      (fail "Store runtime manifest byte count does not equal the accepted binding"
+            :north.store-runtime-manifest/manifest-size-mismatch
+            {:expected (:manifest-bytes current) :actual (count text)})
+      (if (not (= text accepted-runtime-manifest-text))
+        (fail "Store runtime manifest bytes do not equal the accepted binding"
+              :north.store-runtime-manifest/manifest-bytes-mismatch
+              {})
+        (let [actual StoreRuntimeManifest (parse-runtime-manifest! text)]
+          (if (= actual expected)
+            (->StoreRuntimeAttestation checked actual)
+            (fail "Store runtime manifest facts do not equal the expected immutable binding"
+                  :north.store-runtime-manifest/binding-mismatch
+                  {:expected expected :actual actual})))))))
