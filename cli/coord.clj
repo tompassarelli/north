@@ -395,7 +395,9 @@
                  (t/triple? proposition))
     (throw (ex-info "occurrence window returned a malformed row"
                     {:type :malformed-occurrence-window :row row})))
-  (let [[subject predicate value] (triple-row! proposition)
+  (let [subject (t/triple-t1 proposition)
+        predicate (t/triple-t2 proposition)
+        value (t/triple-t3 proposition)
         transaction (t/triple-t1 coordinate)]
     {:operation (if (= action t/assert-action) :assert :retract)
      :subject subject :predicate predicate :value value
