@@ -304,8 +304,9 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
 
 test("North SDK admits role and composition independently at both catalog boundaries", () => {
   const catalog = loadOrchestrationStaffing(resolve(agentMachinery, "staffing/catalog.json"));
-  expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
-    .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
+  expect(() => applyOrchestrationStaffing({
+    role: "special", composition: { kind: "template", id: "missing-template", overrides: [] },
+  }, catalog)).toThrow("unknown stock template missing-template");
   expect(validateRoutingMetadata({
     role: "migration-scout", composition: { kind: "template", id: "scout", overrides: [] },
   })).toEqual({
@@ -384,6 +385,12 @@ test("North MCP advertises the complete composition contract", () => {
     "tier", "reasoning", "posture", "composition",
   ]);
   expect(spawn.inputSchema.properties.reasoning.enum).toContain("xhigh");
+  expect(spawn.inputSchema.properties.taskGrade.enum).toEqual(
+    ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"],
+  );
+  expect(dispatch.inputSchema.properties.taskGrade.enum).toEqual(
+    ["novice", "junior", "mid", "senior", "staff", "principal", "distinguished"],
+  );
   expect(spawn.inputSchema.properties.posture.enum).toEqual(
     ["explore", "deliver", "preserve", "prune", "evaluate"],
   );

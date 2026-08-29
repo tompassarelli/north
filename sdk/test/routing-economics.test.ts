@@ -65,6 +65,23 @@ test("North freezes the canonical Orchestration assessment and immutable catalog
   expect(admitted.receipt.overrideEvidence).toEqual({ changedAxes: [], status: "none" });
 });
 
+test("template receipt provenance resolves stock axes independently of role identity", () => {
+  const request = {
+    role: "migration-scout",
+    taskGrade: "junior" as const,
+    domainRequirements: [],
+    topology: "worker" as const,
+    tier: "economy" as const,
+    reasoning: "low" as const,
+    posture: "explore" as const,
+    composition: { kind: "template" as const, id: "scout", overrides: [] },
+  };
+  expect(admitRoutingEconomics({ request }).receipt.stockAxes).toEqual({
+    taskGrade: "junior", topology: "worker", tier: "economy",
+    reasoning: "low", posture: "explore",
+  });
+});
+
 test("North rejects a forged derived assessment through Orchestration's canonical validator", () => {
   const request = applyOrchestrationStaffing({ role: "executor" });
   expect(() => admitRoutingEconomics({

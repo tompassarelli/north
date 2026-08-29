@@ -363,8 +363,9 @@ function stockAxes(request: RoutingRequest): RoutingAdmissionReceipt["stockAxes"
   const catalog = JSON.parse(readFileSync(
     process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH, "utf8",
   )) as { presets?: Array<Record<string, unknown>> };
-  const preset = catalog.presets?.find(({ name }) => name === request.role);
-  if (!preset) throw new Error(`Orchestration stock preset ${request.role} is absent while issuing admission receipt`);
+  const templateId = request.composition.id;
+  const preset = catalog.presets?.find(({ name }) => name === templateId);
+  if (!preset) throw new Error(`Orchestration stock preset ${templateId} is absent while issuing admission receipt`);
   return {
     taskGrade: String(preset.taskGrade), topology: String(preset.topology),
     tier: String(preset.tier), reasoning: String(preset.deliberation), posture: String(preset.posture),

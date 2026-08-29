@@ -380,6 +380,16 @@ test("MCP admits role and composition independently at both catalog boundaries",
         },
       },
     },
+    {
+      ...presetRequest("reviewer"),
+      taskGrade: "distinguished",
+      composition: {
+        kind: "template",
+        id: "reviewer",
+        overrides: ["taskGrade"],
+        overrideReason: "distinguished review ownership",
+      },
+    },
   ];
   for (const route of routes) {
     const launched = mcpSpawnEnvironment(() => {}, route);
@@ -804,6 +814,7 @@ test("raw MCP rejects non-contract Orchestration fields and verifier-as-topology
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), model: 42 }, "model must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), coordinator: { raw: "value" } }, "coordinator must be a non-empty string"],
     ["spawn", { prompt: "probe", ...presetRequest("verifier"), tokenTarget: 0 }, "tokenTarget must be a positive safe integer"],
+    ["spawn", { prompt: "probe", ...presetRequest("verifier"), taskGrade: "research-grade" }, "invalid taskGrade"],
   ] as const) {
     const result = spawnSync("bb", [resolve(north, "bin/north-mcp")], {
       input: `${JSON.stringify({ jsonrpc: "2.0", id: 0, method: "tools/call",

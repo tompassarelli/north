@@ -22,13 +22,14 @@
 (def SUBJECT "@contract:dispatch")
 
 ;; The child-dispatch payload. `required` fields must be present in every child
-;; payload; the eight-field routing axes compose server-side from @template:<role>
+;; payload; the eight-field routing axes compose server-side from the template
+;; named by composition.id
 ;; for the preset fast path (R7: fast path only at the derived minimum, elevation
 ;; stays long-form + coded exception). `thread` is required in EVERY payload so a
 ;; child's obligations never prebind (the 019f8ebe stray-binding lesson).
 (def PAYLOAD-FIELDS
   [{"name" "thread"    "required" true  "doc" "explicit child thread id; obligations never prebind to the parent (019f8ebe)"}
-   {"name" "role"      "required" true  "doc" "canonical stock-template name (@template:<role>) or a bespoke role id"}
+   {"name" "role"      "required" true  "doc" "functional identity independent of composition kind and id"}
    {"name" "prompt"    "required" true  "doc" "the task text handed to the child lane"}
    {"name" "taskGrade" "required" true  "doc" "scope/autonomy/novelty prior; composed from the template for an unmodified preset"}
    {"name" "topology"  "required" true  "doc" "worker | orchestrator; fixed by a stock template — change it only via a bespoke composition"}
@@ -45,7 +46,7 @@
 (def ERROR-CODES
   [{"code" "unknown-field"          "doc" "payload carries a field outside this contract"}
    {"code" "incomplete-request"     "doc" "the complete eight-field Agent Machinery run request is missing one or more axes"}
-   {"code" "role-unknown"           "doc" "role is not a stock template and lacks a complete bespoke composition"}
+   {"code" "template-unknown"       "doc" "composition.kind=template names an id absent from the stock-template catalog"}
    {"code" "override-undeclared"    "doc" "a template axis changed without composition.overrides + overrideReason"}
    {"code" "topology-fixed"         "doc" "attempt to change a stock template's fixed topology through a preset"}
    {"code" "above-minimum-uncoded"  "doc" "selected exceeds the derived minimum without a coded exception (R7)"}
