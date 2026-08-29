@@ -41,6 +41,14 @@ cat >/dev/null
 printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"heads up"}}'
 exit 0
 `;
+const RECEIPT = '{"schema":"InvocationObservation/v1","hook":"firn-system-policy","operation":"functions.get_goal","classification":"empty-object","decision":"pass"}';
+const ALLOW_RECEIPT = `#!/usr/bin/env bash
+cat >/dev/null
+printf '%s' '${JSON.stringify({
+  hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: RECEIPT },
+})}'
+exit 0
+`;
 const SLEEP_PAST = `#!/usr/bin/env bash
 cat >/dev/null
 sleep 5
@@ -111,7 +119,26 @@ describe("runGuardScript — result protocol", () => {
 
   test("JSON without a deny decision (additionalContext only) -> allow", async () => {
     const d = await runGuardScript(script("ctx.sh", ALLOW_CONTEXT), HOOK);
-    expect(d.decision).toBe("allow");
+    expect(d).toEqual({ decision: "allow" });
+  });
+
+  test("only the named Firn adapter preserves an exact canonical receipt", async () => {
+    const d = await runGuardScript(script("firn-system-policy", ALLOW_RECEIPT), HOOK);
+    expect(d).toEqual({
+      decision: "allow",
+      observation: {
+        raw: RECEIPT,
+        observation: {
+          schema: "InvocationObservation/v1",
+          hook: "firn-system-policy",
+          operation: "functions.get_goal",
+          classification: "empty-object",
+          decision: "pass",
+        },
+      },
+    });
+    expect(await runGuardScript(script("other-guard", ALLOW_RECEIPT), HOOK))
+      .toEqual({ decision: "allow" });
   });
 
   test("script that sleeps past the timeout -> unavailable", async () => {

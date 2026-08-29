@@ -32,7 +32,6 @@ afterEach(() => {
 function requirements(
   mutate?: (document: any) => void,
   managedDir = "/etc/codex/hooks",
-  systemPolicyPath = FIRN_SYSTEM_POLICY,
 ): string {
   const document: any = {
     allow_managed_hooks_only: true,
@@ -41,7 +40,7 @@ function requirements(
     features: { hooks: true },
     hooks: {
       managed_dir: managedDir,
-      ...expectedManagedCodexHooks(managedDir, systemPolicyPath),
+      ...expectedManagedCodexHooks(managedDir),
     },
   };
   mutate?.(document);
@@ -100,6 +99,7 @@ const promotedHooks = {
   "agent-spawn-guard.sh": "north/agent-runtime/hooks/agent-spawn-guard.sh",
   "beagle-session-start.sh": "beagle/integrations/north/hooks/beagle-session-start.sh",
   "corpus-scan-guard.sh": "nixos-config/dotfiles/agents/hooks/corpus-scan-guard.sh",
+  "firn-system-policy": "north/agent-runtime/hooks/firn-system-policy.sh",
   "concrete-model-identity-guard.sh":
     "nixos-config/dotfiles/agents/hooks/concrete-model-identity-guard.sh",
   "launch-critical-worktree-guard.sh":
@@ -137,7 +137,6 @@ function setupHookFixture(): HookFixture {
   const managedDir = join(root, "etc", "codex", "hooks");
   const nixStoreRoot = join(root, "nix", "store");
   const nixPackage = join(nixStoreRoot, `${"a".repeat(32)}-managed-hooks-test`);
-  const systemPolicyPath = join(nixPackage, "bin", "firn-system-policy");
   const enforcementRoot = join(root, "north-enforcement");
   const deploymentRoot = join(enforcementRoot, "deployments", deploymentId);
   const generationRoot = join(enforcementRoot, "generations", "1000000000000000000-1-1");
@@ -151,8 +150,6 @@ function setupHookFixture(): HookFixture {
     write(target, "#!/bin/sh\nexit 0\n", 0o555);
     symlinkSync(target, join(managedDir, "runtime", runtime));
   }
-  write(systemPolicyPath, "#!/bin/sh\nexit 0\n", 0o555);
-
   const promotedFiles: Record<string, string> = {};
   for (const [hook, manifestPath] of Object.entries(promotedHooks)) {
     const target = join(deploymentRoot, ...manifestPath.split("/"));
@@ -164,12 +161,11 @@ function setupHookFixture(): HookFixture {
     );
   }
 
-  const expected = expectedManagedCodexHooks(managedDir, systemPolicyPath);
+  const expected = expectedManagedCodexHooks(managedDir);
   const scripts = new Set(Object.values(expected)
     .flatMap((entries) => entries.flatMap((entry) => entry.hooks))
     .map(({ command }) => command.split(" ").at(-1)!));
   for (const script of scripts) {
-    if (script === systemPolicyPath) continue;
     const name = script.slice(`${managedDir}/`.length);
     if (name in promotedHooks) continue;
     const target = join(nixPackage, "hooks", name);
@@ -201,7 +197,7 @@ function setupHookFixture(): HookFixture {
   symlinkSync(`generations/${generationRoot.split("/").at(-1)!}`, join(enforcementRoot, "active"));
 
   const requirementsPath = join(nixPackage, "requirements.toml");
-  write(requirementsPath, requirements(undefined, managedDir, systemPolicyPath), 0o444);
+  write(requirementsPath, requirements(undefined, managedDir), 0o444);
   const expectedOwnerUid = process.getuid?.() ?? 0;
   return {
     root,
@@ -217,7 +213,6 @@ function setupHookFixture(): HookFixture {
       nixStoreRoot,
       enforcementRoot,
       expectedOwnerUid,
-      systemPolicyPath,
     },
   };
 }
@@ -226,16 +221,18 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
   expect(() => validateManagedCodexRequirements(requirements())).not.toThrow();
 });
 
-test("managed Codex authoring entrances invoke the native Firn system policy", () => {
+test("managed Codex invokes the singular Firn provider adapter once before narrow guards", () => {
   expect(FIRN_SYSTEM_POLICY)
-    .toBe("/home/tom/.local/lib/firn/policy/current/bin/firn-system-policy");
+    .toBe("/etc/codex/hooks/firn-system-policy");
   const expected = expectedManagedCodexHooks();
   const preToolUse = expected.PreToolUse;
-  for (const matcher of ["^(Edit|Write|MultiEdit)$", "^Bash$"]) {
-    const commands = preToolUse.find((entry) => entry.matcher === matcher)!.hooks
-      .map((hook) => hook.command);
-    expect(commands).toContain(FIRN_SYSTEM_POLICY);
-  }
+  expect(preToolUse[0]!.matcher).toBeUndefined();
+  expect(preToolUse[0]!.hooks).toHaveLength(1);
+  expect(preToolUse[0]!.hooks[0]!.command)
+    .toBe("/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+      + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy");
+  expect(preToolUse.flatMap((entry) => entry.hooks)
+    .filter((hook) => hook.command.endsWith("/firn-system-policy"))).toHaveLength(1);
 });
 
 test("managed Codex requirements reject every authority-bearing drift", () => {
