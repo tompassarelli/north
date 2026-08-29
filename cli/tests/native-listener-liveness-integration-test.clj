@@ -271,7 +271,7 @@
                    (and (= 2 (:exit rejected))
                         (str/includes?
                          (str (:out rejected) (:err rejected))
-                         "has no live presence"))))
+                         "is offline"))))
           (let [successor-output (io/file tmp "successor-listener.log")
                 successor
                 (start-listener!
