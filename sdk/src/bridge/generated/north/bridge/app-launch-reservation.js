@@ -105,6 +105,7 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
         await leases.release();
         optional_close_bang(command_receipts);
         return (() => { throw new AggregateError([error, settlement_error], $$bc$str("Bridge app attempt binding and proved-unsent ", "settlement both failed")); })();
+        break;
       }
     }
   } })();
@@ -112,6 +113,7 @@ async function prepare_managed_bridge_app_launch_bang(...$beagle$args) {
         await leases.release();
         optional_close_bang(command_receipts);
         return (() => { throw error; })();
+        break;
       }
     }
   } })();

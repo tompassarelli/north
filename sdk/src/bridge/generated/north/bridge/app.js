@@ -318,6 +318,7 @@ function safe_json(value) {
       case 0: {
         const __ = _catch_0;
         return String(value);
+        break;
       }
     }
   } })();
@@ -593,6 +594,7 @@ async function discover_session_branch_bang(runtime) {
       case 0: {
         const __ = _catch_1;
         return (runtime.sessionBranch = "not a Git worktree");
+        break;
       }
     }
   } })();
@@ -796,6 +798,7 @@ return sound_warning_bang(runtime, error_message(error)); });
       case 0: {
         const error = _catch_2;
         return sound_warning_bang(runtime, error_message(error));
+        break;
       }
     }
   } })();
@@ -815,6 +818,7 @@ function play_sound_path_bang(runtime, path) {
       case 0: {
         const error = _catch_3;
         return sound_warning_bang(runtime, error_message(error));
+        break;
       }
     }
   } })();
@@ -1051,6 +1055,7 @@ async function load_config_entries_bang(runtime) {
         (runtime.configAllEntries = []);
         (runtime.configEntries = []);
         return (runtime.configDiagnostic = $$bc$str("activation unavailable — ", error_message(error)));
+        break;
       }
     }
   } })();
@@ -1157,6 +1162,7 @@ async function restart_daemon_bang(runtime) {
       case 0: {
         const error = _catch_5;
         return append_error_bang(runtime, error_message(error));
+        break;
       }
     }
   } })();
@@ -1235,6 +1241,7 @@ function cleanup_suspend_bang(runtime, process_api) {
       case 0: {
         const error = _catch_6;
         return (runtime.suspendError = error_message(error));
+        break;
       }
     }
   } })();
@@ -1268,6 +1275,7 @@ if ((runtime.suspendResume === handler)) {
         (runtime.suspendError = error_message(error));
         cleanup_suspend_bang(runtime, process_api);
         return false;
+        break;
       }
     }
   } })();
@@ -1289,6 +1297,7 @@ function quiesce_bang(runtime) {
       case 0: {
         const __ = _catch_8;
         return null;
+        break;
       }
     }
   } })());
@@ -2564,6 +2573,7 @@ function record_line(line) {
       case 0: {
         const __ = _catch_9;
         return null;
+        break;
       }
     }
   } })();
