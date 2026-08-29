@@ -752,8 +752,6 @@
         contract-capabilities (when (map? contract) (get contract "capabilities"))
         unknown-contract (when (map? contract)
                            (seq (sort (remove bespoke-contract-fields (keys contract)))))
-        canonical-role role
-        known-role? (contains? orchestration-role-names canonical-role)
         template-id (when (= kind "template") (get composition "id"))
         preset (when template-id (get orchestration-presets-by-name template-id))
         effective-capabilities (if (= kind "template") (get preset "capabilities") contract-capabilities)
@@ -770,7 +768,7 @@
                                      ["posture" posture base-posture]]))
         declared-overrides (when (= kind "template") (get composition "overrides"))
         route-problem (north.orchestration-staffing/unsupported-route-problem tier effective-reasoning)
-        missing-bespoke-axes (when (and role (not known-role?))
+        missing-bespoke-axes (when (= kind "bespoke")
                                (seq (keep (fn [[label value]] (when (nil? value) label))
                                           [["taskGrade" grade] ["domainRequirements" domains]
                                            ["topology" topology] ["tier" tier]
@@ -804,7 +802,7 @@
       (not (valid-string-list? domains false))
       "domainRequirements must contain unique non-empty strings"
       (not (some #{topology} topology-values)) "invalid topology"
-      (and role known-role? (not= topology (get preset "topology")))
+      (and (= kind "template") preset (not= topology (get preset "topology")))
       (str "stock-template topology is fixed at '" (get preset "topology")
            "'; use a bespoke composition for '" topology "'")
       (not (some #{tier} tier-values)) "invalid tier"
@@ -823,12 +821,8 @@
       (and composition (not (safe-role-id? (get composition "id"))))
       "composition.id must be a lowercase kebab-case Orchestration role id"
       (and composition (nil? role)) "composition requires role"
-      (and role (not known-role?) (= kind "template"))
-      (str "unknown role " role " requires a bespoke composition")
       (and (= kind "template") (nil? preset))
       (str "unknown template composition.id " template-id)
-      (and role known-role? (= kind "bespoke"))
-      (str "known role " canonical-role " requires a template composition")
 
       (and (= kind "template") (not (valid-string-list? declared-overrides false)))
       "template composition.overrides must be an array of unique routing-axis names"
@@ -842,9 +836,6 @@
       "template axis overrides require composition.overrideReason"
       (and (= kind "template") (empty? declared-overrides) (contains? composition "overrideReason"))
       "unchanged template must omit composition.overrideReason"
-      (and role known-role? (seq actual-overrides) (nil? composition))
-      (str "known role " canonical-role " overrides " (str/join ", " (sort actual-overrides))
-           "; supply template composition.overrides and composition.overrideReason")
       (and (= kind "bespoke") (contains? composition "nearestTemplate")
            (let [v (get composition "nearestTemplate")] (or (not (string? v)) (str/blank? v))))
       "bespoke composition.nearestTemplate must be a non-empty string when supplied"
@@ -871,9 +862,8 @@
                (some #(not (some #{%} capability-values)) contract-capabilities)))
       "bespoke composition.contract capabilities must be non-empty, unique, and canonical"
       capability-problem capability-problem
-      (and role (not known-role?)
-           (or (not= "bespoke" kind) missing-bespoke-axes))
-      (str "unknown role " role " requires complete bespoke composition"
+      missing-bespoke-axes
+      (str "bespoke composition requires complete routing axes"
            (when missing-bespoke-axes (str "; missing: " (str/join ", " missing-bespoke-axes))))
       :else nil))))
 
