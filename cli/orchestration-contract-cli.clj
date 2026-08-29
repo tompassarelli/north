@@ -44,7 +44,7 @@
 ;; staffing.ts). Dispatch rejection messages cite @contract:dispatch.
 (def ERROR-CODES
   [{"code" "unknown-field"          "doc" "payload carries a field outside this contract"}
-   {"code" "incomplete-request"     "doc" "the complete eight-field Orchestration request is missing one or more axes"}
+   {"code" "incomplete-request"     "doc" "the complete eight-field Agent Machinery run request is missing one or more axes"}
    {"code" "role-unknown"           "doc" "role is not a stock template and lacks a complete bespoke composition"}
    {"code" "override-undeclared"    "doc" "a template axis changed without composition.overrides + overrideReason"}
    {"code" "topology-fixed"         "doc" "attempt to change a stock template's fixed topology through a preset"}
@@ -86,7 +86,7 @@
 (defn publish-actions! [port actions]
   (let [result (north.coord/publish! port (vec actions))]
     (when (:reject result)
-      (throw (ex-info "Store RPC rejected orchestration contract publication"
+      (throw (ex-info "Store RPC rejected agent-run contract publication"
                       {:type :contract-publication-rejected :result result})))
     result))
 

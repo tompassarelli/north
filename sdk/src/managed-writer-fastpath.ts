@@ -104,7 +104,6 @@ export function validPublishProjection(projection: Record<string, string>): bool
   if (!["pending", "armed", "frozen"].includes(projection.live_input_state)) return false;
   if (!UUID_V4.test(projection.live_input_epoch)) return false;
   if (projection.live_input === "unsupported" && projection.live_input_state !== "frozen") return false;
-  if (projection.role !== projection.composition_id) return false;
   const bespokeOnly = [
     "bespoke_reason", "promotion_candidate", "composition_contract_sha256",
     "composition_contract_fingerprint_version", "composition_contract_fingerprint_domain",

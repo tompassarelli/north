@@ -65,9 +65,9 @@ test("driver contention falls through to the next ready thread without a second 
   expect(sleeps).toEqual([]);
 });
 
-test("discovery fails closed before polling when the complete Orchestration request is absent", async () => {
+test("discovery fails closed before polling when the complete Agent Machinery run request is absent", async () => {
   const { value, observations } = dependencies(async () => undefined);
   await expect(discover("test-discover", {} as any, value))
-    .rejects.toThrow("complete eight-field Orchestration request");
+    .rejects.toThrow("complete eight-field Agent Machinery run request");
   expect(observations.dispatches).toBe(0);
 });

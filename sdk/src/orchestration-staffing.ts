@@ -84,7 +84,7 @@ export function loadOrchestrationStaffing(
   path = process.env.ORCHESTRATION_STAFFING_CATALOG ?? DEFAULT_ORCHESTRATION_STAFFING_PATH,
 ): StaffingCatalog {
   // Dual-read seam (Phase 1): graph mode reconstructs the identical catalog
-  // shape from @catalog:current; file mode (default) reads the Orchestration JSON.
+  // shape from @catalog:current; file mode (default) reads the Agent Machinery JSON.
   // On projector failure graph mode FALLS BACK to the packaged JSON so spawn
   // admission never blocks on the graph (the named failure is logged).
   let value: Record<string, any>;
@@ -115,7 +115,7 @@ export function loadOrchestrationStaffing(
   })) {
     const actual = [...vocabularyByAxis[axis]].sort();
     if (JSON.stringify(actual) !== JSON.stringify([...expected].sort()))
-      throw new Error(`Orchestration wire vocabulary drift at ${path}: ${axis}`);
+      throw new Error(`Agent Machinery wire vocabulary drift at ${path}: ${axis}`);
   }
   exactKeys(value.defaults, DEFAULT_FIELDS, "defaults");
   for (const [field, axis] of [
@@ -133,12 +133,12 @@ export function loadOrchestrationStaffing(
   );
   if (JSON.stringify([...vocabulary].sort())
       !== JSON.stringify([...ORCHESTRATION_CAPABILITIES].sort()))
-    throw new Error(`Orchestration capability vocabulary drift at ${path}`);
+    throw new Error(`Agent Machinery capability vocabulary drift at ${path}`);
   const presetNames = new Set<string>();
   for (const preset of presets) {
     exactKeys(preset, PRESET_FIELDS, `preset ${preset?.name ?? "<unknown>"}`);
     requireOrchestrationRoleId(preset.name, "staffing catalog preset");
-    if (presetNames.has(preset.name)) throw new Error(`duplicate Orchestration preset ${preset.name}`);
+    if (presetNames.has(preset.name)) throw new Error(`duplicate Agent Machinery template ${preset.name}`);
     presetNames.add(preset.name);
     preset.capabilities = requireOrchestrationCapabilities(
       preset.capabilities, `staffing preset ${preset.name}.capabilities`,
@@ -156,35 +156,35 @@ export function loadOrchestrationStaffing(
         || typeof preset.description !== "string" || !preset.description.trim())
       throw new Error(`${preset.name}: missing tagline or description`);
     if (preset.topology !== "worker" && preset.topology !== "orchestrator")
-      throw new Error(`invalid Orchestration topology for ${preset.name}`);
+      throw new Error(`invalid Agent Machinery topology for ${preset.name}`);
     validateTopologyCapabilities(preset.topology, preset.capabilities, `${preset.name}.capabilities`);
     validatePostureCapabilities(preset.posture, preset.capabilities, `${preset.name}.capabilities`);
   }
   const exactNames = [...ORCHESTRATION_STOCK_ROLE_IDS].sort();
   const actualNames = [...presetNames].sort();
   if (JSON.stringify(actualNames) !== JSON.stringify(exactNames))
-    throw new Error(`Orchestration stock preset set drift at ${path}`);
+    throw new Error(`Agent Machinery stock template set drift at ${path}`);
   const orchestrators = presets.filter(({ topology }) => topology === "orchestrator")
     .map(({ name }) => name);
   const stockOrchestrators = ["director", "team-lead", "program", "portfolio"];
   if (JSON.stringify([...orchestrators].sort()) !== JSON.stringify([...stockOrchestrators].sort()))
     throw new Error(
-      `Orchestration stock topology drift at ${path}: orchestrator topology is the director plus the scope ladder`,
+      `Agent Machinery stock topology drift at ${path}: orchestrator topology is the director plus the scope ladder`,
     );
   for (const preset of presets) {
     const capabilities = new Set(preset.capabilities);
     if (!capabilities.has("filesystem.read") || !capabilities.has("filesystem.search"))
-      throw new Error(`Orchestration stock role ${preset.name} must retain read and search authority`);
+      throw new Error(`Agent Machinery stock template ${preset.name} must retain read and search authority`);
     if (STOCK_AUTHORING_ROLES.has(preset.name)) {
       if (!capabilities.has("filesystem.write") || !capabilities.has("shell"))
-        throw new Error(`Orchestration stock authoring role ${preset.name} must retain write and shell authority`);
+        throw new Error(`Agent Machinery stock authoring template ${preset.name} must retain write and shell authority`);
     } else if (capabilities.has("filesystem.write") || capabilities.has("shell")
                || !capabilities.has("shell.readonly")) {
-      throw new Error(`Orchestration stock nonauthoring role ${preset.name} must remain read-only`);
+      throw new Error(`Agent Machinery stock nonauthoring template ${preset.name} must remain read-only`);
     }
     const ORCHESTRATOR_LADDER = new Set(["director", "team-lead", "program", "portfolio"]);
     if (ORCHESTRATOR_LADDER.has(preset.name) !== capabilities.has("coordination"))
-      throw new Error("Orchestration stock coordination authority belongs to the orchestrator ladder");
+      throw new Error("Agent Machinery stock coordination authority belongs to the orchestrator ladder");
   }
   return { sourceVersion, vocabulary: value.vocabulary, defaults: value.defaults, presets };
 }
@@ -201,13 +201,14 @@ export function orchestrationCapabilities(
 ): OrchestrationCapability[] {
   const role = canonicalStaffingRole(metadata.role, catalog);
   if (!role || !metadata.composition)
-    throw new Error("managed Orchestration capabilities require a selected role and composition");
+    throw new Error("managed Agent Machinery capabilities require a selected role and composition");
   if (metadata.composition.kind === "bespoke")
     return requireOrchestrationCapabilities(
       metadata.composition.contract.capabilities, "composition.contract.capabilities",
     );
-  const preset = catalog.presets.find(({ name }) => name === role);
-  if (!preset) throw new Error(`Orchestration preset ${role} is absent from the staffing catalog`);
+  const templateId = metadata.composition.id;
+  const preset = catalog.presets.find(({ name }) => name === templateId);
+  if (!preset) throw new Error(`Agent Machinery stock template ${templateId} is absent from the catalog`);
   return [...preset.capabilities];
 }
 
@@ -217,25 +218,23 @@ export function applyOrchestrationStaffing(
   catalog = loadOrchestrationStaffing(),
 ): RoutingRequest {
   const role = canonicalStaffingRole(metadata.role, catalog);
-  if (!role) throw new Error("Orchestration request composer requires an explicit role");
-  const preset = catalog.presets.find(({ name }) => name === role);
-  if (!preset) {
-    const composition = metadata.composition;
+  if (!role) throw new Error("Agent Machinery run request composer requires an explicit role");
+  const composition = metadata.composition;
+  if (composition?.kind === "bespoke") {
     const nearest = composition?.kind === "bespoke" && composition.nearestTemplate
       ? catalog.presets.find(({ name }) => name === composition.nearestTemplate)
       : undefined;
     const nearestKnown = composition?.kind === "bespoke"
       && (composition.nearestTemplate === undefined || nearest !== undefined);
+    if (!nearestKnown)
+      throw new Error("composition.nearestTemplate must name a canonical stock template");
     const missing = ["taskGrade", "topology", "tier", "reasoning", "posture"]
-      .filter((field) =>
-        metadata[field as keyof RoutingMetadata] === undefined
-        && nearest === undefined
-      );
-    if (composition?.kind !== "bespoke" || composition.id !== role || !composition.bespokeReason ||
-        typeof composition.promotionCandidate !== "boolean" || !composition.contract || !nearestKnown || missing.length) {
+      .filter((field) => metadata[field as keyof RoutingMetadata] === undefined);
+    if (!composition.bespokeReason || typeof composition.promotionCandidate !== "boolean"
+        || !composition.contract || missing.length) {
       const detail = missing.length ? `; missing executable axes: ${missing.join(", ")}` : "";
       throw new Error(
-        `unknown Orchestration role ${role} requires composition.kind=bespoke, composition.id=${role}, `
+        `bespoke Agent Machinery composition ${composition.id} for role ${role} requires `
         + "an optional-but-valid nearestTemplate, composition.bespokeReason, explicit promotionCandidate, "
         + `structured contract, and all unseeded routing axes${detail}`,
       );
@@ -243,36 +242,26 @@ export function applyOrchestrationStaffing(
     const request = {
       ...metadata,
       role,
-      taskGrade: metadata.taskGrade ?? nearest?.taskGrade,
+      taskGrade: metadata.taskGrade,
       domainRequirements: metadata.domainRequirements ?? [],
-      topology: metadata.topology ?? nearest?.topology,
-      tier: metadata.tier ?? nearest?.tier,
-      reasoning: metadata.reasoning ?? nearest?.deliberation,
-      posture: metadata.posture ?? nearest?.posture ?? catalog.defaults.posture,
+      topology: metadata.topology,
+      tier: metadata.tier,
+      reasoning: metadata.reasoning,
+      posture: metadata.posture,
     } as RoutingRequest;
     validateTopologyCapabilities(
-      request.topology, composition.contract.capabilities, `${role}.capabilities`,
+      request.topology, composition.contract.capabilities, `${composition.id}.capabilities`,
     );
     validatePostureCapabilities(
-      request.posture, composition.contract.capabilities, `${role}.capabilities`,
+      request.posture, composition.contract.capabilities, `${composition.id}.capabilities`,
     );
     requireProviderNeutralRoute(request.tier, request.reasoning);
-    return parseCompleteRoutingRequest(request, "Orchestration request composer");
+    return parseCompleteRoutingRequest(request, "Agent Machinery run request composer");
   }
-  if (metadata.composition && (metadata.composition.kind !== "template" || metadata.composition.id !== role)) {
-    throw new Error(
-      `known Orchestration role ${role} requires composition.kind=template and composition.id=${role}; `
-      + "use a distinct role name for a bespoke composition",
-    );
-  }
-  // Stock-template topology is fixed by the preset, not an overridable axis: a
-  // different topology is a different capability boundary and requires a
-  // bespoke composition, never a template override.
-  if (metadata.topology !== undefined && metadata.topology !== preset.topology) {
-    throw new Error(
-      `stock-template topology is fixed at '${preset.topology}'; project a different topology through a bespoke composition`,
-    );
-  }
+  const templateId = composition?.kind === "template" ? composition.id : role;
+  requireOrchestrationRoleId(templateId, "composition.id");
+  const preset = catalog.presets.find(({ name }) => name === templateId);
+  if (!preset) throw new Error(`unknown stock template ${templateId}`);
   const base = {
     taskGrade: preset.taskGrade,
     domainRequirements: [],
@@ -293,10 +282,9 @@ export function applyOrchestrationStaffing(
   const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
   const actualOverrides = overrideFields.filter((field) =>
     metadata[field] !== undefined && !same(metadata[field], base[field]));
-  const composition = metadata.composition;
   if (actualOverrides.length && !composition) {
     throw new Error(
-      `known Orchestration role ${role} overrides ${actualOverrides.join(", ")}; supply template composition.overrides and composition.overrideReason`,
+      `Agent Machinery stock template ${templateId} overrides ${actualOverrides.join(", ")}; supply template composition.overrides and composition.overrideReason`,
     );
   }
   if (composition?.kind === "template") {
@@ -307,12 +295,12 @@ export function applyOrchestrationStaffing(
     if (actualOverrides.length && !composition.overrideReason)
       throw new Error("template axis overrides require composition.overrideReason");
     if (!actualOverrides.length && composition.overrideReason !== undefined)
-      throw new Error("unchanged preset must omit composition.overrideReason");
+      throw new Error("unchanged template must omit composition.overrideReason");
   }
   validateTopologyCapabilities(
     preset.topology as "worker" | "orchestrator",
     preset.capabilities,
-    `${role}.capabilities`,
+    `${templateId}.capabilities`,
   );
   const request = {
     role,
@@ -322,17 +310,17 @@ export function applyOrchestrationStaffing(
     tier: metadata.tier ?? base.tier as RoutingMetadata["tier"],
     reasoning: metadata.reasoning ?? base.reasoning as RoutingMetadata["reasoning"],
     posture: metadata.posture ?? base.posture as RoutingMetadata["posture"],
-    composition: composition ?? { kind: "template", id: role, overrides: [] },
+    composition: composition ?? { kind: "template", id: templateId, overrides: [] },
   } as RoutingRequest;
-  validatePostureCapabilities(request.posture, preset.capabilities, `${role}.capabilities`);
+  validatePostureCapabilities(request.posture, preset.capabilities, `${templateId}.capabilities`);
   requireProviderNeutralRoute(request.tier, request.reasoning);
-  return parseCompleteRoutingRequest(request, "Orchestration request composer");
+  return parseCompleteRoutingRequest(request, "Agent Machinery run request composer");
 }
 
 /**
- * Managed North lanes must have an attributable staffing decision. A known
- * role hydrates to a canonical preset in applyOrchestrationStaffing; an unknown role
- * survives only with the complete bespoke contract validated there. Native
+ * Managed North lanes must have an attributable Agent Machinery run design.
+ * Template identity is provenance inside composition and is independent of
+ * role; bespoke compositions carry their complete authority contract. Native
  * provider sessions are outside this boundary and remain honestly unselected.
  */
 export function requireManagedOrchestrationSelection(
@@ -346,7 +334,7 @@ export function requireManagedOrchestrationSelection(
   const missing = required.filter((field) => metadata[field] === undefined);
   if (missing.length) {
     throw new Error(
-      `${surface} requires the complete eight-field Orchestration request; missing: ${missing.join(", ")}`,
+      `${surface} requires the complete eight-field Agent Machinery run request; missing: ${missing.join(", ")}`,
     );
   }
   return metadata as RoutingRequest;

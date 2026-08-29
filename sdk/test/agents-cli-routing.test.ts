@@ -707,19 +707,19 @@ test("CLI effective-authority closure rejects open shell capability sets", () =>
   for (const [capabilities, diagnostic] of [
     [
       ["filesystem.search", "filesystem.write", "shell"],
-      "shell requires filesystem.read capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
     ],
     [
       ["filesystem.read", "filesystem.search", "shell"],
-      "shell requires filesystem.write capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.write",
     ],
     [
       ["filesystem.search", "shell.readonly"],
-      "shell.readonly requires filesystem.read capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
     ],
     [
       ["filesystem.read", "shell.readonly"],
-      "shell.readonly requires filesystem.search capability",
+      "composition.contract.capabilities: capability list is not closed; missing implied filesystem.search",
     ],
   ] as const) {
     const result = spawnSync("bb", [

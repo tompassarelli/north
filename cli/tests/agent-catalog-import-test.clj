@@ -148,17 +148,13 @@
                     [(distribution "instructions" ["shared" "codex" "north" "bridge"]
                                    (package-owner "doctrine.md"))]
 
-                    (= id "orchestration")
-                    [(distribution "instructions" ["firn"]
-                                   (package-owner "docs/routing.md"))]
-
                     (= id "agent-practice")
                     [(distribution "instructions" ["firn"]
                                    (package-owner "docs/method.md"))]
 
-                    (= id "staffing-distilled")
+                    (= id "agent-run-design-distilled")
                     [(distribution "skill" ["shared"]
-                                   (package-owner "skills/staffing-distilled"))
+                                   (package-owner "skills/agent-run-design-distilled"))
                      (distribution "agentTemplates" ["north" "claude"]
                                    (package-owner "agents"))]
 
@@ -185,7 +181,7 @@
                        (north-owner (str (.getParent (io/file (get owner "path")))))
                        owner))]}
                    (= id "agent-spawn-guard")
-                   (assoc "supports" ["staffing-distilled"])
+                   (assoc "supports" ["agent-run-design-distilled"])
                    (#{"north-on-spawn" "north-on-tooluse" "north-on-stop"
                       "north-on-terminal" "north-mark-delegated"} id)
                    (assoc "supports" ["coordination"]))]))]
@@ -268,18 +264,18 @@
                      (get package-catalog "schema"))
                   (= #{"$schema" "schema" "package" "units" "assets" "contracts"}
                      (set (keys package-catalog)))
-                  (= ["orchestration" "agent-practice"]
+                  (= ["work-ownership-distilled" "agent-run-design-distilled"
+                      "agent-practice"]
                      (get-in package-by-id ["agent-machinery" "members"]))
-                  (= ["staffing-distilled" "compose-distilled"]
-                     (get-in package-by-id ["orchestration" "members"]))
+                  (nil? (get package-by-id "orchestration"))
                   (every? #(empty? (select-keys % ["supports" "distributions"
                                                    "providerAdapter" "active"]))
                           (get package-catalog "units"))))
 
       (check "the imported portable UnitId inventory is exact"
-             (= #{"agent-machinery" "orchestration" "agent-practice"
-                  "staffing-distilled" "staffing-reference"
-                  "compose-distilled" "compose-reference"
+             (= #{"agent-machinery" "agent-practice"
+                  "work-ownership-distilled"
+                  "agent-run-design-distilled" "agent-run-design-reference"
                   "build-vs-reuse-distilled" "build-vs-reuse-reference"
                   "external-code-distilled" "external-code-reference"
                   "greenfield-distilled" "greenfield-reference"
@@ -293,6 +289,22 @@
                   "terse-distilled" "terse-reference"
                   "verification-distilled" "verification-reference"}
                 portable-ids))
+
+      (check "lifecycle identities move to their current source authorities"
+             (let [local-ids (set (map #(get % "id") (get source-catalog "units")))
+                   retired-package #{"orchestration" "staffing-distilled"
+                                     "staffing-reference" "compose-distilled"
+                                     "compose-reference"}
+                   retired-local #{"messages-distilled" "messages-reference"
+                                   "assignments-distilled" "assignments-reference"}]
+               (and (every? portable-ids
+                            ["work-ownership-distilled" "agent-run-design-distilled"
+                             "agent-run-design-reference"])
+                    (not-any? portable-ids retired-package)
+                    (every? local-ids
+                            ["agent-run-lifecycle-distilled"
+                             "agent-run-lifecycle-reference"])
+                    (not-any? local-ids retired-local))))
 
       (let [original-repo-root north.agent-catalog/repo-root
             case-root (io/file scratch "explicit-only")
@@ -385,15 +397,15 @@
                 "kind-collision"
                 #(update % "units" conj
                          {"id" "coordination" "kind" "skill"
-                          "source" "skills/compose-distilled/SKILL.md"})
+                          "source" "skills/agent-run-design-distilled/SKILL.md"})
                 "competing catalog declarations: coordination"))
         (check "cycles in imported module membership are rejected"
                (run-package-case
                 "module-cycle"
-                #(mutate-package % "orchestration"
+                #(mutate-package % "agent-practice"
                                  (fn [unit]
                                    (update unit "members" conj "agent-machinery")))
-                "catalog module cycle: agent-machinery -> orchestration -> agent-machinery"))
+                "catalog module cycle: agent-machinery -> agent-practice -> agent-machinery"))
         (check "package contracts must classify raw schemas as structural"
                (run-package-case
                 "contract-schema-scope"
@@ -410,14 +422,14 @@
              effective
              (reduce #(assoc %1 %2 "on")
                      (north.agent-catalog/default-permissions effective)
-                     ["agent-machinery" "orchestration"
-                      "staffing-distilled" "compose-distilled"]))
+                     ["agent-machinery" "work-ownership-distilled"
+                      "agent-run-design-distilled"]))
             active (set (for [unit (get portable-activation "units")
                               :when (get unit "active")]
                           (get unit "id")))]
-        (check "portable orchestration activates without North coordination or hooks"
-               (and (= #{"agent-machinery" "orchestration"
-                         "staffing-distilled" "compose-distilled"}
+        (check "portable Agent Machinery activates without North coordination or hooks"
+               (and (= #{"agent-machinery" "work-ownership-distilled"
+                         "agent-run-design-distilled"}
                        active)
                     (not (active "coordination"))
                     (not-any? #(and (= "hook" (get % "kind"))
@@ -498,7 +510,7 @@
               (stage-generation activation))
             generated-skills (io/file (str generation) "skills/shared")
             generated-templates (io/file (str generation)
-                                         "agent-templates/north/staffing")
+                                         "agent-templates/north/agent-run-design-distilled")
             generated-doctrine (io/file (str generation)
                                         "instructions/north/AGENTS.md")]
         (check "the canonical generation seam materializes a nonempty North-hosted projection"

@@ -53,7 +53,7 @@ export function validateTopologyCapabilities(
     const missing = missingClosure(required);
     if (has(surface) && missing.length)
       throw new Error(
-        `${label}: ${surface} requires ${missing.join(", ")} ${missing.length === 1 ? "capability" : "capabilities"}`,
+        `${label}: capability list is not closed; missing implied ${missing.join(", ")}`,
       );
   };
   requireClosure("shell", ["filesystem.read", "filesystem.search", "filesystem.write"]);

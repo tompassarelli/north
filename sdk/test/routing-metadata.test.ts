@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { applyOrchestrationStaffing } from "../src/orchestration-staffing";
 import { canonicalRole, routingMetadataFromEnv, validateRoutingMetadata } from "../src/routing-metadata";
@@ -21,7 +21,7 @@ const bespokeContract = {
   report: "timeline, contradictions, and gaps",
 };
 
-describe("Orchestration routing metadata boundary", () => {
+describe("Agent Machinery routing metadata boundary", () => {
   test("accepts and normalizes the complete composition payload", () => {
     process.env.AGENT_TASK_GRADE = "staff";
     process.env.AGENT_ROLE = "migration-forensics";
@@ -70,14 +70,21 @@ describe("Orchestration routing metadata boundary", () => {
     expect(canonicalRole("migration-forensics")).toBe("migration-forensics");
   });
 
-  test("rejects unknown request fields and composition identity drift", () => {
+  test("rejects unknown request fields while keeping role and template identity independent", () => {
     for (const field of ["provider", "invokedAs", "shape", "allocation"]) {
       expect(() => validateRoutingMetadata({ role: "integrator", [field]: "unexpected" } as any))
-        .toThrow("routing metadata has unknown field");
+        .toThrow("routing metadata is structurally invalid");
     }
-    expect(() => validateRoutingMetadata({
-      role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
-    })).toThrow("composition.id must match canonical role integrator");
+    expect(validateRoutingMetadata({
+      role: "north-lifecycle-writer", composition: { kind: "template", id: "integrator", overrides: [] },
+    })).toEqual({
+      role: "north-lifecycle-writer", composition: { kind: "template", id: "integrator", overrides: [] },
+    });
+    expect(applyOrchestrationStaffing({
+      role: "north-lifecycle-writer", composition: { kind: "template", id: "integrator", overrides: [] },
+    })).toMatchObject({
+      role: "north-lifecycle-writer", composition: { kind: "template", id: "integrator", overrides: [] },
+    });
     expect(() => validateRoutingMetadata({
       role: "integrator", composition: { kind: "template", id: "integrator", overrides: [], extra: true } as any,
     })).toThrow("composition has unknown field");
@@ -128,19 +135,19 @@ describe("Orchestration routing metadata boundary", () => {
     for (const [capabilities, diagnostic] of [
       [
         ["filesystem.search", "filesystem.write", "shell"],
-        "composition.contract.capabilities: shell requires filesystem.read capability",
+        "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
       ],
       [
         ["filesystem.read", "filesystem.search", "shell"],
-        "composition.contract.capabilities: shell requires filesystem.write capability",
+        "composition.contract.capabilities: capability list is not closed; missing implied filesystem.write",
       ],
       [
         ["filesystem.search", "shell.readonly"],
-        "composition.contract.capabilities: shell.readonly requires filesystem.read capability",
+        "composition.contract.capabilities: capability list is not closed; missing implied filesystem.read",
       ],
       [
         ["filesystem.read", "shell.readonly"],
-        "composition.contract.capabilities: shell.readonly requires filesystem.search capability",
+        "composition.contract.capabilities: capability list is not closed; missing implied filesystem.search",
       ],
     ] as const) {
       expect(() => validateRoutingMetadata({
@@ -154,21 +161,15 @@ describe("Orchestration routing metadata boundary", () => {
   });
 });
 
-test("North validates Orchestration's shared cross-harness routing fixtures", () => {
-  const packagedPath = resolve(import.meta.dir, "fixtures/orchestration-routing-request.fixtures.json");
-  const fixtures = JSON.parse(readFileSync(packagedPath, "utf8"));
+test("North validates Agent Machinery's shared eight-field routing fixtures", () => {
+  const agentMachineryHome = process.env.AGENT_MACHINERY_HOME
+    ?? "/home/tom/code/agent-machinery/main";
+  const canonicalPath = resolve(agentMachineryHome, "contracts/routing-request.fixtures.json");
+  const fixtures = JSON.parse(readFileSync(canonicalPath, "utf8"));
   for (const fixture of fixtures.valid)
     expect(() => applyOrchestrationStaffing(validateRoutingMetadata(fixture.request))).not.toThrow();
   for (const fixture of fixtures.invalid)
     expect(() => applyOrchestrationStaffing(validateRoutingMetadata(fixture.request))).toThrow(fixture.errorContains);
-
-  // Orchestration is canonical when present in a development workspace, but North's
-  // packaged acceptance test never requires a sibling checkout.
-  const orchestrationHome = process.env.AGENT_MACHINERY_HOME
-    ?? "/home/tom/code/agent-machinery/main";
-  const canonicalPath = resolve(orchestrationHome, "contracts/routing-request.fixtures.json");
-  if (existsSync(canonicalPath))
-    expect(JSON.parse(readFileSync(canonicalPath, "utf8"))).toEqual(fixtures);
 });
 
 test("run ids remain distinct when the wall clock does not advance", () => {

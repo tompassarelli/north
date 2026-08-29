@@ -1543,11 +1543,11 @@ export function orchestrationAppendix(
   const evidence: HarnessCompositionEvidence = {};
   if (admitted) {
     const composition = admitted.composition;
-    if (composition.id !== admitted.role)
-      throw new Error(`Orchestration composition ${composition.id} does not match role ${admitted.role}`);
     if (composition.kind === "template") {
-      const role = exactSectionFence(resolve(orchestrationDocs(env), "roles.md"), admitted.role, `role:${admitted.role}`);
-      blocks.push(`## Orchestration role contract — template:${admitted.role}\n${role}`);
+      const role = exactSectionFence(
+        resolve(orchestrationDocs(env), "roles.md"), composition.id, `role:${composition.id}`,
+      );
+      blocks.push(`## Orchestration role contract — template:${composition.id}\n${role}`);
       if (composition.overrides.length) {
         blocks.push([
           "## Orchestration template override",

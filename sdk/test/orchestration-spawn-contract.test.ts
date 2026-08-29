@@ -286,15 +286,31 @@ test("North CLI reads staffing/catalog.json and carries authority-compatible ind
   expect(result.stdout).toContain("AGENT_DOMAIN_REQUIREMENTS=[\"computer-science\"]");
   expect(result.stdout).toContain("AGENT_TOPOLOGY=worker");
   expect(result.stdout).toContain("AGENT_COMPOSITION={\"kind\":\"template\",\"id\":\"executor\",\"overrides\":[\"taskGrade\",\"domainRequirements\",\"tier\",\"reasoning\",\"posture\"],\"overrideReason\":\"principal bounded retirement\"}");
+
+  const provenance = spawnSync("bb", [resolve(north, "cli/agents-cli.clj"), "spawn", "integrator", "trace the boundary",
+    "--dry-run", "--ad-hoc", "--composition", JSON.stringify({ kind: "template", id: "scout", overrides: [] })], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AGENT_PROJECT_PROFILE: researchProfileJson,
+      NO_COLOR: "1",
+      ORCHESTRATION_STAFFING_CATALOG: resolve(agentMachinery, "staffing/catalog.json"),
+    },
+  });
+  expect(provenance.status).toBe(0);
+  expect(provenance.stdout).toContain("AGENT_ROLE=integrator");
+  expect(provenance.stdout).toContain('AGENT_COMPOSITION={"kind":"template","id":"scout","overrides":[]}');
 });
 
-test("North rejects unlogged bespoke roles and composition identity mismatches", () => {
+test("North rejects unlogged bespoke roles while preserving independent template provenance", () => {
   const catalog = loadOrchestrationStaffing(resolve(agentMachinery, "staffing/catalog.json"));
   expect(() => applyOrchestrationStaffing({ role: "special" }, catalog))
     .toThrow("unknown Orchestration role special requires composition.kind=bespoke");
-  expect(() => validateRoutingMetadata({
+  expect(validateRoutingMetadata({
     role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
-  })).toThrow("composition.id must match canonical role integrator");
+  })).toEqual({
+    role: "integrator", composition: { kind: "template", id: "scout", overrides: [] },
+  });
   expect(() => applyOrchestrationStaffing({
     role: "special", taskGrade: "staff", domainRequirements: [], topology: "worker",
     tier: "frontier", reasoning: "xhigh", posture: "explore",

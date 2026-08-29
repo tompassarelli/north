@@ -86,6 +86,17 @@ test("template roles receive the exact canonical role contract and fail closed w
   } finally { rmSync(empty, { recursive: true, force: true }); }
 });
 
+test("template contract selection follows composition provenance, independently of role", () => {
+  const metadata = applyOrchestrationStaffing({
+    role: "north-lifecycle-writer",
+    composition: { kind: "template", id: "integrator", overrides: [] },
+  });
+  const composed = orchestrationAppendix(metadata, north);
+  expect(metadata.role).toBe("north-lifecycle-writer");
+  expect(composed.appendix).toContain("## Orchestration role contract — template:integrator");
+  expect(composed.evidence).toMatchObject({ roleKind: "template", roleId: "integrator" });
+});
+
 test("bespoke composition executes its structured contract without impersonating nearest template", () => {
   const composed = orchestrationAppendix(bespoke, north);
   expect(composed.appendix).toContain("## Orchestration role contract — bespoke:migration-forensics");

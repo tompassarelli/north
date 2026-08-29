@@ -22,7 +22,7 @@
 
 (def ready-base
   {"kind" "lane"
-   "role" "verifier"
+   "role" "startup-verification-owner"
    "goal" "verify startup identity"
    "provider" "openai"
    "provider_target" "codex-personal"
@@ -62,9 +62,14 @@
               (not (north.spawn-process/identity-ready? (dissoc ready-facts "goal")))
               (not (north.spawn-process/identity-ready? (dissoc ready-facts "composition_id")))
               (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_kind" "invalid")))
-              (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_id" "designer")))))
+              (not (north.spawn-process/identity-ready? (assoc ready-facts "composition_id" "not safe")))))
 
-  (check "managed startup defects name invalid Orchestration provenance"
+  (check "managed startup accepts independent role and template provenance"
+         (and (north.spawn-process/identity-ready? ready-facts)
+              (= "verifier" (get ready-facts "composition_id"))
+              (= "startup-verification-owner" (get ready-facts "role"))))
+
+  (check "managed startup defects name invalid composition provenance"
          (= ["composition_kind(template|bespoke)"]
             (north.spawn-process/identity-defects
              (committed (assoc ready-base "composition_kind" "invalid")))))

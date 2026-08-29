@@ -69,7 +69,7 @@ test("semantic handles keep provider-specific model families and stable control 
   })).toBe("openai-sol-xhigh-orchestration-designer-a205e9ce");
 });
 
-test("managed identity exposes the exact account target and Orchestration template", () => {
+test("managed identity exposes the exact account target and composition template", () => {
   const identity = {
     kind: "lane" as const, provider: "openai", providerTarget: "codex-work",
     model: "gpt-5.6-sol", effort: "xhigh", compositionKind: "template" as const,
@@ -101,12 +101,16 @@ test("fallback route facts replace provider target and refresh public identity",
   expect(fallback.display_name).toContain("openai:codex-work · sol · xhigh · orchestration:integrator");
 });
 
-test("Orchestration provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
+test("composition provenance distinguishes exact, overridden, bespoke, native, and legacy debt", () => {
   expect(orchestrationProvenance({
     kind: "lane", role: "designer", compositionKind: "template",
     compositionId: "designer", compositionOverrides: [],
   }))
     .toBe("orchestration:designer");
+  expect(orchestrationProvenance({
+    kind: "lane", role: "north-lifecycle-writer", compositionKind: "template",
+    compositionId: "integrator", compositionOverrides: [],
+  })).toBe("orchestration:integrator");
   expect(orchestrationProvenance({
     kind: "lane", role: "integrator", compositionKind: "template", compositionId: "integrator",
     compositionOverrides: ["tier", "reasoning"], compositionOverrideReason: "high leverage seam",

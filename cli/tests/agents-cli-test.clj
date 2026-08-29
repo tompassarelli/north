@@ -370,6 +370,15 @@
                                 "role" "designer" "composition_id" "designer"
                                 "composition_overrides" "[]" "goal" "build the roster"}))))
 
+(check "template provenance remains valid when responsibility uses a distinct role id"
+       (= "anthropic:ambient · opus · xhigh · orchestration:integrator · working: own the lifecycle seam"
+          (agent-primary-line {:online true}
+                              (managed
+                               {"kind" "lane" "provider" "anthropic" "model" "claude-opus-4-8"
+                                "effort" "xhigh" "composition_kind" "template"
+                                "role" "north-lifecycle-writer" "composition_id" "integrator"
+                                "composition_overrides" "[]" "goal" "own the lifecycle seam"}))))
+
 (check "bespoke provenance is explicit"
        (str/includes?
         (agent-primary-line {:online true}
@@ -385,7 +394,7 @@
                               "goal" "trace schema"}))
         "orchestration:bespoke:migration-forensics"))
 
-(check "account target and Orchestration template are first-class in the roster"
+(check "account target and Agent Machinery template are first-class in the roster"
        (= "openai:codex-work · sol · high · orchestration:designer · working: trace schema"
           (agent-primary-line {:online true}
                               (managed
@@ -562,7 +571,7 @@
                              " · inconsistent(lifecycle:invalid-lane-terminal): conflict probe")
               (= :inconsistent (roster-category marker-conflict)))))
 
-(check "uncomposed role remains visible without inventing Orchestration provenance"
+(check "uncomposed role remains visible without inventing composition provenance"
        (let [facts {"kind" "lane" "provider" "anthropic" "model" "opus"
                     "effort" "xhigh"
                     "role" "orchestrator" "goal" "coordinate work"}]
@@ -604,7 +613,7 @@
                              "composition_overrides" "[]"
                              "display_handle" "openai-sol-high-designer-a205e9ce"}))))
 
-(check "dry-run route: Anthropic frontier resolves to the Orchestration config model, no Fable window swap"
+(check "dry-run route: Anthropic frontier resolves to the Agent Machinery config model, no Fable window swap"
        (let [route (dry-resolved-route "anthropic" "frontier" nil nil)]
          (and (= "anthropic" (:provider route))
               (not= "fable" (:model route)))))
@@ -804,9 +813,9 @@
 (let [templates (proc/shell {:out :string :err :string :continue true
                              :extra-env {"NO_COLOR" "1"}}
                             (str root "/bin/north") "templates")]
-  (check "north templates is a routed human view over the Orchestration catalog"
+  (check "north templates is a routed human view over the Agent Machinery catalog"
          (and (zero? (:exit templates))
-              (str/includes? (:out templates) "ORCHESTRATION STOCK TEMPLATES")
+              (str/includes? (:out templates) "AGENT MACHINERY STOCK TEMPLATES")
               (str/includes? (:out templates)
                              "exact template → justified axis override → bespoke composition")
               (str/includes? (:out templates) "integrator")
@@ -840,7 +849,7 @@
                          "--pin-evidence" (pin-evidence-json [{:kind "provider" :value "anthropic"}])
                          "--ad-hoc"
                          "--dry-run")]
-  (check "CLI dry route resolves anthropic frontier to the current Orchestration opus/xhigh route"
+  (check "CLI dry route resolves anthropic frontier to the current Agent Machinery opus/xhigh route"
          (and (zero? (:exit closed))
               (re-find #"anthropic-ambient-opus-xhigh-orchestration-designer-[a-z0-9]+" (:out closed))
               (not (str/includes? (:out closed) "anthropic-ambient-fable")))))
@@ -873,7 +882,7 @@
                             :extra-env {"NORTH_AGENTS_LIB" "" "NO_COLOR" "1"}}
                            (str root "/bin/north") "spawn" "executor" "probe"
                            "--assessment" (economy-assessment-json) "--ad-hoc" "--dry-run")]
-  (check "public CLI accepts a canonical Orchestration assessment and forwards only its recorded marker"
+  (check "public CLI accepts a canonical Agent Machinery assessment and forwards only its recorded marker"
          (and (zero? (:exit assessed))
               (str/includes? (:out assessed) "AGENT_ROUTING_ASSESSMENT=RECORDED")
               (not (str/includes? (:out assessed) "reasoning-shape:deterministic")))))

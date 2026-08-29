@@ -15,7 +15,7 @@ import {
 
 const PRESET: Record<string, string> = {
   kind: "lane",
-  role: "integrator",
+  role: "north-lifecycle-writer",
   goal: "prove native publication",
   provider: "openai",
   provider_target: "codex-a",

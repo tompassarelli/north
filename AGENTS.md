@@ -2,7 +2,7 @@
 
 This file governs changes to the North repository: architecture ownership,
 stewardship, code boundaries, and verification. It is not an operator guide and
-does not activate North's coordination or orchestration features. Consumer
+does not activate North coordination or Agent Machinery run-design features. Consumer
 instructions live in switchboard-controlled modules. Product documentation
 under `docs/` is reference material, not agent policy. The coordination graph
 is canonical; `threads/` is a projection.
@@ -11,9 +11,11 @@ is canonical; `threads/` is a projection.
 
 - Coordination, posture, telemetry, concerns, and supervision belong to North.
 - Provider SDK/CLI code belongs only under `sdk/src/providers/`.
-- Semantic task-routing contracts belong to Orchestration; provider adapters resolve semantic tiers to models.
+- Portable work-ownership and agent-run-design contracts belong to Agent Machinery;
+  North owns concrete run admission, provider/account/runtime selection,
+  transport, supervision, and settlement.
 - MCP is the shared data/tool boundary for interactive provider sessions.
-- Never add a provider model ID to provider-neutral orchestration code.
+- Never add a provider model ID to provider-neutral Agent Machinery contract code.
 - Keep consumer behavior out of repository `AGENTS.md` files. Put optional
   runtime guidance in the module or skill that owns the behavior.
 
