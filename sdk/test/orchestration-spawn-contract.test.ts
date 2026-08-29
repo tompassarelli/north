@@ -313,11 +313,23 @@ test("North SDK admits role and composition independently at both catalog bounda
   });
   expect(validateRoutingMetadata({
     role: "reviewer",
+    taskGrade: "senior",
+    domainRequirements: ["migration evidence"],
+    topology: "worker",
+    tier: "senior",
+    reasoning: "high",
+    posture: "evaluate",
     composition: { kind: "bespoke", id: "migration-forensics",
       bespokeReason: "one-off migration evidence review", promotionCandidate: false,
       contract: JSON.parse(contract) },
   })).toEqual({
     role: "reviewer",
+    taskGrade: "senior",
+    domainRequirements: ["migration evidence"],
+    topology: "worker",
+    tier: "senior",
+    reasoning: "high",
+    posture: "evaluate",
     composition: { kind: "bespoke", id: "migration-forensics",
       bespokeReason: "one-off migration evidence review", promotionCandidate: false,
       contract: JSON.parse(contract) },
