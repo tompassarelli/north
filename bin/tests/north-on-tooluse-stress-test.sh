@@ -409,7 +409,7 @@ cat >"$TMP/ack-stall-fixture.clj" <<'CLJ'
 (when (= (managed-actor-key "actor:a") (managed-actor-key "actor_a"))
   (mismatch! "inbox actor domain collision" nil))
 
-(with-redefs [north.coord/status fake-status
+(with-redefs [north.coord/status! fake-status
               one fake-resolved
               north.message-audience/pending-message-page fake-pending-page
               north.message-audience/claim-delivery! fake-claim

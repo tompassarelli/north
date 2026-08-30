@@ -51,7 +51,7 @@
   ^{:line 74 :file "cli/wake-receipt-internal.bclj"} (and ^{:line 74 :file "cli/wake-receipt-internal.bclj"} (= 0 ^{:line 74 :file "cli/wake-receipt-internal.bclj"} (:members envelope)) ^{:line 75 :file "cli/wake-receipt-internal.bclj"} (false? ^{:line 75 :file "cli/wake-receipt-internal.bclj"} (:ambiguous? envelope)) ^{:line 76 :file "cli/wake-receipt-internal.bclj"} (empty? ^{:line 76 :file "cli/wake-receipt-internal.bclj"} (:values envelope)) ^{:line 77 :file "cli/wake-receipt-internal.bclj"} (nil? ^{:line 77 :file "cli/wake-receipt-internal.bclj"} (:value envelope))))
 
 ^{:line 79 :file "cli/wake-receipt-internal.bclj"} (defn- envelope! [port ^String subject ^String predicate]
-  ^{:line 83 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "resolved-envelope" ^{:line 83 :file "cli/wake-receipt-internal.bclj"} [port subject predicate]))
+  ^{:line 83 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "resolved-envelope!" ^{:line 83 :file "cli/wake-receipt-internal.bclj"} [port subject predicate]))
 
 ^{:line 85 :file "cli/wake-receipt-internal.bclj"} (defn- ^String require-exact! [port ^String subject ^String predicate ^String expected]
   ^{:line 90 :file "cli/wake-receipt-internal.bclj"} (if ^{:line 90 :file "cli/wake-receipt-internal.bclj"} (exact-singleton? ^{:line 90 :file "cli/wake-receipt-internal.bclj"} (envelope! port subject predicate) expected) expected ^{:line 92 :file "cli/wake-receipt-internal.bclj"} (fail! ^{:line 92 :file "cli/wake-receipt-internal.bclj"} (str predicate " does not match the committed wake identity"))))
@@ -82,10 +82,10 @@
   context)))
 
 ^{:line 142 :file "cli/wake-receipt-internal.bclj"} (defn- query-rows! [port query]
-  ^{:line 145 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "query-rows" ^{:line 145 :file "cli/wake-receipt-internal.bclj"} [port query]))
+  ^{:line 145 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "query-rows!" ^{:line 145 :file "cli/wake-receipt-internal.bclj"} [port query]))
 
 ^{:line 147 :file "cli/wake-receipt-internal.bclj"} (defn- exact-assertion-boundary! [port ^String subject ^String predicate ^String value]
-  ^{:line 152 :file "cli/wake-receipt-internal.bclj"} (let [occurrences ^{:line 152 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "proposition-occurrences" ^{:line 154 :file "cli/wake-receipt-internal.bclj"} [port subject predicate value])
+  ^{:line 152 :file "cli/wake-receipt-internal.bclj"} (let [occurrences ^{:line 152 :file "cli/wake-receipt-internal.bclj"} (coord-invoke! "proposition-occurrences!" ^{:line 154 :file "cli/wake-receipt-internal.bclj"} [port subject predicate value])
    occurrence ^{:line 155 :file "cli/wake-receipt-internal.bclj"} (first occurrences)]
   ^{:line 156 :file "cli/wake-receipt-internal.bclj"} (if ^{:line 156 :file "cli/wake-receipt-internal.bclj"} (and ^{:line 156 :file "cli/wake-receipt-internal.bclj"} (= 1 ^{:line 156 :file "cli/wake-receipt-internal.bclj"} (count occurrences)) ^{:line 157 :file "cli/wake-receipt-internal.bclj"} (= :assert ^{:line 157 :file "cli/wake-receipt-internal.bclj"} (:operation occurrence)) ^{:line 158 :file "cli/wake-receipt-internal.bclj"} (integer? ^{:line 158 :file "cli/wake-receipt-internal.bclj"} (:version occurrence)) ^{:line 159 :file "cli/wake-receipt-internal.bclj"} (pos? ^{:line 159 :file "cli/wake-receipt-internal.bclj"} (:version occurrence)) ^{:line 160 :file "cli/wake-receipt-internal.bclj"} (integer? ^{:line 160 :file "cli/wake-receipt-internal.bclj"} (:ordinal occurrence)) ^{:line 161 :file "cli/wake-receipt-internal.bclj"} (not ^{:line 161 :file "cli/wake-receipt-internal.bclj"} (neg? ^{:line 161 :file "cli/wake-receipt-internal.bclj"} (:ordinal occurrence)))) occurrence ^{:line 163 :file "cli/wake-receipt-internal.bclj"} (fail! ^{:line 163 :file "cli/wake-receipt-internal.bclj"} (str predicate " does not have one exact assertion occurrence")))))
 

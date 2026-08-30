@@ -11,6 +11,7 @@
 (defn check [label ok?] (swap! checks conj [label (boolean ok?)]))
 (def wake-ns (find-ns 'north.wake-receipt-internal))
 (defn wake-var [name] (or (ns-resolve wake-ns name) (throw (ex-info (str name) {}))))
+(defn coord-var [name] (or (ns-resolve 'north.coord name) (throw (ex-info (str name) {}))))
 (defn wake-call [name & args] (apply (wake-var name) args))
 (defn ledger-call [name & args]
   (apply (or (ns-resolve 'north.run-ledger name) (throw (ex-info (str name) {}))) args))
@@ -161,10 +162,10 @@
 
 (defn fake-coord [store reject? operation args]
   (case operation
-    "resolved-envelope" (let [[_ subject predicate] args]
-                          (envelope store subject predicate))
-    "query-rows" (query-rows store (second args))
-    "proposition-occurrences"
+    "resolved-envelope!" (let [[_ subject predicate] args]
+                           (envelope store subject predicate))
+    "query-rows!" (query-rows store (second args))
+    "proposition-occurrences!"
     (let [[_ subject predicate value] args]
       (proposition-occurrences store subject predicate value))
     "publish!" (publish! store reject? (second args))
@@ -183,6 +184,41 @@
 (defn idle! [event] (wake-call 'idle-phase! port (context!) event))
 (defn turn! [event] (wake-call 'turn-phase! port (context!) event))
 (defn action! [event kind] (wake-call 'action-phase! port (context!) event kind))
+
+(let [calls (atom [])
+      expected-envelope {:members 1 :ambiguous? false :values ["value"] :value "value"}
+      expected-rows [["row"]]
+      expected-occurrence {:operation :assert :version 7 :ordinal 2}]
+  (with-redefs-fn
+    {(coord-var 'resolved-envelope!)
+     (fn [& args]
+       (swap! calls conj [:resolved-envelope! args])
+       expected-envelope)
+     (coord-var 'query-rows!)
+     (fn [& args]
+       (swap! calls conj [:query-rows! args])
+       expected-rows)
+     (coord-var 'proposition-occurrences!)
+     (fn [& args]
+       (swap! calls conj [:proposition-occurrences! args])
+       [expected-occurrence])}
+    (fn []
+      (check
+       "wake facade dynamically resolves the effectful coordination authority"
+       (try
+         (and (= expected-envelope
+                 (wake-call 'envelope! port "@subject:dispatch" "predicate"))
+              (= expected-rows
+                 (wake-call 'query-rows! port {:find "dispatch"}))
+              (= expected-occurrence
+                 (wake-call 'exact-assertion-boundary!
+                            port "@subject:dispatch" "predicate" "value"))
+              (= [[:resolved-envelope! [port "@subject:dispatch" "predicate"]]
+                  [:query-rows! [port {:find "dispatch"}]]
+                  [:proposition-occurrences!
+                   [port "@subject:dispatch" "predicate" "value"]]]
+                 @calls))
+         (catch Exception _ false))))))
 
 (let [store (base-store)
       reject? (atom false)
