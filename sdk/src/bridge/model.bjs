@@ -21,10 +21,10 @@
     goal String
     state String]))
 
-;; Retained as the execution-view row used by transcript and launch mechanics.
-;; Tracked-thing product views use TrackedThing below.
+;; Execution views retain a projection row for transcript and launch mechanics.
+;; It is runtime state, never a product identity or semantic kind.
 (js/export
- (defrecord WorkItem
+ (defrecord ExecutionItem
    [id String
     title String
     body String
@@ -38,6 +38,7 @@
     title String
     desired-outcome (U String Nil)
     agent Bool
+    work Bool
     plan Bool
     project Bool
     task Bool
@@ -47,8 +48,8 @@
 
 (defrecord BridgeModel
   [agents (Vec Agent)
-   list (Vec WorkItem)
-   board (Vec WorkItem)
+   list (Vec ExecutionItem)
+   board (Vec ExecutionItem)
    tracked-things (Vec TrackedThing)
    store-space String
    store-version Int
@@ -62,8 +63,8 @@
 (js/export
  (defrecord BridgeSnapshot
    [agents (Vec Agent)
-    list (Vec WorkItem)
-    board (Vec WorkItem)
+    list (Vec ExecutionItem)
+    board (Vec ExecutionItem)
     tracked-things (Vec TrackedThing)
     semantic-agents (Vec TrackedThing)
     goals (Vec TrackedThing)
@@ -92,8 +93,8 @@
  (defn replace-projection
    [model BridgeModel
     agents (Vec Agent)
-    list-items (Vec WorkItem)
-    board-items (Vec WorkItem)] BridgeModel
+    list-items (Vec ExecutionItem)
+    board-items (Vec ExecutionItem)] BridgeModel
    (with model
     [:agents agents]
     [:list list-items]
@@ -176,18 +177,18 @@
 
 (defn visible-work
   [model BridgeModel
-   source (Vec WorkItem)] (Vec WorkItem)
+   source (Vec ExecutionItem)] (Vec ExecutionItem)
   (let [needle String (bridgemodel-filter-text model)]
     (.filter source
-             (fn [item WorkItem] Bool
+             (fn [item ExecutionItem] Bool
                (or (identical? needle "")
                    (.includes
                     (.toLowerCase
-                     (str (workitem-id item) " "
-                          (workitem-title item) " "
-                          (workitem-body item) " "
-                          (workitem-condition item) " "
-                          (workitem-driver item)))
+                     (str (executionitem-id item) " "
+                          (executionitem-title item) " "
+                          (executionitem-body item) " "
+                          (executionitem-condition item) " "
+                          (executionitem-driver item)))
                     needle))))))
 
 (defn optional-search-text [value (U String Nil)] String

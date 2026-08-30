@@ -1,24 +1,24 @@
-north help work — threads: thought → fact → outcome
+north help work — tracked things: relations → roles → history
 
-  north capture "<title>" [owner]               mint a committed thread from one thought (zero ceremony)
-  north show <id|slug|substring>                one thread's facts + body; resolves id, slug, substring
+  north capture "<title>" [owner]               track a general thing from one thought (zero ceremony)
+  north work <command> … --json                 typed tracked-thing commands: track, plan, start, assign, request, and inspect
+  north show <id|slug|substring>                one tracked thing's facts + body; resolves id, slug, substring
   north tell <id> <pred> <value>                assert a fact through the fact server (serialized, rule-checked)
   north retract <id> <pred> <value>             retract a fact through the fact server
-  north threads [--all]                         thread-kind overview: live-proven active, unresolved assignments, top ready, counts
   north ready [--all]                           committed + unblocked work; manual queue order, leverage fallback
-  north queue move <thread> <before|after|first|last> [anchor]
+  north queue move <tracked-thing> <before|after|first|last> [anchor]
                                                 durably reorder the derived ready lane without mutating status
   north next                                    the recommended next pull
   north report                                  recent shipped outcomes
-  north blocked                                 threads waiting on a depends_on target
+  north blocked                                 work waiting on an unresolved dependency
   north leverage                                what unblocks the most downstream work
   north agenda                                  calendar projection over do_on: overdue / today / upcoming
   north needs-review                            judgments whose inputs moved; unevidenced bars; promotable drafts
-  north resolve <ref>                           canonical thread id for a ref (id, slug, or substring)
+  north resolve <ref>                           canonical tracked-thing id for a ref (id, slug, or substring)
   north evidence record "<bar>" "<result>"      bind done-bar evidence to this exact managed run
-                                                --thread <id> — no reservation in env: record unreserved thread evidence
+                                                --thread <id> — no reservation in env: record unreserved tracked-thing evidence
   north recover <@attempt:sha256> [--json]      show one attempt's Store-authoritative safe next action (read-only)
-  north bars list|prune <thread>                groom a thread's done_when set; prune retires evidenced bars
+  north bars list|prune <tracked-thing>         groom a tracked thing's done_when set; prune retires evidenced bars
   north worktrees [repo] [--json]               every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern
   north worktree lander [repo]                  landing reconciliation: harvest lane refs already merged to main
   north linear get|import|plan|sync             mechanical Linear bridge (sync is plan-only unless --apply)

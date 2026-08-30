@@ -803,16 +803,16 @@
    ^String checked-at (require-text! "endorsement instant" endorsed-at)]
   (plan! "plan" snapshot (facts-actions! (referents/plan-revision-facts! checked-referent checked-revision checked-path checked-actor checked-at)) (->PlanIntent checked-referent checked-revision))))
 
-(defn ^PersistencePlan project-start-plan! [authorization ^PlanSnapshot plan exact-revision authorized-by signature authorized-at ^CanonicalSnapshot snapshot]
-  (let [^String checked-authorization (require-text! "start authorization" authorization)
+(defn ^PersistencePlan start-plan! [start ^PlanSnapshot plan exact-revision started-by signature started-at ^CanonicalSnapshot snapshot]
+  (let [^String checked-start (require-text! "start occurrence" start)
    ^String checked-revision (require-text! "exact Plan revision" exact-revision)
-   ^String checked-actor (require-text! "authorizing actor" authorized-by)
-   ^String checked-signature (require-text! "authorization signature" signature)
-   ^String checked-at (require-text! "authorization instant" authorized-at)]
+   ^String checked-actor (require-text! "starting actor" started-by)
+   ^String checked-signature (require-text! "start signature" signature)
+   ^String checked-at (require-text! "start instant" started-at)]
   (require-same-snapshot! "Plan revision" (:store-space plan) (:store-version plan) snapshot)
   (if (not (= checked-revision (:revision plan))) (do
   (fail "start must name the exact Plan revision from its Store snapshot" :north.work-occurrences/plan-snapshot-mismatch {:referent (:referent plan) :expected (:revision plan) :actual checked-revision})))
-  (plan! "start" snapshot (facts-actions! (referents/project-start-authorization-facts! checked-authorization (:referent plan) checked-revision checked-actor checked-signature checked-at)) (->StartIntent (:referent plan) checked-authorization))))
+  (plan! "start" snapshot (facts-actions! (referents/start-facts! checked-start (:referent plan) checked-revision checked-actor checked-signature checked-at)) (->StartIntent (:referent plan) checked-start))))
 
 (defn ^PersistencePlan assignment-plan! [assignment referent assigned-by assignee assigned-at ^CanonicalSnapshot snapshot]
   (let [^String checked-assignment (require-text! "Assignment" assignment)
@@ -1294,7 +1294,7 @@
    idx (proj/index-triples (:facts snapshot))]
   (if (not (referents/tracked-thing? idx referent)) (do
   (fail "semantic view subject is not a tracked thing" :north.work-occurrences/invalid-read-snapshot {:referent referent})))
-  (let [derived (vec (concat (if (referents/agent? idx referent) ["Agent"] []) (vec (concat (if (referents/goal? idx referent) ["Goal"] []) (vec (concat (if (referents/plan? idx referent) ["Plan"] []) (vec (concat (if (referents/project? idx referent) ["Project"] []) (if (referents/task? idx referent) ["Task"] [])))))))))]
+  (let [derived (vec (concat (if (referents/agent? idx referent) ["Agent"] []) (vec (concat (if (referents/work? idx referent) ["Work"] []) (vec (concat (if (referents/goal? idx referent) ["Goal"] []) (vec (concat (if (referents/plan? idx referent) ["Plan"] []) (vec (concat (if (referents/project? idx referent) ["Project"] []) (if (referents/task? idx referent) ["Task"] [])))))))))))]
   (->SemanticView semantic-view-protocol semantic-receipt-version referent (sorted-view-facts (:facts snapshot)) derived)))))
 
 (defn ^SemanticHistory semantic-history! [^ReadPlan plan ^CanonicalSnapshot snapshot]

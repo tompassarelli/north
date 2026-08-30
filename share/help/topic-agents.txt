@@ -3,7 +3,7 @@ north help agents — delegate work, drive and observe agents
   north delegate "<task>"        hand work to a new lane; intake classifies atomic vs composite
                                  --role <worker> — atomic: exactly one selected worker
                                  --composite — 2+ independent pieces: hydrates an orchestrator
-                                 --thread <id> — bind an existing thread
+                                 --thread <id> — bind an existing tracked thing
                                  --handoff <artifact> — adopt one validated session-hard-cap artifact
                                  in chat, /delegate does this with session context riding along
   north agents [--json]          live agents now + the stable machine roster

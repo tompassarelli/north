@@ -424,10 +424,10 @@
                :storeSpace "north-coordination" :storeVersion 7
                :trackedThings
                [{:id "@referent:a" :title "A" :desiredOutcome nil
-                 :agent false :plan true :project false :task false
+                 :agent false :work true :plan true :project false :task false
                  :assignee nil :assigneeTitle nil :status nil}
                 {:id "@referent:b" :title "B" :desiredOutcome "Ship"
-                 :agent true :plan false :project false :task false
+                 :agent true :work false :plan false :project false :task false
                  :assignee "@actor:b" :assigneeTitle "B" :status "active"}]}
               valid-runtime Any (fixed-runtime {} envelope)
               reversed-runtime Any (fixed-runtime {} (update envelope :trackedThings

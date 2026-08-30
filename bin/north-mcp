@@ -28,15 +28,16 @@
 (def cheatsheet
   (str
    "North is a fact-native substrate for coordinating work and life. Every fact "
-   "is a triple (subject predicate object); a thread is any id that has a `title`. "
+   "is a triple (subject predicate object); general things gain meaning through "
+   "relations, contextual roles, and immutable history. "
    "Lifecycle is DERIVED from facts, never stored: committed=accepted, outcome=done, "
    "abandoned=canceled, driver=active, depends_on=blocked. Facts record what was "
    "ASSERTED, not verified — supersession, retraction, and views handle disagreement.\n\n"
-   "Refs to other threads are written @<id> (e.g. depends_on @2026-06-16-101500); "
+   "Refs to other tracked things are written @<id> (e.g. depends_on @2026-06-16-101500); "
    "everything else is a literal. ids look like 2026-06-16-101500.\n\n"
    "Prefer `capture` for new work and `tell`/`retract` for changes; every write is "
    "serialized and rule-checked, so just state facts and let the engine enforce integrity. "
-   "The canonical multi-agent flow: capture a thread -> tell it facts -> dispatch it.\n\n"
+   "The canonical multi-agent flow: track a thing -> relate it -> assign it.\n\n"
    "PRESENTATION CONTRACT: list tools return an `emoji` field per item. Render each item "
    "with its given `emoji`; do NOT invent your own. Keep it terse, group by project, lead "
    "with active work. To change a glyph: tell @ui emoji_<condition> \"<glyph>\" "
@@ -149,19 +150,16 @@
       :else nil)))
 
 (def tools
-  [{:name "ready"        :desc "Threads doable now (committed, unblocked, not active, not done). Default: kind=thread, top-15 by leverage. Pass all=true for the full unscoped list. Returns JSON [{id,title,condition,emoji}]."
-    :schema {:type "object" :properties {:all {:type "boolean" :description "return every ready thread, unscoped (default false: kind=thread top-15 by leverage)"}}}
+  [{:name "ready"        :desc "Work doable now (committed, unblocked, not active, not done). Pass all=true for the full unscoped list. Returns JSON [{id,title,condition,emoji}]."
+    :schema {:type "object" :properties {:all {:type "boolean" :description "return every ready tracked thing instead of the curated work slice"}}}
     :argv (fn [a] (if (get a "all") ["json" "ready" "--all"] ["json" "ready"]))}
-   {:name "next"         :desc "The recommended next thread(s) to pull."
+   {:name "next"         :desc "The recommended next work to pull."
     :schema {:type "object" :properties {}} :argv (fn [_] ["next"])}
-   {:name "threads"      :desc "Open threads, kanban view. Default: the curated slice (kind=thread; live-active + top-15 ready by leverage). Pass all=true for every open thread unscoped. Returns JSON [{id,title,condition,emoji}] where condition is active/ready/blocked/draft."
-    :schema {:type "object" :properties {:all {:type "boolean" :description "return every open thread, unscoped (default false: curated active + top-15 ready)"}}}
-    :argv (fn [a] (if (get a "all") ["json" "board" "--all"] ["json" "board"]))}
-   {:name "blocked"      :desc "Threads waiting on an unresolved dependency. Returns JSON [{id,title,condition}]."
+   {:name "blocked"      :desc "Work waiting on an unresolved dependency. Returns JSON [{id,title,condition}]."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "blocked"])}
-   {:name "agenda"       :desc "Calendar view: threads bucketed by do_on (overdue/today/upcoming)."
+   {:name "agenda"       :desc "Calendar view: tracked things bucketed by do_on (overdue/today/upcoming)."
     :schema {:type "object" :properties {}} :argv (fn [_] ["agenda"])}
-   {:name "leverage"     :desc "High-leverage threads — finishing them unblocks the most downstream work."
+   {:name "leverage"     :desc "High-leverage work — finishing it unblocks the most downstream work."
     :schema {:type "object" :properties {}} :argv (fn [_] ["leverage"])}
    {:name "needs_review" :desc "Belief-revision queue: judgments whose inputs moved. Returns JSON [{id,title,pred,detail}]."
     :schema {:type "object" :properties {}} :argv (fn [_] ["json" "needs-review"])}
@@ -199,19 +197,19 @@
              :required ["artifactId"] :additionalProperties false}
     :annotations read-local-annotations
     :argument-problem artifact-read-argument-problem}
-   {:name "capture"      :desc "Create a new thread from a title (a thought or unit of work)."
+   {:name "capture"      :desc "Track a general thing from a title. Relations, roles, and history determine what it means."
     :schema {:type "object" :properties {:title {:type "string"}
                                          :owner {:type "string" :description "defaults to personal"}}
              :required ["title"]}
     :argv (fn [a] ["capture" (get a "title") (get a "owner" "personal")])}
-   {:name "tell"         :desc "Add or replace one fact about a thread. For thread refs (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
+   {:name "tell"         :desc "Add or replace one fact about a tracked thing. For relation targets (depends_on/part_of/relates_to) pass the bare target id; the engine adds the @."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
              :required ["id" "predicate" "value"]}
     :argv (fn [a] ["tell" (get a "id") (get a "predicate") (get a "value")])}
    {:name "evidence_record"
-    :desc "Record an observed result for one exact done_when bar on this managed run. Run, thread, reporter, capability, North port, and Beagle Store log are derived from the managed environment; callers supply only bar and observed."
+    :desc "Record an observed result for one exact done_when bar on this managed run. Run, tracked thing, reporter, capability, North port, and Beagle Store log are derived from the managed environment; callers supply only bar and observed."
     :schema {:type "object"
              :properties {:bar {:type "string" :minLength 1}
                           :observed {:type "string" :minLength 1}}
@@ -220,7 +218,7 @@
     :annotations local-write-annotations
     :argument-problem evidence-argument-problem
     :argv (fn [a] ["evidence" "record" (get a "bar") (get a "observed")])}
-   {:name "retract"      :desc "Retract one fact about a thread."
+   {:name "retract"      :desc "Retract one fact about a tracked thing."
     :schema {:type "object" :properties {:id {:type "string"}
                                          :predicate {:type "string"}
                                          :value {:type "string"}}
@@ -247,7 +245,7 @@
     :argv (fn [a] (cond-> ["linear" "import" (get a "issue")]
                     (get a "server") (conj "--server" (get a "server"))))}
    {:name "linear_plan"
-    :desc "Compute a read-only North-to-Linear synchronization plan for one thread. Returns JSON and performs no writes."
+    :desc "Compute a read-only North-to-Linear synchronization plan for one tracked thing. Returns JSON and performs no writes."
     :schema {:type "object"
              :properties {:thread {:type "string" :minLength 1}
                           :server server-property}
@@ -256,7 +254,7 @@
     :argv (fn [a] (cond-> ["linear" "plan" (get a "thread")]
                     (get a "server") (conj "--server" (get a "server"))))}
    {:name "linear_sync"
-    :desc "Plan synchronization for one North thread. Remote writes occur only when apply=true; expectedPlanHash makes apply compare the freshly locked plan before mutation."
+    :desc "Plan synchronization for one North tracked thing. Remote writes occur only when apply=true; expectedPlanHash makes apply compare the freshly locked plan before mutation."
     :schema {:type "object"
              :properties {:thread {:type "string" :minLength 1}
                           :apply {:type "boolean" :description "Apply the plan to Linear (default false)"}
@@ -406,7 +404,7 @@
 
 (def sdk-tools
   [{:name "dispatch"
-    :desc "Dispatch an agent for a thread (must exist — capture first). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
+    :desc "Dispatch an agent for an existing tracked thing. For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
     ;; Property ORDER is load-bearing, not cosmetic: cheshire serializes a map in
     ;; its seq order, and a >8-key literal `{}` is a PersistentHashMap (scrambled,
     ;; unstable). `array-map` pins insertion order so tools/list advertises the work
@@ -414,7 +412,7 @@
     ;; optional compat/provider fields. Anti-rot: mcp-dispatch-contract.test.ts.
     :schema {:type "object"
              :properties (array-map
-                          :id {:type "string" :minLength 1 :description "Thread ID to dispatch (e.g. 2026-06-27-193317)"}
+                          :id {:type "string" :minLength 1 :description "Tracked-thing ID to dispatch (e.g. 2026-06-27-193317)"}
                           :role {:type "string" :pattern role-id-pattern :not {:enum ["researcher"]} :description "Functional responsibility identity, independent of composition kind and id; catalogued and novel roles may use template or bespoke compositions."}
                           :taskGrade (:taskGrade routing-properties)
                           :domainRequirements (:domainRequirements routing-properties)
@@ -435,7 +433,7 @@
                         "tier" "reasoning" "posture" "composition"]
              :additionalProperties false}}
    {:name "spawn"
-    :desc "Spawn an ad-hoc agent from a prompt (no thread needed; for thread work prefer capture+dispatch). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
+    :desc "Spawn an ad-hoc agent from a prompt (no tracked thing needed; for tracked work use dispatch). For automatic routing, omit model and target and omit provider or use auto. Selecting anthropic/openai or supplying any target/model requires fresh exact typed pinEvidence. Returns the agent ID."
     ;; Same deterministic contract as dispatch (see note there): work identifier
     ;; (prompt) first, then the eight Orchestration routing fields, then optional fields.
     :schema {:type "object"
@@ -532,7 +530,7 @@
                 (or (not-empty (str/trim
                                 (str out (when-not (str/blank? err)
                                            (str "\n" err)))))
-                    "recursive child thread binding unavailable")
+                    "recursive child tracked-thing binding unavailable")
                 {:north/error :recursive-child-thread-unavailable
                  :pre-side-effect true})))
       {:thread thread :parent parent})))
@@ -625,10 +623,10 @@
   (let [id (canonical-north-thread-id thread)]
     (case (driver-command "claim" id agent-id)
       0 nil
-      3 (str "thread @" id " already has an active driver")
-      4 (str "thread @" id " disappeared before its driver could be claimed")
+      3 (str "tracked thing @" id " already has an active driver")
+      4 (str "tracked thing @" id " disappeared before its driver could be claimed")
       (str "North coordinator unavailable or mismatched at port " north-port
-           " while claiming the driver for thread @" id))))
+           " while claiming the driver for tracked thing @" id))))
 
 (defn release-driver! [thread agent-id]
   ;; The child releases on every normal terminal path. This duplicate release is
@@ -777,7 +775,7 @@
       unknown (str "unknown " nm " routing field(s): " (str/join ", " unknown))
       (and (= nm "dispatch") (not (non-empty-string? id))) "dispatch id must be a non-empty string"
       (and (= nm "dispatch") (nil? (canonical-north-thread-id id)))
-      "dispatch id must be a safe North thread id (bare or single @ prefix)"
+      "dispatch id must be a safe North tracked-thing id (bare or single @ prefix)"
       (and (= nm "spawn") (not (non-empty-string? prompt))) "spawn prompt must be a non-empty string"
       missing-routing
       (str "North " nm " requires the complete eight-field Orchestration request; missing: "
@@ -977,7 +975,7 @@
                   process (launch-sdk! [bun "run" (str sdk-dir "/dispatch.ts") id] cmd-env log)
                   _ (watch-driver-release! process id agent-id)
                   startup (await-sdk-startup process agent-id log)
-                  suffix (str " for thread @" id
+                  suffix (str " for tracked thing @" id
                               (when model (str " model=" model))
                               (when target (str " target=" target))
                               (when coordinator (str " coordinator=" coordinator)))]
@@ -992,7 +990,7 @@
                    :isError true})))
             (catch Exception _
               (release-driver! id agent-id)
-              {:content [{:type "text" :text (str "could not start an agent for thread @" id)}]
+              {:content [{:type "text" :text (str "could not start an agent for tracked thing @" id)}]
                :isError true}))))
 
           "spawn"

@@ -1,7 +1,7 @@
 import { BoxRenderable, ScrollBoxRenderable, StyledText, bg, brightBlack, brightCyan, brightGreen, brightRed, brightWhite, brightYellow, createCliRenderer, dim, InputRenderable, InputRenderableEvents, red, stripAnsiSequences, TextRenderable, white } from '@opentui/core';
 import { registerEmacsBindings, registerEscapeClearsPendingSequence } from '@opentui/keymap/addons';
 import { createDefaultOpenTuiKeymap } from '@opentui/keymap/opentui';
-import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "TrackedThing" as TrackedThing, "WorkItem" as WorkItem, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-all" as bridgesnapshot_all, "bridgesnapshot-goals" as bridgesnapshot_goals, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-semantic-agents" as bridgesnapshot_semantic_agents, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-tracked-thing" as bridgesnapshot_selected_tracked_thing, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-catalog" as replace_catalog, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-tracked-thing" as select_tracked_thing, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "trackedthing-agent" as trackedthing_agent, "trackedthing-assignee" as trackedthing_assignee, "trackedthing-assignee-title" as trackedthing_assignee_title, "trackedthing-desired-outcome" as trackedthing_desired_outcome, "trackedthing-id" as trackedthing_id, "trackedthing-plan" as trackedthing_plan, "trackedthing-project" as trackedthing_project, "trackedthing-status" as trackedthing_status, "trackedthing-task" as trackedthing_task, "trackedthing-title" as trackedthing_title, "workitem-body" as workitem_body, "workitem-condition" as workitem_condition, "workitem-dependencies" as workitem_dependencies, "workitem-driver" as workitem_driver, "workitem-id" as workitem_id, "workitem-title" as workitem_title } from './model.js';
+import { "Agent" as Agent, "BridgeSnapshot" as BridgeSnapshot, "ExecutionItem" as ExecutionItem, "TrackedThing" as TrackedThing, "agent-effort" as agent_effort, "agent-goal" as agent_goal, "agent-id" as agent_id, "agent-model" as agent_model, "agent-model-display" as agent_model_display, "agent-name" as agent_name, "agent-orchestration-provenance" as agent_orchestration_provenance, "agent-provider" as agent_provider, "agent-provider-label" as agent_provider_label, "agent-provider-target" as agent_provider_target, "agent-state" as agent_state, "agent-status" as agent_status, "agent-task" as agent_task, "bridgesnapshot-active-view-id" as bridgesnapshot_active_view_id, "bridgesnapshot-agents" as bridgesnapshot_agents, "bridgesnapshot-all" as bridgesnapshot_all, "bridgesnapshot-goals" as bridgesnapshot_goals, "bridgesnapshot-board" as bridgesnapshot_board, "bridgesnapshot-list" as bridgesnapshot_list, "bridgesnapshot-notice" as bridgesnapshot_notice, "bridgesnapshot-semantic-agents" as bridgesnapshot_semantic_agents, "bridgesnapshot-selected-agent" as bridgesnapshot_selected_agent, "bridgesnapshot-selected-tracked-thing" as bridgesnapshot_selected_tracked_thing, "focus-view" as focus_view, "make-model" as make_model, "remove-agent" as remove_agent, "replace-catalog" as replace_catalog, "replace-projection" as replace_projection, "select-agent" as select_agent, "select-tracked-thing" as select_tracked_thing, "set-filter" as set_filter, "snapshot" as snapshot, "upsert-agent" as upsert_agent, "trackedthing-agent" as trackedthing_agent, "trackedthing-assignee" as trackedthing_assignee, "trackedthing-assignee-title" as trackedthing_assignee_title, "trackedthing-desired-outcome" as trackedthing_desired_outcome, "trackedthing-id" as trackedthing_id, "trackedthing-plan" as trackedthing_plan, "trackedthing-project" as trackedthing_project, "trackedthing-work" as trackedthing_work, "trackedthing-status" as trackedthing_status, "trackedthing-task" as trackedthing_task, "trackedthing-title" as trackedthing_title, "executionitem-body" as executionitem_body, "executionitem-condition" as executionitem_condition, "executionitem-dependencies" as executionitem_dependencies, "executionitem-driver" as executionitem_driver, "executionitem-id" as executionitem_id, "executionitem-title" as executionitem_title } from './model.js';
 import { "referent-action-request!" as referent_action_request_bang, "run-referent-action!" as run_referent_action_bang, "semantic-action-result-text!" as semantic_action_result_text_bang } from './referent-actions.js';
 import { keyword as $$bc$keyword, property_key as $$bc$property_key, record_value as $$bc$record_value, str as $$bc$str } from '../../beagle/core.js';
 import { catch_dispatch as $$bd$catch_dispatch } from '../../beagle/exception-dispatch.js';
@@ -664,7 +664,7 @@ const body = body_of(facts, id);
 const condition = text_or(row.condition, "open");
 const driver = driver_of(facts, id);
 const dependencies = dependencies_of(facts, id);
-return WorkItem(id, title, body, condition, driver, dependencies); }));
+return ExecutionItem(id, title, body, condition, driver, dependencies); }));
 }
 
 function terminal_condition_p(condition) {
@@ -681,7 +681,7 @@ function list_section_title(section_id) {
 }
 
 function list_section_count(items, section_id) {
-  return items.filter((item) => (list_section_id(workitem_condition(item)) === section_id)).length;
+  return items.filter((item) => (list_section_id(executionitem_condition(item)) === section_id)).length;
 }
 
 function list_rows(runtime, items) {
@@ -692,7 +692,7 @@ const count = list_section_count(items, section_id);
 if ((count > 0)) {
   rows.push(ListRow("header", section_id, -1, count));
   if ((!((_truthy) => _truthy !== false && _truthy != null)(collapsed.has(section_id)))) {
-    return items.forEach((item, index) => { if ((list_section_id(workitem_condition(item)) === section_id)) {
+    return items.forEach((item, index) => { if ((list_section_id(executionitem_condition(item)) === section_id)) {
   return rows.push(ListRow("item", section_id, index, 0));
 } });
   }
@@ -705,10 +705,10 @@ function board_lane_id(condition) {
 }
 
 function ordered_board_items(open_items, done_items) {
-  const ready = open_items.filter((item) => (workitem_condition(item) === "ready"));
-  const waiting = open_items.filter((item) => { const condition = workitem_condition(item);
+  const ready = open_items.filter((item) => (executionitem_condition(item) === "ready"));
+  const waiting = open_items.filter((item) => { const condition = executionitem_condition(item);
 return ((!(condition === "ready")) && (!(condition === "active"))); });
-  const active = open_items.filter((item) => (workitem_condition(item) === "active"));
+  const active = open_items.filter((item) => (executionitem_condition(item) === "active"));
   return ready.concat(waiting, active, done_items);
 }
 
@@ -2201,6 +2201,9 @@ function tracked_thing_tags(item) {
   const tags = [];
   if (trackedthing_agent(item)) {
     tags.push("Agent");
+  }
+  if (trackedthing_work(item)) {
+    tags.push("Work");
   }
   if (((_truthy) => _truthy !== false && _truthy != null)(trackedthing_desired_outcome(item))) {
     tags.push("Goal");

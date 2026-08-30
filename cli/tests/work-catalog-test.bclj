@@ -51,7 +51,7 @@
 (def plan String "@tracked:plan")
 (def plain String "@tracked:plain")
 (def revision String "@occurrence:revision")
-(def authorization String "@occurrence:authorization")
+(def start String "@occurrence:start")
 (def assignment String "@occurrence:assignment")
 (def request String "@occurrence:request")
 
@@ -72,8 +72,8 @@
     (referents/plan-revision-facts!
      plan revision "Implement the catalog" tracker
      "2026-08-30T10:01:00Z")
-    (referents/project-start-authorization-facts!
-     authorization plan revision tracker "sig:accepted"
+    (referents/start-facts!
+     start plan revision tracker "sig:accepted"
      "2026-08-30T10:02:00Z")
     (referents/assignment-facts!
      assignment plan tracker worker "2026-08-30T10:03:00Z")
@@ -104,7 +104,7 @@
 (check! "tracked rows use the exact public key set"
         (every?
          (fn [row Any] Bool
-           (= #{:id :title :desiredOutcome :agent :plan :project :task
+           (= #{:id :title :desiredOutcome :agent :work :plan :project :task
                 :assignee :assigneeTitle :status}
               (set (keys row))))
          rows))
@@ -115,14 +115,15 @@
         (empty?
          (filterv
           (fn [id String] Bool
-            (contains? #{revision authorization assignment request} id))
+            (contains? #{revision start assignment request} id))
           (mapv (fn [row Any] String (:id row)) rows))))
 (check! "Goal derives only from a nonblank desired outcome"
         (and (= "Ship the catalog" (:desiredOutcome goal-row))
              (= false (:plan goal-row))
              (= nil (:desiredOutcome plain-row))))
 (check! "Plan, Project, Task, and Assignment stay on one tracked identity"
-        (and (= true (:plan plan-row))
+        (and (= true (:work plan-row))
+             (= true (:plan plan-row))
              (= true (:project plan-row))
              (= true (:task plan-row))
              (= worker (:assignee plan-row))
@@ -131,6 +132,7 @@
 (check! "Agents are tracked identities playing the agent role"
         (and (= true (:agent (get rows-by-id tracker)))
              (= true (:agent (get rows-by-id worker)))
+             (= false (:work goal-row))
              (= false (:agent plan-row))))
 
 (check! "blank Store space is rejected"

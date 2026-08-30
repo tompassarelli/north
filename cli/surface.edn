@@ -3,7 +3,7 @@
 ;; Field semantics live in cli/surface-gen.clj's header.
 {:product "north — coordinate work, agents, and time"
  :topics
- [{:id :work    :title "WORK"    :subtitle "threads: thought → fact → outcome"}
+ [{:id :work    :title "WORK"    :subtitle "tracked things: relations → roles → history"}
   {:id :agents  :title "AGENTS"  :subtitle "delegate work, drive and observe agents"}
   {:id :comms   :title "COMMS"   :subtitle "attention between people and agents"}
   {:id :routing :title "ROUTING" :subtitle "providers, accounts, dispatch posture"}
@@ -19,35 +19,33 @@
  :commands
  [;; ---------------------------------------------------------------- work
   {:verb "capture" :form "north capture \"<title>\" [owner]" :topic :work
-   :summary "mint a committed thread from one thought (zero ceremony)"
+   :summary "track a general thing from one thought (zero ceremony)"
    :card {:section :work :form "north capture \"<thought>\""
-          :text "one thought → one committed thread"}}
+          :text "one thought → one tracked thing"}}
+  {:verb "work" :form "north work <command> … --json" :topic :work
+   :summary "typed tracked-thing commands: track, plan, start, assign, request, and inspect"}
   {:verb "show" :form "north show <id|slug|substring>" :topic :work
-   :summary "one thread's facts + body; resolves id, slug, substring"
+   :summary "one tracked thing's facts + body; resolves id, slug, substring"
    :card {:section :work :form "north show <id>"
-          :text "a thread's facts + body"}}
+          :text "a tracked thing's facts + body"}}
   {:verb "tell" :form "north tell <id> <pred> <value>" :topic :work
    :summary "assert a fact through the fact server (serialized, rule-checked)"
    :card {:section :work :form "north tell <id> <pred> <val>"
           :text "assert a fact (retract removes)"}}
   {:verb "retract" :form "north retract <id> <pred> <value>" :topic :work
    :summary "retract a fact through the fact server"}
-  {:verb "threads" :form "north threads [--all]" :topic :work
-   :summary "thread-kind overview: live-proven active, unresolved assignments, top ready, counts"
-   :card {:section :work :form "north threads"
-          :text "active / unresolved / ready / blocked overview"}}
   {:verb "ready" :form "north ready [--all]" :topic :work
    :summary "committed + unblocked work; manual queue order, leverage fallback"
    :card {:section :now :rank 2 :form "north ready"
           :text "what you could start now; queue order, leverage fallback"}}
-  {:verb "queue" :form "north queue move <thread> <before|after|first|last> [anchor]" :topic :work
+  {:verb "queue" :form "north queue move <tracked-thing> <before|after|first|last> [anchor]" :topic :work
    :summary "durably reorder the derived ready lane without mutating status"}
   {:verb "next" :form "north next" :topic :work
    :summary "the recommended next pull"}
   {:verb "report" :form "north report" :topic :work
    :summary "recent shipped outcomes"}
   {:verb "blocked" :form "north blocked" :topic :work
-   :summary "threads waiting on a depends_on target"}
+   :summary "work waiting on an unresolved dependency"}
   {:verb "leverage" :form "north leverage" :topic :work
    :summary "what unblocks the most downstream work"}
   {:verb "agenda" :form "north agenda" :topic :work
@@ -57,14 +55,14 @@
   {:verb "needs-review" :form "north needs-review" :topic :work
    :summary "judgments whose inputs moved; unevidenced bars; promotable drafts"}
   {:verb "resolve" :form "north resolve <ref>" :topic :work
-   :summary "canonical thread id for a ref (id, slug, or substring)"}
+   :summary "canonical tracked-thing id for a ref (id, slug, or substring)"}
   {:verb "evidence" :form "north evidence record \"<bar>\" \"<result>\"" :topic :work
    :summary "bind done-bar evidence to this exact managed run"
-   :details ["--thread <id> — no reservation in env: record unreserved thread evidence"]}
+   :details ["--thread <id> — no reservation in env: record unreserved tracked-thing evidence"]}
   {:verb "recover" :form "north recover <@attempt:sha256> [--json]" :topic :work
    :summary "show one attempt's Store-authoritative safe next action (read-only)"}
-  {:verb "bars" :form "north bars list|prune <thread>" :topic :work
-   :summary "groom a thread's done_when set; prune retires evidenced bars"}
+  {:verb "bars" :form "north bars list|prune <tracked-thing>" :topic :work
+   :summary "groom a tracked thing's done_when set; prune retires evidenced bars"}
   {:verb "worktrees" :form "north worktrees [repo] [--json]" :topic :work
    :summary "every repo's worktrees/ lanes: drift, dirt, age, owning lane/concern"}
   {:verb "worktree" :form "north worktree lander [repo]" :topic :work
@@ -79,7 +77,7 @@
    :summary "hand work to a new lane; intake classifies atomic vs composite"
    :details ["--role <worker> — atomic: exactly one selected worker"
              "--composite — 2+ independent pieces: hydrates an orchestrator"
-             "--thread <id> — bind an existing thread"
+             "--thread <id> — bind an existing tracked thing"
              "--handoff <artifact> — adopt one validated session-hard-cap artifact"
              "in chat, /delegate does this with session context riding along"]
    :card {:section :agents :form "north delegate \"<task>\""
@@ -136,7 +134,7 @@
    :summary "acknowledge one addressed Store message"}
   {:verb "mention" :form "north mention <recipient> \"<body>\"" :topic :comms
    :summary "durable sender-driven request; offline recipient allowed"
-   :details ["--about <thread> — attach the request to a thread"]}
+   :details ["--about <tracked-thing> — attach the request to a tracked thing"]}
   {:verb "interrupt" :form "north interrupt <recipient> \"<body>\"" :topic :comms
    :summary "urgent sender-driven request; live recipient required"}
   ;; ------------------------------------------------------------- routing
@@ -186,9 +184,9 @@
   {:verb "boot" :form "north boot" :topic :store
    :summary "session orientation from the live coordination projection"}
   {:verb "import" :form "north import" :topic :store :dispatch :store
-   :summary "fold threads/ file edits into the log (idempotent, safe anytime)"}
+   :summary "fold filesystem projection edits into the log (idempotent, safe anytime)"}
   {:verb "export" :form "north export <out-dir>" :topic :store :dispatch :store
-   :summary "regenerate threads/ from the log — never during concurrent work"}
+   :summary "regenerate the filesystem projection from the log — never during concurrent work"}
   ;; ----------------------------------------------------------------- ops
   {:verb "dashboard" :aliases ["cockpit"]
    :form "north dashboard [--once]" :topic :ops

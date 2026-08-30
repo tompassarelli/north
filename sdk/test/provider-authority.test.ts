@@ -108,7 +108,7 @@ test("North MCP tool inventory and managed provider exposure stay exact", () => 
   expect(workerSurface.liveInput).toBe("turn-messages");
   expect(workerSurface.northEnabledTools).toEqual([
     "capture", "tell", "evidence_record", "show", "search", "artifact_read",
-    "ready", "next", "threads",
+    "ready", "next",
   ]);
   expect(workerSurface.northEnabledTools).not.toEqual(expect.arrayContaining(["dispatch", "spawn"]));
   expect(codexHarnessArguments(openaiWorker)).toEqual([

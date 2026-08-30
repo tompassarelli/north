@@ -27,6 +27,7 @@ import {
   "trackedthing-project" as project,
   "trackedthing-task" as task,
   "trackedthing-title" as trackedThingTitle,
+  "trackedthing-work" as work,
 } from "../src/bridge/generated/north/bridge/model.js";
 import {
   "referent-action-argv!" as actionArgv,
@@ -47,34 +48,34 @@ const CATALOG = {
   trackedThings: [
     {
       id: "@tracked:01-tracker", title: "Tracker", desiredOutcome: null,
-      agent: true, plan: false, project: false, task: false,
+      agent: true, work: false, plan: false, project: false, task: false,
       assignee: null, assigneeTitle: null, status: "ready",
     },
     {
       id: "@tracked:02-worker", title: "Worker", desiredOutcome: null,
-      agent: true, plan: false, project: false, task: false,
+      agent: true, work: false, plan: false, project: false, task: false,
       assignee: null, assigneeTitle: null, status: "ready",
     },
     {
       id: "@tracked:03-ship", title: "Ship bridge",
       desiredOutcome: "The bridge candidate is accepted",
-      agent: false, plan: true, project: false, task: true,
+      agent: false, work: true, plan: true, project: false, task: true,
       assignee: "@tracked:02-worker", assigneeTitle: "Worker", status: null,
     },
     {
       id: "@tracked:04-release", title: "Release succeeds",
       desiredOutcome: "The release is available to its intended users",
-      agent: false, plan: false, project: false, task: false,
+      agent: false, work: false, plan: false, project: false, task: false,
       assignee: null, assigneeTitle: null, status: null,
     },
     {
       id: "@tracked:05-project", title: "Release path", desiredOutcome: null,
-      agent: false, plan: true, project: true, task: true,
+      agent: false, work: true, plan: true, project: true, task: true,
       assignee: "@tracked:02-worker", assigneeTitle: "Worker", status: null,
     },
     {
       id: "@tracked:06-note", title: "Plain tracked note", desiredOutcome: null,
-      agent: false, plan: false, project: false, task: false,
+      agent: false, work: false, plan: false, project: false, task: false,
       assignee: null, assigneeTitle: null, status: null,
     },
   ],
@@ -203,10 +204,11 @@ test("Agents, Goals, and All are identity-preserving catalog derivations", () =>
   )!;
   expect(project(releasePath)).toBe(true);
   expect(task(releasePath)).toBe(true);
+  expect(work(releasePath)).toBe(true);
   expect(semanticViewText(
     snapshot(replaceCatalog(makeModel("all"), [releasePath], "north-coordination", 42)),
     "all", 0, 120,
-  )).toContain("[Plan · Project · Task] Release path · assigned to Worker");
+  )).toContain("[Work · Plan · Project · Task] Release path · assigned to Worker");
 });
 
 test("All search joins an Agent and assigned Goal through the worker name", () => {
