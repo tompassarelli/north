@@ -21,14 +21,18 @@ is canonical; `threads/` is a projection.
 
 ## JVM and Clojure source authority
 
-- Tom-owned North JVM and Clojure semantics are authored in tracked, typed
-  `.bclj` sources using `#lang beagle/clj`. Every maintained `.clj` file—including
-  product code, CLI code, integrations, tests, fixtures, and repository tools—is
-  generated downstream from that authority and is never edited directly.
-- Host-language source is not an authority or fallback. The exact
-  machine-consumed catalog of irreducible `.clj` boundaries is empty; a missing
-  compiler capability routes upstream to Beagle and blocks the North change
-  until repaired.
+- The required end state is zero directly authored maintained `.clj`. Tom-owned
+  North JVM and Clojure semantics must be authored in tracked, typed `.bclj`
+  sources using `#lang beagle/clj`; maintained `.clj` must be registered,
+  downstream-generated output only.
+- Existing maintained `.clj` without a registered typed source/output mapping is
+  explicit migration debt, not an irreducible boundary or source authority. Do
+  not add new direct `.clj`; this debt may only shrink.
+- Any change that touches a legacy direct `.clj` must in the same change move its
+  authority to tracked, typed `.bclj`, register the generated `.clj` output, and
+  prove byte-for-byte parity. A missing compiler capability routes upstream to
+  Beagle and blocks the North change; host-language Clojure is never a fallback.
+- A bridge or referent candidate must change zero direct `.clj`.
 
 ## Safe writes and verification
 
