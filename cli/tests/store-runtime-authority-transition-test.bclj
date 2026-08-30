@@ -1,0 +1,492 @@
+#lang beagle/clj
+
+(ns north.store-runtime-authority-transition-test
+  (:import [java.io File]
+           [java.nio.file Files Path Paths]
+           [java.nio.file.attribute FileAttribute]))
+
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+(require [north.store-runtime-manifest :as manifest])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern ns-resolve (Fn [Any Any] Any))
+(declare-extern var-get (Fn [Any] Any))
+(declare-extern with-redefs-fn (Fn [(Map Any Any) (Fn [] Any)] Any))
+
+(defrecord Fixture
+  [temp Any
+   environment manifest/StoreRuntimeEnvironment
+   published String])
+
+(defrecord RecoverySnapshot
+  [selector String
+   generation-bytes (Vec Int)
+   client-bytes (Vec Int)
+   published-client-bytes (Vec Int)
+   generation-directories (Vec String)])
+
+(def root String
+  (.getCanonicalPath
+   (io/file (.getParent (io/file (System/getProperty "babashka.file")))
+            "../..")))
+(load-file (str root "/cli/store-runtime-generation.clj"))
+
+(defn private-var [name Any] Any
+  (or (ns-resolve 'north.store-runtime-generation name)
+      (throw (ex-info "missing private runtime-generation var" {:symbol name}))))
+
+(defn read-selected-generation
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  ((private-var 'read-selected-generation) runtime-environment))
+
+(defn promote!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   output String] Any
+  ((private-var 'promote!) runtime-environment output))
+
+(defn rollback!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  ((private-var 'rollback!) runtime-environment))
+
+(defn restore!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  ((private-var 'restore!) runtime-environment))
+
+(defn manifest-var [name Any] Any
+  (or (ns-resolve 'north.store-runtime-manifest name)
+      (throw (ex-info "missing typed runtime-manifest var" {:symbol name}))))
+
+(defn required-string!
+  [label String
+   value String?] String
+  (if (some? value)
+    value
+    (throw (ex-info (str label " is absent") {:label label}))))
+
+(defn required-int!
+  [label String
+   value Int?] Int
+  (if (some? value)
+    value
+    (throw (ex-info (str label " is absent") {:label label}))))
+
+(defn required-manifest!
+  [value (U manifest/StoreRuntimeManifest Nil)] manifest/StoreRuntimeManifest
+  (if (some? value)
+    value
+    (throw (ex-info "JVM manifest is absent" {}))))
+
+(def old-jvm manifest/RuntimeMember
+  (manifest/validate-promotion-source-member!
+   (var-get (manifest-var 'promotion-source-jvm))))
+(def old-manifest-text String
+  (manifest/canonical-manifest-text!
+   (required-manifest! (:manifest old-jvm))))
+(def old-jvm-output String
+  (required-string! "retained JVM output" (:output old-jvm)))
+(def old-jvm-nar-sha256 String
+  (required-string! "retained JVM NAR SHA-256" (:package-nar-sha256 old-jvm)))
+(def old-jvm-manifest-sha256 String
+  (required-string! "retained JVM manifest SHA-256" (:manifest-sha256 old-jvm)))
+(def old-jvm-manifest-bytes Int
+  (required-int! "retained JVM manifest byte count" (:manifest-bytes old-jvm)))
+(def old-forward manifest/StoreRuntimeGeneration
+  (manifest/->StoreRuntimeGeneration old-jvm manifest/accepted-native-runtime))
+(def old-reverse manifest/StoreRuntimeGeneration
+  (manifest/->StoreRuntimeGeneration manifest/accepted-native-runtime old-jvm))
+
+(def candidate-output String
+  "/nix/store/11111111111111111111111111111111-beagle-store-jvm")
+(def candidate manifest/RuntimeMember
+  (manifest/promotion-candidate-jvm-runtime!
+   candidate-output
+   manifest/accepted-jvm-nar-sha256
+   manifest/accepted-jvm-manifest-sha256
+   manifest/accepted-runtime-manifest-text))
+(def promoted manifest/StoreRuntimeGeneration
+  (manifest/initial-promotion-transition! candidate))
+
+(def base-selection (Map String String)
+  {"BEAGLE_STORE_SPACE_ID" "authority-transition-test"
+   "BEAGLE_STORE_SERVER_PORT" "47979"
+   "BEAGLE_STORE_LOG" "/tmp/north-store-authority-transition.storelog"})
+
+(def checks (Atom (Vec Any)) (atom []))
+
+(defn check!
+  [label String
+   value Any] Nil
+  (do
+    (swap! checks conj [label (boolean value)])
+    nil))
+
+(defn denied? [operation (Fn [] Any)] Bool
+  (try
+    (do
+      (operation)
+      false)
+    (catch Throwable _ true)))
+
+(defn delete-tree! [file Any] Nil
+  (do
+    (when (and (.isDirectory file)
+               (not (Files/isSymbolicLink (.toPath file))))
+      (doseq [child (or (.listFiles file) (make-array File 0))]
+        (delete-tree! child)))
+    (Files/deleteIfExists (.toPath file))
+    nil))
+
+(defn seed-selected!
+  [runtime-generation manifest/StoreRuntimeGeneration] Fixture
+  (let [temp Any (.toFile
+         (Files/createTempDirectory
+          "north-store-authority-transition-"
+          (make-array FileAttribute 0)))
+        state-root Any (io/file temp "store-runtime")
+        generation-root Any (io/file state-root "generations" "source")
+        selector Any (io/file state-root "active")
+        published Any (io/file temp "published.env")
+        selection (Map String String) ((var-get (private-var 'client-values-with!))
+         manifest/validate-promotion-source-member!
+         (:current runtime-generation)
+         base-selection)
+        client-text String ((var-get (private-var 'client-text!)) selection)]
+    (.mkdirs generation-root)
+    (spit (io/file generation-root "generation.edn")
+          (str (pr-str runtime-generation) "\n"))
+    (spit (io/file generation-root "client.env") client-text)
+    (Files/createSymbolicLink
+     (.toPath selector)
+     (Paths/get "generations/source" (make-array String 0))
+     (make-array FileAttribute 0))
+    (spit published client-text)
+    (->Fixture temp
+               (manifest/derive-runtime-environment!
+                (.getCanonicalPath state-root))
+               (.getCanonicalPath published))))
+
+(defn selector-target [fixture Fixture] String
+  (str (Files/readSymbolicLink
+        (.toPath (io/file (:active-selector (fixture-environment fixture)))))))
+
+(defn generation-directory-names [fixture Fixture] (Vec String)
+  (let [directory Any (io/file (:generations-root (fixture-environment fixture)))]
+    (vec
+     (sort
+      (mapv (fn [entry Any] String (.getName entry))
+            (or (.listFiles directory) (make-array File 0)))))))
+
+(defn file-bytes [file Any] (Vec Int)
+  (vec (Files/readAllBytes (.toPath file))))
+
+(defn recovery-snapshot [fixture Fixture] RecoverySnapshot
+  (let [environment manifest/StoreRuntimeEnvironment (fixture-environment fixture)
+        generation-root Any (io/file (:generations-root environment) "source")]
+    (->RecoverySnapshot
+     (selector-target fixture)
+     (file-bytes (io/file generation-root "generation.edn"))
+     (file-bytes (io/file generation-root "client.env"))
+     (file-bytes (io/file (fixture-published fixture)))
+     (generation-directory-names fixture))))
+
+(defn with-published-selection
+  [fixture Fixture
+   operation (Fn [] Any)] Any
+  (with-redefs-fn
+    {(private-var 'published-selection-path)
+     (fn [] Any (fixture-published fixture))}
+    operation))
+
+(defn promote-fixture!
+  ([fixture Fixture] Any (promote-fixture! fixture {}))
+  ([fixture Fixture
+    extra-redefs (Map Any Any)] Any
+    (with-redefs-fn
+     (merge
+      {(private-var 'published-selection-path)
+       (fn [] Any (fixture-published fixture))
+       (private-var 'observe-jvm-runtime!)
+       (fn [output String] manifest/RuntimeMember
+         (do
+           (when-not (= output candidate-output)
+             (throw (ex-info "wrong candidate output" {:output output})))
+           candidate))
+       (private-var 'observe-jvm-package!)
+       (fn [output String] Any
+         (do
+           (when-not (= output old-jvm-output)
+             (throw (ex-info "wrong promotion source output" {:output output})))
+           {:output output
+            :nar-sha256 old-jvm-nar-sha256
+            :manifest-sha256 old-jvm-manifest-sha256
+            :manifest-text old-manifest-text}))}
+      extra-redefs)
+     (fn [] Any
+       (promote! (fixture-environment fixture) candidate-output)))))
+
+(def alternate-oid String (apply str (repeat 40 "c")))
+(def alternate-sha String (apply str (repeat 64 "c")))
+(def alternate-nar String (str "sha256-" (apply str (repeat 43 "A")) "="))
+(def alternate-output String
+  "/nix/store/22222222222222222222222222222222-beagle-store-jvm")
+
+(def old-jvm-mutants (Vec manifest/RuntimeMember)
+  [(assoc old-jvm :output alternate-output
+                  :manifest-path (manifest/manifest-path-for alternate-output))
+   (assoc old-jvm :package-nar-sha256 alternate-nar)
+   (assoc old-jvm :beagle-revision alternate-oid)
+   (assoc old-jvm :beagle-tree alternate-oid)
+   (assoc old-jvm :manifest-path (str (:manifest-path old-jvm) ".other"))
+   (assoc old-jvm :manifest-bytes (inc old-jvm-manifest-bytes))
+   (assoc old-jvm :manifest-sha256 alternate-sha)
+   (assoc-in old-jvm [:manifest :beagle-revision] alternate-oid)
+   (assoc-in old-jvm [:manifest :source-tree] alternate-oid)])
+
+(check! "normal runtime authority accepts both exact retained JVM orientations"
+        (and (= old-forward (manifest/validate-runtime-generation! old-forward))
+             (= old-reverse (manifest/validate-runtime-generation! old-reverse))))
+(check! "promotion source accepts both exact retained generation orientations"
+        (and (= old-forward
+                (manifest/validate-promotion-source-generation! old-forward))
+             (= old-reverse
+                (manifest/validate-promotion-source-generation! old-reverse))))
+(check! "every prior JVM identity seam fails closed"
+        (every?
+         true?
+         (mapv
+          (fn [mutant Any] Bool
+            (denied?
+             (fn [] Any
+               (manifest/validate-promotion-source-generation!
+                (manifest/->StoreRuntimeGeneration
+                 mutant manifest/accepted-native-runtime)))))
+          old-jvm-mutants)))
+(check! "a substituted Native recovery member fails closed"
+        (denied?
+         (fn [] Any
+           (manifest/validate-promotion-source-generation!
+            (manifest/->StoreRuntimeGeneration
+             old-jvm
+             (assoc manifest/accepted-native-runtime
+                    :server-sha256 alternate-sha))))))
+(check! "mixed and same-kind promotion source shapes fail closed"
+        (and
+         (denied?
+          (fn [] Any
+            (manifest/validate-promotion-source-generation!
+             (manifest/->StoreRuntimeGeneration old-jvm candidate))))
+         (denied?
+          (fn [] Any
+            (manifest/validate-promotion-source-generation!
+             (manifest/->StoreRuntimeGeneration old-jvm old-jvm))))))
+(check! "the retained JVM cannot be admitted as a fresh promotion candidate"
+        (and
+         (denied?
+          (fn [] Any
+            (manifest/promotion-candidate-jvm-runtime!
+             old-jvm-output
+             old-jvm-nar-sha256
+             old-jvm-manifest-sha256
+             old-manifest-text)))
+         (denied?
+          (fn [] Any
+            (manifest/promote-authority-transition! old-forward old-jvm)))))
+
+(defn check-promotion-source!
+  [label String
+   source manifest/StoreRuntimeGeneration] Nil
+  (let [next manifest/StoreRuntimeGeneration (manifest/promote-authority-transition! source candidate)]
+    (check! (str label " source emits only the current JVM/Native pair")
+            (= promoted next))))
+
+(check-promotion-source! "JVM-current" old-forward)
+(check-promotion-source! "Native-current" old-reverse)
+
+(let [fixture Fixture (seed-selected! old-forward)]
+  (try
+    (let [read-source Any (var-get (private-var 'read-selected-promotion-source))]
+      (check! "an actual serialized predecessor record is normally launchable"
+              (= old-forward
+                 (:generation
+                  (read-selected-generation
+                   (fixture-environment fixture)))))
+      (check! "an actual serialized predecessor remains promotion-readable"
+              (= old-forward
+                 (:generation (read-source (fixture-environment fixture))))))
+    (let [selected Any (promote-fixture! fixture)
+          first-target String (selector-target fixture)]
+      (check! "serialized predecessor promotion emits a normal current generation"
+              (and (= promoted (:generation selected))
+                   (= promoted
+                      (:generation
+                       (read-selected-generation
+                        (fixture-environment fixture))))
+                   (not (str/includes?
+                         (slurp (str (.resolve ^Path
+                                              (:root selected)
+                                              "generation.edn")))
+                         (:beagle-revision old-jvm)))))
+      (promote-fixture! fixture)
+      (check! "re-promoting the current authority is selector-idempotent"
+              (= first-target (selector-target fixture))))
+    (with-published-selection
+      fixture
+      (fn [] Any
+        (do
+          (rollback! (fixture-environment fixture))
+          (check! "the promoted generation rolls back to exact Native"
+                  (= "native"
+                     (manifest/runtime-member-kind
+                      (:current
+                       (:generation
+                        (read-selected-generation
+                         (fixture-environment fixture)))))))
+          (restore! (fixture-environment fixture))
+          (check! "Native rollback restores the exact current JVM generation"
+                  (= promoted
+                     (:generation
+                      (read-selected-generation
+                       (fixture-environment fixture))))))))
+    (finally
+      (delete-tree! (fixture-temp fixture)))))
+
+(let [fixture Fixture (seed-selected! old-reverse)]
+  (try
+    (check! "a Native-current serialized predecessor promotes to JVM current"
+            (= promoted (:generation (promote-fixture! fixture))))
+    (finally
+      (delete-tree! (fixture-temp fixture)))))
+
+(defn check-promotion-failure!
+  [label String
+   failure (Map Any Any)] Nil
+  (let [fixture Fixture (seed-selected! old-forward)]
+    (try
+      (check! (str label " promotion failure is reported")
+              (denied? (fn [] Any (promote-fixture! fixture failure))))
+      (check! (str label " promotion failure preserves the predecessor selector")
+              (= "generations/source" (selector-target fixture)))
+      (finally
+        (delete-tree! (fixture-temp fixture))))))
+
+(check-promotion-failure!
+ "pre-selector"
+ {(private-var 'write-generation!)
+  (fn [& _arguments] Any
+    (throw (ex-info "synthetic pre-selector failure" {})))})
+
+(check-promotion-failure!
+ "post-selector"
+ {(private-var '*after-selector-move!*)
+  (fn [_selection Any] Any
+    (throw (ex-info "synthetic post-selector failure" {})))})
+
+(let [fixture Fixture (seed-selected! old-forward)
+      environment manifest/StoreRuntimeEnvironment (fixture-environment fixture)
+      commit-live-transition! Any (var-get (private-var 'commit-live-transition!))
+      write-generation! Any (var-get (private-var 'write-generation!))
+      write-file-fsynced! Any (var-get (private-var 'write-file-fsynced!))
+      original RecoverySnapshot (recovery-snapshot fixture)
+      original-cutover-error Any (ex-info "synthetic cutover restart deadline" {:phase :cutover})
+      propagated-error (Atom Any) (atom nil)
+      restart-commands (Atom (Vec Any)) (atom [])
+      recovery-attestations (Atom Int) (atom 0)
+      recovery-events (Atom (Vec Keyword)) (atom [])
+      recovered-generation (Atom Any) (atom nil)
+      generation-writes (Atom Int) (atom 0)
+      generation-file-writes (Atom Int) (atom 0)
+      writes-at-cutover-failure (Atom Any) (atom nil)
+      file-writes-at-cutover-failure (Atom Any) (atom nil)
+      directories-at-cutover-failure (Atom Any) (atom nil)]
+  (try
+    (with-redefs-fn
+      {(private-var 'published-selection-path)
+       (fn [] Any (fixture-published fixture))
+       (private-var 'write-generation!)
+       (fn
+         [runtime-environment Any
+          generation Any
+          selection Any] Any
+         (do
+           (swap! generation-writes inc)
+           (write-generation! runtime-environment generation selection)))
+       (private-var 'write-file-fsynced!)
+       (fn
+         [target Any
+          bytes Any] Any
+         (do
+           (swap! generation-file-writes inc)
+           (write-file-fsynced! target bytes)))
+       (private-var 'run-command!)
+       (fn [arguments Any] Any
+         (let [attempt Int (count (swap! restart-commands conj arguments))]
+           (swap! recovery-events conj
+                  (if (= 1 attempt) :cutover-restart :recovery-restart))
+           (if (= 1 attempt)
+             (do
+               (reset! writes-at-cutover-failure @generation-writes)
+               (reset! file-writes-at-cutover-failure @generation-file-writes)
+               (reset! directories-at-cutover-failure
+                       (generation-directory-names fixture))
+               (throw original-cutover-error))
+             "")))
+       (private-var 'attest-selected-live!)
+       (fn [runtime-environment Any] Any
+         (do
+           (swap! recovery-attestations inc)
+           (swap! recovery-events conj :recovery-attestation)
+           (reset! recovered-generation
+                   (:generation
+                    (read-selected-generation runtime-environment)))
+           {:attestation :synthetic-recovery
+            :status "up|1|1|ready|jvm"}))}
+      (fn [] Any
+        (try
+          (commit-live-transition!
+           environment
+           ((var-get (private-var 'read-selected-promotion-source)) environment)
+           promoted
+           base-selection)
+          (catch Throwable error
+            (reset! propagated-error error)))))
+    (let [recovered RecoverySnapshot (recovery-snapshot fixture)]
+      (check! "failed cutover restores the exact predecessor selector"
+              (= (recoverysnapshot-selector original)
+                 (recoverysnapshot-selector recovered)))
+      (check! "failed cutover preserves the exact predecessor generation bytes"
+              (= (recoverysnapshot-generation-bytes original)
+                 (recoverysnapshot-generation-bytes recovered)))
+      (check! "failed cutover restores exact predecessor client bytes"
+              (and (= (recoverysnapshot-client-bytes original)
+                      (recoverysnapshot-client-bytes recovered))
+                   (= (recoverysnapshot-published-client-bytes original)
+                      (recoverysnapshot-published-client-bytes recovered))))
+      (check! "failed cutover performs one recovery restart and attestation"
+              (and (= [["systemctl" "--user" "restart" "north-store.service"]
+                       ["systemctl" "--user" "restart" "north-store.service"]]
+                      @restart-commands)
+                   (= 1 @recovery-attestations)
+                   (= [:cutover-restart
+                       :recovery-restart
+                       :recovery-attestation]
+                      @recovery-events)
+                   (= old-forward @recovered-generation)))
+      (check! "failed cutover recovery writes no generation or directory"
+              (and (= 1 @writes-at-cutover-failure)
+                   (= @writes-at-cutover-failure @generation-writes)
+                   (= @file-writes-at-cutover-failure @generation-file-writes)
+                   (= @directories-at-cutover-failure
+                      (recoverysnapshot-generation-directories recovered))))
+      (check! "failed cutover propagates the original error"
+              (identical? original-cutover-error @propagated-error)))
+    (finally
+      (delete-tree! (fixture-temp fixture)))))
+
+(let [results Any @checks
+      passed Int (count (filter second results))]
+  (doseq [[label ok] results]
+    (println (format "  [%s] %s" (if ok "PASS" "FAIL") label)))
+  (println (format "\nStore runtime authority transition: %d / %d PASS"
+                   passed (count results)))
+  (System/exit (if (= passed (count results)) 0 1)))

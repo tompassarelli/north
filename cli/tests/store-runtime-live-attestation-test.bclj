@@ -1,0 +1,311 @@
+#lang beagle/clj
+
+(ns north.store-runtime-live-attestation-test
+  (:import [java.io File]
+           [java.nio.file Files Paths]
+           [java.nio.file.attribute FileAttribute]))
+
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+(require [north.store-runtime-manifest :as manifest])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern ns-resolve (Fn [Any Any] Any))
+(declare-extern var-get (Fn [Any] Any))
+(declare-extern with-bindings (Fn [Any Any] Any))
+(declare-extern with-redefs-fn (Fn [(Map Any Any) (Fn [] Any)] Any))
+
+(defrecord Check
+  [label String
+   passed Bool])
+
+(def root String
+  (.getCanonicalPath
+   (io/file (.getParent (io/file (System/getProperty "babashka.file")))
+            "../..")))
+
+(load-file (str root "/cli/runtime-attestation.clj"))
+(load-file (str root "/cli/store-runtime-generation.clj"))
+
+(defn loaded-var
+  [namespace-name String
+   var-name String] Any
+  (or (ns-resolve (symbol namespace-name) (symbol var-name))
+      (throw
+       (ex-info "required loaded var is unavailable"
+                {:namespace namespace-name :var var-name}))))
+
+(def active-generation-evidence! Any
+  (loaded-var "north.runtime-attestation" "active-generation-evidence!"))
+(def systemd-properties-var Any
+  (loaded-var "north.runtime-attestation" "systemd-properties"))
+(def systemd-main-pid! Any
+  (loaded-var "north.runtime-attestation" "systemd-main-pid!"))
+(def allow-controller-starting-var Any
+  (loaded-var "north.runtime-attestation" "*allow-controller-starting?*"))
+(def listener-pids-var Any
+  (loaded-var "north.runtime-attestation" "listener-pids"))
+(def process-birth-token-var Any
+  (loaded-var "north.runtime-attestation" "process-birth-token"))
+(def process-start-millis-var Any
+  (loaded-var "north.runtime-attestation" "process-start-millis"))
+(def process-path-var Any
+  (loaded-var "north.runtime-attestation" "process-path"))
+(def process-cmdline-var Any
+  (loaded-var "north.runtime-attestation" "process-cmdline"))
+(def process-environment-var Any
+  (loaded-var "north.runtime-attestation" "process-environment"))
+(def jvm-runtime-facts! Any
+  (loaded-var "north.runtime-attestation" "jvm-runtime-facts!"))
+(def launch-spec! Any
+  (loaded-var "north.runtime-attestation" "launch-spec!"))
+(def publish-runtime-record! Any
+  (loaded-var "north.runtime-attestation" "publish-runtime-record!"))
+(def jvm-runtime-record-format String
+  (var-get
+   (loaded-var "north.runtime-attestation" "jvm-runtime-record-format")))
+(def managed-native-runtime-record-format String
+  (var-get
+   (loaded-var "north.runtime-attestation"
+               "managed-native-runtime-record-format")))
+
+(def store-status-command! Any
+  (loaded-var "north.store-runtime-generation" "store-status-command!"))
+(def babashka-executable Any
+  (loaded-var "north.store-runtime-generation" "babashka-executable"))
+
+(def output String
+  "/nix/store/ab44cw87jg2dlwlljwqahbsa91fliv67-beagle-store-jvm-composite-1-318ff1cb0b237800c8f91db3a9d1d1f5372fdfdb")
+(def manifest-text String (slurp (manifest/manifest-path-for output)))
+(def jvm manifest/RuntimeMember
+  (manifest/accepted-jvm-runtime!
+   output manifest/accepted-jvm-nar-sha256
+   manifest/accepted-jvm-manifest-sha256 manifest-text))
+(def native manifest/RuntimeMember manifest/accepted-native-runtime)
+(def native-release-root String
+  (match native
+    [(manifest/Native release-root _ _ _ _ _ _) release-root]
+    [(manifest/JVM _ _ _ _ _ _ _ _)
+     (throw (ex-info "accepted Native runtime has JVM shape" {}))]))
+(def native-server-artifact String
+  (match native
+    [(manifest/Native _ _ _ _ _ server-artifact _) server-artifact]
+    [(manifest/JVM _ _ _ _ _ _ _ _)
+     (throw (ex-info "accepted Native runtime has JVM shape" {}))]))
+(def jvm-generation manifest/StoreRuntimeGeneration
+  (manifest/initial-promotion-transition! jvm))
+(def native-generation manifest/StoreRuntimeGeneration
+  (manifest/rollback-transition! jvm-generation))
+
+(def checks (Atom (Vec Check)) (atom []))
+
+(defn check!
+  [label String
+   value Any] Nil
+  (do
+    (swap! checks conj (->Check label (boolean value)))
+    nil))
+
+(defn denied-type [operation (Fn [] Any)] (U Keyword Nil)
+  (try
+    (do
+      (operation)
+      nil)
+    (catch Throwable error
+      (:type (ex-data error)))))
+
+(defn delete-tree! [file Any] Nil
+  (do
+    (when (and (.isDirectory file)
+               (not (Files/isSymbolicLink (.toPath file))))
+      (doseq [child (or (.listFiles file) (make-array File 0))]
+        (delete-tree! child)))
+    (Files/deleteIfExists (.toPath file))
+    nil))
+
+(check! "status probes use the client matching the selected member"
+        (and (= [(manifest/jvm-dispatcher-path-for output) "store" "status"]
+                (store-status-command! jvm))
+             (= [(babashka-executable)
+                 "-cp"
+                 (manifest/native-client-classpath-for
+                  native-release-root)
+                 (manifest/native-client-path-for native-release-root)
+                 "status"]
+                (store-status-command! native))))
+
+(defn select-generation!
+  [state-root Any
+   runtime-generation manifest/StoreRuntimeGeneration
+   id String] Any
+  (let [generations Any (io/file state-root "generations")
+        generation-root Any (io/file generations id)
+        record Any (io/file generation-root "generation.edn")
+        selector Any (io/file state-root "active")]
+    (.mkdirs generation-root)
+    (spit record (str (pr-str runtime-generation) "\n"))
+    (Files/deleteIfExists (.toPath selector))
+    (Files/createSymbolicLink
+     (.toPath selector)
+     (Paths/get (str "generations/" id) (make-array String 0))
+     (make-array FileAttribute 0))
+    (active-generation-evidence! (.getCanonicalPath state-root))))
+
+(defn jvm-process-arguments
+  [facts Any
+   port Int
+   log String
+   space-id String] (Vec String)
+  [(:java facts)
+   "-Xmx2g" "-XX:+UseG1GC"
+   "-XX:+ExitOnOutOfMemoryError" "-XX:+HeapDumpOnOutOfMemoryError"
+   (str "-XX:HeapDumpPath=" log ".requests.log.heap.hprof")
+   "-cp" (:classpath facts)
+   "clojure.main" "server.clj" "serve" (str port) log space-id])
+
+(let [unit String "north-store.service"
+      starting (Map String String) {"Id" unit "LoadState" "loaded" "ActiveState" "activating"
+       "SubState" "start-post" "MainPID" "4343"}
+      properties (Fn [Any] Any) (fn [_ignored Any] Any {:exit 0 :error "" :values starting})]
+  (check! "ExecStartPost may bind the exact starting MainPID"
+          (= 4343
+             (with-redefs-fn
+               {systemd-properties-var properties}
+               (fn [] Any
+                 (with-bindings
+                   {allow-controller-starting-var true}
+                   (systemd-main-pid! unit))))))
+  (check! "ordinary attestation still requires the active running unit"
+          (= :runtime-controller-invalid
+             (with-redefs-fn
+               {systemd-properties-var properties}
+               (fn [] Any
+                 (denied-type
+                  (fn [] Any (systemd-main-pid! unit))))))))
+
+(let [temp Any (.toFile
+       (Files/createTempDirectory
+        "north-store-managed-attestation-"
+        (make-array FileAttribute 0)))
+      state-root Any (io/file temp "store-runtime")
+      record String (.getCanonicalPath (io/file temp "north-store.runtime"))
+      log String (.getCanonicalPath (io/file temp "coordination.storelog"))
+      port Int 47979
+      space-id String "north-coordination"
+      unit String "north-store.service"
+      pid Int 4343
+      birth String "proc:12345"
+      selection (Map String String) {"BEAGLE_STORE_SPACE_ID" space-id
+       "BEAGLE_STORE_SERVER_PORT" (str port)
+       "BEAGLE_STORE_LOG" log}
+      base-redefs (Map Any Any) {listener-pids-var (fn [_port Any] (Vec Int) [pid])
+       process-birth-token-var (fn [_pid Any] String birth)
+       process-start-millis-var (fn [_pid Any] Int 123456789)
+       systemd-main-pid! (fn [_unit Any] Int pid)}]
+  (try
+    (.mkdirs state-root)
+    (spit log "STORELOG fixture\n")
+    (let [evidence Any (select-generation! state-root jvm-generation "jvm")
+          facts Any (jvm-runtime-facts! jvm)
+          spec Any (launch-spec! jvm selection)
+          environment (Map String String) (assoc (:environment spec) "NORTH_COORD_SYSTEMD_UNIT" unit)
+          redefs (Map Any Any) (merge
+           base-redefs
+           {process-path-var
+            (fn
+              [_pid Any
+               leaf String] String?
+              (match leaf
+                ["cwd" (:home facts)]
+                ["exe" (:java-executable facts)]
+                [_ nil]))
+            process-cmdline-var
+            (fn [_pid Any] (Vec String)
+              (jvm-process-arguments facts port log space-id))
+            process-environment-var
+            (fn [_pid Any] (Map String String) environment)})
+          verified Any (with-redefs-fn
+            redefs
+            (fn [] Any
+              (publish-runtime-record!
+               {:member jvm :generation-evidence evidence :pid pid
+                :controller-unit unit :record-path record
+                :selection selection})))]
+      (check! "JVM launch derives the immutable package server and JVM environment"
+              (and (= (manifest/jvm-server-launcher-for output)
+                      (:executable spec))
+                   (= "jvm" (get-in spec [:environment
+                                           "BEAGLE_STORE_SERVER_RUNTIME"]))
+                   (= (str log ".requests.log")
+                      (get-in spec [:environment
+                                    "BEAGLE_STORE_SERVER_LOG"]))
+                   (= (:java facts)
+                      (get-in spec [:environment "BEAGLE_STORE_JAVA"]))))
+      (check! "JVM producer binds selected generation to the actual listener"
+              (and (= "jvm" (get-in verified [:identity :runtime-kind]))
+                   (= output (get-in verified [:identity :output]))
+                   (= jvm-generation
+                      (get-in verified [:identity :generation :generation]))
+                   (= jvm-runtime-record-format
+                      (-> record slurp str/split-lines first
+                          (str/replace "FORMAT=" "")))))
+
+      (let [native-evidence Any (select-generation! state-root native-generation "native")]
+        (check! "record publication rejects a valid member that is not selected current"
+                (= :runtime-record-invalid
+                   (with-redefs-fn
+                     base-redefs
+                     (fn [] Any
+                       (denied-type
+                        (fn [] Any
+                          (publish-runtime-record!
+                           {:member jvm :generation-evidence native-evidence
+                            :pid pid :controller-unit unit :record-path record
+                            :selection selection})))))))))
+
+    (let [evidence Any (select-generation! state-root native-generation "native-2")
+          spec Any (launch-spec! native selection)
+          environment (Map String String) (assoc (:environment spec) "NORTH_COORD_SYSTEMD_UNIT" unit)
+          redefs (Map Any Any) (merge
+           base-redefs
+           {process-path-var
+            (fn
+              [_pid Any
+               leaf String] String?
+              (match leaf
+                ["cwd" native-release-root]
+                ["exe" native-server-artifact]
+                [_ nil]))
+            process-cmdline-var
+            (fn [_pid Any] (Vec String) [native-server-artifact])
+            process-environment-var
+            (fn [_pid Any] (Map String String) environment)})
+          verified Any (with-redefs-fn
+            redefs
+            (fn [] Any
+              (publish-runtime-record!
+               {:member native :generation-evidence evidence :pid pid
+                :controller-unit unit :record-path record
+                :selection selection})))]
+      (check! "Native rollback producer binds selected generation to the actual listener"
+              (and (= "native" (get-in verified [:identity :runtime-kind]))
+                   (= native-generation
+                      (get-in verified [:identity :generation :generation]))
+                   (= managed-native-runtime-record-format
+                      (-> record slurp str/split-lines first
+                          (str/replace "FORMAT=" ""))))))
+    (finally
+      (delete-tree! temp))))
+
+(let [results (Vec Check) @checks
+      passed Int (count
+       (filter (fn [result Check] Bool (check-passed result)) results))]
+  (doseq [result Check results]
+    (println
+     (format "  [%s] %s"
+             (if (check-passed result) "PASS" "FAIL")
+             (check-label result))))
+  (println
+   (format "\nManaged runtime attestation: %d / %d PASS"
+           passed (count results)))
+  (System/exit (if (= passed (count results)) 0 1)))

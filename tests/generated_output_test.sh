@@ -58,6 +58,22 @@ for module in \
   echo "generated pair cli/$module: passed"
 done
 
+runtime_transition_tmp="$tmp/runtime-transition"
+mkdir -p "$runtime_transition_tmp"
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
+  --module-root "north/src=$root/src" \
+  "$root/cli/store-runtime-generation.bclj" \
+  "$root/cli/tests/store-runtime-authority-transition-test.bclj" \
+  "$root/cli/tests/store-runtime-live-attestation-test.bclj" \
+  --out "$runtime_transition_tmp" >/dev/null
+cmp "$runtime_transition_tmp/north/store_runtime_generation.clj" \
+  "$root/cli/store-runtime-generation.clj"
+cmp "$runtime_transition_tmp/north/store_runtime_authority_transition_test.clj" \
+  "$root/cli/tests/store-runtime-authority-transition-test.clj"
+cmp "$runtime_transition_tmp/north/store_runtime_live_attestation_test.clj" \
+  "$root/cli/tests/store-runtime-live-attestation-test.clj"
+echo "generated Store runtime transition authorities: passed"
+
 BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
   "$root/cli/provider-native-session-projection.bclj" \
   "$tmp/provider-native-session-projection.clj" >/dev/null
