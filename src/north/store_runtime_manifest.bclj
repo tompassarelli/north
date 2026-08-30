@@ -49,6 +49,15 @@
    readiness String
    stopping String])
 
+(defrecord JVMRuntimeAuthority
+  [output String?
+   package-nar-sha256 String
+   beagle-revision String
+   beagle-tree String
+   manifest-bytes Int
+   manifest-sha256 String
+   manifest StoreRuntimeManifest])
+
 (defunion RuntimeMember
   (JVM
     [output String
@@ -234,6 +243,16 @@
 (def accepted-runtime-manifest-text String
   (canonical-manifest-text! accepted-current-runtime-manifest))
 
+(def ^:private current-jvm-authority JVMRuntimeAuthority
+  (->JVMRuntimeAuthority
+   nil
+   accepted-jvm-nar-sha256
+   accepted-jvm-revision
+   accepted-jvm-tree
+   accepted-jvm-manifest-bytes
+   accepted-jvm-manifest-sha256
+   accepted-current-runtime-manifest))
+
 (def accepted-native-runtime RuntimeMember
   (->Native
    (release-path-for "48f38823e42694578587f5624d8be5db9f962a77")
@@ -246,6 +265,44 @@
     (native-artifact-path-for
      "ec53c8a717424bec0f6d8212401632e3da0860f80abc6ad062500f68ea0ab554"))
    "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
+
+(def ^:private promotion-source-output String
+  "/nix/store/sad6bfbgfsbh08kgxlr7a91fnrx7blsy-beagle-store-jvm-composite-1-6fcf9b92756b6213b792d5300cad004de9d10341")
+
+(def ^:private promotion-source-manifest StoreRuntimeManifest
+  (->StoreRuntimeManifest
+   manifest-format
+   "6fcf9b92756b6213b792d5300cad004de9d10341"
+   "29a7ede79df3c1a3cecb119302179f9923f43385"
+   manifest-engine
+   manifest-native-backend
+   manifest-heap-policy
+   manifest-heap-max-bytes
+   manifest-protocol
+   manifest-protocol-version
+   manifest-readiness
+   manifest-stopping))
+
+(def ^:private promotion-source-jvm-authority JVMRuntimeAuthority
+  (->JVMRuntimeAuthority
+   promotion-source-output
+   "sha256-cOFxh6TGbGYc2lRN+UyCf6PWQ2mg3vpevTYijAEIzLU="
+   (:beagle-revision promotion-source-manifest)
+   "c5ad9ba46ce0f83cd988997504c084543b3cd6c2"
+   349
+   "c5a6444b108541a751a50627a6001ba0ac0a3f0f05e20e36f73d8a6f3d8c55c0"
+   promotion-source-manifest))
+
+(def ^:private promotion-source-jvm RuntimeMember
+  (->JVM
+   promotion-source-output
+   (:package-nar-sha256 promotion-source-jvm-authority)
+   (:beagle-revision promotion-source-jvm-authority)
+   (:beagle-tree promotion-source-jvm-authority)
+   (manifest-path-for promotion-source-output)
+   (:manifest-bytes promotion-source-jvm-authority)
+   (:manifest-sha256 promotion-source-jvm-authority)
+   promotion-source-manifest))
 
 (defn- line-value
   [line String
@@ -294,7 +351,9 @@
                    (line-value (nth lines 10) "stopping"))]
               (validate-manifest-facts! facts))))))))
 
-(defn validate-runtime-member! [member RuntimeMember] RuntimeMember
+(defn- validate-jvm-authority!
+  [member RuntimeMember
+   authority JVMRuntimeAuthority] RuntimeMember
   (match member
     [(JVM output package-nar-sha256 beagle-revision beagle-tree
           manifest-path manifest-bytes manifest-sha256 manifest)
@@ -309,19 +368,29 @@
          (fail "Store JVM NAR is not a canonical SHA-256 SRI"
                :north.store-runtime-manifest/invalid-package-nar
                {:actual package-nar-sha256}))
+       (if (or (not (some? (:output authority)))
+               (= output (:output authority)))
+         output
+         (fail "Store JVM output does not equal the exact runtime authority"
+               :north.store-runtime-manifest/field-mismatch
+               {:field "JVM output"
+                :expected (:output authority)
+                :actual output}))
        (require-text! "JVM NAR"
                       package-nar-sha256
-                      accepted-jvm-nar-sha256)
-       (require-text! "JVM revision" beagle-revision accepted-jvm-revision)
-       (require-text! "JVM tree" beagle-tree accepted-jvm-tree)
+                      (:package-nar-sha256 authority))
+       (require-text! "JVM revision"
+                      beagle-revision
+                      (:beagle-revision authority))
+       (require-text! "JVM tree" beagle-tree (:beagle-tree authority))
        (require-text! "JVM manifest path"
                       manifest-path
                       (manifest-path-for output))
-       (if (= manifest-bytes accepted-jvm-manifest-bytes)
+       (if (= manifest-bytes (:manifest-bytes authority))
          manifest-bytes
          (fail "Store JVM manifest byte count mismatch"
                :north.store-runtime-manifest/manifest-size-mismatch
-               {:expected accepted-jvm-manifest-bytes :actual manifest-bytes}))
+               {:expected (:manifest-bytes authority) :actual manifest-bytes}))
        (if (exact-sha256? manifest-sha256)
          manifest-sha256
          (fail "Store JVM manifest SHA-256 is not canonical"
@@ -329,13 +398,22 @@
                {:actual manifest-sha256}))
        (require-text! "JVM manifest SHA-256"
                       manifest-sha256
-                      accepted-jvm-manifest-sha256)
+                      (:manifest-sha256 authority))
        (if (= (validate-manifest-facts! manifest)
-              accepted-current-runtime-manifest)
+              (:manifest authority))
          member
-         (fail "Store JVM manifest facts do not equal the accepted runtime"
+         (fail "Store JVM manifest facts do not equal the exact runtime authority"
                :north.store-runtime-manifest/binding-mismatch
-               {:expected accepted-current-runtime-manifest :actual manifest})))]
+               {:expected (:manifest authority) :actual manifest})))]
+    [(Native _ _ _ _ _ _ _)
+     (fail "Store JVM authority cannot validate a Native member"
+           :north.store-runtime-manifest/invalid-generation-shape
+           {})]))
+
+(defn validate-runtime-member! [member RuntimeMember] RuntimeMember
+  (match member
+    [(JVM _ _ _ _ _ _ _ _)
+     (validate-jvm-authority! member current-jvm-authority)]
     [(Native release-root beagle-revision beagle-tree artifact-root
              closure-sha256 server-artifact server-sha256)
      (do
@@ -397,6 +475,47 @@
           (fail "Store runtime generation must contain one JVM and one Native member"
                 :north.store-runtime-manifest/invalid-generation-shape
                 {})])])))
+
+(defn promotion-source-generation? [generation StoreRuntimeGeneration] Bool
+  (or (and (= (:current generation) promotion-source-jvm)
+           (= (:previous generation) accepted-native-runtime))
+      (and (= (:current generation) accepted-native-runtime)
+           (= (:previous generation) promotion-source-jvm))))
+
+(defn validate-promotion-source-member! [member RuntimeMember] RuntimeMember
+  (if (= member promotion-source-jvm)
+    (validate-jvm-authority! member promotion-source-jvm-authority)
+    (validate-runtime-member! member)))
+
+(defn validate-promotion-source-generation! [generation StoreRuntimeGeneration] StoreRuntimeGeneration
+  (if (promotion-source-generation? generation)
+    (do
+      (validate-promotion-source-member! (:current generation))
+      (validate-promotion-source-member! (:previous generation))
+      generation)
+    (validate-runtime-generation! generation)))
+
+(defn attest-promotion-source-runtime!
+  [member RuntimeMember
+   observed-nar-sha256 String
+   observed-manifest-sha256 String
+   manifest-text String] RuntimeMember
+  (let [checked RuntimeMember (validate-jvm-authority! member promotion-source-jvm-authority)
+        actual StoreRuntimeManifest (parse-runtime-manifest! manifest-text)
+        expected-text String (canonical-manifest-text! promotion-source-manifest)]
+    (if (and (= checked promotion-source-jvm)
+             (= observed-nar-sha256
+                (:package-nar-sha256 promotion-source-jvm-authority))
+             (= observed-manifest-sha256
+                (:manifest-sha256 promotion-source-jvm-authority))
+             (= (count manifest-text)
+                (:manifest-bytes promotion-source-jvm-authority))
+             (= manifest-text expected-text)
+             (= actual promotion-source-manifest))
+      checked
+      (fail "Selected Store promotion source differs from its exact package authority"
+            :north.store-runtime-manifest/promotion-source-mismatch
+            {}))))
 
 (defn accepted-jvm-runtime!
   [output String
@@ -483,6 +602,25 @@
        (fail "Only an accepted JVM member can be promoted"
              :north.store-runtime-manifest/invalid-promotion
              {})])))
+
+(defn promote-authority-transition!
+  [selected StoreRuntimeGeneration
+   candidate RuntimeMember] StoreRuntimeGeneration
+  (if (promotion-source-generation? selected)
+    (let [checked StoreRuntimeGeneration (validate-promotion-source-generation! selected)
+          promoted RuntimeMember (validate-runtime-member! candidate)
+          recovery RuntimeMember (match (:current checked)
+            [(JVM _ _ _ _ _ _ _ _) (:previous checked)]
+            [(Native _ _ _ _ _ _ _) (:current checked)])]
+      (match promoted
+        [(JVM _ _ _ _ _ _ _ _)
+         (validate-runtime-generation!
+          (->StoreRuntimeGeneration promoted recovery))]
+        [(Native _ _ _ _ _ _ _)
+         (fail "Only an accepted JVM member can advance runtime authority"
+               :north.store-runtime-manifest/invalid-promotion
+               {})]))
+    (promote-transition! selected candidate)))
 
 (defn initial-promotion-transition! [candidate RuntimeMember] StoreRuntimeGeneration
   (let [promoted RuntimeMember (validate-runtime-member! candidate)]

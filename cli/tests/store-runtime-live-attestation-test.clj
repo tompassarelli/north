@@ -12,7 +12,7 @@
 (require '[north.store-runtime-generation :as generation])
 
 (def output
-  "/nix/store/sad6bfbgfsbh08kgxlr7a91fnrx7blsy-beagle-store-jvm-composite-1-6fcf9b92756b6213b792d5300cad004de9d10341")
+  "/nix/store/xd1f0hjyp64dvnww1njxwvpfxqpzvka5-beagle-store-jvm-composite-1-38803ebb39190c15e131d377a5210aea495e1090")
 (def manifest-text (slurp (manifest/manifest-path-for output)))
 (def jvm
   (manifest/accepted-jvm-runtime!
