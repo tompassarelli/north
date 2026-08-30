@@ -70,9 +70,12 @@
        (fn [_] nil)
        (ns-resolve 'north.store-runtime-generation 'run-command-bounded!)
        (fn [& _] nil)
+       (ns-resolve 'north.store-runtime-generation
+                   'restore-published-selection!)
+       (fn [_] nil)
        (ns-resolve 'north.store-runtime-generation 'attest-native-baseline!)
        (fn [_ recovered] (reset! attested-generation recovered))}
-      #(restore-after-failure runtime-environment nil jvm-generation {}))
+      #(restore-after-failure runtime-environment nil jvm-generation {} {}))
     (check! "first-promotion failure attests the restored Native generation"
             (= native-generation @attested-generation))
     (finally
@@ -94,7 +97,7 @@
 
 (defn jvm-process-arguments [facts port log space-id]
   [(:java facts)
-   "-Xmx2g" "-XX:+UseG1GC" "-XX:G1HeapRegionSize=32m"
+   "-Xmx2g" "-XX:+UseG1GC"
    "-XX:+ExitOnOutOfMemoryError" "-XX:+HeapDumpOnOutOfMemoryError"
    (str "-XX:HeapDumpPath=" log ".requests.log.heap.hprof")
    "-cp" (:classpath facts)

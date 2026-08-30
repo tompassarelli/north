@@ -14,6 +14,8 @@ work=$(mktemp -d)
 trap 'chmod -R u+w "${work:?}" 2>/dev/null || true; rm -rf "${work:?}"' EXIT
 
 export NORTH_STORE_RUNTIME_STATE=$work/store-runtime
+export NORTH_STORE_SELECTION=$work/beagle-store.env
+cp --dereference "$HOME/.local/state/north/beagle-store.env" "$NORTH_STORE_SELECTION"
 bb_command=${NORTH_BB:-bb}
 
 fail() {
@@ -40,6 +42,19 @@ grep -Fqx 'previous.kind=native' "$status" ||
 active_before=$(readlink "$NORTH_STORE_RUNTIME_STATE/active")
 record=$NORTH_STORE_RUNTIME_STATE/$active_before/generation.edn
 [ -f "$record" ] || fail "selected generation record is missing"
+expected_selection=$NORTH_STORE_RUNTIME_STATE/active/client.env
+[ "$(readlink "$NORTH_STORE_SELECTION")" = "$expected_selection" ] ||
+  fail "client selection does not follow the atomic generation selector"
+grep -Fqx "export BEAGLE_STORE_SERVER_RUNTIME='jvm'" "$NORTH_STORE_SELECTION" ||
+  fail "promotion did not publish the JVM client protocol cohort"
+grep -Fqx "export BEAGLE_STORE_OUT='$output/libexec/store/out'" "$NORTH_STORE_SELECTION" ||
+  fail "promotion did not publish the selected JVM client classpath"
+protocol="$($bb_command -cp "$output/libexec/store/out" -e '
+  (require (quote store.rpc))
+  (print (String. store.rpc/store-rpc-v2-magic
+                   java.nio.charset.StandardCharsets/UTF_8))')"
+[ "$protocol" = STORERPC ] ||
+  fail "published JVM client classpath does not speak STORERPC"
 pass "promotion publishes one complete JVM/Native generation"
 
 "$tool" promote "$output" >"$status"
@@ -53,6 +68,8 @@ grep -Fqx 'current.kind=native' "$status" ||
 grep -Fqx 'previous.kind=jvm' "$status" ||
   fail "rollback did not retain the JVM"
 rollback_selector=$(readlink "$NORTH_STORE_RUNTIME_STATE/active")
+grep -Fqx "export BEAGLE_STORE_SERVER_RUNTIME='native'" "$NORTH_STORE_SELECTION" ||
+  fail "rollback did not restore the Native client protocol cohort"
 pass "rollback swaps the complete generation pair"
 
 if "$bb_command" -cp "$root/out" -e '
@@ -66,11 +83,15 @@ if "$bb_command" -cp "$root/out" -e '
 fi
 [ "$(readlink "$NORTH_STORE_RUNTIME_STATE/active")" = "$rollback_selector" ] ||
   fail "failed cutover did not restore the prior selector"
+grep -Fqx "export BEAGLE_STORE_SERVER_RUNTIME='native'" "$NORTH_STORE_SELECTION" ||
+  fail "failed cutover did not restore the prior client protocol cohort"
 pass "failed cutover restores the prior selector"
 
 "$tool" restore >"$status"
 grep -Fqx 'current.kind=jvm' "$status" ||
   fail "restore did not return JVM to current"
+grep -Fqx "export BEAGLE_STORE_SERVER_RUNTIME='jvm'" "$NORTH_STORE_SELECTION" ||
+  fail "restore did not return the JVM client protocol cohort"
 restored_selector=$(readlink "$NORTH_STORE_RUNTIME_STATE/active")
 "$tool" restore >"$status"
 [ "$(readlink "$NORTH_STORE_RUNTIME_STATE/active")" = "$restored_selector" ] ||

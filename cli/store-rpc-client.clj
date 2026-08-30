@@ -10,6 +10,19 @@
            [java.util.concurrent.atomic AtomicLong]))
 
 (def max-body-bytes wire/rpc-v2-max-body-bytes)
+(defn- resolve-wire! [names]
+  (or (some #(some-> (ns-resolve 'store.rpc %) deref) names)
+      (throw (ex-info "Store RPC client classpath lacks its packet API"
+                      {:type :rpc-missing-packet-api :names names}))))
+
+(def ^:private rpc-magic
+  (resolve-wire! '[store-rpc-v2-magic rpc-v2-magic]))
+(def ^:private decode-packet!
+  (resolve-wire! '[store-rpc-decode-packet-v2! decode-rpc-frame-v2!]))
+(def ^:private encode-packet!
+  (resolve-wire! '[store-rpc-encode-packet-v2! encode-rpc-frame-v2!]))
+(def ^:private request-packet
+  (resolve-wire! '[store-rpc-request-packet rpc-request-frame]))
 (def effective-page-limit 200)
 ;; Must stay equal to the Beagle Store server's own retryable set;
 ;; a code the server marks retryable but the client omits fails a caller that
@@ -61,7 +74,7 @@
 (defn- header-body-length! [header]
   (dotimes [index 8]
     (when-not (= (bit-and 255 (int (aget header index)))
-                 (bit-and 255 (int (aget wire/rpc-v2-magic index))))
+                 (bit-and 255 (int (aget rpc-magic index))))
       (throw (ex-info "Store RPC response magic does not match"
                       {:type :rpc-invalid-magic}))))
   (let [buffer (doto (ByteBuffer/wrap header) (.order ByteOrder/LITTLE_ENDIAN))]
@@ -105,13 +118,12 @@
                         {:type :rpc-truncated})))
       (System/arraycopy header 0 packet 0 wire/rpc-v2-header-bytes)
       (System/arraycopy body 0 packet wire/rpc-v2-header-bytes body-length)
-      (wire/decode-rpc-frame-v2! packet))))
+      (decode-packet! packet))))
 
 (defn encode-request-packet!
   "Encode one request through TermCodecV1 and enforce the shared body limit."
   [request-id request]
-  (wire/encode-rpc-frame-v2!
-   (wire/rpc-request-frame request-id request)))
+  (encode-packet! (request-packet request-id request)))
 
 (defn transport-round-trip!
   "Perform one unary socket exchange. The daemon owns one request per socket."
@@ -132,11 +144,11 @@
             (.write output bytes)
             (.flush output))
           (let [packet (read-packet! (.getInputStream socket))
-                response (t/rpcframev2-response packet)]
-            (when-not (= :response (t/rpcframev2-kind packet))
+                response (:response packet)]
+            (when-not (= :response (:kind packet))
               (throw (ex-info "Store RPC unary request received a non-response packet"
                               {:type :rpc-invalid-kind})))
-            (when-not (= request-id (t/rpcframev2-request-id packet))
+            (when-not (= request-id (:request-id packet))
               (throw (ex-info "Store RPC response request-id does not match"
                               {:type :rpc-request-id-mismatch})))
             (when-not (and (= (t/rpcrequest-space request)
