@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BB="${BB:-$(command -v bb || true)}"
+if [ -z "$BB" ]; then
+  echo "north-architecture: babashka is required" >&2
+  exit 127
+fi
+
+exec "$BB" "$ROOT/cli/architecture-cli.clj" "$@"
