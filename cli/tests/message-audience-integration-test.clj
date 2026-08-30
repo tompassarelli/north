@@ -22,6 +22,7 @@
 (when-not (.isFile (io/file store "bin/beagle-store-server"))
   (throw (ex-info "current Beagle store engine is required" {:store store})))
 (load-file (str root "/cli/coord.clj"))
+(load-file (str root "/cli/message-audience.clj"))
 (def checks (atom []))
 (def children (atom []))
 (def test-log (atom nil))
@@ -122,7 +123,7 @@
       daemon (do
                (proc/process
                 {:dir store :out :string :err :string
-                             "BEAGLE_STORE_SERVER_QUIET" "1"
+                 :extra-env {"BEAGLE_STORE_SERVER_QUIET" "1"
                              "BEAGLE_STORE_SERVER_XMX" "1g"}}
                 (str store "/bin/beagle-store-server") "serve" (str port)
                 (.getCanonicalPath facts) "north-coordination"))]
@@ -152,9 +153,73 @@
     (check "north-arm acknowledges before its one-shot exit"
            (str/includes? (slurp north-arm)
                           "exec \"$SCRIPT_DIR/north\" listen"))
+    (let [extra-ack (run-msg port "ack" "alice" "@msg:any" "extra")
+          invalid-presence (run-msg port "presence" "bad handle")
+          invalid-register
+          (run-cli presence-cli port "register" "bad handle" "/tmp/bad" "bad")]
+      (check "manual ack rejects extra arguments at the Store CLI edge"
+             (and (= 2 (:exit extra-ack))
+                  (str/includes? (:err extra-ack) "requires exactly")))
+      (check "presence read rejects malformed handles before routing"
+             (and (= 2 (:exit invalid-presence))
+                  (str/includes? (:err invalid-presence) "malformed")))
+      (check "presence registration rejects malformed handles before writing"
+             (and (= 2 (:exit invalid-register))
+                  (str/includes? (:err invalid-register) "malformed"))))
     (doseq [handle ["sender" "alice" "bob"]]
       (check (str handle " has a live session lease")
              (zero? (:exit (register! port handle)))))
+
+    (let [recipient "settlement-fixture"
+          incomplete "@msg:ack-incomplete-envelope"
+          rejected "@msg:ack-already-rejected"
+          acknowledged "@msg:ack-before-reject"]
+      (doseq [[message facts]
+              [[incomplete
+                [["from" "sender"]
+                 ["subject" "missing body"]
+                 ["sent_at" "2026-08-30T00:00:00Z"]
+                 ["to" recipient]]]
+               [rejected
+                [["from" "sender"]
+                 ["subject" "already rejected"]
+                 ["body" "terminal rejection wins"]
+                 ["sent_at" "2026-08-30T00:00:01Z"]
+                 ["to" recipient]
+                 ["delivery_rejected_by" recipient]]]
+               [acknowledged
+                [["from" "sender"]
+                 ["subject" "ack first"]
+                 ["body" "terminal acknowledgement wins"]
+                 ["sent_at" "2026-08-30T00:00:02Z"]
+                 ["to" recipient]]]]]
+        (doseq [[predicate value] facts]
+          (assert-fact! port message predicate value)))
+      (let [incomplete-result (run-msg port "ack" recipient incomplete)
+            rejected-result (run-msg port "ack" recipient rejected)
+            acknowledged-result (run-msg port "ack" recipient acknowledged)
+            rejection-error
+            (try
+              (north.message-audience/reject-delivery!
+               port acknowledged recipient nil {:reason "invalid_body"})
+              nil
+              (catch Exception error (:type (ex-data error))))]
+        (check "manual ack refuses an incomplete message envelope"
+               (and (= 2 (:exit incomplete-result))
+                    (str/includes? (:err incomplete-result) "incomplete")
+                    (empty? (values-of port incomplete "acked_by"))))
+        (check "manual ack cannot contradict a terminal rejection"
+               (and (= 2 (:exit rejected-result))
+                    (str/includes? (:err rejected-result) "already rejected")
+                    (empty? (values-of port rejected "acked_by"))))
+        (check "manual ack still settles one complete addressed message"
+               (and (zero? (:exit acknowledged-result))
+                    (= #{recipient}
+                       (values-of port acknowledged "acked_by"))))
+        (check "terminal rejection cannot contradict an existing ack"
+               (and (= :message-already-acknowledged rejection-error)
+                    (empty?
+                     (values-of port acknowledged "delivery_rejected_by"))))))
 
     ;; Saturate the recipient's raw `to` index with canonical-looking
     ;; first-party attention entities that sort before the real mail. A

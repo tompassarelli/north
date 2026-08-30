@@ -1,0 +1,365 @@
+#lang beagle/clj
+
+(ns north.message-routing
+  "Send-time address resolution and liveness for durable North mail.")
+
+(require [clojure.string :as str])
+
+(declare-extern north.coord/lease-status! (Fn [Int String] Any))
+(declare-extern north.coord/resolved-envelope! (Fn [Int String String] Any))
+(declare-extern north.coord/resolved! (Fn [Int String String] Any))
+(declare-extern north.coord/session-online?! (Fn [Int String] Bool))
+(declare-extern north.coord/query-page! (Fn [Int Any Int Any] Any))
+(declare-extern java.time.Instant/now (Fn [] Any))
+(declare-extern java.time.Instant/parse (Fn [String] Any))
+
+(def broadcast-address String "*")
+(def role-prefix String "@role:")
+(def agent-prefix String "@agent:")
+(def listener-lease-prefix String "listener:")
+(def listener-generation-pattern Any
+  #"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+(def max-route-candidates Int 4096)
+(def route-page-size Int 128)
+(def max-mail-candidates Int 16384)
+(def mail-page-size Int 512)
+
+(defn bare-agent [value Any] (U String Nil)
+  (when (string? value)
+    (str/replace-first value #"^@agent:" "")))
+
+(defn bare-role [value Any] (U String Nil)
+  (when (and (string? value)
+             (str/starts-with? value role-prefix))
+    (subs value 6)))
+
+(defn agent-subject [control Any] String
+  (str agent-prefix (bare-agent control)))
+
+(defn listener-resource [control Any] String
+  (str listener-lease-prefix (bare-agent control)))
+
+(defn lease-live-at?
+  [lease Any
+   now Int] Bool
+  (and (map? lease)
+       (some? (:resource lease))
+       (some? (:holder lease))
+       (integer? (:exp lease))
+       (> (:exp lease) now)))
+
+(defn exact-singleton?
+  [envelope Any
+   expected Any] Bool
+  (and (map? envelope)
+       (= 1 (:members envelope))
+       (false? (:ambiguous? envelope))
+       (= [expected] (:values envelope))
+       (= expected (:value envelope))))
+
+(defn native-listener-live?
+  "A native listener's durable armed bit is only descriptive. Reachability also
+   requires the matching renewable generation lease. The before/after lease
+   reads close release/reacquire races around the point reads without rejecting
+   an ordinary renewal, whose holder stays generation-stable while its numeric
+   fence epoch advances."
+  [port Int
+   control String] Bool
+  (let [subject String (agent-subject control)
+        resource String (listener-resource control)
+        before Any (north.coord/lease-status! port resource)
+        generation Any (north.coord/resolved-envelope!
+                        port subject "live_input_epoch")
+        state Any (north.coord/resolved-envelope!
+                   port subject "live_input_state")
+        after Any (north.coord/lease-status! port resource)
+        now Int (System/currentTimeMillis)]
+    (boolean
+     (and (lease-live-at? before now)
+          (lease-live-at? after now)
+          (= resource (:resource before))
+          (= resource (:resource after))
+          (= (:holder before) (:holder after))
+          (re-matches listener-generation-pattern (:holder before))
+          (exact-singleton? generation (:holder before))
+          (exact-singleton? state "armed")))))
+
+(defn armed-route-live?
+  [port Int
+   control String] Bool
+  (let [subject String (agent-subject control)
+        kind Any (north.coord/resolved! port subject "kind")]
+    (match kind
+      ["session" (native-listener-live? port control)]
+      ["lane" (exact-singleton?
+               (north.coord/resolved-envelope!
+                port subject "live_input_state")
+               "armed")]
+      [_ false])))
+
+(defn recipient-live?
+  "A direct recipient is reachable when its renewable session lease is live or
+   an authoritative listener route is explicitly armed."
+  [port Int
+   control Any] Bool
+  (let [control String (or (bare-agent control) "")]
+    (boolean
+     (and (not (str/blank? control))
+          (or (north.coord/session-online?! port control)
+              (armed-route-live? port control))))))
+
+(defn role-holders
+  "All graph holders of ROLE-SLUG. Ordering is deterministic; liveness determines
+   which holder may receive new mail."
+  [port Int
+   role-slug String] (Vec String)
+  (let [response Any (north.coord/query-page!
+         port
+         {:find "role_holder"
+          :rules
+          [{:head {:rel "role_holder" :args [{:var "agent"}]}
+            :body [{:rel "triple"
+                    :args [{:var "agent"} "holds"
+                           (str role-prefix role-slug)]}]}]}
+         route-page-size nil)]
+    (when-not (:done? response)
+      (throw
+       (ex-info "role holder projection exceeds its bounded page"
+                {:type :role-holder-overflow
+                 :role role-slug
+                 :max route-page-size})))
+    (->> (:rows response)
+         (mapv first)
+         (filterv (fn [candidate String] Bool
+                    (str/starts-with? candidate agent-prefix)))
+         (mapv bare-agent)
+         distinct
+         sort
+         vec)))
+
+(defn live-role-holder
+  [port Int
+   role-slug String] (U String Nil)
+  (first
+   (filterv (fn [holder String] Bool
+              (recipient-live? port holder))
+            (role-holders port role-slug))))
+
+(defn resolve-address
+  "Resolve ADDRESS to one concrete session at send time. A durable @role target
+   is authoritative. Existing held-role routing remains supported while old
+   sessions converge onto durable aliases."
+  [port Int
+   address String] Any
+  (cond
+    (= broadcast-address address)
+    {:address address :recipient address :kind :broadcast}
+
+    :else
+    (let [role String (str role-prefix address)
+          durable Any (north.coord/resolved! port role "target")]
+      (cond
+        (not (str/blank? durable))
+        {:address address :recipient (bare-agent durable) :kind :alias}
+
+        (recipient-live? port address)
+        {:address address :recipient (bare-agent address) :kind :direct}
+
+        :else
+        (if-let [holder String? (live-role-holder port address)]
+          {:address address :recipient holder :kind :held-role}
+          {:address address :recipient (bare-agent address) :kind :direct})))))
+
+(defn- route-candidate-query
+  [repo String
+   role String] Any
+  {:find "same_route_agent"
+   :rules
+   [{:head {:rel "same_route_agent" :args [{:var "agent"}]}
+     :body [{:rel "triple" :args [{:var "agent"} "repo" repo]}
+            {:rel "triple" :args [{:var "agent"} "role" role]}]}]})
+
+(defn live-same-route
+  "Best-effort diagnostic successor for a dead recipient. Returns nil when the
+   dead identity lacks repo/role provenance or the bounded lookup is unavailable."
+  [port Int
+   dead-control String] (U String Nil)
+  (try
+    (let [dead-control String (or (bare-agent dead-control) "")
+          subject String (agent-subject dead-control)
+          repo Any (north.coord/resolved! port subject "repo")
+          role Any (north.coord/resolved! port subject "role")]
+      (when (and (not (str/blank? repo)) (not (str/blank? role)))
+        (loop [after Any nil
+               seen Int 0]
+          (when (< seen max-route-candidates)
+            (let [page Any (north.coord/query-page!
+                            port (route-candidate-query repo role)
+                            route-page-size after)
+                  rows Any (:rows page)
+                  candidates Any (->> rows
+                       (mapv first)
+                       (filterv (fn [candidate String] Bool
+                                  (str/starts-with? candidate agent-prefix)))
+                       (mapv bare-agent)
+                       (filterv (fn [candidate Any] Bool
+                                  (not (= dead-control candidate))))
+                       distinct
+                       sort)]
+              (or (first
+                   (filterv (fn [candidate Any] Bool
+                              (recipient-live? port candidate))
+                            candidates))
+                  (when-not (:done? page)
+                    (recur (:cursor page) (+ seen (count rows))))))))))
+    (catch Exception _ nil)))
+
+(defn require-live-address
+  "Return the concrete send-time route or a structured dead-recipient result.
+   Read failures are distinguished from genuine negative liveness."
+  [port Int
+   address String] Any
+  (try
+    (let [route Any (resolve-address port address)
+          recipient Any (:recipient route)]
+      (cond
+        (= :broadcast (:kind route)) (assoc route :live true)
+        (recipient-live? port recipient) (assoc route :live true)
+        :else (assoc route
+                     :live false
+                     :alternative (live-same-route port recipient))))
+    (catch Exception error
+      {:address address :live :unavailable :error error})))
+
+(defn- mail-candidate-query [] Any
+  {:find "mail_candidate"
+   :strata
+   [[{:head {:rel "mail_settled" :args [{:var "message"}]}
+      :body [{:rel "triple"
+              :args [{:var "message"} "acked_by" {:var "recipient"}]}]}
+     {:head {:rel "mail_settled" :args [{:var "message"}]}
+      :body [{:rel "triple"
+              :args [{:var "message"} "delivery_rejected_by"
+                     {:var "recipient"}]}]}]
+    [{:head {:rel "mail_candidate"
+             :args [{:var "message"} {:var "from"} {:var "to"} {:var "sent"}]}
+      :body [{:rel "triple" :args [{:var "message"} "from" {:var "from"}]}
+             {:rel "triple" :args [{:var "message"} "to" {:var "to"}]}
+             {:rel "triple" :args [{:var "message"} "sent_at" {:var "sent"}]}
+             {:rel "mail_settled"
+              :args [{:var "message"}]
+              :neg true}]}]]})
+
+(defn mail-candidates [port Int] Any
+  (loop [after Any nil
+         seen Int 0
+         rows Any []]
+    (let [page Any (north.coord/query-page!
+                    port (mail-candidate-query) mail-page-size after)
+          page-rows Any (:rows page)
+          next-seen Int (+ seen (count page-rows))]
+      (when (> next-seen max-mail-candidates)
+        (throw
+         (ex-info "dead-letter scan exceeds its bounded mail corpus"
+                  {:type :mail-candidate-overflow
+                   :max max-mail-candidates})))
+      (let [all Any (into rows page-rows)]
+        (if-not (:done? page)
+          (recur (:cursor page) next-seen all)
+          all)))))
+
+(defn- epoch-ms [instant Any] Int
+  (.toEpochMilli instant))
+
+(defn age-ms
+  [now Any
+   sent String] (U Int Nil)
+  (try
+    (max 0 (- (epoch-ms now)
+              (epoch-ms (java.time.Instant/parse sent))))
+    (catch Exception _ nil)))
+
+(defn human-age [milliseconds (U Int Nil)] String
+  (if (nil? milliseconds)
+    "unknown"
+    (let [seconds Int (quot milliseconds 1000)]
+      (cond
+        (< seconds 60) (str seconds "s")
+        (< seconds 3600) (str (quot seconds 60) "m")
+        (< seconds 86400) (str (quot seconds 3600) "h")
+        :else (str (quot seconds 86400) "d")))))
+
+(defn dead-letter-scan
+  "Pending human mail whose concrete recipient has neither a live lease nor an
+   armed provider listener. Returns a strict diagnostic envelope."
+  ([port Int] Any
+   (dead-letter-scan port (java.time.Instant/now)))
+  ([port Int
+    now Any] Any
+    (try
+     {:rows
+      (->> (mail-candidates port)
+           (keep
+            (fn [[message from to sent] Any] Any
+              (when (and (str/starts-with? message "@msg:")
+                         (not= broadcast-address to))
+                (let [route Any (resolve-address port to)
+                      recipient Any (:recipient route)]
+                  (when-not (recipient-live? port recipient)
+                    (let [milliseconds (U Int Nil) (age-ms now sent)]
+                      {:message message
+                       :sender from
+                       :recipient to
+                       :resolved-recipient recipient
+                       :age-ms milliseconds
+                       :age (human-age milliseconds)}))))))
+           (sort-by (juxt #(or (:age-ms %) -1) :message)
+                    (fn
+                      [left Any
+                       right Any] Int
+                      (compare right left)))
+           vec)}
+     (catch Exception error
+       {:error (.getMessage error)}))))
+
+(defn readiness-dead-letter-scan
+  "Bounded doctor projection. Only messages inside ACTION-WINDOW-MS pay
+   recipient routing/liveness reads; older pending mail remains visible as
+   unacknowledged history."
+  ([port Int
+    action-window-ms Int] Any
+    (readiness-dead-letter-scan
+    port action-window-ms (java.time.Instant/now)))
+  ([port Int
+    action-window-ms Int
+    now Any] Any
+    (try
+     {:rows
+      (->> (mail-candidates port)
+           (keep
+            (fn [[message from to sent] Any] Any
+              (when (and (str/starts-with? message "@msg:")
+                         (not= broadcast-address to))
+                (let [milliseconds (U Int Nil) (age-ms now sent)
+                      base Any {:message message
+                                :sender from
+                                :recipient to
+                                :age-ms milliseconds
+                                :age (human-age milliseconds)}]
+                  (if (and milliseconds
+                           (>= milliseconds action-window-ms))
+                    (assoc base
+                           :resolved-recipient to
+                           :historical? true)
+                    (let [route Any (resolve-address port to)
+                          recipient Any (:recipient route)]
+                      (when-not (recipient-live? port recipient)
+                        (assoc base :resolved-recipient recipient))))))))
+           (sort-by (juxt #(or (:age-ms %) -1) :message)
+                    (fn
+                      [left Any
+                       right Any] Int
+                      (compare right left)))
+           vec)}
+     (catch Exception error
+       {:error (.getMessage error)}))))

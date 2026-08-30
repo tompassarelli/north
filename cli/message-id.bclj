@@ -1,0 +1,66 @@
+#lang beagle/clj
+
+(ns north.message-id
+  "Canonical durable North message and actor identifiers.")
+
+(require [clojure.java.io :as io])
+
+(declare-extern java.time.format.DateTimeFormatter/ofPattern (Fn [String] Any))
+(declare-extern java.security.MessageDigest/getInstance (Fn [String] Any))
+(declare-extern java.time.LocalDateTime/now (Fn [] Any))
+(declare-extern java.util.UUID/randomUUID (Fn [] Any))
+
+(def timestamp-format Any
+  (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmmss"))
+
+(def actor-key-namespaces (Set String) #{"agent" "session" "managed"})
+(def actor-key-pattern Any #"^[A-Za-z0-9._:-]+$")
+(def actor-key-max-bytes Int 512)
+
+(defn utf8-bytes [value Any] Int
+  (alength (.getBytes (str value) "UTF-8")))
+
+(defn sha256 [value String] String
+  (let [digest Any (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                            (.getBytes value "UTF-8"))]
+    (apply str
+           (map (fn [byte Any] String
+                  (format "%02x" (bit-and (int byte) 255)))
+                digest))))
+
+(defn actor-key
+  "Derive one filesystem-safe domain-separated key for an intentional North actor."
+  [namespace String
+   raw String] (U String Nil)
+  (when (and (contains? actor-key-namespaces namespace)
+             (not (empty? raw))
+             (<= (utf8-bytes raw) actor-key-max-bytes)
+             (boolean (re-matches actor-key-pattern raw)))
+    (sha256 (str "north-actor-key-v1\u0000" namespace "\u0000" raw))))
+
+(defn fresh-id
+  "Sortable timestamp plus UUIDv4's 122 random bits.
+   Sender is accepted for producer call-site context but never enters the
+   durable subject id. The three-argument form is the deterministic test seam."
+  ([from Any] String
+   (fresh-id from (java.time.LocalDateTime/now) (java.util.UUID/randomUUID)))
+  ([_from Any
+    now Any
+    uuid Any] String
+    (str (.format now timestamp-format) "-" uuid)))
+
+(defn- direct-invocation? [] Bool
+  (= (.getCanonicalPath (io/file *file*))
+     (.getCanonicalPath
+      (io/file (System/getProperty "babashka.file")))))
+
+(defn- run-cli! [args (Vec String)] Any
+  (if (and (= 3 (count args))
+           (= "actor-key" (first args)))
+    (if-let [key String? (actor-key (nth args 1) (nth args 2))]
+      (print key)
+      (System/exit 2))
+    (System/exit 2)))
+
+(when (direct-invocation?)
+  (run-cli! (vec *command-line-args*)))

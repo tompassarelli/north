@@ -133,7 +133,7 @@
    :card {:section :now :rank 3 :form "north inbox"
           :text "messages waiting on you"}}
   {:verb "ack" :form "north ack <actor> <message-id>" :topic :comms
-   :summary "acknowledge one addressed message through the configured communications protocol"}
+   :summary "acknowledge one addressed Store message"}
   {:verb "mention" :form "north mention <recipient> \"<body>\"" :topic :comms
    :summary "durable sender-driven request; offline recipient allowed"
    :details ["--about <thread> — attach the request to a thread"]}

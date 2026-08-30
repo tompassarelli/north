@@ -18,10 +18,10 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/topology-authority.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-audience.clj"))
+(load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/message-routing.clj"))
 (def append! north.coord/append!)
 (def rf      north.coord/resolved!)
 (def rmany   north.coord/many!)
-(defn role-slug [r] (when (and (string? r) (>= (count r) 6) (= "@role:" (subs r 0 6))) (subs r 6)))
 
 (defn ack! [port me id] (append! port id "acked_by" me))   ; acked_by is multi — append (coexist)
 
@@ -84,9 +84,6 @@
         multiplier (bit-shift-left 1 shift)]
     (min listener-max-backoff-ms
          (* listener-initial-backoff-ms multiplier))))
-
-(defn listener-resource [agent-id]
-  (str "listener:" agent-id))
 
 (defn require-listener-lease-grant!
   [holder response]
@@ -210,7 +207,7 @@
 (defn acquire-listener-generation!
   [port node agent-id]
   (let [holder (str (java.util.UUID/randomUUID))
-        resource (listener-resource agent-id)
+        resource (north.message-routing/listener-resource agent-id)
         response
         (north.coord/acquire-lease!
          port resource holder listener-lease-ttl-ms)
@@ -481,7 +478,7 @@
         r value]
     (cond
       (and (= l node) (= p "holds"))
-      (when-let [slug (role-slug r)]
+      (when-let [slug (north.message-routing/bare-role r)]
         (swap! addrs (if (= op "assert") conj disj) slug)
         (println
          (format "  ↳ addrs: %s %s (now %s)"
@@ -597,11 +594,10 @@
                    (throw
                     (ex-info "listener kind changed during fenced startup"
                              {:type :listener-scope-changed})))
-               roles
-               (filterv #(and (string? %)
-                              (str/starts-with? % "@role:"))
-                        (:holds projection))]
-           (reset! addrs (into #{uuid} (keep role-slug roles)))
+               role-addresses
+               (keep north.message-routing/bare-role (:holds projection))]
+           (reset! addrs
+                   (into #{uuid} role-addresses))
            (reset! watched (set (:watches projection)))
            (arm-listener-generation! generation)
            (println
@@ -641,7 +637,7 @@
 (when-not (= "1" (System/getenv "NORTH_LISTEN_LIB"))
   (let [[ps uuid & flags] *command-line-args*
         port (Integer/parseInt ps)
-        node (str "@agent:" uuid)
+        node (north.message-routing/agent-subject uuid)
         once? (boolean (some #{"--once"} flags))
         ack? (boolean (some #{"--ack"} flags))
         react? (boolean (some #{"--react"} flags))

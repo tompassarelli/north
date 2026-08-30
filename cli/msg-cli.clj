@@ -532,6 +532,21 @@
     "interrupt"
     (publish-directed-attention! port "interrupt" args)
 
+    "presence"    ; <recipient> — read-only typed route reachability
+    (let [[requested] args
+          _ (when-not (= 1 (count args))
+              (reject-message! "presence requires exactly one recipient"))
+          _ (when-not (north.message-contract/safe-handle?
+                       requested north.message-contract/max-target-bytes)
+              (reject-message! "recipient is malformed or too large"))
+          route (north.message-routing/require-live-address port requested)
+          recipient (or (:recipient route) requested)]
+      (if (= true (:live route))
+        (println (str "reachable " recipient))
+        (do
+          (println (str "absent " recipient))
+          (System/exit 1))))
+
     "inbox"       ; <me>  — direct-to-me OR finite broadcast audience, minus acked_by
     (let [[me] args]
       (println (format "%-28s %-10s %s" "MSG-ID" "FROM" "SUBJECT"))
@@ -570,23 +585,23 @@
         (doseq [failure failures]
           (println (str "wake_failure: " failure)))))
 
-    "ack"         ; <me> <msg-id-or-cmd-id>  — works for @msg and @cmd subjects
-    (let [[me id] args, e (if (str/starts-with? (str id) "@") id (str "@msg:" id))]
-      (when (and (str/starts-with? e "@msg:")
-                 (not (north.message-audience/deliverable?
-                       port e (one port e "to") me #{me})))
-        (println (str "REJECTED: " e " is not addressed to " me))
-        (System/exit 2))
-      (let [result
-            (north.coord/publish!
-             port
-             [{:op :assert :subject e :predicate "acked_by"
-               :value me :cardinality :many}
-              {:op :assert :subject e :predicate "acked_at"
-               :value (str (java.time.Instant/now)) :cardinality :one}])]
-        (when (:reject result)
-          (reject-message! (str e " acknowledgement rejected: " (:reject result)))))
-      (println (str me " acked " e)))
+    "ack"         ; <me> <msg-id>
+    (let [[me id] args
+          _ (when-not (= 2 (count args))
+              (reject-message! "ack requires exactly one actor and message id"))
+          message
+          (try
+            (north.message-audience/acknowledge-message! port id me #{me})
+            (catch Exception error
+              (if (= :message-not-addressed (:type (ex-data error)))
+                (do
+                  (println
+                   (str "REJECTED: " (:message (ex-data error))
+                        " is not addressed to " me))
+                  (System/exit 2))
+                (reject-message!
+                 (or (.getMessage error) "acknowledgement failed")))))]
+      (println (str me " acked " message)))
 
     "send-cmd"    ; <from> <target> <op> "<args-edn>" [idempotency-key]
     (do
@@ -682,5 +697,5 @@
 
     (do
       (println
-       "usage: msg-cli.clj <port> {send [--dead-drop]|mention|interrupt|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
+       "usage: msg-cli.clj <port> {send [--dead-drop]|mention|interrupt|presence|send-cmd|retry|cmd|cmds|inbox|thread|ack}")
       (System/exit 2)))))

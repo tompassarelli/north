@@ -69,6 +69,12 @@
 (def mail-query-seen (atom nil))
 (def many-calls (atom []))
 
+(check "typed role parser extracts only canonical role subjects"
+       (and (= "reviewer"
+               (north.message-routing/bare-role "@role:reviewer"))
+            (nil? (north.message-routing/bare-role "reviewer"))
+            (nil? (north.message-routing/bare-role nil))))
+
 (defn mail-query-settles-server-side? [query]
   (let [rules (mapcat identity (:strata query))
         clauses (mapcat :body rules)]
