@@ -32,7 +32,7 @@
   (if present? (if (kc/vec-member? members value) members (conj members value)) (filterv (fn [^String member] (not (= member value))) members)))
 
 (defn ^ProjectionIndex index-triples [triples]
-  (let [base (reduce (fn [^ProjectionIndex index triple] (let [subject (t/triple-t1 triple)
+  (let [^ProjectionIndex base (reduce (fn [^ProjectionIndex index triple] (let [subject (t/triple-t1 triple)
    predicate (t/triple-t2 triple)
    value (t/triple-t3 triple)
    key [subject predicate]
@@ -43,9 +43,9 @@
    schema (reduce (fn [rows subject] (if (string? subject) (let [value-kind (get (projectionindex-single base) [subject "value_kind"])
    acyclic (get (projectionindex-single base) [subject "acyclic"])]
   (if (or (string? value-kind) (string? acyclic)) (conj rows [(schema-predicate-name subject) (if (string? value-kind) value-kind "") (if (string? acyclic) acyclic "")]) rows)) rows)) [] (projectionindex-subjects base))
-   reference-predicates (reduce (fn [predicates row] (let [kind (nth row 1)]
+   reference-predicates (reduce (fn [predicates row] (let [^String kind (nth row 1)]
   (if (= kind "") predicates (set-string-membership predicates (nth row 0) (= kind "ref"))))) fallback-reference-predicates schema)
-   acyclic-predicates (reduce (fn [predicates row] (let [declared (nth row 2)]
+   acyclic-predicates (reduce (fn [predicates row] (let [^String declared (nth row 2)]
   (if (= declared "") predicates (set-string-membership predicates (nth row 0) (= declared "true"))))) fallback-acyclic-predicates schema)]
   (->ProjectionIndex (projectionindex-single base) (projectionindex-many base) (projectionindex-subjects base) (projectionindex-subject-set base) (projectionindex-reverse-dependencies base) reference-predicates acyclic-predicates)))
 
@@ -126,7 +126,7 @@
   (cond
   (terminal-i? idx te) "terminal"
   (blocked? idx te) "blocked"
-  :else (let [judgment (activity idx te)]
+  :else (let [^String judgment (activity idx te)]
   (cond
   (= judgment live-proven) "active"
   (not (= judgment absent-proven)) "unresolved"
@@ -149,7 +149,7 @@
 (defn eligibility-reason [r] (:reason r))
 
 (defn ^Eligibility explain [^ProjectionIndex idx ^String te ^String today before? activity]
-  (let [st (classify idx te today before? activity)]
+  (let [^String st (classify idx te today before? activity)]
   (->Eligibility st (= st "ready") (cond
   (= st "terminal") "resolved (outcome/abandoned/superseded_by) — not workable"
   (= st "blocked") (str "waiting on " (count (incomplete-deps idx te)) " incomplete dependency(ies)")
@@ -185,7 +185,7 @@
   (loop [frontier (dependents-of idx te)
    seen {}
    ordered []]
-  (if (empty? frontier) ordered (let [x (first frontier)
+  (if (empty? frontier) ordered (let [^String x (first frontier)
    rest-f (vec (rest frontier))]
   (if (contains? seen x) (recur rest-f seen ordered) (recur (vec (concat rest-f (dependents-of idx x))) (assoc seen x true) (conj ordered x)))))))
 
