@@ -188,7 +188,7 @@
    :state "runtime-observed"
    :owner "north runtime"
    :responsibilities ["Hold generated activation state, service data, local databases, receipts, and runtime artifacts; never serve as source authority."]
-   :evidence ["north:AGENTS.md" "north:cli/store-runtime-generation.clj"]
+   :evidence ["north:AGENTS.md" "north:cli/store-runtime-generation.bclj"]
    :failure-effect "Live services and local recovery state may fail even though all Git source authorities remain intact."
    :views ["ownership" "activation" "coordination"]}
   {:id "work-ownership-contract"
@@ -333,7 +333,7 @@
   {:id "north-state-hosts-store"
    :from "north-runtime-state" :to "live-store-process" :kind "hosts"
    :label "runtime data and selector"
-   :evidence ["north:cli/store-runtime-generation.clj"]
+   :evidence ["north:cli/store-runtime-generation.bclj"]
    :failure-effect "The service loses its local data or selected-runtime state."
    :views ["ownership" "activation" "coordination"]}
   {:id "ownership-contract-needs-persistence"

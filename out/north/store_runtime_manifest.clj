@@ -71,6 +71,8 @@
 
 (defn jvmruntimeauthority-manifest [r] (:manifest r))
 
+(def JVMRuntimeAuthorityPurpose-values #{::selected ::promotion-candidate})
+
 ;; RuntimeMember = JVM | Native
 (defrecord JVM [output package-nar-sha256 beagle-revision beagle-tree manifest-path manifest-bytes manifest-sha256 manifest])
 
@@ -228,11 +230,13 @@
 
 (def ^String promotion-source-output "/nix/store/2ir9941jx1glsh1wvwa67cbkqf9xjwdr-beagle-store-jvm-composite-1-e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4")
 
-(def ^JVMRuntimeAuthority promotion-source-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI=" "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4" "f2a7f4abf6ca6726a623b4640f62fab36cf912c0" "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5" 349 "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
+(def ^JVMRuntimeAuthority retained-jvm-authority (jvm-runtime-authority promotion-source-output "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI=" "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4" "f2a7f4abf6ca6726a623b4640f62fab36cf912c0" "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5" 349 "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
 
-(def ^StoreRuntimeManifest promotion-source-manifest (:manifest promotion-source-jvm-authority))
+(def jvm-authorities-by-purpose {:selected [current-jvm-authority retained-jvm-authority] :promotion-candidate [current-jvm-authority]})
 
-(def promotion-source-jvm (->JVM promotion-source-output (:package-nar-sha256 promotion-source-jvm-authority) (:beagle-revision promotion-source-jvm-authority) (:beagle-tree promotion-source-jvm-authority) (manifest-path-for promotion-source-output) (:manifest-bytes promotion-source-jvm-authority) (:manifest-sha256 promotion-source-jvm-authority) promotion-source-manifest))
+(def ^StoreRuntimeManifest promotion-source-manifest (:manifest retained-jvm-authority))
+
+(def promotion-source-jvm (->JVM promotion-source-output (:package-nar-sha256 retained-jvm-authority) (:beagle-revision retained-jvm-authority) (:beagle-tree retained-jvm-authority) (manifest-path-for promotion-source-output) (:manifest-bytes retained-jvm-authority) (:manifest-sha256 retained-jvm-authority) promotion-source-manifest))
 
 (defn- ^String line-value [^String line ^String field]
   (let [^String prefix (str field "=")]
@@ -261,11 +265,22 @@
   (if (= (validate-manifest-facts! manifest) (:manifest authority)) member (fail "Store JVM manifest facts do not equal the exact runtime authority" :north.store-runtime-manifest/binding-mismatch {:expected (:manifest authority) :actual manifest}))))
     (instance? Native match__0) (let [_ (:release-root match__0) _ (:beagle-revision match__0) _ (:beagle-tree match__0) _ (:artifact-root match__0) _ (:closure-sha256 match__0) _ (:server-artifact match__0) _ (:server-sha256 match__0)] (fail "Store JVM authority cannot validate a Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))
 
-(defn validate-runtime-member! [member]
+(defn- ^JVMRuntimeAuthority jvm-authority-for-revision! [purpose ^String beagle-revision]
+  (let [authorities (get jvm-authorities-by-purpose purpose [])
+   matches (filterv (fn [^JVMRuntimeAuthority authority] (= beagle-revision (:beagle-revision authority))) authorities)]
+  (if (= (count matches) 1) (nth matches 0) (fail "Store JVM revision is not admitted for this runtime purpose" :north.store-runtime-manifest/jvm-authority-mismatch {:purpose purpose :actual beagle-revision}))))
+
+(defn- validate-jvm-member-for-purpose! [member purpose]
   (let [match__1 member]
   (cond
-    (instance? JVM match__1) (let [_ (:output match__1) _ (:package-nar-sha256 match__1) _ (:beagle-revision match__1) _ (:beagle-tree match__1) _ (:manifest-path match__1) _ (:manifest-bytes match__1) _ (:manifest-sha256 match__1) _ (:manifest match__1)] (validate-jvm-authority! member current-jvm-authority))
-    (instance? Native match__1) (let [release-root (:release-root match__1) beagle-revision (:beagle-revision match__1) beagle-tree (:beagle-tree match__1) artifact-root (:artifact-root match__1) closure-sha256 (:closure-sha256 match__1) server-artifact (:server-artifact match__1) server-sha256 (:server-sha256 match__1)] (do
+    (instance? JVM match__1) (let [_ (:output match__1) _ (:package-nar-sha256 match__1) beagle-revision (:beagle-revision match__1) _ (:beagle-tree match__1) _ (:manifest-path match__1) _ (:manifest-bytes match__1) _ (:manifest-sha256 match__1) _ (:manifest match__1)] (validate-jvm-authority! member (jvm-authority-for-revision! purpose beagle-revision)))
+    (instance? Native match__1) (let [_ (:release-root match__1) _ (:beagle-revision match__1) _ (:beagle-tree match__1) _ (:artifact-root match__1) _ (:closure-sha256 match__1) _ (:server-artifact match__1) _ (:server-sha256 match__1)] (fail "Store JVM purpose cannot validate a Native member" :north.store-runtime-manifest/invalid-generation-shape {:purpose purpose})))))
+
+(defn validate-runtime-member! [member]
+  (let [match__2 member]
+  (cond
+    (instance? JVM match__2) (let [_ (:output match__2) _ (:package-nar-sha256 match__2) _ (:beagle-revision match__2) _ (:beagle-tree match__2) _ (:manifest-path match__2) _ (:manifest-bytes match__2) _ (:manifest-sha256 match__2) _ (:manifest match__2)] (validate-jvm-member-for-purpose! member :selected))
+    (instance? Native match__2) (let [release-root (:release-root match__2) beagle-revision (:beagle-revision match__2) beagle-tree (:beagle-tree match__2) artifact-root (:artifact-root match__2) closure-sha256 (:closure-sha256 match__2) server-artifact (:server-artifact match__2) server-sha256 (:server-sha256 match__2)] (do
   (if (exact-lower-oid? beagle-revision) beagle-revision (fail "Store Native revision is not an exact lowercase Git object id" :north.store-runtime-manifest/invalid-native-revision {:actual beagle-revision}))
   (if (exact-lower-oid? beagle-tree) beagle-tree (fail "Store Native tree is not an exact lowercase Git object id" :north.store-runtime-manifest/invalid-native-tree {:actual beagle-tree}))
   (if (exact-sha256? closure-sha256) closure-sha256 (fail "Store Native closure SHA-256 is not canonical" :north.store-runtime-manifest/invalid-native-closure {:actual closure-sha256}))
@@ -276,100 +291,106 @@
   (if (= member accepted-native-runtime) member (fail "Store Native member does not equal the accepted recovery runtime" :north.store-runtime-manifest/native-mismatch {:expected accepted-native-runtime :actual member})))))))
 
 (defn ^String runtime-member-kind [member]
-  (let [match__2 member]
+  (let [match__3 member]
   (cond
-    (instance? JVM match__2) (let [_ (:output match__2) _ (:package-nar-sha256 match__2) _ (:beagle-revision match__2) _ (:beagle-tree match__2) _ (:manifest-path match__2) _ (:manifest-bytes match__2) _ (:manifest-sha256 match__2) _ (:manifest match__2)] "jvm")
-    (instance? Native match__2) (let [_ (:release-root match__2) _ (:beagle-revision match__2) _ (:beagle-tree match__2) _ (:artifact-root match__2) _ (:closure-sha256 match__2) _ (:server-artifact match__2) _ (:server-sha256 match__2)] "native"))))
+    (instance? JVM match__3) (let [_ (:output match__3) _ (:package-nar-sha256 match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:manifest-path match__3) _ (:manifest-bytes match__3) _ (:manifest-sha256 match__3) _ (:manifest match__3)] "jvm")
+    (instance? Native match__3) (let [_ (:release-root match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:artifact-root match__3) _ (:closure-sha256 match__3) _ (:server-artifact match__3) _ (:server-sha256 match__3)] "native"))))
 
 (defn ^StoreRuntimeGeneration validate-runtime-generation! [^StoreRuntimeGeneration generation]
   (let [current (validate-runtime-member! (:current generation))
    previous (validate-runtime-member! (:previous generation))]
-  (let [match__3 current]
+  (let [match__4 current]
   (cond
-    (instance? JVM match__3) (let [_ (:output match__3) _ (:package-nar-sha256 match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:manifest-path match__3) _ (:manifest-bytes match__3) _ (:manifest-sha256 match__3) _ (:manifest match__3)] (let [match__4 previous]
+    (instance? JVM match__4) (let [_ (:output match__4) _ (:package-nar-sha256 match__4) _ (:beagle-revision match__4) _ (:beagle-tree match__4) _ (:manifest-path match__4) _ (:manifest-bytes match__4) _ (:manifest-sha256 match__4) _ (:manifest match__4)] (let [match__5 previous]
   (cond
-    (instance? Native match__4) (let [_ (:release-root match__4) _ (:beagle-revision match__4) _ (:beagle-tree match__4) _ (:artifact-root match__4) _ (:closure-sha256 match__4) _ (:server-artifact match__4) _ (:server-sha256 match__4)] generation)
-    (instance? JVM match__4) (let [_ (:output match__4) _ (:package-nar-sha256 match__4) _ (:beagle-revision match__4) _ (:beagle-tree match__4) _ (:manifest-path match__4) _ (:manifest-bytes match__4) _ (:manifest-sha256 match__4) _ (:manifest match__4)] (fail "Store runtime generation must contain one JVM and one Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))
-    (instance? Native match__3) (let [_ (:release-root match__3) _ (:beagle-revision match__3) _ (:beagle-tree match__3) _ (:artifact-root match__3) _ (:closure-sha256 match__3) _ (:server-artifact match__3) _ (:server-sha256 match__3)] (let [match__5 previous]
+    (instance? Native match__5) (let [_ (:release-root match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:artifact-root match__5) _ (:closure-sha256 match__5) _ (:server-artifact match__5) _ (:server-sha256 match__5)] generation)
+    (instance? JVM match__5) (let [_ (:output match__5) _ (:package-nar-sha256 match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:manifest-path match__5) _ (:manifest-bytes match__5) _ (:manifest-sha256 match__5) _ (:manifest match__5)] (fail "Store runtime generation must contain one JVM and one Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))
+    (instance? Native match__4) (let [_ (:release-root match__4) _ (:beagle-revision match__4) _ (:beagle-tree match__4) _ (:artifact-root match__4) _ (:closure-sha256 match__4) _ (:server-artifact match__4) _ (:server-sha256 match__4)] (let [match__6 previous]
   (cond
-    (instance? JVM match__5) (let [_ (:output match__5) _ (:package-nar-sha256 match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:manifest-path match__5) _ (:manifest-bytes match__5) _ (:manifest-sha256 match__5) _ (:manifest match__5)] generation)
-    (instance? Native match__5) (let [_ (:release-root match__5) _ (:beagle-revision match__5) _ (:beagle-tree match__5) _ (:artifact-root match__5) _ (:closure-sha256 match__5) _ (:server-artifact match__5) _ (:server-sha256 match__5)] (fail "Store runtime generation must contain one JVM and one Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))))))
+    (instance? JVM match__6) (let [_ (:output match__6) _ (:package-nar-sha256 match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:manifest-path match__6) _ (:manifest-bytes match__6) _ (:manifest-sha256 match__6) _ (:manifest match__6)] generation)
+    (instance? Native match__6) (let [_ (:release-root match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:artifact-root match__6) _ (:closure-sha256 match__6) _ (:server-artifact match__6) _ (:server-sha256 match__6)] (fail "Store runtime generation must contain one JVM and one Native member" :north.store-runtime-manifest/invalid-generation-shape {})))))))))
 
 (defn ^Boolean promotion-source-generation? [^StoreRuntimeGeneration generation]
   (or (and (= (:current generation) promotion-source-jvm) (= (:previous generation) accepted-native-runtime)) (and (= (:current generation) accepted-native-runtime) (= (:previous generation) promotion-source-jvm))))
 
 (defn validate-promotion-source-member! [member]
-  (if (= member promotion-source-jvm) (validate-jvm-authority! member promotion-source-jvm-authority) (validate-runtime-member! member)))
+  (validate-runtime-member! member))
 
 (defn ^StoreRuntimeGeneration validate-promotion-source-generation! [^StoreRuntimeGeneration generation]
-  (if (promotion-source-generation? generation) (do
-  (validate-promotion-source-member! (:current generation))
-  (validate-promotion-source-member! (:previous generation))
-  generation) (validate-runtime-generation! generation)))
+  (validate-runtime-generation! generation))
 
 (defn attest-promotion-source-runtime! [member ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
-  (let [checked (validate-jvm-authority! member promotion-source-jvm-authority)
+  (let [checked (validate-jvm-authority! member retained-jvm-authority)
    ^StoreRuntimeManifest actual (parse-runtime-manifest! manifest-text)
    ^String expected-text (canonical-manifest-text! promotion-source-manifest)]
-  (if (and (= checked promotion-source-jvm) (= observed-nar-sha256 (:package-nar-sha256 promotion-source-jvm-authority)) (= observed-manifest-sha256 (:manifest-sha256 promotion-source-jvm-authority)) (= (count manifest-text) (:manifest-bytes promotion-source-jvm-authority)) (= manifest-text expected-text) (= actual promotion-source-manifest)) checked (fail "Selected Store promotion source differs from its exact package authority" :north.store-runtime-manifest/promotion-source-mismatch {}))))
+  (if (and (= checked promotion-source-jvm) (= observed-nar-sha256 (:package-nar-sha256 retained-jvm-authority)) (= observed-manifest-sha256 (:manifest-sha256 retained-jvm-authority)) (= (count manifest-text) (:manifest-bytes retained-jvm-authority)) (= manifest-text expected-text) (= actual promotion-source-manifest)) checked (fail "Selected Store promotion source differs from its exact package authority" :north.store-runtime-manifest/promotion-source-mismatch {}))))
+
+(defn- jvm-runtime-for-purpose! [purpose ^String output ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
+  (let [^StoreRuntimeManifest facts (parse-runtime-manifest! manifest-text)
+   ^JVMRuntimeAuthority authority (jvm-authority-for-revision! purpose (:beagle-revision facts))
+   ^String expected-text (canonical-manifest-text! (:manifest authority))
+   member (->JVM output observed-nar-sha256 (:beagle-revision authority) (:beagle-tree authority) (manifest-path-for output) (count manifest-text) observed-manifest-sha256 facts)]
+  (if (= manifest-text expected-text) (validate-jvm-member-for-purpose! member purpose) (fail "Store JVM manifest bytes do not equal the admitted producer text" :north.store-runtime-manifest/manifest-bytes-mismatch {:purpose purpose}))))
 
 (defn accepted-jvm-runtime! [^String output ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
-  (let [^StoreRuntimeManifest facts (parse-runtime-manifest! manifest-text)
-   member (->JVM output observed-nar-sha256 accepted-jvm-revision accepted-jvm-tree (manifest-path-for output) (count manifest-text) observed-manifest-sha256 facts)]
-  (if (= manifest-text accepted-runtime-manifest-text) (validate-runtime-member! member) (fail "Store JVM manifest bytes do not equal the accepted producer text" :north.store-runtime-manifest/manifest-bytes-mismatch {}))))
+  (jvm-runtime-for-purpose! :selected output observed-nar-sha256 observed-manifest-sha256 manifest-text))
+
+(defn promotion-candidate-jvm-runtime! [^String output ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
+  (jvm-runtime-for-purpose! :promotion-candidate output observed-nar-sha256 observed-manifest-sha256 manifest-text))
 
 (defn ^StoreRuntimeGeneration accepted-runtime-generation-for! [^String output ^String observed-nar-sha256 ^String observed-manifest-sha256 ^String manifest-text]
   (validate-runtime-generation! (->StoreRuntimeGeneration (accepted-jvm-runtime! output observed-nar-sha256 observed-manifest-sha256 manifest-text) accepted-native-runtime)))
 
 (defn- jvm-member! [^StoreRuntimeGeneration generation]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]
-  (let [match__6 (:current checked)]
+  (let [match__7 (:current checked)]
   (cond
-    (instance? JVM match__6) (let [_ (:output match__6) _ (:package-nar-sha256 match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:manifest-path match__6) _ (:manifest-bytes match__6) _ (:manifest-sha256 match__6) _ (:manifest match__6)] (:current checked))
-    (instance? Native match__6) (let [_ (:release-root match__6) _ (:beagle-revision match__6) _ (:beagle-tree match__6) _ (:artifact-root match__6) _ (:closure-sha256 match__6) _ (:server-artifact match__6) _ (:server-sha256 match__6)] (:previous checked))))))
+    (instance? JVM match__7) (let [_ (:output match__7) _ (:package-nar-sha256 match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:manifest-path match__7) _ (:manifest-bytes match__7) _ (:manifest-sha256 match__7) _ (:manifest match__7)] (:current checked))
+    (instance? Native match__7) (let [_ (:release-root match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:artifact-root match__7) _ (:closure-sha256 match__7) _ (:server-artifact match__7) _ (:server-sha256 match__7)] (:previous checked))))))
 
 (defn- native-member! [^StoreRuntimeGeneration generation]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]
-  (let [match__7 (:current checked)]
+  (let [match__8 (:current checked)]
   (cond
-    (instance? JVM match__7) (let [_ (:output match__7) _ (:package-nar-sha256 match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:manifest-path match__7) _ (:manifest-bytes match__7) _ (:manifest-sha256 match__7) _ (:manifest match__7)] (:previous checked))
-    (instance? Native match__7) (let [_ (:release-root match__7) _ (:beagle-revision match__7) _ (:beagle-tree match__7) _ (:artifact-root match__7) _ (:closure-sha256 match__7) _ (:server-artifact match__7) _ (:server-sha256 match__7)] (:current checked))))))
+    (instance? JVM match__8) (let [_ (:output match__8) _ (:package-nar-sha256 match__8) _ (:beagle-revision match__8) _ (:beagle-tree match__8) _ (:manifest-path match__8) _ (:manifest-bytes match__8) _ (:manifest-sha256 match__8) _ (:manifest match__8)] (:previous checked))
+    (instance? Native match__8) (let [_ (:release-root match__8) _ (:beagle-revision match__8) _ (:beagle-tree match__8) _ (:artifact-root match__8) _ (:closure-sha256 match__8) _ (:server-artifact match__8) _ (:server-sha256 match__8)] (:current checked))))))
 
 (defn ^StoreRuntimeAttestation attest-runtime-manifest! [^String text ^StoreRuntimeGeneration generation]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)
    member (jvm-member! checked)
    ^StoreRuntimeManifest actual (parse-runtime-manifest! text)]
-  (let [match__8 member]
+  (let [match__9 member]
   (cond
-    (instance? JVM match__8) (let [_ (:output match__8) _ (:package-nar-sha256 match__8) _ (:beagle-revision match__8) _ (:beagle-tree match__8) _ (:manifest-path match__8) manifest-bytes (:manifest-bytes match__8) _ (:manifest-sha256 match__8) expected (:manifest match__8)] (if (not (= (count text) manifest-bytes)) (fail "Store runtime manifest byte count does not equal the accepted binding" :north.store-runtime-manifest/manifest-size-mismatch {:expected manifest-bytes :actual (count text)}) (if (not (= text accepted-runtime-manifest-text)) (fail "Store runtime manifest bytes do not equal the accepted binding" :north.store-runtime-manifest/manifest-bytes-mismatch {}) (if (= actual expected) (->StoreRuntimeAttestation checked actual) (fail "Store runtime manifest facts do not equal the expected immutable binding" :north.store-runtime-manifest/binding-mismatch {:expected expected :actual actual})))))
-    (instance? Native match__8) (let [_ (:release-root match__8) _ (:beagle-revision match__8) _ (:beagle-tree match__8) _ (:artifact-root match__8) _ (:closure-sha256 match__8) _ (:server-artifact match__8) _ (:server-sha256 match__8)] (fail "Store runtime generation has no JVM member" :north.store-runtime-manifest/missing-jvm {}))))))
+    (instance? JVM match__9) (let [_ (:output match__9) _ (:package-nar-sha256 match__9) _ (:beagle-revision match__9) _ (:beagle-tree match__9) _ (:manifest-path match__9) manifest-bytes (:manifest-bytes match__9) _ (:manifest-sha256 match__9) expected (:manifest match__9)] (let [^String expected-text (canonical-manifest-text! expected)]
+  (if (not (= (count text) manifest-bytes)) (fail "Store runtime manifest byte count does not equal the accepted binding" :north.store-runtime-manifest/manifest-size-mismatch {:expected manifest-bytes :actual (count text)}) (if (not (= text expected-text)) (fail "Store runtime manifest bytes do not equal the accepted binding" :north.store-runtime-manifest/manifest-bytes-mismatch {}) (if (= actual expected) (->StoreRuntimeAttestation checked actual) (fail "Store runtime manifest facts do not equal the expected immutable binding" :north.store-runtime-manifest/binding-mismatch {:expected expected :actual actual}))))))
+    (instance? Native match__9) (let [_ (:release-root match__9) _ (:beagle-revision match__9) _ (:beagle-tree match__9) _ (:artifact-root match__9) _ (:closure-sha256 match__9) _ (:server-artifact match__9) _ (:server-sha256 match__9)] (fail "Store runtime generation has no JVM member" :north.store-runtime-manifest/missing-jvm {}))))))
 
 (defn ^StoreRuntimeGeneration promote-transition! [^StoreRuntimeGeneration selected candidate]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)
-   promoted (validate-runtime-member! candidate)]
-  (let [match__9 promoted]
+   promoted (validate-jvm-member-for-purpose! candidate :promotion-candidate)]
+  (let [match__10 promoted]
   (cond
-    (instance? JVM match__9) (let [_ (:output match__9) _ (:package-nar-sha256 match__9) _ (:beagle-revision match__9) _ (:beagle-tree match__9) _ (:manifest-path match__9) _ (:manifest-bytes match__9) _ (:manifest-sha256 match__9) _ (:manifest match__9)] (if (= promoted (:current checked)) checked (validate-runtime-generation! (->StoreRuntimeGeneration promoted (native-member! checked)))))
-    (instance? Native match__9) (let [_ (:release-root match__9) _ (:beagle-revision match__9) _ (:beagle-tree match__9) _ (:artifact-root match__9) _ (:closure-sha256 match__9) _ (:server-artifact match__9) _ (:server-sha256 match__9)] (fail "Only an accepted JVM member can be promoted" :north.store-runtime-manifest/invalid-promotion {}))))))
+    (instance? JVM match__10) (let [_ (:output match__10) _ (:package-nar-sha256 match__10) _ (:beagle-revision match__10) _ (:beagle-tree match__10) _ (:manifest-path match__10) _ (:manifest-bytes match__10) _ (:manifest-sha256 match__10) _ (:manifest match__10)] (if (= promoted (:current checked)) checked (validate-runtime-generation! (->StoreRuntimeGeneration promoted (native-member! checked)))))
+    (instance? Native match__10) (let [_ (:release-root match__10) _ (:beagle-revision match__10) _ (:beagle-tree match__10) _ (:artifact-root match__10) _ (:closure-sha256 match__10) _ (:server-artifact match__10) _ (:server-sha256 match__10)] (fail "Only an accepted JVM member can be promoted" :north.store-runtime-manifest/invalid-promotion {}))))))
 
 (defn ^StoreRuntimeGeneration promote-authority-transition! [^StoreRuntimeGeneration selected candidate]
   (if (promotion-source-generation? selected) (let [^StoreRuntimeGeneration checked (validate-promotion-source-generation! selected)
-   promoted (validate-runtime-member! candidate)
-   recovery (let [match__10 (:current checked)]
+   promoted (validate-jvm-member-for-purpose! candidate :promotion-candidate)
+   recovery (let [match__11 (:current checked)]
   (cond
-    (instance? JVM match__10) (let [_ (:output match__10) _ (:package-nar-sha256 match__10) _ (:beagle-revision match__10) _ (:beagle-tree match__10) _ (:manifest-path match__10) _ (:manifest-bytes match__10) _ (:manifest-sha256 match__10) _ (:manifest match__10)] (:previous checked))
-    (instance? Native match__10) (let [_ (:release-root match__10) _ (:beagle-revision match__10) _ (:beagle-tree match__10) _ (:artifact-root match__10) _ (:closure-sha256 match__10) _ (:server-artifact match__10) _ (:server-sha256 match__10)] (:current checked))))]
-  (let [match__11 promoted]
-  (cond
-    (instance? JVM match__11) (let [_ (:output match__11) _ (:package-nar-sha256 match__11) _ (:beagle-revision match__11) _ (:beagle-tree match__11) _ (:manifest-path match__11) _ (:manifest-bytes match__11) _ (:manifest-sha256 match__11) _ (:manifest match__11)] (validate-runtime-generation! (->StoreRuntimeGeneration promoted recovery)))
-    (instance? Native match__11) (let [_ (:release-root match__11) _ (:beagle-revision match__11) _ (:beagle-tree match__11) _ (:artifact-root match__11) _ (:closure-sha256 match__11) _ (:server-artifact match__11) _ (:server-sha256 match__11)] (fail "Only an accepted JVM member can advance runtime authority" :north.store-runtime-manifest/invalid-promotion {}))))) (promote-transition! selected candidate)))
-
-(defn ^StoreRuntimeGeneration initial-promotion-transition! [candidate]
-  (let [promoted (validate-runtime-member! candidate)]
+    (instance? JVM match__11) (let [_ (:output match__11) _ (:package-nar-sha256 match__11) _ (:beagle-revision match__11) _ (:beagle-tree match__11) _ (:manifest-path match__11) _ (:manifest-bytes match__11) _ (:manifest-sha256 match__11) _ (:manifest match__11)] (:previous checked))
+    (instance? Native match__11) (let [_ (:release-root match__11) _ (:beagle-revision match__11) _ (:beagle-tree match__11) _ (:artifact-root match__11) _ (:closure-sha256 match__11) _ (:server-artifact match__11) _ (:server-sha256 match__11)] (:current checked))))]
   (let [match__12 promoted]
   (cond
-    (instance? JVM match__12) (let [_ (:output match__12) _ (:package-nar-sha256 match__12) _ (:beagle-revision match__12) _ (:beagle-tree match__12) _ (:manifest-path match__12) _ (:manifest-bytes match__12) _ (:manifest-sha256 match__12) _ (:manifest match__12)] (validate-runtime-generation! (->StoreRuntimeGeneration promoted accepted-native-runtime)))
-    (instance? Native match__12) (let [_ (:release-root match__12) _ (:beagle-revision match__12) _ (:beagle-tree match__12) _ (:artifact-root match__12) _ (:closure-sha256 match__12) _ (:server-artifact match__12) _ (:server-sha256 match__12)] (fail "Only an accepted JVM member can initialize promotion" :north.store-runtime-manifest/invalid-promotion {}))))))
+    (instance? JVM match__12) (let [_ (:output match__12) _ (:package-nar-sha256 match__12) _ (:beagle-revision match__12) _ (:beagle-tree match__12) _ (:manifest-path match__12) _ (:manifest-bytes match__12) _ (:manifest-sha256 match__12) _ (:manifest match__12)] (validate-runtime-generation! (->StoreRuntimeGeneration promoted recovery)))
+    (instance? Native match__12) (let [_ (:release-root match__12) _ (:beagle-revision match__12) _ (:beagle-tree match__12) _ (:artifact-root match__12) _ (:closure-sha256 match__12) _ (:server-artifact match__12) _ (:server-sha256 match__12)] (fail "Only an accepted JVM member can advance runtime authority" :north.store-runtime-manifest/invalid-promotion {}))))) (promote-transition! selected candidate)))
+
+(defn ^StoreRuntimeGeneration initial-promotion-transition! [candidate]
+  (let [promoted (validate-jvm-member-for-purpose! candidate :promotion-candidate)]
+  (let [match__13 promoted]
+  (cond
+    (instance? JVM match__13) (let [_ (:output match__13) _ (:package-nar-sha256 match__13) _ (:beagle-revision match__13) _ (:beagle-tree match__13) _ (:manifest-path match__13) _ (:manifest-bytes match__13) _ (:manifest-sha256 match__13) _ (:manifest match__13)] (validate-runtime-generation! (->StoreRuntimeGeneration promoted accepted-native-runtime)))
+    (instance? Native match__13) (let [_ (:release-root match__13) _ (:beagle-revision match__13) _ (:beagle-tree match__13) _ (:artifact-root match__13) _ (:closure-sha256 match__13) _ (:server-artifact match__13) _ (:server-sha256 match__13)] (fail "Only an accepted JVM member can initialize promotion" :north.store-runtime-manifest/invalid-promotion {}))))))
 
 (defn ^StoreRuntimeGeneration rollback-transition! [^StoreRuntimeGeneration selected]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)]
@@ -377,16 +398,16 @@
 
 (defn ^StoreRuntimeGeneration restore-transition! [^StoreRuntimeGeneration selected]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! selected)]
-  (let [match__13 (:current checked)]
+  (let [match__14 (:current checked)]
   (cond
-    (instance? JVM match__13) (let [_ (:output match__13) _ (:package-nar-sha256 match__13) _ (:beagle-revision match__13) _ (:beagle-tree match__13) _ (:manifest-path match__13) _ (:manifest-bytes match__13) _ (:manifest-sha256 match__13) _ (:manifest match__13)] checked)
-    (instance? Native match__13) (let [_ (:release-root match__13) _ (:beagle-revision match__13) _ (:beagle-tree match__13) _ (:artifact-root match__13) _ (:closure-sha256 match__13) _ (:server-artifact match__13) _ (:server-sha256 match__13)] (validate-runtime-generation! (->StoreRuntimeGeneration (jvm-member! checked) (native-member! checked))))))))
+    (instance? JVM match__14) (let [_ (:output match__14) _ (:package-nar-sha256 match__14) _ (:beagle-revision match__14) _ (:beagle-tree match__14) _ (:manifest-path match__14) _ (:manifest-bytes match__14) _ (:manifest-sha256 match__14) _ (:manifest match__14)] checked)
+    (instance? Native match__14) (let [_ (:release-root match__14) _ (:beagle-revision match__14) _ (:beagle-tree match__14) _ (:artifact-root match__14) _ (:closure-sha256 match__14) _ (:server-artifact match__14) _ (:server-sha256 match__14)] (validate-runtime-generation! (->StoreRuntimeGeneration (jvm-member! checked) (native-member! checked))))))))
 
 (defn runtime-member-status-lines [^String prefix member]
-  (let [match__14 member]
+  (let [match__15 member]
   (cond
-    (instance? JVM match__14) (let [output (:output match__14) package-nar-sha256 (:package-nar-sha256 match__14) beagle-revision (:beagle-revision match__14) beagle-tree (:beagle-tree match__14) manifest-path (:manifest-path match__14) manifest-bytes (:manifest-bytes match__14) manifest-sha256 (:manifest-sha256 match__14) _ (:manifest match__14)] [(str prefix ".kind=jvm") (str prefix ".output=" output) (str prefix ".nar=" package-nar-sha256) (str prefix ".revision=" beagle-revision) (str prefix ".tree=" beagle-tree) (str prefix ".manifest_path=" manifest-path) (str prefix ".manifest_bytes=" manifest-bytes) (str prefix ".manifest_sha256=" manifest-sha256)])
-    (instance? Native match__14) (let [release-root (:release-root match__14) beagle-revision (:beagle-revision match__14) beagle-tree (:beagle-tree match__14) artifact-root (:artifact-root match__14) closure-sha256 (:closure-sha256 match__14) server-artifact (:server-artifact match__14) server-sha256 (:server-sha256 match__14)] [(str prefix ".kind=native") (str prefix ".release_root=" release-root) (str prefix ".revision=" beagle-revision) (str prefix ".tree=" beagle-tree) (str prefix ".artifact_root=" artifact-root) (str prefix ".closure_sha256=" closure-sha256) (str prefix ".server=" server-artifact) (str prefix ".server_sha256=" server-sha256)]))))
+    (instance? JVM match__15) (let [output (:output match__15) package-nar-sha256 (:package-nar-sha256 match__15) beagle-revision (:beagle-revision match__15) beagle-tree (:beagle-tree match__15) manifest-path (:manifest-path match__15) manifest-bytes (:manifest-bytes match__15) manifest-sha256 (:manifest-sha256 match__15) _ (:manifest match__15)] [(str prefix ".kind=jvm") (str prefix ".output=" output) (str prefix ".nar=" package-nar-sha256) (str prefix ".revision=" beagle-revision) (str prefix ".tree=" beagle-tree) (str prefix ".manifest_path=" manifest-path) (str prefix ".manifest_bytes=" manifest-bytes) (str prefix ".manifest_sha256=" manifest-sha256)])
+    (instance? Native match__15) (let [release-root (:release-root match__15) beagle-revision (:beagle-revision match__15) beagle-tree (:beagle-tree match__15) artifact-root (:artifact-root match__15) closure-sha256 (:closure-sha256 match__15) server-artifact (:server-artifact match__15) server-sha256 (:server-sha256 match__15)] [(str prefix ".kind=native") (str prefix ".release_root=" release-root) (str prefix ".revision=" beagle-revision) (str prefix ".tree=" beagle-tree) (str prefix ".artifact_root=" artifact-root) (str prefix ".closure_sha256=" closure-sha256) (str prefix ".server=" server-artifact) (str prefix ".server_sha256=" server-sha256)]))))
 
 (defn generation-status-lines! [^StoreRuntimeGeneration generation]
   (let [^StoreRuntimeGeneration checked (validate-runtime-generation! generation)]

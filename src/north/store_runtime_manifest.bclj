@@ -48,6 +48,8 @@
    manifest-sha256 String
    manifest StoreRuntimeManifest])
 
+(defenum JVMRuntimeAuthorityPurpose :selected :promotion-candidate)
+
 (defunion RuntimeMember
   (JVM
     [output String
@@ -285,7 +287,7 @@
 (def ^:private promotion-source-output String
   "/nix/store/2ir9941jx1glsh1wvwa67cbkqf9xjwdr-beagle-store-jvm-composite-1-e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4")
 
-(def ^:private promotion-source-jvm-authority JVMRuntimeAuthority
+(def ^:private retained-jvm-authority JVMRuntimeAuthority
   (jvm-runtime-authority
    promotion-source-output
    "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI="
@@ -295,18 +297,23 @@
    349
    "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
 
+(def ^:private jvm-authorities-by-purpose
+  (Map JVMRuntimeAuthorityPurpose (Vec JVMRuntimeAuthority))
+  {:selected [current-jvm-authority retained-jvm-authority]
+   :promotion-candidate [current-jvm-authority]})
+
 (def ^:private promotion-source-manifest StoreRuntimeManifest
-  (:manifest promotion-source-jvm-authority))
+  (:manifest retained-jvm-authority))
 
 (def ^:private promotion-source-jvm RuntimeMember
   (->JVM
    promotion-source-output
-   (:package-nar-sha256 promotion-source-jvm-authority)
-   (:beagle-revision promotion-source-jvm-authority)
-   (:beagle-tree promotion-source-jvm-authority)
+   (:package-nar-sha256 retained-jvm-authority)
+   (:beagle-revision retained-jvm-authority)
+   (:beagle-tree retained-jvm-authority)
    (manifest-path-for promotion-source-output)
-   (:manifest-bytes promotion-source-jvm-authority)
-   (:manifest-sha256 promotion-source-jvm-authority)
+   (:manifest-bytes retained-jvm-authority)
+   (:manifest-sha256 retained-jvm-authority)
    promotion-source-manifest))
 
 (defn- line-value
@@ -415,10 +422,37 @@
            :north.store-runtime-manifest/invalid-generation-shape
            {})]))
 
+(defn- jvm-authority-for-revision!
+  [purpose JVMRuntimeAuthorityPurpose
+   beagle-revision String] JVMRuntimeAuthority
+  (let [authorities (Vec JVMRuntimeAuthority) (get jvm-authorities-by-purpose purpose [])
+        matches (Vec JVMRuntimeAuthority) (filterv
+         (fn [authority JVMRuntimeAuthority] Bool
+           (= beagle-revision (:beagle-revision authority)))
+         authorities)]
+    (if (= (count matches) 1)
+      (nth matches 0)
+      (fail "Store JVM revision is not admitted for this runtime purpose"
+            :north.store-runtime-manifest/jvm-authority-mismatch
+            {:purpose purpose :actual beagle-revision}))))
+
+(defn- validate-jvm-member-for-purpose!
+  [member RuntimeMember
+   purpose JVMRuntimeAuthorityPurpose] RuntimeMember
+  (match member
+    [(JVM _ _ beagle-revision _ _ _ _ _)
+     (validate-jvm-authority!
+      member
+      (jvm-authority-for-revision! purpose beagle-revision))]
+    [(Native _ _ _ _ _ _ _)
+     (fail "Store JVM purpose cannot validate a Native member"
+           :north.store-runtime-manifest/invalid-generation-shape
+           {:purpose purpose})]))
+
 (defn validate-runtime-member! [member RuntimeMember] RuntimeMember
   (match member
     [(JVM _ _ _ _ _ _ _ _)
-     (validate-jvm-authority! member current-jvm-authority)]
+     (validate-jvm-member-for-purpose! member :selected)]
     [(Native release-root beagle-revision beagle-tree artifact-root
              closure-sha256 server-artifact server-sha256)
      (do
@@ -488,33 +522,26 @@
            (= (:previous generation) promotion-source-jvm))))
 
 (defn validate-promotion-source-member! [member RuntimeMember] RuntimeMember
-  (if (= member promotion-source-jvm)
-    (validate-jvm-authority! member promotion-source-jvm-authority)
-    (validate-runtime-member! member)))
+  (validate-runtime-member! member))
 
 (defn validate-promotion-source-generation! [generation StoreRuntimeGeneration] StoreRuntimeGeneration
-  (if (promotion-source-generation? generation)
-    (do
-      (validate-promotion-source-member! (:current generation))
-      (validate-promotion-source-member! (:previous generation))
-      generation)
-    (validate-runtime-generation! generation)))
+  (validate-runtime-generation! generation))
 
 (defn attest-promotion-source-runtime!
   [member RuntimeMember
    observed-nar-sha256 String
    observed-manifest-sha256 String
    manifest-text String] RuntimeMember
-  (let [checked RuntimeMember (validate-jvm-authority! member promotion-source-jvm-authority)
+  (let [checked RuntimeMember (validate-jvm-authority! member retained-jvm-authority)
         actual StoreRuntimeManifest (parse-runtime-manifest! manifest-text)
         expected-text String (canonical-manifest-text! promotion-source-manifest)]
     (if (and (= checked promotion-source-jvm)
              (= observed-nar-sha256
-                (:package-nar-sha256 promotion-source-jvm-authority))
+                (:package-nar-sha256 retained-jvm-authority))
              (= observed-manifest-sha256
-                (:manifest-sha256 promotion-source-jvm-authority))
+                (:manifest-sha256 retained-jvm-authority))
              (= (count manifest-text)
-                (:manifest-bytes promotion-source-jvm-authority))
+                (:manifest-bytes retained-jvm-authority))
              (= manifest-text expected-text)
              (= actual promotion-source-manifest))
       checked
@@ -522,26 +549,47 @@
             :north.store-runtime-manifest/promotion-source-mismatch
             {}))))
 
+(defn- jvm-runtime-for-purpose!
+  [purpose JVMRuntimeAuthorityPurpose
+   output String
+   observed-nar-sha256 String
+   observed-manifest-sha256 String
+   manifest-text String] RuntimeMember
+  (let [facts StoreRuntimeManifest (parse-runtime-manifest! manifest-text)
+        authority JVMRuntimeAuthority (jvm-authority-for-revision! purpose (:beagle-revision facts))
+        expected-text String (canonical-manifest-text! (:manifest authority))
+        member RuntimeMember (->JVM
+         output
+         observed-nar-sha256
+         (:beagle-revision authority)
+         (:beagle-tree authority)
+         (manifest-path-for output)
+         (count manifest-text)
+         observed-manifest-sha256
+         facts)]
+    (if (= manifest-text expected-text)
+      (validate-jvm-member-for-purpose! member purpose)
+      (fail "Store JVM manifest bytes do not equal the admitted producer text"
+            :north.store-runtime-manifest/manifest-bytes-mismatch
+            {:purpose purpose}))))
+
 (defn accepted-jvm-runtime!
   [output String
    observed-nar-sha256 String
    observed-manifest-sha256 String
    manifest-text String] RuntimeMember
-  (let [facts StoreRuntimeManifest (parse-runtime-manifest! manifest-text)
-        member RuntimeMember (->JVM
-         output
-         observed-nar-sha256
-         accepted-jvm-revision
-         accepted-jvm-tree
-         (manifest-path-for output)
-         (count manifest-text)
-         observed-manifest-sha256
-         facts)]
-    (if (= manifest-text accepted-runtime-manifest-text)
-      (validate-runtime-member! member)
-      (fail "Store JVM manifest bytes do not equal the accepted producer text"
-            :north.store-runtime-manifest/manifest-bytes-mismatch
-            {}))))
+  (jvm-runtime-for-purpose!
+   :selected
+   output observed-nar-sha256 observed-manifest-sha256 manifest-text))
+
+(defn promotion-candidate-jvm-runtime!
+  [output String
+   observed-nar-sha256 String
+   observed-manifest-sha256 String
+   manifest-text String] RuntimeMember
+  (jvm-runtime-for-purpose!
+   :promotion-candidate
+   output observed-nar-sha256 observed-manifest-sha256 manifest-text))
 
 (defn accepted-runtime-generation-for!
   [output String
@@ -574,19 +622,20 @@
         actual StoreRuntimeManifest (parse-runtime-manifest! text)]
     (match member
       [(JVM _ _ _ _ _ manifest-bytes _ expected)
-       (if (not (= (count text) manifest-bytes))
-         (fail "Store runtime manifest byte count does not equal the accepted binding"
-               :north.store-runtime-manifest/manifest-size-mismatch
-               {:expected manifest-bytes :actual (count text)})
-         (if (not (= text accepted-runtime-manifest-text))
-           (fail "Store runtime manifest bytes do not equal the accepted binding"
-                 :north.store-runtime-manifest/manifest-bytes-mismatch
-                 {})
-           (if (= actual expected)
-             (->StoreRuntimeAttestation checked actual)
-             (fail "Store runtime manifest facts do not equal the expected immutable binding"
-                   :north.store-runtime-manifest/binding-mismatch
-                   {:expected expected :actual actual}))))]
+       (let [expected-text String (canonical-manifest-text! expected)]
+         (if (not (= (count text) manifest-bytes))
+           (fail "Store runtime manifest byte count does not equal the accepted binding"
+                 :north.store-runtime-manifest/manifest-size-mismatch
+                 {:expected manifest-bytes :actual (count text)})
+           (if (not (= text expected-text))
+             (fail "Store runtime manifest bytes do not equal the accepted binding"
+                   :north.store-runtime-manifest/manifest-bytes-mismatch
+                   {})
+             (if (= actual expected)
+               (->StoreRuntimeAttestation checked actual)
+               (fail "Store runtime manifest facts do not equal the expected immutable binding"
+                     :north.store-runtime-manifest/binding-mismatch
+                     {:expected expected :actual actual})))))]
       [(Native _ _ _ _ _ _ _)
        (fail "Store runtime generation has no JVM member"
              :north.store-runtime-manifest/missing-jvm
@@ -596,7 +645,7 @@
   [selected StoreRuntimeGeneration
    candidate RuntimeMember] StoreRuntimeGeneration
   (let [checked StoreRuntimeGeneration (validate-runtime-generation! selected)
-        promoted RuntimeMember (validate-runtime-member! candidate)]
+        promoted RuntimeMember (validate-jvm-member-for-purpose! candidate :promotion-candidate)]
     (match promoted
       [(JVM _ _ _ _ _ _ _ _)
        (if (= promoted (:current checked))
@@ -613,7 +662,7 @@
    candidate RuntimeMember] StoreRuntimeGeneration
   (if (promotion-source-generation? selected)
     (let [checked StoreRuntimeGeneration (validate-promotion-source-generation! selected)
-          promoted RuntimeMember (validate-runtime-member! candidate)
+          promoted RuntimeMember (validate-jvm-member-for-purpose! candidate :promotion-candidate)
           recovery RuntimeMember (match (:current checked)
             [(JVM _ _ _ _ _ _ _ _) (:previous checked)]
             [(Native _ _ _ _ _ _ _) (:current checked)])]
@@ -628,7 +677,7 @@
     (promote-transition! selected candidate)))
 
 (defn initial-promotion-transition! [candidate RuntimeMember] StoreRuntimeGeneration
-  (let [promoted RuntimeMember (validate-runtime-member! candidate)]
+  (let [promoted RuntimeMember (validate-jvm-member-for-purpose! candidate :promotion-candidate)]
     (match promoted
       [(JVM _ _ _ _ _ _ _ _)
        (validate-runtime-generation!

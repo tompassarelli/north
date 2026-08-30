@@ -1,0 +1,1004 @@
+#lang beagle/clj
+
+(ns north.store-runtime-generation
+  (:require [babashka.process :as proc]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.string :as str]
+            [north.store-runtime-manifest :as manifest])
+  (:import [java.nio ByteBuffer]
+           [java.nio.channels FileChannel]
+           [java.nio.charset StandardCharsets]
+           [java.nio.file CopyOption Files LinkOption OpenOption Path Paths
+            StandardCopyOption StandardOpenOption]
+           [java.nio.file.attribute BasicFileAttributes FileAttribute]
+           [java.security MessageDigest]
+           [java.util UUID]
+           [java.util.concurrent TimeUnit]))
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern with-bindings (Fn [Any Any] Any))
+
+(def ^:private north-root String
+  (.getCanonicalPath
+   (io/file (.getParentFile (io/file *file*)) "..")))
+
+(load-file (str north-root "/cli/runtime-attestation.clj"))
+
+(def ^:private runtime-read-selection! Any
+  (requiring-resolve 'north.runtime-attestation/read-selection!))
+(def ^:private runtime-launch-spec! Any
+  (requiring-resolve 'north.runtime-attestation/launch-spec!))
+(def ^:private runtime-generation-evidence! Any
+  (requiring-resolve 'north.runtime-attestation/active-generation-evidence!))
+(def ^:private runtime-publish-record! Any
+  (requiring-resolve 'north.runtime-attestation/publish-runtime-record!))
+(def ^:private runtime-attest-record! Any
+  (requiring-resolve 'north.runtime-attestation/attest-runtime-record!))
+(def ^:private runtime-default-record-path Any
+  (requiring-resolve 'north.runtime-attestation/default-runtime-record-path))
+(def ^:private runtime-state-root-var Any
+  (requiring-resolve 'north.runtime-attestation/*store-runtime-state-root*))
+(def ^:private read-edn-with-readers! Any
+  (requiring-resolve 'clojure.edn/read-string))
+
+(defrecord JVMPackageObservation
+  [output String
+   nar-sha256 String
+   manifest-sha256 String
+   manifest-text String])
+
+(defrecord SelectedGeneration
+  [target Any
+   root Any
+   generation manifest/StoreRuntimeGeneration])
+
+(defalias MaybeSelectedGeneration (U SelectedGeneration Nil))
+
+(defrecord WrittenGeneration
+  [id String
+   root Any
+   target Any
+   generation manifest/StoreRuntimeGeneration
+   selection (Map String String)])
+
+(defonce in-process-lock Any (Object.))
+
+(def ^:dynamic *after-selector-move!* (Fn [WrittenGeneration] Nil)
+  (fn [_selection WrittenGeneration] Nil nil))
+
+(def ^:private generation-file-name String "generation.edn")
+(def ^:private client-file-name String "client.env")
+(def ^:private max-generation-bytes Int 32768)
+(def ^:private live-unit String "north-store.service")
+(def ^:private status-timeout-ms Int 15000)
+(def ^:private command-output-limit Int 65536)
+
+(def ^:private runtime-selection-keys (Set String)
+  #{"BEAGLE_STORE_HOME" "BEAGLE_STORE_BIN" "BEAGLE_STORE_OUT"
+    "NORTH_STORE_OUT" "BEAGLE_STORE_PACKAGED"
+    "BEAGLE_STORE_SERVER_RUNTIME" "BEAGLE_STORE_SERVER_CLASSPATH_FILE"
+    "BEAGLE_STORE_JAVA" "BEAGLE_STORE_SERVER_LOG"
+    "BEAGLE_STORE_NATIVE_ARTIFACT_DIR"
+    "BEAGLE_STORE_NATIVE_CLOSURE_SHA256"
+    "BEAGLE_STORE_SERVER_ARTIFACT"
+    "BEAGLE_STORE_SERVER_ARTIFACT_SHA256"
+    "BEAGLE_STORE_SERVER_G1_REGION"
+    "BEAGLE_STORE_SERVER_NO_OOM_EXIT"})
+
+(def ^:private generation-readers Any
+  {'north.store_runtime_manifest.StoreRuntimeManifest
+   manifest/map->StoreRuntimeManifest
+   'north.store_runtime_manifest.JVM manifest/map->JVM
+   'north.store_runtime_manifest.Native manifest/map->Native
+   'north.store_runtime_manifest.StoreRuntimeGeneration
+   manifest/map->StoreRuntimeGeneration})
+
+(defn- fail!
+  [message String
+   data Any] Any
+  (throw (ex-info message (assoc data :type :north.store-runtime-generation/error))))
+
+(defn- path [value Any] Any
+  (.toAbsolutePath (.normalize (.toPath (io/file value)))))
+
+(defn environment! [] manifest/StoreRuntimeEnvironment
+  (manifest/derive-runtime-environment!
+   (or (System/getenv "NORTH_STORE_RUNTIME_STATE")
+       manifest/canonical-store-runtime-root)))
+
+(def environment (Fn [] manifest/StoreRuntimeEnvironment) environment!)
+
+(defn- published-selection-path [] String
+  (or (System/getenv "NORTH_STORE_SELECTION")
+      (str (or (System/getenv "XDG_STATE_HOME")
+               (str (System/getProperty "user.home") "/.local/state"))
+           "/north/beagle-store.env")))
+
+(defn- live-environment?
+  [runtime-environment manifest/StoreRuntimeEnvironment] Bool
+  (= manifest/canonical-store-runtime-root (:state-root runtime-environment)))
+
+(defn- no-links [] Any
+  (make-array LinkOption 0))
+
+(defn- nofollow-links [] Any
+  (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))
+
+(defn- file-attributes [] Any
+  (make-array FileAttribute 0))
+
+(defn- open-options [values Any] Any
+  (into-array OpenOption values))
+
+(defn- copy-options [values Any] Any
+  (into-array CopyOption values))
+
+(defn- ensure-directory! [directory Any] Any
+  (Files/createDirectories directory (file-attributes))
+  (when (Files/isSymbolicLink directory)
+    (fail! "Store runtime directory must not be a symbolic link"
+           {:path (str directory)}))
+  directory)
+
+(defn- fsync-directory! [directory Any] Any
+  (with-open [channel (FileChannel/open
+                       directory
+                       (open-options [StandardOpenOption/READ]))]
+    (.force channel true)))
+
+(defn- write-file-fsynced!
+  [target Any
+   bytes Any] Any
+  (with-open [channel (FileChannel/open
+                       target
+                       (open-options [StandardOpenOption/CREATE_NEW
+                                      StandardOpenOption/WRITE]))]
+    (let [buffer Any (ByteBuffer/wrap bytes)]
+      (loop []
+        (when (.hasRemaining buffer)
+          (.write channel buffer)
+          (recur)))
+      (.force channel true)))
+  target)
+
+(defn- atomic-write-file!
+  [target Any
+   bytes Any] Any
+  (let [directory (.getParent ^Path target)
+        temporary (.resolve directory (str ".client.next." (UUID/randomUUID)))]
+    (try
+      (write-file-fsynced! temporary bytes)
+      (Files/move temporary target
+                  (copy-options [StandardCopyOption/ATOMIC_MOVE
+                                 StandardCopyOption/REPLACE_EXISTING]))
+      (fsync-directory! directory)
+      (finally
+        (Files/deleteIfExists temporary)))))
+
+(defn- client-values-with!
+  [validate-member! (Fn [manifest/RuntimeMember] manifest/RuntimeMember)
+   member manifest/RuntimeMember
+   base (Map String String)] (Map String String)
+  (let [checked (validate-member! member)
+        common (apply dissoc base runtime-selection-keys)
+        values (match checked
+          [(manifest/JVM output _ _ _ _ _ _ _)
+           (let [out (manifest/jvm-store-out-for output)]
+            {"BEAGLE_STORE_HOME" (manifest/jvm-store-home-for output)
+             "BEAGLE_STORE_BIN" (manifest/jvm-store-bin-for output)
+             "BEAGLE_STORE_OUT" out
+             "NORTH_STORE_OUT" out
+             "BEAGLE_STORE_PACKAGED" "1"
+             "BEAGLE_STORE_SERVER_RUNTIME" "jvm"})]
+
+          [(manifest/Native release _ _ artifact-root closure-sha256
+                            server-artifact server-sha256)
+           (let [out (str release "/out")]
+            {"BEAGLE_STORE_HOME" release
+             "BEAGLE_STORE_BIN" (str release "/bin")
+             "BEAGLE_STORE_OUT" out
+             "NORTH_STORE_OUT" out
+             "BEAGLE_STORE_SERVER_RUNTIME" "native"
+             "BEAGLE_STORE_NATIVE_ARTIFACT_DIR" artifact-root
+             "BEAGLE_STORE_NATIVE_CLOSURE_SHA256" closure-sha256
+             "BEAGLE_STORE_SERVER_ARTIFACT" server-artifact
+             "BEAGLE_STORE_SERVER_ARTIFACT_SHA256" server-sha256})])]
+    (merge common values)))
+
+(defn- client-values!
+  [member manifest/RuntimeMember
+   base (Map String String)] (Map String String)
+  (client-values-with! manifest/validate-runtime-member! member base))
+
+(defn- client-text! [values (Map String String)] String
+  (apply str
+         (for [[key value] (sort-by key values)]
+           (do
+             (when-not (and (re-matches #"[A-Z][A-Z0-9_]*" key)
+                            (string? value)
+                            (not (str/blank? value))
+                            (nil? (re-find #"['\n\r]" value)))
+               (fail! "Store client selection contains a noncanonical binding"
+                      {:key key :value value}))
+             (str "export " key "='" value "'\n")))))
+
+(defn- client-path [generation-root Any] Any
+  (.resolve ^Path generation-root client-file-name))
+
+(defn- read-client! [generation-root Any] (Map String String)
+  (runtime-read-selection! (str (client-path generation-root))))
+
+(defn- published-selection-target [] Any
+  (let [selection (io/file (published-selection-path))
+        parent (.getCanonicalFile (.getParentFile selection))]
+    (.toPath (io/file parent (.getName selection)))))
+
+(defn- active-client-target
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (.resolve (path (:active-selector runtime-environment)) client-file-name))
+
+(defn- install-published-selection!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (let [target (published-selection-target)
+        directory (.getParent target)
+        source (active-client-target runtime-environment)
+        temporary (.resolve directory (str ".selection.next." (UUID/randomUUID)))]
+    (ensure-directory! directory)
+    (when (or (Files/isDirectory target (nofollow-links))
+              (and (Files/exists target (nofollow-links))
+                   (not (or (Files/isRegularFile target (nofollow-links))
+                            (Files/isSymbolicLink target)))))
+      (fail! "Published Store client selection is not a file or link"
+             {:path (str target)}))
+    (try
+      (Files/createSymbolicLink temporary source (file-attributes))
+      (Files/move temporary target
+                  (copy-options [StandardCopyOption/ATOMIC_MOVE
+                                 StandardCopyOption/REPLACE_EXISTING]))
+      (fsync-directory! directory)
+      (finally
+        (Files/deleteIfExists temporary)))
+    target))
+
+(defn- restore-published-selection! [selection (Map String String)] Any
+  (atomic-write-file!
+   (published-selection-target)
+   (.getBytes (client-text! selection) StandardCharsets/UTF_8)))
+
+(defn- with-selector-lock!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   operation (Fn [] Any)] Any
+  (locking in-process-lock
+    (let [state-root (ensure-directory!
+                      (path (:state-root runtime-environment)))
+          generations-root (ensure-directory!
+                            (path (:generations-root runtime-environment)))
+          lock-path (path (:selector-lock runtime-environment))]
+      (when-not (= (.getParent generations-root) state-root)
+        (fail! "Store runtime generations root escaped the state root"
+               {:state-root (str state-root)
+                :generations-root (str generations-root)}))
+      (with-open [channel
+                  (FileChannel/open
+                   lock-path
+                   (open-options [StandardOpenOption/CREATE
+                                  StandardOpenOption/WRITE
+                                  LinkOption/NOFOLLOW_LINKS]))]
+        (let [_held (.lock (: channel Any))]
+          (operation))))))
+
+(def ^:private with-selector-lock
+  (Fn [manifest/StoreRuntimeEnvironment (Fn [] Any)] Any)
+  with-selector-lock!)
+
+(defn- sha256-hex [bytes Any] String
+  (let [digest (.digest (MessageDigest/getInstance "SHA-256") bytes)]
+    (apply str
+           (map (fn [byte Any] String
+                  (format "%02x" (bit-and (int byte) 255)))
+                digest))))
+
+(defn- run-command! [arguments (Vec String)] String
+  (let [process-builder Any (ProcessBuilder. ^java.util.List (vec arguments))
+        _ Any (.redirectErrorStream process-builder true)
+        process Any (.start process-builder)
+        output String (slurp (.getInputStream process))
+        exit Int (.waitFor process)]
+    (when-not (zero? exit)
+      (fail! "Store runtime metadata command failed"
+             {:arguments (vec arguments) :exit exit :output output}))
+    output))
+
+(defn- run-command-bounded!
+  [arguments (Vec String)
+   timeout-ms Int] String
+  (let [running Any (proc/process {:cmd (vec arguments) :out :string :err :string})
+        process Any (:proc running)
+        completed Bool (.waitFor process (long timeout-ms)
+                                 TimeUnit/MILLISECONDS)]
+    (when-not completed
+      (.destroy process)
+      (when-not (.waitFor process 2 TimeUnit/SECONDS)
+        (.destroyForcibly process))
+      (fail! "Store runtime command exceeded its exact deadline"
+             {:arguments (vec arguments) :timeout-ms timeout-ms}))
+    (let [result @running
+          output (str (:out result) (:err result))]
+      (when (> (count output) command-output-limit)
+        (fail! "Store runtime command exceeded its output bound"
+               {:arguments (vec arguments)
+                :maximum command-output-limit :actual (count output)}))
+      (when-not (zero? (:exit result))
+        (fail! "Store runtime command failed"
+               {:arguments (vec arguments) :exit (:exit result)
+                :output output}))
+      (str/trim output))))
+
+(defn- service-override-path [] Any
+  (io/file (or (System/getenv "XDG_CONFIG_HOME")
+               (str (System/getProperty "user.home") "/.config"))
+           "systemd" "user" (str live-unit ".d")
+           "50-north-store-runtime.conf"))
+
+(defn- install-live-service-override! [] Any
+  (when-not (= north-root "/home/tom/code/north/main")
+    (fail! "Live Store switching must run from canonical North main"
+           {:north-root north-root}))
+  (let [target (.toPath (service-override-path))
+        directory (.getParent target)
+        temporary (.resolve directory (str ".runtime.next." (UUID/randomUUID)))
+        tool (str north-root "/bin/north-store-runtime")
+        text (str "[Service]\n"
+                  "NotifyAccess=all\n"
+                  "ExecStart=\n"
+                  "ExecStart=" tool " launch\n"
+                  "ExecStartPost=\n"
+                  "ExecStartPost=" tool
+                  " publish-runtime $MAINPID " live-unit "\n"
+                  "Environment=NORTH_STORE_RUNTIME_STATE="
+                  manifest/canonical-store-runtime-root "\n")
+        existed? (Files/exists target (nofollow-links))
+        _ (when (Files/isSymbolicLink target)
+            (fail! "Store runtime systemd override must not be a link"
+                   {:path (str target)}))
+        previous (when existed? (Files/readAllBytes target))]
+    (Files/createDirectories directory (file-attributes))
+    (when (Files/isSymbolicLink directory)
+      (fail! "Store runtime systemd override directory must not be a link"
+             {:path (str directory)}))
+    (try
+      (Files/writeString temporary text StandardCharsets/UTF_8
+                         (into-array OpenOption
+                                     [StandardOpenOption/CREATE_NEW
+                                      StandardOpenOption/WRITE]))
+      (Files/move temporary target
+                  (copy-options [StandardCopyOption/ATOMIC_MOVE
+                                 StandardCopyOption/REPLACE_EXISTING]))
+      (finally
+        (Files/deleteIfExists temporary)))
+    (try
+      (run-command-bounded! ["systemctl" "--user" "daemon-reload"]
+                            status-timeout-ms)
+      (catch Throwable original
+        (try
+          (if existed?
+            (Files/write target ^bytes previous
+                         (open-options [StandardOpenOption/TRUNCATE_EXISTING
+                                        StandardOpenOption/WRITE]))
+            (Files/deleteIfExists target))
+          (run-command-bounded! ["systemctl" "--user" "daemon-reload"]
+                                status-timeout-ms)
+          (catch Throwable restore-error
+            (.addSuppressed original restore-error)))
+        (throw original)))
+    target))
+
+(defn- query-nar-sha256! [output String] String
+  (let [json (run-command! ["nix" "path-info" "--json" output])
+        found (re-find #"\"narHash\"\s*:\s*\"([^\"]+)\"" json)]
+    (or (second found)
+        (fail! "Nix path metadata omitted narHash"
+               {:output output :metadata json}))))
+
+(defn- observe-jvm-package! [output String] JVMPackageObservation
+  (let [output-path (path output)
+        output-text (str output-path)
+        _ (when-not (and (Files/isDirectory output-path (nofollow-links))
+                         (manifest/canonical-package-root? output-text))
+            (fail! "Store JVM output must be a present canonical /nix/store directory"
+                   {:output output-text}))
+        manifest-path (path (manifest/manifest-path-for output-text))
+        _ (when-not (Files/isRegularFile manifest-path (nofollow-links))
+            (fail! "Store JVM runtime.manifest is missing or not a regular file"
+                   {:path (str manifest-path)}))
+        bytes (Files/readAllBytes manifest-path)
+        text (String. bytes StandardCharsets/UTF_8)
+        manifest-sha256 (sha256-hex bytes)
+        nar-sha256 (query-nar-sha256! output-text)]
+    (->JVMPackageObservation
+     output-text nar-sha256 manifest-sha256 text)))
+
+(defn observe-jvm-runtime! [output String] manifest/RuntimeMember
+  (let [observation JVMPackageObservation (observe-jvm-package! output)]
+    (manifest/promotion-candidate-jvm-runtime!
+     (:output observation)
+     (:nar-sha256 observation)
+     (:manifest-sha256 observation)
+     (:manifest-text observation))))
+
+(defn- selected-jvm-member
+  [generation manifest/StoreRuntimeGeneration] manifest/RuntimeMember
+  (match (:current generation)
+    [(manifest/JVM _ _ _ _ _ _ _ _) (:current generation)]
+    [(manifest/Native _ _ _ _ _ _ _) (:previous generation)]))
+
+(defn- jvm-output! [member manifest/RuntimeMember] String
+  (match member
+    [(manifest/JVM output _ _ _ _ _ _ _) output]
+    [(manifest/Native _ _ _ _ _ _ _)
+     (fail! "Selected Store promotion source has no JVM member" {})]))
+
+(defn- attest-selected-promotion-source! [selected SelectedGeneration] SelectedGeneration
+  (let [generation (:generation selected)]
+    (when (manifest/promotion-source-generation? generation)
+      (let [member manifest/RuntimeMember (selected-jvm-member generation)
+            observation JVMPackageObservation (observe-jvm-package! (jvm-output! member))]
+        (manifest/attest-promotion-source-runtime!
+         member
+         (:nar-sha256 observation)
+         (:manifest-sha256 observation)
+         (:manifest-text observation))))
+    selected))
+
+(defn- generation-text!
+  [generation manifest/StoreRuntimeGeneration] String
+  (str (pr-str (manifest/validate-runtime-generation! generation)) "\n"))
+
+(defn- generation-record-state [record-path Any] (Vec Any)
+  (let [attributes Any (Files/readAttributes record-path BasicFileAttributes
+                                             (nofollow-links))]
+    [(.fileKey attributes) (.size attributes) (.lastModifiedTime attributes)]))
+
+(defn- read-generation-with!
+  [generation-root Any
+   validate-generation! (Fn [manifest/StoreRuntimeGeneration] manifest/StoreRuntimeGeneration)] manifest/StoreRuntimeGeneration
+  (let [record-path (.resolve generation-root generation-file-name)]
+    (when-not (Files/isRegularFile record-path (nofollow-links))
+      (fail! "Selected Store runtime generation has no regular record"
+             {:path (str record-path)}))
+    (let [before (generation-record-state record-path)
+          bytes (Files/readAllBytes record-path)
+          after (generation-record-state record-path)]
+      (when-not (= before after)
+        (fail! "Store runtime generation record changed while it was read"
+               {:path (str record-path)}))
+      (when (> (alength bytes) max-generation-bytes)
+        (fail! "Store runtime generation record exceeds its input bound"
+               {:path (str record-path)
+                :maximum max-generation-bytes
+                :actual (alength bytes)}))
+      (let [generation (read-edn-with-readers!
+                        {:readers generation-readers}
+                        (String. bytes StandardCharsets/UTF_8))]
+        (validate-generation! generation)))))
+
+(defn- read-generation! [generation-root Any] manifest/StoreRuntimeGeneration
+  (read-generation-with!
+   generation-root manifest/validate-runtime-generation!))
+
+(defn- read-promotion-source-generation! [generation-root Any] manifest/StoreRuntimeGeneration
+  (read-generation-with!
+   generation-root manifest/validate-promotion-source-generation!))
+
+(defn- selector-target!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (let [selector (path (:active-selector runtime-environment))]
+    (cond
+      (Files/isSymbolicLink selector)
+      (Files/readSymbolicLink selector)
+
+      (Files/exists selector (nofollow-links))
+      (fail! "Store runtime active selector must be a symbolic link"
+             {:selector (str selector)})
+
+      :else nil)))
+
+(defn- read-selected-generation-with!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   read-generation! (Fn [Any] manifest/StoreRuntimeGeneration)] MaybeSelectedGeneration
+  (when-let [target (selector-target! runtime-environment)]
+    (when (.isAbsolute ^Path target)
+      (fail! "Store runtime selector target must be relative"
+             {:target (str target)}))
+    (let [state-root (path (:state-root runtime-environment))
+          generations-root (path (:generations-root runtime-environment))
+          generation-root (.normalize (.resolve state-root ^Path target))]
+      (when-not (and (.startsWith generation-root generations-root)
+                     (= (.getParent generation-root) generations-root))
+        (fail! "Store runtime selector escaped the generations directory"
+               {:target (str target)}))
+      (->SelectedGeneration
+       target generation-root (read-generation! generation-root)))))
+
+(defn read-selected-generation!
+  [runtime-environment manifest/StoreRuntimeEnvironment] MaybeSelectedGeneration
+  (read-selected-generation-with! runtime-environment read-generation!))
+
+(def read-selected-generation
+  (Fn [manifest/StoreRuntimeEnvironment] MaybeSelectedGeneration)
+  read-selected-generation!)
+
+(defn- read-selected-promotion-source!
+  [runtime-environment manifest/StoreRuntimeEnvironment] MaybeSelectedGeneration
+  (read-selected-generation-with!
+   runtime-environment read-promotion-source-generation!))
+
+(def ^:private read-selected-promotion-source
+  (Fn [manifest/StoreRuntimeEnvironment] MaybeSelectedGeneration)
+  read-selected-promotion-source!)
+
+(defn- write-generation!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   generation manifest/StoreRuntimeGeneration
+   base-selection (Map String String)] WrittenGeneration
+  (let [generations-root (path (:generations-root runtime-environment))
+        generation-id (str (System/currentTimeMillis) "-" (UUID/randomUUID))
+        generation-root (.resolve generations-root generation-id)
+        record-path (.resolve generation-root generation-file-name)
+        client-selection (client-values! (:current generation) base-selection)
+        bytes (.getBytes (generation-text! generation) StandardCharsets/UTF_8)
+        client-bytes (.getBytes (client-text! client-selection)
+                                StandardCharsets/UTF_8)]
+    (Files/createDirectory generation-root (file-attributes))
+    (write-file-fsynced! record-path bytes)
+    (write-file-fsynced! (client-path generation-root) client-bytes)
+    (fsync-directory! generation-root)
+    (fsync-directory! generations-root)
+    (->WrittenGeneration
+     generation-id
+     generation-root
+     (Paths/get (str "generations/" generation-id)
+                (make-array String 0))
+     (read-generation! generation-root)
+     (read-client! generation-root))))
+
+(defn- prepare-client-publication-with!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   selected MaybeSelectedGeneration
+   validate-member! (Fn [manifest/RuntimeMember] manifest/RuntimeMember)]
+  (Map String String)
+  (if-not selected
+    (runtime-read-selection! (published-selection-path))
+    (let [selected-root Any (:root selected)
+          existing-client Any (client-path selected-root)
+          base (Map String String) (if (Files/isRegularFile existing-client (nofollow-links))
+            (runtime-read-selection! (str existing-client))
+            (runtime-read-selection! (published-selection-path)))
+          expected (Map String String) (client-values-with!
+           validate-member!
+           (:current (:generation selected))
+           base)]
+      (if (Files/exists existing-client (nofollow-links))
+        (when-not (= expected (runtime-read-selection! (str existing-client)))
+          (fail! "Selected Store generation carries the wrong client identity"
+                 {:generation (str selected-root)}))
+        (do
+          (write-file-fsynced!
+           existing-client
+           (.getBytes (client-text! expected) StandardCharsets/UTF_8))
+          (fsync-directory! selected-root)))
+      (install-published-selection! runtime-environment)
+      expected)))
+
+(defn- prepare-client-publication!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   selected MaybeSelectedGeneration] (Map String String)
+  (prepare-client-publication-with!
+   runtime-environment selected manifest/validate-runtime-member!))
+
+(defn- prepare-promotion-source-publication!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   selected MaybeSelectedGeneration] (Map String String)
+  (prepare-client-publication-with!
+   runtime-environment selected manifest/validate-promotion-source-member!))
+
+(defn- atomic-select!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   target Any] Any
+  (let [state-root (path (:state-root runtime-environment))
+        selector (path (:active-selector runtime-environment))
+        temporary (.resolve
+                   state-root
+                   (str ".active.next." (UUID/randomUUID)))]
+    (try
+      (Files/createSymbolicLink temporary ^Path target (file-attributes))
+      (Files/move temporary selector
+                  (copy-options [StandardCopyOption/ATOMIC_MOVE
+                                 StandardCopyOption/REPLACE_EXISTING]))
+      (fsync-directory! state-root)
+      (finally
+        (Files/deleteIfExists temporary)))))
+
+(defn- publish-generation-under-lock!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   generation manifest/StoreRuntimeGeneration
+   base-selection (Map String String)] SelectedGeneration
+  (let [previous-target (selector-target! runtime-environment)
+        written (write-generation!
+                 runtime-environment
+                 (manifest/validate-runtime-generation! generation)
+                 base-selection)
+        moved? (volatile! false)]
+    (try
+      (atomic-select! runtime-environment (:target written))
+      (vreset! moved? true)
+      (*after-selector-move!* written)
+      (install-published-selection! runtime-environment)
+      (let [selected (read-selected-generation! runtime-environment)]
+        (when-not (= (:generation written) (:generation selected))
+          (fail! "Store runtime selector readback differs from the complete generation"
+                 {:written (:generation written)
+                  :selected (:generation selected)}))
+        (when-not (= (:selection written) (read-client! (:root selected)))
+          (fail! "Store runtime selector readback has the wrong client identity"
+                 {:generation (str (:root selected))}))
+        selected)
+      (catch Throwable original
+        (when @moved?
+          (try
+            (if previous-target
+              (atomic-select! runtime-environment previous-target)
+              (do
+                (Files/deleteIfExists
+                 (path (:active-selector runtime-environment)))
+                (fsync-directory!
+                 (path (:state-root runtime-environment)))
+                (restore-published-selection! base-selection)))
+            (catch Throwable restore-error
+              (.addSuppressed original restore-error))))
+        (throw original)))))
+
+(defn publish-generation!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   generation manifest/StoreRuntimeGeneration] SelectedGeneration
+  (with-selector-lock!
+    runtime-environment
+    (fn [] Any
+      (let [selected (read-selected-generation! runtime-environment)
+            base (prepare-client-publication! runtime-environment selected)]
+        (publish-generation-under-lock!
+         runtime-environment generation base)))))
+
+(defn- selected-or-fail!
+  [runtime-environment manifest/StoreRuntimeEnvironment] SelectedGeneration
+  (or (read-selected-generation! runtime-environment)
+      (fail! "No Store runtime generation is selected"
+             {:selector (:active-selector runtime-environment)})))
+
+(defn- current-member!
+  [runtime-environment manifest/StoreRuntimeEnvironment]
+  manifest/RuntimeMember
+  (:current (:generation (selected-or-fail! runtime-environment))))
+
+(defn launch-current!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (let [selected SelectedGeneration (selected-or-fail! runtime-environment)
+        evidence Any (runtime-generation-evidence! (:state-root runtime-environment))
+        _ Any (when-not (= (:generation selected) (:generation evidence))
+            (fail! "Selected Store generation changed before launch"
+                   {:selected (:generation selected)
+                    :evidence (:generation evidence)}))
+        member manifest/RuntimeMember (:current (:generation selected))
+        selection (Map String String) (read-client! (:root selected))
+        {:keys [executable arguments environment]} Any (runtime-launch-spec! member selection)]
+    (apply proc/exec {:extra-env environment} executable arguments)))
+
+(defn publish-current-runtime!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   pid Any
+   controller-unit String] Any
+  (let [selected (selected-or-fail! runtime-environment)
+        evidence (runtime-generation-evidence! (:state-root runtime-environment))]
+    (when-not (= (str (:root selected)) (:root evidence))
+      (fail! "Selected Store generation changed before runtime publication"
+             {:selected (str (:root selected)) :evidence (:root evidence)}))
+    (when-not (= (:generation selected) (:generation evidence))
+      (fail! "Selected Store generation content changed before runtime publication"
+             {:selected (:generation selected) :evidence (:generation evidence)}))
+    (runtime-publish-record!
+     {:member (:current (:generation selected))
+      :generation-evidence evidence
+      :pid pid
+      :controller-unit controller-unit
+      :record-path (runtime-default-record-path)
+      :selection (read-client! (:root selected))})))
+
+(defn babashka-executable [] String
+  (or (System/getenv "NORTH_BB")
+      (let [self (path "/proc/self/exe")]
+        (when (Files/isExecutable self)
+          (str (.toRealPath self (no-links)))))
+      "bb"))
+
+(defn store-status-command!
+  [member manifest/RuntimeMember] (Vec String)
+  (let [checked (manifest/validate-runtime-member! member)]
+    (match checked
+      [(manifest/JVM output _ _ _ _ _ _ _)
+       [(manifest/jvm-dispatcher-path-for output) "store" "status"]]
+
+      [(manifest/Native release _ _ _ _ _ _)
+       [(babashka-executable)
+        "-cp" (manifest/native-client-classpath-for release)
+        (manifest/native-client-path-for release)
+        "status"]])))
+
+(defn- bounded-store-status-for!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   generation manifest/StoreRuntimeGeneration
+   expected-kind String] String
+  (let [current (:current generation)
+        command (store-status-command! current)
+        selected (read-selected-generation! runtime-environment)
+        selection (if selected
+                    (read-client! (:root selected))
+                    (runtime-read-selection! (published-selection-path)))
+        selected-kind (manifest/runtime-member-kind current)
+        launch-environment (:environment
+                            (runtime-launch-spec! current selection))
+        port (get launch-environment "BEAGLE_STORE_SERVER_PORT")
+        result (let [running Any (proc/process
+               {:cmd command
+                :extra-env (assoc launch-environment "NORTH_PORT" port)
+                :out :string :err :string})
+                     process Any (:proc running)
+                     completed Bool (.waitFor process status-timeout-ms
+                                       TimeUnit/MILLISECONDS)]
+                 (when-not completed
+            (.destroy process)
+            (when-not (.waitFor process 2 TimeUnit/SECONDS)
+              (.destroyForcibly process))
+            (fail! "beagle store status exceeded its exact deadline"
+                   {:timeout-ms status-timeout-ms}))
+          (let [done @running
+                output (str (:out done) (:err done))]
+            (when-not (and (zero? (:exit done))
+                           (<= (count output) command-output-limit))
+              (fail! "beagle store status failed"
+                     {:exit (:exit done) :output output}))
+            (str/trim output)))
+        fields (str/split result #"\|")
+        actual-kind (last fields)]
+    (when-not (and (= 5 (count fields))
+                   (= "up" (nth fields 0))
+                   (re-matches #"[0-9]+" (nth fields 1))
+                   (re-matches #"[0-9]+" (nth fields 2))
+                   (= "ready" (nth fields 3))
+                   (= expected-kind actual-kind))
+      (fail! "beagle store status does not report the selected ready runtime"
+             {:selected selected-kind :expected expected-kind :status result}))
+    result))
+
+(defn- bounded-store-status!
+  [runtime-environment manifest/StoreRuntimeEnvironment] String
+  (let [generation (:generation (selected-or-fail! runtime-environment))]
+    (bounded-store-status-for!
+     runtime-environment generation
+     (manifest/runtime-member-kind (:current generation)))))
+
+(defn attest-selected-live!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (let [record (runtime-default-record-path)
+        attestation (with-bindings {runtime-state-root-var (:state-root runtime-environment)}
+          (runtime-attest-record! record))
+        status (bounded-store-status! runtime-environment)
+        selected-kind (manifest/runtime-member-kind
+                       (current-member! runtime-environment))]
+    (when-not (= selected-kind (get-in attestation [:identity :runtime-kind]))
+      (fail! "Selected Store generation and listener attestation disagree"
+             {:selected selected-kind
+              :attested (get-in attestation [:identity :runtime-kind])}))
+    {:attestation attestation :status status}))
+
+(defn- switch-live!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (run-command! ["systemctl" "--user" "restart" live-unit])
+  (attest-selected-live! runtime-environment))
+
+(defn- restore-selection-after-live-failure!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   previous MaybeSelectedGeneration] Any
+  (if previous
+    (do
+      (atomic-select! runtime-environment (:target previous))
+      (let [restored (read-selected-generation! runtime-environment)]
+        (when-not (and (= (:target previous) (:target restored))
+                       (= (:root previous) (:root restored))
+                       (= (:generation previous) (:generation restored)))
+          (fail! "Store runtime recovery did not restore the exact predecessor"
+                 {:expected-root (str (:root previous))
+                  :actual-root (some-> restored :root str)})))
+      (install-published-selection! runtime-environment)
+      (switch-live! runtime-environment))
+    (fail! "Live Store transition has no predecessor generation to restore"
+           {:selector (:active-selector runtime-environment)})))
+
+(defn- commit-live-transition!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   previous MaybeSelectedGeneration
+   generation manifest/StoreRuntimeGeneration
+   base-selection (Map String String)] SelectedGeneration
+  (try
+    (if (and previous (= generation (:generation previous)))
+      (do
+        (try
+          (attest-selected-live! runtime-environment)
+          (catch Throwable _
+            (switch-live! runtime-environment)))
+        previous)
+      (let [selected (publish-generation-under-lock!
+             runtime-environment generation base-selection)]
+        (switch-live! runtime-environment)
+        selected))
+    (catch Throwable original
+      (try
+        (restore-selection-after-live-failure!
+         runtime-environment previous)
+        (catch Throwable restore-error
+          (.addSuppressed original restore-error)))
+      (throw original))))
+
+(defn promote!
+  [runtime-environment manifest/StoreRuntimeEnvironment
+   output String] Any
+  (let [candidate (observe-jvm-runtime! output)]
+    (with-selector-lock!
+      runtime-environment
+      (fn [] Any
+        (let [selected (some->
+                        (read-selected-promotion-source runtime-environment)
+                        attest-selected-promotion-source!)
+              base-selection (prepare-promotion-source-publication!
+               runtime-environment selected)
+              generation (if selected
+                           (manifest/promote-authority-transition!
+                            (:generation selected) candidate)
+                           (manifest/initial-promotion-transition! candidate))]
+          (when (live-environment? runtime-environment)
+            (install-live-service-override!))
+          (if (live-environment? runtime-environment)
+            (commit-live-transition! runtime-environment selected generation
+                                     base-selection)
+            (if (and selected (= generation (:generation selected)))
+              selected
+              (publish-generation-under-lock!
+               runtime-environment generation base-selection))))))))
+
+(defn rollback!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (with-selector-lock!
+    runtime-environment
+    (fn [] Any
+      (let [selected (selected-or-fail! runtime-environment)
+            base-selection (prepare-client-publication! runtime-environment selected)
+            generation (manifest/rollback-transition! (:generation selected))]
+        (when (live-environment? runtime-environment)
+          (install-live-service-override!))
+        (if (live-environment? runtime-environment)
+            (commit-live-transition! runtime-environment selected generation
+                                     base-selection)
+            (publish-generation-under-lock!
+             runtime-environment generation base-selection))))))
+
+(defn restore!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (with-selector-lock!
+    runtime-environment
+    (fn [] Any
+      (let [selected (selected-or-fail! runtime-environment)
+            base-selection (prepare-client-publication! runtime-environment selected)
+            generation (manifest/restore-transition! (:generation selected))]
+        (when (live-environment? runtime-environment)
+          (install-live-service-override!))
+        (if (live-environment? runtime-environment)
+            (commit-live-transition! runtime-environment selected generation
+                                     base-selection)
+            (if (= generation (:generation selected))
+              selected
+              (publish-generation-under-lock!
+               runtime-environment generation base-selection)))))))
+
+(defn print-status!
+  [runtime-environment manifest/StoreRuntimeEnvironment] Any
+  (if-let [selected (read-selected-generation! runtime-environment)]
+    (do
+      (println (str "generation=" (.getFileName ^Path (:root selected))))
+      (println (str "selector=" (:active-selector runtime-environment)))
+      (doseq [line (manifest/generation-status-lines! (:generation selected))]
+        (println line))
+      selected)
+    (do
+      (println "generation=none")
+      (println (str "selector=" (:active-selector runtime-environment)))
+      nil)))
+
+(defn- usage! [] Any
+  (binding [*out* *err*]
+    (println "usage: north-store-runtime status")
+    (println "       north-store-runtime promote OUT")
+    (println "       north-store-runtime rollback")
+    (println "       north-store-runtime restore")
+    (println "       north-store-runtime attest")
+    (println "       north-store-runtime launch")
+    (println "       north-store-runtime publish-runtime PID UNIT"))
+  (System/exit 2))
+
+(defn -main [& (args (Vec String))] Any
+  (let [runtime-environment (environment)
+        command (first args)]
+    (try
+      (match command
+        ["status"
+        (if (= 1 (count args))
+          (print-status! runtime-environment)
+          (usage!))]
+
+        ["promote"
+        (if (= 2 (count args))
+          (do
+            (promote! runtime-environment (second args))
+            (print-status! runtime-environment))
+          (usage!))]
+
+        ["rollback"
+        (if (= 1 (count args))
+          (do
+            (rollback! runtime-environment)
+            (print-status! runtime-environment))
+          (usage!))]
+
+        ["restore"
+        (if (= 1 (count args))
+          (do
+            (restore! runtime-environment)
+            (print-status! runtime-environment))
+          (usage!))]
+
+        ["attest"
+        (if (= 1 (count args))
+          (let [{:keys [status]} Any (attest-selected-live! runtime-environment)]
+            (println (str "usable_rpc=" status))
+            (print-status! runtime-environment))
+          (usage!))]
+
+        ["launch"
+        (if (= 1 (count args))
+          (launch-current! runtime-environment)
+          (usage!))]
+
+        ["publish-runtime"
+        (if (= 3 (count args))
+          (let [attestation (publish-current-runtime!
+                 runtime-environment (second args) (nth args 2))]
+            (println
+             (str "attested="
+                  (get-in attestation [:identity :runtime-kind]))))
+          (usage!))]
+
+        [_ (usage!)])
+      (catch Throwable error
+        (binding [*out* *err*]
+          (println (str "north-store-runtime: " (.getMessage error)))
+          (when-let [data (ex-data error)]
+            (println (str "north-store-runtime: " (pr-str data))))
+          (doseq [suppressed (.getSuppressed error)]
+            (println (str "north-store-runtime: recovery: "
+                          (.getMessage suppressed)))
+            (when-let [data (ex-data suppressed)]
+              (println (str "north-store-runtime: recovery: "
+                            (pr-str data))))))
+        (System/exit 2)))))
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
