@@ -157,6 +157,12 @@
 (defn ^String jvm-server-classpath-file-for [^String output]
   (str (jvm-store-home-for output) "/server.classpath"))
 
+(defn ^String native-client-classpath-for [^String release-root]
+  (str release-root "/out"))
+
+(defn ^String native-client-path-for [^String release-root]
+  (str release-root "/bin/beagle-store-cli.clj"))
+
 (defn ^String release-path-for [^String beagle-revision]
   (str store-releases-root "/" beagle-revision))
 

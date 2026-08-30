@@ -8,6 +8,8 @@
    (io/file (.getParent (io/file (System/getProperty "babashka.file"))) "../..")))
 (load-file (str root "/cli/runtime-attestation.clj"))
 (require '[north.runtime-attestation :as attestation])
+(load-file (str root "/cli/store-runtime-generation.clj"))
+(require '[north.store-runtime-generation :as generation])
 
 (def output
   "/nix/store/pk6fk3pv3vmq1kr4nkrhl6n3flpyx67q-beagle-store-jvm-composite-1-4aa8bcce8e6ea67d8767b43a5cf1152d424d253f")
@@ -36,6 +38,17 @@
     (doseq [child (or (.listFiles file) (make-array java.io.File 0))]
       (delete-tree! child)))
   (java.nio.file.Files/deleteIfExists (.toPath file)))
+
+(check! "status probes use the client matching the selected member"
+        (and (= [(manifest/jvm-dispatcher-path-for output) "store" "status"]
+                (generation/store-status-command! jvm))
+             (= [(generation/babashka-executable)
+                 "-cp"
+                 (manifest/native-client-classpath-for
+                  (:release-root native))
+                 (manifest/native-client-path-for (:release-root native))
+                 "status"]
+                (generation/store-status-command! native))))
 
 (defn select-generation! [state-root generation id]
   (let [generations (io/file state-root "generations")
