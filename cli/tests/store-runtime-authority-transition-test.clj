@@ -161,6 +161,11 @@
 
 (def old-jvm-mutants [(assoc old-jvm :output alternate-output :manifest-path (manifest/manifest-path-for alternate-output)) (assoc old-jvm :package-nar-sha256 alternate-nar) (assoc old-jvm :beagle-revision alternate-oid) (assoc old-jvm :beagle-tree alternate-oid) (assoc old-jvm :manifest-path (str (:manifest-path old-jvm) ".other")) (assoc old-jvm :manifest-bytes (inc old-jvm-manifest-bytes)) (assoc old-jvm :manifest-sha256 alternate-sha) (assoc-in old-jvm [:manifest :beagle-revision] alternate-oid) (assoc-in old-jvm [:manifest :source-tree] alternate-oid)])
 
+(let [^String expected-root (.getCanonicalPath (io/file (System/getProperty "user.home") "code" "north" "main"))
+   ^String authority-root (var-get (private-var 'canonical-live-north-root))
+   validate-root! (private-var 'validate-live-north-root!)]
+  (check! "live Store service authority admits only derived canonical main" (and (= expected-root authority-root) (= expected-root (validate-root! expected-root)) (denied? (fn [] (validate-root! (str expected-root "/worktrees/test")))))))
+
 (check! "normal runtime authority accepts both exact retained JVM orientations" (and (= old-forward (manifest/validate-runtime-generation! old-forward)) (= old-reverse (manifest/validate-runtime-generation! old-reverse))))
 
 (check! "promotion source accepts both exact retained generation orientations" (and (= old-forward (manifest/validate-promotion-source-generation! old-forward)) (= old-reverse (manifest/validate-promotion-source-generation! old-reverse))))

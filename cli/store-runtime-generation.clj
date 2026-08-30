@@ -23,6 +23,8 @@
 
 (def ^String north-root (.getCanonicalPath (io/file (.getParentFile (io/file *file*)) "..")))
 
+(def ^String canonical-live-north-root (.getCanonicalPath (io/file (System/getProperty "user.home") "code" "north" "main")))
+
 (load-file (str north-root "/cli/runtime-attestation.clj"))
 
 (def runtime-read-selection! (requiring-resolve 'north.runtime-attestation/read-selection!))
@@ -253,14 +255,16 @@
 (defn- service-override-path []
   (io/file (or (System/getenv "XDG_CONFIG_HOME") (str (System/getProperty "user.home") "/.config")) "systemd" "user" (str live-unit ".d") "50-north-store-runtime.conf"))
 
+(defn- ^String validate-live-north-root! [^String candidate]
+  (if (= candidate canonical-live-north-root) canonical-live-north-root (fail! "Live Store switching must run from canonical North main" {:expected canonical-live-north-root :north-root candidate})))
+
 (defn- install-live-service-override! []
-  (if (not (= north-root "/home/tom/code/north/main")) (do
-  (fail! "Live Store switching must run from canonical North main" {:north-root north-root})))
-  (let [target (.toPath (service-override-path))
+  (let [^String live-root (validate-live-north-root! north-root)
+   target (.toPath (service-override-path))
    directory (.getParent target)
    temporary (.resolve directory (str ".runtime.next." (UUID/randomUUID)))
-   tool (str north-root "/bin/north-store-runtime")
-   text (str "[Service]\n" "NotifyAccess=all\n" "ExecStart=\n" "ExecStart=" tool " launch\n" "ExecStartPost=\n" "ExecStartPost=" tool " publish-runtime $MAINPID " live-unit "\n" "Environment=NORTH_STORE_RUNTIME_STATE=" manifest/canonical-store-runtime-root "\n")
+   ^String tool (str live-root "/bin/north-store-runtime")
+   ^String text (str "[Service]\n" "NotifyAccess=all\n" "ExecStart=\n" "ExecStart=" tool " launch\n" "ExecStartPost=\n" "ExecStartPost=" tool " publish-runtime $MAINPID " live-unit "\n" "Environment=NORTH_STORE_RUNTIME_STATE=" manifest/canonical-store-runtime-root "\n")
    existed? (Files/exists target (nofollow-links))
    _ (if (Files/isSymbolicLink target) (do
   (fail! "Store runtime systemd override must not be a link" {:path (str target)})))
