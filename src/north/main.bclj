@@ -79,7 +79,7 @@
                        :operation operation})))))
 
 (defn- coord-port [] Int
-  (let [value Any (coord-invoke "port" [])]
+  (let [value Any (coord-invoke "port!" [])]
     (if (int? value)
       value
       (throw (ex-info "north.coord returned an invalid port"
@@ -96,12 +96,12 @@
                        :operation operation})))))
 
 (defn- coord-live-propositions [port Int] (Vec t/Triple)
-  (coord-propositions "live-propositions" [port]))
+  (coord-propositions "live-propositions!" [port]))
 
 (defn- coord-subject-propositions
   [port Int
    subject String] (Vec t/Triple)
-  (coord-propositions "subject-propositions" [port subject]))
+  (coord-propositions "subject-propositions!" [port subject]))
 
 ;; --- thread id: north-owned UUIDv7 minter --------------------------------
 ;; A UUIDv7 packs a 48-bit ms timestamp in the high bits, so ids are both
@@ -364,7 +364,7 @@
 ;; client-side fallback; the physical log path is projection identity only.
 (defn- coord-version [port Int] Int
   (try
-    (let [value Any (coord-invoke "version" [port])]
+    (let [value Any (coord-invoke "version!" [port])]
       (if (int? value) value -1))
     (catch Exception _ -1)))
 
