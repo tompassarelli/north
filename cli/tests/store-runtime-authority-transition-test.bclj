@@ -107,6 +107,31 @@
 (def promoted manifest/StoreRuntimeGeneration
   (manifest/initial-promotion-transition! candidate))
 
+(defrecord StatusEngineTokenCase
+  [label String
+   member manifest/RuntimeMember
+   expected-token String])
+
+(def status-engine-token-cases (Vec StatusEngineTokenCase)
+  [(->StatusEngineTokenCase "318" candidate "rpc/jvm")
+   (->StatusEngineTokenCase "e18" old-jvm "jvm")
+   (->StatusEngineTokenCase "Native" manifest/accepted-native-runtime "native")])
+
+(def known-status-engine-tokens (Vec String)
+  (mapv
+   (fn [test-case StatusEngineTokenCase] String
+     (statusenginetokencase-expected-token test-case))
+   status-engine-token-cases))
+
+(def invalid-status-engine-tokens (Vec String)
+  [""
+   "rpc"
+   "JVM"
+   "RPC/JVM"
+   "rpc/JVM"
+   "rpc/native"
+   "arbitrary"])
+
 (def base-selection (Map String String)
   {"BEAGLE_STORE_SPACE_ID" "authority-transition-test"
    "BEAGLE_STORE_SERVER_PORT" "47979"
@@ -127,6 +152,85 @@
       (operation)
       false)
     (catch Throwable _ true)))
+
+(defn store-status [engine-token String] String
+  (str "up|4307|9790|ready|" engine-token))
+
+(defn rejected-status-engine-tokens [expected-token String] (Vec String)
+  (vec
+   (concat
+    invalid-status-engine-tokens
+    [(str " " expected-token) (str expected-token " ")]
+    (filterv (fn [engine-token String] Bool
+               (not= engine-token expected-token))
+             known-status-engine-tokens))))
+
+(defn malformed-store-statuses [expected-token String] (Vec String)
+  [(str "up|4307|9790|ready")
+   (str "up|4307|9790|ready|" expected-token "|")
+   (str "up|4307|9790|ready|" expected-token "|extra")
+   (str "down|4307|9790|ready|" expected-token)
+   (str "up||9790|ready|" expected-token)
+   (str "up|+4307|9790|ready|" expected-token)
+   (str "up|-4307|9790|ready|" expected-token)
+   (str "up|00|9790|ready|" expected-token)
+   (str "up|01|9790|ready|" expected-token)
+   (str "up|four|9790|ready|" expected-token)
+   (str "up|4307||ready|" expected-token)
+   (str "up|4307|+9790|ready|" expected-token)
+   (str "up|4307|-9790|ready|" expected-token)
+   (str "up|4307|00|ready|" expected-token)
+   (str "up|4307|01|ready|" expected-token)
+   (str "up|4307|nine|ready|" expected-token)
+   (str "up|4307|9790|starting|" expected-token)
+   (str "up|4307|9790|ready|" expected-token "\n")])
+
+(defn validate-status-engine-token-case! [test-case StatusEngineTokenCase] Bool
+  (let [member manifest/RuntimeMember (statusenginetokencase-member test-case)
+        expected-token String (statusenginetokencase-expected-token test-case)
+        expected-status String (store-status expected-token)
+        validate-status! Any (private-var 'validate-store-status!)
+        validate-output! Any (private-var 'validate-store-status-output!)]
+    (and (= expected-token
+            (manifest/expected-store-status-engine-token! member))
+         (= expected-status (validate-status! member expected-status))
+         (= expected-status
+            (validate-output! member (str expected-status "\n")))
+         (= expected-status
+            (validate-output! member (str expected-status "\r\n")))
+         (denied?
+          (fn [] Any
+            (validate-output! member (str " " expected-status "\n"))))
+         (denied?
+          (fn [] Any
+            (validate-output! member (str expected-status "\n\n"))))
+         (every?
+          true?
+          (mapv
+           (fn [rejected String] Bool
+             (let [invalid-status String (store-status rejected)]
+               (and
+                (denied?
+                 (fn [] Any
+                   (validate-status! member invalid-status)))
+                (denied?
+                 (fn [] Any
+                   (validate-output!
+                    member
+                    (str invalid-status "\n")))))))
+           (rejected-status-engine-tokens expected-token)))
+         (every?
+          true?
+          (mapv
+           (fn [malformed String] Bool
+             (and
+              (denied?
+               (fn [] Any
+                 (validate-status! member malformed)))
+              (denied?
+               (fn [] Any
+                 (validate-output! member (str malformed "\n"))))))
+           (malformed-store-statuses expected-token))))))
 
 (defn delete-tree! [file Any] Nil
   (do
@@ -255,6 +359,20 @@
                 (fn [] Any
                   (validate-root! (str expected-root "/worktrees/test")))))))
 
+(def status-authority-mutants (Vec StatusEngineTokenCase)
+  [(->StatusEngineTokenCase
+    "318"
+    (assoc candidate :manifest-sha256 alternate-sha)
+    "rpc/jvm")
+   (->StatusEngineTokenCase
+    "e18"
+    (assoc old-jvm :manifest-sha256 alternate-sha)
+    "jvm")
+   (->StatusEngineTokenCase
+    "Native"
+    (assoc manifest/accepted-native-runtime :server-sha256 alternate-sha)
+    "native")])
+
 (check! "normal runtime authority accepts both exact retained JVM orientations"
         (and (= old-forward (manifest/validate-runtime-generation! old-forward))
              (= old-reverse (manifest/validate-runtime-generation! old-reverse))))
@@ -304,6 +422,21 @@
          (denied?
           (fn [] Any
             (manifest/promote-authority-transition! old-forward old-jvm)))))
+
+(doseq [test-case status-engine-token-cases]
+  (check! (str (statusenginetokencase-label test-case)
+               " accepts only its exact Store status engine token")
+          (validate-status-engine-token-case! test-case)))
+
+(doseq [test-case status-authority-mutants]
+  (check! (str (statusenginetokencase-label test-case)
+               " status validation rejects mutated runtime authority")
+          (denied?
+           (fn [] Any
+             ((private-var 'validate-store-status!)
+              (statusenginetokencase-member test-case)
+              (store-status
+               (statusenginetokencase-expected-token test-case)))))))
 
 (defn check-promotion-source!
   [label String
