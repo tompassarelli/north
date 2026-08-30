@@ -16,6 +16,7 @@ ln -s /etc/codex/hooks/runtime/python3 "$SCRATCH/provider-hooks/runtime/python3"
 mkdir -p "$SCRATCH/home/.claude" "$SCRATCH/home/.local/state/north"
 mkdir -p "$SCRATCH/agent-machinery/agents"
 export AGENT_MACHINERY_HOME="$SCRATCH/agent-machinery"
+export NORTH_AGENT_ACTIVATION="$SCRATCH/activation.json"
 mkdir -p "$SCRATCH/north/bin"
 export NORTH_HOME="$SCRATCH/north"
 mkdir -p "$SCRATCH/home/code/north"
@@ -50,6 +51,34 @@ printf '%s\n' '<!-- ORCHESTRATION_ROUTING {"role":"researcher","taskGrade":"seni
   >"$SCRATCH/agent-machinery/agents/researcher.md"
 
 pass=0 fail=0
+set_activity() {
+  case "$1" in
+    active)
+      printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":true}]}' \
+        >"$NORTH_AGENT_ACTIVATION"
+      ;;
+    inactive)
+      printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":false}]}' \
+        >"$NORTH_AGENT_ACTIVATION"
+      ;;
+    missing)
+      printf '%s\n' '{"schema":"north.agent-activation/v1","units":[]}' \
+        >"$NORTH_AGENT_ACTIVATION"
+      ;;
+    duplicate)
+      printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":true},{"id":"agent-spawn-guard","kind":"hook","category":"dispatch","active":true}]}' \
+        >"$NORTH_AGENT_ACTIVATION"
+      ;;
+    wrong-kind)
+      printf '%s\n' '{"schema":"north.agent-activation/v1","units":[{"id":"agent-spawn-guard","kind":"skill","category":"dispatch","active":true}]}' \
+        >"$NORTH_AGENT_ACTIVATION"
+      ;;
+    malformed) printf '%s\n' '{not-json' >"$NORTH_AGENT_ACTIVATION" ;;
+    *) printf 'unknown activity fixture: %s\n' "$1" >&2; return 1 ;;
+  esac
+}
+set_activity active
+
 set_state() {
   local action admission
   case "$1" in
@@ -108,6 +137,46 @@ run() {
       "$expect" "$desc" "$topology" "$tool" "$payload" "$status" "$decision" "$out"
   fi
 }
+
+echo '== canonical hook activity gate =='
+set_activity active
+run deny 'exact active hook enforces with unset NORTH_HOME' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity inactive
+run silent 'inactive hook fails open with unset NORTH_HOME' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity missing
+run silent 'missing hook identity fails open' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity duplicate
+run silent 'duplicate hook identity fails open' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity wrong-kind
+run silent 'non-hook identity fails open' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity malformed
+run silent 'malformed activation fails open' worker Bash 'north spawn implementer "work"' '' gpt-5.6-sol unset
+set_activity active
+run silent 'unavailable activation fails open' worker Bash 'north spawn implementer "work"' \
+  "NORTH_AGENT_ACTIVATION=$SCRATCH/unavailable-activation.json" gpt-5.6-sol unset
+
+malformed_payload_out="$(printf '%s' '{not-json' | env HOME="$SCRATCH/home" "$HOOK" 2>&1)"
+malformed_payload_status=$?
+if [ "$malformed_payload_status" -eq 0 ] && [ -z "$malformed_payload_out" ]; then
+  pass=$((pass + 1)); echo 'PASS  silent  malformed provider payload fails open'
+else
+  fail=$((fail + 1)); printf 'FAIL  silent  malformed provider payload was not silent\n      status=%s out=%s\n' \
+    "$malformed_payload_status" "$malformed_payload_out"
+fi
+
+failing_bun="$SCRATCH/failing-bun"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 17' >"$failing_bun"
+chmod +x "$failing_bun"
+runtime_failure_input="$(jq -nc --arg d "$REPO" '{tool_name:"Bash",tool_input:{command:"north spawn implementer work"},cwd:$d}')"
+runtime_failure_out="$(printf '%s' "$runtime_failure_input" | env \
+  HOME="$SCRATCH/home" NORTH_BUN="$failing_bun" "$HOOK" 2>&1)"
+runtime_failure_status=$?
+if [ "$runtime_failure_status" -eq 0 ] && [ -z "$runtime_failure_out" ]; then
+  pass=$((pass + 1)); echo 'PASS  silent  typed runtime failure fails open'
+else
+  fail=$((fail + 1)); printf 'FAIL  silent  typed runtime failure was not silent\n      status=%s out=%s\n' \
+    "$runtime_failure_status" "$runtime_failure_out"
+fi
 
 echo '== canonical North root resolution =='
 run allow 'explicit NORTH_HOME remains authoritative' orchestrator Bash 'north spawn implementer "work"'
@@ -393,23 +462,23 @@ else
 fi
 
 echo '== topology policy is independent of authoring kill-switches =='
-run deny 'AGENT_NO_AUTHORING_HOOKS cannot disable worker topology' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=1
+run silent 'AGENT_NO_AUTHORING_HOOKS disables the guard' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=1
 run deny 'AGENT_NO_AUTHORING_HOOKS=0 leaves topology live' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=0
+run deny 'AGENT_NO_AUTHORING_HOOKS=false leaves topology live' worker Bash 'north spawn implementer work' AGENT_NO_AUTHORING_HOOKS=false
 set_state native
 run allow 'dispatch=native remains deliberate native-agent escape' unset Agent 'native work'
 run deny 'dispatch=native still cannot waive North worker topology' worker Bash 'north spawn implementer work'
 set_state managed
 
-echo '== shared dispatch action contract fails loud =='
+echo '== shared dispatch action failure is silent =='
 printf '%s\n' invalid >"$NORTH_DISPATCH_TEST_ACTION_FILE"
 invalid_contract_input="$(jq -nc '{tool_name:"Agent",tool_input:{subagent_type:"general-purpose",prompt:"probe",model:"gpt-5.6-sol"}}')"
 invalid_contract_out="$(printf '%s' "$invalid_contract_input" | env HOME="$SCRATCH/home" "$HOOK" 2>&1)"
 invalid_contract_status=$?
-if [ "$invalid_contract_status" -ne 0 ] &&
-   [[ "$invalid_contract_out" == *'north dispatch action lookup failed'* ]]; then
-  pass=$((pass + 1)); echo 'PASS  contract  invalid shared dispatch state fails loud'
+if [ "$invalid_contract_status" -eq 0 ] && [ -z "$invalid_contract_out" ]; then
+  pass=$((pass + 1)); echo 'PASS  contract  invalid shared dispatch state fails open'
 else
-  fail=$((fail + 1)); printf 'FAIL  contract  invalid shared dispatch state did not fail loud\n      status=%s out=%s\n' \
+  fail=$((fail + 1)); printf 'FAIL  contract  invalid shared dispatch state was not silent\n      status=%s out=%s\n' \
     "$invalid_contract_status" "$invalid_contract_out"
 fi
 

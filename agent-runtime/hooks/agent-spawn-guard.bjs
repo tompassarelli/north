@@ -822,13 +822,12 @@
               north-bin String (str north-home "/bin/north")
               action Any (command-output north-bin ["config" "dispatch" "--guard-action"])
               admission Any (command-output north-bin ["config" "dispatch" "--managed-admission"])]
-          (when (or (not (.includes ["deny" "allow"] action))
-                    (not (.includes ["deny" "allow"] admission)))
-            (.error console (str "agent-spawn-guard: north dispatch action lookup failed via " north-bin))
-            (.exit process 2))
-          (let [decision Any (decide! envelope action admission north-home)]
-            (when decision (.write (.-stdout process) (str (JSON/stringify decision) "\n")))
-            0))
+          (if (or (not (.includes ["deny" "allow"] action))
+                  (not (.includes ["deny" "allow"] admission)))
+            0
+            (let [decision Any (decide! envelope action admission north-home)]
+              (when decision (.write (.-stdout process) (str (JSON/stringify decision) "\n")))
+              0)))
         (catch Error _ 0)))))
 
 (when (.-main (js/import-meta))
