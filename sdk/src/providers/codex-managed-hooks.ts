@@ -55,6 +55,10 @@ const PROMOTED_HOOK_SOURCES: Readonly<Record<string, PromotedHookSource>> = {
     repository: "north",
     path: "agent-runtime/hooks/logcompress.py",
   },
+  "resource-safe-search-guard.sh": {
+    repository: "nixos-config",
+    path: "dotfiles/agents/hooks/resource-safe-search-guard.sh",
+  },
   "session-kill-guard.sh": {
     repository: "nixos-config",
     path: "dotfiles/agents/hooks/session-kill-guard.sh",
@@ -198,6 +202,7 @@ export function expectedManagedCodexHooks(
           command("tripwire-guard.sh", 10, managedDir),
           command("launch-critical-worktree-guard.sh", 10, managedDir),
           command("corpus-scan-guard.sh", 10, managedDir),
+          command("resource-safe-search-guard.sh", 10, managedDir),
           command("session-kill-guard.sh", 10, managedDir),
           command("concrete-model-identity-guard.sh", 10, managedDir),
         ],
