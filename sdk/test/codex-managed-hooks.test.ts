@@ -234,6 +234,31 @@ test("managed Codex requirements admit the exact full lifecycle policy", () => {
   expect(() => validateManagedCodexRequirements(requirements())).not.toThrow();
 });
 
+test("managed Codex SessionStart matches the canonical sealed-path payload", () => {
+  const sessionStart = [{
+    hooks: [
+      {
+        type: "command",
+        command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+          + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
+          + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/beagle-session-start.sh",
+        timeout: 30,
+      },
+      {
+        type: "command",
+        command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+          + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
+          + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/north-on-spawn-codex",
+        timeout: 15,
+      },
+    ],
+  }];
+  expect(expectedManagedCodexHooks().SessionStart).toEqual(sessionStart);
+  expect(() => validateManagedCodexRequirements(requirements((document) => {
+    document.hooks.SessionStart = sessionStart;
+  }))).not.toThrow();
+});
+
 test("managed Codex invokes the singular Firn provider adapter once before narrow guards", () => {
   expect(FIRN_SYSTEM_POLICY)
     .toBe("/etc/codex/hooks/firn-system-policy");
@@ -243,6 +268,7 @@ test("managed Codex invokes the singular Firn provider adapter once before narro
   expect(preToolUse[0]!.hooks).toHaveLength(1);
   expect(preToolUse[0]!.hooks[0]!.command)
     .toBe("/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+      + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
       + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy");
   expect(preToolUse.flatMap((entry) => entry.hooks)
     .filter((hook) => hook.command.endsWith("/firn-system-policy"))).toHaveLength(1);

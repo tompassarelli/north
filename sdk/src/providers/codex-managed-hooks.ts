@@ -125,6 +125,12 @@ interface ManagedMatcher {
   hooks: ManagedCommandHook[];
 }
 
+const managedBashPath = (managedDir: string): string => [
+  resolve(managedDir, "runtime"),
+  "/home/tom/.local/bin",
+  "/run/current-system/sw/bin",
+].join(":");
+
 const command = (
   name: string,
   timeout = 10,
@@ -136,6 +142,7 @@ const command = (
     resolve(managedDir, "runtime/env"),
     "-u", "BASH_ENV",
     "-u", "ENV",
+    ...(interpreter === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
     resolve(managedDir, `runtime/${interpreter}`),
     resolve(managedDir, name),
   ].join(" "),
@@ -476,14 +483,16 @@ function managedCommandPaths(
   const tokens = value.slice(prefix.length).split(" ");
   if (tokens.some((token) => !token))
     throw new Error("managed Codex hook command token sequence is not exact");
-  if (tokens.length !== 2)
-    throw new Error("managed Codex hook command token sequence is not exact");
-  const [interpreter, script] = tokens as [string, string];
-  const allowedInterpreters = new Set([
-    resolve(managedDir, "runtime/bash"),
-    resolve(managedDir, "runtime/python3"),
-  ]);
-  if (!allowedInterpreters.has(interpreter)
+  const bash = resolve(managedDir, "runtime/bash");
+  const python = resolve(managedDir, "runtime/python3");
+  const [interpreter, script] = tokens.length === 3
+      && tokens[0] === `PATH=${managedBashPath(managedDir)}`
+      && tokens[1] === bash
+    ? [tokens[1], tokens[2]]
+    : tokens.length === 2 && tokens[0] === python
+      ? [tokens[0], tokens[1]]
+      : [];
+  if (!interpreter || !script
       || !script.startsWith(`${resolve(managedDir)}/`)
       || resolve(script) !== script) {
     throw new Error("managed Codex hook command paths are outside the managed closure");
