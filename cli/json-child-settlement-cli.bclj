@@ -1,0 +1,226 @@
+#lang beagle/clj
+
+(ns north.json-child-settlement-cli
+  "Exact indexed child-settlement projection for one coordinator.")
+
+(require [cheshire.core :as json])
+(require [clojure.java.io :as io])
+(require [clojure.string :as str])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern cheshire.core/generate-string (Fn [Any] String))
+(declare-extern north.coord/show-envelope! (Fn [Int String] Any))
+(declare-extern north.coord/bounded-query! (Fn [Int Any Int] Any))
+(declare-extern north.coord/bounded-query-in-domain!
+  (Fn [Int Keyword Any Int] Any))
+
+(def script-file Any (.getCanonicalPath (io/file *file*)))
+(def cli-dir Any (.getParent (io/file script-file)))
+(load-file (str cli-dir "/coord.clj"))
+
+(def max-rows Int 4096)
+(def protocol String "north.child-settlement")
+(def envelope-version Int 1)
+(def child-prefix String "@agent:")
+
+(defrecord SettlementFact
+  [subject String
+   predicate String
+   value String])
+
+(defrecord SettlementEnvelope
+  [protocol String
+   version Int
+   coordinator String
+   children (Vec SettlementFact)
+   runs (Vec SettlementFact)])
+
+(defn- coordination-port [] Int
+  (let [value Any (parse-long (or (System/getenv "NORTH_PORT") "7977"))]
+    (if (int? value)
+      value
+      (throw (ex-info "NORTH_PORT is malformed" {:type :invalid-port})))))
+
+(defn- child-subject-query [coordinator String] Any
+  {:find "north_child"
+   :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} "coordinator" coordinator]}]}]})
+
+(defn- child-fact-query [coordinator String] Any
+  {:find "north_child_fact"
+   :rules [{:head {:rel "north_child_fact"
+                   :args [{:var "subject"} {:var "predicate"} {:var "value"}]}
+            :body [{:rel "triple"
+                    :args [{:var "subject"} "coordinator" coordinator]}
+                   {:rel "triple"
+                    :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]})
+
+(def tagged-run-query Any
+  {:find "north_child_run"
+   :rules [{:head {:rel "north_child_run"
+                   :args [{:var "subject"} {:var "agent"}]}
+            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
+                   {:rel "triple" :args [{:var "subject"} "agent" {:var "agent"}]}]}]})
+
+(defn- child-run-query [agent-id String] Any
+  {:find "north_child_run"
+   :rules [{:head {:rel "north_child_run" :args [{:var "subject"}]}
+            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
+                   {:rel "triple" :args [{:var "subject"} "agent" agent-id]}]}]})
+
+(defn- short-id [subject String] String
+  (if (str/starts-with? subject "@") (subs subject 1) subject))
+
+(defn- malformed! [detail String] Any
+  (throw (ex-info (str "Store RPC server returned a malformed " detail)
+                  {:type :malformed-settlement-row})))
+
+(defn- string-term!
+  [value Any
+   detail String] String
+  (if (string? value) value (malformed! detail)))
+
+(defn- row-of-width!
+  [row Any
+   width Int
+   detail String] (Vec String)
+  (if (and (vector? row) (= width (count row)))
+    (let [decoded (Vec String) (mapv (fn [value Any] String (string-term! value detail)) row)]
+      (if (str/blank? (first decoded)) (malformed! detail) decoded))
+    (malformed! detail)))
+
+(defn- rows-of-width!
+  [rows Any
+   width Int
+   detail String] (Vec (Vec String))
+  (if (vector? rows)
+    (mapv (fn [row Any] (Vec String)
+            (row-of-width! row width detail))
+          rows)
+    (malformed! detail)))
+
+(defn- row-limit? [error Any] Bool
+  (= :query-row-limit (:type (ex-data error))))
+
+(defn- both-domains!
+  [port Int
+   query Any] (Vec Any)
+  (let [coordination Any (north.coord/bounded-query-in-domain!
+         port :coordination query max-rows)
+        telemetry Any (north.coord/bounded-query-in-domain!
+         port :telemetry query max-rows)]
+    (vec (distinct (concat (:rows coordination) (:rows telemetry))))))
+
+(defn- child-subject? [subject String] Bool
+  (str/starts-with? subject child-prefix))
+
+(defn- subject-show-facts!
+  [port Int
+   subject String] (Vec (Vec String))
+  (let [envelope Any (north.coord/show-envelope! port subject)
+        rows (Vec (Vec String)) (rows-of-width! (:rows envelope) 2 "subject fact row")]
+    (mapv (fn [row (Vec String)] (Vec String)
+            [subject (nth row 0) (nth row 1)])
+          rows)))
+
+(defn- child-facts!
+  [port Int
+   coordinator String] (Vec (Vec String))
+  (let [joined (U (Vec (Vec String)) Nil) (try
+          (let [response Any (north.coord/bounded-query!
+                 port (child-fact-query coordinator) max-rows)]
+            (rows-of-width! (:rows response) 3 "child fact row"))
+          (catch Exception error
+            (if (row-limit? error) nil (throw error))))]
+    (if (some? joined)
+      (filterv (fn [row (Vec String)] Bool
+                 (child-subject? (first row)))
+               joined)
+      (let [response Any (north.coord/bounded-query!
+             port (child-subject-query coordinator) max-rows)
+            subject-rows (Vec (Vec String)) (rows-of-width! (:rows response) 1 "child subject row")
+            subjects (Vec String) (filterv child-subject? (mapv first subject-rows))]
+        (into []
+              (mapcat (fn [subject String] (Vec (Vec String))
+                        (subject-show-facts! port subject))
+                      subjects))))))
+
+(defn- run-subjects!
+  [port Int
+   agent-ids (Set String)] (Vec String)
+  (if (empty? agent-ids)
+    []
+    (let [tagged (U (Vec (Vec String)) Nil) (try
+            (rows-of-width! (both-domains! port tagged-run-query)
+                            2 "tagged run row")
+            (catch Exception error
+              (if (row-limit? error) nil (throw error))))]
+      (if (some? tagged)
+        (mapv first
+              (filterv (fn [row (Vec String)] Bool
+                         (contains? agent-ids (nth row 1)))
+                       tagged))
+        (into []
+              (mapcat
+               (fn [agent-id String] (Vec String)
+                 (mapv first
+                       (rows-of-width!
+                        (both-domains! port (child-run-query agent-id))
+                        1 "tagged run row")))
+               (sort (vec agent-ids))))))))
+
+(defn- projection [rows (Vec (Vec String))] (Vec SettlementFact)
+  (let [normalized (Vec (Vec String)) (mapv (fn [row (Vec String)] (Vec String)
+                [(short-id (nth row 0)) (nth row 1) (nth row 2)])
+              rows)]
+    (mapv (fn [row (Vec String)] SettlementFact
+            (->SettlementFact (nth row 0) (nth row 1) (nth row 2)))
+          (vec (sort (distinct normalized))))))
+
+(defn settlement!
+  [port Int
+   coordinator String] SettlementEnvelope
+  (let [children (Vec (Vec String)) (child-facts! port coordinator)
+        agent-ids (Set String) (set (mapv (fn [row (Vec String)] String
+                     (subs (first row) (count child-prefix)))
+                   children))
+        runs (Vec String) (run-subjects! port agent-ids)
+        run-rows (Vec (Vec String)) (into []
+              (mapcat (fn [subject String] (Vec (Vec String))
+                        (subject-show-facts! port subject))
+                      (sort (distinct runs))))]
+    (->SettlementEnvelope protocol envelope-version coordinator
+                          (projection children) (projection run-rows))))
+
+(defn- refuse!
+  [coordinator String
+   error Any] Any
+  (binding [*out* *err*]
+    (println
+     (str "north: json child-settlement REFUSED — coordinator unavailable for "
+          coordinator
+          (let [detail Any (.getMessage error)]
+            (if (and (string? detail) (not (empty? detail)))
+              (str ": " detail)
+              "")))))
+  (System/exit 4))
+
+(defn -main [& (args (Vec String))] Any
+  (if (= 1 (count args))
+    (try
+      (println (json/generate-string
+                (settlement! (coordination-port) (first args))))
+      (catch Exception error (refuse! (first args) error)))
+    (do
+      (binding [*out* *err*]
+        (println "usage: json child-settlement <coordinator>"))
+      (System/exit 2))))
+
+(defn- direct-invocation? [] Bool
+  (= script-file
+     (.getCanonicalPath
+      (io/file (System/getProperty "babashka.file")))))
+
+(when (direct-invocation?)
+  (apply -main *command-line-args*))

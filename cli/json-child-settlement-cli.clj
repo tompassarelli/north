@@ -1,179 +1,136 @@
-#!/usr/bin/env bb
-;; Exact indexed child-settlement projection: one indexed query per envelope
-;; component, because composing the whole live corpus through north.main does
-;; not fit the SDK's 5s settlement deadline (sdk/src/children.ts).
-;; Rows sort by (subject, predicate, value) — the order the whole-corpus
-;; projection already emitted, so the envelope stays byte-identical.
-(require '[cheshire.core :as json]
-         '[clojure.string :as str]
-         '[clojure.java.io :as io])
+(ns north.json-child-settlement-cli
+  (:require [cheshire.core :as json]
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
 
-(load-file
- (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
+(def script-file (.getCanonicalPath (io/file *file*)))
 
-(def show-envelope (ns-resolve 'north.coord 'show-envelope))
+(def cli-dir (.getParent (io/file script-file)))
 
-;; The Store RPC server's per-query row ceiling. Overflow REFUSES rather than
-;; truncating: a short child or run set reads to the SDK as "those children
-;; settled" and would retire a live lane.
+(load-file (str cli-dir "/coord.clj"))
+
 (def max-rows 4096)
 
-(def protocol "north.child-settlement")
+(def ^String protocol "north.child-settlement")
+
 (def envelope-version 1)
 
-(def child-prefix "@agent:")
+(def ^String child-prefix "@agent:")
+
+(defrecord SettlementFact [subject predicate value])
+
+(defn settlementfact-subject [r] (:subject r))
+
+(defn settlementfact-predicate [r] (:predicate r))
+
+(defn settlementfact-value [r] (:value r))
+
+(defrecord SettlementEnvelope [protocol version coordinator children runs])
+
+(defn settlementenvelope-protocol [r] (:protocol r))
+
+(defn settlementenvelope-version [r] (:version r))
+
+(defn settlementenvelope-coordinator [r] (:coordinator r))
+
+(defn settlementenvelope-children [r] (:children r))
+
+(defn settlementenvelope-runs [r] (:runs r))
 
 (defn- coordination-port []
-  (Integer/parseInt (or (System/getenv "NORTH_PORT") "7977")))
+  (let [value (parse-long (or (System/getenv "NORTH_PORT") "7977"))]
+  (if (int? value) value (throw (ex-info "NORTH_PORT is malformed" {:type :invalid-port})))))
 
-;; Value-position literals only, so route-for-operation still routes these to
-;; coordination: `coordinator` is a coordination-owned lifecycle predicate on
-;; @agent: subjects, exactly like `part_of` in json-children-cli.
-(defn- child-subject-query [coordinator]
-  {:find "north_child"
-   :rules [{:head {:rel "north_child" :args [{:var "subject"}]}
-            :body [{:rel "triple"
-                    :args [{:var "subject"} "coordinator" coordinator]}]}]})
+(defn- child-subject-query [^String coordinator]
+  {:find "north_child" :rules [{:head {:rel "north_child" :args [{:var "subject"}]} :body [{:rel "triple" :args [{:var "subject"} "coordinator" coordinator]}]}]})
 
-(defn- child-fact-query [coordinator]
-  {:find "north_child_fact"
-   :rules [{:head {:rel "north_child_fact"
-                   :args [{:var "subject"} {:var "predicate"} {:var "value"}]}
-            :body [{:rel "triple"
-                    :args [{:var "subject"} "coordinator" coordinator]}
-                   {:rel "triple"
-                    :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]})
+(defn- child-fact-query [^String coordinator]
+  {:find "north_child_fact" :rules [{:head {:rel "north_child_fact" :args [{:var "subject"} {:var "predicate"} {:var "value"}]} :body [{:rel "triple" :args [{:var "subject"} "coordinator" coordinator]} {:rel "triple" :args [{:var "subject"} {:var "predicate"} {:var "value"}]}]}]})
 
-;; A settlement-bearing run is a COMMITTED (kind=run) run tagged to an agent —
-;; the same two-predicate conjunction the corpus path applied by hand.
-(def tagged-run-query
-  {:find "north_child_run"
-   :rules [{:head {:rel "north_child_run" :args [{:var "subject"} {:var "agent"}]}
-            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
-                   {:rel "triple" :args [{:var "subject"} "agent" {:var "agent"}]}]}]})
+(def tagged-run-query {:find "north_child_run" :rules [{:head {:rel "north_child_run" :args [{:var "subject"} {:var "agent"}]} :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]} {:rel "triple" :args [{:var "subject"} "agent" {:var "agent"}]}]}]})
 
-(defn- child-run-query [agent-id]
-  {:find "north_child_run"
-   :rules [{:head {:rel "north_child_run" :args [{:var "subject"}]}
-            :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]}
-                   {:rel "triple" :args [{:var "subject"} "agent" agent-id]}]}]})
+(defn- child-run-query [^String agent-id]
+  {:find "north_child_run" :rules [{:head {:rel "north_child_run" :args [{:var "subject"}]} :body [{:rel "triple" :args [{:var "subject"} "kind" "run"]} {:rel "triple" :args [{:var "subject"} "agent" agent-id]}]}]})
 
-(defn- short-id [subject]
+(defn- ^String short-id [^String subject]
   (if (str/starts-with? subject "@") (subs subject 1) subject))
 
-(defn- malformed! [detail]
-  (throw (ex-info (str "Store RPC server returned a malformed " detail)
-                  {:type :malformed-settlement-row})))
+(defn- malformed! [^String detail]
+  (throw (ex-info (str "Store RPC server returned a malformed " detail) {:type :malformed-settlement-row})))
 
-(defn- rows-of-width [rows width detail]
-  (when-not (every? #(and (= width (count %))
-                          (every? string? %)
-                          (not (str/blank? (first %))))
-                    rows)
-    (malformed! detail))
-  rows)
+(defn- ^String string-term! [value ^String detail]
+  (if (string? value) value (malformed! detail)))
 
-(defn- row-limit? [error]
+(defn- row-of-width! [row width ^String detail]
+  (if (and (vector? row) (= width (count row))) (let [decoded (mapv (fn [value] (string-term! value detail)) row)]
+  (if (str/blank? (first decoded)) (malformed! detail) decoded)) (malformed! detail)))
+
+(defn- rows-of-width! [rows width ^String detail]
+  (if (vector? rows) (mapv (fn [row] (row-of-width! row width detail)) rows) (malformed! detail)))
+
+(defn- ^Boolean row-limit? [error]
   (= :query-row-limit (:type (ex-data error))))
 
-;; Runs live behind the telemetry partition (`run` is a telemetry subject token),
-;; but the corpus path this replaces read the UNION of both origins, so ask both
-;; and merge. With the partition disabled the two reads are the same query and
-;; `distinct` collapses them.
-(defn- both-domains [port query]
-  (vec
-   (distinct
-    (concat
-     (:rows (north.coord/bounded-query-in-domain!
-             port :coordination query max-rows))
-     (:rows (north.coord/bounded-query-in-domain!
-             port :telemetry query max-rows))))))
+(defn- both-domains! [port query]
+  (let [coordination (north.coord/bounded-query-in-domain! port :coordination query max-rows)
+   telemetry (north.coord/bounded-query-in-domain! port :telemetry query max-rows)]
+  (vec (distinct (concat (:rows coordination) (:rows telemetry))))))
 
-(defn- child-subject? [subject]
+(defn- ^Boolean child-subject? [^String subject]
   (str/starts-with? subject child-prefix))
 
-(defn- subject-show-facts [port subject]
-  (mapv (fn [[predicate value]] [subject predicate value])
-        (:rows (show-envelope port subject))))
+(defn- subject-show-facts! [port ^String subject]
+  (let [envelope (north.coord/show-envelope! port subject)
+   rows (rows-of-width! (:rows envelope) 2 "subject fact row")]
+  (mapv (fn [row] [subject (nth row 0) (nth row 1)]) rows)))
 
-;; One join answers every child's complete fact set in a single round trip. A
-;; database wide enough to overflow that join still gets an exact answer,
-;; one indexed per-subject read at a time, instead of a refusal.
-(defn- child-facts [port coordinator]
+(defn- child-facts! [port ^String coordinator]
   (let [joined (try
-                 (rows-of-width (:rows (north.coord/bounded-query!
-                                        port (child-fact-query coordinator) max-rows))
-                                3 "child fact row")
-                 (catch Exception error
-                   (when-not (row-limit? error) (throw error))
-                   nil))]
-    (if joined
-      (filterv (comp child-subject? first) joined)
-      (let [subjects (filterv child-subject?
-                              (mapv first
-                                    (rows-of-width
-                                     (:rows (north.coord/bounded-query!
-                                             port (child-subject-query coordinator) max-rows))
-                                     1 "child subject row")))]
-        (into [] (mapcat #(rows-of-width (subject-show-facts port %) 3 "child fact row"))
-              subjects)))))
+  (let [response (north.coord/bounded-query! port (child-fact-query coordinator) max-rows)]
+  (rows-of-width! (:rows response) 3 "child fact row"))
+  (catch Exception error
+    (if (row-limit? error) nil (throw error))))]
+  (if (some? joined) (filterv (fn [row] (child-subject? (first row))) joined) (let [response (north.coord/bounded-query! port (child-subject-query coordinator) max-rows)
+   subject-rows (rows-of-width! (:rows response) 1 "child subject row")
+   subjects (filterv child-subject? (mapv first subject-rows))]
+  (into [] (mapcat (fn [^String subject] (subject-show-facts! port subject)) subjects))))))
 
-(defn- run-subjects [port agent-ids]
-  (if (empty? agent-ids)
-    []
-    (let [tagged (try
-                   (rows-of-width (both-domains port tagged-run-query) 2 "tagged run row")
-                   (catch Exception error
-                     (when-not (row-limit? error) (throw error))
-                     nil))]
-      (if tagged
-        (mapv first (filterv (comp agent-ids second) tagged))
-        (into []
-              (mapcat (fn [agent-id]
-                        (mapv first
-                              (rows-of-width (both-domains port (child-run-query agent-id))
-                                             1 "tagged run row"))))
-              (sort agent-ids))))))
+(defn- run-subjects! [port agent-ids]
+  (if (empty? agent-ids) [] (let [tagged (try
+  (rows-of-width! (both-domains! port tagged-run-query) 2 "tagged run row")
+  (catch Exception error
+    (if (row-limit? error) nil (throw error))))]
+  (if (some? tagged) (mapv first (filterv (fn [row] (contains? agent-ids (nth row 1))) tagged)) (into [] (mapcat (fn [^String agent-id] (mapv first (rows-of-width! (both-domains! port (child-run-query agent-id)) 1 "tagged run row"))) (sort (vec agent-ids))))))))
 
 (defn- projection [rows]
-  (mapv (fn [[subject predicate value]]
-          {:subject (short-id subject) :predicate predicate :value value})
-        (sort (distinct (mapv (fn [[subject predicate value]]
-                                [(short-id subject) predicate value])
-                              rows)))))
+  (let [normalized (mapv (fn [row] [(short-id (nth row 0)) (nth row 1) (nth row 2)]) rows)]
+  (mapv (fn [row] (->SettlementFact (nth row 0) (nth row 1) (nth row 2))) (vec (sort (distinct normalized))))))
 
-(defn settlement
-  [port coordinator]
-  (let [children (child-facts port coordinator)
-        agent-ids (set (mapv #(subs (first %) (count child-prefix)) children))
-        runs (run-subjects port agent-ids)
-        run-rows (into [] (mapcat #(rows-of-width (subject-show-facts port %) 3 "run fact row"))
-                       (sort (distinct runs)))]
-    (array-map :protocol protocol
-               :version envelope-version
-               :coordinator coordinator
-               :children (projection children)
-               :runs (projection run-rows))))
+(defn ^SettlementEnvelope settlement! [port ^String coordinator]
+  (let [children (child-facts! port coordinator)
+   agent-ids (set (mapv (fn [row] (subs (first row) (count child-prefix))) children))
+   runs (run-subjects! port agent-ids)
+   run-rows (into [] (mapcat (fn [^String subject] (subject-show-facts! port subject)) (sort (distinct runs))))]
+  (->SettlementEnvelope protocol envelope-version coordinator (projection children) (projection run-rows))))
 
-(defn- refuse! [coordinator error]
+(defn- refuse! [^String coordinator error]
   (binding [*out* *err*]
-    (println
-     (str "north: json child-settlement REFUSED — coordinator unavailable for "
-          coordinator
-          (when-let [detail (some-> error .getMessage not-empty)]
-            (str ": " detail)))))
+  (println (str "north: json child-settlement REFUSED — coordinator unavailable for " coordinator (let [detail (.getMessage error)]
+  (if (and (string? detail) (not (empty? detail))) (str ": " detail) "")))))
   (System/exit 4))
 
-(defn -main [& args]
-  (if (= 1 (count args))
-    (try
-      (println (json/generate-string (settlement (coordination-port) (first args))))
-      (catch Exception error
-        (refuse! (first args) error)))
-    (do
-      (binding [*out* *err*]
-        (println "usage: json child-settlement <coordinator>"))
-      (System/exit 2))))
+(defn -main [& $beagle$rest$host]
+  (let [args (vec $beagle$rest$host)]
+  (if (= 1 (count args)) (try
+  (println (json/generate-string (settlement! (coordination-port) (first args))))
+  (catch Exception error
+    (refuse! (first args) error))) (do
+  (binding [*out* *err*]
+  (println "usage: json child-settlement <coordinator>"))
+  (System/exit 2)))))
 
-(when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+(defn- ^Boolean direct-invocation? []
+  (= script-file (.getCanonicalPath (io/file (System/getProperty "babashka.file")))))
+
+(if (direct-invocation?) (do
+  (apply -main *command-line-args*)))
