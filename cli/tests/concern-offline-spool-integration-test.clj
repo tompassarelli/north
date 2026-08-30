@@ -83,7 +83,7 @@
       false
 
       :else
-      (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+      (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
         (if (and (= :ready (:state status))
                  (= "north-coordination" (:space-id status)))
           true
@@ -428,7 +428,7 @@
            (re-find #"(@concern-[0-9]+-[0-9a-f]{4})" (:out result)))
           values
           (fn [predicate]
-            (set (north.coord/many port concern-id predicate)))
+            (set (north.coord/many! port concern-id predicate)))
           live-ok?
           (and (not (:timeout result))
                (zero? (:exit result))

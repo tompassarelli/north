@@ -9,10 +9,10 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (defn- driver-of [port thread]
-  (north.coord/resolved port thread "driver"))
+  (north.coord/resolved! port thread "driver"))
 
 (defn- thread-exists? [port thread]
-  (some? (north.coord/resolved port thread "title")))
+  (some? (north.coord/resolved! port thread "title")))
 
 (defn- thread-subject [thread]
   (let [value (when (string? thread) thread)
@@ -29,7 +29,7 @@
   ;; reads and the retract, retry the whole observation. This prevents a stale
   ;; releaser from clearing a successor installed during the read/retract gap.
   (loop [remaining 8]
-    (let [base (north.coord/cur-ver port)]
+    (let [base (north.coord/cur-ver! port)]
       (when-not (integer? base)
         (throw (ex-info "Beagle Store version unavailable" {})))
       (let [cur (driver-of port thread)]

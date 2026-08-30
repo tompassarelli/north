@@ -121,14 +121,14 @@
      :cursor nil
      :served-version 1}))
 
-(with-redefs [north.coord/resolved resolved
-              north.coord/resolved-envelope resolved-envelope
-              north.coord/query-page page
-              north.coord/many
+(with-redefs [north.coord/resolved! resolved
+              north.coord/resolved-envelope! resolved-envelope
+              north.coord/query-page! page
+              north.coord/many!
               (fn [_ subject predicate]
                 (swap! many-calls conj [subject predicate])
                 [])
-              north.coord/lease-status
+              north.coord/lease-status!
               (fn [_ resource]
                 (when-let
                  [holder
@@ -142,7 +142,7 @@
                    resource)]
                   {:resource resource :holder holder :exp 9999999999999
                    :online? true}))
-              north.coord/session-online?
+              north.coord/session-online?!
               (fn [_ control] (= control "live-session"))]
   (check "direct live recipient passes"
          (= {:address "live-session" :recipient "live-session"
@@ -228,8 +228,8 @@
          (empty? @many-calls)))
 
 (with-redefs
- [north.coord/session-online? (fn [& _] false)
-  north.coord/resolved-envelope
+ [north.coord/session-online?! (fn [& _] false)
+  north.coord/resolved-envelope!
   (fn [& _] {:value nil :members 0 :ambiguous? false :values [] :version 1})]
   (check "an offline canonical session cannot admit a direct route"
          (false? (north.message-routing/recipient-live? 1 "offline"))))

@@ -21,8 +21,8 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/wake-receipt-internal.clj"))
-(def one     north.coord/resolved)
-(def many    north.coord/many)
+(def one     north.coord/resolved!)
+(def many    north.coord/many!)
 
 (defn validated-wake-status [port message]
   (try
@@ -92,7 +92,7 @@
 (defn msg-run-entries [port control]
   (try
     (let [response
-          (north.coord/query-page
+          (north.coord/query-page!
            port
            {:find "msg_run_candidate"
             :rules
@@ -147,7 +147,7 @@
     (when (= :indeterminate (:status resolution))
       (reject-msg! "target lifecycle is inconsistent"))
     (let [online?
-          (try (north.coord/session-online? port control)
+          (try (north.coord/session-online?! port control)
                (catch Exception _ ::unavailable))]
       (when (= ::unavailable online?)
         (reject-msg-unavailable! "target liveness projection is unreadable"))
@@ -616,7 +616,7 @@
       (north.topology-authority/require-coordination! "retry command")
       (let [[id] args
             e (if (str/starts-with? (str id) "@cmd:") id (str "@cmd:" id))
-            facts (get-in (north.coord/show-many port [e]) [:rows e])
+            facts (get-in (north.coord/show-many! port [e]) [:rows e])
             by-predicate (reduce (fn [values [predicate value]]
                                    (update values predicate (fnil conj []) value))
                                  {} facts)
@@ -663,7 +663,7 @@
 
     "cmd"         ; <cmd-id>  — show ALL facts on a command (it is a queryable subject now)
     (let [[id] args, e (str "@cmd:" id)
-          rows (north.coord/query-rows
+          rows (north.coord/query-rows!
                 port
                 {:find "pv"
                  :rules [{:head {:rel "pv" :args [{:var "p"} {:var "o"}]}
@@ -673,7 +673,7 @@
         (println (str "no facts on " e))))
 
     "cmds"        ; [target]  — list PENDING commands (no acked_by), optionally scoped to a target
-    (let [rows (sort (or (north.coord/pending-cmds port) []))
+    (let [rows (sort (or (north.coord/pending-cmds! port) []))
           [tgt] args]
       (println (format "%-24s %-10s %s" "CMD" "OP" "TARGET"))
       (doseq [[c op t] rows]

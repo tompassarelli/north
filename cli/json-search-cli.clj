@@ -56,7 +56,7 @@
     (round-robin groups)))
 
 (defn search-results [port query]
-  (let [view (north.coord/live-facts-view port)]
+  (let [view (north.coord/live-facts-view! port)]
     (when-not (:complete view)
       (throw (ex-info "Store RPC live projection is incomplete"
                       {:type :incomplete-live-projection

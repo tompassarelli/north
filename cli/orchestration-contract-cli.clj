@@ -73,7 +73,7 @@
 (defn- cjson [x] (json/generate-string (canon x)))
 
 (defn exact-facts [port subject]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
                                :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]})

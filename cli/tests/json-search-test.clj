@@ -50,7 +50,7 @@
     (= [] (search-rows facts "absent"))]
    ["an incomplete graph projection is refused"
     (try
-      (with-redefs [north.coord/live-facts-view
+      (with-redefs [north.coord/live-facts-view!
                     (fn [_] {:complete false :unavailable ["telemetry"] :facts []})]
         (search-results 7977 "alpha")
         false)

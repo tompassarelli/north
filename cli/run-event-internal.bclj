@@ -17,7 +17,7 @@
 (declare-extern north.run-ledger/canonical-entity! (Fn [Any String] Any))
 (declare-extern north.run-ledger/validate-event-facts! (Fn [Any Any] Any))
 (declare-extern north.run-ledger/event-subject (Fn [Any Int] Any))
-(declare-extern north.coord/query-rows (Fn [Any Any] Any))
+(declare-extern north.coord/query-rows! (Fn [Any Any] Any))
 (declare-extern north.coord/assert-batch-after-read!
   (Fn [Any Any (Fn [] Any)] Any))
 
@@ -99,7 +99,7 @@
       entries)))
 
 (defn facts-of! [port Any subject Any] Any
-  (let [rows Any (north.coord/query-rows
+  (let [rows Any (north.coord/query-rows!
               port {:find "wire_event_writer_fact"
                     :rules [{:head {:rel "wire_event_writer_fact"
                                     :args [{:var "p"} {:var "r"}]}

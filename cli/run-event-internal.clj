@@ -76,7 +76,7 @@
   entries)))
 
 (defn facts-of! [port subject]
-  (let [rows (north.coord/query-rows port {:find "wire_event_writer_fact" :rules [{:head {:rel "wire_event_writer_fact" :args [{:var "p"} {:var "r"}]} :body [{:rel "triple" :args [subject {:var "p"} {:var "r"}]}]}]})]
+  (let [rows (north.coord/query-rows! port {:find "wire_event_writer_fact" :rules [{:head {:rel "wire_event_writer_fact" :args [{:var "p"} {:var "r"}]} :body [{:rel "triple" :args [subject {:var "p"} {:var "r"}]}]}]})]
   (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 
 (defn fact-map [facts]

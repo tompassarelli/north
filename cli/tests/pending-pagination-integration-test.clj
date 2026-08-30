@@ -64,7 +64,7 @@
 (defn await-coordinator! [port]
   (loop [attempt 0]
     (let [ready? (try
-                   (let [status (north.coord/status port)]
+                   (let [status (north.coord/status! port)]
                      (and (= :ready (:state status))
                           (= "north-coordination" (:space-id status))))
                    (catch Exception _ false))]
@@ -187,7 +187,7 @@
   (try
     (check! "throwaway current Beagle Store server is ready"
             (await-coordinator! port))
-    (let [status (north.coord/status port)
+    (let [status (north.coord/status! port)
           daemon-pid (.pid ^Process (:proc daemon))]
       (check! "paged fixture is bound to the canonical SpaceId"
               (and (= :ready (:state status))
@@ -293,7 +293,7 @@
                    (= space-key (:space-key state))
                    (integer? (:snapshot-version state))
                    (<= (:snapshot-version state)
-                       (north.coord/cur-ver port))
+                       (north.coord/cur-ver! port))
                    (<= (count (:ids state)) spool-page-limit)
                    (every? valid-message-id? (:ids state))
                    (= (message-id (inc (last second-ids)))
@@ -307,7 +307,7 @@
       (let [settled (message-id (first first-ids))
             crash-state
             (assoc state
-                   :snapshot-version (north.coord/cur-ver port)
+                   :snapshot-version (north.coord/cur-ver! port)
                    :created-at-ms (System/currentTimeMillis)
                    :ids (into [settled] (:ids state)))
             _ (atomic-write! (.toPath state-file) crash-state)
@@ -324,7 +324,7 @@
       (let [current (edn/read-string (slurp state-file))
             foreign-id (first (:ids current))
             single (assoc current
-                          :snapshot-version (north.coord/cur-ver port)
+                          :snapshot-version (north.coord/cur-ver! port)
                           :created-at-ms (System/currentTimeMillis)
                           :ids [foreign-id]
                           :cursor nil)
@@ -333,7 +333,7 @@
             _ (atomic-write! (.toPath state-file) single)
             blocked-turn (invoke)
             blocked-ack
-            (set (north.coord/many port foreign-id "acked_by"))]
+            (set (north.coord/many! port foreign-id "acked_by"))]
         (check! "foreign graph claim prevents cached output and acknowledgement"
                 (and claim
                      (zero? (:exit blocked-turn))
@@ -342,7 +342,7 @@
         (north.message-audience/release-delivery-claim! port claim)
         (atomic-write! (.toPath state-file)
                        (assoc single
-                              :snapshot-version (north.coord/cur-ver port)
+                              :snapshot-version (north.coord/cur-ver! port)
                               :created-at-ms (System/currentTimeMillis)))
         (let [released-turn (invoke)]
           (check! "released foreign claim leaves graph mail available to the next turn"
@@ -352,14 +352,14 @@
                         (format "page-subject-%05d"
                                 (message-index foreign-id)))
                        (= #{recipient}
-                          (set (north.coord/many port foreign-id "acked_by")))))))
+                          (set (north.coord/many! port foreign-id "acked_by")))))))
 
       ;; Corrupt, stale, and cross-corpus files are discarded rather than used as
       ;; cursor or delivery authority. State deletion is itself directory-fsynced.
       (let [base {:schema spool-schema
                   :actor-key actor-key
                   :space-key space-key
-                  :snapshot-version (north.coord/cur-ver port)
+                  :snapshot-version (north.coord/cur-ver! port)
                   :created-at-ms (System/currentTimeMillis)
                   :ids [(message-id 4000)]
                   :cursor nil}]
@@ -453,7 +453,7 @@
             (north.message-audience/pending-message-page
              port recipient #{recipient})
             acked
-            (north.coord/query-rows
+            (north.coord/query-rows!
              port
              {:find "acked"
               :rules

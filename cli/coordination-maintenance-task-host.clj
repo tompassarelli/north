@@ -182,7 +182,7 @@
 (def automatic-index-row-limit 4096)
 
 (defn indexed-subjects-for [predicate object]
-  (->> (north.coord/bounded-query-in-domain
+  (->> (north.coord/bounded-query-in-domain!
         port
         :coordination
         {:find "maintenance_subject"
@@ -198,7 +198,7 @@
 
 (defn indexed-predicate-rows [predicate]
   (:rows
-   (north.coord/bounded-query-in-domain
+   (north.coord/bounded-query-in-domain!
     port
     :coordination
     {:find "maintenance_predicate_rows"
@@ -232,10 +232,10 @@
 (defn subject-fact-rows [domain subjects]
   (if (empty? subjects)
     {}
-    (:rows (north.coord/show-many-in-domain port domain subjects))))
+    (:rows (north.coord/show-many-in-domain! port domain subjects))))
 
 (defn online-session-handles [now]
-  (into #{} (map :handle) (north.coord/online-session-leases port now)))
+  (into #{} (map :handle) (north.coord/online-session-leases! port now)))
 
 (defn stale-owner-lapse-ms
   "Return exact stale-owner lapse for an old offline concern. One batch scan
@@ -246,7 +246,7 @@
           minted (concern-mint-ms concern)]
       (when (and (not (contains? online-handles handle))
                  (or (nil? minted) (>= (- now minted) CONCERN-STALE-MS)))
-        (let [{:keys [online? exp]} (north.coord/session-lease-status port handle)]
+        (let [{:keys [online? exp]} (north.coord/session-lease-status! port handle)]
           (when-not online?
             (cond
               (integer? exp) (- now exp)
@@ -389,7 +389,7 @@
   [subject predicates]
   (into {}
         (keep (fn [predicate]
-                (let [values (set (north.coord/many port subject predicate))]
+                (let [values (set (north.coord/many! port subject predicate))]
                   (when (seq values) [predicate values]))))
         predicates))
 
@@ -406,7 +406,7 @@
   [h]
   (try
     (let [response
-          (north.coord/bounded-query-in-domain
+          (north.coord/bounded-query-in-domain!
            port
            :telemetry
            {:find "lane_run_candidate"
@@ -453,7 +453,7 @@
        (try
          (let [rows
                (:rows
-                (north.coord/bounded-query-in-domain
+                (north.coord/bounded-query-in-domain!
                  port
                  :telemetry
                  {:find "lane_run_candidates"
@@ -594,7 +594,7 @@
 (defn spawned-ms
   "@agent:<id> spawned_at (ISO) -> epoch ms, or nil (the leaseless-dead staleness axis)."
   [e]
-  (when-let [ts (north.coord/resolved port e "spawned_at")]
+  (when-let [ts (north.coord/resolved! port e "spawned_at")]
     (try (.toEpochMilli (java.time.Instant/parse ts)) (catch Throwable _ nil))))
 
 (defn spawned-ms-from-rows [rows]
@@ -650,7 +650,7 @@
                         spawned
                         (>= (- now spawned) LANE-STALE-MS))
                (let [{:keys [online? exp]}
-                     (north.coord/session-lease-status port handle)]
+                     (north.coord/session-lease-status! port handle)]
                  (when (and (not online?)
                             (north.reap/reap-lane? now false exp spawned))
                    {:e entity :h handle :lease-exp exp :sp spawned

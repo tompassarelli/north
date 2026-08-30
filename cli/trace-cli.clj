@@ -18,9 +18,9 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/terminal-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/lifecycle-projection.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/run-ledger.clj"))
-(def cur-ver  north.coord/cur-ver)
-(def resolved north.coord/resolved)
-(def session-online? north.coord/session-online?)
+(def cur-ver  north.coord/cur-ver!)
+(def resolved north.coord/resolved!)
+(def session-online? north.coord/session-online?!)
 
 (def NORTH (some-> (System/getProperty "babashka.file")
                    io/file .getCanonicalFile .getParentFile .getParentFile str))
@@ -54,7 +54,7 @@
 ;; ---- per-id reads ------------------------------------------------------------
 (defn shown-values [domain subjects]
   (if (seq subjects)
-    (let [response (north.coord/show-many-in-domain PORT domain subjects)]
+    (let [response (north.coord/show-many-in-domain! PORT domain subjects)]
       (into {}
             (map
              (fn [[subject rows]]
@@ -77,7 +77,7 @@
 (defn online-session? [id] (session-online? PORT id))
 (defn q [project body]
   (:rows
-   (north.coord/bounded-query
+   (north.coord/bounded-query!
     PORT
     {:find "row"
      :rules [{:head {:rel "row" :args (mapv (fn [v] {:var v}) project)}
@@ -94,7 +94,7 @@
           predicates)))
 
 (defn run-event-entries [wire-run]
-  (let [response (north.coord/bounded-query-in-domain
+  (let [response (north.coord/bounded-query-in-domain!
                   PORT
                   :telemetry
                   {:find "forensic_run_event"
@@ -116,7 +116,7 @@
 
 (defn thread-run-ids [thread-id]
   (let [canonical-thread (north.run-ledger/canonical-entity! thread-id "thread")
-        response (north.coord/bounded-query-in-domain
+        response (north.coord/bounded-query-in-domain!
                   PORT
                   :telemetry
                   {:find "forensic_thread_run"
@@ -195,7 +195,7 @@
 
 (defn agent-run-entries [id]
   (let [response
-        (north.coord/bounded-query-in-domain
+        (north.coord/bounded-query-in-domain!
          PORT
          :telemetry
          {:find "trace_run_candidate"

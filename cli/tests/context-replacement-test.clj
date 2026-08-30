@@ -49,7 +49,7 @@
   (try
     (check! "scratch canonical STORE RPC server starts"
             (eventually
-             #(let [status (north.coord/status port)]
+             #(let [status (north.coord/status! port)]
                 (and (= :ready (:state status))
                      (= space (:space-id status))))))
     (append! port "@agent:aaaaaaaaaaaa" "needs_rotation" "true")

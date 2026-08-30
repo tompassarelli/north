@@ -63,8 +63,8 @@
 (defn malformed-oversize-packet []
   (let [response (wire/rpc-response! "boundary" :rpc/version 0 nil nil
                                      wire/rpc-unit)
-        packet (wire/encode-rpc-frame-v2!
-               (wire/rpc-response-frame 1 response))
+        packet (wire/store-rpc-encode-packet-v2!
+               (wire/store-rpc-response-packet 1 response))
         header (byte-array wire/rpc-v2-header-bytes)
         body-length (inc rpc/max-body-bytes)]
     (System/arraycopy packet 0 header 0 wire/rpc-v2-header-bytes)
@@ -106,7 +106,7 @@
 
   (reset! client
           (eventually
-           #(rpc/connect "127.0.0.1" port space-id
+           #(rpc/connect! "127.0.0.1" port space-id
                          {:connect-timeout-ms 100
                           :read-timeout-ms 5000
                           :max-attempts 1
@@ -119,7 +119,7 @@
                                       (slurp server-output))})))
   (rpc/close! @client)
   (reset! client
-          (rpc/connect "127.0.0.1" port space-id
+          (rpc/connect! "127.0.0.1" port space-id
                        {:connect-timeout-ms 500
                         :read-timeout-ms 5000
                         :max-attempts 3
@@ -315,11 +315,11 @@
   (rpc/reset-cardinality-cache!)
   (let [graph-silent
         (binding [rpc/*env* {"BEAGLE_STORE_SINGLE_VALUED" "owner lead driver"}]
-          (rpc/cardinality-of @client "lead"))
+          (rpc/cardinality-of! @client "lead"))
         graph-wins
         (binding [rpc/*env* {"BEAGLE_STORE_SINGLE_VALUED" "note"}]
           (rpc/reset-cardinality-cache!)
-          (rpc/cardinality-of @client "note"))]
+          (rpc/cardinality-of! @client "note"))]
     (check! "BEAGLE_STORE_SINGLE_VALUED decides cardinality while the graph is silent"
             (= :one graph-silent))
     (check! "a graph multi declaration outranks the launcher export"
@@ -396,7 +396,7 @@
 
   (let [wrong-space
         (thrown-data
-         #(rpc/connect "127.0.0.1" port "wrong-space"
+         #(rpc/connect! "127.0.0.1" port "wrong-space"
                        {:max-attempts 1 :retry-delay-ms 0 :jitter-ms 0}))]
     (check! "connect rejects a server serving a different SpaceId"
             (= :rpc/space-mismatch (:type wrong-space))))

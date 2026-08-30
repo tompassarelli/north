@@ -677,7 +677,7 @@
 
 (defn- exact-show! [port target-log subject]
   (require-configured-target! target-log)
-  (let [response (north.coord/show-envelope port subject)]
+  (let [response (north.coord/show-envelope! port subject)]
     (cond
       (and (map? response)
            (= #{:version :rows} (set (keys response)))

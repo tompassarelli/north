@@ -2,7 +2,7 @@
 (ns north.lifecycle-projection
   "Finite point-read vocabularies for managed lane lifecycle state.
 
-  Callers supply a subject+predicate reader (normally north.coord/many). This
+  Callers supply a subject+predicate reader (normally north.coord/many!). This
   library deliberately has no coordinator dependency: the projection is pure,
   shared by writer and readers, and cannot fall back to subject-only Datalog."
   (:require [clojure.set :as set]))

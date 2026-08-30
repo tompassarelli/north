@@ -81,13 +81,13 @@
   "Current live value of a single-valued micro-USD counter, 0 when absent.
    nil (absent) => 0; a non-integer live value is a corrupt ledger => throw."
   [port subject pred]
-  (let [v (north.coord/resolved port (at subject) pred)]
+  (let [v (north.coord/resolved! port (at subject) pred)]
     (cond (nil? v) 0
           (re-matches #"\d+" (str v)) (parse-long (str v))
           :else (throw (ex-info (str "corrupt counter " subject "/" pred " = " (pr-str v)) {})))))
 
 (defn budget-single [port target pred]
-  (north.coord/resolved port (at (budget-id target)) pred))
+  (north.coord/resolved! port (at (budget-id target)) pred))
 
 ;; The single AUTHORITY on whether a counter predicate is safely single-valued.
 ;; A multi-valued counter silently never advances (resolved returns the earliest
@@ -98,7 +98,7 @@
 ;; resolve-name) but IS visible to the :query engine's reified-with-schema view.
 ;; Query values may be symbolic terms, so compare through str.
 (defn declared-single? [port pred]
-  (let [rows (north.coord/query-rows
+  (let [rows (north.coord/query-rows!
               port
               {:find "v"
                :rules [{:head {:rel "v" :args [{:var "v"}]}
@@ -110,7 +110,7 @@
 ;; JSON object {amount_microusd, until_ms, reason, created_by}. Only unexpired
 ;; overrides add headroom.
 (defn active-override-micro [port target now-ms]
-  (->> (north.coord/many port (at (budget-id target)) "spend_override")
+  (->> (north.coord/many! port (at (budget-id target)) "spend_override")
        (keep (fn [raw]
                (try (let [{:strs [amount_microusd until_ms]} (json/parse-string (str raw))]
                       (when (and (integer? amount_microusd) (integer? until_ms) (> until_ms now-ms))
@@ -165,7 +165,7 @@
          month  (utc-month)
          period (period-id target month)]
      (loop [tries CAS-TRIES]
-       (let [base      (north.coord/cur-ver port)
+       (let [base      (north.coord/cur-ver! port)
              reserved  (counter port period "reserved_microusd")
              settled   (counter port period "settled_microusd")
              overrides (active-override-micro port target (System/currentTimeMillis))
@@ -191,7 +191,7 @@
    PERIOD. Same base-CAS loop, recomputing inside. Returns {:ok true/false}."
   [port period pred delta]
   (loop [tries CAS-TRIES]
-    (let [base (north.coord/cur-ver port)
+    (let [base (north.coord/cur-ver! port)
           cur  (counter port period pred)
           nv   (max 0 (+ cur delta))
           res  (north.coord/transact!
@@ -225,7 +225,7 @@
                   (min reserved-micro (exact-cost-micro port target (or input 0) (or output 0)))
                   reserved-micro)]
      (loop [tries CAS-TRIES]
-       (let [base (north.coord/cur-ver port)
+       (let [base (north.coord/cur-ver! port)
              settled (counter port period "settled_microusd")
              reserved (counter port period "reserved_microusd")
              next-settled (+ settled final)
@@ -347,7 +347,7 @@
       (println (str "  HEADROOM   $" (micro->usd headroom))))))
 
 (defn all-budget-targets [port]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "b"
          :rules [{:head {:rel "b" :args [{:var "b"}]}
@@ -429,7 +429,7 @@
       (println "breaker @spend-breaker:global is NOT tripped — nothing to reset")
       (System/exit 0))
     (let [trip (north.spend-breaker/trip-reason port)
-          tripped-at (north.coord/resolved port (str "@" north.spend-breaker/BREAKER) "tripped")]
+          tripped-at (north.coord/resolved! port (str "@" north.spend-breaker/BREAKER) "tripped")]
       (println "── spend-breaker reset ceremony ─────────────────────────────")
       (println (str "  TRIPPED " tripped-at))
       (println (str "  trip_reason: " trip))
@@ -461,13 +461,13 @@
                          ["cleared_trip_reason" (str trip)] ["forced" (str (boolean force?))]]
             breaker (str "@" north.spend-breaker/BREAKER)]
         (loop [tries CAS-TRIES]
-          (let [base (north.coord/cur-ver port)
-                current-tripped (north.coord/resolved port breaker "tripped")
-                current-reason (north.coord/resolved port breaker "trip_reason")
+          (let [base (north.coord/cur-ver! port)
+                current-tripped (north.coord/resolved! port breaker "tripped")
+                current-reason (north.coord/resolved! port breaker "trip_reason")
                 current-reset
                 (into {}
                       (map (fn [predicate]
-                             [predicate (north.coord/many port breaker predicate)]))
+                             [predicate (north.coord/many! port breaker predicate)]))
                       ["reset_at" "reset_by" "reset_reason"])]
             (when-not (and (seq (str current-tripped))
                            (= (str trip) (str current-reason)))
@@ -509,17 +509,17 @@
 ;; Until then this verb IS the surface — every breaker reset whose actor is not the
 ;; human is a review item.
 (defn cmd-reset-audit []
-  (let [rows (->> (north.coord/query-rows
+  (let [rows (->> (north.coord/query-rows!
                    port
                    {:find "e"
                     :rules [{:head {:rel "e" :args [{:var "e"}]}
                              :body [{:rel "triple" :args [{:var "e"} "kind" "spend-breaker-reset"]}]}]})
                   (map (comp str first))
                   (map (fn [e] {:e e
-                                :by (north.coord/resolved port e "reset_by")
-                                :at (north.coord/resolved port e "reset_at")
-                                :reason (north.coord/resolved port e "reset_reason")
-                                :forced (north.coord/resolved port e "forced")}))
+                                :by (north.coord/resolved! port e "reset_by")
+                                :at (north.coord/resolved! port e "reset_at")
+                                :reason (north.coord/resolved! port e "reset_reason")
+                                :forced (north.coord/resolved! port e "forced")}))
                   (sort-by :at))
         flagged (remove #(#{HUMAN-ACTOR (str "@" HUMAN-ACTOR)} (str (:by %))) rows)]
     (println (str "breaker resets: " (count rows) " total, " (count flagged) " NEEDS REVIEW (actor ≠ @" HUMAN-ACTOR ")"))

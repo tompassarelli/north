@@ -607,7 +607,7 @@
   (when-not (exact-identifier? experiment-id)
     (throw (ex-info "learning experiment id must be a portable identifier"
                     {:type :usage})))
-  (let [result (north.coord/bounded-query-in-domain
+  (let [result (north.coord/bounded-query-in-domain!
                 port :telemetry (comparison-query experiment-id)
                 max-comparison-facts)]
     (when (empty? (:rows result))

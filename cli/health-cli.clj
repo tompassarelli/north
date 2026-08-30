@@ -63,7 +63,7 @@
           facts rows))
 
 (defn live-health-facts [port]
-  (let [rows (north.coord/query-rows port health-query)]
+  (let [rows (north.coord/query-rows! port health-query)]
     (when-not
      (and (vector? rows)
           (every? #(and (vector? %)
@@ -170,7 +170,7 @@
                                  :subject-facts subject-facts}))))))
         active (vec (remove :abandoned rows))
         online-handles
-        (->> (north.coord/online-session-leases PORT now)
+        (->> (north.coord/online-session-leases! PORT now)
              (map :handle) set)
         active (mapv #(assoc % :online
                              (concern-owner-online? online-handles
@@ -217,7 +217,7 @@
         now (System/currentTimeMillis)
         DAY 86400000, WEEK (* 7 DAY)]
     ;; connectivity probe: one cheap read. Down => single honest line, exit 0.
-    (let [probe (try (north.coord/cur-ver PORT) (catch Exception _ ::down))]
+    (let [probe (try (north.coord/cur-ver! PORT) (catch Exception _ ::down))]
       (when (= probe ::down)
         (println (red (str "north health — coordinator :" PORT " unreachable (is `north up` running?)")))
         (System/exit 0)))

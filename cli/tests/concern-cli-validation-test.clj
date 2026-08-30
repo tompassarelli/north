@@ -58,7 +58,7 @@
 (.addShutdownHook (Runtime/getRuntime) (Thread. cleanup))
 (defn await-up []
   (loop [n 0]
-    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+    (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
       (cond
         (and (= :ready (:state status))
              (= "north-coordination" (:space-id status))) true
@@ -83,7 +83,7 @@
 (defn run-concern [& args]
   (apply run-concern-in root args))
 (defn reached-rows []
-  (north.coord/query-rows
+  (north.coord/query-rows!
    port
    {:find "row"
     :rules [{:head {:rel "row"
@@ -91,7 +91,7 @@
              :body [{:rel "triple"
                      :args [{:var "e"} "reached" {:var "r"}]}]}]}))
 (defn values-of [subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 
 (defn fact! [subject predicate value]
   (north.coord/append! port subject predicate value))

@@ -505,7 +505,7 @@
       subject-by-control {"lane-first" first-subject "lane-second" second-subject}
       projection
       (with-redefs
-       [north.coord/bounded-query-in-domain
+       [north.coord/bounded-query-in-domain!
         (fn [port domain query limit]
           (swap! query-calls conj [port domain query limit])
           (let [requested-controls
@@ -515,7 +515,7 @@
             {:rows (mapv vector
                          (keep #(get subject-by-control %) requested-controls))
              :served-version 1}))
-        north.coord/show-many-in-domain
+        north.coord/show-many-in-domain!
         (fn [port domain subjects]
           (swap! show-calls conj [port domain subjects])
           {:version 1
@@ -627,7 +627,7 @@
          (= ["codex-apple" "codex-proton"] configured)))
 
 (let [calls (atom [])
-      facts (with-redefs [north.coord/show-rows
+      facts (with-redefs [north.coord/show-rows!
                           (fn [port subject]
                             (swap! calls conj [port subject])
                             [["provider" "openai"]
@@ -640,18 +640,18 @@
 
 (let [calls (atom [])
       failed
-      (with-redefs [north.coord/show-many-in-domain
+      (with-redefs [north.coord/show-many-in-domain!
                     (fn [port domain subjects]
                       (swap! calls conj [port domain subjects])
                       (throw (ex-info "coordination unavailable" {})))]
         (roster-facts
          (mapv #(str "lane-" %) (range max-live-controls))))
       valid-empty
-      (with-redefs [north.coord/show-many-in-domain
+      (with-redefs [north.coord/show-many-in-domain!
                     (fn [& _] {:version 1 :rows {}})]
         (roster-facts ["lane-a"]))
       malformed
-      (with-redefs [north.coord/show-many-in-domain
+      (with-redefs [north.coord/show-many-in-domain!
                     (fn [& _] {:version 1
                                :rows {"@agent:lane-a" [["task"]]}})]
         (roster-facts ["lane-a"]))]
@@ -724,13 +724,13 @@
 
 (let [exp (+ (System/currentTimeMillis) 8000)
       calls (atom [])
-      valid (with-redefs [north.coord/online-session-leases
+      valid (with-redefs [north.coord/online-session-leases!
                           (fn [port now]
                             (swap! calls conj [port now])
                             [{:handle "lane-a" :exp exp}])]
               (presence-rows))
       malformed
-      (with-redefs [north.coord/online-session-leases
+      (with-redefs [north.coord/online-session-leases!
                     (fn [& _] [{:handle "../lane" :exp exp}])]
         (presence-rows))]
   (check "roster intake uses one canonical batched session-lease read"

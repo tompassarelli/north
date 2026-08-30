@@ -41,7 +41,7 @@
   (Fn [Any] Bool))
 (declare-extern north.lifecycle-projection/raw-point-facts
   (Fn [Any Any Any] Any))
-(declare-extern north.coord/many (Fn [Any Any Any] Any))
+(declare-extern north.coord/many! (Fn [Any Any Any] Any))
 (declare-extern north.coord/check-lease! (Fn [Any Any] Any))
 (declare-extern north.coord/retract-with-fence!
   (Fn [Any Any Any Any Any] Any))
@@ -49,7 +49,7 @@
   (Fn [Any Any Any Any Any] Any))
 (declare-extern north.coord/assert-after-read-with-fence!
   (Fn [Any Any Any Any Any Any] Any))
-(declare-extern north.coord/resolved (Fn [Any Any Any] Any))
+(declare-extern north.coord/resolved! (Fn [Any Any Any] Any))
 (declare-extern java.security.MessageDigest/getInstance (Fn [String] Any))
 (declare-extern java.util.UUID/randomUUID (Fn [] Any))
 
@@ -151,7 +151,7 @@
    (facts-of port subject north.lifecycle-projection/managed-agent-predicates))
   ([port Any subject Any predicates Any] Any
    (north.lifecycle-projection/raw-point-facts
-    (fn [entity Any predicate Any] Any (north.coord/many port entity predicate))
+    (fn [entity Any predicate Any] Any (north.coord/many! port entity predicate))
     subject
     predicates)))
 
@@ -297,7 +297,7 @@
                validate-current!)
               [:assert-after-read-with-fence
                subject terminal-marker-predicate marker])
-    (when-not (= marker (north.coord/resolved port subject terminal-marker-predicate))
+    (when-not (= marker (north.coord/resolved! port subject terminal-marker-predicate))
       (fail! "managed terminal commit marker was not acknowledged" {:marker marker}))
     marker))
 

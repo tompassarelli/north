@@ -84,9 +84,9 @@
   (vec
    (distinct
     (concat
-     (:rows (north.coord/bounded-query-in-domain
+     (:rows (north.coord/bounded-query-in-domain!
              port :coordination query max-rows))
-     (:rows (north.coord/bounded-query-in-domain
+     (:rows (north.coord/bounded-query-in-domain!
              port :telemetry query max-rows))))))
 
 (defn- child-subject? [subject]
@@ -101,7 +101,7 @@
 ;; one indexed per-subject read at a time, instead of a refusal.
 (defn- child-facts [port coordinator]
   (let [joined (try
-                 (rows-of-width (:rows (north.coord/bounded-query
+                 (rows-of-width (:rows (north.coord/bounded-query!
                                         port (child-fact-query coordinator) max-rows))
                                 3 "child fact row")
                  (catch Exception error
@@ -112,7 +112,7 @@
       (let [subjects (filterv child-subject?
                               (mapv first
                                     (rows-of-width
-                                     (:rows (north.coord/bounded-query
+                                     (:rows (north.coord/bounded-query!
                                              port (child-subject-query coordinator) max-rows))
                                      1 "child subject row")))]
         (into [] (mapcat #(rows-of-width (subject-show-facts port %) 3 "child fact row"))

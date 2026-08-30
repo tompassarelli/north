@@ -73,7 +73,7 @@
          ["@agent:conflict" "ran"]]))]
    ["concern summary preserves stale, orphaned, retired, landed, and live semantics"
     (= {:active 4 :stale 1 :orphaned 1 :retired 1}
-       (with-redefs [north.coord/online-session-leases
+       (with-redefs [north.coord/online-session-leases!
                      (fn [port now]
                        (when-not (and (= 7977 port) (= concern-now now))
                          (throw (ex-info "unexpected health session batch" {})))
@@ -82,7 +82,7 @@
    ["health facts use one predicate-bounded union query"
     (let [calls (atom [])
           facts
-          (with-redefs [north.coord/query-rows
+          (with-redefs [north.coord/query-rows!
                         (fn [port query]
                           (swap! calls conj [port query])
                           [["@run:a" "kind" "run"]

@@ -92,7 +92,7 @@
         (fn [_ _ _ _ body]
           (swap! events conj :lease)
           (body {:generation :test}))
-        north.coord/cur-ver
+        north.coord/cur-ver!
         (fn [_]
           (if (= 1 (swap! version-calls inc))
             (do (swap! events conj :baseline) 5)
@@ -118,7 +118,7 @@
 (let [calls (atom 0)
       projection
       (with-redefs
-       [north.coord/show-rows
+       [north.coord/show-rows!
         (fn [_ _]
           (swap! calls inc)
           [["kind" "session"]
@@ -156,7 +156,7 @@
 (let [status {:state :starting}
       error
       (try
-        (with-redefs [north.coord/status (fn [_] status)]
+        (with-redefs [north.coord/status! (fn [_] status)]
           (validate-listener-corpus! 1))
         nil
         (catch clojure.lang.ExceptionInfo caught caught))]

@@ -17,7 +17,7 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/coord.clj"))
 
 (defn all-runs [port]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "r"
          :rules [{:head {:rel "r" :args [{:var "e"}]}
@@ -45,7 +45,7 @@
                     (update out predicate (fnil conj []) value)
                     out))
                 {}
-                (:rows (north.coord/show-envelope port re)))]
+                (:rows (north.coord/show-envelope! port re)))]
     (reduce
      (fn [metadata predicate]
        (let [found (get values predicate [])]

@@ -484,7 +484,7 @@
          (= (:writes-per-writer options) (:acks writer-result))
          subject
          (contains?
-          (set (north.coord/many port subject "oracle_churn"))
+          (set (north.coord/many! port subject "oracle_churn"))
           value))))
 
 (def results (atom []))
@@ -551,12 +551,12 @@
     (try
       (when-not
        (eventually
-        #(let [status (north.coord/status port)]
+        #(let [status (north.coord/status! port)]
            (and (= :ready (:state status))
                 (= test-space (:space-id status)))))
         (throw (ex-info "scratch current Beagle Store server did not become ready"
                         {:port port :log log :server-log (str server-output)})))
-      (let [served-facts (:live-count (north.coord/status port))]
+      (let [served-facts (:live-count (north.coord/status! port))]
         (println
          (str/join "\t"
                    ["CONFIG" (str "corpus=" corpus)

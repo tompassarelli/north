@@ -71,14 +71,14 @@
    (canonical-message-id? message)
    (every?
     string?
-    (map #(coord/resolved port message %)
+    (map #(coord/resolved! port message %)
          ["from" "subject" "body" "sent_at"]))))
 
 (defn online-handles
   "Finite session audience at one database observation. Liveness uses the
    same unexpired renewable-lease rule as the presence roster."
   [port now]
-  (:handles (coord/online-session-handles port now)))
+  (:handles (coord/online-session-handles! port now)))
 
 (defn snapshot-broadcast!
   "Persist a finite audience before the wildcard `to` fact, excluding the sender. The caller
@@ -101,7 +101,7 @@
     recipients))
 
 (defn audience [port message]
-  (set (coord/many port message audience-predicate)))
+  (set (coord/many! port message audience-predicate)))
 
 (defn- sha256 [value]
   (let [digest (.digest (java.security.MessageDigest/getInstance "SHA-256")
@@ -113,11 +113,11 @@
        (sha256 (str message "\u0000" (bare-handle recipient)))))
 
 (defn acknowledged? [port message recipient]
-  (contains? (set (coord/many port message "acked_by"))
+  (contains? (set (coord/many! port message "acked_by"))
              (bare-handle recipient)))
 
 (defn rejected? [port message recipient]
-  (contains? (set (coord/many port message rejected-by-predicate))
+  (contains? (set (coord/many! port message rejected-by-predicate))
              (bare-handle recipient)))
 
 (defn release-delivery-claim! [port {:keys [resource holder epoch]}]
@@ -233,7 +233,7 @@
                              :message message :recipient recipient
                              :result result}))))
         (when-not (and (rejected? port message recipient)
-                       (contains? (set (coord/many port message
+                       (contains? (set (coord/many! port message
                                                   rejection-predicate))
                                   evidence))
           (throw (ex-info "message rejection read-back mismatch"
@@ -348,7 +348,7 @@
     port recipient direct-addresses pending-page-limit nil))
   ([port recipient direct-addresses limit after]
    (let [response
-         (coord/query-page
+         (coord/query-page!
           port (pending-query recipient direct-addresses) limit after)]
      (when-not (and (<= (count (:rows response)) limit)
                     (every? #(and (vector? %)
@@ -372,7 +372,7 @@
     port recipient direct-addresses pending-page-limit nil))
   ([port recipient direct-addresses limit after]
    (let [response
-         (coord/query-page
+         (coord/query-page!
           port (pending-msg-query recipient direct-addresses) limit after)]
      (when-not (and (<= (count (:rows response)) limit)
                     (every? #(and (vector? %)
@@ -392,7 +392,7 @@
    server response."
   [port body]
   (let [{:keys [rows]}
-        (coord/bounded-query
+        (coord/bounded-query!
          port
          {:find "pending_candidate"
           :rules [{:head {:rel "pending_candidate" :args [{:var "e"}]}

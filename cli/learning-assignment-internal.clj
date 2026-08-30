@@ -68,7 +68,7 @@
           parsed)))
 
 (defn facts-of [port subject]
-  (let [rows (north.coord/query-rows
+  (let [rows (north.coord/query-rows!
               port {:find "learning_assignment_fact"
                     :rules [{:head {:rel "learning_assignment_fact"
                                     :args [{:var "p"} {:var "r"}]}

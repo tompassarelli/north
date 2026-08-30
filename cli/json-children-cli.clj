@@ -34,7 +34,7 @@
 (defn children
   [port parent]
   (let [rows (:rows
-              (north.coord/bounded-query-in-domain
+              (north.coord/bounded-query-in-domain!
                port :coordination (children-query parent) max-children))]
     (when-not (every? #(and (= 1 (count %)) (not (str/blank? (first %)))) rows)
       (throw (ex-info "coordinator returned a malformed child row"

@@ -159,7 +159,7 @@
   (alter-var-root #'north.coord/expected-log (constantly (fn [] log)))
   (try
     (check! "current Beagle Store server starts"
-            (eventually #(= :ready (:state (north.coord/status port)))))
+            (eventually #(= :ready (:state (north.coord/status! port)))))
     (let [e-holder "evidence-v1"
           i-holder "identity-v1"
           e-epoch (acquire! port evidence-resource e-holder)
@@ -205,7 +205,7 @@
       (check! "same winner restart heals idempotently" (integer? (get result "ok")))
       (check! "evidence retains exactly one canonical link"
               (= #{(str "@" v1-link)}
-                 (set (north.coord/many
+                 (set (north.coord/many!
                        port (str "@" evidence-subject) "canonical_link"))))
       (release! port v1-resource i-holder i-epoch)
       (release! port evidence-resource e-holder e-epoch))
@@ -238,7 +238,7 @@
            "poison-rejected")
           no-election?
           (empty?
-           (north.coord/many
+           (north.coord/many!
             port (str "@" poison-subject) "bootstrap_election"))
           corrected
           (reserve-once!
@@ -322,7 +322,7 @@
                      (str "metadata-" index))
                     unelected?
                     (empty?
-                     (north.coord/many
+                     (north.coord/many!
                       port (str "@" case-subject) "bootstrap_election"))]
                 [label
                  (and (str/includes? (get result "reject" "") needle)
@@ -369,7 +369,7 @@
                    (get result "reject" "")
                    (str "conflicts on " predicate))
                   (empty?
-                   (north.coord/many
+                   (north.coord/many!
                     port (str "@" link) "linked_thread")))]))
             uuid-cases))]
       (doseq [[predicate passed?] results]
@@ -403,7 +403,7 @@
                    (get result "reject" "")
                    "remote server is not a bounded canonical authority token")
                   (empty?
-                   (north.coord/many
+                   (north.coord/many!
                     port (str "@" link) "linked_thread")))]))
             remote-server-cases))]
       (doseq [[label passed?] results]
@@ -463,7 +463,7 @@
            contender-subject "crash-contender")
           contender-unelected?
           (empty?
-           (north.coord/many
+           (north.coord/many!
             port (str "@" contender-subject) "bootstrap_election"))
           healed-winner
           (reserve-once!
@@ -549,11 +549,11 @@
                      (and
                       (= #{election}
                          (set
-                          (north.coord/many
+                          (north.coord/many!
                            port (str "@" prefix-subject)
                            "bootstrap_election")))
                       (empty?
-                       (north.coord/many
+                       (north.coord/many!
                         port (str "@" prefix-link) "linked_thread")))
                      healed
                      (reserve-once!
@@ -569,7 +569,7 @@
                        (fn [[predicate expected]]
                          (= #{expected}
                             (set
-                             (north.coord/many
+                             (north.coord/many!
                               port (str "@" prefix-subject)
                               predicate))))
                        projections))]
@@ -596,7 +596,7 @@
               (str/includes? (get conflict "reject" "") "conflicts"))
       (check! "schema conflict is not overwritten"
               (= [["literal"]]
-                 (north.coord/query-rows
+                 (north.coord/query-rows!
                   port
                   {:find "value"
                    :rules

@@ -35,7 +35,7 @@
   {:host "127.0.0.1" :port port :space-id space :closed (atom false)})
 
 (let [calls (atom [])]
-  (with-redefs [rpc/connect stub-client
+  (with-redefs [rpc/connect! stub-client
                 rpc/close! (fn [_] nil)
                 rpc/scan-all! (fn [client subject _ _]
                                 (swap! calls conj [(:port client) subject])
@@ -54,7 +54,7 @@
              (str/includes? echoed
                             (str "evidence: north tell " (subs subject 1)
                                  " bar_evidence")))))
-  (with-redefs [rpc/connect stub-client
+  (with-redefs [rpc/connect! stub-client
                 rpc/close! (fn [_] nil)
                 rpc/scan-all! (fn [_ subject _ _]
                                 {:rows (triples [["title" (str "No bars on " subject)]])})]
@@ -63,7 +63,7 @@
             (with-out-str (north.bars-cli/cmd-echo (subs subject 1)))))))
 
 ;; A non-string Term is not a groomable bar fact.
-(with-redefs [rpc/connect stub-client
+(with-redefs [rpc/connect! stub-client
               rpc/close! (fn [_] nil)
               rpc/scan-all! (fn [_ _ _ _]
                               {:rows (conj (triples base-rows)
@@ -77,7 +77,7 @@
 ;; raw wire retract that would leave an accumulated duplicate occurrence live.
 (let [rows (atom base-rows)
       retracted (atom [])]
-  (with-redefs [rpc/connect stub-client
+  (with-redefs [rpc/connect! stub-client
                 rpc/close! (fn [_] nil)
                 rpc/scan-all! (fn [_ _ _ _] {:rows (triples @rows)})
                 rpc/retract! (fn [& _]
@@ -102,7 +102,7 @@
                   (str/includes? pruned "1 bar(s) · limit 32")))))
   (reset! rows base-rows)
   (reset! retracted [])
-  (with-redefs [rpc/connect stub-client
+  (with-redefs [rpc/connect! stub-client
                 rpc/close! (fn [_] nil)
                 rpc/scan-all! (fn [_ _ _ _] {:rows (triples @rows)})
                 rpc/retract-projected! (fn [& _] (swap! retracted conj :called))]

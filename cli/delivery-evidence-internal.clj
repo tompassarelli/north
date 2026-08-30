@@ -54,7 +54,7 @@
 (defn query-rows!
   "Rows of one typed Store RPC query. A transport or evaluation failure is never\n   converted into an empty subject." [port subject query]
   (try
-  (north.coord/query-rows port query)
+  (north.coord/query-rows! port query)
   (catch Exception error
     (fail! "Beagle Store did not answer a delivery evidence read" {:subject subject :cause (.getMessage error)}))))
 
@@ -376,7 +376,7 @@
   (if (not (and (attempt-digest? capability) (attempt-digest? route-receipt) (contains? #{"anthropic" "openai"} provider) (string? model) (not (str/blank? model)) (north.terminal-projection/valid-unicode-scalars? model))) (do
   (fail! "execution attempt route is malformed" {})))
   (let [published (atom nil)
-   outcome (north.coord/retry-conflicts-until! (north.coord/retry-deadline-ns reservation-publication-deadline-ms) (fn [] (let [base (north.coord/cur-ver port)
+   outcome (north.coord/retry-conflicts-until! (north.coord/retry-deadline-ns reservation-publication-deadline-ms) (fn [] (let [base (north.coord/cur-ver! port)
    thread-facts (facts-of! port thread)
    baseline (north.terminal-projection/canonical-done-when thread-facts)
    origin (if (seq baseline) "accepted" "worker-defined")

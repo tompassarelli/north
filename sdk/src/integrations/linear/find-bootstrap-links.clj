@@ -140,7 +140,7 @@
                      :args [{:var "link"} "sync_manifest" {:var "manifest"}]}]}]}
           manifest-rows
           (valid-query-rows!
-           (:rows (north.coord/bounded-query port manifest-query max-query-rows))
+           (:rows (north.coord/bounded-query! port manifest-query max-query-rows))
            2)
           _manifest-bounds
           (doseq [[subject _] manifest-rows]
@@ -166,7 +166,7 @@
                      :args [{:var "link"} "linked_thread" {:var "thread"}]}]}]}
           linked-rows
           (valid-query-rows!
-           (:rows (north.coord/bounded-query port linked-query max-query-rows))
+           (:rows (north.coord/bounded-query! port linked-query max-query-rows))
            1)
           partial-v1
           (->> linked-rows

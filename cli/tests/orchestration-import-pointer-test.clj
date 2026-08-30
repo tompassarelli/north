@@ -36,7 +36,7 @@
        (= :catalog-bad-version (ex-type #(parse-version "v3x"))))
 
 (let [graph (atom {["@catalog:current" "catalog_version"] ["7"]})]
-  (with-redefs [north.coord/query-rows (stub-query graph)]
+  (with-redefs [north.coord/query-rows! (stub-query graph)]
     (check "version-arg falls back to the current pointer"
            (= 7 (version-arg 0 nil)))
     (check "version-arg honours vN over the pointer"

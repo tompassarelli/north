@@ -98,7 +98,7 @@
                 (.getBytes (str value) java.nio.charset.StandardCharsets/UTF_8)))))
 
 (defn values-of [port subject predicate]
-  (let [response (north.coord/resolved-envelope port subject predicate)]
+  (let [response (north.coord/resolved-envelope! port subject predicate)]
     (when-not
      (and (exact-keys? response #{:value :members :ambiguous? :values :version})
           (nonnegative-long? (:version response))
@@ -127,7 +127,7 @@
 
 (defn query-pairs [port relation predicate]
   (let [rows
-        (north.coord/query-rows
+        (north.coord/query-rows!
          port
          {:find relation
           :rules

@@ -38,7 +38,7 @@
    "task" "A coordination subject recording proposed_by, delegate, and done_when; actor ownership moves only through Agent Machinery acknowledgement."))
 
 (defn exact-facts [port subject]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "p,v" :rules [{:head {:rel "p,v" :args [{:var "p"} {:var "v"}]}
                                :body [{:rel "triple" :args [subject {:var "p"} {:var "v"}]}]}]})

@@ -53,10 +53,10 @@
     result))
 
 (defn values-of [port subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 
 (defn value-of [port subject predicate]
-  (north.coord/resolved port subject predicate))
+  (north.coord/resolved! port subject predicate))
 
 (defn isolated-env [port log]
   {"BEAGLE_STORE_LOG" log
@@ -87,7 +87,7 @@
   (second (re-find #"sent (@msg:[^ ]+) ->" (:out result))))
 
 (defn graph-message-ids [port]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "message"
          :rules
@@ -122,7 +122,7 @@
     (try
       (let [started?
             (await-daemon-boot
-             #(let [status (try (north.coord/status port)
+             #(let [status (try (north.coord/status! port)
                                 (catch Throwable _ nil))]
                 (and (= :ready (:state status))
                      (= "north-coordination" (:space-id status)))))]

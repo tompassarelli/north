@@ -39,7 +39,7 @@
 
 (defn await-ready [port process]
   (loop [attempt 0]
-    (let [status (try (north.coord/status port) (catch Throwable _ nil))]
+    (let [status (try (north.coord/status! port) (catch Throwable _ nil))]
       (cond
         (and (= :ready (:state status))
              (= "north-coordination" (:space-id status))) true
@@ -115,7 +115,7 @@
 (defn expected-rows [item]
   (frequencies (map (juxt :predicate :object) (:facts item))))
 (defn observed-rows [port item]
-  (frequencies (:rows (north.coord/show-envelope port (:concern-id item)))))
+  (frequencies (:rows (north.coord/show-envelope! port (:concern-id item)))))
 
 (defn start-blackhole [port]
   (let [server (java.net.ServerSocket. port)
@@ -157,9 +157,9 @@
     (let [item (operation log "settle-once")
           _ (publish! spool item)
           first-pass (run-pass port log spool state)
-          first-version (north.coord/cur-ver port)
+          first-version (north.coord/cur-ver! port)
           replay (run-pass port log spool state)
-          replay-version (north.coord/cur-ver port)]
+          replay-version (north.coord/cur-ver! port)]
       (check "one pass settles the complete canonical concern projection"
              (and (= 1 (:settled first-pass))
                   (= (expected-rows item) (observed-rows port item))
@@ -177,23 +177,23 @@
                 (:facts item))
           _ (north.coord/transact! port actions)
           _ (publish! spool item)
-          before (north.coord/cur-ver port)
+          before (north.coord/cur-ver! port)
           result (run-pass port log spool state)
           record (edn/read-string (slurp (settled-file state item)))]
       (check "an exact preexisting projection settles without another write"
              (and (= 1 (:settled result))
-                  (= before (north.coord/cur-ver port))
+                  (= before (north.coord/cur-ver! port))
                   (= "identical-preexisting" (:reason record)))))
 
     (let [wrong-log (io/file tmp "wrong.storelog")
           item (operation wrong-log "wrong-log")
           _ (publish! spool item)
-          before (north.coord/cur-ver port)
+          before (north.coord/cur-ver! port)
           result (run-pass port log spool state)
           record (edn/read-string (slurp (conflict-file state item)))]
       (check "a different target STORELOG becomes a zero-mutation conflict"
              (and (= 1 (:conflicts result))
-                  (= before (north.coord/cur-ver port))
+                  (= before (north.coord/cur-ver! port))
                   (= "wrong-log" (:reason record))
                   (not (.exists (operation-file spool item))))))
 
@@ -205,12 +205,12 @@
                       (when (= :post-commit-pre-ack stage)
                         (throw (ex-info "injected lost acknowledgement" {}))))]
             (run-pass port log spool state))
-          after-commit (north.coord/cur-ver port)
+          after-commit (north.coord/cur-ver! port)
           restarted (run-pass port log spool state)]
       (check "restart resolves a lost acknowledgement by exact readback"
              (and (= 1 (:deferred interrupted))
                   (= 1 (:settled restarted))
-                  (= after-commit (north.coord/cur-ver port))
+                  (= after-commit (north.coord/cur-ver! port))
                   (= (expected-rows item) (observed-rows port item)))))
     (finally
       (try (proc/destroy-tree daemon) (catch Throwable _ nil))

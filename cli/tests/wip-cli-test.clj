@@ -180,7 +180,7 @@
       state
       (with-redefs
        [north.coord/telemetry-partition-enabled? (constantly true)
-        north.coord/query-page-in-domain
+        north.coord/query-page-in-domain!
         (fn [_port domain query limit after at-version]
           (swap! calls conj [domain query limit after at-version])
           {:rows (if (= :coordination domain) coordination-rows telemetry-rows)

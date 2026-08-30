@@ -59,7 +59,7 @@
   (try
     (check "throwaway current Beagle Store server starts"
            (and (await-port port)
-                (= :ready (:state (north.coord/status port)))))
+                (= :ready (:state (north.coord/status! port)))))
     (let [live-registration
           (run-presence port "register" "live-session" "/tmp/live" "live-session")
           lapsed-registration

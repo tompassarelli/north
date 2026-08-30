@@ -27,8 +27,8 @@
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/concern-spool-reconcile.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/attention.clj"))
 (load-file (str (.getParent (io/file (System/getProperty "babashka.file"))) "/../out/north/worker_policy.clj"))
-(def many     north.coord/many)
-(def resolved north.coord/resolved)
+(def many     north.coord/many!)
+(def resolved north.coord/resolved!)
 
 (defn- require-publication! [message response]
   (when (:reject response)
@@ -94,7 +94,7 @@
   (north.coord/retry-conflicts-until!
    (north.coord/retry-deadline-ns)
    (fn []
-     (let [base (:version (north.coord/show-envelope port subject))
+     (let [base (:version (north.coord/show-envelope! port subject))
            planned (plan!)]
        (if (contains? planned :done)
          planned
@@ -159,7 +159,7 @@
     (if (str/blank? a)
       {:online true :lapsed-ago-ms nil}
       (let [h (if (str/starts-with? a "@") (subs a 1) a)
-            l (north.coord/lease-status port (str "session:" h))
+            l (north.coord/lease-status! port (str "session:" h))
             now (System/currentTimeMillis)]
         (owner-lease-liveness (:id m) h l now)))))
 
@@ -229,10 +229,10 @@
 (defn norm-cid [c] (if (or (nil? c) (str/starts-with? c "@")) c (str "@" c)))
 
 ;; one-column datalog query: bind ?e in `body`, return the column. Reads through
-;; coord/query-rows so a coordinator error map fails closed (typed throw) instead
+;; coord/query-rows! so a coordinator error map fails closed (typed throw) instead
 ;; of masquerading as an empty concern list.
 (defn q-col [port body]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port {:find "e"
               :rules [{:head {:rel "e" :args [{:var "e"}]} :body body}]})
        (map first)))
@@ -244,7 +244,7 @@
    Beagle Store's predicate/object index; an automatic path may not warm the
    whole-corpus query cache."
   [port predicate object]
-  (->> (north.coord/bounded-query-in-domain
+  (->> (north.coord/bounded-query-in-domain!
         port
         :coordination
         {:find "indexed_subject"
@@ -261,7 +261,7 @@
   "Bounded [subject value] lookup for one predicate."
   [port predicate]
   (:rows
-   (north.coord/bounded-query-in-domain
+   (north.coord/bounded-query-in-domain!
     port
     :coordination
     {:find "indexed_predicate_rows"
@@ -718,7 +718,7 @@
               distinct
               vec)
          statuses (if (seq handles)
-                    (:sessions (north.coord/sessions-status port handles))
+                    (:sessions (north.coord/sessions-status! port handles))
                     {})]
      (assoc facts ::owner-statuses statuses)))
   ([port predicates]
@@ -726,7 +726,7 @@
     (fn [facts predicate]
       (add-live-rows
        facts predicate
-       (north.coord/agg-rows
+       (north.coord/agg-rows!
         port ["e" "r"]
         [{:rel "triple" :args [{:var "e"} predicate {:var "r"}]}])))
     {}

@@ -222,7 +222,7 @@
 
 (defn- agent-facts-one [id]
   (try
-    (let [rows (north.coord/show-rows (parse-long PORT) (str "@agent:" id))]
+    (let [rows (north.coord/show-rows! (parse-long PORT) (str "@agent:" id))]
       (when (and (vector? rows)
                  (every? #(and (vector? %) (= 2 (count %))
                                (every? string? %))
@@ -307,7 +307,7 @@
       (let [subjects (mapv #(str "@agent:" %) ids)
             allowed-subjects (set subjects)]
         (let [response (try
-                         (north.coord/show-many-in-domain
+                         (north.coord/show-many-in-domain!
                           (Integer/parseInt PORT) :coordination subjects)
                          (catch Exception _ ::unavailable))]
           (cond
@@ -340,7 +340,7 @@
                       :args [{:var "e"} "agent" control]}]})
            ids)
           response
-          (north.coord/bounded-query-in-domain
+          (north.coord/bounded-query-in-domain!
            (Integer/parseInt PORT)
            :telemetry
            {:find "roster_run_candidate" :rules rules}
@@ -362,7 +362,7 @@
                    vec)
               projected
               (if (seq subjects)
-                (north.coord/show-many-in-domain
+                (north.coord/show-many-in-domain!
                  (Integer/parseInt PORT) :telemetry subjects)
                 {:version (:served-version response) :rows {}})
               rows-by-subject (:rows projected)
@@ -696,7 +696,7 @@
   (try
     (let [port (Integer/parseInt PORT)
           now (System/currentTimeMillis)
-          sessions (north.coord/online-session-leases port now)
+          sessions (north.coord/online-session-leases! port now)
           valid?
           (and (vector? sessions)
                (<= (count sessions) max-live-controls)
@@ -719,7 +719,7 @@
 
 (defn agent-online? [id]
   (try
-    (north.coord/session-online? (Integer/parseInt PORT) id)
+    (north.coord/session-online?! (Integer/parseInt PORT) id)
     (catch Exception _ false)))
 
 ;; ---- verbs -------------------------------------------------------------------
@@ -1266,7 +1266,7 @@
     (let [subject (str "@" (str/replace-first (str id) #"^@" ""))
           titles (mapv second
                        (filter #(= "title" (first %))
-                               (north.coord/show-rows
+                               (north.coord/show-rows!
                                 (Integer/parseInt PORT) subject)))]
       (if (and (= 1 (count titles))
                (not (str/blank? (first titles))))
@@ -1893,7 +1893,7 @@
   (loop [attempt 1]
     (let [result (try
                    (mapv (fn [[predicate value]] {:predicate predicate :value value})
-                         (north.coord/show-rows (Integer/parseInt PORT) subject))
+                         (north.coord/show-rows! (Integer/parseInt PORT) subject))
                    (catch Exception _ ::unreadable))]
       (if (and (= ::unreadable result) (< attempt structured-read-attempts))
         (do (Thread/sleep structured-read-retry-ms) (recur (inc attempt)))
@@ -2720,9 +2720,9 @@
           port (Integer/parseInt PORT)
           parent-of (fn [agent]
                       (bare-agent
-                       (or (north.coord/resolved port (str "@agent:" agent) "coordinator")
-                           (north.coord/resolved port (str "@agent:" agent) "supervisor"))))
-          live? (fn [agent] (north.coord/session-online? port agent))
+                       (or (north.coord/resolved! port (str "@agent:" agent) "coordinator")
+                           (north.coord/resolved! port (str "@agent:" agent) "supervisor"))))
+          live? (fn [agent] (north.coord/session-online?! port agent))
           immediate (or (bare-agent (System/getenv "AGENT_COORDINATOR"))
                         (parent-of reporter))
           target (supervisor-route immediate live? parent-of)

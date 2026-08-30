@@ -262,7 +262,7 @@
 (defn current-direct-addresses [port recipient]
   (into #{recipient}
         (keep role-slug
-              (north.coord/many port (str "@agent:" recipient) "holds"))))
+              (north.coord/many! port (str "@agent:" recipient) "holds"))))
 
 (defn currently-deliverable? [port recipient message to]
   ;; Role authority is re-read after the delivery claim and immediately before
@@ -282,14 +282,14 @@
 (defn agent-facts [port control]
   (try
     (north.lifecycle-projection/folded-agent-point-facts
-     (fn [subject predicate] (north.coord/many port subject predicate))
+     (fn [subject predicate] (north.coord/many! port subject predicate))
      (str "@agent:" control))
     (catch Exception _ nil)))
 
 (defn route-guard-facts [port control]
   (try
     (north.lifecycle-projection/raw-point-facts
-     (fn [subject predicate] (north.coord/many port subject predicate))
+     (fn [subject predicate] (north.coord/many! port subject predicate))
      (str "@agent:" control)
      north.lifecycle-projection/route-guard-predicates)
     (catch Exception _ nil)))
@@ -297,7 +297,7 @@
 (defn agent-run-entries [port control]
   (try
     (let [response
-          (north.coord/query-page
+          (north.coord/query-page!
            port
            {:find "live_route_run_candidate"
             :rules
@@ -327,7 +327,7 @@
                        (keep
                         (fn [predicate]
                           (let [values
-                                (set (north.coord/many port subject predicate))]
+                                (set (north.coord/many! port subject predicate))]
                             (when (seq values) [predicate values]))))
                        north.terminal-projection/run-resolution-predicates)})))))
     (catch Exception _ nil)))
@@ -377,7 +377,7 @@
         (= "msg" (some-> subject str str/trim str/lower-case))
         canonical-msg-subject? (= "msg" subject)
         expected
-        (north.coord/resolved
+        (north.coord/resolved!
          port message target-identity-manifest-predicate)
         managed-msg? (some? expected)
         observed
@@ -393,10 +393,10 @@
         live-input-epoch
         (when (map? facts)
           (north.terminal-projection/singleton-value facts "live_input_epoch"))
-        wake-attempt (north.coord/resolved port message "wake_attempt_id")
-        wake-epoch (north.coord/resolved port message "wake_listener_epoch")
+        wake-attempt (north.coord/resolved! port message "wake_attempt_id")
+        wake-epoch (north.coord/resolved! port message "wake_listener_epoch")
         wake-manifest
-        (north.coord/resolved port message "wake_listener_manifest_sha256")]
+        (north.coord/resolved! port message "wake_listener_manifest_sha256")]
     (if-not (or msg-shaped-subject? managed-msg?)
       {:valid? true}
       (cond
@@ -506,11 +506,11 @@
    (when-let [claim
               (north.message-audience/claim-delivery!
                port message recipient claim-ttl-ms)]
-     (let [to (north.coord/resolved port message "to")
-           from (north.coord/resolved port message "from")
-           subject (north.coord/resolved port message "subject")
-           body (north.coord/resolved port message "body")
-           wake-attempt (north.coord/resolved port message "wake_attempt_id")
+     (let [to (north.coord/resolved! port message "to")
+           from (north.coord/resolved! port message "from")
+           subject (north.coord/resolved! port message "subject")
+           body (north.coord/resolved! port message "body")
+           wake-attempt (north.coord/resolved! port message "wake_attempt_id")
            problem (message-problem message from subject body wake-attempt)
            msg-status (route-status message to subject)]
        (cond
@@ -665,7 +665,7 @@
   [port recipient settlement-only? deferred-start? claim-ttl-ms ack-timeout-ms
    control-queue event-queue]
   (let [interval (poll-ms)
-        baseline (north.coord/cur-ver port)]
+        baseline (north.coord/cur-ver! port)]
     ;; The successful pinned version read establishes the poller before
     ;; readiness is observable. Durable replay closes the ready/start gap.
     (require-open-lane! port recipient)
@@ -712,7 +712,7 @@
                      :event item}))
 
           :else
-          (let [head (north.coord/cur-ver port)
+          (let [head (north.coord/cur-ver! port)
                 now (System/currentTimeMillis)
                 changed? (not= cursor head)
                 retry? (and retry-at (<= retry-at now))

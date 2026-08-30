@@ -51,7 +51,7 @@
                (canonical-tuple [event-key recipient]))))
 
 (defn exact-facts [port subject]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "attention_fact"
          :rules

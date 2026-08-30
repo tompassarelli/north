@@ -125,7 +125,7 @@
       query-called? (atom false)
       facts
       (with-redefs
-       [north.coord/show-many-in-domain
+       [north.coord/show-many-in-domain!
         (fn [port domain subjects]
           (swap! calls conj [port domain subjects])
           {:version 17
@@ -136,7 +136,7 @@
              ["process_outcome" "ran"]
              ["process_outcome" "died"]
              ["repo" "~/code/north"]]}})
-        north.coord/bounded-query
+        north.coord/bounded-query!
         (fn [& _]
           (reset! query-called? true)
           (throw (ex-info "agent projection must not issue Datalog" {})))]

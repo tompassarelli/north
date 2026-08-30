@@ -20,7 +20,7 @@
                     (doto (io/file tmp "worktrees" "space and \"quote\"") .mkdirs))]
   (try
     (let [calls (atom [])]
-      (with-redefs [north.coord/bounded-query-in-domain
+      (with-redefs [north.coord/bounded-query-in-domain!
                     (fn [& args]
                       (swap! calls conj args)
                       {:rows [["@lane-claimed" claimed-path]

@@ -59,19 +59,19 @@
     result))
 
 (defn resolved-envelope [port _log subject predicate]
-  (north.coord/resolved-envelope port subject predicate))
+  (north.coord/resolved-envelope! port subject predicate))
 
 (defn resolved [port log subject predicate]
   (:value (resolved-envelope port log subject predicate)))
 
 (defn values-of [port _log subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 
 (defn listener-snapshot [port log agent]
   (let [node (str "@agent:" agent)
         state (resolved-envelope port log node "live_input_state")
         generation (resolved-envelope port log node "live_input_epoch")
-        lease (north.coord/lease-status port (str "listener:" agent))]
+        lease (north.coord/lease-status! port (str "listener:" agent))]
     {:kind (resolved port log node "kind")
      :state (:value state)
      :state-envelope state
@@ -181,7 +181,7 @@
     (check "throwaway current Beagle Store STORE RPC server starts"
            (eventually #(and (port-open? port)
                              (= test-space
-                                (:space-id (north.coord/status port))))))
+                                (:space-id (north.coord/status! port))))))
     (let [agent "lease-only-session"
           runtime (doto (io/file tmp "lease-only-runtime") .mkdirs)]
       (check "lease-only native session registers without a listener"

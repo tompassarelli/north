@@ -63,9 +63,9 @@
 (defn assert-fact! [port subject predicate value]
   (north.coord/append! port subject predicate value))
 (defn values-of [port subject predicate]
-  (set (north.coord/many port subject predicate)))
+  (set (north.coord/many! port subject predicate)))
 (defn subjects-with-value [port predicate value]
-  (->> (north.coord/query-rows
+  (->> (north.coord/query-rows!
         port
         {:find "subject"
          :rules
@@ -131,7 +131,7 @@
   (try
     (let [started? (await-daemon-boot
                     #(try
-                       (= :ready (:state (north.coord/status port)))
+                       (= :ready (:state (north.coord/status! port)))
                        (catch Exception _ false)))]
       (check "throwaway current Beagle Store server starts" started?)
       (when-not started?

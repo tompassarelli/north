@@ -40,7 +40,7 @@
 (defn await-up [port]
   (loop [attempt 0]
     (let [ready? (try
-                   (= :ready (:state (north.coord/status port)))
+                   (= :ready (:state (north.coord/status! port)))
                    (catch Throwable _ false))]
       (cond
         ready? true

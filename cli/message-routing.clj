@@ -47,18 +47,18 @@
   [port control]
   (let [subject (agent-subject control)
         resource (listener-resource control)
-        before (north.coord/lease-status port resource)]
+        before (north.coord/lease-status! port resource)]
     ;; Keep every load-bearing read explicit and ordered: lease -> generation
     ;; -> state -> lease. Arming writes frozen, generation, armed; cleanup
     ;; writes frozen before release. No interleaving can expose a false live
     ;; generation through both lease snapshots.
     (let [generation
-          (north.coord/resolved-envelope
+          (north.coord/resolved-envelope!
            port subject "live_input_epoch")
           state
-          (north.coord/resolved-envelope
+          (north.coord/resolved-envelope!
            port subject "live_input_state")
-          after (north.coord/lease-status port resource)
+          after (north.coord/lease-status! port resource)
           now (System/currentTimeMillis)]
       (boolean
        (and (lease-live-at? before now)
@@ -72,13 +72,13 @@
 (defn armed-route-live?
   [port control]
   (let [subject (agent-subject control)
-        kind (north.coord/resolved port subject "kind")]
+        kind (north.coord/resolved! port subject "kind")]
     (case kind
       "session" (native-listener-live? port control)
       ;; Managed route state is SDK-owned. `north listen` never mutates it and
       ;; mail keeps the existing managed route behavior.
       "lane" (exact-singleton?
-              (north.coord/resolved-envelope
+              (north.coord/resolved-envelope!
                port subject "live_input_state")
               "armed")
       false)))
@@ -90,7 +90,7 @@
   (let [control (bare-agent control)]
     (boolean
      (and (not (str/blank? control))
-          (or (north.coord/session-online? port control)
+          (or (north.coord/session-online?! port control)
               (armed-route-live? port control))))))
 
 (defn role-holders
@@ -98,7 +98,7 @@
    which holder may receive new mail."
   [port role-slug]
   (let [response
-        (north.coord/query-page
+        (north.coord/query-page!
          port
          {:find "role_holder"
           :rules
@@ -136,7 +136,7 @@
 
     :else
     (let [role (str role-prefix address)
-          durable (north.coord/resolved port role "target")]
+          durable (north.coord/resolved! port role "target")]
       (cond
         (not (str/blank? durable))
         {:address address :recipient (bare-agent durable) :kind :alias}
@@ -163,13 +163,13 @@
   (try
     (let [dead-control (bare-agent dead-control)
           subject (agent-subject dead-control)
-          repo (north.coord/resolved port subject "repo")
-          role (north.coord/resolved port subject "role")]
+          repo (north.coord/resolved! port subject "repo")
+          role (north.coord/resolved! port subject "role")]
       (when (and (not (str/blank? repo)) (not (str/blank? role)))
         (loop [after nil
                seen 0]
           (when (< seen max-route-candidates)
-            (let [page (north.coord/query-page
+            (let [page (north.coord/query-page!
                         port (route-candidate-query repo role)
                         route-page-size after)
                   rows (:rows page)
@@ -225,7 +225,7 @@
   (loop [after nil
          seen 0
          rows []]
-    (let [page (north.coord/query-page
+    (let [page (north.coord/query-page!
                 port (mail-candidate-query) mail-page-size after)
           page-rows (:rows page)
           next-seen (+ seen (count page-rows))]

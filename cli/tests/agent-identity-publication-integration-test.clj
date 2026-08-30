@@ -67,7 +67,7 @@
                   (or (last (str/split-lines (:out result))) "") true))
         (catch Throwable _ nil))})))
 (defn entity-facts [port subject]
-  (let [rows (north.coord/show-rows port subject)]
+  (let [rows (north.coord/show-rows! port subject)]
     (reduce (fn [acc [predicate value]] (update acc predicate (fnil conj #{}) value)) {} rows)))
 (defn scalar-facts [facts]
   (into {} (keep (fn [[predicate values]]
@@ -92,8 +92,8 @@
     (north.coord/append! port run "run_reservation_manifest_sha256" marker)))
 (defn log-ops [port lower-exclusive]
   (:events
-   (north.coord/occurrence-window
-    port lower-exclusive (north.coord/cur-ver port))))
+   (north.coord/occurrence-window!
+    port lower-exclusive (north.coord/cur-ver! port))))
 
 (defn identity-write-resource [subject]
   (str "managed-agent-write:"
@@ -159,7 +159,7 @@
     (check "throwaway current Beagle Store server starts"
            (eventually
             #(try
-               (let [status (north.coord/status port)]
+               (let [status (north.coord/status! port)]
                  (and (= :ready (:state status))
                       (= "north-coordination" (:space-id status))))
                (catch Exception _ false))))
@@ -288,7 +288,7 @@
                     (= before (entity-facts port mismatch-subject))
                     (nil? (get before "identity_manifest_sha256"))))))
 
-    (let [before-version (north.coord/cur-ver port)
+    (let [before-version (north.coord/cur-ver! port)
           second-result (run-writer port "publish" subject (json/generate-string bespoke))
           generation-ops (->> (log-ops port before-version)
                               (filter #(= subject (:subject %)))

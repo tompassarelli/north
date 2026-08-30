@@ -60,7 +60,7 @@
   (alter-var-root #'north.coord/expected-log (constantly (fn [] (.getCanonicalPath log))))
   (try
     (check! "current Beagle Store server starts"
-            (eventually #(= :ready (:state (north.coord/status port)))))
+            (eventually #(= :ready (:state (north.coord/status! port)))))
 
     ;; --- fail-closed: missing cardinality declaration --------------------------
     (setup-budget! port "t-schema" {:cap 60000000 :env 1500000 :schema? false})

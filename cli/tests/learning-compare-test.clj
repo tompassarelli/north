@@ -235,7 +235,7 @@
   (let [request (atom nil)
         queried
         (with-redefs
-         [north.coord/bounded-query-in-domain
+         [north.coord/bounded-query-in-domain!
           (fn [port domain query max-rows]
             (reset! request {:port port :domain domain
                              :query query :max-rows max-rows})
