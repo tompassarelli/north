@@ -286,6 +286,35 @@ test("managed Codex Firn matches the canonical no-PATH payload", () => {
   }))).not.toThrow();
 });
 
+test("managed Codex rejects launcher forms that cross hook identities", () => {
+  const env = "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV ";
+  const path = "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin ";
+  const bash = "/etc/codex/hooks/runtime/bash ";
+  const python = "/etc/codex/hooks/runtime/python3 ";
+  const crossForms: Array<(document: any) => void> = [
+    (document) => {
+      document.hooks.PreToolUse[0].hooks[0].command = env + path + bash
+        + "/etc/codex/hooks/firn-system-policy";
+    },
+    (document) => {
+      document.hooks.Stop[0].hooks[0].command = env + python
+        + "/etc/codex/hooks/north-on-stop-codex";
+    },
+    (document) => {
+      document.hooks.PostToolUse[0].hooks[0].command = env + path + bash
+        + "/etc/codex/hooks/logcompress-hook.py";
+    },
+    (document) => {
+      document.hooks.SessionStart[0].hooks[0].command = env + bash
+        + "/etc/codex/hooks/beagle-session-start.sh";
+    },
+  ];
+  for (const mutate of crossForms) {
+    expect(() => validateManagedCodexRequirements(requirements(mutate)))
+      .toThrow("managed Codex hook command token sequence is not exact");
+  }
+});
+
 test("managed Codex requirements reject every authority-bearing drift", () => {
   const hostile: Array<(document: any) => void> = [
     (document) => { document.allow_managed_hooks_only = false; },

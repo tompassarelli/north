@@ -131,27 +131,52 @@ const managedBashPath = (managedDir: string): string => [
   "/run/current-system/sw/bin",
 ].join(":");
 
+type ManagedHookLauncher = "bash" | "firn" | "python3";
+const FIRN_SYSTEM_POLICY_ADAPTER = basename(FIRN_SYSTEM_POLICY);
+const MANAGED_HOOK_LAUNCHERS = {
+  "beagle-session-start.sh": "bash",
+  "north-on-spawn-codex": "bash",
+  "north-on-terminal-codex": "bash",
+  [FIRN_SYSTEM_POLICY_ADAPTER]: "firn",
+  "agent-spawn-guard.sh": "bash",
+  "launch-critical-worktree-guard.sh": "bash",
+  "concrete-model-identity-guard.sh": "bash",
+  "tripwire-guard.sh": "bash",
+  "corpus-scan-guard.sh": "bash",
+  "resource-safe-search-guard.sh": "bash",
+  "session-kill-guard.sh": "bash",
+  "logcompress-hook.py": "python3",
+  "north-on-tooluse-codex": "bash",
+  "north-mark-delegated-codex": "bash",
+  "north-on-stop-codex": "bash",
+} as const satisfies Readonly<Record<string, ManagedHookLauncher>>;
+
+function managedHookLauncher(name: string): ManagedHookLauncher {
+  const launcher = (MANAGED_HOOK_LAUNCHERS as Readonly<Record<string, ManagedHookLauncher>>)[name];
+  if (!launcher) throw new Error(`managed Codex hook identity ${name} is not allowed`);
+  return launcher;
+}
+
 const command = (
   name: string,
   timeout = 10,
   managedDir = CODEX_MANAGED_HOOKS_DIR,
-  mode: "bash" | "firn" | "python3" = "bash",
 ): ManagedCommandHook => {
-  const interpreter = mode === "firn" ? "bash" : mode;
+  const launcher = managedHookLauncher(name);
+  const interpreter = launcher === "python3" ? "python3" : "bash";
   return {
     type: "command",
     command: [
       resolve(managedDir, "runtime/env"),
       "-u", "BASH_ENV",
       "-u", "ENV",
-      ...(mode === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
+      ...(launcher === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
       resolve(managedDir, `runtime/${interpreter}`),
       resolve(managedDir, name),
     ].join(" "),
     timeout,
   };
 };
-const FIRN_SYSTEM_POLICY_ADAPTER = basename(FIRN_SYSTEM_POLICY);
 
 /**
  * Exact provider-native lifecycle/authoring/activity boundary for Codex.
@@ -192,7 +217,7 @@ export function expectedManagedCodexHooks(
     }],
     PreToolUse: [
       {
-        hooks: [command(FIRN_SYSTEM_POLICY_ADAPTER, 10, managedDir, "firn")],
+        hooks: [command(FIRN_SYSTEM_POLICY_ADAPTER, 10, managedDir)],
       },
       {
         matcher: "^(Agent|Task|Workflow)$",
@@ -222,7 +247,7 @@ export function expectedManagedCodexHooks(
       {
         matcher: "^Bash$",
         hooks: [
-          command("logcompress-hook.py", 10, managedDir, "python3"),
+          command("logcompress-hook.py", 10, managedDir),
           command("north-on-tooluse-codex", 10, managedDir),
         ],
       },
@@ -288,8 +313,19 @@ export function validateManagedCodexRequirements(
   const expectedKeys = [...Object.keys(expected), "managed_dir"].sort();
   if (Object.keys(parsed.hooks ?? {}).sort().join(",") !== expectedKeys.join(","))
     throw new Error("managed Codex hook event surface is not exact");
-  for (const [event, entries] of Object.entries(expected))
-    exact(parsed.hooks?.[event], entries, `managed Codex ${event}`);
+  for (const [event, entries] of Object.entries(expected)) {
+    const actual = parsed.hooks?.[event];
+    if (Array.isArray(actual)) {
+      for (const entry of actual) {
+        if (!Array.isArray(entry?.hooks)) continue;
+        for (const hook of entry.hooks) {
+          if (typeof hook?.command === "string")
+            managedCommandPaths(hook.command, managedDir);
+        }
+      }
+    }
+    exact(actual, entries, `managed Codex ${event}`);
+  }
 }
 
 function assertNixManagedFile(
@@ -486,25 +522,21 @@ function managedCommandPaths(
   const tokens = value.slice(prefix.length).split(" ");
   if (tokens.some((token) => !token))
     throw new Error("managed Codex hook command token sequence is not exact");
+  const script = tokens.at(-1);
+  const managedRoot = resolve(managedDir);
+  if (!script || !script.startsWith(`${managedRoot}/`) || resolve(script) !== script)
+    throw new Error("managed Codex hook command paths are outside the managed closure");
+  const launcher = managedHookLauncher(relative(managedRoot, script));
   const bash = resolve(managedDir, "runtime/bash");
   const python = resolve(managedDir, "runtime/python3");
-  const firn = resolve(managedDir, FIRN_SYSTEM_POLICY_ADAPTER);
-  let interpreter: string;
-  let script: string;
-  if (tokens.length === 3
-      && tokens[0] === `PATH=${managedBashPath(managedDir)}`
-      && tokens[1] === bash) {
-    [interpreter, script] = [tokens[1], tokens[2]!];
-  } else if (tokens.length === 2
-      && ((tokens[0] === bash && tokens[1] === firn) || tokens[0] === python)) {
-    [interpreter, script] = [tokens[0], tokens[1]!];
-  } else {
+  const interpreter = launcher === "python3" ? python : bash;
+  const expectedTokens = [
+    ...(launcher === "bash" ? [`PATH=${managedBashPath(managedDir)}`] : []),
+    interpreter,
+    script,
+  ];
+  if (JSON.stringify(tokens) !== JSON.stringify(expectedTokens))
     throw new Error("managed Codex hook command token sequence is not exact");
-  }
-  if (!script.startsWith(`${resolve(managedDir)}/`)
-      || resolve(script) !== script) {
-    throw new Error("managed Codex hook command paths are outside the managed closure");
-  }
   return { env, interpreter, executable: script, script };
 }
 
