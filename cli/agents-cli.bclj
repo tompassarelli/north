@@ -61,7 +61,7 @@
 (def AGENT-STREAMDIR Any (or (System/getenv "NORTH_STREAM_DIR")
                          (str HOME "/code/agent-data")))
 (def ORCHESTRATION-STAFFING Any (or (System/getenv "ORCHESTRATION_STAFFING_CATALOG")
-                         (str AGENT-MACHINERY "/delegation/catalog.json")))
+                         (str AGENT-MACHINERY "/staffing/catalog.json")))
 (def PORT Any (or (System/getenv "NORTH_PORT") "7977"))
 (def ROSTER-CONTRACT-VERSION Any "north:agent-roster:v1")
 (def CODEX-CENSUS-CLI Any (str NORTH "/sdk/src/codex-census-cli.ts"))
