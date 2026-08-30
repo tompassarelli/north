@@ -939,7 +939,7 @@
    triple))
 
 (defn native-connect! [port Any] Any
-  (native-rpc! 'connect
+  (native-rpc! 'client
                (or (not-empty (System/getenv "NORTH_STORE_HOST")) "127.0.0.1")
                port
                (or (not-empty (System/getenv "BEAGLE_STORE_SPACE_ID")) "north-coordination")
