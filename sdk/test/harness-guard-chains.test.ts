@@ -30,6 +30,7 @@ const REQUIRED = [
   "launch-critical-worktree-guard.sh",
   "concrete-model-identity-guard.sh",
   "git-blind-stage-guard.sh",
+  "resource-safe-search-guard.sh",
 ];
 const missing = REQUIRED.filter((name) => !existsSync(resolve(HOOKS_DIR, name)));
 if (process.env.NORTH_TEST_AGENT_PROVIDER_HOOKS && missing.length > 0) {
@@ -121,8 +122,8 @@ const edit = (path: string, newString = "b") => ({
   tool_name: "Edit", session_id: "probe", cwd: root,
   tool_input: { file_path: path, old_string: "a", new_string: newString },
 });
-const bash = (command: string) => ({
-  tool_name: "Bash", session_id: "probe", cwd: root, tool_input: { command },
+const bash = (command: string, cwd = root) => ({
+  tool_name: "Bash", session_id: "probe", cwd, tool_input: { command },
 });
 
 test.skipIf(!installed)("EDIT_GUARDS refuses a write into a protected main and passes a lane", async () => {
@@ -198,6 +199,32 @@ for (const [name, route] of [
     expect((await decide(hook, bash("node /tmp/wake-cljs-migrate.mjs"))).decision).toBe("deny");
     expect((await decide(hook, bash("run-bounded 30m -- command &"))).decision).toBe("allow");
     expect((await decide(hook, bash("bun task > /tmp/task.log 2>&1"))).decision).toBe("allow");
+
+  }, CASE_TIMEOUT_MS);
+
+  test.skipIf(!installed)(`${name} refuses unsafe search roots and passes bounded alternatives`, async () => {
+    const hook = lane(route).bash;
+    const virtualFanout = await decide(
+      hook,
+      bash("rg -l -z TARGET /proc/[0-9]*/cwd"),
+    );
+    expect(virtualFanout.decision).toBe("deny");
+    expect(virtualFanout.reason).toContain("ps -eo pid=,comm=,args=");
+    expect(virtualFanout.reason).toContain("readlink -e /proc/PID/cwd");
+    expect((await decide(hook, bash("rg -l TARGET /proc/1/cwd /proc/2/cwd"))).decision)
+      .toBe("deny");
+    const container = join(root, "north");
+    const explicitContainer = await decide(hook, bash(`rg --files ${container}`));
+    expect(explicitContainer.decision).toBe("deny");
+    expect(explicitContainer.reason).toContain("exact checkout or subtree");
+    expect((await decide(hook, bash("rg --files", container))).decision).toBe("deny");
+    expect((await decide(hook, bash(`rg --files ${join(container, "main")}`))).decision)
+      .toBe("allow");
+    expect((await decide(hook, bash(
+      `rg --files ${join(container, "worktrees", "lane")}`,
+    ))).decision).toBe("allow");
+    expect((await decide(hook, bash("ps -eo pid=,comm=,args="))).decision).toBe("allow");
+    expect((await decide(hook, bash("readlink -e /proc/1/cwd"))).decision).toBe("allow");
   }, CASE_TIMEOUT_MS);
 
   test.skipIf(!installed)(`${name} requires concrete model identities in Bash todo writes`, async () => {

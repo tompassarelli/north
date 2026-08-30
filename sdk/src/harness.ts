@@ -1742,12 +1742,12 @@ export function praxisAppendix(_model?: string, role?: string, posture?: string)
 //   all hookable tools    -> firn observation/system policy
 //   Edit|Write|MultiEdit -> worktree, concrete-model identity
 //   Bash                 -> worktree, blind-stage, tripwire, corpus-scan,
-//                           session-kill, concrete-model identity
+//                           resource-safe-search, session-kill, concrete-model identity
 // The worktree guard is on BOTH entrances because a write into a protected `main`
 // checkout arrives as an Edit or as a shell command, and enforcement on one entrance
-// is not enforcement. The blind-stage and corpus-scan guards read only
-// tool_input.command and return early for any other tool_name, so they are Bash-only
-// by construction.
+// is not enforcement. The blind-stage, corpus-scan, and resource-safe-search
+// guards read only tool_input.command and return early for any other tool_name,
+// so they are Bash-only by construction.
 // BASH_GUARDS vs WORKER_BASH_GUARDS differ ONLY by orchestration permission
 // (agent-spawn-guard): repository layout and staging discipline bind every lane.
 const FIRN_GUARDS = resolveManagedGuardChain(["firn-system-policy"]);
@@ -1756,13 +1756,13 @@ const EDIT_GUARDS = resolveManagedGuardChain([
 ]);
 const BASH_GUARDS = resolveManagedGuardChain([
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "corpus-scan-guard.sh", "resource-safe-search-guard.sh",
   "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 const WORKER_BASH_GUARDS = resolveManagedGuardChain([
   "agent-spawn-guard.sh",
   "launch-critical-worktree-guard.sh", "git-blind-stage-guard.sh",
-  "tripwire-guard.sh", "corpus-scan-guard.sh",
+  "tripwire-guard.sh", "corpus-scan-guard.sh", "resource-safe-search-guard.sh",
   "session-kill-guard.sh", "concrete-model-identity-guard.sh",
 ]);
 

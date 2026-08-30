@@ -106,6 +106,8 @@ const promotedHooks = {
     "nixos-config/dotfiles/agents/hooks/launch-critical-worktree-guard.sh",
   "logcompress-hook.py": "north/agent-runtime/hooks/logcompress-hook.py",
   "logcompress.py": "north/agent-runtime/hooks/logcompress.py",
+  "resource-safe-search-guard.sh":
+    "nixos-config/dotfiles/agents/hooks/resource-safe-search-guard.sh",
   "session-kill-guard.sh": "nixos-config/dotfiles/agents/hooks/session-kill-guard.sh",
   "tripwire-guard.sh": "nixos-config/dotfiles/agents/hooks/tripwire-guard.sh",
 } as const;
