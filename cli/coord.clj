@@ -672,7 +672,7 @@
   {:version (:served-version result) :sessions sessions}))
 
 (defn online-session-leases! [port now]
-  (->> (:sessions (all-session-status! port now)) vals (filter (fn [status] (:online? status))) (sort-by (fn [status] (:handle status))) vec))
+  (->> (:sessions (all-session-status! port now)) vals (filter (fn [status] (:online? status))) (sort-by (fn [status] (:handle status))) (mapv (fn [status] (select-keys status [:handle :exp]))) vec))
 
 (defn sessions-status! [port handles]
   (let [handles (vec (distinct handles))]
