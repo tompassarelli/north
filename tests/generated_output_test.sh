@@ -19,6 +19,25 @@ cmp "$tmp/wake-receipt-internal.clj" \
   "$root/cli/wake-receipt-internal.clj"
 echo "generated pair cli/wake-receipt-internal: passed"
 
+rpc_tmp="$tmp/rpc"
+mkdir -p "$rpc_tmp"
+(
+  cd "$root"
+  BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
+    --module-root "store/src=$store/src" \
+    cli/store-rpc-client.bclj cli/coord.bclj \
+    --out "$rpc_tmp" >/dev/null
+)
+cmp "$rpc_tmp/north/store_rpc_client.clj" \
+  "$root/cli/store-rpc-client.clj"
+cmp "$rpc_tmp/north/coord.clj" "$root/cli/coord.clj"
+if rg -n '/home/|\^\{:line' \
+  "$root/cli/store-rpc-client.clj" "$root/cli/coord.clj"; then
+  echo "generated CLI projection contains source-location or absolute-home residue" >&2
+  exit 1
+fi
+echo "generated pair cli/store-rpc-client + cli/coord: passed"
+
 for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \
