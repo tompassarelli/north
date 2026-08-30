@@ -1,0 +1,2168 @@
+#lang beagle/clj
+
+(ns north.work-occurrences
+  "Pure plans for immutable work occurrences and receipts for exact Store commits.")
+
+(require [clojure.string :as str])
+(require [north.projections :as proj])
+(require [north.referents :as referents])
+(require [store.types :as t])
+
+(def work-ownership-version String "work-ownership-v1")
+(def semantic-receipt-protocol String "north.semantic-receipt")
+(def semantic-receipt-version Int 1)
+(def semantic-view-protocol String "north.semantic-view")
+(def semantic-history-protocol String "north.semantic-history")
+(def semantic-inbox-protocol String "north.semantic-inbox")
+
+(def occurrence-entity-kind String "occurrence")
+(def request-kind String "request")
+(def ack-kind String "ack")
+(def result-kind String "result")
+(def ownership-transition-kind String "ownership-transition")
+(def settlement-kind String "settlement")
+
+(def actor-kinds (Set String) #{"human" "listener-agent" "agent-run"})
+
+(defrecord Actor
+  [kind String
+   id String])
+
+(defrecord PendingOffer
+  [id String
+   from Actor
+   to Actor])
+
+(defrecord OwnershipState
+  [goal String
+   owner Actor
+   accountable-parent (U Actor Nil)
+   pending-offer (U PendingOffer Nil)])
+
+(defunion OwnershipEvent
+  (Offer
+    [actor Actor
+     offer-id String
+     to Actor])
+  (Accept
+    [actor Actor
+     offer-id String])
+  (Transfer
+    [actor Actor
+     to Actor
+     acknowledged-by (U Actor Nil)])
+  (Refuse
+    [actor Actor
+     offer-id String
+     reason String])
+  (Escalate
+    [actor Actor
+     to Actor
+     reason String]))
+
+(defrecord OwnershipTransition
+  [version String
+   before OwnershipState
+   event OwnershipEvent
+   after OwnershipState])
+
+(defrecord StoreAction
+  [op Keyword
+   subject String
+   predicate String
+   value String])
+
+(defunion ReceiptIntent
+  (TrackIntent [referent String])
+  (PlanIntent
+    [referent String
+     revision String])
+  (StartIntent
+    [referent String
+     occurrence String])
+  (AssignIntent
+    [referent String
+     assignment String])
+  (RequestIntent
+    [request String
+     referent (U String Nil)])
+  (AckIntent
+    [request String
+     ack String])
+  (ResultIntent
+    [request String
+     result String
+     outcome String
+     referent (U String Nil)])
+  (OwnershipIntent
+    [transition String
+     owner String])
+  (SettleIntent
+    [assignment String
+     accepted-transition String
+     settlement String
+     outcome String]))
+
+(defrecord PersistencePlan
+  [action String
+   expected-store-space String
+   expected-store-version Int
+   actions (Vec StoreAction)
+   receipt-intent ReceiptIntent])
+
+(defrecord CanonicalSnapshot
+  [store-space String
+   store-version Int
+   facts (Vec t/Triple)])
+
+(defrecord RequestSnapshot
+  [store-space String
+   store-version Int
+   request String
+   referent (U String Nil)
+   from String
+   to String
+   body String
+   at String])
+
+(defrecord PlanSnapshot
+  [store-space String
+   store-version Int
+   referent String
+   revision String
+   intended-path String
+   endorsed-by String
+   endorsed-at String])
+
+(defrecord AssignmentSnapshot
+  [store-space String
+   store-version Int
+   assignment String
+   referent String
+   assigned-by String
+   assignee String
+   at String])
+
+(defrecord AckSnapshot
+  [store-space String
+   store-version Int
+   ack String
+   request String
+   referent (U String Nil)
+   actor String
+   at String])
+
+(defrecord ResultSnapshot
+  [store-space String
+   store-version Int
+   result String
+   request String
+   referent (U String Nil)
+   reporting-actor String
+   outcome String
+   summary String
+   at String])
+
+(defrecord OwnershipOccurrence
+  [store-space String
+   store-version Int
+   occurrence String
+   at String
+   transition OwnershipTransition])
+
+(defrecord SettlementSnapshot
+  [store-space String
+   store-version Int
+   settlement String
+   referent String
+   assignment String
+   accepted-transition String
+   reporting-actor Actor
+   accountable-parent Actor
+   outcome String
+   summary String
+   at String])
+
+(defrecord ReadPlan
+  [action String
+   mode Keyword
+   identity String
+   subjects (Vec String)
+   predicates (Vec String)
+   follow-predicates (Vec String)
+   followed-predicates (Vec String)
+   limit Int])
+
+(defrecord CanonicalActionReceipt
+  [input-index Int
+   changed Bool
+   occurrence t/Triple])
+
+(defrecord CanonicalCommit
+  [store-space String
+   store-version Int
+   actions (Vec CanonicalActionReceipt)])
+
+(defunion SemanticReceipt
+  (TrackReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     referent String])
+  (PlanReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     referent String
+     revision String])
+  (StartReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     referent String
+     occurrence String])
+  (AssignReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     referent String
+     assignment String])
+  (RequestReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     request String])
+  (RequestAboutReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     request String
+     referent String])
+  (AckReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     request String
+     ack String])
+  (ResultReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     request String
+     result String
+     outcome String])
+  (ResultAboutReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     request String
+     result String
+     outcome String
+     referent String])
+  (OwnershipReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     transition String
+     owner String])
+  (SettlementReceipt
+    [protocol String
+     version Int
+     action String
+     storeVersion Int
+     assignment String
+     acceptedTransition String
+     settlement String
+     outcome String]))
+
+(defrecord ViewFact
+  [subject String
+   predicate String
+   value String])
+
+(defrecord SemanticView
+  [protocol String
+   version Int
+   referent String
+   facts (Vec ViewFact)
+   derived (Vec String)])
+
+(defrecord SemanticHistory
+  [protocol String
+   version Int
+   referent String
+   occurrences (Vec String)])
+
+(defrecord SemanticInbox
+  [protocol String
+   version Int
+   actor String
+   requests (Vec String)])
+
+(defn- fail
+  [message String
+   code Keyword
+   data Any] Any
+  (throw (ex-info message (assoc data :type code))))
+
+(defn- require-text!
+  [label String
+   value Any] String
+  (if (and (string? value)
+           (not (str/blank? value))
+           (not (str/includes? value "\u0000")))
+    value
+    (fail (str label " must be a nonblank, non-NUL string")
+          :north.work-occurrences/invalid-text
+          {:field label :value value})))
+
+(defn- require-version!
+  [label String
+   value Any] Int
+  (if (and (integer? value) (not (neg? value)))
+    value
+    (fail (str label " must be a non-negative integer")
+          :north.work-occurrences/invalid-store-version
+          {:field label :value value})))
+
+(defn actor!
+  [kind Any
+   id Any] Actor
+  (let [checked-kind String (require-text! "actor kind" kind)
+        checked-id String (require-text! "actor id" id)]
+    (if (contains? actor-kinds checked-kind)
+      (->Actor checked-kind checked-id)
+      (fail "actor kind is outside work-ownership-v1"
+            :north.work-occurrences/invalid-actor-kind
+            {:kind checked-kind}))))
+
+(declare pending-offer! ownership-state! validate-ownership-transition!)
+
+(def actor-json-fields Any #{"kind" "id"})
+(def pending-offer-json-fields Any #{"id" "from" "to"})
+(def ownership-state-json-fields Any
+  #{"goal" "owner" "accountableParent" "pendingOffer"})
+(def ownership-transition-json-fields Any
+  #{"version" "before" "event" "after"})
+
+(defn- exact-string-fields?
+  [value Any
+   expected Any] Bool
+  (and (map? value) (= expected (set (keys value)))))
+
+(defn- malformed-ownership-json!
+  [message String
+   value Any] Any
+  (fail message :north.work-occurrences/invalid-ownership-json
+        {:value value}))
+
+(defn decode-actor! [value Any] Actor
+  (if (exact-string-fields? value actor-json-fields)
+    (actor! (get value "kind") (get value "id"))
+    (malformed-ownership-json!
+     "work ownership actor must contain exactly kind and id" value)))
+
+(defn- decode-nullable-actor!
+  [label String
+   value Any] (U Actor Nil)
+  (if (nil? value)
+    nil
+    (try
+      (decode-actor! value)
+      (catch Throwable error
+        (malformed-ownership-json!
+         (str label " is not a work ownership actor") value)))))
+
+(defn- decode-pending-offer-json! [value Any] PendingOffer
+  (if (exact-string-fields? value pending-offer-json-fields)
+    (pending-offer! (get value "id")
+                    (decode-actor! (get value "from"))
+                    (decode-actor! (get value "to")))
+    (malformed-ownership-json!
+     "pending offer has a malformed field set" value)))
+
+(defn- decode-nullable-pending-offer! [value Any] (U PendingOffer Nil)
+  (if (nil? value)
+    nil
+    (decode-pending-offer-json! value)))
+
+(defn- decode-ownership-state-json! [value Any] OwnershipState
+  (if (exact-string-fields? value ownership-state-json-fields)
+    (ownership-state!
+     (get value "goal")
+     (decode-actor! (get value "owner"))
+     (decode-nullable-actor! "accountableParent"
+                             (get value "accountableParent"))
+     (decode-nullable-pending-offer! (get value "pendingOffer")))
+    (malformed-ownership-json!
+     "ownership state has a malformed field set" value)))
+
+(defn- decode-ownership-event-json! [value Any] OwnershipEvent
+  (if-not (map? value)
+    (malformed-ownership-json! "ownership event must be an object" value)
+    (let [kind Any (get value "kind")]
+      (cond
+        (= kind "offer")
+        (if (exact-string-fields?
+             value #{"kind" "actor" "offerId" "to"})
+          (->Offer (decode-actor! (get value "actor"))
+                   (require-text! "offerId" (get value "offerId"))
+                   (decode-actor! (get value "to")))
+          (malformed-ownership-json!
+           "offer event has a malformed field set" value))
+
+        (= kind "accept")
+        (if (exact-string-fields? value #{"kind" "actor" "offerId"})
+          (->Accept (decode-actor! (get value "actor"))
+                    (require-text! "offerId" (get value "offerId")))
+          (malformed-ownership-json!
+           "accept event has a malformed field set" value))
+
+        (= kind "transfer")
+        (let [base Any #{"kind" "actor" "to"}
+              expected Any (if (contains? value "acknowledgedBy")
+                             (conj base "acknowledgedBy")
+                             base)]
+          (if (exact-string-fields? value expected)
+            (->Transfer
+             (decode-actor! (get value "actor"))
+             (decode-actor! (get value "to"))
+             (if (contains? value "acknowledgedBy")
+               (decode-actor! (get value "acknowledgedBy"))
+               nil))
+            (malformed-ownership-json!
+             "transfer event has a malformed field set" value)))
+
+        (= kind "refuse")
+        (if (exact-string-fields?
+             value #{"kind" "actor" "offerId" "reason"})
+          (->Refuse (decode-actor! (get value "actor"))
+                    (require-text! "offerId" (get value "offerId"))
+                    (require-text! "refusal reason" (get value "reason")))
+          (malformed-ownership-json!
+           "refuse event has a malformed field set" value))
+
+        (= kind "escalate")
+        (if (exact-string-fields?
+             value #{"kind" "actor" "to" "reason"})
+          (->Escalate (decode-actor! (get value "actor"))
+                      (decode-actor! (get value "to"))
+                      (require-text! "escalation reason"
+                                     (get value "reason")))
+          (malformed-ownership-json!
+           "escalate event has a malformed field set" value))
+
+        :else
+        (malformed-ownership-json!
+         "ownership event kind is unsupported" value)))))
+
+(defn decode-ownership-transition! [value Any] OwnershipTransition
+  (if (exact-string-fields? value ownership-transition-json-fields)
+    (validate-ownership-transition!
+     (->OwnershipTransition
+      (require-text! "work ownership version" (get value "version"))
+      (decode-ownership-state-json! (get value "before"))
+      (decode-ownership-event-json! (get value "event"))
+      (decode-ownership-state-json! (get value "after"))))
+    (malformed-ownership-json!
+     "work ownership transition has a malformed field set" value)))
+
+(defn- validate-actor! [value Actor] Actor
+  (let [checked Actor (actor! (:kind value) (:id value))]
+    (if (= checked value)
+      value
+      (fail "actor is malformed"
+            :north.work-occurrences/invalid-actor
+            {:actor value}))))
+
+(defn- actor-equal?
+  [left (U Actor Nil)
+   right (U Actor Nil)] Bool
+  (cond
+    (and (nil? left) (nil? right)) true
+    (or (nil? left) (nil? right)) false
+    :else (and (= (:kind left) (:kind right))
+               (= (:id left) (:id right)))))
+
+(defn pending-offer!
+  [id Any
+   from Actor
+   to Actor] PendingOffer
+  (let [checked-from Actor (validate-actor! from)
+        checked-to Actor (validate-actor! to)]
+    (if (actor-equal? checked-from checked-to)
+      (fail "offer source and recipient must differ"
+            :north.work-occurrences/invalid-offer
+            {:from checked-from :to checked-to})
+      (->PendingOffer (require-text! "offer id" id)
+                      checked-from checked-to))))
+
+(defn- validate-pending-offer! [value PendingOffer] PendingOffer
+  (let [checked PendingOffer (pending-offer! (:id value) (:from value) (:to value))]
+    (if (= checked value)
+      value
+      (fail "pending offer is malformed"
+            :north.work-occurrences/invalid-offer
+            {:offer value}))))
+
+(defn ownership-state!
+  [goal Any
+   owner Actor
+   accountable-parent (U Actor Nil)
+   pending-offer (U PendingOffer Nil)] OwnershipState
+  (let [checked-owner Actor (validate-actor! owner)
+        checked-parent (U Actor Nil) (if-let [parent Actor accountable-parent]
+          (validate-actor! parent)
+          nil)
+        checked-offer (U PendingOffer Nil) (if-let [offer PendingOffer pending-offer]
+          (validate-pending-offer! offer)
+          nil)]
+    (->OwnershipState (require-text! "ownership goal" goal)
+                      checked-owner checked-parent checked-offer)))
+
+(defn- validate-state! [value OwnershipState] OwnershipState
+  (let [checked OwnershipState (ownership-state! (:goal value) (:owner value)
+                          (:accountable-parent value)
+                          (:pending-offer value))]
+    (if (= checked value)
+      value
+      (fail "ownership state is malformed"
+            :north.work-occurrences/invalid-ownership-state
+            {:state value}))))
+
+(defn- pending-offer-equal?
+  [left (U PendingOffer Nil)
+   right (U PendingOffer Nil)] Bool
+  (cond
+    (and (nil? left) (nil? right)) true
+    (or (nil? left) (nil? right)) false
+    :else (and (= (:id left) (:id right))
+               (and (actor-equal? (:from left) (:from right))
+                    (actor-equal? (:to left) (:to right))))))
+
+(defn- state-equal?
+  [left OwnershipState
+   right OwnershipState] Bool
+  (and (= (:goal left) (:goal right))
+       (and (actor-equal? (:owner left) (:owner right))
+            (and (actor-equal? (:accountable-parent left)
+                               (:accountable-parent right))
+                 (pending-offer-equal? (:pending-offer left)
+                                       (:pending-offer right))))))
+
+(defn- reject-transition!
+  [message String
+   transition OwnershipTransition] Any
+  (fail message :north.work-occurrences/invalid-ownership-transition
+        {:transition transition}))
+
+(defn validate-ownership-transition! [transition OwnershipTransition] OwnershipTransition
+  (let [before OwnershipState (validate-state! (:before transition))
+        after OwnershipState (validate-state! (:after transition))
+        event OwnershipEvent (:event transition)]
+    (when-not (= work-ownership-version (:version transition))
+      (reject-transition!
+       "work ownership transition version must be work-ownership-v1"
+       transition))
+    (when-not (= (:goal before) (:goal after))
+      (reject-transition! "work ownership events must not change the goal"
+                          transition))
+    (match event
+      [(Offer actor offer-id to)
+       (let [checked-actor Actor (validate-actor! actor)
+             checked-to Actor (validate-actor! to)
+             checked-offer-id String (require-text! "offer id" offer-id)
+             pending (U PendingOffer Nil) (:pending-offer after)]
+         (cond
+           (some? (:pending-offer before))
+           (reject-transition! "offer requires no existing pending offer"
+                               transition)
+           (not (actor-equal? checked-actor (:owner before)))
+           (reject-transition! "only the current owner may offer work"
+                               transition)
+           (actor-equal? checked-actor checked-to)
+           (reject-transition!
+            "offer recipient must differ from the current owner" transition)
+           (not (actor-equal? (:owner after) (:owner before)))
+           (reject-transition! "an offer must not move ownership" transition)
+           (not (actor-equal? (:accountable-parent after)
+                              (:accountable-parent before)))
+           (reject-transition!
+            "an offer must not change accountable parent" transition)
+           (nil? pending)
+           (reject-transition! "an offer must create a pending offer"
+                               transition)
+           (not (= (:id pending) checked-offer-id))
+           (reject-transition!
+            "pending offer ID must match the offer event" transition)
+           (not (actor-equal? (:from pending) checked-actor))
+           (reject-transition!
+            "pending offer source must be the current owner" transition)
+           (not (actor-equal? (:to pending) checked-to))
+           (reject-transition!
+            "pending offer recipient must match the offer event" transition)))]
+
+      [(Accept actor offer-id)
+       (let [checked-actor Actor (validate-actor! actor)
+             checked-offer-id String (require-text! "offer id" offer-id)
+             pending (U PendingOffer Nil) (:pending-offer before)]
+         (cond
+           (nil? pending)
+           (reject-transition! "acceptance requires a pending offer"
+                               transition)
+           (not (= (:id pending) checked-offer-id))
+           (reject-transition! "acceptance must name the pending offer"
+                               transition)
+           (not (actor-equal? (:from pending) (:owner before)))
+           (reject-transition!
+            "pending offer source must still own the work" transition)
+           (not (actor-equal? checked-actor (:to pending)))
+           (reject-transition!
+            "only the offered recipient may accept work" transition)
+           (not (actor-equal? (:owner after) checked-actor))
+           (reject-transition!
+            "acceptance must move ownership to the accepting run" transition)
+           (not (actor-equal? (:accountable-parent after) (:owner before)))
+           (reject-transition!
+            "acceptance must retain the previous owner as accountable parent"
+            transition)
+           (some? (:pending-offer after))
+           (reject-transition! "acceptance must clear the pending offer"
+                               transition)))]
+
+      [(Transfer actor to acknowledged-by)
+       (let [checked-actor Actor (validate-actor! actor)
+             checked-to Actor (validate-actor! to)
+             checked-ack (U Actor Nil) (if-let [ack Actor acknowledged-by]
+               (validate-actor! ack)
+               nil)]
+         (cond
+           (some? (:pending-offer before))
+           (reject-transition! "direct transfer requires no pending offer"
+                               transition)
+           (not (actor-equal? checked-actor (:owner before)))
+           (reject-transition! "only the current owner may transfer work"
+                               transition)
+           (actor-equal? checked-actor checked-to)
+           (reject-transition!
+            "transfer recipient must differ from the current owner" transition)
+           (nil? checked-ack)
+           (when-not (state-equal? before after)
+             (reject-transition!
+              "unacknowledged transfer must not move ownership or accountability"
+              transition))
+           (not (actor-equal? checked-ack checked-to))
+           (reject-transition!
+            "transfer acknowledgement must come from the recipient" transition)
+           (not (actor-equal? (:owner after) checked-to))
+           (reject-transition!
+            "acknowledged transfer must move ownership to the recipient"
+            transition)
+           (not (actor-equal? (:accountable-parent after)
+                              (:accountable-parent before)))
+           (reject-transition!
+            "acknowledged transfer must preserve the existing accountable parent"
+            transition)
+           (some? (:pending-offer after))
+           (reject-transition!
+            "acknowledged transfer must not create a pending offer" transition)))]
+
+      [(Refuse actor offer-id reason)
+       (let [checked-actor Actor (validate-actor! actor)
+             checked-offer-id String (require-text! "offer id" offer-id)
+             _reason String (require-text! "refusal reason" reason)
+             pending (U PendingOffer Nil) (:pending-offer before)]
+         (cond
+           (nil? pending)
+           (reject-transition! "refusal requires a pending offer" transition)
+           (not (= (:id pending) checked-offer-id))
+           (reject-transition! "refusal must name the pending offer" transition)
+           (not (actor-equal? checked-actor (:to pending)))
+           (reject-transition! "only the offered recipient may refuse work"
+                               transition)
+           (not (actor-equal? (:owner after) (:owner before)))
+           (reject-transition!
+            "refusal must leave owner and accountable parent unchanged"
+            transition)
+           (not (actor-equal? (:accountable-parent after)
+                              (:accountable-parent before)))
+           (reject-transition!
+            "refusal must leave owner and accountable parent unchanged"
+            transition)
+           (some? (:pending-offer after))
+           (reject-transition! "refusal must clear only the pending offer"
+                               transition)))]
+
+      [(Escalate actor to reason)
+       (let [checked-actor Actor (validate-actor! actor)
+             checked-to Actor (validate-actor! to)
+             _reason String (require-text! "escalation reason" reason)]
+         (cond
+           (not (actor-equal? checked-actor (:owner before)))
+           (reject-transition! "only the current owner may escalate work"
+                               transition)
+           (nil? (:accountable-parent before))
+           (reject-transition! "escalation requires an accountable parent"
+                               transition)
+           (not (actor-equal? checked-to (:accountable-parent before)))
+           (reject-transition!
+            "escalation must return to the accountable parent" transition)
+           (not (state-equal? before after))
+           (reject-transition!
+            "escalation must not change owner, goal, accountability, or pending offer"
+            transition)))])
+    transition))
+
+(defn- store-action
+  [subject String
+   predicate String
+   value String] StoreAction
+  (->StoreAction :assert subject predicate value))
+
+(defn- actor-actions
+  [subject String
+   prefix String
+   actor Actor] (Vec StoreAction)
+  [(store-action subject (str prefix "_kind") (:kind actor))
+   (store-action subject prefix (:id actor))])
+
+(defn- pending-offer-actions
+  [subject String
+   prefix String
+   offer PendingOffer] (Vec StoreAction)
+  (vec
+   (concat
+    [(store-action subject (str prefix "_id") (:id offer))]
+    (vec
+     (concat (actor-actions subject (str prefix "_from") (:from offer))
+             (actor-actions subject (str prefix "_to") (:to offer)))))))
+
+(defn- state-actions
+  [subject String
+   prefix String
+   state OwnershipState] (Vec StoreAction)
+  (let [base (Vec StoreAction) (vec
+         (concat
+          [(store-action subject (str prefix "_goal") (:goal state))]
+          (actor-actions subject (str prefix "_owner") (:owner state))))
+        with-parent (Vec StoreAction) (if-let [parent Actor (:accountable-parent state)]
+          (vec (concat base
+                       (actor-actions subject
+                                      (str prefix "_accountable_parent") parent)))
+          base)]
+    (if-let [offer PendingOffer (:pending-offer state)]
+      (vec (concat with-parent
+                   (pending-offer-actions subject
+                                          (str prefix "_pending_offer") offer)))
+      with-parent)))
+
+(defn- event-kind [event OwnershipEvent] String
+  (match event
+    [(Offer _ _ _) "offer"]
+    [(Accept _ _) "accept"]
+    [(Transfer _ _ _) "transfer"]
+    [(Refuse _ _ _) "refuse"]
+    [(Escalate _ _ _) "escalate"]))
+
+(defn- event-actions
+  [subject String
+   event OwnershipEvent] (Vec StoreAction)
+  (let [base (Vec StoreAction) [(store-action subject "ownership_event_kind" (event-kind event))]]
+    (match event
+      [(Offer actor offer-id to)
+       (vec
+        (concat base
+                (vec
+                 (concat
+                  (actor-actions subject "ownership_event_actor" actor)
+                  (vec
+                   (concat
+                    [(store-action subject "ownership_event_offer_id" offer-id)]
+                    (actor-actions subject "ownership_event_to" to)))))))]
+      [(Accept actor offer-id)
+       (vec
+        (concat base
+                (vec
+                 (concat
+                  (actor-actions subject "ownership_event_actor" actor)
+                  [(store-action subject "ownership_event_offer_id" offer-id)]))))]
+      [(Transfer actor to acknowledged-by)
+       (let [required (Vec StoreAction) (vec
+              (concat
+               (actor-actions subject "ownership_event_actor" actor)
+               (actor-actions subject "ownership_event_to" to)))]
+         (vec
+          (concat base
+                  (if-let [ack Actor acknowledged-by]
+                    (vec
+                     (concat required
+                             (actor-actions
+                              subject "ownership_event_acknowledged_by" ack)))
+                    required))))]
+      [(Refuse actor offer-id reason)
+       (vec
+        (concat base
+                (vec
+                 (concat
+                  (actor-actions subject "ownership_event_actor" actor)
+                  [(store-action subject "ownership_event_offer_id" offer-id)
+                   (store-action subject "ownership_event_reason" reason)]))))]
+      [(Escalate actor to reason)
+       (vec
+        (concat base
+                (vec
+                 (concat
+                  (actor-actions subject "ownership_event_actor" actor)
+                  (vec
+                   (concat
+                    (actor-actions subject "ownership_event_to" to)
+                    [(store-action subject "ownership_event_reason" reason)]))))))])))
+
+(defn- occurrence-actions
+  [occurrence String
+   kind String
+   referent (U String Nil)
+   actor String
+   at String] (Vec StoreAction)
+  (let [base (Vec StoreAction) [(store-action occurrence "entity_kind" occurrence-entity-kind)
+         (store-action occurrence "occurrence_kind" kind)
+         (store-action occurrence "actor" actor)
+         (store-action occurrence "at" at)]]
+    (if-let [about String referent]
+      (do
+        (when (= occurrence about)
+          (fail "an occurrence cannot reuse its tracked thing identity"
+                :north.work-occurrences/invalid-occurrence-identity
+                {:occurrence occurrence :referent about}))
+        (conj base (store-action occurrence "about" about)))
+      base)))
+
+(defn- plan!
+  [action Any
+   snapshot CanonicalSnapshot
+   actions (Vec StoreAction)
+   receipt-intent ReceiptIntent] PersistencePlan
+  (let [checked-action String (require-text! "mutation action" action)
+        checked-space String (require-text! "expected Store space"
+                                            (:store-space snapshot))
+        checked-version Int (require-version! "expected Store version"
+                                              (:store-version snapshot))
+        identities Any (set
+         (mapv
+          (fn [store-action StoreAction] (Vec String)
+            (do
+              (when-not (= :assert (:op store-action))
+                (fail "semantic publication actions must be assert-only"
+                      :north.work-occurrences/invalid-store-action
+                      {:action store-action}))
+              [(:subject store-action)
+               (:predicate store-action)
+               (:value store-action)]))
+          actions))]
+    (when (empty? actions)
+      (fail "semantic mutation plan must contain at least one assertion"
+            :north.work-occurrences/invalid-store-action
+            {:action checked-action}))
+    (when-not (= (count identities) (count actions))
+      (fail "semantic mutation plan contains duplicate Store assertions"
+            :north.work-occurrences/duplicate-store-action
+            {:action checked-action}))
+    (->PersistencePlan checked-action checked-space checked-version actions
+                       receipt-intent)))
+
+(defn- require-same-snapshot!
+  [label String
+   expected-space String
+   expected-version Int
+   snapshot CanonicalSnapshot] Nil
+  (when-not (and (= expected-space (:store-space snapshot))
+                 (= expected-version (:store-version snapshot)))
+    (fail (str label " must come from the exact canonical Store snapshot")
+          :north.work-occurrences/read-commit-race
+          {:expected-space (:store-space snapshot)
+           :actual-space expected-space
+           :expected-version (:store-version snapshot)
+           :actual-version expected-version})))
+
+(defn- require-unused-occurrence-id!
+  [snapshot CanonicalSnapshot
+   identity Any] String
+  (let [checked String (require-text! "occurrence identity" identity)
+        existing (Vec t/Triple) (filterv
+         (fn [fact t/Triple] Bool (= checked (t/triple-t1 fact)))
+         (:facts snapshot))]
+    (when-not (empty? existing)
+      (fail "occurrence identity already exists in the canonical Store snapshot"
+            :north.work-occurrences/occurrence-identity-conflict
+            {:identity checked}))
+    checked))
+
+(defn- facts-actions!
+  [facts (Vec t/Triple)] (Vec StoreAction)
+  (mapv
+   (fn [fact t/Triple] StoreAction
+     (let [subject Any (t/triple-t1 fact)
+           predicate Any (t/triple-t2 fact)
+           value Any (t/triple-t3 fact)]
+       (store-action (require-text! "Store fact subject" subject)
+                     (require-text! "Store fact predicate" predicate)
+                     (require-text! "Store fact value" value))))
+   facts))
+
+(defn track-plan!
+  [referent Any
+   title Any
+   tracked-by Any
+   tracked-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-referent String (require-text! "tracked thing" referent)
+        checked-title String (require-text! "tracked thing title" title)
+        checked-actor String (require-text! "tracking actor" tracked-by)
+        checked-at String (require-text! "tracking instant" tracked-at)]
+    (plan!
+     "track" snapshot
+     (facts-actions!
+      (referents/tracked-thing-facts!
+       checked-referent checked-title checked-actor checked-at))
+     (->TrackIntent checked-referent))))
+
+(defn plan-revision-plan!
+  [referent Any
+   revision Any
+   intended-path Any
+   endorsed-by Any
+   endorsed-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-referent String (require-text! "tracked thing" referent)
+        checked-revision String (require-text! "Plan revision" revision)
+        checked-path String (require-text! "intended path or change" intended-path)
+        checked-actor String (require-text! "endorsing actor" endorsed-by)
+        checked-at String (require-text! "endorsement instant" endorsed-at)]
+    (plan!
+     "plan" snapshot
+     (facts-actions!
+      (referents/plan-revision-facts!
+       checked-referent checked-revision checked-path checked-actor checked-at))
+     (->PlanIntent checked-referent checked-revision))))
+
+(defn project-start-plan!
+  [authorization Any
+   plan PlanSnapshot
+   exact-revision Any
+   authorized-by Any
+   signature Any
+   authorized-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-authorization String (require-text! "start authorization" authorization)
+        checked-revision String (require-text! "exact Plan revision" exact-revision)
+        checked-actor String (require-text! "authorizing actor" authorized-by)
+        checked-signature String (require-text! "authorization signature" signature)
+        checked-at String (require-text! "authorization instant" authorized-at)]
+    (require-same-snapshot! "Plan revision" (:store-space plan)
+                            (:store-version plan) snapshot)
+    (when-not (= checked-revision (:revision plan))
+      (fail "start must name the exact Plan revision from its Store snapshot"
+            :north.work-occurrences/plan-snapshot-mismatch
+            {:referent (:referent plan)
+             :expected (:revision plan)
+             :actual checked-revision}))
+    (plan!
+     "start" snapshot
+     (facts-actions!
+      (referents/project-start-authorization-facts!
+       checked-authorization (:referent plan) checked-revision checked-actor
+       checked-signature checked-at))
+     (->StartIntent (:referent plan) checked-authorization))))
+
+(defn assignment-plan!
+  [assignment Any
+   referent Any
+   assigned-by Any
+   assignee Any
+   assigned-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-assignment String (require-text! "Assignment" assignment)
+        checked-referent String (require-text! "tracked thing" referent)
+        checked-actor String (require-text! "assigning actor" assigned-by)
+        checked-assignee String (require-text! "assignee" assignee)
+        checked-at String (require-text! "assignment instant" assigned-at)]
+    (plan!
+     "assign" snapshot
+     (facts-actions!
+      (referents/assignment-facts!
+       checked-assignment checked-referent checked-actor checked-assignee
+       checked-at))
+     (->AssignIntent checked-referent checked-assignment))))
+
+(defn request-plan!
+  [request Any
+   referent Any
+   from Any
+   to Any
+   body Any
+   occurred-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-request String (require-unused-occurrence-id! snapshot request)
+        checked-referent (U String Nil) (if (nil? referent)
+          nil
+          (require-text! "Request tracked thing" referent))
+        checked-from String (require-text! "Request source" from)
+        checked-to String (require-text! "Request recipient" to)
+        checked-body String (require-text! "Request body" body)
+        checked-at String (require-text! "Request instant" occurred-at)]
+    (when (= checked-from checked-to)
+      (fail "Request source and recipient must differ"
+            :north.work-occurrences/invalid-request
+            {:from checked-from :to checked-to}))
+    (plan!
+     "request" snapshot
+     (vec
+      (concat
+       (occurrence-actions checked-request request-kind checked-referent
+                           checked-from checked-at)
+       [(store-action checked-request "to" checked-to)
+        (store-action checked-request "body" checked-body)]))
+     (->RequestIntent checked-request checked-referent))))
+
+(defn- ownership-event-actor [event OwnershipEvent] Actor
+  (match event
+    [(Offer actor _ _) actor]
+    [(Accept actor _) actor]
+    [(Transfer actor _ _) actor]
+    [(Refuse actor _ _) actor]
+    [(Escalate actor _ _) actor]))
+
+(defn ownership-transition-plan!
+  [occurrence Any
+   transition OwnershipTransition
+   occurred-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (let [checked-occurrence String (require-text! "ownership transition occurrence" occurrence)
+        checked OwnershipTransition (validate-ownership-transition! transition)
+        goal String (:goal (:before checked))
+        actor Actor (ownership-event-actor (:event checked))
+        checked-at String (require-text! "ownership transition instant" occurred-at)]
+    (plan!
+     "ownership" snapshot
+     (vec
+      (concat
+       (occurrence-actions checked-occurrence ownership-transition-kind goal
+                           (:id actor) checked-at)
+       (vec
+        (concat
+         [(store-action checked-occurrence "ownership_contract"
+                        work-ownership-version)]
+         (vec
+          (concat
+           (state-actions checked-occurrence "ownership_before"
+                          (:before checked))
+           (vec
+            (concat
+             (event-actions checked-occurrence (:event checked))
+             (state-actions checked-occurrence "ownership_after"
+                            (:after checked))))))))))
+     (->OwnershipIntent checked-occurrence (:id (:owner (:after checked)))))))
+
+(defn canonical-snapshot!
+  [store-space Any
+   store-version Any
+   values Any] CanonicalSnapshot
+  (let [checked-space String (require-text! "canonical snapshot Store space"
+                                            store-space)
+        checked-version Int (require-version! "canonical snapshot Store version"
+                                              store-version)]
+    (when-not (vector? values)
+      (fail "canonical snapshot facts must be a vector"
+            :north.work-occurrences/invalid-snapshot
+            {:facts values}))
+    (let [facts (Vec t/Triple) (loop [remaining Any values
+                                      accepted (Vec t/Triple) []]
+                                 (if (empty? remaining)
+              accepted
+              (let [value Any (first remaining)]
+                (when-not (t/triple? value)
+                  (fail "canonical snapshot contains a malformed Store fact"
+                        :north.work-occurrences/invalid-snapshot
+                        {:fact value}))
+                (let [fact t/Triple value
+                      subject String (require-text! "snapshot fact subject" (t/triple-t1 fact))
+                      predicate String (require-text! "snapshot fact predicate" (t/triple-t2 fact))
+                      fact-value String (require-text! "snapshot fact value" (t/triple-t3 fact))]
+                  (recur (vec (rest remaining))
+                         (conj accepted
+                               (t/triple subject predicate fact-value)))))))
+          distinct-facts Any (set facts)]
+      (when-not (= (count facts) (count distinct-facts))
+        (fail "canonical snapshot contains duplicate Store facts"
+              :north.work-occurrences/invalid-snapshot
+              {:store-version checked-version}))
+      (->CanonicalSnapshot checked-space checked-version facts))))
+
+(defn- facts-at
+  [snapshot CanonicalSnapshot
+   subject String] (Vec t/Triple)
+  (filterv
+   (fn [fact t/Triple] Bool (= subject (t/triple-t1 fact)))
+   (:facts snapshot)))
+
+(defn- values-at
+  [snapshot CanonicalSnapshot
+   subject String
+   predicate String] (Vec String)
+  (mapv
+   (fn [fact t/Triple] String (t/triple-t3 fact))
+   (filterv
+    (fn [fact t/Triple] Bool
+      (and (= subject (t/triple-t1 fact))
+           (= predicate (t/triple-t2 fact))))
+    (:facts snapshot))))
+
+(defn- exact-value-at!
+  [snapshot CanonicalSnapshot
+   subject String
+   predicate String] String
+  (let [values (Vec String) (values-at snapshot subject predicate)]
+    (if (= 1 (count values))
+      (first values)
+      (fail "canonical snapshot predicate must have exactly one value"
+            :north.work-occurrences/invalid-snapshot
+            {:subject subject :predicate predicate :values values}))))
+
+(defn- optional-value-at!
+  [snapshot CanonicalSnapshot
+   subject String
+   predicate String] (U String Nil)
+  (let [values (Vec String) (values-at snapshot subject predicate)]
+    (cond
+      (empty? values) nil
+      (= 1 (count values)) (first values)
+      :else
+      (fail "canonical snapshot optional predicate has multiple values"
+            :north.work-occurrences/invalid-snapshot
+            {:subject subject :predicate predicate :values values}))))
+
+(defn- action-key [action StoreAction] (Vec String)
+  [(:subject action) (:predicate action) (:value action)])
+
+(defn- fact-key [fact t/Triple] (Vec String)
+  [(t/triple-t1 fact) (t/triple-t2 fact) (t/triple-t3 fact)])
+
+(defn- exact-subject-actions!
+  [snapshot CanonicalSnapshot
+   subject String
+   expected (Vec StoreAction)
+   code Keyword] Nil
+  (let [actual (Vec t/Triple) (facts-at snapshot subject)
+        actual-keys Any (set (mapv fact-key actual))
+        expected-keys Any (set (mapv action-key expected))]
+    (when-not (and (= (count actual) (count expected))
+                   (= actual-keys expected-keys))
+      (fail "canonical snapshot subject does not match its exact occurrence shape"
+            code
+            {:subject subject
+             :actual actual-keys
+             :expected expected-keys}))))
+
+(defn decode-plan-snapshot!
+  [snapshot CanonicalSnapshot
+   referent Any
+   exact-revision Any] PlanSnapshot
+  (let [checked-referent String (require-text! "tracked thing" referent)
+        checked-revision String (require-text! "exact Plan revision" exact-revision)
+        current-revision String (exact-value-at! snapshot checked-referent
+                                                 "current_plan_revision")]
+    (when-not (= checked-revision current-revision)
+      (fail "caller-supplied Plan revision is not current in the exact snapshot"
+            :north.work-occurrences/plan-snapshot-mismatch
+            {:referent checked-referent
+             :expected checked-revision
+             :current current-revision}))
+    (let [intended-path String (require-text! "intended path or change"
+                                (exact-value-at! snapshot checked-revision
+                                                 "body"))
+          endorsed-by String (require-text! "endorsing actor"
+                              (exact-value-at! snapshot checked-revision
+                                               "actor"))
+          endorsed-at String (require-text! "endorsement instant"
+                              (exact-value-at! snapshot checked-revision
+                                               "at"))
+          idx proj/ProjectionIndex (proj/index-triples (:facts snapshot))]
+      (when-not (referents/plan? idx checked-referent)
+        (fail "canonical snapshot does not contain the exact complete Plan"
+              :north.work-occurrences/invalid-plan-snapshot
+              {:referent checked-referent :revision checked-revision}))
+      (let [expected PersistencePlan (plan-revision-plan!
+             checked-referent checked-revision intended-path endorsed-by
+             endorsed-at snapshot)
+            revision-actions (Vec StoreAction) (filterv
+             (fn [action StoreAction] Bool
+               (= checked-revision (:subject action)))
+             (:actions expected))]
+        (exact-subject-actions!
+         snapshot checked-revision revision-actions
+         :north.work-occurrences/invalid-plan-snapshot))
+      (->PlanSnapshot (:store-space snapshot) (:store-version snapshot)
+                      checked-referent
+                      checked-revision intended-path endorsed-by
+                      endorsed-at))))
+
+(defn decode-request-snapshot!
+  [snapshot CanonicalSnapshot
+   request Any] RequestSnapshot
+  (let [checked-request String (require-text! "Request" request)
+        kind String (exact-value-at! snapshot checked-request "entity_kind")
+        occurrence-kind String (exact-value-at! snapshot checked-request "occurrence_kind")
+        from String (require-text! "Request source"
+                                   (exact-value-at! snapshot checked-request
+                                                    "actor"))
+        at String (require-text! "Request instant"
+                                 (exact-value-at! snapshot checked-request "at"))
+        referent (U String Nil) (optional-value-at! snapshot checked-request "about")
+        to String (require-text! "Request recipient"
+                                 (exact-value-at! snapshot checked-request "to"))
+        body String (require-text! "Request body"
+                                   (exact-value-at! snapshot checked-request
+                                                    "body"))
+        idx proj/ProjectionIndex (proj/index-triples (:facts snapshot))]
+    (when-not (and (= occurrence-entity-kind kind)
+                   (= request-kind occurrence-kind)
+                   (referents/complete-base-occurrence?
+                    idx checked-request request-kind ["to" "body"]))
+      (fail "canonical Request snapshot is not a complete Request occurrence"
+            :north.work-occurrences/invalid-request-snapshot
+            {:request checked-request}))
+    (when (= from to)
+      (fail "canonical Request source and recipient must differ"
+            :north.work-occurrences/invalid-request-snapshot
+            {:request checked-request :from from :to to}))
+    (when-not (and (referents/agent? idx from) (referents/agent? idx to))
+      (fail "canonical Request actors must be tracked Agents"
+            :north.work-occurrences/invalid-request-snapshot
+            {:request checked-request :from from :to to}))
+    (when (some? referent)
+      (when-not (referents/tracked-thing? idx referent)
+        (fail "canonical Request about link must name a tracked thing"
+              :north.work-occurrences/invalid-request-snapshot
+              {:request checked-request :referent referent})))
+    (let [expected (Vec StoreAction) (vec
+           (concat
+            (occurrence-actions checked-request request-kind referent from at)
+            [(store-action checked-request "to" to)
+             (store-action checked-request "body" body)]))]
+      (exact-subject-actions!
+       snapshot checked-request expected
+       :north.work-occurrences/invalid-request-snapshot))
+    (->RequestSnapshot (:store-space snapshot) (:store-version snapshot)
+                       checked-request referent
+                       from to body at)))
+
+(defn- ack-plan-from-snapshot!
+  [ack Any
+   request RequestSnapshot
+   actor Any
+   occurred-at Any
+   snapshot CanonicalSnapshot
+   require-unused? Bool] PersistencePlan
+  (let [checked-ack String (require-text! "ACK" ack)
+        checked-actor String (require-text! "ACK actor" actor)
+        checked-at String (require-text! "ACK instant" occurred-at)]
+    (when (= checked-ack (:request request))
+      (fail "ACK identity must differ from its Request"
+            :north.work-occurrences/invalid-ack
+            {:ack checked-ack :request (:request request)}))
+    (require-same-snapshot! "Request" (:store-space request)
+                            (:store-version request) snapshot)
+    (when require-unused?
+      (require-unused-occurrence-id! snapshot checked-ack))
+    (when-not (= checked-actor (:to request))
+      (fail "only the exact Request recipient may ACK it"
+            :north.work-occurrences/invalid-ack
+            {:request (:request request)
+             :expected (:to request)
+             :actual checked-actor}))
+    (plan!
+     "ack" snapshot
+     (conj
+      (occurrence-actions checked-ack ack-kind (:referent request)
+                          checked-actor checked-at)
+      (store-action checked-ack "acknowledges" (:request request)))
+     (->AckIntent (:request request) checked-ack))))
+
+(defn ack-plan!
+  [ack Any
+   request RequestSnapshot
+   actor Any
+   occurred-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (ack-plan-from-snapshot! ack request actor occurred-at snapshot true))
+
+(defn decode-ack-snapshot!
+  [snapshot CanonicalSnapshot
+   ack Any] AckSnapshot
+  (let [checked-ack String (require-text! "ACK" ack)
+        request-id String (require-text! "acknowledged Request"
+                       (exact-value-at! snapshot checked-ack "acknowledges"))
+        actor String (require-text! "ACK actor"
+                       (exact-value-at! snapshot checked-ack "actor"))
+        at String (require-text! "ACK instant"
+                       (exact-value-at! snapshot checked-ack "at"))
+        referent (U String Nil) (optional-value-at! snapshot checked-ack "about")
+        request RequestSnapshot (decode-request-snapshot! snapshot request-id)
+        expected PersistencePlan (ack-plan-from-snapshot!
+         checked-ack request actor at snapshot false)]
+    (when-not (= referent (:referent request))
+      (fail "ACK about link must equal its exact Request about link"
+            :north.work-occurrences/invalid-ack-snapshot
+            {:ack checked-ack
+             :request request-id
+             :expected (:referent request)
+             :actual referent}))
+    (exact-subject-actions!
+     snapshot checked-ack (:actions expected)
+     :north.work-occurrences/invalid-ack-snapshot)
+    (->AckSnapshot (:store-space snapshot) (:store-version snapshot)
+                   checked-ack request-id
+                   referent actor at)))
+
+(defn- result-plan-from-snapshot!
+  [result Any
+   request RequestSnapshot
+   reporting-actor Any
+   outcome Any
+   summary Any
+   occurred-at Any
+   snapshot CanonicalSnapshot
+   require-unused? Bool] PersistencePlan
+  (let [checked-result String (require-text! "Result" result)
+        checked-actor String (require-text! "Result reporting actor"
+                                           reporting-actor)
+        checked-outcome String (require-text! "Result outcome" outcome)
+        checked-summary String (require-text! "Result summary" summary)
+        checked-at String (require-text! "Result instant" occurred-at)]
+    (when (= checked-result (:request request))
+      (fail "Result identity must differ from its Request"
+            :north.work-occurrences/invalid-result
+            {:result checked-result :request (:request request)}))
+    (require-same-snapshot! "Request" (:store-space request)
+                            (:store-version request) snapshot)
+    (when require-unused?
+      (require-unused-occurrence-id! snapshot checked-result))
+    (when-not (= checked-actor (:to request))
+      (fail "only the exact Request recipient may report its Result"
+            :north.work-occurrences/invalid-result
+            {:request (:request request)
+             :expected (:to request)
+             :actual checked-actor}))
+    (plan!
+     "result" snapshot
+     (vec
+      (concat
+       (occurrence-actions checked-result result-kind (:referent request)
+                           checked-actor checked-at)
+       [(store-action checked-result "request" (:request request))
+        (store-action checked-result "outcome" checked-outcome)
+        (store-action checked-result "summary" checked-summary)]))
+     (->ResultIntent (:request request) checked-result checked-outcome
+                     (:referent request)))))
+
+(defn result-plan!
+  [result Any
+   request RequestSnapshot
+   reporting-actor Any
+   outcome Any
+   summary Any
+   occurred-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (result-plan-from-snapshot! result request reporting-actor outcome summary
+                              occurred-at snapshot true))
+
+(defn decode-result-snapshot!
+  [snapshot CanonicalSnapshot
+   result Any] ResultSnapshot
+  (let [checked-result String (require-text! "Result" result)
+        request-id String (require-text! "Result Request"
+                          (exact-value-at! snapshot checked-result "request"))
+        actor String (require-text! "Result reporting actor"
+                     (exact-value-at! snapshot checked-result "actor"))
+        outcome String (require-text! "Result outcome"
+                       (exact-value-at! snapshot checked-result "outcome"))
+        summary String (require-text! "Result summary"
+                       (exact-value-at! snapshot checked-result "summary"))
+        at String (require-text! "Result instant"
+                  (exact-value-at! snapshot checked-result "at"))
+        referent (U String Nil) (optional-value-at! snapshot checked-result
+                                                    "about")
+        request RequestSnapshot (decode-request-snapshot! snapshot request-id)
+        expected PersistencePlan (result-plan-from-snapshot!
+         checked-result request actor outcome summary at snapshot false)]
+    (when-not (= referent (:referent request))
+      (fail "Result about link must equal its exact Request about link"
+            :north.work-occurrences/invalid-result-snapshot
+            {:result checked-result
+             :request request-id
+             :expected (:referent request)
+             :actual referent}))
+    (exact-subject-actions!
+     snapshot checked-result (:actions expected)
+     :north.work-occurrences/invalid-result-snapshot)
+    (->ResultSnapshot (:store-space snapshot) (:store-version snapshot)
+                      checked-result request-id
+                      referent actor outcome summary at)))
+
+(defn decode-assignment-snapshot!
+  [snapshot CanonicalSnapshot
+   assignment Any] AssignmentSnapshot
+  (let [checked-assignment String (require-text! "Assignment" assignment)
+        referent String (require-text! "Assignment tracked thing"
+                       (exact-value-at! snapshot checked-assignment "about"))
+        assigned-by String (require-text! "assigning actor"
+                       (exact-value-at! snapshot checked-assignment "actor"))
+        assignee String (require-text! "assignee"
+                       (exact-value-at! snapshot checked-assignment "assignee"))
+        at String (require-text! "assignment instant"
+                       (exact-value-at! snapshot checked-assignment "at"))
+        idx proj/ProjectionIndex (proj/index-triples (:facts snapshot))]
+    (when-not (and (referents/tracked-thing? idx referent)
+                   (referents/assignment-occurrence?
+                    idx checked-assignment referent))
+      (fail "canonical Assignment snapshot is not a complete Assignment"
+            :north.work-occurrences/invalid-assignment-snapshot
+            {:assignment checked-assignment :referent referent}))
+    (exact-subject-actions!
+     snapshot checked-assignment
+     (facts-actions!
+      (referents/assignment-facts!
+       checked-assignment referent assigned-by assignee at))
+     :north.work-occurrences/invalid-assignment-snapshot)
+    (->AssignmentSnapshot (:store-space snapshot) (:store-version snapshot)
+                          checked-assignment
+                          referent assigned-by assignee at)))
+
+(defn- decode-actor-facts!
+  [snapshot CanonicalSnapshot
+   subject String
+   prefix String] Actor
+  (actor! (exact-value-at! snapshot subject (str prefix "_kind"))
+          (exact-value-at! snapshot subject prefix)))
+
+(defn- decode-optional-actor-facts!
+  [snapshot CanonicalSnapshot
+   subject String
+   prefix String] (U Actor Nil)
+  (let [kind (U String Nil) (optional-value-at! snapshot subject (str prefix "_kind"))
+        id (U String Nil) (optional-value-at! snapshot subject prefix)]
+    (cond
+      (and (nil? kind) (nil? id)) nil
+      (or (nil? kind) (nil? id))
+      (fail "canonical ownership actor facts are incomplete"
+            :north.work-occurrences/invalid-ownership-snapshot
+            {:subject subject :prefix prefix})
+      :else (actor! kind id))))
+
+(defn- decode-pending-offer-facts!
+  [snapshot CanonicalSnapshot
+   subject String
+   prefix String] (U PendingOffer Nil)
+  (let [id (U String Nil) (optional-value-at! snapshot subject (str prefix "_id"))]
+    (if (nil? id)
+      (let [residue (Vec String) (vec
+             (concat
+              (values-at snapshot subject (str prefix "_from_kind"))
+              (vec
+               (concat
+                (values-at snapshot subject (str prefix "_from"))
+                (vec
+                 (concat
+                  (values-at snapshot subject (str prefix "_to_kind"))
+                  (values-at snapshot subject (str prefix "_to"))))))))]
+        (if (empty? residue)
+          nil
+          (fail "canonical pending-offer facts are incomplete"
+                :north.work-occurrences/invalid-ownership-snapshot
+                {:subject subject :prefix prefix})))
+      (pending-offer!
+       id
+       (decode-actor-facts! snapshot subject (str prefix "_from"))
+       (decode-actor-facts! snapshot subject (str prefix "_to"))))))
+
+(defn- decode-state-facts!
+  [snapshot CanonicalSnapshot
+   subject String
+   prefix String] OwnershipState
+  (ownership-state!
+   (exact-value-at! snapshot subject (str prefix "_goal"))
+   (decode-actor-facts! snapshot subject (str prefix "_owner"))
+   (decode-optional-actor-facts!
+    snapshot subject (str prefix "_accountable_parent"))
+   (decode-pending-offer-facts!
+    snapshot subject (str prefix "_pending_offer"))))
+
+(defn- decode-event-facts!
+  [snapshot CanonicalSnapshot
+   subject String] OwnershipEvent
+  (let [kind String (exact-value-at! snapshot subject "ownership_event_kind")
+        actor Actor (decode-actor-facts! snapshot subject "ownership_event_actor")]
+    (cond
+      (= kind "offer")
+      (->Offer
+       actor
+       (exact-value-at! snapshot subject "ownership_event_offer_id")
+       (decode-actor-facts! snapshot subject "ownership_event_to"))
+
+      (= kind "accept")
+      (->Accept
+       actor
+       (exact-value-at! snapshot subject "ownership_event_offer_id"))
+
+      (= kind "transfer")
+      (->Transfer
+       actor
+       (decode-actor-facts! snapshot subject "ownership_event_to")
+       (decode-optional-actor-facts!
+        snapshot subject "ownership_event_acknowledged_by"))
+
+      (= kind "refuse")
+      (->Refuse
+       actor
+       (exact-value-at! snapshot subject "ownership_event_offer_id")
+       (exact-value-at! snapshot subject "ownership_event_reason"))
+
+      (= kind "escalate")
+      (->Escalate
+       actor
+       (decode-actor-facts! snapshot subject "ownership_event_to")
+       (exact-value-at! snapshot subject "ownership_event_reason"))
+
+      :else
+      (fail "canonical ownership event kind is unsupported"
+            :north.work-occurrences/invalid-ownership-snapshot
+            {:subject subject :kind kind}))))
+
+(defn decode-ownership-occurrence!
+  [snapshot CanonicalSnapshot
+   occurrence Any] OwnershipOccurrence
+  (let [checked-occurrence String (require-text! "ownership transition occurrence" occurrence)
+        entity-kind String (exact-value-at! snapshot checked-occurrence "entity_kind")
+        kind String (exact-value-at! snapshot checked-occurrence "occurrence_kind")
+        referent String (exact-value-at! snapshot checked-occurrence "about")
+        actor-id String (exact-value-at! snapshot checked-occurrence "actor")
+        at String (exact-value-at! snapshot checked-occurrence "at")
+        contract String (exact-value-at! snapshot checked-occurrence "ownership_contract")
+        transition OwnershipTransition (validate-ownership-transition!
+         (->OwnershipTransition
+          contract
+          (decode-state-facts!
+           snapshot checked-occurrence "ownership_before")
+          (decode-event-facts! snapshot checked-occurrence)
+          (decode-state-facts!
+           snapshot checked-occurrence "ownership_after")))]
+    (when-not (and (= occurrence-entity-kind entity-kind)
+                   (= ownership-transition-kind kind)
+                   (= work-ownership-version contract)
+                   (= referent (:goal (:before transition)))
+                   (= actor-id (:id (ownership-event-actor
+                                     (:event transition)))))
+      (fail "canonical ownership occurrence does not bind its transition"
+            :north.work-occurrences/invalid-ownership-snapshot
+            {:occurrence checked-occurrence}))
+    (let [expected PersistencePlan (ownership-transition-plan!
+           checked-occurrence transition at snapshot)]
+      (exact-subject-actions!
+       snapshot checked-occurrence (:actions expected)
+       :north.work-occurrences/invalid-ownership-snapshot))
+    (->OwnershipOccurrence (:store-space snapshot) (:store-version snapshot)
+                           checked-occurrence at transition)))
+
+(defn- accepted-transition? [transition OwnershipTransition] Bool
+  (match (:event transition)
+    [(Accept _ _) true]
+    [(Transfer _ _ acknowledged-by) (some? acknowledged-by)]
+    [(Offer _ _ _) false]
+    [(Refuse _ _ _) false]
+    [(Escalate _ _ _) false]))
+
+(defn- settlement-plan-from-snapshot!
+  [settlement Any
+   assignment AssignmentSnapshot
+   accepted OwnershipOccurrence
+   reporting-actor Any
+   outcome Any
+   summary Any
+   occurred-at Any
+   snapshot CanonicalSnapshot
+   require-unused? Bool] PersistencePlan
+  (let [checked-settlement String (require-text! "Settlement" settlement)
+        checked-actor String (require-text! "Settlement reporting actor" reporting-actor)
+        checked-outcome String (require-text! "Settlement outcome" outcome)
+        checked-summary String (require-text! "Settlement summary" summary)
+        checked-at String (require-text! "Settlement instant" occurred-at)
+        transition OwnershipTransition (:transition accepted)
+        owner Actor (:owner (:after transition))
+        parent (U Actor Nil) (:accountable-parent (:after transition))]
+    (require-same-snapshot! "Assignment" (:store-space assignment)
+                            (:store-version assignment) snapshot)
+    (require-same-snapshot! "ownership transition" (:store-space accepted)
+                            (:store-version accepted) snapshot)
+    (when-not (accepted-transition? transition)
+      (fail "Settlement requires an accepted ownership transition"
+            :north.work-occurrences/invalid-settlement
+            {:transition (:occurrence accepted)}))
+    (when-not (= (:referent assignment) (:goal (:after transition)))
+      (fail "Settlement Assignment and ownership transition must name one tracked thing"
+            :north.work-occurrences/invalid-settlement
+            {:assignment (:assignment assignment)
+             :transition (:occurrence accepted)}))
+    (when-not (and (= checked-actor (:assignee assignment))
+                   (= checked-actor (:id owner)))
+      (fail "Settlement reporting actor must be the assignee and current owner"
+            :north.work-occurrences/invalid-settlement
+            {:actor checked-actor
+             :assignee (:assignee assignment)
+             :owner (:id owner)}))
+    (when (or (= checked-settlement (:assignment assignment))
+              (= checked-settlement (:occurrence accepted)))
+      (fail "Settlement must have an identity distinct from its inputs"
+            :north.work-occurrences/invalid-settlement
+            {:settlement checked-settlement
+             :assignment (:assignment assignment)
+             :transition (:occurrence accepted)}))
+    (when require-unused?
+      (require-unused-occurrence-id! snapshot checked-settlement))
+    (if-let [accountable-parent Actor parent]
+      (plan!
+       "settle" snapshot
+       (vec
+        (concat
+         (occurrence-actions checked-settlement settlement-kind
+                             (:referent assignment) checked-actor checked-at)
+         [(store-action checked-settlement "assignment"
+                        (:assignment assignment))
+          (store-action checked-settlement "accepted_transition"
+                        (:occurrence accepted))
+          (store-action checked-settlement "reporting_actor_kind" (:kind owner))
+          (store-action checked-settlement "accountable_parent"
+                        (:id accountable-parent))
+          (store-action checked-settlement "accountable_parent_kind"
+                        (:kind accountable-parent))
+          (store-action checked-settlement "outcome" checked-outcome)
+          (store-action checked-settlement "summary" checked-summary)]))
+       (->SettleIntent (:assignment assignment) (:occurrence accepted)
+                       checked-settlement checked-outcome))
+      (fail "Settlement requires the immediate accountable parent"
+            :north.work-occurrences/invalid-settlement
+            {:transition (:occurrence accepted)}))))
+
+(defn settlement-plan!
+  [settlement Any
+   assignment AssignmentSnapshot
+   accepted OwnershipOccurrence
+   reporting-actor Any
+   outcome Any
+   summary Any
+   occurred-at Any
+   snapshot CanonicalSnapshot] PersistencePlan
+  (settlement-plan-from-snapshot!
+   settlement assignment accepted reporting-actor outcome summary occurred-at
+   snapshot true))
+
+(defn decode-settlement-snapshot!
+  [snapshot CanonicalSnapshot
+   settlement Any] SettlementSnapshot
+  (let [checked-settlement String (require-text! "Settlement" settlement)
+        referent String (require-text! "Settlement tracked thing"
+                       (exact-value-at! snapshot checked-settlement "about"))
+        assignment-id String (require-text! "Settlement Assignment"
+                       (exact-value-at! snapshot checked-settlement "assignment"))
+        transition-id String (require-text! "Settlement accepted transition"
+                       (exact-value-at! snapshot checked-settlement
+                                        "accepted_transition"))
+        reporting-actor Actor (actor!
+         (exact-value-at! snapshot checked-settlement "reporting_actor_kind")
+         (exact-value-at! snapshot checked-settlement "actor"))
+        accountable-parent Actor (actor!
+         (exact-value-at! snapshot checked-settlement
+                          "accountable_parent_kind")
+         (exact-value-at! snapshot checked-settlement "accountable_parent"))
+        outcome String (require-text! "Settlement outcome"
+                       (exact-value-at! snapshot checked-settlement "outcome"))
+        summary String (require-text! "Settlement summary"
+                       (exact-value-at! snapshot checked-settlement "summary"))
+        at String (require-text! "Settlement instant"
+                       (exact-value-at! snapshot checked-settlement "at"))
+        assignment AssignmentSnapshot (decode-assignment-snapshot! snapshot assignment-id)
+        accepted OwnershipOccurrence (decode-ownership-occurrence! snapshot transition-id)
+        expected PersistencePlan (settlement-plan-from-snapshot!
+         checked-settlement assignment accepted (:id reporting-actor)
+         outcome summary at snapshot false)]
+    (when-not (and (= referent (:referent assignment))
+                   (actor-equal?
+                    accountable-parent
+                    (:accountable-parent (:after (:transition accepted)))))
+      (fail "Settlement snapshot does not bind its tracked thing and accountable parent"
+            :north.work-occurrences/invalid-settlement-snapshot
+            {:settlement checked-settlement
+             :referent referent
+             :accountable-parent accountable-parent}))
+    (exact-subject-actions!
+     snapshot checked-settlement (:actions expected)
+     :north.work-occurrences/invalid-settlement-snapshot)
+    (->SettlementSnapshot
+     (:store-space snapshot) (:store-version snapshot) checked-settlement
+     referent assignment-id transition-id reporting-actor accountable-parent
+     outcome summary at)))
+
+(defn- read-plan!
+  [action String
+   mode Keyword
+   identity Any
+   subjects (Vec String)
+   predicates (Vec String)
+   follow-predicates (Vec String)
+   followed-predicates (Vec String)
+   limit Int] ReadPlan
+  (let [checked-identity String (require-text! "read identity" identity)]
+    (when-not (contains? #{:subjects :about :inbox} mode)
+      (fail "semantic read plan mode is unsupported"
+            :north.work-occurrences/invalid-read-plan
+            {:mode mode}))
+    (when-not (pos? limit)
+      (fail "semantic read plan limit must be positive"
+            :north.work-occurrences/invalid-read-plan
+            {:limit limit}))
+    (->ReadPlan action mode checked-identity subjects predicates
+                follow-predicates followed-predicates limit)))
+
+(def ownership-predicates (Vec String)
+  ["entity_kind" "occurrence_kind" "about" "actor" "at"
+   "ownership_contract"
+   "ownership_before_goal" "ownership_before_owner_kind"
+   "ownership_before_owner" "ownership_before_accountable_parent_kind"
+   "ownership_before_accountable_parent"
+   "ownership_before_pending_offer_id"
+   "ownership_before_pending_offer_from_kind"
+   "ownership_before_pending_offer_from"
+   "ownership_before_pending_offer_to_kind"
+   "ownership_before_pending_offer_to"
+   "ownership_event_kind" "ownership_event_actor_kind"
+   "ownership_event_actor" "ownership_event_offer_id"
+   "ownership_event_to_kind" "ownership_event_to"
+   "ownership_event_acknowledged_by_kind"
+   "ownership_event_acknowledged_by" "ownership_event_reason"
+   "ownership_after_goal" "ownership_after_owner_kind"
+   "ownership_after_owner" "ownership_after_accountable_parent_kind"
+   "ownership_after_accountable_parent"
+   "ownership_after_pending_offer_id"
+   "ownership_after_pending_offer_from_kind"
+   "ownership_after_pending_offer_from"
+   "ownership_after_pending_offer_to_kind"
+   "ownership_after_pending_offer_to"])
+
+(def request-predicates (Vec String)
+  ["entity_kind" "occurrence_kind" "about" "actor" "at" "to" "body"])
+
+(defn request-read-plan! [request Any] ReadPlan
+  (let [checked String (require-text! "Request" request)]
+    (read-plan! "request" :subjects checked [checked] ["entity_kind"]
+                [] [] 2)))
+
+(defn ack-read-plan!
+  [request Any
+   ack Any] ReadPlan
+  (let [checked-request String (require-text! "Request" request)
+        checked-ack String (require-text! "ACK" ack)]
+    (read-plan! "ack" :subjects checked-request
+                [checked-request checked-ack] request-predicates
+                ["actor" "to" "about"]
+                ["entity_kind" "referent_role"] 32)))
+
+(defn result-read-plan!
+  [request Any
+   result Any] ReadPlan
+  (let [checked-request String (require-text! "Request" request)
+        checked-result String (require-text! "Result" result)]
+    (read-plan! "result" :subjects checked-request
+                [checked-request checked-result] request-predicates
+                ["actor" "to" "about"]
+                ["entity_kind" "referent_role"] 32)))
+
+(defn settle-read-plan!
+  [assignment Any
+   accepted-transition Any
+   settlement Any] ReadPlan
+  (let [checked-assignment String (require-text! "Assignment" assignment)
+        checked-transition String (require-text! "accepted ownership transition"
+                                                 accepted-transition)
+        checked-settlement String (require-text! "Settlement" settlement)]
+    (read-plan!
+     "settle" :subjects checked-assignment
+     [checked-assignment checked-transition checked-settlement]
+     (vec
+      (concat
+       ["entity_kind" "occurrence_kind" "about" "actor" "at" "assignee"]
+       ownership-predicates))
+     ["actor" "assignee" "about"]
+     ["entity_kind" "referent_role"] 80)))
+
+(defn show-read-plan! [referent Any] ReadPlan
+  (let [checked String (require-text! "tracked thing" referent)]
+    (read-plan!
+     "show" :subjects checked [checked]
+     ["entity_kind" "title" "tracked_by" "tracked_at" "referent_role"
+      "desired_outcome" "current_plan_revision"]
+     ["current_plan_revision"]
+     ["entity_kind" "occurrence_kind" "about" "actor" "at" "body"] 64)))
+
+(defn start-read-plan!
+  [referent Any
+   revision Any] ReadPlan
+  (let [checked-referent String (require-text! "tracked thing" referent)
+        checked-revision String (require-text! "exact Plan revision" revision)]
+    (read-plan!
+     "start" :subjects checked-referent
+     [checked-referent checked-revision]
+     ["entity_kind" "referent_role" "current_plan_revision"
+      "occurrence_kind" "about" "actor" "at" "body"]
+     ["tracked_by" "actor"]
+     ["entity_kind" "referent_role"] 32)))
+
+(defn history-read-plan! [referent Any] ReadPlan
+  (read-plan!
+   "history" :about referent []
+   (vec
+    (concat
+     ["entity_kind" "occurrence_kind" "about" "actor" "at"
+      "to" "body" "acknowledges" "request" "assignee"
+      "plan_revision" "signature"
+      "assignment" "accepted_transition" "reporting_actor_kind"
+      "accountable_parent" "accountable_parent_kind" "outcome" "summary"]
+     ownership-predicates))
+   [] [] 256))
+
+(defn inbox-read-plan! [actor Any] ReadPlan
+  (read-plan! "inbox" :inbox actor [] request-predicates
+              ["actor" "to" "about"]
+              ["entity_kind" "referent_role"] 256))
+
+(defn plan-action [plan PersistencePlan] String (:action plan))
+
+(defn publication-actions [plan PersistencePlan] (Vec StoreAction)
+  (:actions plan))
+
+(defn publication-options [plan PersistencePlan] (Map Keyword Int)
+  {:expected-version (:expected-store-version plan)})
+
+(def canonical-commit-fields Any #{:ok :changed? :results})
+(def canonical-action-fields Any #{:input-index :changed? :occurrence})
+
+(defn- exact-fields?
+  [value Any
+   expected Any] Bool
+  (and (map? value) (= expected (set (keys value)))))
+
+(defn- coordinate-version! [coordinate t/Triple] Int
+  (let [transaction Any (t/triple-t1 coordinate)]
+    (if (t/transaction-coordinate? transaction)
+      (let [value Any (t/triple-t3 transaction)]
+        (if (integer? value)
+          value
+          (fail "Store occurrence transaction version is malformed"
+                :north.work-occurrences/invalid-store-commit
+                {:occurrence coordinate})))
+      (fail "Store action result has no transaction coordinate"
+            :north.work-occurrences/invalid-store-commit
+            {:occurrence coordinate}))))
+
+(defn- coordinate-space! [coordinate t/Triple] String
+  (let [transaction Any (t/triple-t1 coordinate)]
+    (if (t/transaction-coordinate? transaction)
+      (let [value Any (t/triple-t1 transaction)]
+        (if (string? value)
+          value
+          (fail "Store occurrence space is malformed"
+                :north.work-occurrences/invalid-store-commit
+                {:occurrence coordinate})))
+      (fail "Store action result has no transaction coordinate"
+            :north.work-occurrences/invalid-store-commit
+            {:occurrence coordinate}))))
+
+(defn- decode-action-receipt!
+  [value Any
+   expected-index Int
+   expected-version Int
+   expected-space (U String Nil)] CanonicalActionReceipt
+  (when-not (exact-fields? value canonical-action-fields)
+    (fail "Store action result has a malformed field set"
+          :north.work-occurrences/invalid-store-commit
+          {:result value}))
+  (let [input-index Any (:input-index value)
+        changed Any (:changed? value)
+        occurrence Any (:occurrence value)]
+    (when-not (and (integer? input-index) (= expected-index input-index))
+      (fail "Store action results do not match plan order"
+            :north.work-occurrences/store-commit-mismatch
+            {:expected expected-index :actual input-index}))
+    (when-not (true? changed)
+      (fail "immutable occurrence assertion did not change canonical Store history"
+            :north.work-occurrences/store-commit-mismatch
+            {:input-index expected-index :changed changed}))
+    (when-not (t/occurrence-coordinate? occurrence)
+      (fail "Store action result has no canonical occurrence coordinate"
+            :north.work-occurrences/invalid-store-commit
+            {:input-index expected-index :occurrence occurrence}))
+    (let [coordinate t/Triple occurrence
+          ordinal Any (t/triple-t3 coordinate)
+          version Int (coordinate-version! coordinate)
+          space String (coordinate-space! coordinate)]
+      (when-not (= ordinal expected-index)
+        (fail "Store action occurrence ordinal does not match plan order"
+              :north.work-occurrences/store-commit-mismatch
+              {:expected expected-index :actual ordinal}))
+      (when-not (= version expected-version)
+        (fail "Store action occurrence version does not match the commit"
+              :north.work-occurrences/store-commit-mismatch
+              {:expected expected-version :actual version}))
+      (when (and (some? expected-space) (not= expected-space space))
+        (fail "Store action occurrences span multiple spaces"
+              :north.work-occurrences/store-commit-mismatch
+              {:expected expected-space :actual space}))
+      (->CanonicalActionReceipt input-index true coordinate))))
+
+(defn- decode-canonical-commit!
+  [plan PersistencePlan
+   value Any] CanonicalCommit
+  (when-not (exact-fields? value canonical-commit-fields)
+    (fail "canonical Store commit result has a malformed field set"
+          :north.work-occurrences/invalid-store-commit
+          {:result value}))
+  (let [store-version Any (:ok value)
+        changed Any (:changed? value)
+        results Any (:results value)
+        expected-version Int (inc (:expected-store-version plan))]
+    (when-not (and (integer? store-version) (= expected-version store-version))
+      (fail "Store commit version does not immediately follow the planned base"
+            :north.work-occurrences/store-commit-mismatch
+            {:expected expected-version :actual store-version}))
+    (when-not (true? changed)
+      (fail "canonical Store commit result does not prove a mutation"
+            :north.work-occurrences/store-commit-mismatch
+            {:changed changed}))
+    (when-not (and (vector? results)
+                   (= (count results) (count (:actions plan))))
+      (fail "Store commit action count does not match the occurrence plan"
+            :north.work-occurrences/store-commit-mismatch
+            {:expected (count (:actions plan))
+             :actual (if (vector? results) (count results) nil)}))
+    (let [decoded (Vec CanonicalActionReceipt) (loop [remaining Any results
+                                                      index Int 0
+                                                      known-space (U String Nil) (:expected-store-space plan)
+                                                      accepted (Vec CanonicalActionReceipt) []]
+                                                 (if (empty? remaining)
+              accepted
+              (let [receipt CanonicalActionReceipt (decode-action-receipt! (first remaining) index
+                                            store-version known-space)
+                    space String (coordinate-space! (:occurrence receipt))]
+                (recur (vec (rest remaining)) (inc index) space
+                       (conj accepted receipt)))))
+          space String (if (empty? decoded)
+            (fail "canonical Store commit has no action receipts"
+                  :north.work-occurrences/invalid-store-commit
+                  {:result value})
+            (coordinate-space! (:occurrence (first decoded))))]
+      (->CanonicalCommit space store-version decoded))))
+
+(def publication-option-fields Any #{:expected-version})
+
+(defn- validate-publication-options!
+  [plan PersistencePlan
+   options Any] Nil
+  (when-not (and (exact-fields? options publication-option-fields)
+                 (= (:expected-store-version plan)
+                    (:expected-version options)))
+    (fail "publication options do not match the planned Store snapshot"
+          :north.work-occurrences/read-commit-race
+          {:expected (publication-options plan) :actual options})))
+
+(defn- intent-action [intent ReceiptIntent] String
+  (match intent
+    [(TrackIntent _) "track"]
+    [(PlanIntent _ _) "plan"]
+    [(StartIntent _ _) "start"]
+    [(AssignIntent _ _) "assign"]
+    [(RequestIntent _ _) "request"]
+    [(AckIntent _ _) "ack"]
+    [(ResultIntent _ _ _ _) "result"]
+    [(OwnershipIntent _ _) "ownership"]
+    [(SettleIntent _ _ _ _) "settle"]))
+
+(defn- receipt-from-intent
+  [intent ReceiptIntent
+   store-version Int] SemanticReceipt
+  (match intent
+    [(TrackIntent referent)
+     (->TrackReceipt semantic-receipt-protocol semantic-receipt-version
+                     "track" store-version referent)]
+    [(PlanIntent referent revision)
+     (->PlanReceipt semantic-receipt-protocol semantic-receipt-version
+                    "plan" store-version referent revision)]
+    [(StartIntent referent occurrence)
+     (->StartReceipt semantic-receipt-protocol semantic-receipt-version
+                     "start" store-version referent occurrence)]
+    [(AssignIntent referent assignment)
+     (->AssignReceipt semantic-receipt-protocol semantic-receipt-version
+                      "assign" store-version referent assignment)]
+    [(RequestIntent request referent)
+     (if-let [about String referent]
+       (->RequestAboutReceipt
+        semantic-receipt-protocol semantic-receipt-version
+        "request" store-version request about)
+       (->RequestReceipt semantic-receipt-protocol semantic-receipt-version
+                         "request" store-version request))]
+    [(AckIntent request ack)
+     (->AckReceipt semantic-receipt-protocol semantic-receipt-version
+                   "ack" store-version request ack)]
+    [(ResultIntent request result outcome referent)
+     (if-let [about String referent]
+       (->ResultAboutReceipt
+        semantic-receipt-protocol semantic-receipt-version
+        "result" store-version request result outcome about)
+       (->ResultReceipt semantic-receipt-protocol semantic-receipt-version
+                        "result" store-version request result outcome))]
+    [(OwnershipIntent transition owner)
+     (->OwnershipReceipt semantic-receipt-protocol semantic-receipt-version
+                         "ownership" store-version transition owner)]
+    [(SettleIntent assignment accepted-transition settlement outcome)
+     (->SettlementReceipt
+      semantic-receipt-protocol semantic-receipt-version
+      "settle" store-version assignment accepted-transition settlement
+      outcome)]))
+
+(defn semantic-receipt!
+  [plan PersistencePlan
+   options Any
+   canonical-store-result Any] SemanticReceipt
+  (do
+    (validate-publication-options! plan options)
+    (when-not (= (:action plan) (intent-action (:receipt-intent plan)))
+      (fail "mutation plan action does not match its receipt identity"
+            :north.work-occurrences/invalid-mutation-plan
+            {:action (:action plan)}))
+    (let [commit CanonicalCommit (decode-canonical-commit! plan canonical-store-result)]
+      (receipt-from-intent (:receipt-intent plan)
+                           (:store-version commit)))))
+
+(defn- read-plan-snapshot!
+  [plan ReadPlan
+   snapshot CanonicalSnapshot] Nil
+  (when (> (count (:facts snapshot)) (:limit plan))
+    (fail "canonical read snapshot exceeds its bounded plan"
+          :north.work-occurrences/invalid-read-snapshot
+          {:action (:action plan)
+           :limit (:limit plan)
+           :actual (count (:facts snapshot))})))
+
+(defn- sorted-view-facts
+  [facts (Vec t/Triple)] (Vec ViewFact)
+  (mapv
+   (fn [fact t/Triple] ViewFact
+     (->ViewFact (t/triple-t1 fact)
+                 (t/triple-t2 fact)
+                 (t/triple-t3 fact)))
+   (vec
+    (sort-by
+     (fn [fact t/Triple] (Vec String) (fact-key fact))
+     facts))))
+
+(defn semantic-view!
+  [plan ReadPlan
+   snapshot CanonicalSnapshot] SemanticView
+  (do
+    (when-not (and (= "show" (:action plan))
+                   (= :subjects (:mode plan)))
+      (fail "semantic view requires a show read plan"
+            :north.work-occurrences/invalid-read-plan
+            {:action (:action plan) :mode (:mode plan)}))
+    (read-plan-snapshot! plan snapshot)
+    (let [referent String (:identity plan)
+          idx proj/ProjectionIndex (proj/index-triples (:facts snapshot))]
+      (when-not (referents/tracked-thing? idx referent)
+        (fail "semantic view subject is not a tracked thing"
+              :north.work-occurrences/invalid-read-snapshot
+              {:referent referent}))
+      (let [derived (Vec String) (vec
+             (concat
+              (if (referents/agent? idx referent) ["Agent"] [])
+              (vec
+               (concat
+                (if (referents/goal? idx referent) ["Goal"] [])
+                (vec
+                 (concat
+                  (if (referents/plan? idx referent) ["Plan"] [])
+                  (vec
+                   (concat
+                    (if (referents/project? idx referent) ["Project"] [])
+                    (if (referents/task? idx referent) ["Task"] [])))))))))]
+        (->SemanticView semantic-view-protocol semantic-receipt-version
+                        referent (sorted-view-facts (:facts snapshot))
+                        derived)))))
+
+(defn semantic-history!
+  [plan ReadPlan
+   snapshot CanonicalSnapshot] SemanticHistory
+  (do
+    (when-not (and (= "history" (:action plan))
+                   (= :about (:mode plan)))
+      (fail "semantic history requires a history read plan"
+            :north.work-occurrences/invalid-read-plan
+            {:action (:action plan) :mode (:mode plan)}))
+    (read-plan-snapshot! plan snapshot)
+    (let [referent String (:identity plan)
+          occurrences (Vec String) (vec
+           (sort
+            (distinct
+             (mapv
+              (fn [fact t/Triple] String (t/triple-t1 fact))
+              (filterv
+               (fn [fact t/Triple] Bool
+                 (and (= "about" (t/triple-t2 fact))
+                      (= referent (t/triple-t3 fact))))
+               (:facts snapshot))))))]
+      (->SemanticHistory semantic-history-protocol semantic-receipt-version
+                         referent occurrences))))
+
+(defn semantic-inbox!
+  [plan ReadPlan
+   snapshot CanonicalSnapshot] SemanticInbox
+  (do
+    (when-not (and (= "inbox" (:action plan))
+                   (= :inbox (:mode plan)))
+      (fail "semantic inbox requires an inbox read plan"
+            :north.work-occurrences/invalid-read-plan
+            {:action (:action plan) :mode (:mode plan)}))
+    (read-plan-snapshot! plan snapshot)
+    (let [actor String (:identity plan)
+          candidates (Vec String) (vec
+           (sort
+            (distinct
+             (mapv
+              (fn [fact t/Triple] String (t/triple-t1 fact))
+              (filterv
+               (fn [fact t/Triple] Bool
+                 (and (= "to" (t/triple-t2 fact))
+                      (= actor (t/triple-t3 fact))))
+               (:facts snapshot))))))
+          requests (Vec String) (mapv
+           (fn [request String] String
+             (:request (decode-request-snapshot! snapshot request)))
+           candidates)]
+      (->SemanticInbox semantic-inbox-protocol semantic-receipt-version
+                       actor requests))))

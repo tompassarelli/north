@@ -2,6 +2,9 @@
 
 (ns north.bridge.model)
 
+;; Execution sessions remain Bridge runtime state. Product catalog rows are
+;; separate tracked identities read from one canonical Store snapshot; a live
+;; session never becomes a semantic Agent merely by appearing in the roster.
 (js/export
  (defrecord Agent
    [id String
@@ -18,6 +21,8 @@
     goal String
     state String]))
 
+;; Retained as the execution-view row used by transcript and launch mechanics.
+;; Tracked-thing product views use TrackedThing below.
 (js/export
  (defrecord WorkItem
    [id String
@@ -27,14 +32,30 @@
     driver String
     dependencies (Vec String)]))
 
+(js/export
+ (defrecord TrackedThing
+   [id String
+    title String
+    desired-outcome (U String Nil)
+    agent Bool
+    plan Bool
+    project Bool
+    task Bool
+    assignee (U String Nil)
+    assignee-title (U String Nil)
+    status (U String Nil)]))
+
 (defrecord BridgeModel
   [agents (Vec Agent)
    list (Vec WorkItem)
    board (Vec WorkItem)
+   tracked-things (Vec TrackedThing)
+   store-space String
+   store-version Int
    layout String
    active-view-id String
    selected-agent String
-   selected-thread String
+   selected-tracked-thing String
    filter-text String
    notice String])
 
@@ -43,23 +64,30 @@
    [agents (Vec Agent)
     list (Vec WorkItem)
     board (Vec WorkItem)
+    tracked-things (Vec TrackedThing)
+    semantic-agents (Vec TrackedThing)
+    goals (Vec TrackedThing)
+    all (Vec TrackedThing)
+    store-space String
+    store-version Int
     layout String
     active-view-id String
     selected-agent String
-    selected-thread String
+    selected-tracked-thing String
     notice String]))
 
+(def TOP-LEVEL-VIEWS (Vec String) ["agents" "goals" "all"])
+
 (defn canonical-view [view-id String] String
-  (cond
-    (or (identical? view-id "board") (identical? view-id "kanban")) "board"
-    (or (identical? view-id "graph") (identical? view-id "dag")) "graph"
-    :else "list"))
+  (if (.includes TOP-LEVEL-VIEWS view-id) view-id "agents"))
 
 (js/export
  (defn make-model [view-id String] BridgeModel
   (let [view String (canonical-view view-id)]
-    (->BridgeModel [] [] [] "vertical" view "" "" "" ""))))
+    (->BridgeModel [] [] [] [] "" 0 "vertical" view "" "" "" ""))))
 
+;; Execution-focused tests and runtime events still replace their own
+;; projection without changing the canonical semantic catalog.
 (js/export
  (defn replace-projection
    [model BridgeModel
@@ -72,6 +100,17 @@
     [:board board-items])))
 
 (js/export
+ (defn replace-catalog
+   [model BridgeModel
+    tracked-things (Vec TrackedThing)
+    store-space String
+    store-version Int] BridgeModel
+   (with model
+    [:tracked-things tracked-things]
+    [:store-space store-space]
+    [:store-version store-version])))
+
+(js/export
  (defn upsert-agent
    [model BridgeModel
     agent Agent] BridgeModel
@@ -80,9 +119,8 @@
                           (not (identical? (agent-id existing) (agent-id agent)))))]
     (with model [:agents (.concat agents agent)]))))
 
-;; The roster can lose a member. A session that has been replaced is not a row
-;; with a sad status — it is not on the roster at all, and only the caller that
-;; replaced it knows that.
+;; A session replaced by the execution host is absent rather than retained as
+;; a stale roster row.
 (js/export
  (defn remove-agent
    [model BridgeModel
@@ -113,20 +151,17 @@
     agent-id String] BridgeModel
    (with model
     [:selected-agent agent-id]
-    ;; Selection is already visible in the highlighted roster row and controls
-    ;; where the composer sends. Repeating an internal execution UUID in the
-    ;; status line leaks routing machinery without telling the operator more.
     [:notice ""])))
 
 (js/export
- (defn select-thread
+ (defn select-tracked-thing
    [model BridgeModel
-    thread-id String] BridgeModel
+    tracked-thing-id String] BridgeModel
    (with model
-    [:selected-thread thread-id]
-    [:notice (if (identical? thread-id "")
-               "no thread selected"
-               (str "selected @" thread-id))])))
+    [:selected-tracked-thing tracked-thing-id]
+    [:notice (if (identical? tracked-thing-id "")
+               "no tracked thing selected"
+               (str "selected " tracked-thing-id))])))
 
 (js/export
  (defn set-filter
@@ -142,30 +177,65 @@
 (defn visible-work
   [model BridgeModel
    source (Vec WorkItem)] (Vec WorkItem)
-  (let [agent-id String (bridgemodel-selected-agent model)
-        needle String (bridgemodel-filter-text model)]
+  (let [needle String (bridgemodel-filter-text model)]
     (.filter source
              (fn [item WorkItem] Bool
-               (and (or (identical? agent-id "")
-                        (identical? (workitem-driver item) agent-id))
-                    (or (identical? needle "")
-                        (.includes
-                         (.toLowerCase
-                          (str (workitem-id item) " "
-                               (workitem-title item) " "
-                               (workitem-body item) " "
-                               (workitem-condition item) " "
-                               (workitem-driver item)))
-                         needle)))))))
+               (or (identical? needle "")
+                   (.includes
+                    (.toLowerCase
+                     (str (workitem-id item) " "
+                          (workitem-title item) " "
+                          (workitem-body item) " "
+                          (workitem-condition item) " "
+                          (workitem-driver item)))
+                    needle))))))
+
+(defn optional-search-text [value (U String Nil)] String
+  (if value value ""))
+
+(defn tracked-thing-search-text [item TrackedThing] String
+  (str (trackedthing-id item) " "
+       (trackedthing-title item) " "
+       (optional-search-text (trackedthing-desired-outcome item)) " "
+       (optional-search-text (trackedthing-assignee item)) " "
+       (optional-search-text (trackedthing-assignee-title item)) " "
+       (optional-search-text (trackedthing-status item))))
+
+(defn visible-tracked-things
+  [model BridgeModel
+   source (Vec TrackedThing)] (Vec TrackedThing)
+  (let [needle String (bridgemodel-filter-text model)]
+    (.filter source
+             (fn [item TrackedThing] Bool
+               (or (identical? needle "")
+                   (.includes (.toLowerCase (tracked-thing-search-text item))
+                              needle))))))
+
+(defn semantic-agent? [item TrackedThing] Bool
+  (trackedthing-agent item))
+
+(defn semantic-goal? [item TrackedThing] Bool
+  (let [outcome (U String Nil) (trackedthing-desired-outcome item)]
+    (if outcome true false)))
 
 (js/export
  (defn snapshot [model BridgeModel] BridgeSnapshot
-  (->BridgeSnapshot
-   (bridgemodel-agents model)
-   (visible-work model (bridgemodel-list model))
-   (visible-work model (bridgemodel-board model))
-   (bridgemodel-layout model)
-   (bridgemodel-active-view-id model)
-   (bridgemodel-selected-agent model)
-   (bridgemodel-selected-thread model)
-   (bridgemodel-notice model))))
+  (let [tracked-things (Vec TrackedThing) (bridgemodel-tracked-things model)
+        visible (Vec TrackedThing) (visible-tracked-things model tracked-things)
+        semantic-agents (Vec TrackedThing) (.filter visible semantic-agent?)
+        goals (Vec TrackedThing) (.filter visible semantic-goal?)]
+    (->BridgeSnapshot
+     (bridgemodel-agents model)
+     (visible-work model (bridgemodel-list model))
+     (visible-work model (bridgemodel-board model))
+     tracked-things
+     semantic-agents
+     goals
+     visible
+     (bridgemodel-store-space model)
+     (bridgemodel-store-version model)
+     (bridgemodel-layout model)
+     (bridgemodel-active-view-id model)
+     (bridgemodel-selected-agent model)
+     (bridgemodel-selected-tracked-thing model)
+     (bridgemodel-notice model)))))

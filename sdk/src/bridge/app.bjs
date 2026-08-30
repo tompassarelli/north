@@ -7,23 +7,36 @@
                                      red stripAnsiSequences TextRenderable white]]
             [|@opentui/keymap/addons| :refer [registerEmacsBindings registerEscapeClearsPendingSequence]]
             [|@opentui/keymap/opentui| :refer [createDefaultOpenTuiKeymap]]
-            [north.bridge.model :refer [Agent BridgeSnapshot WorkItem ->Agent ->WorkItem
+            [north.bridge.model :refer [Agent BridgeSnapshot TrackedThing WorkItem
+                                        ->Agent ->WorkItem
                                         agent-effort agent-goal agent-id agent-model
                                         agent-model-display agent-name
                                         agent-orchestration-provenance agent-provider
                                         agent-provider-label agent-provider-target
                                         agent-state agent-status agent-task
                                         bridgesnapshot-active-view-id bridgesnapshot-agents
+                                        bridgesnapshot-all bridgesnapshot-goals
                                         bridgesnapshot-board
                                         bridgesnapshot-list bridgesnapshot-notice
+                                        bridgesnapshot-semantic-agents
                                         bridgesnapshot-selected-agent
-                                        bridgesnapshot-selected-thread
+                                        bridgesnapshot-selected-tracked-thing
                                         focus-view make-model
                                         remove-agent
-                                        replace-projection select-agent select-thread
+                                        replace-catalog replace-projection select-agent
+                                        select-tracked-thing
                                         set-filter snapshot upsert-agent
+                                        trackedthing-agent trackedthing-assignee
+                                        trackedthing-assignee-title
+                                        trackedthing-desired-outcome trackedthing-id
+                                        trackedthing-plan trackedthing-project
+                                        trackedthing-status trackedthing-task
+                                        trackedthing-title
                                         workitem-body workitem-condition workitem-dependencies
-                                        workitem-driver workitem-id workitem-title]]))
+                                        workitem-driver workitem-id workitem-title]]
+            [north.bridge.referent-actions
+             :refer [referent-action-request! run-referent-action!
+                     semantic-action-result-text!]]))
 
 (defrecord ResponseValue [text (Fn [] (Promise String))])
 
@@ -79,7 +92,7 @@
 (defrecord WorkView
   [id String
    title String
-   items (Vec WorkItem)])
+   items Any])
 
 (defrecord ListSection
   [id String
@@ -90,10 +103,6 @@
    condition String
    index Int
    count Int])
-
-(defrecord WorkSelection
-  [view String
-   index Int])
 
 (defrecord BoardLane
   [id String
@@ -292,16 +301,15 @@
 
 (def AGENT-COMMANDS (Vec SlashCommand)
   [(->SlashCommand "/launch" "start another Codex worker" true "" false)
+   (->SlashCommand "/delegate" "invoke North delegation" true "" false)
    (->SlashCommand "/provider" "set next launch: openai or auto" true "" false)
    (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
    (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
    (->SlashCommand "/interrupt" "interrupt the active agent turn" false "" false)
    (->SlashCommand "/transcript" "show selected or all execution transcripts" true "" false)
-   ;; Capturing a thread is not the Threads view's privilege: it shells the same
-   ;; `north capture` from wherever you are and needs nothing from the view.
-   (->SlashCommand "/capture" "capture a new thread" true "" false)
-   (->SlashCommand "/threads" "show Threads (or `popout`)" true "" false)
-   (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
+   (->SlashCommand "/goals" "show Goals" false "" false)
+   (->SlashCommand "/all" "show all tracked things" false "" false)
+   (->SlashCommand "/refresh" "refresh tracked things" false "" false)
    (->SlashCommand "/restart" "retire the control daemon now" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
@@ -316,22 +324,20 @@
    (->SlashCommand "/q" "quit Northbridge" false "" false)
    (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
-(def THREAD-COMMANDS (Vec SlashCommand)
-  [(->SlashCommand "/capture" "capture a new thread" true "" false)
-   (->SlashCommand "/provider" "set next launch: openai or auto" true "" false)
-   (->SlashCommand "/model" "set next launch: tier, exact model, or auto" true "" false)
-   (->SlashCommand "/effort" "set next launch: low, medium, high, xhigh, max, or auto" true "" false)
-   (->SlashCommand "/filter" "filter visible threads" true "" false)
-   (->SlashCommand "/assign" "reassign the selected thread" true "" false)
-   (->SlashCommand "/outcome" "record a selected thread outcome" true "" false)
-   ;; One command per view, not a verb with an argument. `dag` and `kanban`
-   ;; survive as data inside canonical-work-view — they are what other surfaces
-   ;; call these views, never a second way to type this one.
-   (->SlashCommand "/list" "threads as a list" false "" false)
-   (->SlashCommand "/board" "threads as a board" false "" false)
-   (->SlashCommand "/graph" "threads as a graph" false "" false)
-   (->SlashCommand "/agents" "back to Agents" false "" false)
-   (->SlashCommand "/refresh" "refresh agents and threads" false "" false)
+(def GOAL-COMMANDS (Vec SlashCommand)
+  [(->SlashCommand "/track" "create a tracked thing" true "" false)
+   (->SlashCommand "/plan" "record an exact Plan revision" true "" false)
+   (->SlashCommand "/start" "authorize an exact Plan revision" true "" false)
+   (->SlashCommand "/assign" "record an immutable Assignment" true "" false)
+   (->SlashCommand "/request" "send an immutable Request" true "" false)
+   (->SlashCommand "/ack" "record receipt of one exact Request" true "" false)
+   (->SlashCommand "/ownership" "record a work-ownership-v1 transition" true "" false)
+   (->SlashCommand "/settle" "record a Settlement" true "" false)
+   (->SlashCommand "/delegate" "invoke North delegation" true "" false)
+   (->SlashCommand "/filter" "filter Goals" true "" false)
+   (->SlashCommand "/agents" "show Agents" false "" false)
+   (->SlashCommand "/all" "show all tracked things" false "" false)
+   (->SlashCommand "/refresh" "refresh tracked things" false "" false)
    (->SlashCommand "/restart" "retire the control daemon now" false "" false)
    (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
    (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
@@ -344,7 +350,29 @@
    (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
    (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
    (->SlashCommand "/q" "quit Northbridge" false "" false)
-   (->SlashCommand "/help" "show thread commands" false "" false)])
+   (->SlashCommand "/help" "show Northbridge controls" false "" false)])
+
+(def ALL-COMMANDS (Vec SlashCommand)
+  [(->SlashCommand "/filter" "search all tracked things" true "" false)
+   (->SlashCommand "/show" "show one tracked thing" true "" false)
+   (->SlashCommand "/history" "show occurrence history for one tracked thing" true "" false)
+   (->SlashCommand "/inbox" "show durable Requests for one recipient" true "" false)
+   (->SlashCommand "/agents" "show Agents" false "" false)
+   (->SlashCommand "/goals" "show Goals" false "" false)
+   (->SlashCommand "/refresh" "refresh tracked things" false "" false)
+   (->SlashCommand "/restart" "retire the control daemon now" false "" false)
+   (->SlashCommand "/popout" "open the current view in another terminal" true "" false)
+   (->SlashCommand "/glyph" "set the shared prompt glyph" true "" false)
+   (->SlashCommand "/emoji" "insert a curated emoji or glyph" true "" false)
+   (->SlashCommand "/sound" "configure completion sounds" true "" false)
+   (->SlashCommand "/mute" "turn completion sounds off" false "" false)
+   (->SlashCommand "/config" "toggle the switchboard" false "" false)
+   (->SlashCommand "/hooks" "switchboard: hooks only" false "" false)
+   (->SlashCommand "/skills" "switchboard: skills only" false "" false)
+   (->SlashCommand "/mcp" "share MCP: add <name> <url|-- command> | remove <name> | list" true "" false)
+   (->SlashCommand "/modules" "switchboard: recursive modules only" false "" false)
+   (->SlashCommand "/q" "quit Northbridge" false "" false)
+   (->SlashCommand "/help" "show Northbridge controls" false "" false)])
 
 (defn text [value Any] String
   (if (identical? (js/typeof value) "string") value ""))
@@ -665,9 +693,17 @@
 (js/export
  (defn boot-view [] String BOOT-VIEW))
 
+(def TOP-LEVEL-VIEWS (Vec String) ["agents" "goals" "all"])
+
 (js/export
- (defn threads-view? [view Any] Bool
-  (identical? (text view) "threads")))
+ (defn top-level-view? [view Any] Bool
+  (let [candidate String (text view)]
+    (.includes TOP-LEVEL-VIEWS candidate))))
+
+(defn tracked-thing-view? [view Any] Bool
+  (let [candidate String (text view)]
+    (or (identical? candidate "goals")
+        (identical? candidate "all"))))
 
 ;; Pure: the escape ladder. One rung per invocation, innermost first, so
 ;; nothing is ever closed that you could not see was open. Escape never quits;
@@ -682,14 +718,14 @@
     filtering? Bool
     detail-open? Bool
     strip-focused? Bool
-    threads? Bool
+    tracked-things? Bool
     working? Bool] String
    (cond
     palette-open? "close-palette"
     filtering? "clear-filter"
     detail-open? "close-detail"
     strip-focused? "focus-composer"
-    threads? "show-agents"
+    tracked-things? "show-agents"
     working? "cancel-turn"
     :else "")))
 
@@ -712,10 +748,13 @@
     strip-focused? "strip"
     :else "composer")))
 
-;; Pure: the view a swap lands on. Two views, so the swap is the other one.
+;; Pure: cycle through the complete public route set.
 (js/export
  (defn tab-swap-view [view String] String
-  (if (threads-view? view) "agents" "threads")))
+  (cond
+   (identical? view "agents") "goals"
+   (identical? view "goals") "all"
+   :else "agents")))
 
 ;; Every match, always. What fits on screen is a rendering question, answered
 ;; once in render-minibuffer! — never by dropping options on the floor here.
@@ -750,7 +789,10 @@
    (let [query Any (.toLowerCase (.trim input))
          parsed ParsedCommand (command input)
          name String (parsedcommand-name parsed)
-         commands (Vec SlashCommand) (if (threads-view? view) THREAD-COMMANDS AGENT-COMMANDS)]
+         commands (Vec SlashCommand) (cond
+                                       (identical? view "goals") GOAL-COMMANDS
+                                       (identical? view "all") ALL-COMMANDS
+                                       :else AGENT-COMMANDS)]
      (cond
       (not (.startsWith query "/")) []
       (identical? name "emoji") (emoji-options (parsedcommand-rest parsed))
@@ -1590,7 +1632,7 @@
     (await (run-command [(north-bin) "bridge" "restart"]))
     (forget-control-session! runtime)
     (if (identical? (launch-thread-id runtime "supervisor") "")
-      (publish-line! runtime "control daemon replaced; select a thread before /launch")
+      (publish-line! runtime "control daemon replaced; select a tracked thing before /launch")
       (do
         (publish-line! runtime "control daemon replaced; session restored")
         (await (launch-agent! runtime SUPERVISOR-BOOT-PROMPT "supervisor"))))
@@ -1681,20 +1723,10 @@
           (identical? name "restart")
           (do (restart-daemon! runtime) true)
 
-          ;; The view switches live here rather than in either submit path,
-          ;; because both submit paths run this first: one branch and /list
-          ;; means the same thing typed from either view.
-          (identical? name "agents")
-          (do (show-view! runtime ui "agents") true)
-
-          (identical? name "threads")
-          (do (if (identical? (.toLowerCase (.trim rest)) "popout")
-                (popout! runtime (text (.-activeView runtime)))
-                (show-view! runtime ui "threads"))
-              true)
-
-          (thread-view-command? name)
-          (do (show-thread-view! runtime ui name) true)
+          ;; Public routes are a closed set. A route command never changes the
+          ;; meaning of a selected identity or activates a hidden sub-view.
+          (.includes TOP-LEVEL-VIEWS name)
+          (do (show-view! runtime ui name) true)
 
           ;; One /help, both views, and it lands in the docked panel where the
           ;; escape ladder can close it.
@@ -1822,6 +1854,16 @@
       (agent-id (nth agents (Math/max 0 (Math/min selected (- total 1)))))
       ""))))
 
+(defn selected-semantic-agent-id
+  [state BridgeSnapshot
+   selected Int] String
+  (let [agents Any (bridgesnapshot-semantic-agents state)
+        total Int (.-length agents)]
+    (if (> total 0)
+      (trackedthing-id
+       (nth agents (Math/max 0 (Math/min selected (- total 1)))))
+      "")))
+
 (js/export
  (defn reconcile-agent-selection!
    [runtime Any
@@ -1844,96 +1886,48 @@
 
 (js/export
  (defn ^:async refresh! [runtime Any] (Promise Any)
-  (let [payloads Any (await
-         (.all Promise
-          [(.catch (run-json [(north-bin) "agents" "--json"])
-                   (fn [_ Any] Any nil))
-           (.catch (run-json [(north-bin) "json" "board" "--all"])
-                   (fn [_ Any] Any nil))
-           (.catch (run-json [(north-bin) "json" "done"])
-                   (fn [_ Any] Any nil))]))
-        agent-payload Any (nth payloads 0)
-        board Any (nth payloads 1)
-        done Any (nth payloads 2)
+  (let [request Any (referent-action-request! "catalog" [])
+        catalog Any (await
+                     (run-referent-action!
+                      request
+                      {:northExecutable (north-bin)
+                       :runCommand run-command}))
         state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-        current-agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
-        remote-agents (Vec Agent) (if agent-payload (normalize-agents agent-payload) [])
-        bridge-agents Any (.map
-         (.filter current-agents
-                  (fn [agent Agent] Bool
-                    (.has (.-bridgeExecutions runtime) (agent-id agent))))
-         (fn [agent Agent] Agent
-           (let [remote Any (.find remote-agents
-                               (fn [candidate Agent] Bool
-                                 (identical? (agent-id candidate) (agent-id agent))))]
-             (if remote (agent-with-route agent remote) agent))))
-        distinct-remote Any (.filter remote-agents
-                                 (fn [agent Agent] Bool
-                                   (not (.has (.-bridgeExecutions runtime) (agent-id agent)))))
-        agents Any (if agent-payload (.concat bridge-agents distinct-remote) current-agents)
-        open-rows Any (if (Array/isArray board) board [])
-        done-rows Any (if (Array/isArray done) done [])
-        ids Any (.concat (board-ids open-rows) (board-ids done-rows))
-        facts Any (if (> (.-length ids) 0)
-                (let [request (Promise Any) (.catch (run-json [(north-bin) "json" "show-many" (.join ids ",")])
-                              (fn [_ Any] Any []))]
-                  (await request))
-                [])
-        work (Vec WorkItem) (if (Array/isArray board)
-               (normalize-work open-rows facts)
-               (bridgesnapshot-list state))
-        prior-terminal Any (.filter (bridgesnapshot-board state)
-                                (fn [item WorkItem] Bool
-                                  (terminal-condition? (workitem-condition item))))
-        terminal-work Any (if (Array/isArray done)
-                        (normalize-work done-rows facts)
-                        prior-terminal)
-        list-work Any (.concat work terminal-work)
-        kanban (Vec WorkItem) (ordered-board-items work terminal-work)
-        next-model north.bridge.model/BridgeModel (replace-projection (.-model runtime) agents list-work kanban)
-        prior-agent-id String (selected-agent-id state (.-agentIndex runtime))
-        selected-id String (bridgesnapshot-selected-thread state)
+        selected-id String (bridgesnapshot-selected-tracked-thing state)
+        next-model north.bridge.model/BridgeModel (replace-catalog (.-model runtime)
+                         (.-trackedThings catalog)
+                         (.-storeSpace catalog)
+                         (.-storeVersion catalog))
         next-state north.bridge.model/BridgeSnapshot (snapshot next-model)
-        next-view WorkView (selected-view next-state (.-activeView runtime))
-        next-items (Vec WorkItem) (workview-items next-view)
-        next-index Any (.findIndex next-items
-                               (fn [item WorkItem] Bool
-                                 (identical? (workitem-id item) selected-id)))]
+        view String (text (.-view runtime))
+        next-items Any (cond
+                         (identical? view "agents")
+                         (bridgesnapshot-semantic-agents next-state)
+                         (identical? view "goals")
+                         (bridgesnapshot-goals next-state)
+                         :else
+                         (bridgesnapshot-all next-state))
+        next-index Int (.findIndex next-items
+                         (fn [item TrackedThing] Bool
+                           (identical? (trackedthing-id item) selected-id)))]
     (set! (.-model runtime) next-model)
-    (reconcile-agent-selection! runtime prior-agent-id)
-    (when (>= next-index 0)
-      (set! (.-workIndex runtime) next-index)
-      (when (identical? (workview-id next-view) "list")
-        (.delete (.-collapsedListConditions runtime)
-                 (list-section-id (workitem-condition (nth next-items next-index))))))
+    (set! (.-workIndex runtime) (if (>= next-index 0) next-index 0))
     (.render runtime))))
 
-(defn canonical-work-view [view-id String] String
-  (cond
-    (or (identical? view-id "graph") (identical? view-id "dag")) "graph"
-    (or (identical? view-id "board") (identical? view-id "kanban")) "board"
-    :else "list"))
-
-;; Pure: is this slash command one of the threads view's view switches? The
-;; command *is* the view — there is no verb to remember and no argument to get
-;; wrong, and `dag`/`kanban` are not commands at all.
-(js/export
- (defn thread-view-command? [name String] Bool
-  (or (identical? name "list")
-      (identical? name "board")
-      (identical? name "graph"))))
+(defn canonical-top-level-view [view-id String] String
+  (if (top-level-view? view-id) view-id BOOT-VIEW))
 
 (js/export
  (defn view-list [state BridgeSnapshot] (Vec WorkView)
-  [(->WorkView "list" "List" (bridgesnapshot-list state))
-   (->WorkView "board" "Board" (bridgesnapshot-board state))
-   (->WorkView "graph" "Graph" (bridgesnapshot-list state))]))
+  [(->WorkView "agents" "Agents" (bridgesnapshot-semantic-agents state))
+   (->WorkView "goals" "Goals" (bridgesnapshot-goals state))
+   (->WorkView "all" "All" (bridgesnapshot-all state))]))
 
 (defn selected-view
   [state BridgeSnapshot
    view-id String] WorkView
   (let [views (Vec WorkView) (view-list state)
-        canonical String (canonical-work-view view-id)
+        canonical String (canonical-top-level-view view-id)
         selected Any (.find views
                         (fn [view WorkView] Bool
                           (identical? (workview-id view) canonical)))]
@@ -2193,9 +2187,9 @@
  (defn apply-view-visibility!
    [runtime Any
     ui Any] Any
-   (let [threads? Bool (threads-view? (.-view runtime))]
-    (set! (.-visible (.-agentsPane ui)) (not threads?))
-    (set! (.-visible (.-workPane ui)) threads?))))
+   (let [agents? Bool (identical? (text (.-view runtime)) "agents")]
+    (set! (.-visible (.-agentsPane ui)) agents?)
+    (set! (.-visible (.-workPane ui)) (not agents?)))))
 
 ;; Every view is full width now, so they all measure the same.
 (defn available-view-width [] Int
@@ -3304,8 +3298,8 @@
 (def HELP-ROWS (Vec HelpRow)
   ;; One key, two meanings, decided by who holds the keyboard — so the row says
   ;; both rather than naming one and leaving the other to be discovered.
-  [(->HelpRow "Tab" "swap Agents/Threads")
-   (->HelpRow "←/→" "switch thread view")
+  [(->HelpRow "Tab" "cycle Agents / Goals / All")
+   (->HelpRow "←/→" "switch product route")
    (->HelpRow "Ctrl-J / ↓" "into the agent strip, esc back out")
    (->HelpRow "Esc /close /esc" "back or dismiss; cancels a turn at root")
    (->HelpRow "Ctrl-C /interrupt" "cancel the turn; the message comes back")
@@ -3413,34 +3407,13 @@
    state BridgeSnapshot] Any
   (new StyledText [(brightBlack (status-notice runtime state))]))
 
-;; ---------------------------------------------------------------------------
-;; The view bar. One row directly under the composer, two views: `Agents |
-;; Threads`, and a tail past `> ` that belongs to whichever view is showing.
-;; Threads spends it on that view's own tabs — `Agents | Threads > List Board
-;; Graph`. Agents has no sub-views, so it spends it on the session identity —
-;; `Agents | Threads > claude-fable-5 xhigh · ~ · main`. That identity used to
-;; own a line of its own under the composer; it is chrome about the session, so
-;; it lives with the rest of the chrome. The active thing is green, everything
-;; else is faded, and every label is clickable. The CLI verb is `threads`; the
-;; view that shows them says the same word.
-;; ---------------------------------------------------------------------------
-
+;; The view bar is the product vocabulary boundary. These three labels are the
+;; complete route set; the tail reports what the active route contains.
 (def AGENTS-TAB-LABEL String "Agents")
-(def THREADS-TAB-LABEL String "Threads")
+(def GOALS-TAB-LABEL String "Goals")
+(def ALL-TAB-LABEL String "All")
 (def VIEW-TAB-SEPARATOR String " | ")
-(def SUBVIEW-TAB-SEPARATOR String " > ")
-
-(def THREADS-TAB-START Int
-  (let [agents-label-width Int (.-length AGENTS-TAB-LABEL)
-        view-separator-width Int (.-length VIEW-TAB-SEPARATOR)]
-    (+ agents-label-width view-separator-width)))
-
-(def SUBVIEW-TAB-ORIGIN Int
-  (let [threads-label-width Int (.-length THREADS-TAB-LABEL)
-        subview-separator-width Int (.-length SUBVIEW-TAB-SEPARATOR)]
-    (+ THREADS-TAB-START threads-label-width subview-separator-width)))
-
-(def SUBVIEW-TAB-GAP Int 2)
+(def VIEW-TAIL-SEPARATOR String " > ")
 
 ;; The Agents tail: who you are talking to and from where. Chunks, not a
 ;; StyledText, so the bar can splice them in after its own labels.
@@ -3462,34 +3435,115 @@
  (defn render-view-tabs!
    [view Any
     state BridgeSnapshot
-    view-id String
+    _view-id String
     session Any] Any
    (let [chunks (Vec Any) []
-         threads? Bool (threads-view? view)
-         views (Vec WorkView) (view-list state)]
-     (push-chunk! chunks ((if threads? brightBlack brightGreen) AGENTS-TAB-LABEL))
+         active String (canonical-top-level-view (text view))]
+     (push-chunk! chunks
+                  ((if (identical? active "agents") brightGreen brightBlack)
+                   AGENTS-TAB-LABEL))
     (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
-    (push-chunk! chunks ((if threads? brightGreen brightBlack) THREADS-TAB-LABEL))
-    (push-chunk! chunks (brightBlack SUBVIEW-TAB-SEPARATOR))
-    (if threads?
-      (do
-        (.forEach
-         views
-         (fn
-           [view WorkView
-            index Int] Any
-           (let [selected? Bool (identical? (workview-id view) view-id)
-                 title String (workview-title view)]
-             (push-chunk! chunks
-                          ((if selected? brightGreen brightBlack)
-                           (str (if selected? "[" " ") title (if selected? "]" " "))))
-             (when (< index (- (.-length views) 1))
-               (push-chunk! chunks (white "  "))))))
-        (push-chunk! chunks (brightBlack "  ←/→ switch")))
-      (push-session-identity! chunks session))
-    (when (and (not threads?) (aggregate-transcript? session))
+    (push-chunk! chunks
+                 ((if (identical? active "goals") brightGreen brightBlack)
+                  GOALS-TAB-LABEL))
+    (push-chunk! chunks (brightBlack VIEW-TAB-SEPARATOR))
+    (push-chunk! chunks
+                 ((if (identical? active "all") brightGreen brightBlack)
+                  ALL-TAB-LABEL))
+    (push-chunk! chunks (brightBlack VIEW-TAIL-SEPARATOR))
+    (cond
+     (identical? active "agents") (push-session-identity! chunks session)
+     (identical? active "goals")
+     (push-chunk! chunks (brightYellow "desired outcomes"))
+     :else
+     (push-chunk! chunks (brightYellow "all tracked things")))
+    (when (and (identical? active "agents") (aggregate-transcript? session))
       (push-chunk! chunks (brightYellow " · all transcripts")))
     (new StyledText chunks))))
+
+(defn tracked-thing-tags [item TrackedThing] (Vec String)
+  (let [tags (Vec String) []]
+    (when (trackedthing-agent item) (.push tags "Agent"))
+    (when (trackedthing-desired-outcome item) (.push tags "Goal"))
+    (when (trackedthing-plan item) (.push tags "Plan"))
+    (when (trackedthing-project item) (.push tags "Project"))
+    (when (trackedthing-task item) (.push tags "Task"))
+    (when (identical? (.-length tags) 0) (.push tags "Tracked"))
+    tags))
+
+(defn selection-prefix [selected? Bool] String
+  (if selected? "› " "  "))
+
+(defn optional-clean-text [value (U String Nil)] String
+  (if value (clean-text value) ""))
+
+(defn semantic-agent-row
+  [item TrackedThing
+   selected? Bool] String
+  (let [status String (optional-clean-text (trackedthing-status item))]
+    (str (selection-prefix selected?)
+         (clean-text (trackedthing-title item))
+         (if (identical? status "") "" (str " (" status ")")))))
+
+(defn semantic-goal-row
+  [item TrackedThing
+   selected? Bool] String
+  (let [assignee String (optional-clean-text (trackedthing-assignee-title item))
+        outcome String (optional-clean-text (trackedthing-desired-outcome item))]
+    (str (selection-prefix selected?)
+         (if (identical? assignee "")
+           "[unassigned]"
+           (str "[assigned: " assignee "]"))
+         " " (clean-text (trackedthing-title item))
+         " — " outcome)))
+
+(defn semantic-all-row
+  [item TrackedThing
+   selected? Bool] String
+  (let [tags String (.join (tracked-thing-tags item) " · ")
+        outcome String (optional-clean-text (trackedthing-desired-outcome item))
+        assignee String (optional-clean-text (trackedthing-assignee-title item))]
+    (str (selection-prefix selected?)
+         "[" tags "] " (clean-text (trackedthing-title item))
+         (if (identical? outcome "") "" (str " — " outcome))
+         (cond
+          (not (identical? assignee "")) (str " · assigned to " assignee)
+          (not (identical? outcome "")) " · unassigned"
+          :else ""))))
+
+(js/export
+ (defn semantic-view-text!
+   [state BridgeSnapshot
+    view String
+    selected Int
+    width Int] String
+   (let [canonical String (canonical-top-level-view view)
+         items Any (cond
+                     (identical? canonical "agents")
+                     (bridgesnapshot-semantic-agents state)
+                     (identical? canonical "goals")
+                     (bridgesnapshot-goals state)
+                     :else
+                     (bridgesnapshot-all state))]
+     (if (identical? (.-length items) 0)
+       (cond
+        (identical? canonical "agents") "No Agents"
+        (identical? canonical "goals") "No Goals"
+        :else "No tracked things")
+       (.join
+        (.map items
+              (fn
+                [item TrackedThing
+                 index Int] String
+                (let [row String (cond
+                                   (identical? canonical "agents")
+                                   (semantic-agent-row item (identical? index selected))
+                                   (identical? canonical "goals")
+                                   (semantic-goal-row item (identical? index selected))
+                                   :else
+                                   (semantic-all-row item (identical? index selected)))]
+                  (clipped row width))))
+        "\n")))))
 
 (defn compact-text
   [value Any
@@ -3500,418 +3554,6 @@
       (str (.slice source 0 (Math/max 0 (- limit 1))) "…")
       source)))
 
-(defn cell-text
-  [value Any
-   width Int] String
-  (.padEnd (compact-text value width) width " "))
-
-(defn short-thread-id [item WorkItem] String
-  (.slice (workitem-id item) 0 8))
-
-(defn push-condition!
-  [chunks Any
-   condition String
-   label String] Any
-  (push-chunk! chunks
-               ((cond
-                  (identical? condition "active") brightCyan
-                  (identical? condition "ready") brightGreen
-                  (identical? condition "blocked") brightRed
-                  :else brightYellow)
-                label)))
-
-(defn available-work-width
-  [_runtime Any
-   _state BridgeSnapshot] Int
-  (available-view-width))
-
-(defn render-list-view!
-  [runtime Any
-   items (Vec WorkItem)
-   selected Int
-   width Int] Any
-  (let [chunks (Vec Any) []
-        rows (Vec ListRow) (list-rows runtime items)
-        collapsed Any (.-collapsedListConditions runtime)]
-    (.forEach
-     rows
-     (fn
-       [row ListRow
-        visual-index Int] Any
-       (let [kind String (listrow-kind row)
-             condition String (listrow-condition row)]
-         (if (identical? kind "header")
-           (let [collapsed? Any (.has collapsed condition)
-                 header String (str " " (if collapsed? "▸" "▾") "  "
-                             (list-section-title condition) "  "
-                             (listrow-count row))]
-             (push-chunk! chunks
-                          ((bg "#292c32")
-                           (brightWhite (.padEnd header width " ")))))
-           (let [index Int (listrow-index row)
-                 item Any (nth items index)
-                 title-width Int (Math/max 10 (- width 25))
-                 title String (compact-text (workitem-title item) title-width)
-                 selected? Bool (identical? index selected)]
-             (push-chunk! chunks (brightBlack "  "))
-             (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
-             (push-condition! chunks (workitem-condition item)
-                              (cell-text (.toUpperCase (workitem-condition item)) 9))
-             (push-chunk! chunks ((if selected? brightWhite white) title))
-             (push-chunk! chunks (dim (str "  @" (short-thread-id item))))))
-         (when (< visual-index (- (.-length rows) 1))
-           (push-chunk! chunks (white "\n"))))))
-    (new StyledText chunks)))
-
-(defn work-item-by-id
-  [items (Vec WorkItem)
-   id String] WorkItem?
-  (.find items
-         (fn [item WorkItem] Bool
-           (identical? (workitem-id item) id))))
-
-(defn work-item-condition-for
-  [items (Vec WorkItem)
-   id String] String
-  (.reduce items
-           (fn
-             [condition String
-              item WorkItem] String
-             (if (identical? (workitem-id item) id)
-               (workitem-condition item)
-               condition))
-           ""))
-
-(defn render-dag-view!
-  [items (Vec WorkItem)
-   selected Int
-   width Int] Any
-  (let [chunks (Vec Any) []]
-    (.forEach
-     items
-     (fn
-       [item WorkItem
-        index Int] Any
-       (let [condition String (workitem-condition item)
-             dependencies (Vec String) (workitem-dependencies item)
-             selected? Bool (identical? index selected)]
-         (push-chunk! chunks (if selected? (brightCyan "› ") (brightBlack "  ")))
-         (push-condition! chunks condition "● ")
-         (push-chunk! chunks
-                      ((if selected? brightWhite white)
-                       (compact-text (workitem-title item) (Math/max 12 (- width 16)))))
-         (push-chunk! chunks (dim (str "  @" (short-thread-id item) "\n")))
-         (if (identical? (.-length dependencies) 0)
-           (push-chunk! chunks (brightBlack "    ╰─ root\n"))
-           (.forEach
-            dependencies
-            (fn [dependency String] Any
-              (let [target (U WorkItem Nil) (work-item-by-id items dependency)]
-                (push-chunk! chunks (brightBlack "    ╰─ requires ← "))
-                (push-chunk! chunks
-                             ((if target brightCyan brightBlack)
-                              (str "@" (.slice dependency 0 8))))
-                (push-chunk! chunks
-                             (if target
-                               (dim (str "  "
-                                         (compact-text (workitem-title target)
-                                                       (Math/max 8 (- width 28)))
-                                         "\n"))
-                               (brightBlack "  outside current board\n")))))))
-         (when (< index (- (.-length items) 1))
-           (push-chunk! chunks (white "\n"))))))
-    (new StyledText chunks)))
-
-(defn board-lane-items
-  [items (Vec WorkItem)
-   lane-id String] (Vec WorkItem)
-  (.filter items
-           (fn [item WorkItem] Bool
-             (identical? (board-lane-id (workitem-condition item)) lane-id))))
-
-(defn compact-body
-  [value Any
-   width Int] String
-  (let [lines Any (.filter
-               (.map (.split (text value) "\n")
-                     (fn [line String] String (.trim line)))
-               (fn [line String] Bool (not (identical? line ""))))]
-    (compact-text (.join lines " ") width)))
-
-(defn board-card-id [thread-id String] String
-  (str "board-card-" thread-id))
-
-(defn board-signature
-  [items (Vec WorkItem)
-   selected Int
-   width Int] String
-  (str width "|" selected "|"
-       (.join
-        (.map items
-              (fn [item WorkItem] String
-                (str (workitem-id item) "\u0001"
-                     (workitem-title item) "\u0001"
-                     (workitem-body item) "\u0001"
-                     (workitem-condition item))))
-        "\u0002")))
-
-(defn board-card-node [source Any] Any
-  (loop [node Any source]
-    (if (or (not node)
-            (not (identical? (text (.-northThreadId node)) "")))
-      node
-      (recur (.-parent node)))))
-
-(defn set-board-notice!
-  [runtime Any
-   notice String] Any
-  (set! (.-workspaceNotice runtime) notice)
-  (.render runtime))
-
-(defn select-board-card!
-  [runtime Any
-   ui Any
-   item WorkItem
-   index Int] Any
-  (set! (.-workIndex runtime) index)
-  (set! (.-model runtime)
-        (select-thread (.-model runtime) (workitem-id item)))
-  (show-view! runtime ui "threads")
-  (.scrollChildIntoView (.-workScroll ui) (board-card-id (workitem-id item))))
-
-(defn prefill-outcome!
-  [runtime Any
-   ui Any
-   thread-id String] Any
-  (set! (.-value (.-composerInput ui)) (str "/outcome @" thread-id " "))
-  (show-view! runtime ui "threads")
-  (set-board-notice! runtime
-                     (str "Finish the outcome, then press Enter; Done is derived from north tell @"
-                          thread-id " outcome <result>.")))
-
-(defn ^:async move-ready-thread!
-  [runtime Any
-   thread-id String
-   position String
-   anchor-id String] (Promise Any)
-  (let [argv (Vec String) (if (identical? anchor-id "")
-               [(north-bin) "queue" "move" thread-id position]
-               [(north-bin) "queue" "move" thread-id position anchor-id])
-        output String (await (run-command argv))]
-    (set! (.-workspaceNotice runtime) (.trim (text output)))
-    (await (refresh! runtime))))
-
-(defn unsupported-drop-notice
-  [source-condition String
-   target-lane String] String
-  (cond
-    (terminal-condition? source-condition)
-    "Done is derived from an outcome; reopening requires explicitly retracting that outcome."
-
-    (identical? target-lane "in-progress")
-    "In Progress is derived from a live run; dispatch or /launch the thread to start it."
-
-    (identical? source-condition "active")
-    "Active work is derived from its live run; /interrupt and settle that run before moving it."
-
-    (not (identical? source-condition "ready"))
-    "Only ready work has a durable queue order; resolve its prerequisites before reordering it."
-
-    :else
-    "That lane is derived from lifecycle facts; use the corresponding North lifecycle action."))
-
-(defn handle-board-drop!
-  [runtime Any
-   ui Any
-   target-lane String
-   target-card Any
-   event Any] Any
-  (.preventDefault event)
-  (.stopPropagation event)
-  (.stopAutoScroll (.-workScroll ui))
-  (let [source-card Any (board-card-node (.-source event))
-        source-id String (if source-card (bare (.-northThreadId source-card)) "")
-        state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-        items (Vec north.bridge.model/WorkItem) (bridgesnapshot-board state)
-        source-condition String (work-item-condition-for items source-id)
-        source-lane String (board-lane-id source-condition)
-        target-id String (if target-card (bare (.-northThreadId target-card)) "")
-        target-condition String (work-item-condition-for items target-id)]
-    (cond
-      (identical? source-id "")
-      (set-board-notice! runtime "Drop ignored: the dragged source was not a North work card.")
-
-      (and (identical? target-lane "done")
-           (not (terminal-condition? source-condition)))
-      (prefill-outcome! runtime ui source-id)
-
-      (and (identical? source-lane "not-started")
-           (identical? target-lane "not-started")
-           (identical? source-condition "ready")
-           (or (identical? target-id "")
-               (identical? target-condition "ready")))
-      (if (identical? source-id target-id)
-        (set-board-notice! runtime "Queue order unchanged: a card cannot be moved relative to itself.")
-        (let [event-x Number (.-x event)
-              position String (if (identical? target-id "")
-                         (let [current-left Number (.-screenX (.-currentTarget event))
-                               current-width Number (.-width (.-currentTarget event))
-                               current-midpoint Number (/ current-width 2)]
-                           (if (< event-x (+ current-left current-midpoint))
-                             "first" "last"))
-                         (let [target-left Number (.-screenX target-card)
-                               target-width Number (.-width target-card)
-                               target-midpoint Number (/ target-width 2)]
-                           (if (< event-x (+ target-left target-midpoint))
-                             "before" "after")))]
-          (report-promise! runtime
-                           (move-ready-thread! runtime source-id position target-id))))
-
-      :else
-      (set-board-notice! runtime
-                         (unsupported-drop-notice source-condition target-lane)))))
-
-(defn card-content
-  [item WorkItem
-   width Int] Any
-  (let [body String (compact-body (workitem-body item) (Math/max 8 (- width 4)))
-        fallback String (str "@" (short-thread-id item))]
-    (new StyledText
-     [(brightWhite (compact-text (workitem-title item) (Math/max 8 (- width 4))))
-      (white "\n")
-      (dim (if (identical? body "") fallback body))])))
-
-(defn make-board-card!
-  [runtime Any
-   ui Any
-   item WorkItem
-   index Int
-   lane-index Int
-   width Int] Any
-  (let [renderer Any (.-renderer runtime)
-        thread-id String (workitem-id item)
-        condition String (workitem-condition item)
-        selected? Bool (identical? index (.-workIndex runtime))
-        next-up? Any (and (identical? condition "ready") (identical? lane-index 0))
-        card Any (new BoxRenderable renderer
-                             {:id (board-card-id thread-id)
-                              :width width :height 4 :flexShrink 0 :paddingX 1
-                              :border true :borderColor (if selected? "#22d3ee" "#64748b")
-                              :title (if next-up? "Next Up" nil)
-                              :titleColor (if next-up? "#4ade80" "#94a3b8")})
-        content Any (new TextRenderable renderer
-                                 {:width "100%" :height 2 :selectable false
-                                  :wrapMode "none" :truncate true
-                                  :content (card-content item width)})]
-    (set! (.-northThreadId card) thread-id)
-    (set! (.-northCondition card) condition)
-    (set! (.-onMouseDown card)
-          (fn [event Any] Any
-            (when (identical? (.-button event) 0)
-              (.preventDefault event)
-              (.stopPropagation event)
-              (select-board-card! runtime ui item index))))
-    (set! (.-onMouseDrag card)
-          (fn [event Any] Any
-            (set! (.-dragThreadId runtime) thread-id)
-            (.updateAutoScroll (.-workScroll ui) (.-x event) (.-y event))))
-    (set! (.-onMouseDragEnd card)
-          (fn [_event Any] Any
-            (set! (.-dragThreadId runtime) "")
-            (.stopAutoScroll (.-workScroll ui))))
-    (set! (.-onMouseOver card)
-          (fn [_event Any] Any
-            (set! (.-borderColor card) "#22d3ee")))
-    (set! (.-onMouseOut card)
-          (fn [_event Any] Any
-            (set! (.-borderColor card) (if selected? "#22d3ee" "#64748b"))))
-    (set! (.-onMouseDrop card)
-          (fn [event Any] Any
-            (handle-board-drop! runtime ui (board-lane-id condition) card event)))
-    (.add card content)
-    card))
-
-(defn make-board-lane!
-  [runtime Any
-   ui Any
-   lane BoardLane
-   items (Vec WorkItem)
-   card-width Int] Any
-  (let [renderer Any (.-renderer runtime)
-        lane-id String (boardlane-id lane)
-        title String (boardlane-title lane)
-        lane-items (Vec WorkItem) (board-lane-items items lane-id)
-        lane-box Any (new BoxRenderable renderer
-                                 {:width "100%" :flexDirection "column" :flexShrink 0
-                                  :border ["bottom"] :borderColor "#334155" :paddingBottom 1})
-        header Any (new TextRenderable renderer
-                                {:width "100%" :height 1 :flexShrink 0 :selectable false
-                                 :wrapMode "none"
-                                 :content (new StyledText
-                                           [(brightGreen title)
-                                            (brightBlack (str "  " (.-length lane-items)))])})
-        cards Any (new BoxRenderable renderer
-                              {:width "100%" :minHeight 4 :flexDirection "row" :flexWrap "wrap"
-                               :flexShrink 0 :gap 1 :rowGap 1})]
-    (set! (.-northLaneId cards) lane-id)
-    (set! (.-onMouseOver cards)
-          (fn [_event Any] Any
-            (set! (.-borderColor lane-box) "#4ade80")))
-    (set! (.-onMouseOut cards)
-          (fn [_event Any] Any
-            (set! (.-borderColor lane-box) "#334155")))
-    (set! (.-onMouseDrop cards)
-          (fn [event Any] Any
-            (handle-board-drop! runtime ui lane-id nil event)))
-    (.forEach
-     lane-items
-     (fn
-       [item WorkItem
-        lane-index Int] Any
-       (.add cards
-             (make-board-card! runtime ui item (.indexOf items item) lane-index card-width))))
-    (.add lane-box header)
-    (.add lane-box cards)
-    lane-box))
-
-(defn clear-board! [root Any] Any
-  (.forEach (.getChildren root)
-            (fn [child Any] Any (.destroyRecursively child))))
-
-(defn sync-board!
-  [runtime Any
-   ui Any
-   items (Vec WorkItem)
-   selected Int
-   width Int] Any
-  (let [signature String (board-signature items selected width)]
-    (when (not (identical? signature (text (.-boardSignature runtime))))
-      (set! (.-boardSignature runtime) signature)
-      (clear-board! (.-boardRoot ui))
-      (let [card-width Int (if (>= width 54) 25 (Math/max 18 (- width 3)))]
-        (.forEach BOARD-LANES
-                  (fn [lane BoardLane] Any
-                    (.add (.-boardRoot ui)
-                          (make-board-lane! runtime ui lane items card-width)))))
-      (when (and (>= selected 0) (< selected (.-length items)))
-        (.scrollChildIntoView (.-workScroll ui)
-                              (board-card-id (workitem-id (nth items selected))))))))
-
-(defn work-content!
-  [runtime Any
-   state BridgeSnapshot
-   view WorkView
-   selected Int] Any
-  (let [items (Vec WorkItem) (workview-items view)
-        width Int (available-work-width runtime state)]
-    (if (identical? (.-length items) 0)
-      (new StyledText [(brightBlack (str "No " (workview-title view) " items"))])
-      (cond
-        (identical? (workview-id view) "graph")
-        (render-dag-view! items selected width)
-
-        :else
-        (render-list-view! runtime items selected width)))))
 
 ;; Pure: the grey hint in the composer. It used to name the command set the
 ;; focused view answers to; the view bar sits directly under the composer and
@@ -3920,9 +3562,11 @@
  (defn composer-hint
    [pane String
     label String] String
-   (if (identical? pane "agents")
-    (str "Message " label "…")
-    "/list, /board, /graph, /capture, /filter, /assign")))
+   (cond
+    (identical? pane "agents") (str "Message " label "…")
+    (identical? pane "goals")
+    "/track, /plan, /start, /assign, /request, /ack, /ownership, /settle"
+    :else "/filter, /show, /history, /inbox")))
 
 (defn minibuffer-placeholder [runtime Any] String
   (composer-hint (text (.-view runtime)) (main-agent-label runtime)))
@@ -3982,17 +3626,15 @@
    ui Any] Any
   (when (not (.-disposed runtime))
     (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-          agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
+          execution-agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
           views (Vec WorkView) (view-list state)
-          requested String (bridgesnapshot-active-view-id state)
-          current WorkView (selected-view state requested)
-          items (Vec WorkItem) (workview-items current)
-          agent-max Int (Math/max 0 (- (.-length agents) 1))
+          current WorkView (selected-view state (text (.-view runtime)))
+          items (Vec TrackedThing) (workview-items current)
+          semantic-agents (Vec TrackedThing) (bridgesnapshot-semantic-agents state)
+          agent-max Int (Math/max 0 (- (.-length semantic-agents) 1))
           work-max Int (Math/max 0 (- (.-length items) 1))
-          board? Bool (identical? (workview-id current) "board")
-          banner? Bool (banner-visible? runtime)
-          roster String (roster-text! state (.-agentIndex runtime)
-                            (text (.-supervisorId runtime)) banner?)
+          roster String (semantic-view-text! state "agents"
+                          (.-agentIndex runtime) (available-view-width))
           roster-rows Int (roster-visible-rows roster)
           notice String (status-notice runtime state)
           notice? Bool (not (identical? notice ""))]
@@ -4005,22 +3647,20 @@
     (set! (.-height (.-agentsText ui)) (Math/max 1 roster-rows))
     (set! (.-content (.-agentsText ui)) roster)
     (set! (.-content (.-transcriptText ui)) (render-conversation! runtime))
-    (set! (.-visible (.-workText ui)) (not board?))
-    (set! (.-visible (.-boardRoot ui)) board?)
-    (if board?
-      (sync-board! runtime ui items (.-workIndex runtime)
-                   (available-work-width runtime state))
-      (set! (.-content (.-workText ui))
-            (work-content! runtime state current (.-workIndex runtime))))
+    (set! (.-visible (.-workText ui)) true)
+    (set! (.-visible (.-boardRoot ui)) false)
+    (set! (.-content (.-workText ui))
+          (semantic-view-text! state (workview-id current)
+                               (.-workIndex runtime) (available-view-width)))
     (set! (.-content (.-statusText ui)) (render-status runtime state))
     (set! (.-content (.-agentStatusText ui)) (render-status runtime state))
     ;; One status line, inside whichever view is showing.
     (set! (.-visible (.-statusText ui))
-          (and (threads-view? (.-view runtime)) notice?))
+          (and (tracked-thing-view? (.-view runtime)) notice?))
     (set! (.-visible (.-agentStatusText ui))
-          (and (not (threads-view? (.-view runtime))) notice?))
+          (and (not (tracked-thing-view? (.-view runtime))) notice?))
     (render-prompt! runtime (.-composerPrompt ui))
-    (let [segments (Vec AgentSegment) (agent-segments agents)
+    (let [segments (Vec AgentSegment) (agent-segments execution-agents)
           strip-max Int (Math/max 0 (- (.-length segments) 1))]
       (set! (.-stripIndex runtime)
             (Math/max 0 (Math/min (.-stripIndex runtime) strip-max)))
@@ -4502,7 +4142,7 @@
    [runtime Any
     role String] String
    (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-         selected String (bridgesnapshot-selected-thread state)]
+         selected String (bridgesnapshot-selected-tracked-thing state)]
      (if (identical? role "supervisor")
       (text (.-controlThreadId runtime))
       selected))))
@@ -4514,7 +4154,7 @@
     role String] (Vec String)
    (let [thread-id String (launch-thread-id runtime role)]
      (when (identical? thread-id "")
-       (throw (new Error "launch requires a selected or managed control thread")))
+       (throw (new Error "launch requires a selected tracked thing or managed control identity")))
      (let [route-flags (Vec String) (take-launch-route-flags! runtime)]
        (.concat [(north-bin) "bridge" "app-launch" "--thread" thread-id "--role"
                  (if (identical? role "supervisor") "director" "implementer")]
@@ -4574,33 +4214,65 @@
       (.unref child)
       (publish-line! runtime (str "opened " view-id " in a separate terminal")))))
 
-(defn selected-work
-  [runtime Any
-   selection WorkSelection] WorkItem?
-  (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-        view-id String (text-or (workselection-view selection) (text (.-activeView runtime)))
-        view WorkView (selected-view state view-id)
-        items (Vec WorkItem) (workview-items view)
-        index Int (workselection-index selection)]
-    (if (and (>= index 0) (< index (.-length items)))
-      (let [item Any (nth items index)]
-        (if (or (not (identical? (workview-id view) "list"))
-                (not (.has (.-collapsedListConditions runtime)
-                           (list-section-id (workitem-condition item)))))
-          item
-          nil))
-      nil)))
+(def SEMANTIC-ACTION-NAMES (Vec String)
+  ["track" "plan" "start" "assign" "request" "ack" "ownership"
+   "settle" "show" "history" "inbox"])
 
-;; Capture takes nothing from the view it was typed in: a title, the `north`
-;; CLI, and a refresh of the threads the agents view may not even be showing.
-;; Both views call this, which is why /capture is in both command sets.
-(defn ^:async capture-thread!
+(def SEMANTIC-MUTATION-NAMES (Vec String)
+  ["track" "plan" "start" "assign" "request" "ack" "ownership" "settle"])
+
+(defn semantic-action? [name String] Bool
+  (.includes SEMANTIC-ACTION-NAMES name))
+
+(js/export
+ (defn action-arguments [value String] (Vec String)
+  (let [trimmed String (.trim value)]
+    (if (identical? trimmed "")
+      []
+      (.map (.split trimmed "|")
+            (fn [part String] String (.trim part)))))))
+
+(defn ^:async run-semantic-action!
   [runtime Any
-   title String] (Promise Any)
-  (when (identical? title "") (throw (new Error "capture requires a title")))
-  (let [output String (await (run-command [(north-bin) "capture" title]))]
-    (publish-line! runtime (.trim (text output))))
-  (await (refresh! runtime)))
+   action String
+   argument-text String] (Promise Any)
+  (let [request Any (referent-action-request! action (action-arguments argument-text))
+        result Any (await
+         (run-referent-action!
+          request
+          {:northExecutable (north-bin)
+           :runCommand run-command}))]
+    (publish-line! runtime (semantic-action-result-text! request result))
+    (when (.includes SEMANTIC-MUTATION-NAMES action)
+      (await (refresh! runtime)))))
+
+(js/export
+ (defn delegation-argv!
+   [north-executable String
+    argument-text String] (Vec String)
+   (let [north String (.trim north-executable)
+         arguments (Vec String) (action-arguments argument-text)]
+     (when (or (identical? north "")
+              (not (identical? north north-executable))
+              (not (.startsWith north "/")))
+      (throw (new Error "delegate requires the absolute North executable")))
+    (when (identical? (.-length arguments) 0)
+      (throw (new Error
+              "delegate requires the exact North task and routing arguments")))
+    (.concat [north "delegate"] arguments))))
+
+(defn ^:async run-delegation!
+  [runtime Any
+   argument-text String] (Promise Any)
+  (let [argv (Vec String) (delegation-argv! (north-bin) argument-text)]
+    (try
+      (do
+        ;; This is the public delegation command verbatim. No selected tracked
+        ;; thing, hidden binding, or semantic Task interpretation is added.
+        (await (run-command argv))
+        (publish-line! runtime "delegation request accepted by North"))
+      (catch Error _
+        (throw (new Error "North delegation refused"))))))
 
 ;; A cancelled turn gives the message back. The text that started it is
 ;; remembered at submit time and returned to the composer here, cursor at the
@@ -4645,7 +4317,7 @@
       nil
       (cond
       (and slash? (identical? name "launch")) (await (launch-agent! runtime rest "worker"))
-      (and slash? (identical? name "capture")) (await (capture-thread! runtime rest))
+      (and slash? (identical? name "delegate")) (await (run-delegation! runtime rest))
       (and slash? (identical? name "refresh")) (await (refresh! runtime))
       (and slash? (identical? name "popout"))
       (popout! runtime (text-or rest (text (.-activeView runtime))))
@@ -4683,15 +4355,15 @@
 (defn ^:async submit-work!
   [runtime Any
    ui Any
-   input String
-   selection WorkSelection] (Promise Any)
+   input String] (Promise Any)
   (let [trimmed String (.trim input)
         slash? Any (.startsWith trimmed "/")
         parsed ParsedCommand (command input)
         name String (parsedcommand-name parsed)
         rest String (parsedcommand-rest parsed)]
     (if (not slash?)
-      (await (submit-agent! runtime ui input (.-supervisorId runtime)))
+      (throw (new Error
+              "tracked-thing text requires an explicit /request or /delegate command"))
       (if (handle-local-command! runtime ui input)
       nil
       (cond
@@ -4701,41 +4373,11 @@
       (identical? name "refresh") (await (refresh! runtime))
       (identical? name "popout") (popout! runtime (if (identical? rest "") (.-activeView runtime) rest))
 
-      (identical? name "capture") (await (capture-thread! runtime rest))
-
-      (identical? name "assign")
-      (let [item (U WorkItem Nil) (selected-work runtime selection)
-            words Any (.filter (.split rest " ") (fn [word String] Bool (not (identical? (.trim word) ""))))
-            current String (if item (workitem-driver item) "")
-            prior Any (if (> (.-length words) 1) (nth words 0) current)
-            next-driver Any (if (> (.-length words) 1)
-                          (nth words 1)
-                          (text (nth words 0)))
-            thread-id String (if item (workitem-id item) "")]
-        (when (identical? thread-id "") (throw (new Error "select a thread before assigning")))
-        (when (identical? prior "") (throw (new Error "an unassigned thread requires: /assign <prior-driver> <next-driver>")))
-        (when (identical? next-driver "") (throw (new Error "assign requires a new driver")))
-        (publish-line! runtime "driver reassignment is a retract-then-tell operation")
-        (await (run-command [(north-bin) "retract" thread-id "driver" prior]))
-        (await (run-command [(north-bin) "tell" thread-id "driver" next-driver]))
-        (publish-line! runtime (str "assigned @" thread-id " to " next-driver))
-        (await (refresh! runtime)))
-
-      (identical? name "outcome")
-      (let [split-at Int (.indexOf rest " ")
-            thread-id String (if (< split-at 0) "" (bare (.slice rest 0 split-at)))
-            result String (if (< split-at 0) "" (.trim (.slice rest (+ split-at 1))))]
-        (when (identical? thread-id "")
-          (throw (new Error "outcome requires: /outcome <thread-id> <result>")))
-        (when (identical? result "")
-          (throw (new Error "outcome requires a result")))
-        (await (run-command [(north-bin) "tell" thread-id "outcome" result]))
-        (set! (.-workspaceNotice runtime) (str "Recorded outcome for @" thread-id "."))
-        (await (refresh! runtime)))
-
+      (identical? name "delegate") (await (run-delegation! runtime rest))
+      (semantic-action? name) (await (run-semantic-action! runtime name rest))
 
       :else
-      (throw (new Error "unknown thread command; use /help")))))))
+      (throw (new Error "unknown tracked-thing command; use /help")))))))
 
 (defn report-promise!
   [runtime Any
@@ -4747,7 +4389,7 @@
 (defn select-view!
   [runtime Any
    view String] Any
-  (set! (.-view runtime) view)
+  (set! (.-view runtime) (canonical-top-level-view view))
   (set! (.-paletteIndex runtime) 0)
   (set! (.-workspaceNotice runtime) "")
   (clear-strip-focus! runtime))
@@ -4761,18 +4403,6 @@
   (select-view! runtime view)
   (.focus (.-composerInput ui))
   (.render runtime))
-
-;; Naming a thread view names the Threads view too: typed from Agents, /board
-;; is "show me the board", not "silently rearrange a screen I am not looking
-;; at".
-(defn show-thread-view!
-  [runtime Any
-   ui Any
-   view-id String] Any
-  (set! (.-model runtime) (focus-view (.-model runtime) (canonical-work-view view-id)))
-  (set! (.-workIndex runtime) 0)
-  (.scrollTo (.-workScroll runtime) 0)
-  (show-view! runtime ui "threads"))
 
 (defn strip-segments [runtime Any] (Vec AgentSegment)
   (agent-segments (bridgesnapshot-agents (snapshot (.-model runtime)))))
@@ -4898,14 +4528,12 @@
    (when (not (identical? input ""))
     (set! (.-value (.-composerInput ui)) "")
     (set! (.-paletteIndex runtime) 0)
-    (if (not (threads-view? (.-view runtime)))
+    (if (identical? (text (.-view runtime)) "agents")
       (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-            selected String (selected-agent-id state (.-agentIndex runtime))]
+            selected String (selected-semantic-agent-id state (.-agentIndex runtime))]
         (report-promise! runtime (submit-agent! runtime ui input selected)))
       (report-promise! runtime
-                       (submit-work! runtime ui input
-                                     (->WorkSelection (.-activeView runtime)
-                                                      (.-workIndex runtime))))))))
+                       (submit-work! runtime ui input))))))
 
 ;; Pure: what enter means while the palette is open, given the highlighted
 ;; entry. A command that takes no arguments has nothing left to say, so enter
@@ -4937,42 +4565,17 @@
        (fn [] Any
          (submit-input! runtime ui (.trim (text (.-value (.-composerInput ui))))))))
 
-;; Pure: which thread view owns a column past the sub-view origin, "" for the
-;; gaps. The row is derived from view-list and the origin from the labels, so
-;; reordering the views or renaming a label moves the hit boxes with them —
-;; there are no hand-counted column ranges left to drift out of step.
-(defn subview-tab-id-at!
-  [views (Vec WorkView)
-   column Int] String
-  (let [cursor (Map Keyword Any) {:x SUBVIEW-TAB-ORIGIN :id ""}]
-    (.forEach views
-              (fn [view WorkView] Any
-                ;; "[Title]" when selected, " Title " otherwise: same width.
-                (let [start Int (.-x cursor)
-                      title-width Int (.-length (workview-title view))
-                      width Int (+ title-width 2)]
-                  (when (and (>= column start) (< column (+ start width)))
-                    (set! (.-id cursor) (workview-id view)))
-                  (set! (.-x cursor) (+ start width SUBVIEW-TAB-GAP)))))
-    (text (.-id cursor))))
-
-;; Pure: what a column on the view bar means — "agents", "threads", a thread
-;; view id, or "" for the parts that are not a label. The sub-view tabs are only
-;; there, and only clickable, while Threads is showing.
+;; Pure fixed geometry for the exact public bar `Agents | Goals | All > ...`.
 (js/export
  (defn view-tab-id-at!
-   [view Any
-    views (Vec WorkView)
+   [_view Any
+    _views (Vec WorkView)
     column Int] String
-   (let [agents-tab-width Int (.-length AGENTS-TAB-LABEL)
-         threads-tab-width Int (.-length THREADS-TAB-LABEL)]
-     (cond
-    (and (>= column 0) (< column agents-tab-width)) "agents"
-    (and (>= column THREADS-TAB-START)
-         (< column (+ THREADS-TAB-START threads-tab-width))) "threads"
-    (and (threads-view? view) (>= column SUBVIEW-TAB-ORIGIN))
-    (subview-tab-id-at! views column)
-    :else ""))))
+   (cond
+    (and (>= column 0) (< column 6)) "agents"
+    (and (>= column 9) (< column 14)) "goals"
+    (and (>= column 17) (< column 20)) "all"
+    :else "")))
 
 (defn view-tab-at!
   [runtime Any
@@ -5011,70 +4614,27 @@
         (set! (.-paletteIndex runtime) picked)
         (complete-palette! runtime ui options)))))
 
-(defn visible-list-indices
-  [runtime Any
-   items (Vec WorkItem)] (Vec Int)
-  (.map
-   (.filter (list-rows runtime items)
-            (fn [row ListRow] Bool
-              (identical? (listrow-kind row) "item")))
-   (fn [row ListRow] Int (listrow-index row))))
-
-(defn next-visible-list-index
-  [runtime Any
-   items (Vec WorkItem)
-   current Int
-   delta Int] Int
-  (let [indices (Vec Int) (visible-list-indices runtime items)
-        position Int (.indexOf indices current)
-        start Int (if (>= position 0) position (if (> delta 0) -1 (.-length indices)))
-        next Int (Math/max 0 (Math/min (- (.-length indices) 1) (+ start delta)))]
-    (if (> (.-length indices) 0) (nth indices next) current)))
-
-(defn select-visible-list-fallback!
-  [runtime Any
-   items (Vec WorkItem)] Any
-  (let [indices (Vec Int) (visible-list-indices runtime items)
-        current Any (.-workIndex runtime)]
-    (when (and (> (.-length indices) 0)
-               (not (.includes indices current)))
-      (let [index Any (nth indices 0)
-            item Any (nth items index)]
-        (set! (.-workIndex runtime) index)
-        (set! (.-model runtime)
-              (select-thread (.-model runtime) (workitem-id item)))))))
-
 (defn handle-list-click!
   [runtime Any
    ui Any
    event Any] Any
-  (when (identical? (.-button event) 0)
+  (when (and (identical? (.-button event) 0)
+             (tracked-thing-view? (.-view runtime)))
     (let [state north.bridge.model/BridgeSnapshot (snapshot (.-model runtime))
-          view WorkView (selected-view state (.-activeView runtime))]
-      (when (identical? (workview-id view) "list")
-        (let [items (Vec WorkItem) (workview-items view)
-              rows (Vec ListRow) (list-rows runtime items)
-              event-y Number (.-y event)
-              list-y Number (.-screenY (.-workText ui))
-              row-index Int (Math/floor (- event-y list-y))
-              row-count Int (.-length rows)]
-          (when (and (>= row-index 0) (< row-index row-count))
-            (let [row Any (nth rows row-index)]
-              (.preventDefault event)
-              (.stopPropagation event)
-              (if (identical? (listrow-kind row) "header")
-                (let [condition String (listrow-condition row)
-                      collapsed Any (.-collapsedListConditions runtime)]
-                  (if (.has collapsed condition)
-                    (.delete collapsed condition)
-                    (.add collapsed condition))
-                  (select-visible-list-fallback! runtime items))
-                (let [index Int (listrow-index row)
-                      item Any (nth items index)]
-                  (set! (.-workIndex runtime) index)
-                  (set! (.-model runtime)
-                        (select-thread (.-model runtime) (workitem-id item)))))
-              (.render runtime))))))))
+          view WorkView (selected-view state (text (.-view runtime)))
+          items Any (workview-items view)
+          event-y Number (.-y event)
+          list-y Number (.-screenY (.-workText ui))
+          row-index Int (Math/floor (- event-y list-y))]
+      (when (and (>= row-index 0) (< row-index (.-length items)))
+        (let [item TrackedThing (nth items row-index)]
+          (.preventDefault event)
+          (.stopPropagation event)
+          (set! (.-workIndex runtime) row-index)
+          (set! (.-model runtime)
+                (select-tracked-thing (.-model runtime)
+                                      (trackedthing-id item)))
+          (.render runtime))))))
 
 (defn install-mouse!
   [runtime Any
@@ -5113,11 +4673,7 @@
               (when (not (identical? tab ""))
                 (.preventDefault event)
                 (.stopPropagation event)
-                (if (identical? tab "agents")
-                  (show-view! runtime ui "agents")
-                  (if (identical? tab "threads")
-                    (show-view! runtime ui "threads")
-                    (show-thread-view! runtime ui tab)))))))))
+                (show-view! runtime ui tab)))))))
 
 ;; Climb one rung, whoever asked. The key and its command spellings share this,
 ;; so "what does escape do here" has exactly one answer. Returns
@@ -5131,7 +4687,7 @@
                             (panel-filtering? runtime)
                             (detail-open? runtime)
                             (if (.-stripFocused runtime) true false)
-                            (threads-view? (.-view runtime))
+                            (tracked-thing-view? (.-view runtime))
                             (if (.-working runtime) true false))]
     (cond
       (identical? action "close-palette")
@@ -5260,7 +4816,7 @@
                  meta Any (or (.-meta key) (.-option key))
                  palette (Vec SlashCommand) (active-palette-options runtime ui)
                  palette-open Bool (> (.-length palette) 0)
-                 plain-view-arrow Any (and (threads-view? (.-view runtime))
+                 plain-view-arrow Any (and (top-level-view? (.-view runtime))
                       (identical? (.trim (text (.-value (.-composerInput ui)))) "")
                       (not (.-ctrl key))
                       (not meta)
@@ -5514,9 +5070,7 @@
                    next-id String (text (.-id (nth views next-index)))]
                (.preventDefault key)
                (.stopPropagation key)
-               ;; Same rule as /list: naming a thread view brings it on screen
-               ;; rather than rearranging something you are not looking at.
-               (show-thread-view! runtime ui next-id))
+               (show-view! runtime ui next-id))
 
              (or (identical? name "f5") (and (.-ctrl key) (identical? name "r")))
              (do (.preventDefault key)
@@ -5533,38 +5087,30 @@
                    delta Int (if (identical? name "k") -1 1)]
                (.preventDefault key)
                (.stopPropagation key)
-               (if (not (threads-view? (.-view runtime)))
-                 (let [agents (Vec north.bridge.model/Agent) (bridgesnapshot-agents state)
+               (if (identical? (text (.-view runtime)) "agents")
+                 (let [agents Any (bridgesnapshot-semantic-agents state)
                        agent-count Int (.-length agents)
                        max-index Int (Math/max 0 (- agent-count 1))
                        agent-index Int (.-agentIndex runtime)
                        next-index Int (Math/max 0 (Math/min max-index (+ agent-index delta)))
                        selected-agent-id String (if (> agent-count 0)
-                                           (agent-id (nth agents next-index)) "")]
+                                           (trackedthing-id (nth agents next-index)) "")]
                    (set! (.-agentIndex runtime) next-index)
                    (set! (.-model runtime)
-                         (select-agent (.-model runtime) selected-agent-id)))
+                         (select-tracked-thing (.-model runtime) selected-agent-id)))
                  (let [view WorkView (selected-view state (.-activeView runtime))
-                       items (Vec WorkItem) (workview-items view)
+                       items Any (workview-items view)
                        item-count Int (.-length items)
                        max-index Int (Math/max 0 (- item-count 1))
                        work-index Int (.-workIndex runtime)
-                       next-index Int (if (identical? (workview-id view) "list")
-                                    (next-visible-list-index runtime items
-                                                             work-index delta)
-                                    (Math/max 0 (Math/min max-index
-                                                         (+ work-index delta))))
-                       thread-id String (if (> item-count 0)
-                                   (workitem-id (nth items next-index)) "")]
+                       next-index Int (Math/max 0 (Math/min max-index
+                                                        (+ work-index delta)))
+                       tracked-thing-id String (if (> item-count 0)
+                                           (trackedthing-id (nth items next-index)) "")]
                    (set! (.-workIndex runtime) next-index)
-                   (set! (.-model runtime) (select-thread (.-model runtime) thread-id))
-                   (.scrollBy (.-workScroll ui)
-                              (* delta
-                                 (cond
-                                   (identical? (workview-id view) "board") 2
-                                   (identical? (workview-id view) "graph") 3
-                                   :else 1))
-                              "step")))
+                   (set! (.-model runtime)
+                         (select-tracked-thing (.-model runtime) tracked-thing-id))
+                   (.scrollBy (.-workScroll ui) delta "step")))
                (.render runtime))
 
              ;; Ctrl-C means one thing and only one thing here: stop the turn in
@@ -5585,7 +5131,7 @@
 (defn ^:async open-app!
   [view-id String
    source-identity String] (Promise Any)
-  (let [view String (canonical-work-view view-id)
+  (let [view String (canonical-top-level-view view-id)
         renderer-promise (Promise Any) (createCliRenderer {:exitOnCtrlC false :clearOnShutdown true})
         renderer Any (await renderer-promise)
         runtime (Map Keyword Any) {:model (make-model view)
@@ -5594,7 +5140,7 @@
                  :rendererSuspended false
                  :suspendResume nil
                  :suspendError ""
-                 :view BOOT-VIEW
+                 :view view
                  :activeView view
                  :agentIndex 0
                  :workIndex 0
@@ -5774,5 +5320,5 @@
 
 (js/export
  (defn run-northbridge-app! [options Any] (Promise Any)
-   (open-app! (text-or (.-viewId options) "list")
+   (open-app! (text-or (.-viewId options) BOOT-VIEW)
               (text (.-sourceIdentity options)))))
