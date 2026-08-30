@@ -1,0 +1,631 @@
+#lang beagle/clj
+(ns north.terminal-projection
+  "Pure read contract for crash-safe lane terminals and run publications.
+
+  A managed lane terminal is committed by terminal_manifest_sha256 after its
+  base process/delivery facts and any status-required proof projection. A run
+  is committed by kind=run, which its scoped writer publishes last.")
+
+(require '[cheshire.core :as json]
+         '[clojure.string :as str])
+
+(declare-extern java.security.MessageDigest/getInstance (Fn [String] Any))
+(declare-extern java.nio.charset.StandardCharsets/UTF_8 Any)
+(declare-extern java.time.LocalDate/of (Fn [Int Int Int] Any))
+(declare-extern java.time.Instant/parse (Fn [String] Any))
+
+(def terminal-predicates Any
+  ["process_outcome" "delivery_outcome" "delivery_reason"])
+(def delivery-proof-predicates Any
+  ["delivery_evidence" "delivery_evidence_sha256"])
+(def terminal-projection-predicates Any
+  (into terminal-predicates delivery-proof-predicates))
+(def run-resolution-predicates Any
+  (into ["agent" "at" "kind"] terminal-projection-predicates))
+(def delivery-evidence-version Any "north:done-bars:v2")
+(def run-bar-evidence-version Any "north:run-bar-evidence:v1")
+(def max-delivery-bars Any 32)
+(def max-delivery-bar-utf8-bytes Any 512)
+(def max-delivery-observed-utf8-bytes Any 2048)
+(def max-delivery-envelope-utf8-bytes Any (* 256 1024))
+(def max-run-bar-evidence-record-utf8-bytes Any (* 16 1024))
+(def max-run-reservation-baseline-utf8-bytes Any (* 64 1024))
+(def max-delivery-writer-request-utf8-bytes Any (* 16 1024))
+(def max-delivery-thread-id-utf8-bytes Any 512)
+(def max-delivery-run-id-utf8-bytes Any 512)
+(def max-delivery-agent-id-utf8-bytes Any 256)
+;; The unreserved fallback stores ONE human-review fact per observation and
+;; never enters a reservation baseline, so the 512-byte per-bar bound (which
+;; exists to keep 32 bars inside one reservation manifest) does not apply. It
+;; still needs a hygiene cap: a fallback record quotes an EXISTING done_when
+;; verbatim, so the cap only has to be wider than a realistic bar.
+(def max-unreserved-bar-utf8-bytes Any (* 4 1024))
+;; Bounded budget for naming the offending bars verbatim inside one single-line
+;; writer error. Whatever does not fit is counted, never silently dropped.
+(def max-done-bar-diagnostic-utf8-bytes Any 8192)
+(def unreserved-bar-evidence-predicate Any "bar_evidence_unreserved")
+(def unreserved-bar-evidence-version Any "north:unreserved-bar-evidence:v1")
+;; The literal announces its own tier. `bar_evidence` readers match evidence by
+;; SUBSTRING containment (stale/bar-mark), so unreserved observations must never
+;; share that predicate: a separate predicate plus a leading marker keeps them
+;; unable to satisfy a bar by accident on either surface.
+(def unreserved-bar-evidence-marker Any "unreserved ·")
+(def run-reservation-version Any "north:run-reservation:v1")
+(def run-reservation-body-predicates Any
+  ["run_capability_sha256" "run_reservation_agent"
+   "run_reservation_contract_origin" "run_reservation_done_when"
+   "run_reservation_thread" "run_reservation_version" "run_reserved_at"])
+(def run-reservation-predicates Any
+  (conj run-reservation-body-predicates "run_reservation_manifest_sha256"))
+
+(defn- values-of [facts Any predicate Any] Any
+  (let [value Any (get facts predicate ::absent)]
+    (cond
+      (= ::absent value) []
+      (set? value) (vec value)
+      (and (sequential? value) (not (string? value))) (vec value)
+      :else [value])))
+
+(defn fact-present?
+  [facts Any predicate Any] Any
+  (boolean (seq (values-of facts predicate))))
+
+(defn singleton-value
+  "One exact nonblank string value, or nil for absent/conflicting/malformed
+  facts. Maps folded to scalar values and maps folded to sets are both accepted."
+  [facts Any predicate Any] Any
+  (let [values Any (values-of facts predicate)]
+    (when (= 1 (count values))
+      (let [value Any (first values)]
+        (when (and (string? value) (not (str/blank? value))) value)))))
+
+(defn sha256 [value Any] Any
+  (let [digest Any (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                        (.getBytes (str value)
+                                   java.nio.charset.StandardCharsets/UTF_8))]
+    (format "%064x" (java.math.BigInteger. 1 digest))))
+
+(defn utf8-byte-count [value String] Int
+  (alength (.getBytes value java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn valid-unicode-scalars?
+  "True only when VALUE contains no unpaired UTF-16 surrogate. Java's default
+  UTF-8 encoder silently replaces malformed surrogate code units, so proof
+  byte limits must reject them before encoding."
+  [value Any] Any
+  (boolean
+   (when (string? value)
+     (loop [index Int 0]
+       (if (= index (.length value))
+         true
+         (let [current Any (.charAt value index)]
+           (cond
+             (Character/isHighSurrogate current)
+             (and (< (inc index) (.length value))
+                  (Character/isLowSurrogate (.charAt value (inc index)))
+                  (recur (+ index 2)))
+
+             (Character/isLowSurrogate current) false
+             :else (recur (inc index)))))))))
+
+(defn- evidence-control-code-unit?
+  [code-unit Int] Bool
+  (or (and (<= 0 code-unit) (<= code-unit 0x1f))
+      (and (<= 0x7f code-unit) (<= code-unit 0x9f))))
+
+(defn canonical-evidence-text
+  "Canonical proof text shared with the SDK: valid Unicode scalar sequence,
+  no C0/C1 controls, and ASCII SPACE trimmed at the two edges. Unicode spaces
+  such as NBSP and EM SPACE remain content rather than acquiring runtime-
+  specific trim semantics."
+  [value Any] Any
+  (when (and (string? value)
+             (valid-unicode-scalars? value)
+             (not-any? (fn [__north_anon_1 Any] Any (evidence-control-code-unit? (int __north_anon_1))) value))
+    (let [canonical Any (str/replace value #"^ +| +$" "")]
+      (when (seq canonical) canonical))))
+
+(defn bounded-nonblank-text? [value Any max-bytes Any] Any
+  (and (string? value)
+       (= value (canonical-evidence-text value))
+       (<= (utf8-byte-count value) max-bytes)))
+
+(def entity-whitespace-code-units Any
+  ;; Unicode White_Space plus BOM. Hard-coded for identical Java/ECMAScript
+  ;; semantics; their native whitespace/trim tables do not agree.
+  (into #{0x20 0xa0 0x1680 0x2028 0x2029 0x202f 0x205f 0x3000 0xfeff}
+        (range 0x2000 0x200b)))
+
+(defn- forbidden-entity-code-unit?
+  [code-unit Any] Any
+  (or (= code-unit (int \@))
+      (evidence-control-code-unit? code-unit)
+      (contains? entity-whitespace-code-units code-unit)))
+
+(defn valid-thread-entity?
+  [value Any] Any
+  (boolean
+   (and (string? value)
+        (valid-unicode-scalars? value)
+        (<= (utf8-byte-count value) max-delivery-thread-id-utf8-bytes)
+        (str/starts-with? value "@")
+        (> (.length value) 1)
+        (not-any? (fn [__north_anon_1 Any] Any (forbidden-entity-code-unit? (int __north_anon_1)))
+                  (subs value 1)))))
+
+(defn valid-run-entity?
+  [value Any] Any
+  (boolean
+   (and (string? value)
+        (<= (utf8-byte-count value) max-delivery-run-id-utf8-bytes)
+        ;; accept both the legacy `@run-` (pre-2026-07-20 logs) and the
+        ;; telemetry-routable `@run:` id; see newRunId in sdk telemetry.ts.
+        (re-matches #"^@run[-:][A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+
+(defn valid-agent-entity?
+  [value Any] Any
+  (boolean
+   (and (string? value)
+        (<= (utf8-byte-count value) max-delivery-agent-id-utf8-bytes)
+        (re-matches #"^@agent:[A-Za-z0-9][A-Za-z0-9._:-]*$" value))))
+
+(defn bounded-done-bars? [bars Any allow-empty? Any] Any
+  (and (vector? bars)
+       (or allow-empty? (seq bars))
+       (<= (count bars) max-delivery-bars)
+       (every? (fn [__north_anon_1 Any] Any (bounded-nonblank-text? __north_anon_1 max-delivery-bar-utf8-bytes))
+               bars)
+       (= bars (vec (sort (distinct bars))))))
+
+(declare instant?)
+
+(defn canonical-done-when
+  "Canonical semantic done-bar set used at reservation, assessment, and commit:
+  ASCII-space trimmed, nonblank, Unicode-safe, unique, and lexical. Nil means
+  at least one stored done_when value is malformed; invalid facts are never
+  silently dropped from an authority boundary."
+  [facts Any] Any
+  (let [raw Any (values-of facts "done_when")
+        canonical Any (mapv canonical-evidence-text raw)]
+    (when (and (<= (count raw) max-delivery-bars)
+               (every? some? canonical))
+      (->> canonical distinct sort vec))))
+
+(defn done-bar-values
+  "Every raw stored done_when value. DIAGNOSTICS ONLY — it keeps malformed and
+  over-cap values so an error can quote what is actually on the thread; it is
+  never an authority set (canonical-done-when is)."
+  [facts Any] Any
+  (values-of facts "done_when"))
+
+(defn active-done-bar-texts
+  "Canonical bar texts a caller may cite right now, tolerating a contract that
+  canonical-done-when rejects as a whole. Malformed values are dropped HERE
+  because this answers 'may this exact text be cited', never 'is this contract
+  admissible' — every authority boundary keeps using canonical-done-when."
+  [facts Any] Any
+  (->> (done-bar-values facts)
+       (map canonical-evidence-text)
+       (filter some?)
+       distinct
+       sort
+       vec))
+
+(defn- single-line-diagnostic-text
+  [value Any] Any
+  (str/replace (str value) #"[\p{Cntrl}\u0080-\u009f]" " "))
+
+(defn done-bar-diagnostic
+  "One-line verbatim rendering of BARS for a writer error. Writer failures reach
+  a coordinator as a single `Message:` line, so a done-bar error that only
+  reports a COUNT leaves no way to see which bars to retire. Bounded by
+  max-done-bar-diagnostic-utf8-bytes; the remainder is counted, never dropped
+  in silence."
+  [bars Any] Any
+  (let [items (Vec String) (mapv (fn [__north_anon_1 Any] String (str "\"" (single-line-diagnostic-text __north_anon_1) "\"")) bars)]
+    (if (empty? items)
+      "(none)"
+      (loop [remaining (Vec String) items
+             shown (Vec String) []
+             budget Int max-done-bar-diagnostic-utf8-bytes]
+        (if-let [item String (first remaining)]
+          (let [cost Int (+ (utf8-byte-count item) (if (seq shown) 3 0))]
+            (if (<= cost budget)
+              (recur (rest remaining) (conj shown item) (- budget cost))
+              (str (when (seq shown) (str (str/join " | " shown) " | "))
+                   "(+" (count remaining) " more omitted)")))
+          (str/join " | " shown))))))
+
+(defn unreserved-bar-evidence-literal
+  "Thread-scoped observation recorded with NO run reservation. Self-labelling by
+  construction so no reader — human or projection — can mistake it for
+  run-bound verification, and no path upgrades it into one."
+  [bar Any observed Any] Any
+  (when (and (bounded-nonblank-text? bar max-unreserved-bar-utf8-bytes)
+             (bounded-nonblank-text? observed max-delivery-observed-utf8-bytes))
+    (str unreserved-bar-evidence-marker " " bar " → " observed)))
+
+(defn unreserved-bar-evidence-prefix
+  "Literal prefix of every unreserved observation for one exact bar; used to
+  find the stale lines one re-record supersedes."
+  [bar Any] Any
+  (str unreserved-bar-evidence-marker " " bar " → "))
+
+(defn run-reservation-done-when
+  "Parse the manifest-bound canonical reservation baseline, including an empty
+  vector for an explicitly worker-defined contract. Nil means malformed."
+  [facts Any] Any
+  (when-let [raw Any (singleton-value facts "run_reservation_done_when")]
+    (when (<= (utf8-byte-count raw)
+              max-run-reservation-baseline-utf8-bytes)
+      (try
+        (let [decoded Any (json/parse-string raw)
+              parsed Any (when (and (sequential? decoded) (not (string? decoded)))
+                       (vec decoded))]
+          (when (and parsed (bounded-done-bars? parsed true))
+            parsed))
+        (catch Exception _ nil)))))
+
+(defn run-reservation-manifest-sha256
+  [projection Any] Any
+  (let [body Any (into (sorted-map) (select-keys projection run-reservation-body-predicates))]
+    (when (= (count body) (count run-reservation-body-predicates))
+      (sha256
+       (apply str
+              (map (fn [[predicate value] Any] Any
+                     (str predicate "\u0000" value "\n"))
+                   body))))))
+
+(defn run-reservation-valid?
+  "A reservation is committed only when every authority field is singleton and
+  its marker digests the exact projection. Additional run_bar_evidence values
+  are allowed; conflicting reservation publishers invalidate the subject."
+  [facts Any] Any
+  (let [body Any (into (sorted-map)
+                   (keep (fn [predicate Any] Any
+                           (when-let [value Any (singleton-value facts predicate)]
+                             [predicate value])))
+                   run-reservation-body-predicates)
+        marker Any (singleton-value facts "run_reservation_manifest_sha256")
+        expected Any (run-reservation-manifest-sha256 body)
+        contract-origin Any (get body "run_reservation_contract_origin")
+        baseline Any (run-reservation-done-when facts)]
+    (boolean
+     (and (= (count body) (count run-reservation-body-predicates))
+          (every? (fn [__north_anon_1 Any] Any (= 1 (count (values-of facts __north_anon_1)))) run-reservation-predicates)
+          (= run-reservation-version (get body "run_reservation_version"))
+          (valid-agent-entity? (get body "run_reservation_agent"))
+          (valid-thread-entity? (get body "run_reservation_thread"))
+          (re-matches #"^[0-9a-f]{64}$" (get body "run_capability_sha256"))
+          (instant? (get body "run_reserved_at"))
+          (#{"accepted" "worker-defined"} contract-origin)
+          (some? baseline)
+          (if (= "accepted" contract-origin) (seq baseline) (empty? baseline))
+          expected (= marker expected)))))
+
+(defn terminal-manifest-sha256
+  "Digest the exact base terminal plus any delivery-evidence projection using
+  the writer's canonical encoding."
+  [facts Any] Any
+  (let [required Any (into {}
+                       (keep (fn [predicate Any] Any
+                               (when-let [value Any (singleton-value facts predicate)]
+                                 [predicate value])))
+                       terminal-predicates)
+        conflicts? Any (some (fn [__north_anon_1 Any] Any (> (count (values-of facts __north_anon_1)) 1))
+                         terminal-projection-predicates)
+        projection Any (into (sorted-map)
+                         (keep (fn [predicate Any] Any
+                                 (when-let [value Any (singleton-value facts predicate)]
+                                   [predicate value])))
+                         terminal-projection-predicates)]
+    (when (and (= (count terminal-predicates) (count required))
+               (not conflicts?))
+      (sha256
+       (apply str
+              (map (fn [[predicate value] Any] Any
+                     (str predicate "\u0000" value "\n"))
+                   projection))))))
+
+(defn- parse-json-map [raw Any] Any
+  (try
+    (let [parsed Any (json/parse-string raw)]
+      (when (map? parsed) parsed))
+    (catch Exception _ nil)))
+
+(defn instant? [value Any] Any
+  (boolean
+   (when (string? value)
+     (when-let [[_ year month day hour minute second] Any
+                (re-matches
+                 #"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$"
+                 value)]
+       (try
+         ;; Instant.parse accepts 24:00 and normalizes it to the next day.
+         ;; Proof syntax must reject normalization just like the TS validator.
+         (let [year-int Int (or (parse-long year) 0)
+               month-int Int (or (parse-long month) 0)
+               day-int Int (or (parse-long day) 0)
+               hour Int (or (parse-long hour) 0)
+               minute Int (or (parse-long minute) 0)
+               second Int (or (parse-long second) 0)]
+           (and (< hour 24) (< minute 60) (< second 60)
+                (do (java.time.LocalDate/of year-int month-int day-int)
+                    (java.time.Instant/parse value)
+                    true)))
+         (catch Exception _ false))))))
+
+(defn run-bar-evidence-valid?
+  [record Any] Any
+  (boolean
+   (and (map? record)
+        (= #{"bar" "observed" "recordedAt" "reporter" "run" "thread" "version"}
+           (set (keys record)))
+        (= run-bar-evidence-version (get record "version"))
+        (valid-run-entity? (get record "run"))
+        (valid-thread-entity? (get record "thread"))
+        (valid-agent-entity? (get record "reporter"))
+        (bounded-nonblank-text?
+         (get record "bar") max-delivery-bar-utf8-bytes)
+        (bounded-nonblank-text?
+         (get record "observed") max-delivery-observed-utf8-bytes)
+        (instant? (get record "recordedAt")))))
+
+(defn parse-run-bar-evidence
+  "Parse one stored record only after its raw UTF-8 envelope is bounded."
+  [raw Any] Any
+  (when (and (string? raw)
+             (<= (utf8-byte-count raw)
+                 max-run-bar-evidence-record-utf8-bytes))
+    (try
+      (let [record Any (json/parse-string raw)]
+        (when (run-bar-evidence-valid? record) record))
+      (catch Exception _ nil))))
+
+(defn run-evidence-state
+  "Validate the entire evidence set on one reserved run. A malformed,
+  cross-scoped, duplicate-bar, or over-cap record invalidates the set; callers
+  must not cherry-pick the valid subset."
+  [facts Any run Any thread Any reporter Any] Any
+  (let [raws Any (values-of facts "run_bar_evidence")
+        parsed Any (mapv parse-run-bar-evidence raws)
+        scoped? Any
+        (every? (fn [record Any] Any
+                  (and record
+                       (= run (get record "run"))
+                       (= thread (get record "thread"))
+                       (= reporter (get record "reporter"))))
+                parsed)
+        bars Any (when scoped? (mapv (fn [__north_anon_1 Any] Any (get __north_anon_1 "bar")) parsed))
+        valid? Any (and (<= (count raws) max-delivery-bars)
+                    scoped?
+                    (= (count bars) (count (distinct bars))))]
+    {:valid? (boolean valid?)
+     :entries (if valid?
+                (loop [raw-items Any raws
+                       parsed-items Any parsed
+                       entries Any []]
+                  (if (seq raw-items)
+                    (recur (rest raw-items)
+                           (rest parsed-items)
+                           (conj entries [(first raw-items) (first parsed-items)]))
+                    entries))
+                [])
+     :raws (if valid? (set raws) #{})
+     :records (if valid? parsed [])}))
+
+(defn evidence-reports-bar?
+  "Human thread-review projection only. Delivery qualification uses structured
+  run_bar_evidence; this parser keeps needs-review/routing context compatible."
+  [bar Any evidence Any] Bool
+  (let [bar String (str/trim (str bar))
+        evidence String (str/trim (str evidence))]
+    (boolean
+     (and (seq bar) (seq evidence)
+          (str/starts-with? evidence bar)
+          (re-matches #"^\s*→\s*\S.*$" (subs evidence (count bar)))))))
+
+(defn- valid-evidence-envelope?
+  [raw Any digest Any] Any
+  (boolean
+   (and (string? raw)
+        (valid-unicode-scalars? raw)
+        (<= (utf8-byte-count raw) max-delivery-envelope-utf8-bytes)
+        (let [parsed Any (parse-json-map raw)
+              baseline-bars Any (get parsed "baselineDoneWhen")
+              bars Any (get parsed "doneWhen")
+              matches Any (get parsed "matches")
+              thread Any (get parsed "thread")
+              reporter Any (get parsed "reporter")
+              run Any (get parsed "run")
+              contract-origin Any (get parsed "contractOrigin")]
+          (and
+          parsed
+          (= (set (keys parsed))
+             #{"version" "run" "thread" "reporter" "contractOrigin"
+               "baselineDoneWhen" "doneWhen" "matches"})
+          (= digest (sha256 raw))
+          (= delivery-evidence-version (get parsed "version"))
+          (valid-run-entity? run)
+          (valid-thread-entity? thread)
+          (valid-agent-entity? reporter)
+          (#{"accepted" "worker-defined"} contract-origin)
+          (bounded-done-bars? baseline-bars true)
+          (bounded-done-bars? bars false)
+          (if (= "accepted" contract-origin)
+            (and (seq baseline-bars) (= baseline-bars bars))
+            (empty? baseline-bars))
+          (vector? matches) (= (count bars) (count matches))
+          (every?
+           (fn [[bar match] Any] Any
+             (let [evidence Any (get match "evidence")]
+               (and (map? match)
+                    (= #{"bar" "evidence"} (set (keys match)))
+                    (= bar (get match "bar"))
+                    (vector? evidence) (= 1 (count evidence))
+                    (every?
+                     (fn [__north_anon_1 Any] Any (and (run-bar-evidence-valid? __north_anon_1) (= bar (get __north_anon_1 "bar")) (= run (get __north_anon_1 "run")) (= thread (get __north_anon_1 "thread")) (= reporter (get __north_anon_1 "reporter"))))
+                     evidence))))
+           (loop [bar-items Any bars
+                  match-items Any matches
+                  pairs Any []]
+             (if (seq bar-items)
+               (recur (rest bar-items)
+                      (rest match-items)
+                      (conj pairs [(first bar-items) (first match-items)]))
+               pairs))))))))
+
+(defn delivery-proof
+  [facts Any] Any
+  (let [evidence Any (singleton-value facts "delivery_evidence")
+        evidence-digest Any (singleton-value facts "delivery_evidence_sha256")]
+    (when (or evidence evidence-digest)
+      {:evidence evidence
+       :evidence-digest evidence-digest})))
+
+(defn delivery-projection-valid?
+  "Reported requires a complete run-scoped self-reported done-bar snapshot.
+  Unverified and blocked forbid evidence residue."
+  [facts Any] Any
+  (let [outcome Any (singleton-value facts "delivery_outcome")
+        reason Any (singleton-value facts "delivery_reason")
+        process Any (singleton-value facts "process_outcome")
+        proof Any (delivery-proof facts)
+        proof-fact-count Any (count (filter (fn [__north_anon_1 Any] Any (fact-present? facts __north_anon_1))
+                                       delivery-proof-predicates))
+        {:keys [evidence evidence-digest]} Any proof
+        evidence-valid? Any (and evidence evidence-digest
+                             (valid-evidence-envelope? evidence evidence-digest))]
+    (boolean
+     (and process
+          (if (= "ran" process) (not= "blocked" outcome) (= "blocked" outcome))
+          (match outcome
+            ["blocked" (and (zero? proof-fact-count) (some? reason))]
+            ["unverified" (and (zero? proof-fact-count) (some? reason))]
+            ["reported" (and (= "complete_run_scoped_done_bar_evidence_self_reported" reason)
+                             (= 2 proof-fact-count)
+                             evidence-valid?)]
+            [_ false])))))
+
+(defn terminal-manifest-valid?
+  [facts Any] Any
+  (let [marker Any (singleton-value facts "terminal_manifest_sha256")
+        process Any (singleton-value facts "process_outcome")
+        expected Any (terminal-manifest-sha256 facts)]
+    (boolean (and marker process expected
+                  (= marker expected)
+                  (delivery-projection-valid? facts)))))
+
+(defn terminal-delivery-outcome
+  "Delivery state only from a complete, digest-committed, proof-valid terminal."
+  [facts Any] Any
+  (when (terminal-manifest-valid? facts)
+    (some-> (singleton-value facts "delivery_outcome") str/trim)))
+
+(defn terminal-process-outcome
+  "Resolve a lane terminal from a valid process_outcome manifest."
+  [facts Any] Any
+  (when (and (fact-present? facts "process_outcome")
+             (terminal-manifest-valid? facts))
+    (some-> (singleton-value facts "process_outcome") str/trim)))
+
+(defn committed-run?
+  "kind=run is the run writer's last-write commit marker."
+  [facts Any] Any
+  (= "run" (singleton-value facts "kind")))
+
+(defn committed-run-process-outcome
+  "Resolve a run terminal only after kind=run committed the row."
+  [facts Any] Any
+  (when (committed-run? facts)
+    (when (and (fact-present? facts "process_outcome")
+               (terminal-manifest-sha256 facts)
+               (delivery-projection-valid? facts))
+      (some-> (singleton-value facts "process_outcome") str/trim))))
+
+(defn- terminal-body-present?
+  [facts Any] Any
+  (boolean
+   (some (fn [__north_anon_1 Any] Any (fact-present? facts __north_anon_1))
+         (conj terminal-projection-predicates "terminal_manifest_sha256"))))
+
+(defn- strict-run-instant
+  [facts Any] Any
+  (let [at Any (singleton-value facts "at")]
+    (when (instant? at)
+      (java.time.Instant/parse at))))
+
+(defn lane-resolution
+  "Canonical execution resolution for one managed lane.
+
+  RUN-ENTRIES are maps with :subject and :facts. The valid digest-committed lane
+  terminal is primary. With no lane terminal body, the latest exact run by its
+  singleton ISO timestamp may resolve the lane only when its last-write kind
+  marker, agent identity, and terminal projection are all valid. Ambiguous,
+  torn, conflicting, uncommitted, or nonterminal evidence is indeterminate:
+  callers must neither call it active nor finished."
+  [control Any lane-facts Any run-entries Any] Any
+  (let [lane-outcome Any (terminal-process-outcome lane-facts)]
+    (cond
+      lane-outcome
+      {:status :resolved
+       :source :agent
+       :outcome lane-outcome
+       :delivery-outcome (terminal-delivery-outcome lane-facts)
+       :facts lane-facts}
+
+      (terminal-body-present? lane-facts)
+      {:status :indeterminate :reason :invalid-lane-terminal}
+
+      (empty? run-entries)
+      {:status :unresolved :reason :no-run}
+
+      :else
+      (let [dated Any
+            (mapv (fn [{:keys [subject facts] :as entry} Any] Any
+                    (assoc entry :instant (strict-run-instant facts)))
+                  run-entries)]
+        (cond
+          (some (fn [__north_anon_1 Any] Any (or (not (valid-run-entity? (:subject __north_anon_1))) (not (map? (:facts __north_anon_1))) (nil? (:instant __north_anon_1))))
+                dated)
+          {:status :indeterminate :reason :invalid-run-ordering}
+
+          :else
+          (let [latest-instant Any
+                (reduce (fn [latest Any candidate Any] Any
+                          (if (pos? (.compareTo ^java.time.Instant candidate
+                                               ^java.time.Instant latest))
+                            candidate
+                            latest))
+                        (map (fn [entry Any] Any (:instant entry)) dated))
+                latest Any (filterv (fn [__north_anon_1 Any] Any (= latest-instant (:instant __north_anon_1))) dated)]
+            (if (not= 1 (count latest))
+              {:status :indeterminate :reason :ambiguous-latest-run}
+              (let [{:keys [subject facts]} Any (first latest)
+                    agent Any (singleton-value facts "agent")
+                    outcome Any (committed-run-process-outcome facts)]
+                (cond
+                  (not= control agent)
+                  {:status :indeterminate :reason :invalid-run-agent
+                   :run-subject subject}
+
+                  (not (committed-run? facts))
+                  {:status :indeterminate :reason :uncommitted-latest-run
+                   :run-subject subject}
+
+                  (nil? outcome)
+                  {:status :indeterminate :reason :invalid-latest-run-terminal
+                   :run-subject subject}
+
+                  :else
+                  {:status :resolved
+                   :source :run
+                   :run-subject subject
+                   :outcome outcome
+                   :delivery-outcome
+                   (singleton-value facts "delivery_outcome")
+                   :facts facts})))))))))
+
+(defn lane-resolved?
+  [control Any lane-facts Any run-entries Any] Any
+  (= :resolved (:status (lane-resolution control lane-facts run-entries))))

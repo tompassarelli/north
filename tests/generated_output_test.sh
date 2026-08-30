@@ -38,6 +38,25 @@ if rg -n '/home/|\^\{:line' \
 fi
 echo "generated pair cli/store-rpc-client + cli/coord: passed"
 
+for module in \
+  agent-fact-internal \
+  agent-provenance \
+  delivery-evidence-internal \
+  lifecycle-projection \
+  run-event-internal \
+  run-fact-internal \
+  run-ledger \
+  terminal-projection \
+  reap; do
+  (
+    cd "$root"
+    BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build" \
+      "cli/$module.bclj" \
+      "$tmp/$module.clj" >/dev/null
+  )
+  cmp "$tmp/$module.clj" "$root/cli/$module.clj"
+  echo "generated pair cli/$module: passed"
+done
 for module in projections validate staleness audit worker_policy store_runtime_manifest main; do
   BEAGLE_EMIT_SRCLOC=0 direnv exec "$beagle" "$beagle/bin/beagle-build" \
     --module-root "north/src=$root/src" \

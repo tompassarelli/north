@@ -291,7 +291,7 @@
                 (catch Exception error error)))
             active-after
             (north.terminal-projection/canonical-done-when
-             (north.delivery-evidence-internal/facts-of port thread))]
+             (north.delivery-evidence-internal/facts-of! port thread))]
         (check! "contract mutation actually lands in the validation/write window"
                 (true? @mutated))
         (check! "a raced done-bar contract is rejected, never acknowledged as proof"

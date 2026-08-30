@@ -58,7 +58,7 @@
 
 (defn publish-with [fake desired expected]
   (with-redefs [native-rpc! (:invoke fake)
-                native-triple-predicate identity]
+                native-triple-predicate! identity]
     (native-publish-identity! :client subject "publish" operation-id
                               desired desired expected holder)))
 
@@ -134,7 +134,7 @@
                            :readbacks [{:state :committed}]})
         result
         (with-redefs [native-rpc! (:invoke fake)
-                      native-triple-predicate identity]
+                      native-triple-predicate! identity]
           (native-publish-identity! :client subject "route" operation-id
                                     route desired preset holder))]
     (is (= "committed" (:status result)))
