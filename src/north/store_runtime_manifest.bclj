@@ -17,16 +17,6 @@
 (def manifest-stopping String "before-drain")
 (def manifest-relative-path String "libexec/store/runtime.manifest")
 
-(def accepted-jvm-revision String
-  "38803ebb39190c15e131d377a5210aea495e1090")
-(def accepted-jvm-tree String
-  "8accca0dd3b200a0596c9524f988406d1fdfb9a3")
-(def accepted-jvm-nar-sha256 String
-  "sha256-+r+CrulcAJPpfKLXEypIPBZUER7FzJsWa1FmYOSFXAM=")
-(def accepted-jvm-manifest-bytes Int 349)
-(def accepted-jvm-manifest-sha256 String
-  "d2f27cbb711ca4958c3db751e4c5f58fb39b4ee042bd4efec4f2d46d1f8eede7")
-
 (def north-user-state-root String
   (str "/" "home" "/tom/code/north-data"))
 (def canonical-store-runtime-root String
@@ -226,32 +216,58 @@
          "readiness=" (:readiness checked) "\n"
          "stopping=" (:stopping checked) "\n")))
 
-(def accepted-current-runtime-manifest StoreRuntimeManifest
-  (->StoreRuntimeManifest
-   manifest-format
-   accepted-jvm-revision
-   "d461c0018c1b4fa3acb92bca53fadcf3f3e586bd"
-   manifest-engine
-   manifest-native-backend
-   manifest-heap-policy
-   manifest-heap-max-bytes
-   manifest-protocol
-   manifest-protocol-version
-   manifest-readiness
-   manifest-stopping))
-
-(def accepted-runtime-manifest-text String
-  (canonical-manifest-text! accepted-current-runtime-manifest))
+(defn- jvm-runtime-authority
+  [output String?
+   package-nar-sha256 String
+   beagle-revision String
+   beagle-tree String
+   source-tree String
+   manifest-bytes Int
+   manifest-sha256 String] JVMRuntimeAuthority
+  (->JVMRuntimeAuthority
+   output
+   package-nar-sha256
+   beagle-revision
+   beagle-tree
+   manifest-bytes
+   manifest-sha256
+   (->StoreRuntimeManifest
+    manifest-format
+    beagle-revision
+    source-tree
+    manifest-engine
+    manifest-native-backend
+    manifest-heap-policy
+    manifest-heap-max-bytes
+    manifest-protocol
+    manifest-protocol-version
+    manifest-readiness
+    manifest-stopping)))
 
 (def ^:private current-jvm-authority JVMRuntimeAuthority
-  (->JVMRuntimeAuthority
+  (jvm-runtime-authority
    nil
-   accepted-jvm-nar-sha256
-   accepted-jvm-revision
-   accepted-jvm-tree
-   accepted-jvm-manifest-bytes
-   accepted-jvm-manifest-sha256
-   accepted-current-runtime-manifest))
+   "sha256-g4uXy8bQegHu7+Gx8HyI/5h6i0bQSq2gtBDKLAmX2aI="
+   "e18a5ae00cd96a0a2faa32cd8832da72db9b5bf4"
+   "f2a7f4abf6ca6726a623b4640f62fab36cf912c0"
+   "a5b1826e0cd052a8246e44b6c4e9ed94b481faa5"
+   349
+   "9c77d7101990136e7a70d67936dc2f7b920f3039c95635dbb2ff83890cacbf89"))
+
+(def accepted-jvm-revision String
+  (:beagle-revision current-jvm-authority))
+(def accepted-jvm-tree String
+  (:beagle-tree current-jvm-authority))
+(def accepted-jvm-nar-sha256 String
+  (:package-nar-sha256 current-jvm-authority))
+(def accepted-jvm-manifest-bytes Int
+  (:manifest-bytes current-jvm-authority))
+(def accepted-jvm-manifest-sha256 String
+  (:manifest-sha256 current-jvm-authority))
+(def accepted-current-runtime-manifest StoreRuntimeManifest
+  (:manifest current-jvm-authority))
+(def accepted-runtime-manifest-text String
+  (canonical-manifest-text! accepted-current-runtime-manifest))
 
 (def accepted-native-runtime RuntimeMember
   (->Native
@@ -267,31 +283,20 @@
    "b3de9e5692ba73303da4f2e38432e6fe0debacd4cf46ac3033d059f713225b69"))
 
 (def ^:private promotion-source-output String
-  "/nix/store/sad6bfbgfsbh08kgxlr7a91fnrx7blsy-beagle-store-jvm-composite-1-6fcf9b92756b6213b792d5300cad004de9d10341")
-
-(def ^:private promotion-source-manifest StoreRuntimeManifest
-  (->StoreRuntimeManifest
-   manifest-format
-   "6fcf9b92756b6213b792d5300cad004de9d10341"
-   "29a7ede79df3c1a3cecb119302179f9923f43385"
-   manifest-engine
-   manifest-native-backend
-   manifest-heap-policy
-   manifest-heap-max-bytes
-   manifest-protocol
-   manifest-protocol-version
-   manifest-readiness
-   manifest-stopping))
+  "/nix/store/xd1f0hjyp64dvnww1njxwvpfxqpzvka5-beagle-store-jvm-composite-1-38803ebb39190c15e131d377a5210aea495e1090")
 
 (def ^:private promotion-source-jvm-authority JVMRuntimeAuthority
-  (->JVMRuntimeAuthority
+  (jvm-runtime-authority
    promotion-source-output
-   "sha256-cOFxh6TGbGYc2lRN+UyCf6PWQ2mg3vpevTYijAEIzLU="
-   (:beagle-revision promotion-source-manifest)
-   "c5ad9ba46ce0f83cd988997504c084543b3cd6c2"
+   "sha256-+r+CrulcAJPpfKLXEypIPBZUER7FzJsWa1FmYOSFXAM="
+   "38803ebb39190c15e131d377a5210aea495e1090"
+   "8accca0dd3b200a0596c9524f988406d1fdfb9a3"
+   "d461c0018c1b4fa3acb92bca53fadcf3f3e586bd"
    349
-   "c5a6444b108541a751a50627a6001ba0ac0a3f0f05e20e36f73d8a6f3d8c55c0"
-   promotion-source-manifest))
+   "d2f27cbb711ca4958c3db751e4c5f58fb39b4ee042bd4efec4f2d46d1f8eede7"))
+
+(def ^:private promotion-source-manifest StoreRuntimeManifest
+  (:manifest promotion-source-jvm-authority))
 
 (def ^:private promotion-source-jvm RuntimeMember
   (->JVM

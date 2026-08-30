@@ -205,11 +205,11 @@
                       (:generation
                        (generation/read-selected-generation
                         (:environment fixture))))
-                   (not (re-find
-                         #"6fcf9b92756b6213b792d5300cad004de9d10341"
+                   (not (str/includes?
                          (slurp (str (.resolve ^java.nio.file.Path
                                               (:root selected)
-                                              "generation.edn")))))))
+                                              "generation.edn")))
+                         (:beagle-revision old-jvm)))))
       (promote-fixture! fixture)
       (check! "re-promoting the current authority is selector-idempotent"
               (= first-target (selector-target fixture))))
