@@ -1438,7 +1438,13 @@ export async function selectProviderForExecution(
     ?? (decision.provider === "openai" && selectedAuthority && selectedUsage
       ? Object.freeze({ accountAuthority: selectedAuthority.receipt, usage: selectedUsage })
       : undefined);
-  return executionAccountReceipt
-    ? Object.freeze({ ...decision, executionAccountReceipt })
-    : decision;
+  if (executionAccountReceipt) {
+    Object.defineProperty(decision, "executionAccountReceipt", {
+      value: executionAccountReceipt,
+      enumerable: true,
+      writable: false,
+      configurable: false,
+    });
+  }
+  return decision as ExecutionRoutingDecision;
 }
