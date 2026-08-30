@@ -80,7 +80,7 @@
   [port Int
    subject String
    predicate String] Any
-  (coord-invoke! "resolved-envelope" [port subject predicate]))
+  (coord-invoke! "resolved-envelope!" [port subject predicate]))
 
 (defn- require-exact!
   [port Int
@@ -142,7 +142,7 @@
 (defn- query-rows!
   [port Int
    query Any] Any
-  (coord-invoke! "query-rows" [port query]))
+  (coord-invoke! "query-rows!" [port query]))
 
 (defn- exact-assertion-boundary!
   [port Int
@@ -150,7 +150,7 @@
    predicate String
    value String] Any
   (let [occurrences Any (coord-invoke!
-                         "proposition-occurrences"
+                         "proposition-occurrences!"
                          [port subject predicate value])
         occurrence Any (first occurrences)]
     (if (and (= 1 (count occurrences))
