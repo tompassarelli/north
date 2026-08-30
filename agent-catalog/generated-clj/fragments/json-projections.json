@@ -1,0 +1,22 @@
+{
+  "schema": "north.generated-clj-fragment.v1",
+  "jobs": [
+    {
+      "id": "cli-json-projections",
+      "builder": "single",
+      "sourceLocations": "omit",
+      "environment": "plain",
+      "moduleRoots": [],
+      "pairs": [
+        {
+          "input": "cli/json-show-cli.bclj",
+          "output": "cli/json-show-cli.clj"
+        },
+        {
+          "input": "cli/json-child-settlement-cli.bclj",
+          "output": "cli/json-child-settlement-cli.clj"
+        }
+      ]
+    }
+  ]
+}

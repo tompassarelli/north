@@ -1,0 +1,79 @@
+#lang beagle/clj
+
+(ns north.json-show-cli
+  "Exact indexed JSON projection for one North subject.")
+
+(require [cheshire.core :as json])
+(require [clojure.java.io :as io])
+
+(declare-extern load-file (Fn [String] Any))
+(declare-extern cheshire.core/generate-string (Fn [Any] String))
+(declare-extern north.coord/show-envelope! (Fn [Int String] Any))
+
+(def script-file Any (.getCanonicalPath (io/file *file*)))
+(def cli-dir Any (.getParent (io/file script-file)))
+(load-file (str cli-dir "/coord.clj"))
+
+(defrecord JsonFact
+  [predicate String
+   value String])
+
+(defn- coordination-port [] Int
+  (let [value Any (parse-long (or (System/getenv "NORTH_PORT") "7977"))]
+    (if (int? value)
+      value
+      (throw (ex-info "NORTH_PORT is malformed" {:type :invalid-port})))))
+
+(defn- string-term [value Any] String
+  (if (string? value)
+    value
+    (throw (ex-info "Store RPC subject projection returned a non-string term"
+                    {:type :malformed-subject-projection}))))
+
+(defn- json-fact [row Any] JsonFact
+  (if (and (vector? row) (= 2 (count row)))
+    (->JsonFact (string-term (nth row 0)) (string-term (nth row 1)))
+    (throw (ex-info "Store RPC subject projection returned a malformed row"
+                    {:type :malformed-subject-projection}))))
+
+(defn exact-facts!
+  [port Int
+   id String] (Vec JsonFact)
+  (let [envelope Any (north.coord/show-envelope! port (str "@" id))
+        rows Any (:rows envelope)]
+    (if (vector? rows)
+      (mapv (fn [row Any] JsonFact (json-fact row)) rows)
+      (throw (ex-info "Store RPC subject projection omitted its rows"
+                      {:type :malformed-subject-projection})))))
+
+(defn- refuse!
+  [id String
+   error Any] Any
+  (binding [*out* *err*]
+    (println
+     (str "north: json show REFUSED — coordinator unavailable for @"
+          id
+          (let [detail Any (.getMessage error)]
+            (if (and (string? detail) (not (empty? detail)))
+              (str ": " detail)
+              "")))))
+  (System/exit 4))
+
+(defn -main [& (args (Vec String))] Any
+  (if (= 1 (count args))
+    (try
+      (println (json/generate-string
+                (exact-facts! (coordination-port) (first args))))
+      (catch Exception error (refuse! (first args) error)))
+    (do
+      (binding [*out* *err*]
+        (println "usage: json show <id>"))
+      (System/exit 2))))
+
+(defn- direct-invocation? [] Bool
+  (= script-file
+     (.getCanonicalPath
+      (io/file (System/getProperty "babashka.file")))))
+
+(when (direct-invocation?)
+  (apply -main *command-line-args*))
