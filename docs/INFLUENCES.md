@@ -57,18 +57,6 @@ records no copied source.
 - Durable coordination mail plus observable live-lane steering
   ([`cli/msg-cli.clj`](../cli/msg-cli.clj),
   [`sdk/src/live-input-route.ts`](../sdk/src/live-input-route.ts)).
-- A provider-neutral Native Core prompt lifecycle rule that appends an interrupted terminal
-  only for one uniquely attributable unfinished attempt and preserves ambiguous
-  ledgers as typed unknown results
-  ([`src/north/prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl)).
-- Native Core typed programs for scoped memory facts and bounded recall,
-  immutable session lineage and compaction-tail projection, ordered replay and
-  terminal provenance, and scheduled-run lease reclamation
-  ([`memory_core.bgl`](../src/north/memory_core.bgl),
-  [`session_core.bgl`](../src/north/session_core.bgl),
-  [`replay_core.bgl`](../src/north/replay_core.bgl),
-  [`scheduled_run_core.bgl`](../src/north/scheduled_run_core.bgl)).
-
 These are not reimplemented because another harness has a similar surface.
 Upstream evidence may sharpen their invariants or reveal a missing seam.
 
@@ -76,11 +64,11 @@ Upstream evidence may sharpen their invariants or reveal a missing seam.
 
 | Concern | North owner | Required implementation shape | Boundary rule |
 | --- | --- | --- | --- |
-| Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/), including [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl) | Provider-neutral typed Beagle; `.bgl` is Native Core and explicit `.bclj`/`.bjs` files are hosted capsules | No provider model IDs, host process APIs, or durable side stores |
-| Durable memory and learned facts | [`src/north/memory_core.bgl`](../src/north/memory_core.bgl) over the canonical Store RPC selected by [`sdk/src/beagle-store.ts`](../sdk/src/beagle-store.ts) | Store-backed typed facts, supersession, validity, trust, and bounded recall | Files and prompts may be projections, never the system of record |
-| Agent and session identity | [`src/north/session_core.bgl`](../src/north/session_core.bgl), [`sdk/src/identity.ts`](../sdk/src/identity.ts), and Store-backed North vocabulary | Beagle Native identity allocation, lineage, and evolution | Provider conversation IDs remain adapter evidence, not North identity |
-| Scheduling and admission | [`src/north/scheduled_run_core.bgl`](../src/north/scheduled_run_core.bgl), [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj), and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy and scheduled-run state in Beagle; resident scheduling in Beagle Native | JavaScript may launch admitted work but may not decide provider-neutral policy |
-| Replay, run evidence, and provenance | [`src/north/replay_core.bgl`](../src/north/replay_core.bgl), [`sdk/src/execution-fold.ts`](../sdk/src/execution-fold.ts), [`sdk/src/run-ledger.ts`](../sdk/src/run-ledger.ts), and [`sdk/src/run-provenance.ts`](../sdk/src/run-provenance.ts) | Canonical typed event fold, divergence, terminal summary, and Store-backed receipts in Beagle Native | Provider payload decoding stays in the provider adapter |
+| Work and prompt lifecycle, dependencies, admission, and orchestration semantics | [`src/north/`](../src/north/) and the current execution ledger under [`sdk/src/`](../sdk/src/) | Provider-neutral typed semantics over Store, with host code only at a live runtime boundary | No provider model IDs, host process APIs, or durable side stores in the coordination domain |
+| Durable memory and learned facts | The canonical Store-backed coordination vocabulary | Store-backed typed facts, supersession, validity, trust, and bounded recall | Files and prompts may be projections, never the system of record |
+| Agent and session identity | [`sdk/src/identity.ts`](../sdk/src/identity.ts) and Store-backed North vocabulary | One internal identity and lineage authority | Provider conversation IDs remain adapter evidence, not North identity |
+| Scheduling and admission | [`src/north/worker_policy.bclj`](../src/north/worker_policy.bclj) and [`sdk/src/execution-admission.ts`](../sdk/src/execution-admission.ts) | Typed policy over Store; host launch code consumes admitted decisions | JavaScript may launch admitted work but may not decide provider-neutral policy |
+| Replay, run evidence, and provenance | [`sdk/src/execution-fold.ts`](../sdk/src/execution-fold.ts), [`sdk/src/run-ledger.ts`](../sdk/src/run-ledger.ts), and [`sdk/src/run-provenance.ts`](../sdk/src/run-provenance.ts) | Ordered event fold and Store-backed receipts | Provider payload decoding stays in the provider adapter |
 | Provider CLI and streaming protocol | [`sdk/src/providers/`](../sdk/src/providers/) | Thin Beagle/JavaScript adapter | Fallback is allowed only before observable side effects |
 | PTY and terminal UI | [`sdk/src/bridge/`](../sdk/src/bridge/) | Thin Beagle/JavaScript host adapter | Terminal state is a projection of canonical execution state |
 | Browser sharing surface | [`sdk/src/run-share-viewer.ts`](../sdk/src/run-share-viewer.ts) | Thin Beagle/JavaScript browser adapter | The viewer receives bounded projections, never Store authority |
@@ -101,9 +89,9 @@ North seam rather than as an imported framework.
   ([design](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/docs/design/2026-08-19-prompt-terminal-ledger-design.md#L30-L88),
   [ledger](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/cli/src/serve/prompt-terminal-ledger.ts#L130-L300),
   [journal](https://github.com/QwenLM/qwen-code/blob/5f3165f17ea3224a7b982f0c75ae560e8d4aaa39/packages/core/src/agents/runtime/workflow-journal.ts#L7-L153)).
-  North owns the provider-neutral rule in
-  [`prompt_lifecycle.bgl`](../src/north/prompt_lifecycle.bgl); Store persistence
-  and process observation remain Native boundaries.
+  North's provider-neutral rule belongs in production-consumed typed Beagle
+  over Store; Store persistence and process observation remain runtime
+  boundaries.
 - **Typed memory with bounded recall.** oh-my-pi models source, scope, trust,
   validity, and supersession
   ([types](https://github.com/can1357/oh-my-pi/blob/72000acfeb902e21816252699482887f34d1a5a4/packages/mnemopi/src/core/beam/types.ts#L106-L218),
