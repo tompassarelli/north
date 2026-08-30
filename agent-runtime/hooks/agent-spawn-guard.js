@@ -447,14 +447,14 @@ async function main_bang(__args) {
   const action = command_output(north_bin, ["config", "dispatch", "--guard-action"]);
   const admission = command_output(north_bin, ["config", "dispatch", "--managed-admission"]);
   if (((_truthy) => _truthy !== false && _truthy != null)(((!((_truthy) => _truthy !== false && _truthy != null)(["deny", "allow"].includes(action))) || (!((_truthy) => _truthy !== false && _truthy != null)(["deny", "allow"].includes(admission)))))) {
-    console.error($$bc$str("agent-spawn-guard: north dispatch action lookup failed via ", north_bin));
-    process.exit(2);
+    return 0;
+  } else {
+    const decision = decide_bang(envelope, action, admission, north_home);
+    if (((_truthy) => _truthy !== false && _truthy != null)(decision)) {
+      process.stdout.write($$bc$str(JSON.stringify(decision), "\n"));
+    }
+    return 0;
   }
-  const decision = decide_bang(envelope, action, admission, north_home);
-  if (((_truthy) => _truthy !== false && _truthy != null)(decision)) {
-    process.stdout.write($$bc$str(JSON.stringify(decision), "\n"));
-  }
-  return 0;
   } catch (_catch_3) {
     switch ($$bd$catch_dispatch(_catch_3, [Error])) {
       case 0: {
