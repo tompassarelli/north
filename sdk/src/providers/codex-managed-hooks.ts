@@ -152,9 +152,10 @@ const MANAGED_HOOK_LAUNCHERS = {
 } as const satisfies Readonly<Record<string, ManagedHookLauncher>>;
 
 function managedHookLauncher(name: string): ManagedHookLauncher {
-  const launcher = (MANAGED_HOOK_LAUNCHERS as Readonly<Record<string, ManagedHookLauncher>>)[name];
-  if (!launcher) throw new Error(`managed Codex hook identity ${name} is not allowed`);
-  return launcher;
+  const launchers = MANAGED_HOOK_LAUNCHERS as Readonly<Record<string, ManagedHookLauncher>>;
+  if (!Object.prototype.hasOwnProperty.call(launchers, name))
+    throw new Error(`managed Codex hook identity ${name} is not allowed`);
+  return launchers[name]!;
 }
 
 const command = (
