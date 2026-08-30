@@ -127,6 +127,10 @@ test("automatic effort follows the selected provider and tier", () => {
     composition: { overrides: [] },
   });
 
+  expect(resolveBridgeLaunchSelection("openai", "implementer", {}).resolved).toEqual({
+    tier: "standard", model: "gpt-5.6-terra", effort: "medium",
+  });
+
   const explicit = resolveBridgeLaunchSelection("openai", "director", { effort: "max" });
   expect(explicit.resolved).toEqual({
     tier: "frontier", model: "gpt-5.6-sol", effort: "max",
