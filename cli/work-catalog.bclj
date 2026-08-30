@@ -1,0 +1,199 @@
+#lang beagle/clj
+
+(ns north.work-catalog
+  "One-snapshot Store-backed catalog of tracked things. Occurrences remain
+  internal evidence and never become catalog rows."
+  (:require [clojure.string :as str]
+            [north.coord :as coord]
+            [north.projections :as proj]
+            [north.referents :as referents]
+            [store.types :as t]))
+
+(def protocol String "north.semantic-catalog")
+(def protocol-version Int 1)
+(def default-store-space String "north-coordination")
+
+(defrecord CatalogTrackedThing
+  [id String
+   title String
+   desiredOutcome String?
+   agent Bool
+   plan Bool
+   project Bool
+   task Bool
+   assignee String?
+   assigneeTitle String?
+   status String?])
+
+(defrecord CatalogEnvelope
+  [protocol String
+   version Int
+   storeSpace String
+   storeVersion Int
+   trackedThings (Vec CatalogTrackedThing)])
+
+(defrecord AssignmentDisplay
+  [assignee String
+   assigneeTitle String])
+
+(defn- invalid-catalog
+  [message String
+   data Any] Any
+  (throw
+   (ex-info message
+            (assoc data :type :north/invalid-semantic-catalog))))
+
+(defn- nonblank
+  [field String
+   value String] String
+  (if (str/blank? value)
+    (invalid-catalog (str field " must be nonblank") {:field field})
+    value))
+
+(defn- exact-string-values
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String] (Vec String)
+  (let [raw (Vec Any) (proj/values-at idx subject predicate)]
+    (if (every? string? raw)
+      (mapv (fn [value Any] String value) raw)
+      (invalid-catalog
+       "catalog predicate contains a non-string value"
+       {:subject subject :predicate predicate}))))
+
+(defn- required-value
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String
+   field String] String
+  (let [values (Vec String) (exact-string-values idx subject predicate)]
+    (if (and (= 1 (count values))
+             (not (str/blank? (first values))))
+      (first values)
+      (invalid-catalog
+       (str field " must have exactly one nonblank value")
+       {:field field :subject subject :predicate predicate}))))
+
+(defn- optional-value
+  [idx proj/ProjectionIndex
+   subject String
+   predicate String
+   field String] String?
+  (let [values (Vec String) (exact-string-values idx subject predicate)]
+    (cond
+      [(empty? values) nil]
+      [(and (= 1 (count values))
+            (not (str/blank? (first values))))
+       (first values)]
+      [:else
+       (invalid-catalog
+        (str field " must be absent or have exactly one nonblank value")
+        {:field field :subject subject :predicate predicate})])))
+
+(defn- assignment-display
+  [idx proj/ProjectionIndex
+   tracked-thing String] AssignmentDisplay?
+  (let [assignments (Vec String) (->> (referents/occurrence-ids
+              idx tracked-thing referents/assignment-kind)
+             (filterv
+              (fn [assignment String] Bool
+                (referents/assignment-occurrence?
+                 idx assignment tracked-thing)))
+             sort
+             vec)]
+    (cond
+      [(empty? assignments) nil]
+      [(= 1 (count assignments))
+       (let [assignment String (first assignments)
+             assignee String (required-value
+              idx assignment "assignee" "assignment assignee")]
+         (->AssignmentDisplay
+          assignee
+          (required-value idx assignee "title" "assignee title")))]
+      [:else
+       (invalid-catalog
+        "tracked thing has more than one complete Assignment"
+        {:tracked-thing tracked-thing
+         :assignments assignments})])))
+
+(defn- catalog-row
+  [idx proj/ProjectionIndex
+   tracked-thing String] CatalogTrackedThing
+  (let [assignment AssignmentDisplay? (assignment-display idx tracked-thing)]
+    (->CatalogTrackedThing
+     tracked-thing
+     (required-value idx tracked-thing "title" "tracked thing title")
+     (optional-value
+      idx tracked-thing "desired_outcome" "desired outcome")
+     (referents/agent? idx tracked-thing)
+     (referents/plan? idx tracked-thing)
+     (referents/project? idx tracked-thing)
+     (referents/task? idx tracked-thing)
+     (if (some? assignment)
+       (assignmentdisplay-assignee assignment)
+       nil)
+     (if (some? assignment)
+       (assignmentdisplay-assigneeTitle assignment)
+       nil)
+     nil)))
+
+(defn catalog-envelope
+  [store-space String
+   store-version Int
+   facts (Vec t/Triple)] CatalogEnvelope
+  (do
+    (nonblank "Store space" store-space)
+    (when (neg? store-version)
+      (invalid-catalog
+       "Store version must be nonnegative"
+       {:store-version store-version}))
+    (let [idx proj/ProjectionIndex (proj/index-triples facts)
+          tracked-things (Vec String) (vec (sort (referents/all-tracked-thing-ids idx)))]
+      (->CatalogEnvelope
+       protocol
+       protocol-version
+       store-space
+       store-version
+       (mapv
+        (fn [tracked-thing String] CatalogTrackedThing
+          (catalog-row idx tracked-thing))
+        tracked-things)))))
+
+(defn- fact-row! [row Any] t/Triple
+  (if (and (vector? row)
+           (= 3 (count row))
+           (every? string? row))
+    (t/triple (nth row 0) (nth row 1) (nth row 2))
+    (invalid-catalog
+     "Store snapshot contains a malformed fact row"
+     {:row row})))
+
+(defn- store-space! [] String
+  (nonblank
+   "Store space"
+   (or (System/getenv "BEAGLE_STORE_SPACE_ID")
+       default-store-space)))
+
+(defn catalog-envelope! [port Int] CatalogEnvelope
+  (let [view Any (coord/live-facts-view! port)
+        domains Any (:domains view)
+        snapshot Any (when (map? domains) (:coordination domains))
+        available Any (when (map? snapshot) (:available snapshot))
+        store-version Any (when (map? snapshot) (:version snapshot))
+        rows Any (when (map? snapshot) (:facts snapshot))]
+    (when-not (= true available)
+      (throw
+       (ex-info
+        "coordination Store snapshot is unavailable"
+        {:type :north/semantic-catalog-store-unavailable})))
+    (when-not (and (integer? store-version)
+                   (not (neg? store-version))
+                   (vector? rows))
+      (throw
+       (ex-info
+        "coordination Store snapshot is malformed"
+        {:type :north/malformed-semantic-catalog-snapshot})))
+    (catalog-envelope
+     (store-space!)
+     store-version
+     (mapv (fn [row Any] t/Triple (fact-row! row)) rows))))
