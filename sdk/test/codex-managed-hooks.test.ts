@@ -268,10 +268,22 @@ test("managed Codex invokes the singular Firn provider adapter once before narro
   expect(preToolUse[0]!.hooks).toHaveLength(1);
   expect(preToolUse[0]!.hooks[0]!.command)
     .toBe("/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
-      + "PATH=/etc/codex/hooks/runtime:/home/tom/.local/bin:/run/current-system/sw/bin "
       + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy");
   expect(preToolUse.flatMap((entry) => entry.hooks)
     .filter((hook) => hook.command.endsWith("/firn-system-policy"))).toHaveLength(1);
+});
+
+test("managed Codex Firn matches the canonical no-PATH payload", () => {
+  const firn = {
+    type: "command",
+    command: "/etc/codex/hooks/runtime/env -u BASH_ENV -u ENV "
+      + "/etc/codex/hooks/runtime/bash /etc/codex/hooks/firn-system-policy",
+    timeout: 10,
+  };
+  expect(expectedManagedCodexHooks().PreToolUse[0]).toEqual({ hooks: [firn] });
+  expect(() => validateManagedCodexRequirements(requirements((document) => {
+    document.hooks.PreToolUse[0] = { hooks: [firn] };
+  }))).not.toThrow();
 });
 
 test("managed Codex requirements reject every authority-bearing drift", () => {
