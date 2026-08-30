@@ -38,6 +38,22 @@ if rg -n '/home/|\^\{:line' \
 fi
 echo "generated pair cli/store-rpc-client + cli/coord: passed"
 
+work_catalog_tmp="$tmp/work-catalog"
+mkdir -p "$work_catalog_tmp"
+BEAGLE_EMIT_SRCLOC=0 "$beagle/bin/beagle-build-all" \
+  --module-root "north/src=$root/src" \
+  --module-root "store/src=$store/src" \
+  "$root/cli/store-rpc-client.bclj" \
+  "$root/cli/coord.bclj" \
+  "$root/cli/work-catalog.bclj" \
+  "$root/cli/tests/work-catalog-test.bclj" \
+  --out "$work_catalog_tmp" >/dev/null
+cmp "$work_catalog_tmp/north/work_catalog.clj" \
+  "$root/cli/work-catalog.clj"
+cmp "$work_catalog_tmp/north/work_catalog_test.clj" \
+  "$root/cli/tests/work-catalog-test.clj"
+echo "generated work catalog authority and fixture: passed"
+
 for module in \
   agent-fact-internal \
   agent-provenance \
