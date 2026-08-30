@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
+import type { CodexAccountAuthority } from "../src/accounts";
 import { createExecutionActivityEmitter } from "../src/execution-activity";
+import { selectProviderForExecution } from "../src/provider-routing";
 import { routedQueryWithRegistry } from "../src/providers/internal-router";
 import { resolveTier } from "../src/providers/catalog";
 import {
@@ -8,8 +10,12 @@ import {
   type AgentProvider,
   type AgentProviderQuery,
   type ProviderId,
+  type ProviderUsageObservation,
+  type ResourcePolicy,
   type RoutingDecision,
+  type RoutingTarget,
 } from "../src/providers/types";
+import type { StoreObservationSnapshot } from "../src/store-observation-adapter";
 import type { WireEvent, WireModelSelection } from "../src/wire/events";
 import { wireEventId, wireRunId } from "../src/wire/ids";
 import type { WireQuery, WireQueryInput, WireUserInputMessage } from "../src/wire/query";
@@ -85,6 +91,142 @@ async function firstText(input: WireQueryInput): Promise<string> {
   if (first.done) throw new Error("wire query input ended before its first message");
   return first.value.text;
 }
+
+test("execution receipt stays immutable while routed attribution and fallback remain live", async () => {
+  const openaiTarget: RoutingTarget = {
+    id: "codex-receipt", provider: "openai", authMode: "isolated", profile: "receipt",
+  };
+  const anthropicTarget: RoutingTarget = {
+    id: "claude-fallback", provider: "anthropic", authMode: "ambient",
+  };
+  const policy: ResourcePolicy = {
+    mode: "preferential",
+    providerOrder: ["openai", "anthropic"],
+    targets: [openaiTarget, anthropicTarget],
+    targetOrder: [openaiTarget.id, anthropicTarget.id],
+    targetPressures: {
+      [openaiTarget.id]: "normal",
+      [anthropicTarget.id]: "normal",
+    },
+  };
+  const authority: CodexAccountAuthority = Object.freeze({
+    role: "execution",
+    executionEligible: true,
+    receipt: Object.freeze({
+      version: "north:codex-account-authority:v1" as const,
+      subject: `@account:${openaiTarget.id}`,
+      servedVersion: 41,
+      facts: Object.freeze([
+        { predicate: "kind" as const, value: "provider_account" },
+        { predicate: "account_id" as const, value: openaiTarget.id },
+        { predicate: "provider" as const, value: "openai" },
+        { predicate: "provider_profile" as const, value: openaiTarget.profile! },
+        { predicate: "account_role" as const, value: "execution" },
+        { predicate: "execution_eligible" as const, value: "true" },
+      ]),
+      digest: "a".repeat(64),
+    }),
+  });
+  const usage: StoreObservationSnapshot<ProviderUsageObservation> = Object.freeze({
+    observation: Object.freeze({
+      targetId: openaiTarget.id,
+      provider: "openai" as const,
+      source: "codex-app-server:account-rate-limits" as const,
+      observedAt: NOW,
+      windows: Object.freeze([Object.freeze({
+        limitId: "codex:primary",
+        usedPercent: 12,
+        resetsAt: "2099-01-01T00:00:00.000Z",
+      })]),
+    }),
+    receipt: Object.freeze({
+      version: "north:provider-observation:v1" as const,
+      subject: `@provider-observation:usage:${openaiTarget.id}`,
+      digest: "b".repeat(64),
+      servedVersion: 42,
+    }),
+  });
+  const routing = await selectProviderForExecution(
+    "auto",
+    policy,
+    { tier: "standard", reasoning: "medium", stableKey: "live-receipt-decision" },
+    {
+      probeAnthropic: () => ({
+        targetId: anthropicTarget.id,
+        provider: "anthropic",
+        available: true,
+        reason: "ready",
+      }),
+      readCodexAccountAuthority: async () => authority,
+      loadCodexUsage: async () => usage,
+      refreshAccountUsages: async () => [],
+    },
+  );
+  const accountReceipt = routing.executionAccountReceipt;
+  const receiptDescriptor = Object.getOwnPropertyDescriptor(routing, "executionAccountReceipt");
+
+  expect(routing).toMatchObject({ provider: "openai", target: openaiTarget.id });
+  expect(Object.isExtensible(routing)).toBe(true);
+  expect(receiptDescriptor).toMatchObject({
+    value: accountReceipt,
+    enumerable: true,
+    writable: false,
+    configurable: false,
+  });
+  expect(Object.getOwnPropertyDescriptor(routing, "selectionReason")?.writable).toBe(false);
+  expect(Object.getOwnPropertyDescriptor(routing, "routingTargets")?.writable).toBe(false);
+
+  const reached: string[] = [];
+  const registry = {
+    openai: provider("openai", (args) => {
+      reached.push(args.target?.id ?? "missing-target");
+      return {
+        async *[Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+          throw provedUnsent("OpenAI unavailable before acceptance");
+        },
+      };
+    }),
+    anthropic: provider("anthropic", (args) => {
+      reached.push(args.target?.id ?? "missing-target");
+      return {
+        async *[Symbol.asyncIterator](): AsyncIterator<WireEvent> {
+          yield args.context.writer.append({
+            kind: "run.progress",
+            lifecycle: "running",
+            progress: { currentAction: "fallback provider reached" },
+          });
+        },
+      };
+    }),
+  };
+  const events = await eventsOf(routedQueryWithRegistry(
+    routing,
+    {
+      input: "turn",
+      options: { effort: "medium" } as Options,
+      writer: startedWriter("live-receipt-decision"),
+    },
+    "standard",
+    registry,
+  ));
+
+  expect(reached).toEqual([openaiTarget.id, anthropicTarget.id]);
+  expect(events.map(({ kind }) => kind)).toEqual(["run.progress", "run.progress"]);
+  expect(routing).toMatchObject({
+    provider: "anthropic",
+    target: anthropicTarget.id,
+    fallbackCount: 1,
+    resolvedModel: resolveTier("anthropic", "standard").model,
+    resolvedEffort: "medium",
+  });
+  expect(routing.fallbackTargets).toEqual([]);
+  expect(routing.fallbackProviders).toEqual([]);
+  expect(routing.fallbackTargetPath).toEqual([openaiTarget.id, anthropicTarget.id]);
+  expect(routing.fallbackPath).toEqual(["openai", "anthropic"]);
+  expect(routing.executionAccountReceipt).toBe(accountReceipt);
+  expect(Object.getOwnPropertyDescriptor(routing, "executionAccountReceipt"))
+    .toEqual(receiptDescriptor);
+});
 
 test("proof-carrying fallback replays typed input and emits semantic progress", async () => {
   const writer = startedWriter("fallback");
