@@ -105,6 +105,24 @@
 (defn manifest-path-for [output String] String
   (str output "/" manifest-relative-path))
 
+(defn jvm-dispatcher-path-for [output String] String
+  (str output "/libexec/bin/beagle"))
+
+(defn jvm-store-home-for [output String] String
+  (str output "/libexec/store"))
+
+(defn jvm-store-bin-for [output String] String
+  (str (jvm-store-home-for output) "/bin"))
+
+(defn jvm-store-out-for [output String] String
+  (str (jvm-store-home-for output) "/out"))
+
+(defn jvm-server-launcher-for [output String] String
+  (str (jvm-store-bin-for output) "/beagle-store-server"))
+
+(defn jvm-server-classpath-file-for [output String] String
+  (str (jvm-store-home-for output) "/server.classpath"))
+
 (defn release-path-for [beagle-revision String] String
   (str store-releases-root "/" beagle-revision))
 

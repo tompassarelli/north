@@ -3,5 +3,16 @@ set -euo pipefail
 umask 077
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-exec "${NORTH_BB:-bb}" -cp "$root/out" \
+export NORTH_HOME="$root"
+if [ -n "${NORTH_BB:-}" ]; then
+  bb=$NORTH_BB
+elif command -v bb >/dev/null 2>&1; then
+  bb=bb
+elif [ -x /run/current-system/sw/bin/bb ]; then
+  bb=/run/current-system/sw/bin/bb
+else
+  echo "north-store-runtime: cannot find babashka" >&2
+  exit 127
+fi
+exec "$bb" -cp "$root/out" \
   "$root/cli/store-runtime-generation.clj" "$@"

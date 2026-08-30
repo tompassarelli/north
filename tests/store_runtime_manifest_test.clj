@@ -55,6 +55,19 @@
          (= manifest/accepted-jvm-tree (:beagle-tree jvm))
          (= (manifest/manifest-path-for output) (:manifest-path jvm))
          (= manifest/accepted-jvm-manifest-sha256 (:manifest-sha256 jvm)))]
+   ["JVM member derives one package-internal launcher environment"
+    (and (= (str output "/libexec/bin/beagle")
+            (manifest/jvm-dispatcher-path-for output))
+         (= (str output "/libexec/store")
+            (manifest/jvm-store-home-for output))
+         (= (str output "/libexec/store/bin")
+            (manifest/jvm-store-bin-for output))
+         (= (str output "/libexec/store/out")
+            (manifest/jvm-store-out-for output))
+         (= (str output "/libexec/store/bin/beagle-store-server")
+            (manifest/jvm-server-launcher-for output))
+         (= (str output "/libexec/store/server.classpath")
+            (manifest/jvm-server-classpath-file-for output)))]
    ["Native member is the exact retained recovery runtime"
     (and (= "native" (manifest/runtime-member-kind native))
          (= "48f38823e42694578587f5624d8be5db9f962a77"
