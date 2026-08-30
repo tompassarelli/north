@@ -50,6 +50,34 @@
                  "status"]
                 (generation/store-status-command! native))))
 
+(let [temp (.toFile
+            (java.nio.file.Files/createTempDirectory
+             "north-store-first-promotion-recovery-"
+             (make-array java.nio.file.attribute.FileAttribute 0)))
+      runtime-environment
+      {:active-selector (.getCanonicalPath (io/file temp "active"))
+       :state-root (.getCanonicalPath temp)}
+      attested-generation (atom nil)
+      restore-after-failure
+      (ns-resolve 'north.store-runtime-generation
+                  'restore-selection-after-live-failure!)]
+  (try
+    (with-redefs-fn
+      {(ns-resolve 'north.store-runtime-generation 'fsync-directory!)
+       (fn [_] nil)
+       (ns-resolve 'north.store-runtime-generation
+                   'remove-live-service-override!)
+       (fn [_] nil)
+       (ns-resolve 'north.store-runtime-generation 'run-command-bounded!)
+       (fn [& _] nil)
+       (ns-resolve 'north.store-runtime-generation 'attest-native-baseline!)
+       (fn [_ recovered] (reset! attested-generation recovered))}
+      #(restore-after-failure runtime-environment nil jvm-generation {}))
+    (check! "first-promotion failure attests the restored Native generation"
+            (= native-generation @attested-generation))
+    (finally
+      (delete-tree! temp))))
+
 (defn select-generation! [state-root generation id]
   (let [generations (io/file state-root "generations")
         generation-root (io/file generations id)
