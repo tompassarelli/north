@@ -384,6 +384,9 @@
      :port port
      :log (.getCanonicalPath (io/file log))}))
 
+(defn- server-log-path [log]
+  (str log ".requests.log"))
+
 (defn- jvm-wrapper-values! [output]
   (let [wrapper (manifest/jvm-dispatcher-path-for output)
         {canonical :path before :state}
@@ -466,7 +469,7 @@
         common {"BEAGLE_STORE_SPACE_ID" space-id
                 "BEAGLE_STORE_SERVER_PORT" (str port)
                 "BEAGLE_STORE_LOG" log
-                "BEAGLE_STORE_SERVER_LOG" (str log ".requests.log")}
+                "BEAGLE_STORE_SERVER_LOG" (server-log-path log)}
         inherited (select-keys selection
                                ["BEAGLE_STORE_MAX_ACTIVE_CLIENTS"
                                 "BEAGLE_STORE_CLIENT_IO_TIMEOUT_MS"])]
@@ -744,7 +747,7 @@
     "BEAGLE_STORE_SPACE_ID" space-id
     "BEAGLE_STORE_SERVER_PORT" (str port)
     "BEAGLE_STORE_LOG" log
-    "BEAGLE_STORE_SERVER_LOG" (str log ".requests.log")
+    "BEAGLE_STORE_SERVER_LOG" (server-log-path log)
     "NORTH_COORD_SYSTEMD_UNIT" controller-unit}
    :constrained {"NORTH_PORT" (str port)}
    :forbidden
@@ -919,7 +922,7 @@
    "-XX:G1HeapRegionSize=32m"
    "-XX:+ExitOnOutOfMemoryError"
    "-XX:+HeapDumpOnOutOfMemoryError"
-   (str "-XX:HeapDumpPath=" log ".heap.hprof")
+   (str "-XX:HeapDumpPath=" (server-log-path log) ".heap.hprof")
    "-cp" (:classpath facts)
    "clojure.main" "server.clj" "serve" (str port) log space-id])
 
